@@ -156,8 +156,31 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // style constants instead of per-element object literals. Re-measured after
 // that change: 1316. Baseline lowered in the same PR per the ratchet rule
 // above.
+//
+// Header unification (audit-2026-07 follow-up, no issue number): replaced
+// the bespoke inline-styled `<h1>` (plus, for MetricsDashboard and the
+// Audit dashboard, the wrapping flex row that combined the heading with the
+// filter/action controls) on WorkspaceSettings, SystemSettings,
+// UserProfileSettings, MetricsDashboard, CsvImport, DashboardViews and the
+// Audit dashboard with `<PageHeader>`, matching the ~21 already-migrated
+// artifact routes. Re-measured after that change: 1307.
+//
+// Issue #161 (inline-style ratchet reach) follow-up: moved the two worst
+// offenders, `CsvImport.tsx` (59 inline `style={{...}}` blocks) and
+// `NavigationShell/SidebarNavigation.tsx` (43 blocks), onto co-located CSS
+// Modules (`CsvImport.module.css`, extended `SidebarNavigation.module.css`),
+// eliminating both files' inline styles entirely (0 remaining in either).
+// Genuinely stateful visuals (drag-over highlight, radio/nav-link/workspace
+// selection, hover feedback, the optional-artifacts toggle knob) were
+// expressed as a second, mutually-exclusive CSS class or a `:hover`/
+// `:disabled` pseudo-class instead of JS-computed inline styles, so the
+// associated `hoveredPath`/`hoveredButton`/`hoveredOptionId`/`hoveredHitId`
+// state in SidebarNavigation was removed as dead code in the same change.
+// Re-measured (whole `components/` tree, includes unrelated concurrent
+// changes to other files present in the working tree at measurement time):
+// 1091. Baseline lowered in the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1316;
+const STYLE_BRACE_BASELINE = 1091;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

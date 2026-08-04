@@ -100,16 +100,6 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard", group: "admin" },
 ];
 
-// Sidebar palette — dark professional theme.
-// All design-system colors are sourced from var(--color-nav-*) tokens in
-// tokens.css (issue #157 — was hardcoded here, bypassing the design system).
-const SIDEBAR_BG = "var(--color-nav-bg)";
-const SIDEBAR_TEXT = "var(--color-nav-text)";
-const SIDEBAR_TEXT_MUTED = "var(--color-nav-text-muted)";
-const SIDEBAR_BORDER = "var(--color-nav-border)";
-const ACTIVE_BG = "var(--color-nav-active-bg)";
-const HOVER_BG = "var(--color-nav-hover-bg)";
-
 export function SidebarNavigation(): JSX.Element {
   const { t } = useTranslation();
   const {
@@ -127,15 +117,10 @@ export function SidebarNavigation(): JSX.Element {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
-  const [hoveredPath, setHoveredPath] = React.useState<string | null>(null);
-  const [hoveredButton, setHoveredButton] = React.useState<string | null>(null);
   const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
   // Off-canvas drawer state, only relevant below the --breakpoint-tablet
   // (1024px) media query defined in SidebarNavigation.module.css (issue #160).
   const [isMobileNavOpen, setIsMobileNavOpen] = React.useState<boolean>(false);
-  const [hoveredOptionId, setHoveredOptionId] = React.useState<string | null>(
-    null
-  );
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
 
   // ---- Global search state (REQ-L1-020) -----------------------------------
@@ -143,7 +128,6 @@ export function SidebarNavigation(): JSX.Element {
   const [searchResults, setSearchResults] = React.useState<SearchHit[]>([]);
   const [isSearching, setIsSearching] = React.useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState<boolean>(false);
-  const [hoveredHitId, setHoveredHitId] = React.useState<string | null>(null);
   const searchRef = React.useRef<HTMLDivElement | null>(null);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -354,21 +338,6 @@ export function SidebarNavigation(): JSX.Element {
       aria-label={isMobileNavOpen ? t("nav.closeMenu") : t("nav.openMenu")}
       aria-expanded={isMobileNavOpen}
       onClick={() => setIsMobileNavOpen((open) => !open)}
-      style={{
-        position: "fixed",
-        top: "var(--space-3)",
-        left: "var(--space-3)",
-        zIndex: 70,
-        width: "40px",
-        height: "40px",
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: "var(--radius-md)",
-        border: `1px solid ${SIDEBAR_BORDER}`,
-        background: SIDEBAR_BG,
-        color: SIDEBAR_TEXT,
-        fontSize: "var(--font-size-lg)",
-      }}
     >
       {isMobileNavOpen ? "✕" : "☰"}
     </button>
@@ -381,78 +350,24 @@ export function SidebarNavigation(): JSX.Element {
     )}
     <nav
       aria-label="Main navigation"
-      className={`${styles.sidebarNav} ${isMobileNavOpen ? styles.open : ""}`}
-      style={{
-        background: SIDEBAR_BG,
-        display: "flex",
-        flexDirection: "column",
-        padding: "var(--space-6) var(--space-4)",
-        gap: "var(--space-2)",
-        boxSizing: "border-box",
-        fontFamily: "var(--font-sans)",
-        color: SIDEBAR_TEXT,
-        overflow: "hidden",
-      }}
+      className={`${styles.sidebarNav} ${styles.navRoot} ${isMobileNavOpen ? styles.open : ""}`}
     >
       {/* Wraps the scrollable nav content so the fade-out scroll affordance
           (issue #168) can be positioned against its bottom edge, not the
           nav's own bottom (which is the pinned footer below). */}
-      <div style={{ position: "relative", flex: "1 1 auto", minHeight: 0 }}>
+      <div className={styles.scrollWrapper}>
       {/* Scrollable nav content — keeps the footer (below) pinned to the
           viewport bottom regardless of how many nav items are rendered
           (issue #47: footer must not scroll away with a long sidebar). */}
-      <div
-        ref={navScrollRef}
-        style={{
-          height: "100%",
-          overflowY: "auto",
-          scrollbarGutter: "stable",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-        }}
-      >
+      <div ref={navScrollRef} className={styles.scrollContent}>
       {/* Logo */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-8)",
-          padding: "0 var(--space-2)",
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            display: "inline-block",
-            width: "10px",
-            height: "10px",
-            borderRadius: "var(--radius-full)",
-            background: "var(--color-primary)",
-            boxShadow: "0 0 0 3px rgba(79,110,247,0.20)",
-          }}
-        />
-        <span
-          style={{
-            color: SIDEBAR_TEXT,
-            fontWeight: 700,
-            fontSize: "1.25rem",
-            letterSpacing: "0.01em",
-          }}
-        >
-          {APP_NAME}
-        </span>
+      <div className={styles.logoRow}>
+        <span aria-hidden="true" className={styles.logoDot} />
+        <span className={styles.logoText}>{APP_NAME}</span>
       </div>
 
       {/* Global search (REQ-L1-020) */}
-      <div
-        ref={searchRef}
-        style={{
-          position: "relative",
-          marginBottom: "var(--space-4)",
-        }}
-      >
+      <div ref={searchRef} className={styles.searchWrapper}>
         <input
           type="search"
           placeholder={t("nav.searchPlaceholder", "Suchen...")}
@@ -463,160 +378,54 @@ export function SidebarNavigation(): JSX.Element {
           onFocus={() => {
             if (searchResults.length > 0) setIsSearchOpen(true);
           }}
-          style={{
-            width: "100%",
-            padding: "var(--space-2) var(--space-3)",
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(255,255,255,0.2)",
-            borderRadius: "var(--radius-md)",
-            color: "white",
-            fontSize: "var(--font-size-sm)",
-            boxSizing: "border-box" as const,
-            fontFamily: "inherit",
-            outline: "none",
-          }}
+          className={styles.searchInput}
         />
         {isSearchOpen && (searchResults.length > 0 || isSearching) && (
-          <ul
-            role="listbox"
-            aria-label="Search results"
-            style={{
-              position: "absolute",
-              top: "calc(100% + var(--space-1))",
-              left: 0,
-              right: 0,
-              listStyle: "none",
-              margin: 0,
-              padding: "var(--space-1)",
-              background: SIDEBAR_BG,
-              border: `1px solid ${SIDEBAR_BORDER}`,
-              borderRadius: "var(--radius-md)",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-              maxHeight: "320px",
-              overflowY: "auto",
-              zIndex: 100,
-            }}
-          >
+          <ul role="listbox" aria-label="Search results" className={styles.dropdownList}>
             {isSearching && (
-              <li
-                style={{
-                  padding: "var(--space-2) var(--space-3)",
-                  color: SIDEBAR_TEXT_MUTED,
-                  fontSize: "var(--font-size-sm)",
-                }}
-              >
+              <li className={styles.dropdownLoadingItem}>
                 {t("nav.searching", "Suche läuft...")}
               </li>
             )}
             {!isSearching &&
-              searchResults.map((hit) => {
-                const isHovered = hoveredHitId === hit.id;
-                return (
-                  <li key={hit.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      data-testid="global-search-result"
-                      onClick={() => handleHitClick(hit)}
-                      onMouseEnter={() => setHoveredHitId(hit.id)}
-                      onMouseLeave={() => setHoveredHitId(null)}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-start",
-                        gap: "2px",
-                        width: "100%",
-                        padding: "var(--space-2) var(--space-3)",
-                        borderRadius: "var(--radius-sm)",
-                        border: "none",
-                        background: isHovered ? HOVER_BG : "transparent",
-                        color: SIDEBAR_TEXT,
-                        fontSize: "var(--font-size-sm)",
-                        fontWeight: 500,
-                        fontFamily: "inherit",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "var(--transition-fast)",
-                      }}
-                    >
-                      <span
-                        style={{
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          maxWidth: "100%",
-                        }}
-                        title={hit.title}
-                      >
-                        {hit.title}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "0.7rem",
-                          color: SIDEBAR_TEXT_MUTED,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                        }}
-                      >
-                        {hit.artifact_type}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+              searchResults.map((hit) => (
+                <li key={hit.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    data-testid="global-search-result"
+                    onClick={() => handleHitClick(hit)}
+                    className={styles.searchResultButton}
+                  >
+                    <span className={styles.searchResultTitle} title={hit.title}>
+                      {hit.title}
+                    </span>
+                    <span className={styles.searchResultType}>{hit.artifact_type}</span>
+                  </button>
+                </li>
+              ))}
           </ul>
         )}
       </div>
 
       {/* Nav links — grouped into logical sections (issue #317) so ~20
           entries no longer read as one flat, unoriented scrolling list. */}
-      <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+      <div className={styles.navGroupsWrapper}>
         {groupedVisibleItems.map((group) => (
-          <div key={group.id} style={{ marginBottom: "var(--space-3)" }}>
-            <div
-              data-testid={`nav-group-${group.id}`}
-              style={{
-                padding: "var(--space-1) var(--space-3)",
-                color: SIDEBAR_TEXT_MUTED,
-                fontSize: "0.7rem",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
+          <div key={group.id} className={styles.navGroup}>
+            <div data-testid={`nav-group-${group.id}`} className={styles.navGroupLabel}>
               {t(NAV_GROUP_LABEL_KEYS[group.id])}
             </div>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ul className={styles.navList}>
               {group.items.map((item) => {
                 const active = isItemActive(item.path);
-                const hovered = hoveredPath === item.path;
 
                 return (
-                  <li key={item.path} style={{ marginBottom: "var(--space-1)" }}>
+                  <li key={item.path} className={styles.navListItem}>
                     <NavLink
                       to={item.path}
                       end={item.path === "/"}
-                      onMouseEnter={() => setHoveredPath(item.path)}
-                      onMouseLeave={() => setHoveredPath(null)}
-                      style={{
-                        display: "block",
-                        padding: "var(--space-2) var(--space-3)",
-                        paddingLeft: active ? "calc(var(--space-3) - 3px)" : "var(--space-3)",
-                        borderRadius: "var(--radius-md)",
-                        borderLeft: active
-                          ? "3px solid var(--color-primary)"
-                          : "3px solid transparent",
-                        textDecoration: "none",
-                        color: SIDEBAR_TEXT,
-                        background: active
-                          ? ACTIVE_BG
-                          : hovered
-                          ? HOVER_BG
-                          : "transparent",
-                        fontSize: "var(--font-size-sm)",
-                        fontWeight: active ? 600 : 500,
-                        transition: "var(--transition-fast)",
-                      }}
+                      className={active ? styles.navLinkActive : styles.navLink}
                     >
                       {t(item.labelKey)}
                     </NavLink>
@@ -635,61 +444,21 @@ export function SidebarNavigation(): JSX.Element {
         role="switch"
         aria-checked={!hideAllOptional}
         onClick={handleHideAllToggle}
-        onMouseEnter={() => setHoveredButton("optional-toggle")}
-        onMouseLeave={() => setHoveredButton(null)}
         data-testid="optional-toggle"
         title={
           hideAllOptional
             ? t("nav.showOptionalArtifacts", "Optionale Artefakte einblenden")
             : t("nav.hideOptionalArtifacts", "Optionale Artefakte ausblenden")
         }
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--space-2)",
-          width: "100%",
-          padding: "var(--space-2) var(--space-3)",
-          marginTop: "var(--space-3)",
-          borderRadius: "var(--radius-md)",
-          border: `1px solid ${SIDEBAR_BORDER}`,
-          background: hoveredButton === "optional-toggle" ? HOVER_BG : "transparent",
-          color: SIDEBAR_TEXT,
-          fontSize: "var(--font-size-sm)",
-          fontWeight: 500,
-          fontFamily: "inherit",
-          cursor: "pointer",
-          transition: "var(--transition-fast)",
-          textAlign: "left",
-        }}
+        className={styles.optionalToggleBtn}
       >
         <span>{t("nav.optionalArtifacts", "Optional-Artefakte")}</span>
         <span
           aria-hidden="true"
-          style={{
-            display: "inline-block",
-            width: "28px",
-            height: "16px",
-            borderRadius: "999px",
-            background: hideAllOptional
-              ? "rgba(255,255,255,0.15)"
-              : "var(--color-primary)",
-            position: "relative",
-            transition: "var(--transition-fast)",
-            flexShrink: 0,
-          }}
+          className={`${styles.switchTrack} ${!hideAllOptional ? styles.switchTrackOn : ""}`}
         >
           <span
-            style={{
-              position: "absolute",
-              top: "2px",
-              left: hideAllOptional ? "2px" : "14px",
-              width: "12px",
-              height: "12px",
-              borderRadius: "999px",
-              background: "white",
-              transition: "var(--transition-fast)",
-            }}
+            className={`${styles.switchKnob} ${!hideAllOptional ? styles.switchKnobOn : ""}`}
           />
         </span>
       </button>
@@ -698,97 +467,30 @@ export function SidebarNavigation(): JSX.Element {
           still loading so the DEFAULT_WORKSPACE placeholder name never
           flashes as if it were the real active workspace (issue #24). */}
       {activeWorkspace && !isLoadingWorkspace && (
-        <div
-          ref={switcherRef}
-          style={{
-            position: "relative",
-            borderTop: `1px solid ${SIDEBAR_BORDER}`,
-            paddingTop: "var(--space-3)",
-            marginTop: "var(--space-3)",
-            marginBottom: "var(--space-2)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-2)",
-            padding: "var(--space-3) var(--space-2) 0",
-          }}
-        >
+        <div ref={switcherRef} className={styles.workspaceSwitcherWrapper}>
           <button
             type="button"
             data-testid="workspace-switcher"
             aria-haspopup="listbox"
             aria-expanded={isSwitcherOpen}
             onClick={() => setIsSwitcherOpen((open) => !open)}
-            onMouseEnter={() => setHoveredButton("switcher")}
-            onMouseLeave={() => setHoveredButton(null)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "var(--space-2)",
-              width: "100%",
-              padding: "var(--space-2) var(--space-3)",
-              borderRadius: "var(--radius-md)",
-              border: `1px solid ${SIDEBAR_BORDER}`,
-              background: hoveredButton === "switcher" ? HOVER_BG : "transparent",
-              color: SIDEBAR_TEXT,
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 500,
-              fontFamily: "inherit",
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-              textAlign: "left",
-            }}
+            className={styles.switcherToggleBtn}
           >
-            <span
-              style={{
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                flex: 1,
-              }}
-              title={activeWorkspace.name}
-            >
+            <span className={styles.switcherLabel} title={activeWorkspace.name}>
               {activeWorkspace.name}
             </span>
             <span
               aria-hidden="true"
-              style={{
-                fontSize: "0.7rem",
-                color: SIDEBAR_TEXT_MUTED,
-                transform: isSwitcherOpen ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "var(--transition-fast)",
-                display: "inline-block",
-              }}
+              className={`${styles.chevron} ${isSwitcherOpen ? styles.chevronOpen : ""}`}
             >
               ▾
             </span>
           </button>
 
           {/* Preset + terminology meta line */}
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", padding: "0 var(--space-1)" }}>
-            <span
-              style={{
-                display: "inline-block",
-                padding: "2px var(--space-2)",
-                borderRadius: "var(--radius-sm)",
-                background: "rgba(79,110,247,0.20)",
-                color: "var(--color-primary)",
-                fontSize: "0.7rem",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {activeWorkspace.preset}
-            </span>
-            <span
-              style={{
-                color: SIDEBAR_TEXT_MUTED,
-                fontSize: "0.7rem",
-              }}
-            >
-              {terminologyLabel("requirement")}
-            </span>
+          <div className={styles.switcherMetaRow}>
+            <span className={styles.presetBadge}>{activeWorkspace.preset}</span>
+            <span className={styles.terminologyLabel}>{terminologyLabel("requirement")}</span>
           </div>
 
           {/* Create workspace button — opens CreateWorkspaceModal (REQ-D25) */}
@@ -796,20 +498,7 @@ export function SidebarNavigation(): JSX.Element {
             type="button"
             data-testid="create-workspace-btn"
             onClick={() => setShowCreateWorkspace(true)}
-            style={{
-              marginTop: "var(--space-2)",
-              width: "100%",
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2)",
-              cursor: "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              fontFamily: "inherit",
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.createWorkspaceBtn}
           >
             {t("workspaceCreate.button")}
           </button>
@@ -821,26 +510,10 @@ export function SidebarNavigation(): JSX.Element {
                 data-testid="workspace-list"
                 role="listbox"
                 aria-label="Workspace switcher"
-                style={{
-                  position: "absolute",
-                  bottom: "calc(100% + var(--space-2))",
-                  left: "var(--space-2)",
-                  right: "var(--space-2)",
-                  listStyle: "none",
-                  margin: 0,
-                  padding: "var(--space-1)",
-                  background: SIDEBAR_BG,
-                  border: `1px solid ${SIDEBAR_BORDER}`,
-                  borderRadius: "var(--radius-md)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                  maxHeight: "240px",
-                  overflowY: "auto",
-                  zIndex: 100,
-                }}
+                className={styles.workspaceList}
               >
                 {workspaces.map((ws) => {
                   const isActive = ws.id === activeWorkspace.id;
-                  const isHovered = hoveredOptionId === ws.id;
                   return (
                     <li key={ws.id}>
                       <button
@@ -852,50 +525,13 @@ export function SidebarNavigation(): JSX.Element {
                           setActiveWorkspace(ws);
                           setIsSwitcherOpen(false);
                         }}
-                        onMouseEnter={() => setHoveredOptionId(ws.id)}
-                        onMouseLeave={() => setHoveredOptionId(null)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: "var(--space-2)",
-                          width: "100%",
-                          padding: "var(--space-2) var(--space-3)",
-                          borderRadius: "var(--radius-sm)",
-                          border: "none",
-                          background: isActive
-                            ? ACTIVE_BG
-                            : isHovered
-                            ? HOVER_BG
-                            : "transparent",
-                          color: SIDEBAR_TEXT,
-                          fontSize: "var(--font-size-sm)",
-                          fontWeight: isActive ? 600 : 500,
-                          fontFamily: "inherit",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          transition: "var(--transition-fast)",
-                        }}
+                        className={isActive ? styles.workspaceOptionActive : styles.workspaceOption}
                       >
-                        <span
-                          style={{
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            flex: 1,
-                          }}
-                          title={ws.name}
-                        >
+                        <span className={styles.workspaceOptionLabel} title={ws.name}>
                           {ws.name}
                         </span>
                         {isActive && (
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              color: "var(--color-primary)",
-                              fontSize: "0.8rem",
-                            }}
-                          >
+                          <span aria-hidden="true" className={styles.workspaceOptionCheck}>
                             ✓
                           </span>
                         )}
@@ -905,24 +541,7 @@ export function SidebarNavigation(): JSX.Element {
                 })}
               </ul>
             ) : (
-              <div
-                data-testid="workspace-empty-state"
-                style={{
-                  position: "absolute",
-                  bottom: "calc(100% + var(--space-2))",
-                  left: "var(--space-2)",
-                  right: "var(--space-2)",
-                  padding: "var(--space-2) var(--space-3)",
-                  background: SIDEBAR_BG,
-                  border: `1px solid ${SIDEBAR_BORDER}`,
-                  borderRadius: "var(--radius-md)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                  zIndex: 100,
-                  color: SIDEBAR_TEXT_MUTED,
-                  fontSize: "var(--font-size-sm)",
-                  textAlign: "center",
-                }}
-              >
+              <div data-testid="workspace-empty-state" className={styles.workspaceEmptyState}>
                 {t("workspace.noOthers", "No other workspaces available")}
               </div>
             )
@@ -935,74 +554,27 @@ export function SidebarNavigation(): JSX.Element {
           list is cut off and there is more to scroll to below. Only
           shown while not scrolled to the bottom; purely decorative. */}
       {showScrollHint && (
-        <div
-          aria-hidden="true"
-          data-testid="sidebar-nav-scroll-hint"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: "28px",
-            pointerEvents: "none",
-            background: `linear-gradient(to bottom, transparent, ${SIDEBAR_BG})`,
-          }}
-        />
+        <div aria-hidden="true" data-testid="sidebar-nav-scroll-hint" className={styles.scrollHint} />
       )}
       </div>
 
       {/* Footer actions — sibling of the scrollable content above, so it
           always stays pinned to the bottom of the (viewport-height) nav
           (issue #47). */}
-      <div
-        style={{
-          flex: "0 0 auto",
-          borderTop: `1px solid ${SIDEBAR_BORDER}`,
-          paddingTop: "var(--space-3)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-        }}
-      >
+      <div className={styles.footer}>
         <button
           data-testid="lang-switch"
           onClick={handleLanguageToggle}
-          onMouseEnter={() => setHoveredButton("lang")}
-          onMouseLeave={() => setHoveredButton(null)}
           title="Toggle language DE/EN"
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: `1px solid ${SIDEBAR_BORDER}`,
-            background: hoveredButton === "lang" ? HOVER_BG : "transparent",
-            color: SIDEBAR_TEXT,
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "var(--transition-fast)",
-            textAlign: "left",
-          }}
+          className={styles.footerBtn}
         >
           {i18n.language.startsWith("de") ? "EN" : "DE"}
         </button>
         <button
           data-testid="theme-toggle"
           onClick={toggleTheme}
-          onMouseEnter={() => setHoveredButton("theme")}
-          onMouseLeave={() => setHoveredButton(null)}
           title={t("nav.toggleTheme")}
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: `1px solid ${SIDEBAR_BORDER}`,
-            background: hoveredButton === "theme" ? HOVER_BG : "transparent",
-            color: SIDEBAR_TEXT,
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "var(--transition-fast)",
-            textAlign: "left",
-          }}
+          className={styles.footerBtn}
         >
           {theme === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
@@ -1010,55 +582,15 @@ export function SidebarNavigation(): JSX.Element {
         <button
           data-testid="nav-profile"
           onClick={() => navigate("/profile")}
-          onMouseEnter={() => setHoveredButton("profile")}
-          onMouseLeave={() => setHoveredButton(null)}
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: `1px solid ${SIDEBAR_BORDER}`,
-            background:
-              hoveredButton === "profile" || location.pathname === "/profile"
-                ? HOVER_BG
-                : "transparent",
-            color: SIDEBAR_TEXT,
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "var(--transition-fast)",
-            textAlign: "left",
-          }}
+          className={location.pathname === "/profile" ? `${styles.footerBtn} ${styles.footerBtnActive}` : styles.footerBtn}
         >
           {t("nav.profile")}
         </button>
-        <button
-          onClick={logout}
-          onMouseEnter={() => setHoveredButton("logout")}
-          onMouseLeave={() => setHoveredButton(null)}
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: `1px solid ${SIDEBAR_BORDER}`,
-            background: hoveredButton === "logout" ? HOVER_BG : "transparent",
-            color: SIDEBAR_TEXT,
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "var(--transition-fast)",
-            textAlign: "left",
-          }}
-        >
+        <button onClick={logout} className={styles.footerBtn}>
           {t("nav.logout")}
         </button>
         {versionInfo && (
-          <span
-            data-testid="build-version-indicator"
-            style={{
-              padding: "var(--space-1) var(--space-3)",
-              fontSize: "var(--font-size-xs)",
-              color: "var(--color-text-muted)",
-              opacity: 0.7,
-            }}
-          >
+          <span data-testid="build-version-indicator" className={styles.buildVersion}>
             {versionInfo.app_version && versionInfo.app_version !== "unknown"
               ? `${t("nav.appVersion", { version: versionInfo.app_version, defaultValue: `v${versionInfo.app_version}` })} · `
               : ""}

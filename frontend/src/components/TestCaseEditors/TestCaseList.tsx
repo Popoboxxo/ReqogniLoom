@@ -88,7 +88,7 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
         ]}
         onSortChange={(v) => setSortKey(v as SortKey)}
         sortLabel={t('editor.sortLabel', 'Sort by')}
-        countLabel={hasActiveListControls ? t('editor.filteredCount', { shown: visible.length, total: items.length }) : null}
+        countLabel={hasActiveListControls ? t('editor.filteredCount', { shown: visible.length, total: items.length }) : String(items.length)}
       />
 
       {items.length === 0 ? (

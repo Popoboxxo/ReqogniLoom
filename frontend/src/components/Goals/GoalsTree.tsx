@@ -176,7 +176,9 @@ export function GoalsTree({
         onSortChange={(value) => setSortKey(value as GoalSortKey)}
         sortLabel={t("editor.sortLabel", "Sortieren nach")}
         countLabel={
-          hasActiveControls ? `${visibleGoals.length} / ${goals.length}` : null
+          hasActiveControls
+            ? t('editor.filteredCount', { shown: visibleGoals.length, total: goals.length })
+            : String(goals.length)
         }
       />
 

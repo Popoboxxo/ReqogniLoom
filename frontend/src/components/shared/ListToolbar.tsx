@@ -46,8 +46,11 @@ export interface ListToolbarProps {
   /** Accessible label for the sort dropdown. */
   sortLabel?: string;
   /**
-   * Preformatted result count (e.g. "12 of 240"). Only rendered when
-   * non-null — callers typically show it while any control is active.
+   * Preformatted result count (e.g. "12 of 240" while filtered, "240"
+   * otherwise). Per UI_KONZEPT.md ch. 12.1 the count must always be
+   * visible, not only while a filter/search is active — callers should
+   * pass the plain total when no control is active rather than `null`.
+   * `null` is still accepted for routes without a meaningful count.
    */
   countLabel?: string | null;
   /** Prefix for data-testid attributes, e.g. "req-list" / "arch-tree". */

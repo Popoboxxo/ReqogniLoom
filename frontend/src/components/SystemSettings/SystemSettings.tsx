@@ -22,6 +22,7 @@ import { useAuth } from "../../context/AuthContext";
 import { WorkflowEditorPage } from "../WorkflowEditor/WorkflowEditorPage";
 import { WorkspaceAdminSection } from "./WorkspaceAdminSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
+import { PageHeader } from "../shared/PageHeader";
 
 type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults";
 
@@ -47,7 +48,7 @@ export default function SystemSettings(): JSX.Element {
   if (!isAdmin) {
     return (
       <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
-        <h1>{t("nav.systemSettings", "System Settings")}</h1>
+        <PageHeader title={t("nav.systemSettings", "System Settings")} />
         <p style={{ color: "var(--color-warning)" }}>
           {t(
             "systemSettings.adminOnly",
@@ -81,16 +82,13 @@ export default function SystemSettings(): JSX.Element {
         padding: "var(--space-6)",
       }}
     >
-      <h1
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginBottom: "var(--space-5)",
-        }}
-      >
-        {t("nav.systemSettings", "System Settings")}
-      </h1>
+      <PageHeader
+        title={t("nav.systemSettings", "System Settings")}
+        summary={t(
+          "systemSettings.pageSummary",
+          "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
+        )}
+      />
 
       <div
         role="tablist"

@@ -17,6 +17,7 @@ import { ProfileSection } from "./ProfileSection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
+import { PageHeader } from "../shared/PageHeader";
 
 const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
   adr: "ADR (Architecture Decision Records)",
@@ -81,16 +82,13 @@ export default function UserProfileSettings(): JSX.Element {
 
   return (
     <div data-testid="user-profile-settings" style={{ maxWidth: "640px" }}>
-      <h1
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginBottom: "var(--space-6)",
-        }}
-      >
-        {t("nav.profile")}
-      </h1>
+      <PageHeader
+        title={t("nav.profile")}
+        summary={t(
+          "profile.pageSummary",
+          "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen.",
+        )}
+      />
 
       <ProfileSection />
 
@@ -123,7 +121,7 @@ export default function UserProfileSettings(): JSX.Element {
               "Blendet einzelne optionale Artefakttypen in der Navigation und den Editoren ein oder aus. Overrides wirken nur für dich in diesem Workspace und überschreiben die Preset-Vorgabe."
             )}
           </p>
-          
+
           {saveError && (
             <div style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}>
               {saveError}

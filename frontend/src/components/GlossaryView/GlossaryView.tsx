@@ -33,32 +33,9 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
+import styles from "./GlossaryView.module.css";
 
 type FilterMode = "" | "workspace" | "global";
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-text)",
-  boxSizing: "border-box",
-};
-
-const btnStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  padding: "var(--space-2) var(--space-4)",
-  backgroundColor: "var(--color-primary)",
-  color: "#fff",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-  fontWeight: 600,
-  fontSize: "var(--font-size-sm)",
-};
 
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
@@ -252,48 +229,27 @@ export default function GlossaryView(): JSX.Element {
 
   const hasActiveListControls = Boolean(searchTerm || filterMode !== "workspace");
 
-  if (!activeWorkspace) return <div style={{ padding: "var(--space-6)" }}>{t("workspace.selectFirst")}</div>;
+  if (!activeWorkspace) return <div className={styles.workspacePrompt}>{t("workspace.selectFirst")}</div>;
 
   const selectedTerm = selectedId ? terms.find((term) => term.id === selectedId) : null;
 
   function renderSynonyms(term: GlossaryTerm): JSX.Element | null {
     if (!term.synonyms || term.synonyms.length === 0) return null;
     return (
-      <div
-        style={{
-          marginTop: "var(--space-3)",
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: "var(--space-2)",
-        }}
-      >
+      <div className={styles.synonyms}>
         <strong>{t("glossary.synonymsLabel", "Synonyms")}:</strong>
         {term.synonyms.map((syn, idx) => {
           const linked = resolveSynonymLink(syn, term.id);
           const isLinking = linkingSynonym?.termId === term.id && linkingSynonym?.index === idx;
           return (
-            <span key={`${term.id}-syn-${idx}`} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+            <span key={`${term.id}-syn-${idx}`} className={styles.synonymWrap}>
               {linked ? (
                 <button
                   type="button"
                   data-testid={`glossary-synonym-link-${term.id}-${idx}`}
                   onClick={() => handleEdit(linked)}
                   title={t("glossary.synonymLinkedTooltip", "Zu verlinktem Eintrag springen")}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    background: "var(--color-primary-soft)",
-                    color: "var(--color-primary)",
-                    border: "1px solid var(--color-primary)",
-                    borderRadius: "var(--radius-full)",
-                    padding: "1px 8px",
-                    fontSize: "var(--font-size-xs)",
-                    cursor: "pointer",
-                  }}
+                  className={styles.synonymLinkedBtn}
                 >
                   <Link2 size={12} />
                   {syn}
@@ -309,37 +265,23 @@ export default function GlossaryView(): JSX.Element {
                       setSynonymLinkQuery("");
                     }}
                     title={t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}
-                    style={{ background: "transparent", border: "none", color: "var(--color-text-muted)", cursor: "pointer", padding: "0 2px", display: "inline-flex" }}
+                    className={styles.synonymLinkBtn}
                   >
                     <Link2 size={12} />
                   </button>
                 </>
               )}
               {isLinking && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    left: 0,
-                    zIndex: 10,
-                    marginTop: "4px",
-                    background: "var(--color-surface)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    boxShadow: "var(--shadow-card)",
-                    padding: "var(--space-2)",
-                    width: "220px",
-                  }}
-                >
+                <div className={styles.synonymPicker}>
                   <input
                     autoFocus
                     data-testid={`glossary-synonym-search-${term.id}-${idx}`}
-                    style={{ ...inputStyle, marginBottom: "var(--space-2)" }}
+                    className={`${styles.input} ${styles.inputMarginBottom}`}
                     placeholder={t("glossary.searchPlaceholder")}
                     value={synonymLinkQuery}
                     onChange={(e) => setSynonymLinkQuery(e.target.value)}
                   />
-                  <div style={{ maxHeight: "160px", overflowY: "auto" }}>
+                  <div className={styles.synonymPickerList}>
                     {terms
                       .filter((candidate) => candidate.id !== term.id && candidate.term.toLowerCase().includes(synonymLinkQuery.trim().toLowerCase()))
                       .slice(0, 20)
@@ -349,13 +291,13 @@ export default function GlossaryView(): JSX.Element {
                           type="button"
                           data-testid={`glossary-synonym-option-${term.id}-${idx}-${candidate.id}`}
                           onClick={() => handleLinkSynonym(term, idx, candidate)}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "var(--space-1) var(--space-2)", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text)", fontSize: "var(--font-size-sm)" }}
+                          className={styles.synonymPickerOption}
                         >
                           {candidate.term}
                         </button>
                       ))}
                     {terms.filter((candidate) => candidate.id !== term.id && candidate.term.toLowerCase().includes(synonymLinkQuery.trim().toLowerCase())).length === 0 && (
-                      <p style={{ margin: 0, padding: "var(--space-1) var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                      <p className={styles.synonymPickerEmpty}>
                         {t("glossary.noTerms")}
                       </p>
                     )}
@@ -364,7 +306,7 @@ export default function GlossaryView(): JSX.Element {
                     type="button"
                     data-testid={`glossary-synonym-cancel-${term.id}-${idx}`}
                     onClick={() => setLinkingSynonym(null)}
-                    style={{ marginTop: "var(--space-1)", background: "transparent", border: "none", color: "var(--color-text-muted)", cursor: "pointer", fontSize: "var(--font-size-xs)" }}
+                    className={styles.synonymPickerCancel}
                   >
                     {t("actions.cancel", "Cancel")}
                   </button>
@@ -399,16 +341,16 @@ export default function GlossaryView(): JSX.Element {
             onChange: (v) => setFilterMode(v as FilterMode),
           },
         ]}
-        countLabel={hasActiveListControls ? t("editor.filteredCount", { shown: filteredTerms.length, total: terms.length }) : null}
+        countLabel={hasActiveListControls ? t("editor.filteredCount", { shown: filteredTerms.length, total: terms.length }) : String(terms.length)}
       />
 
       {loadError && (
-        <p role="alert" data-testid="glossary-load-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+        <p role="alert" data-testid="glossary-load-error" className={styles.alert}>
           {loadError}
         </p>
       )}
       {rowError && (
-        <p role="alert" data-testid="glossary-row-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+        <p role="alert" data-testid="glossary-row-error" className={styles.alert}>
           {rowError}
         </p>
       )}
@@ -429,7 +371,7 @@ export default function GlossaryView(): JSX.Element {
         // filter/search reset, never a create action.
         <EmptyState variant="no-match" testId="glossary-no-match" onResetFilters={resetFilters} />
       ) : (
-        <div data-testid="glossary-rows" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+        <div data-testid="glossary-rows" className={styles.rowsList}>
           {filteredTerms.map((term) => {
             const isSelected = term.id === selectedId;
             return (
@@ -437,53 +379,34 @@ export default function GlossaryView(): JSX.Element {
                 key={term.id}
                 data-testid={`glossary-row-${term.id}`}
                 onClick={() => handleSelect(term)}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "var(--space-2)",
-                  padding: "var(--space-2) var(--space-3)",
-                  background: isSelected ? "var(--color-surface-raised)" : "var(--color-surface)",
-                  border: isSelected ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  cursor: "pointer",
-                }}
+                className={`${styles.row} ${isSelected ? styles.rowSelected : styles.rowIdle}`}
               >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                    <span style={{ fontWeight: 600, color: "var(--color-text)" }}>{term.term}</span>
+                <div className={styles.minWidth0}>
+                  <div className={styles.rowTitleLine}>
+                    <span className={styles.rowTerm}>{term.term}</span>
                     {term.abbreviation && (
-                      <span style={{ background: "var(--color-surface-raised)", border: "1px solid var(--color-border)", padding: "1px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)" }}>
+                      <span className={styles.abbreviationBadge}>
                         {term.abbreviation}
                       </span>
                     )}
                     {term.workspace_id === null && (
-                      <span style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)", padding: "1px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)", fontWeight: 600 }}>
+                      <span className={styles.globalBadge}>
                         {t("glossary.global")}
                       </span>
                     )}
                   </div>
-                  <p
-                    style={{
-                      margin: "2px 0 0",
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text-muted)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
+                  <p className={styles.rowDefinition}>
                     {term.definition}
                   </p>
                 </div>
-                <div style={{ display: "flex", gap: "var(--space-1)", flexShrink: 0 }}>
+                <div className={styles.rowActions}>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleEdit(term);
                     }}
-                    style={{ background: "transparent", border: "none", color: "var(--color-text-muted)", cursor: "pointer", padding: "4px" }}
+                    className={`${styles.iconBtn} ${styles.iconBtnMuted}`}
                     title="Edit"
                     data-testid={`glossary-edit-${term.id}`}
                   >
@@ -495,7 +418,7 @@ export default function GlossaryView(): JSX.Element {
                       e.stopPropagation();
                       handleDelete(term.id);
                     }}
-                    style={{ background: "transparent", border: "none", color: "var(--color-danger)", cursor: "pointer", padding: "4px" }}
+                    className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
                     title="Delete"
                     data-testid={`glossary-delete-${term.id}`}
                   >
@@ -516,33 +439,33 @@ export default function GlossaryView(): JSX.Element {
   // ---------------------------------------------------------------------------
   const detailPanel = isFormOpen ? (
     <form onSubmit={handleSubmit} data-testid="glossary-form">
-      <h2 style={{ margin: "0 0 var(--space-4) 0", fontSize: "var(--font-size-lg)" }}>
+      <h2 className={styles.formHeading}>
         {editingId ? t("glossary.editTerm") : t("glossary.addTerm")}
       </h2>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
+      <div className={styles.formGrid}>
         <div>
-          <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+          <label className={styles.fieldLabel}>
             {t("glossary.term")} *
           </label>
-          <input required style={inputStyle} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
+          <input required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
         </div>
         <div>
-          <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+          <label className={styles.fieldLabel}>
             {t("glossary.abbreviation")}
           </label>
-          <input style={inputStyle} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
+          <input className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
         </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+        <div className={styles.formGridFullRow}>
+          <label className={styles.fieldLabel}>
             {t("glossary.definition")} *
           </label>
-          <textarea required rows={3} style={{ ...inputStyle, resize: "vertical" }} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
+          <textarea required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
         </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+        <div className={styles.formGridFullRow}>
+          <label className={styles.fieldLabel}>
             {t("glossary.synonyms")}
           </label>
-          <input style={inputStyle} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
+          <input className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
         </div>
       </div>
 
@@ -551,7 +474,7 @@ export default function GlossaryView(): JSX.Element {
           has no status field, so currentStatus is undefined and the editor
           degrades to the workflow-driven state. */}
       {editingId && (
-        <div style={{ marginBottom: "var(--space-4)" }}>
+        <div className={styles.marginBottom4}>
           <WorkflowStatusEditor
             artifactType="glossary"
             artifactId={editingId}
@@ -565,12 +488,12 @@ export default function GlossaryView(): JSX.Element {
           Only available for existing entries (editingId set) — a term
           being created has no artifact ID yet to link from. */}
       {editingId && activeWorkspace && (
-        <div style={{ marginBottom: "var(--space-4)" }}>
+        <div className={styles.marginBottom4}>
           <button
             type="button"
             data-testid="glossary-create-link-button"
             onClick={() => setShowLinkDialog(true)}
-            style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-primary)", color: "var(--color-primary)" }}
+            className={`${styles.btn} ${styles.btnOutlinePrimary}`}
           >
             <Link2 size={16} />
             <span>{t("traceability.create", "Neue Verknüpfung")}</span>
@@ -591,51 +514,51 @@ export default function GlossaryView(): JSX.Element {
       )}
 
       {formError && (
-        <p role="alert" data-testid="glossary-form-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+        <p role="alert" data-testid="glossary-form-error" className={styles.alert}>
           {formError}
         </p>
       )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-3)", flexWrap: "wrap" }}>
+      <div className={styles.formActions}>
         <button
           type="button"
           onClick={() => {
             setIsFormOpen(false);
             setFormError(null);
           }}
-          style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }}
+          className={`${styles.btn} ${styles.btnOutline}`}
         >
           {t("actions.cancel", "Cancel")}
         </button>
-        <button type="submit" style={btnStyle}>
+        <button type="submit" className={styles.btn}>
           {t("actions.save", "Save")}
         </button>
       </div>
     </form>
   ) : selectedTerm ? (
-    <div data-testid="glossary-detail" style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--space-3)" }}>
+    <div data-testid="glossary-detail" className={styles.detail}>
+      <div className={styles.detailHeader}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-            <h2 style={{ margin: 0, fontSize: "var(--font-size-xl)", color: "var(--color-text)" }}>{selectedTerm.term}</h2>
+          <div className={styles.detailTitleRow}>
+            <h2 className={styles.detailTitle}>{selectedTerm.term}</h2>
             {selectedTerm.abbreviation && (
-              <span style={{ background: "var(--color-surface-raised)", border: "1px solid var(--color-border)", padding: "2px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)" }}>
+              <span className={styles.abbreviationBadge}>
                 {selectedTerm.abbreviation}
               </span>
             )}
             {selectedTerm.workspace_id === null && (
-              <span style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)", padding: "2px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)", fontWeight: 600 }}>
+              <span className={styles.globalBadgeDetail}>
                 {t("glossary.global")}
               </span>
             )}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "var(--space-2)", flexShrink: 0 }}>
+        <div className={styles.detailActions}>
           <button
             type="button"
             data-testid="glossary-detail-edit-btn"
             onClick={() => handleEdit(selectedTerm)}
-            style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }}
+            className={`${styles.btn} ${styles.btnOutline}`}
           >
             {t("actions.edit", "Bearbeiten")}
           </button>
@@ -643,20 +566,20 @@ export default function GlossaryView(): JSX.Element {
             type="button"
             data-testid="glossary-detail-delete-btn"
             onClick={() => handleDelete(selectedTerm.id)}
-            style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-danger)", color: "var(--color-danger)" }}
+            className={`${styles.btn} ${styles.btnOutlineDanger}`}
           >
             {t("actions.delete", "Löschen")}
           </button>
         </div>
       </div>
 
-      <p style={{ margin: 0, color: "var(--color-text-muted)", whiteSpace: "pre-wrap" }}>{selectedTerm.definition}</p>
+      <p className={styles.detailDefinition}>{selectedTerm.definition}</p>
 
       {renderSynonyms(selectedTerm)}
 
       {/* Usages: trace links referencing this glossary entry (REQ-006 C9). */}
-      <div style={{ marginTop: "var(--space-4)" }}>
-        <h3 style={{ margin: "0 0 var(--space-2)", fontSize: "var(--font-size-base)", fontWeight: 600, color: "var(--color-text)" }}>
+      <div className={styles.usagesSection}>
+        <h3 className={styles.usagesHeading}>
           {t("glossary.usages", "Verwendungen")}
         </h3>
         <RightSidebar kind="glossary" artifactId={selectedTerm.id} currentVersion={undefined} />
@@ -672,7 +595,7 @@ export default function GlossaryView(): JSX.Element {
   );
 
   return (
-    <div data-testid="glossary-view" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div data-testid="glossary-view" className={styles.viewRoot}>
       <PageHeader
         title={t("nav.glossary", "Glossary")}
         summary={t("glossary.summary", { count: terms.length, defaultValue: "{{count}} Begriffe" })}
@@ -683,7 +606,7 @@ export default function GlossaryView(): JSX.Element {
         }}
       />
 
-      <div style={{ flex: "1 1 auto", minHeight: "60vh" }}>
+      <div className={styles.splitViewWrap}>
         <SplitView leftPanel={listPanel} rightPanel={detailPanel} initialLeftWidth={380} moduleType="glossary" />
       </div>
     </div>

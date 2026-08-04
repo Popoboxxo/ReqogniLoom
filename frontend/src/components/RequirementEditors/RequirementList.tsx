@@ -204,7 +204,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                 shown: visibleRequirements.length,
                 total: requirements.length,
               })
-            : null
+            : String(requirements.length)
         }
       />
 

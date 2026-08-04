@@ -334,7 +334,7 @@ export default function BaselinesView(): JSX.Element {
           countLabel={
             hasActiveListControls
               ? t("editor.filteredCount", { shown: filteredBaselines.length, total: state.baselines.length })
-              : null
+              : String(state.baselines.length)
           }
         />
 

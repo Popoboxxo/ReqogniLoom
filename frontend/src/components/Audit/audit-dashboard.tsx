@@ -27,6 +27,7 @@ import { artifactsApi } from "../../api/artifacts";
 import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import type { Artifact } from "../../types";
+import { PageHeader } from "../shared/PageHeader";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -230,88 +231,90 @@ export function AuditDashboard(): JSX.Element {
 
   return (
     <div data-testid="audit-dashboard">
+      <PageHeader
+        title={t("audit.title", "SE-Auditor")}
+        summary={t(
+          "audit.pageSummary",
+          "Automatisierte Regelprüfung für Requirements und Architektur, gruppiert nach Regel mit Blocker-/Warnungs-Einstufung.",
+        )}
+      />
+
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           marginBottom: "var(--space-4)",
           gap: "var(--space-3)",
           flexWrap: "wrap",
         }}
       >
-        <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", margin: 0 }}>
-          {t("audit.title", "SE-Auditor")}
-        </h1>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-            {t("audit.scope.label", "Scope")}
-            <select
-              data-testid="audit-scope-select"
-              value={scope}
-              onChange={(e) => {
-                setScope(e.target.value as AuditScopeKind);
-                setScopeArtifactId("");
-              }}
-              disabled={isLoading}
-              style={selectStyle}
-            >
-              {SCOPES.map((s) => (
-                <option key={s} value={s}>
-                  {t(`audit.scope.${s}`, s)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {scope === "document" && (
-            <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-              {t("audit.scopeArtifact.label", "Document")}
-              <select
-                data-testid="audit-scope-artifact-select"
-                value={scopeArtifactId}
-                onChange={(e) => setScopeArtifactId(e.target.value)}
-                disabled={isLoading || artifacts.length === 0}
-                style={selectStyle}
-              >
-                {artifacts.length === 0 ? (
-                  <option value="">{t("audit.scopeArtifact.empty", "No artifacts available.")}</option>
-                ) : (
-                  artifacts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {artifactLabel(a)}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
-          )}
-
-          <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-            {t("audit.severityFilter.label", "Severity")}
-            <select
-              data-testid="audit-severity-filter"
-              value={severityFilter}
-              onChange={(e) => setSeverityFilter(e.target.value as "all" | "blocker" | "warning")}
-              style={selectStyle}
-            >
-              <option value="all">{t("audit.severityFilter.all", "All")}</option>
-              <option value="blocker">{t("audit.severityFilter.blocker", "Blockers")}</option>
-              <option value="warning">{t("audit.severityFilter.warning", "Warnings")}</option>
-            </select>
-          </label>
-
-          <button
-            type="button"
-            data-testid="audit-refresh-btn"
-            onClick={() => void load()}
+        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+          {t("audit.scope.label", "Scope")}
+          <select
+            data-testid="audit-scope-select"
+            value={scope}
+            onChange={(e) => {
+              setScope(e.target.value as AuditScopeKind);
+              setScopeArtifactId("");
+            }}
             disabled={isLoading}
-            style={refreshButtonStyle(isLoading)}
+            style={selectStyle}
           >
-            {isLoading ? t("audit.refreshing", "Refreshing...") : t("audit.refresh", "Refresh")}
-          </button>
-        </div>
+            {SCOPES.map((s) => (
+              <option key={s} value={s}>
+                {t(`audit.scope.${s}`, s)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {scope === "document" && (
+          <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+            {t("audit.scopeArtifact.label", "Document")}
+            <select
+              data-testid="audit-scope-artifact-select"
+              value={scopeArtifactId}
+              onChange={(e) => setScopeArtifactId(e.target.value)}
+              disabled={isLoading || artifacts.length === 0}
+              style={selectStyle}
+            >
+              {artifacts.length === 0 ? (
+                <option value="">{t("audit.scopeArtifact.empty", "No artifacts available.")}</option>
+              ) : (
+                artifacts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {artifactLabel(a)}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+        )}
+
+        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+          {t("audit.severityFilter.label", "Severity")}
+          <select
+            data-testid="audit-severity-filter"
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value as "all" | "blocker" | "warning")}
+            style={selectStyle}
+          >
+            <option value="all">{t("audit.severityFilter.all", "All")}</option>
+            <option value="blocker">{t("audit.severityFilter.blocker", "Blockers")}</option>
+            <option value="warning">{t("audit.severityFilter.warning", "Warnings")}</option>
+          </select>
+        </label>
+
+        <button
+          type="button"
+          data-testid="audit-refresh-btn"
+          onClick={() => void load()}
+          disabled={isLoading}
+          style={refreshButtonStyle(isLoading)}
+        >
+          {isLoading ? t("audit.refreshing", "Refreshing...") : t("audit.refresh", "Refresh")}
+        </button>
       </div>
 
       {/* Counts + tier */}
