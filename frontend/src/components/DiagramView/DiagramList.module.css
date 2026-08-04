@@ -6,6 +6,40 @@
   gap: var(--space-1);
 }
 
+/*
+ * Type sections (Phase 6 / decision E2-D1). A flat list with headings, not a
+ * tree: no indentation on the rows, no expand/collapse affordance — the
+ * heading is a label over a group of siblings, nothing is nested under it.
+ */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.group + .group {
+  margin-top: var(--space-4);
+}
+
+.groupHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.groupCount {
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
 .rowWrapper {
   display: flex;
   align-items: center;

@@ -179,8 +179,16 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // Re-measured (whole `components/` tree, includes unrelated concurrent
 // changes to other files present in the working tree at measurement time):
 // 1091. Baseline lowered in the same PR per the ratchet rule above.
+// Phase 6 / decision E2-D4 (Diagrams preview): `DiagramDetailView` no longer
+// mounts an editable `<CanvasEditor>` in the overview's detail pane (its
+// inline-styled sizing wrapper went with it) and its Mermaid preview box now
+// shares the hoisted `previewBoxStyle` constant from `diagram-view-shared.ts`
+// with the new canvas SVG preview instead of an inline object literal. One
+// inline style was added back for the "canvas is still empty" hint.
+// Re-measured after that change: 1090. Baseline lowered in the same PR per
+// the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1091;
+const STYLE_BRACE_BASELINE = 1090;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

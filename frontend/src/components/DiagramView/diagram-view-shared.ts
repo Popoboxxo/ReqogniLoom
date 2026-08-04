@@ -110,6 +110,22 @@ export const formCancelButtonStyle: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
+/**
+ * Framing for the read-only diagram previews in the overview's detail pane
+ * (Phase 6 / decision E2-D4). Shared by the client-rendered Mermaid preview
+ * and the server-rendered canvas SVG preview so both read as the same kind of
+ * surface — a rendered artifact, not an editable field.
+ */
+export const previewBoxStyle: React.CSSProperties = {
+  padding: "var(--space-4)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-surface-raised)",
+  overflow: "auto",
+  maxHeight: "520px",
+  minHeight: "160px",
+};
+
 export const formDangerButtonStyle: React.CSSProperties = {
   padding: "var(--space-2) var(--space-4)",
   background: "transparent",

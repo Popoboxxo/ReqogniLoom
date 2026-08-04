@@ -110,7 +110,7 @@ export function DiagramCreateForm({
           >
             {DIAGRAM_TYPES.map((tp) => (
               <option key={tp} value={tp}>
-                {t(`diagrams.type.${tp}`, tp)}
+                {t(`diagrams.typeLabels.${tp}`, tp)}
               </option>
             ))}
           </select>

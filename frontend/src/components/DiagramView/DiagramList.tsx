@@ -14,6 +14,15 @@
  * WorkflowEngine mirror only appears on DiagramDetail, fetched per-artifact)
  * — rows render without a status badge, which <ArtifactRow> supports since
  * Task 5.1.
+ *
+ * Phase 6 / decision E2-D1: rows are grouped by `diagram_type` into flat
+ * sections with a heading each. `diagram_type` is the only real ordering in
+ * the data — Diagram has NO parent relationship. The grouping is deliberately
+ * NOT rendered through <WorkspaceTree> (option D2, explicitly rejected in the
+ * plan): a synthetic type level would invent a hierarchy the data model does
+ * not have, the very trap ch. 5.1 warns about for the Spine. Sections are
+ * plain <section>/<h2> + rows, with no expand/collapse and no indentation, so
+ * the list stays flat both semantically and visually.
  */
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,6 +43,15 @@ interface DiagramListProps {
 
 type SortKey = "default" | "title" | "created";
 
+/** Fallback bucket for rows whose `diagram_type` is absent or unknown. */
+const UNGROUPED_KEY = "__ungrouped__";
+
+interface DiagramGroup {
+  /** `diagram_type` value, or UNGROUPED_KEY for rows without a usable type. */
+  key: string;
+  items: Diagram[];
+}
+
 function sortItems(list: Diagram[], sortKey: SortKey): Diagram[] {
   const sorted = [...list];
   switch (sortKey) {
@@ -45,6 +63,35 @@ function sortItems(list: Diagram[], sortKey: SortKey): Diagram[] {
       break;
   }
   return sorted;
+}
+
+/**
+ * Bucket an already-filtered/sorted list into `diagram_type` sections.
+ *
+ * Section order follows DIAGRAM_TYPES (the canonical order also used by the
+ * type filter), so it stays stable regardless of which types happen to be
+ * present. Types outside that list — and rows with a missing type, which the
+ * REST list endpoint should not produce but which fixtures and older records
+ * do — are appended in a trailing bucket rather than dropped: a row that
+ * cannot be grouped must still be reachable. Empty sections are omitted.
+ */
+function groupByType(list: Diagram[]): DiagramGroup[] {
+  const buckets = new Map<string, Diagram[]>();
+  for (const item of list) {
+    const key = item.diagram_type ? String(item.diagram_type) : UNGROUPED_KEY;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(item);
+    else buckets.set(key, [item]);
+  }
+
+  const known = DIAGRAM_TYPES.map((tp) => String(tp));
+  const extras = [...buckets.keys()]
+    .filter((k) => !known.includes(k) && k !== UNGROUPED_KEY)
+    .sort((a, b) => a.localeCompare(b));
+
+  return [...known, ...extras, UNGROUPED_KEY]
+    .map((key) => ({ key, items: buckets.get(key) ?? [] }))
+    .filter((group) => group.items.length > 0);
 }
 
 export function DiagramList({
@@ -69,6 +116,8 @@ export function DiagramList({
     return sortItems(filtered, sortKey);
   }, [items, listSearch, typeFilter, sortKey]);
 
+  const groups = useMemo(() => groupByType(visible), [visible]);
+
   const hasActiveListControls = Boolean(listSearch || typeFilter);
 
   const resetFilters = (): void => {
@@ -87,7 +136,7 @@ export function DiagramList({
           id: "type",
           allLabel: t("diagrams.allTypes", "All Types"),
           value: typeFilter,
-          options: DIAGRAM_TYPES.map((tp: DiagramType) => ({ value: tp, label: t(`diagrams.type.${tp}`, tp) })),
+          options: DIAGRAM_TYPES.map((tp: DiagramType) => ({ value: tp, label: t(`diagrams.typeLabels.${tp}`, tp) })),
           onChange: setTypeFilter,
         }]}
         sortValue={sortKey}
@@ -116,33 +165,53 @@ export function DiagramList({
         <EmptyState variant="no-match" testId="diagram-list-no-match" onResetFilters={resetFilters} />
       ) : (
         <div className={styles.rows} data-testid="diagrams-list">
-          {visible.map((item) => {
-            const isSelected = item.id === selectedId;
+          {groups.map((group) => {
+            const label =
+              group.key === UNGROUPED_KEY
+                ? t("diagrams.typeUnknown", "Other")
+                : t(`diagrams.typeLabels.${group.key}`, group.key);
             return (
-              <div key={item.id} className={styles.rowWrapper}>
-                <div className={styles.rowContent}>
-                  <ArtifactRow
-                    idFallback={item.id.slice(0, 8)}
-                    title={item.name}
-                    version={item.version_count}
-                    selected={isSelected}
-                    onClick={() => onSelect(item)}
-                    testId={`diagram-item-${item.id}`}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className={styles.deleteButton}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(item.id);
-                  }}
-                  title={t("diagrams.delete", "Delete")}
-                  aria-label={t("diagrams.delete", "Delete")}
-                >
-                  ×
-                </button>
-              </div>
+              <section
+                key={group.key}
+                className={styles.group}
+                aria-label={label}
+                data-testid={`diagram-group-${group.key}`}
+              >
+                <h2 className={styles.groupHeading}>
+                  <span>{label}</span>
+                  <span className={styles.groupCount}>{group.items.length}</span>
+                </h2>
+                {group.items.map((item) => {
+                  const isSelected = item.id === selectedId;
+                  return (
+                    <div key={item.id} className={styles.rowWrapper}>
+                      <div className={styles.rowContent}>
+                        <ArtifactRow
+                          idFallback={item.id.slice(0, 8)}
+                          title={item.name}
+                          version={item.version_count}
+                          selected={isSelected}
+                          onClick={() => onSelect(item)}
+                          testId={`diagram-item-${item.id}`}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.deleteButton}
+                        data-testid={`diagram-delete-${item.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(item.id);
+                        }}
+                        title={t("diagrams.delete", "Delete")}
+                        aria-label={t("diagrams.delete", "Delete")}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </section>
             );
           })}
         </div>

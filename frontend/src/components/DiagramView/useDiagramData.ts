@@ -17,12 +17,7 @@ import {
   diagramsApi,
   type CreateDiagramPayload,
 } from "../../api/diagrams";
-import type {
-  CanvasStroke,
-  Diagram,
-  DiagramDetail,
-  FabricCanvasJson,
-} from "../../types";
+import type { Diagram, DiagramDetail } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
 export const diagramKeys = {
@@ -97,8 +92,17 @@ export function useCreateDiagram(): CreateDiagramData {
 export interface DiagramDetailData {
   detail: DiagramDetail | null;
   isLoading: boolean;
-  canvasJson: FabricCanvasJson | undefined;
-  canvasStrokes: CanvasStroke[] | undefined;
+  /**
+   * Server-rendered SVG export of the persisted canvas (IF-L1-060). Used by
+   * the overview's read-only preview (Phase 6 / decision E2-D4) so the detail
+   * pane does not have to mount the editable Fabric surface just to show what
+   * the diagram looks like.
+   *
+   * The raw `canvas_json` / `strokes` of the same response are deliberately
+   * NOT re-exposed here: since D4 nothing in the overview consumes them, and
+   * the fullscreen /diagrams/:id/canvas editor loads its own copy.
+   */
+  canvasSvg: string | undefined;
   isCanvasLoading: boolean;
   saveContent: (content: string) => Promise<void>;
   deleteDiagram: () => Promise<void>;
@@ -110,7 +114,8 @@ export interface DiagramDetailData {
 /**
  * Detail query + persisted-canvas query + update/delete mutations for the
  * DiagramDetailView presenter. The canvas query only runs for canvas_stroke
- * diagrams; a missing payload is non-fatal (start from an empty surface).
+ * diagrams; a missing payload is non-fatal (the preview then shows the
+ * empty-canvas hint instead of an error).
  */
 export function useDiagramDetail(diagramId: string): DiagramDetailData {
   const queryClient = useQueryClient();
@@ -155,8 +160,7 @@ export function useDiagramDetail(diagramId: string): DiagramDetailData {
   return {
     detail,
     isLoading: !!diagramId && detailQuery.isLoading,
-    canvasJson: canvasQuery.data?.canvas_json ?? undefined,
-    canvasStrokes: canvasQuery.data?.strokes,
+    canvasSvg: canvasQuery.data?.svg || undefined,
     isCanvasLoading: isCanvas && canvasQuery.isFetching,
     saveContent: async (content) => {
       await updateMutation.mutateAsync(content);

@@ -36,8 +36,11 @@ vi.mock("react-i18next", () => {
     typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
   return { useTranslation: () => ({ t }) };
 });
-// DiagramDetailView imports fabric canvas editor; stub the whole presenter
-// so this smoke test doesn't need canvas/WebGL in jsdom.
+// Stub the whole detail presenter: this file is about the container's list /
+// header / create-form wiring, and the detail pane has its own test file
+// (DiagramDetailView.test.tsx). Since the E2-D4 preview change it no longer
+// mounts the Fabric canvas editor, so the stub is scoping, not a jsdom
+// workaround.
 vi.mock("./DiagramDetailView", () => ({
   DiagramDetailView: ({ diagramId }: { diagramId: string }) =>
     React.createElement("div", { "data-testid": "diagram-detail-stub" }, diagramId),
@@ -68,6 +71,7 @@ const MOCK_DIAGRAMS = [
     id: "diag-001",
     workspace_id: "ws-diag-001",
     name: "System Context Diagram (C4 Level 1)",
+    diagram_type: "context",
     payload_format: "mermaid",
     created_at: "2026-02-01T10:00:00Z",
     updated_at: "2026-02-01T10:00:00Z",
@@ -76,6 +80,7 @@ const MOCK_DIAGRAMS = [
     id: "diag-002",
     workspace_id: "ws-diag-001",
     name: "Navigation Subsystem State Machine",
+    diagram_type: "flow",
     payload_format: "mermaid",
     created_at: "2026-02-05T14:30:00Z",
     updated_at: "2026-02-07T09:00:00Z",
