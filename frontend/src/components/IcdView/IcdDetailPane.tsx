@@ -19,6 +19,7 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { findSimilarICDs, inputStyle, labelStyle } from "./icd-view-shared";
+import styles from "./IcdDetailPane.module.css";
 
 export interface IcdDetailPaneProps {
   detail: IcdDetail;
@@ -89,39 +90,21 @@ export function IcdDetailPane({
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "var(--space-6)",
-        }}
-      >
+      <div className={styles.header}>
         <div>
           <h2
             data-testid="icd-detail-title"
-            style={{
-              fontSize: "var(--font-size-2xl)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-              margin: 0,
-            }}
+            className={styles.title}
           >
             {detail.name}{" "}
             <VersionBadge version={detail.version} />
           </h2>
-          <p
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-              margin: "var(--space-1) 0 0 0",
-            }}
-          >
+          <p className={styles.subtitle}>
             {t("icds.source")}: {artifactLabel(detail.source_element_id)} →{" "}
             {t("icds.target")}: {artifactLabel(detail.target_element_id)}
           </p>
           {/* REQ-173: WorkflowEngine-driven status editor for the ICD. */}
-          <div style={{ marginTop: "var(--space-3)" }}>
+          <div className={styles.statusEditorWrap}>
             <WorkflowStatusEditor
               artifactType="icd"
               artifactId={detail.id}
@@ -134,16 +117,7 @@ export function IcdDetailPane({
           type="button"
           data-testid="icd-new-version-btn"
           onClick={() => setShowNewVersion((v) => !v)}
-          style={{
-            background: "var(--color-primary)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            cursor: "pointer",
-            transition: "var(--transition-fast)",
-          }}
+          className={styles.newVersionBtn}
         >
           {showNewVersion ? t("actions.cancel") : `+ ${t("icds.newVersion")}`}
         </button>
@@ -152,23 +126,9 @@ export function IcdDetailPane({
       {showNewVersion && (
         <div
           data-testid="icd-new-version-form"
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-            boxShadow: "var(--shadow-card)",
-            padding: "var(--space-6)",
-            marginBottom: "var(--space-6)",
-            maxWidth: "720px",
-          }}
+          className={styles.newVersionForm}
         >
-          <p
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-              margin: "0 0 var(--space-4) 0",
-            }}
-          >
+          <p className={styles.newVersionHint}>
             {t("icds.immutableHint")}
           </p>
           {renderVersionFields(
@@ -189,37 +149,18 @@ export function IcdDetailPane({
           {formError && (
             <p
               role="alert"
-              style={{
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-                margin: "var(--space-3) 0 0 0",
-              }}
+              className={styles.formError}
             >
               {formError}
             </p>
           )}
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-3)",
-              marginTop: "var(--space-4)",
-            }}
-          >
+          <div className={styles.formActions}>
             <button
               type="button"
               data-testid="icd-new-version-submit"
               onClick={onNewVersion}
               disabled={isSaving}
-              style={{
-                background: "var(--color-primary)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-6)",
-                fontSize: "var(--font-size-sm)",
-                cursor: isSaving ? "not-allowed" : "pointer",
-                opacity: isSaving ? 0.7 : 1,
-              }}
+              className={`${styles.submitBtn} ${isSaving ? styles.submitBtnDisabled : styles.submitBtnEnabled}`}
             >
               {isSaving ? t("actions.saving") : t("actions.save")}
             </button>
@@ -229,15 +170,7 @@ export function IcdDetailPane({
                 setShowNewVersion(false);
                 setFormError(null);
               }}
-              style={{
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-6)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
-              }}
+              className={styles.cancelBtn}
             >
               {t("actions.cancel")}
             </button>
@@ -245,33 +178,13 @@ export function IcdDetailPane({
         </div>
       )}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "2fr 1fr",
-          gap: "var(--space-6)",
-        }}
-      >
+      <div className={styles.mainGrid}>
         <div>
           <div
             data-testid="icd-contract-section"
-            style={{
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              padding: "var(--space-6)",
-              marginBottom: "var(--space-6)",
-            }}
+            className={styles.contractSection}
           >
-            <h3
-              style={{
-                fontSize: "var(--font-size-lg)",
-                fontWeight: 600,
-                color: "var(--color-text)",
-                margin: "0 0 var(--space-4) 0",
-              }}
-            >
+            <h3 className={styles.contractHeading}>
               {t("icds.contract")}
             </h3>
             <ReadOnlyField
@@ -290,30 +203,13 @@ export function IcdDetailPane({
                   : "—"
               }
             />
-            <div style={{ marginBottom: "var(--space-4)" }}>
-              <label
-                style={{
-                  display: "block",
-                  fontWeight: 500,
-                  color: "var(--color-text)",
-                  fontSize: "var(--font-size-sm)",
-                  marginBottom: "var(--space-1)",
-                }}
-              >
+            <div className={styles.fieldGroup}>
+              <label className={styles.fieldLabel}>
                 {t("icds.contract")}
               </label>
               <div
                 data-testid="icd-contract-textarea"
-                style={{
-                  padding: "var(--space-3)",
-                  background: "var(--color-surface-raised)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  minHeight: "80px",
-                  whiteSpace: "pre-wrap",
-                  color: "var(--color-text)",
-                  fontSize: "var(--font-size-base)",
-                }}
+                className={styles.contractTextarea}
               >
                 {detail.semantic_description || "—"}
               </div>
@@ -371,28 +267,11 @@ const ReadOnlyField = memo(function ReadOnlyField({
   value,
 }: ReadOnlyFieldProps): JSX.Element {
   return (
-    <div style={{ marginBottom: "var(--space-3)" }}>
-      <label
-        style={{
-          display: "block",
-          fontWeight: 500,
-          color: "var(--color-text)",
-          fontSize: "var(--font-size-sm)",
-          marginBottom: "var(--space-1)",
-        }}
-      >
+    <div className={styles.readOnlyFieldWrap}>
+      <label className={styles.fieldLabel}>
         {label}
       </label>
-      <div
-        style={{
-          padding: "var(--space-2) var(--space-3)",
-          background: "var(--color-surface-raised)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-md)",
-          color: "var(--color-text)",
-          fontSize: "var(--font-size-base)",
-        }}
-      >
+      <div className={styles.readOnlyValue}>
         {value}
       </div>
     </div>
@@ -412,44 +291,16 @@ const ReadOnlyList = memo(function ReadOnlyList({
   values,
 }: ReadOnlyListProps): JSX.Element {
   return (
-    <div style={{ marginBottom: "var(--space-3)" }}>
-      <label
-        style={{
-          display: "block",
-          fontWeight: 500,
-          color: "var(--color-text)",
-          fontSize: "var(--font-size-sm)",
-          marginBottom: "var(--space-1)",
-        }}
-      >
+    <div className={styles.readOnlyFieldWrap}>
+      <label className={styles.fieldLabel}>
         {label}
       </label>
       {values.length === 0 ? (
-        <div
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            background: "var(--color-surface-raised)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
-          }}
-        >
+        <div className={styles.readOnlyListEmpty}>
           —
         </div>
       ) : (
-        <ul
-          style={{
-            listStyle: "disc inside",
-            padding: "var(--space-2) var(--space-3)",
-            margin: 0,
-            background: "var(--color-surface-raised)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            color: "var(--color-text)",
-            fontSize: "var(--font-size-sm)",
-          }}
-        >
+        <ul className={styles.readOnlyList}>
           {values.map((v, i) => (
             <li key={i}>{v}</li>
           ))}
@@ -599,86 +450,26 @@ function SimilarIcdsPanel({
   return (
     <div
       data-testid="similar-icds-panel"
-      style={{
-        background: "var(--color-warning-bg)",
-        border: "1px solid var(--color-warning)",
-        borderRadius: "var(--radius-lg)",
-        padding: "var(--space-4)",
-        marginBottom: "var(--space-6)",
-      }}
+      className={styles.similarPanel}
     >
-      <h4
-        style={{
-          fontSize: "var(--font-size-base)",
-          fontWeight: 600,
-          color: "var(--color-text)",
-          margin: "0 0 var(--space-3) 0",
-        }}
-      >
+      <h4 className={styles.similarHeading}>
         {t("icds.similarInterfaces", "Similar Interfaces")}
       </h4>
-      <ul
-        style={{
-          listStyle: "none",
-          padding: 0,
-          margin: 0,
-        }}
-      >
+      <ul className={styles.similarList}>
         {similarICDs.map(({ icd, score }) => (
           <li
             key={icd.id}
             data-testid={`similar-icd-${icd.id}`}
             onClick={() => onSelect(icd.id)}
-            style={{
-              padding: "var(--space-3)",
-              marginBottom: "var(--space-2)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLLIElement).style.background =
-                "var(--color-surface-raised)";
-              (e.currentTarget as HTMLLIElement).style.borderColor =
-                "var(--color-primary)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLLIElement).style.background =
-                "var(--color-surface)";
-              (e.currentTarget as HTMLLIElement).style.borderColor =
-                "var(--color-border)";
-            }}
+            className={styles.similarItem}
           >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span
-                style={{
-                  fontWeight: 500,
-                  color: "var(--color-text)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  flex: 1,
-                }}
-              >
+            <div className={styles.similarItemRow}>
+              <span className={styles.similarItemName}>
                 {icd.name}
               </span>
               <span
                 data-testid={`similarity-score-${icd.id}`}
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  color: "var(--color-warning-text)",
-                  marginLeft: "var(--space-2)",
-                  whiteSpace: "nowrap",
-                }}
+                className={styles.similarItemScore}
               >
                 {Math.round(score * 100)}%
               </span>

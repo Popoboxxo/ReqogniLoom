@@ -18,6 +18,7 @@ import type {
   BaselineDiff,
   DiffItem,
 } from "../../api/baselines";
+import styles from "./BaselinesPanels.module.css";
 
 interface BaselineEntriesSectionProps {
   entries: BaselineDeltaEntry[] | null;
@@ -52,15 +53,7 @@ export function BaselineEntriesSection({
   const { t } = useTranslation();
 
   const heading = (
-    <h3
-      style={{
-        fontSize: "var(--font-size-base)",
-        fontWeight: 700,
-        color: "var(--color-text)",
-        marginTop: 0,
-        marginBottom: "var(--space-3)",
-      }}
-    >
+    <h3 className={styles.heading}>
       {t("baselines.capturedItems", "Captured items")}
       {entries ? ` (${entries.length})` : ""}
     </h3>
@@ -68,18 +61,18 @@ export function BaselineEntriesSection({
 
   if (loading) {
     return (
-      <section data-testid="baseline-entries" style={entriesSectionStyle}>
+      <section data-testid="baseline-entries" className={styles.section}>
         {heading}
-        <p style={mutedTextStyle}>{t("loading", "Loading…")}</p>
+        <p className={styles.mutedText}>{t("loading", "Loading…")}</p>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section data-testid="baseline-entries" style={entriesSectionStyle}>
+      <section data-testid="baseline-entries" className={styles.section}>
         {heading}
-        <p role="alert" style={{ ...mutedTextStyle, color: "var(--color-danger)" }}>
+        <p role="alert" className={`${styles.mutedText} ${styles.mutedTextDanger}`}>
           {error}
         </p>
       </section>
@@ -88,9 +81,9 @@ export function BaselineEntriesSection({
 
   if (!entries || entries.length === 0) {
     return (
-      <section data-testid="baseline-entries" style={entriesSectionStyle}>
+      <section data-testid="baseline-entries" className={styles.section}>
         {heading}
-        <p data-testid="baseline-entries-empty" style={mutedTextStyle}>
+        <p data-testid="baseline-entries-empty" className={styles.mutedText}>
           {t("baselines.noCapturedItems", "No captured items.")}
         </p>
       </section>
@@ -98,56 +91,29 @@ export function BaselineEntriesSection({
   }
 
   return (
-    <section data-testid="baseline-entries" style={entriesSectionStyle}>
+    <section data-testid="baseline-entries" className={styles.section}>
       {heading}
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <ul className={styles.entriesList}>
         {entries.map((entry) => (
           <li
             key={entry.item_id}
             data-testid="baseline-entry-item"
-            style={{
-              padding: "var(--space-3)",
-              marginBottom: "var(--space-2)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-            }}
+            className={styles.entryItem}
           >
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                marginBottom: entry.state ? "var(--space-2)" : 0,
-              }}
+              className={styles.entryHeaderRow}
+              style={{ marginBottom: entry.state ? "var(--space-2)" : 0 }}
             >
               <span
                 data-testid="baseline-entry-type"
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  color: "var(--color-text-muted)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                }}
+                className={styles.entryType}
               >
                 {entry.entity_type}
               </span>
-              <strong
-                style={{
-                  flex: 1,
-                  color: "var(--color-text)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-              >
+              <strong className={styles.entryLabel}>
                 {entryLabel(entry)}
               </strong>
-              <span
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                }}
-              >
+              <span className={styles.entryVersion}>
                 v{entry.version}
               </span>
             </div>
@@ -155,32 +121,14 @@ export function BaselineEntriesSection({
             {entry.state ? (
               <dl
                 data-testid="baseline-entry-state"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "160px 1fr",
-                  rowGap: "var(--space-1)",
-                  columnGap: "var(--space-3)",
-                  margin: 0,
-                }}
+                className={styles.entryState}
               >
                 {Object.entries(entry.state).map(([key, value]) => (
-                  <div key={key} style={{ display: "contents" }}>
-                    <dt
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                      }}
-                    >
+                  <div key={key} className={styles.entryStateRow}>
+                    <dt className={styles.entryStateKey}>
                       {key}
                     </dt>
-                    <dd
-                      style={{
-                        margin: 0,
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text)",
-                        wordBreak: "break-word",
-                      }}
-                    >
+                    <dd className={styles.entryStateValue}>
                       {formatStateValue(value)}
                     </dd>
                   </div>
@@ -189,7 +137,7 @@ export function BaselineEntriesSection({
             ) : (
               <p
                 data-testid="baseline-entry-legacy"
-                style={{ ...mutedTextStyle, margin: 0 }}
+                className={`${styles.mutedText} ${styles.entryLegacy}`}
               >
                 {t(
                   "baselines.legacyEntry",
@@ -214,15 +162,6 @@ function formatStateValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   return String(value);
 }
-
-const entriesSectionStyle: React.CSSProperties = {
-  marginBottom: "var(--space-6)",
-};
-
-const mutedTextStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-};
 
 // ---------------------------------------------------------------------------
 // REQ-L2-BL-003: baseline compare panel (field-level diff)
@@ -252,16 +191,6 @@ function statusColor(status: DiffItem["status"]): string {
   return "var(--color-warning)";
 }
 
-const compareSelectStyle: React.CSSProperties = {
-  width: "100%",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-base)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-};
-
 /**
  * Renders the baseline-compare form (pick two baselines) and the resulting
  * field-level diff (REQ-L2-BL-003). Summary counts are always shown; changed
@@ -282,44 +211,19 @@ export function BaselineComparePanel({
   const disabled = !aId || !bId || aId === bId || loading;
 
   return (
-    <div data-testid="baseline-compare-panel" style={{ maxWidth: "680px" }}>
-      <h3
-        style={{
-          fontSize: "var(--font-size-lg)",
-          fontWeight: 700,
-          marginTop: 0,
-          marginBottom: "var(--space-4)",
-          color: "var(--color-text)",
-        }}
-      >
+    <div data-testid="baseline-compare-panel" className={styles.comparePanel}>
+      <h3 className={styles.compareHeading}>
         {t("baselines.compareTitle", "Compare baselines")}
       </h3>
 
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-3)",
-          alignItems: "flex-end",
-          flexWrap: "wrap",
-          marginBottom: "var(--space-4)",
-        }}
-      >
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-1)",
-            flex: "1 1 220px",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-          }}
-        >
+      <div className={styles.compareRow}>
+        <label className={styles.compareField}>
           <span>{t("baselines.compareA", "Baseline A (from)")}</span>
           <select
             data-testid="compare-select-a"
             value={aId}
             onChange={(e) => onChangeA(e.target.value)}
-            style={compareSelectStyle}
+            className={styles.compareSelect}
           >
             <option value="">—</option>
             {baselines.map((bl) => (
@@ -330,22 +234,13 @@ export function BaselineComparePanel({
           </select>
         </label>
 
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-1)",
-            flex: "1 1 220px",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-          }}
-        >
+        <label className={styles.compareField}>
           <span>{t("baselines.compareB", "Baseline B (to)")}</span>
           <select
             data-testid="compare-select-b"
             value={bId}
             onChange={(e) => onChangeB(e.target.value)}
-            style={compareSelectStyle}
+            className={styles.compareSelect}
           >
             <option value="">—</option>
             {baselines.map((bl) => (
@@ -361,17 +256,7 @@ export function BaselineComparePanel({
           data-testid="compare-run-btn"
           onClick={onCompare}
           disabled={disabled}
-          style={{
-            background: "var(--color-primary)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-5)",
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            cursor: disabled ? "not-allowed" : "pointer",
-            opacity: disabled ? 0.6 : 1,
-          }}
+          className={`${styles.compareRunBtn} ${disabled ? styles.compareRunBtnDisabled : styles.compareRunBtnEnabled}`}
         >
           {loading
             ? t("baselines.comparing", "Comparing…")
@@ -383,11 +268,7 @@ export function BaselineComparePanel({
         <p
           role="alert"
           data-testid="compare-error"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-            margin: "0 0 var(--space-3) 0",
-          }}
+          className={styles.compareError}
         >
           {error}
         </p>
@@ -397,12 +278,7 @@ export function BaselineComparePanel({
         <div data-testid="compare-result">
           <div
             data-testid="compare-summary"
-            style={{
-              display: "flex",
-              gap: "var(--space-3)",
-              marginBottom: "var(--space-4)",
-              flexWrap: "wrap",
-            }}
+            className={styles.compareSummary}
           >
             <SummaryBadge
               label={t("baselines.added", "Added")}
@@ -425,11 +301,11 @@ export function BaselineComparePanel({
           </div>
 
           {diff.items.length === 0 ? (
-            <p data-testid="compare-empty" style={mutedTextStyle}>
+            <p data-testid="compare-empty" className={styles.mutedText}>
               {t("baselines.compareNoChanges", "No differences between the baselines.")}
             </p>
           ) : (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ul className={styles.diffList}>
               {diff.items.map((item) => (
                 <DiffItemRow key={`${item.status}-${item.item_id}`} item={item} />
               ))}
@@ -460,17 +336,8 @@ const SummaryBadge = memo(function SummaryBadge({
   return (
     <span
       data-testid={testid}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--space-2)",
-        padding: "var(--space-2) var(--space-3)",
-        borderRadius: "var(--radius-md)",
-        border: `1px solid ${color}`,
-        fontSize: "var(--font-size-sm)",
-        fontWeight: 600,
-        color: "var(--color-text)",
-      }}
+      className={styles.summaryBadge}
+      style={{ border: `1px solid ${color}` }}
     >
       <span style={{ color }}>{count}</span>
       {label}
@@ -501,43 +368,25 @@ export const DiffItemRow = memo(function DiffItemRow({
     <>
       <span
         data-testid="diff-item-status"
-        style={{
-          fontSize: "var(--font-size-xs)",
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-          color: statusColor(item.status),
-        }}
+        className={styles.diffStatus}
+        style={{ color: statusColor(item.status) }}
       >
         {item.status}
       </span>
-      <span
-        style={{
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-        }}
-      >
+      <span className={styles.diffEntityType}>
         {item.entity_type}
       </span>
       {item.artifact_name ? (
         <span
           data-testid="diff-item-name"
-          style={{
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-            fontWeight: 600,
-          }}
+          className={styles.diffName}
         >
           {item.artifact_name}
         </span>
       ) : (
         <code
           data-testid="diff-item-name"
-          style={{
-            fontFamily: "monospace",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-          }}
+          className={styles.diffNameCode}
         >
           {item.item_id.slice(0, 8)}…
         </code>
@@ -545,24 +394,10 @@ export const DiffItemRow = memo(function DiffItemRow({
     </>
   );
 
-  const rowStyle: React.CSSProperties = {
-    padding: "var(--space-3)",
-    marginBottom: "var(--space-2)",
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-md)",
-  };
-
   if (!hasFieldChanges) {
     return (
-      <li data-testid="diff-item" data-status={item.status} style={rowStyle}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-3)",
-          }}
-        >
+      <li data-testid="diff-item" data-status={item.status} className={styles.diffRow}>
+        <div className={styles.diffHeaderRow}>
           {header}
         </div>
       </li>
@@ -570,19 +405,14 @@ export const DiffItemRow = memo(function DiffItemRow({
   }
 
   return (
-    <li data-testid="diff-item" data-status={item.status} style={rowStyle}>
+    <li data-testid="diff-item" data-status={item.status} className={styles.diffRow}>
       <details>
         <summary
           data-testid="diff-item-toggle"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-3)",
-            cursor: "pointer",
-          }}
+          className={styles.diffSummaryToggle}
         >
           {header}
-          <span style={{ ...mutedTextStyle, marginLeft: "auto" }}>
+          <span className={`${styles.mutedText} ${styles.diffFieldCount}`}>
             {t("baselines.fieldChangesCount", {
               count: item.field_changes?.length ?? 0,
               defaultValue: "{{count}} field(s)",
@@ -591,32 +421,27 @@ export const DiffItemRow = memo(function DiffItemRow({
         </summary>
         <table
           data-testid="diff-field-table"
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            marginTop: "var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.diffTable}
         >
           <thead>
             <tr>
-              <th style={diffThStyle}>{t("baselines.field", "Field")}</th>
-              <th style={diffThStyle}>{t("baselines.before", "Before")}</th>
-              <th style={diffThStyle}>{t("baselines.after", "After")}</th>
+              <th className={styles.diffTh}>{t("baselines.field", "Field")}</th>
+              <th className={styles.diffTh}>{t("baselines.before", "Before")}</th>
+              <th className={styles.diffTh}>{t("baselines.after", "After")}</th>
             </tr>
           </thead>
           <tbody>
             {(item.field_changes ?? []).map((fc) => (
               <tr key={fc.field_name} data-testid="diff-field-row">
-                <td style={diffTdStyle}>{fc.field_name}</td>
+                <td className={styles.diffTd}>{fc.field_name}</td>
                 <td
-                  style={{ ...diffTdStyle, color: "var(--color-danger)" }}
+                  className={`${styles.diffTd} ${styles.diffTdOld}`}
                   data-testid="diff-field-old"
                 >
                   {formatStateValue(fc.old_value)}
                 </td>
                 <td
-                  style={{ ...diffTdStyle, color: "var(--color-success)" }}
+                  className={`${styles.diffTd} ${styles.diffTdNew}`}
                   data-testid="diff-field-new"
                 >
                   {formatStateValue(fc.new_value)}
@@ -629,21 +454,3 @@ export const DiffItemRow = memo(function DiffItemRow({
     </li>
   );
 });
-
-const diffThStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2)",
-  borderBottom: "1px solid var(--color-border)",
-  color: "var(--color-text-muted)",
-  fontWeight: 600,
-  fontSize: "var(--font-size-xs)",
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-};
-
-const diffTdStyle: React.CSSProperties = {
-  padding: "var(--space-2)",
-  borderBottom: "1px solid var(--color-border)",
-  wordBreak: "break-word",
-  verticalAlign: "top",
-};

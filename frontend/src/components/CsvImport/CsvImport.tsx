@@ -25,6 +25,7 @@ import {
 } from "../../api/import";
 import { exportApi, type ExportEntityType } from "../../api/export";
 import { PageHeader } from "../shared/PageHeader";
+import styles from "./CsvImport.module.css";
 
 // ---------------------------------------------------------------------------
 // Entity type options
@@ -227,18 +228,11 @@ export function CsvImport(): JSX.Element {
   }, []);
 
   if (!activeWorkspace) {
-    return (
-      <p style={{ padding: "var(--space-6)", color: "var(--color-text-muted)" }}>
-        {t("errors.generic")}
-      </p>
-    );
+    return <p className={styles.errorPage}>{t("errors.generic")}</p>;
   }
 
   return (
-    <div
-      data-testid="csv-import-page"
-      style={{ maxWidth: "640px" }}
-    >
+    <div data-testid="csv-import-page" className={styles.page}>
       <PageHeader
         title={t("import.title", "CSV Import")}
         summary={t(
@@ -248,45 +242,13 @@ export function CsvImport(): JSX.Element {
       />
 
       {/* Entity type selector */}
-      <section
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("import.entityType", "Entity Type")}
-        </h3>
-        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+      <section className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.entityType", "Entity Type")}</h3>
+        <div className={styles.radioGroup}>
           {ENTITY_TYPES.map((type) => (
             <label
               key={type}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                padding: "var(--space-2) var(--space-3)",
-                borderRadius: "var(--radius-md)",
-                border: entityType === type
-                  ? "1px solid var(--color-primary)"
-                  : "1px solid var(--color-border)",
-                background: entityType === type
-                  ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)"
-                  : "transparent",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-              }}
+              className={entityType === type ? styles.radioLabelActive : styles.radioLabel}
             >
               <input
                 type="radio"
@@ -303,41 +265,15 @@ export function CsvImport(): JSX.Element {
       </section>
 
       {/* Drop zone / file picker */}
-      <section
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("import.selectFile", "Select CSV File")}
-        </h3>
+      <section className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.selectFile", "Select CSV File")}</h3>
         <div
           data-testid="csv-drop-zone"
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${isDragOver ? "var(--color-primary)" : "var(--color-border)"}`,
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-6)",
-            textAlign: "center",
-            cursor: "pointer",
-            background: isDragOver ? "rgba(var(--color-primary-rgb, 79,70,229), 0.04)" : "transparent",
-            transition: "var(--transition-fast)",
-          }}
+          className={isDragOver ? styles.dropZoneActive : styles.dropZone}
         >
           <input
             ref={fileInputRef}
@@ -345,19 +281,15 @@ export function CsvImport(): JSX.Element {
             accept=".csv"
             onChange={handleFileSelect}
             data-testid="csv-file-input"
-            style={{ display: "none" }}
+            className={styles.hiddenFileInput}
           />
           {selectedFile ? (
             <div>
-              <p style={{ fontWeight: 600, margin: "0 0 var(--space-1) 0" }}>
-                {selectedFile.name}
-              </p>
-              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-                {(selectedFile.size / 1024).toFixed(1)} KB
-              </p>
+              <p className={styles.fileName}>{selectedFile.name}</p>
+              <p className={styles.fileMeta}>{(selectedFile.size / 1024).toFixed(1)} KB</p>
             </div>
           ) : (
-            <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+            <p className={styles.hintText}>
               {t("import.dropHint", "Drop CSV file here or click to browse")}
             </p>
           )}
@@ -365,24 +297,13 @@ export function CsvImport(): JSX.Element {
       </section>
 
       {/* Upload button */}
-      <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+      <div className={styles.actionsRow}>
         <button
           type="button"
           data-testid="csv-import-btn"
           onClick={() => void handleUpload()}
           disabled={!selectedFile || isUploading}
-          style={{
-            background: "var(--color-primary)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-5)",
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            cursor: !selectedFile || isUploading ? "not-allowed" : "pointer",
-            opacity: !selectedFile || isUploading ? 0.5 : 1,
-            transition: "var(--transition-fast)",
-          }}
+          className={styles.primaryBtn}
         >
           {isUploading
             ? t("import.uploading", "Importing...")
@@ -393,15 +314,7 @@ export function CsvImport(): JSX.Element {
             type="button"
             data-testid="csv-import-reset"
             onClick={handleReset}
-            style={{
-              background: "transparent",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              cursor: "pointer",
-            }}
+            className={styles.resetBtn}
           >
             {t("actions.reset", "Reset")}
           </button>
@@ -410,36 +323,14 @@ export function CsvImport(): JSX.Element {
 
       {/* Progress indicator */}
       {isUploading && (
-        <div
-          data-testid="csv-import-progress"
-          style={{
-            padding: "var(--space-3)",
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            marginBottom: "var(--space-5)",
-            textAlign: "center",
-            color: "var(--color-text-muted)",
-          }}
-        >
+        <div data-testid="csv-import-progress" className={styles.progressBox}>
           {t("import.progress", "Processing CSV file...")}
         </div>
       )}
 
       {/* Error display */}
       {error && (
-        <div
-          data-testid="csv-import-error"
-          role="alert"
-          style={{
-            padding: "var(--space-3)",
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-danger, #f87171)",
-            borderRadius: "var(--radius-md)",
-            marginBottom: "var(--space-5)",
-            color: "var(--color-danger, #f87171)",
-          }}
-        >
+        <div data-testid="csv-import-error" role="alert" className={styles.errorBox}>
           {error}
         </div>
       )}
@@ -448,59 +339,29 @@ export function CsvImport(): JSX.Element {
       {result && (
         <div
           data-testid="csv-import-result"
-          style={{
-            padding: "var(--space-4)",
-            background: "var(--color-surface)",
-            border: `1px solid ${result.success ? "var(--color-success, #16a34a)" : "var(--color-danger, #f87171)"}`,
-            borderRadius: "var(--radius-md)",
-            marginBottom: "var(--space-5)",
-          }}
+          className={result.success ? styles.resultBoxSuccess : styles.resultBoxError}
         >
           {result.success ? (
             <div>
-              <p
-                data-testid="csv-import-success"
-                style={{
-                  fontWeight: 600,
-                  color: "var(--color-success, #16a34a)",
-                  margin: "0 0 var(--space-2) 0",
-                }}
-              >
+              <p data-testid="csv-import-success" className={styles.successText}>
                 {t("import.success", "Successfully imported {{count}} rows", {
                   count: result.imported_count,
                 })}
               </p>
-              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-                Status: {result.status}
-              </p>
+              <p className={styles.fileMeta}>Status: {result.status}</p>
             </div>
           ) : (
             <div>
-              <p
-                style={{
-                  fontWeight: 600,
-                  color: "var(--color-danger, #f87171)",
-                  margin: "0 0 var(--space-3) 0",
-                }}
-              >
-                {t("import.failed", "Import failed")}
-              </p>
+              <p className={styles.failText}>{t("import.failed", "Import failed")}</p>
               {result.errors.length > 0 && (
-                <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                <ul className={styles.errorList}>
                   {result.errors.slice(0, 10).map((err, idx) => (
-                    <li
-                      key={idx}
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                        marginBottom: "var(--space-1)",
-                      }}
-                    >
+                    <li key={idx} className={styles.errorListItem}>
                       Row {err.row_number}: {err.field} — {err.message}
                     </li>
                   ))}
                   {result.errors.length > 10 && (
-                    <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                    <li className={styles.errorListMore}>
                       ... and {result.errors.length - 10} more errors
                     </li>
                   )}
@@ -512,49 +373,14 @@ export function CsvImport(): JSX.Element {
       )}
 
       {/* ReqIF Import (REQ-147) */}
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          margin: "var(--space-8) 0 var(--space-6) 0",
-        }}
-      >
-        {t("import.reqifTitle", "ReqIF Import")}
-      </h2>
+      <h2 className={styles.sectionHeading}>{t("import.reqifTitle", "ReqIF Import")}</h2>
 
-      <section
-        data-testid="reqif-import-page"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("import.reqifSelectFile", "Select ReqIF File")}
-        </h3>
+      <section data-testid="reqif-import-page" className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.reqifSelectFile", "Select ReqIF File")}</h3>
         <div
           data-testid="reqif-file-picker"
           onClick={() => reqifFileInputRef.current?.click()}
-          style={{
-            border: "2px dashed var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-6)",
-            textAlign: "center",
-            cursor: "pointer",
-            marginBottom: "var(--space-4)",
-          }}
+          className={styles.filePicker}
         >
           <input
             ref={reqifFileInputRef}
@@ -562,35 +388,21 @@ export function CsvImport(): JSX.Element {
             accept=".reqif,.xml"
             onChange={handleReqifFileSelect}
             data-testid="reqif-file-input"
-            style={{ display: "none" }}
+            className={styles.hiddenFileInput}
           />
           {selectedReqifFile ? (
             <div>
-              <p style={{ fontWeight: 600, margin: "0 0 var(--space-1) 0" }}>
-                {selectedReqifFile.name}
-              </p>
-              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-                {(selectedReqifFile.size / 1024).toFixed(1)} KB
-              </p>
+              <p className={styles.fileName}>{selectedReqifFile.name}</p>
+              <p className={styles.fileMeta}>{(selectedReqifFile.size / 1024).toFixed(1)} KB</p>
             </div>
           ) : (
-            <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+            <p className={styles.hintText}>
               {t("import.reqifDropHint", "Click to select a .reqif or .xml file")}
             </p>
           )}
         </div>
 
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-2)",
-            marginBottom: "var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-            cursor: "pointer",
-          }}
-        >
+        <label className={styles.checkboxLabel}>
           <input
             type="checkbox"
             checked={reqifDryRun}
@@ -603,24 +415,13 @@ export function CsvImport(): JSX.Element {
           )}
         </label>
 
-        <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+        <div className={styles.actionsRow}>
           <button
             type="button"
             data-testid="reqif-import-btn"
             onClick={() => void handleReqifImport()}
             disabled={!selectedReqifFile || isImportingReqif}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: !selectedReqifFile || isImportingReqif ? "not-allowed" : "pointer",
-              opacity: !selectedReqifFile || isImportingReqif ? 0.5 : 1,
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.primaryBtn}
           >
             {isImportingReqif
               ? t("import.uploading", "Importing...")
@@ -633,15 +434,7 @@ export function CsvImport(): JSX.Element {
               type="button"
               data-testid="reqif-import-reset"
               onClick={handleReqifReset}
-              style={{
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
-              }}
+              className={styles.resetBtn}
             >
               {t("actions.reset", "Reset")}
             </button>
@@ -649,41 +442,15 @@ export function CsvImport(): JSX.Element {
         </div>
 
         {reqifImportError && (
-          <div
-            data-testid="reqif-import-error"
-            role="alert"
-            style={{
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger, #f87171)",
-              borderRadius: "var(--radius-md)",
-              marginBottom: "var(--space-5)",
-              color: "var(--color-danger, #f87171)",
-            }}
-          >
+          <div data-testid="reqif-import-error" role="alert" className={styles.errorBox}>
             {reqifImportError}
           </div>
         )}
 
         {reqifImportResult && (
-          <div
-            data-testid="reqif-import-result"
-            style={{
-              padding: "var(--space-4)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-success, #16a34a)",
-              borderRadius: "var(--radius-md)",
-            }}
-          >
+          <div data-testid="reqif-import-result" className={styles.resultBoxPlain}>
             {reqifImportResult.dry_run && (
-              <p
-                data-testid="reqif-import-dry-run-badge"
-                style={{
-                  fontWeight: 600,
-                  color: "var(--color-primary)",
-                  margin: "0 0 var(--space-3) 0",
-                }}
-              >
+              <p data-testid="reqif-import-dry-run-badge" className={styles.dryRunBadge}>
                 {t("import.reqifDryRunBadge", "Dry run — nothing was saved")}
               </p>
             )}
@@ -697,34 +464,21 @@ export function CsvImport(): JSX.Element {
             ).map(([key, label]) => {
               const report = reqifImportResult[key];
               return (
-                <div key={key} style={{ marginBottom: "var(--space-3)" }}>
-                  <p
-                    style={{
-                      fontWeight: 600,
-                      color: "var(--color-text)",
-                      margin: "0 0 var(--space-1) 0",
-                    }}
-                  >
+                <div key={key} className={styles.reportBlock}>
+                  <p className={styles.reportLine}>
                     {label}: {t("import.reqifCreated", "created")} {report.created},{" "}
                     {t("import.reqifUpdated", "updated")} {report.updated},{" "}
                     {t("import.reqifSkipped", "skipped")} {report.skipped}
                   </p>
                   {report.errors.length > 0 && (
-                    <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                    <ul className={styles.errorList}>
                       {report.errors.slice(0, 10).map((err, idx) => (
-                        <li
-                          key={idx}
-                          style={{
-                            fontSize: "var(--font-size-sm)",
-                            color: "var(--color-text-muted)",
-                            marginBottom: "var(--space-1)",
-                          }}
-                        >
+                        <li key={idx} className={styles.errorListItem}>
                           {err.identifier}: {err.message}
                         </li>
                       ))}
                       {report.errors.length > 10 && (
-                        <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                        <li className={styles.errorListMore}>
                           ... and {report.errors.length - 10} more errors
                         </li>
                       )}
@@ -736,30 +490,15 @@ export function CsvImport(): JSX.Element {
 
             {reqifImportResult.warnings.length > 0 && (
               <div>
-                <p
-                  style={{
-                    fontWeight: 600,
-                    color: "var(--color-text)",
-                    margin: "0 0 var(--space-1) 0",
-                  }}
-                >
-                  {t("import.reqifWarnings", "Warnings")}
-                </p>
-                <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                <p className={styles.reportLine}>{t("import.reqifWarnings", "Warnings")}</p>
+                <ul className={styles.errorList}>
                   {reqifImportResult.warnings.slice(0, 10).map((warning, idx) => (
-                    <li
-                      key={idx}
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                        marginBottom: "var(--space-1)",
-                      }}
-                    >
+                    <li key={idx} className={styles.errorListItem}>
                       {warning}
                     </li>
                   ))}
                   {reqifImportResult.warnings.length > 10 && (
-                    <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                    <li className={styles.errorListMore}>
                       ... and {reqifImportResult.warnings.length - 10} more warnings
                     </li>
                   )}
@@ -771,57 +510,15 @@ export function CsvImport(): JSX.Element {
       </section>
 
       {/* CSV Export (C7 — frontend-feedback Cluster C, MVP) */}
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          margin: "var(--space-8) 0 var(--space-6) 0",
-        }}
-      >
-        {t("export.title", "CSV Export")}
-      </h2>
+      <h2 className={styles.sectionHeading}>{t("export.title", "CSV Export")}</h2>
 
-      <section
-        data-testid="csv-export-page"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("export.entityType", "Entity Type")}
-        </h3>
-        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginBottom: "var(--space-5)" }}>
+      <section data-testid="csv-export-page" className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("export.entityType", "Entity Type")}</h3>
+        <div className={styles.radioGroupSpaced}>
           {EXPORT_ENTITY_TYPES.map((type) => (
             <label
               key={type}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                padding: "var(--space-2) var(--space-3)",
-                borderRadius: "var(--radius-md)",
-                border: exportEntityType === type
-                  ? "1px solid var(--color-primary)"
-                  : "1px solid var(--color-border)",
-                background: exportEntityType === type
-                  ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)"
-                  : "transparent",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-              }}
+              className={exportEntityType === type ? styles.radioLabelActive : styles.radioLabel}
             >
               <input
                 type="radio"
@@ -836,24 +533,13 @@ export function CsvImport(): JSX.Element {
           ))}
         </div>
 
-        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+        <div className={styles.radioGroup}>
           <button
             type="button"
             data-testid="csv-export-btn"
             onClick={() => void handleExport()}
             disabled={isExporting}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: isExporting ? "not-allowed" : "pointer",
-              opacity: isExporting ? 0.5 : 1,
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.primaryBtn}
           >
             {isExporting
               ? t("export.downloading", "Exporting...")
@@ -871,18 +557,7 @@ export function CsvImport(): JSX.Element {
               "export.reqifHint",
               "Exports the whole workspace (Needs, Requirements, TraceLinks) as ReqIF 1.2 for DOORS/Polarion"
             )}
-            style={{
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: isExportingReqif ? "not-allowed" : "pointer",
-              opacity: isExportingReqif ? 0.5 : 1,
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.secondaryBtn}
           >
             {isExportingReqif
               ? t("export.downloading", "Exporting...")
@@ -891,35 +566,13 @@ export function CsvImport(): JSX.Element {
         </div>
 
         {exportError && (
-          <div
-            data-testid="csv-export-error"
-            role="alert"
-            style={{
-              marginTop: "var(--space-4)",
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger, #f87171)",
-              borderRadius: "var(--radius-md)",
-              color: "var(--color-danger, #f87171)",
-            }}
-          >
+          <div data-testid="csv-export-error" role="alert" className={styles.errorBoxTopSpaced}>
             {exportError}
           </div>
         )}
 
         {reqifExportError && (
-          <div
-            data-testid="reqif-export-error"
-            role="alert"
-            style={{
-              marginTop: "var(--space-4)",
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger, #f87171)",
-              borderRadius: "var(--radius-md)",
-              color: "var(--color-danger, #f87171)",
-            }}
-          >
+          <div data-testid="reqif-export-error" role="alert" className={styles.errorBoxTopSpaced}>
             {reqifExportError}
           </div>
         )}

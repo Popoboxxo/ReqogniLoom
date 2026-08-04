@@ -1,0 +1,265 @@
+/*
+ * BaselinesPanels — static (non-dynamic) styles extracted from inline
+ * style={{...}} blocks (issue #161, token-system reach). Values reference
+ * styles/tokens.css custom properties exclusively; genuinely dynamic styles
+ * (e.g. status colour, computed margins) stay inline.
+ */
+
+.section {
+  margin-bottom: var(--space-6);
+}
+
+.mutedText {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.mutedTextDanger {
+  color: var(--color-danger);
+}
+
+.heading {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-text);
+  margin-top: 0;
+  margin-bottom: var(--space-3);
+}
+
+.entriesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.entryItem {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.entryHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.entryType {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.entryLabel {
+  flex: 1;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.entryVersion {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.entryState {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  row-gap: var(--space-1);
+  column-gap: var(--space-3);
+  margin: 0;
+}
+
+.entryStateRow {
+  display: contents;
+}
+
+.entryStateKey {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.entryStateValue {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.entryLegacy {
+  margin: 0;
+}
+
+.comparePanel {
+  max-width: 680px;
+}
+
+.compareHeading {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+  color: var(--color-text);
+}
+
+.compareRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.compareField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1 1 220px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.compareSelect {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-base);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.compareRunBtn {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.compareRunBtnEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.compareRunBtnDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.compareError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.compareSummary {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.diffList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.summaryBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.diffRow {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.diffHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.diffStatus {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.diffEntityType {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.diffName {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.diffNameCode {
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.diffSummaryToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.diffFieldCount {
+  margin-left: auto;
+}
+
+.diffTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.diffTh {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.diffTd {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.diffTdOld {
+  color: var(--color-danger);
+}
+
+.diffTdNew {
+  color: var(--color-success);
+}

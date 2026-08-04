@@ -1,0 +1,283 @@
+/*
+ * <CsvImport> — CSV/ReqIF import & export page (REQ-L0-013, REQ-L2-RF-016).
+ *
+ * Static chrome extracted from inline `style={{...}}` objects (issue #161 —
+ * inline-style ratchet). Genuinely stateful visuals (drag-over highlight,
+ * radio selection, success/error result color, disabled button affordance)
+ * are expressed as a second, mutually-exclusive class or a `:disabled`
+ * pseudo-class instead of JS-computed inline styles — appearance is
+ * unchanged, only where the declarations live.
+ */
+
+.errorPage {
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.page {
+  max-width: 640px;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.cardTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.sectionHeading {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text);
+  margin: var(--space-8) 0 var(--space-6) 0;
+}
+
+.radioGroup {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.radioGroupSpaced {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.radioLabelActive {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-primary);
+  background: rgba(var(--color-primary-rgb, 79, 70, 229), 0.08);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.dropZone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  text-align: center;
+  cursor: pointer;
+  background: transparent;
+  transition: var(--transition-fast);
+}
+
+.dropZoneActive {
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  text-align: center;
+  cursor: pointer;
+  background: rgba(var(--color-primary-rgb, 79, 70, 229), 0.04);
+  transition: var(--transition-fast);
+}
+
+.filePicker {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  text-align: center;
+  cursor: pointer;
+  margin-bottom: var(--space-4);
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.fileName {
+  font-weight: 600;
+  margin: 0 0 var(--space-1) 0;
+}
+
+.fileMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.hintText {
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.actionsRow {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.primaryBtn {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.primaryBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.secondaryBtn {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.secondaryBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.resetBtn {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.progressBox {
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.errorBox {
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  color: var(--color-danger);
+}
+
+.errorBoxTopSpaced {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+}
+
+.resultBoxSuccess {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+}
+
+.resultBoxError {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+}
+
+.resultBoxPlain {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+}
+
+.successText {
+  font-weight: 600;
+  color: var(--color-success);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.failText {
+  font-weight: 600;
+  color: var(--color-danger);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.errorList {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.errorListItem {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.errorListMore {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.dryRunBadge {
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.reportBlock {
+  margin-bottom: var(--space-3);
+}
+
+.reportLine {
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-1) 0;
+}
