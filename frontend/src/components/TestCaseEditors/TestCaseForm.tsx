@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { testcasesApi, type TestCase } from '../../api/testcases';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { ArtifactId } from '../shared/ArtifactId';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
@@ -120,21 +121,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             <StatusBadge status={testCase.status} />
             {testCase.version && <VersionBadge version={testCase.version} />}
-            {testCase.uid ? (
-              <span
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
-                title="Unique Identifier"
-              >
-                {testCase.uid}
-              </span>
-            ) : (
-              <span
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all', opacity: 0.6 }}
-                title="Short ID (UUID prefix, no semantic uid assigned yet)"
-              >
-                {testCase.id.slice(0, 8)}
-              </span>
-            )}
+            <ArtifactId value={testCase.uid} fallback={testCase.id.slice(0, 8)} testId="tc-id" />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             {!confirmDelete ? (

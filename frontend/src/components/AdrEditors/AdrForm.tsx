@@ -5,6 +5,7 @@ import type { Adr } from '../../types';
 import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { ArtifactId } from '../shared/ArtifactId';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
@@ -122,21 +123,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             <StatusBadge status={adr.status} />
             {adr.version && <VersionBadge version={adr.version} />}
-            {adr.uid ? (
-              <span
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
-                title="Unique Identifier"
-              >
-                {adr.uid}
-              </span>
-            ) : (
-              <span
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all', opacity: 0.6 }}
-                title="Short ID (UUID prefix, no semantic uid assigned yet)"
-              >
-                {adr.id.slice(0, 8)}
-              </span>
-            )}
+            <ArtifactId value={adr.uid} fallback={adr.id.slice(0, 8)} testId="adr-id" />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             {!confirmDelete ? (

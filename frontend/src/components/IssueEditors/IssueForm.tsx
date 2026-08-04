@@ -4,6 +4,7 @@ import type { Issue, IssueSeverity, IssueCategory } from '../../types';
 import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { ArtifactId } from '../shared/ArtifactId';
 import { TagInput } from '../shared/tag-input';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
@@ -126,21 +127,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             <StatusBadge status={issue.status} />
             {issue.version && <VersionBadge version={issue.version} />}
-            {issue.uid ? (
-              <span
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
-                title="Unique Identifier"
-              >
-                {issue.uid}
-              </span>
-            ) : (
-              <span
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all', opacity: 0.6 }}
-                title="Short ID (UUID prefix, no semantic uid assigned yet)"
-              >
-                {issue.id.slice(0, 8)}
-              </span>
-            )}
+            <ArtifactId value={issue.uid} fallback={issue.id.slice(0, 8)} testId="issue-id" />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             {!confirmDelete ? (
