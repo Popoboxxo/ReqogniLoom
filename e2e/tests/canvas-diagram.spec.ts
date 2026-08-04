@@ -187,9 +187,10 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
 
     // Press Ctrl+Z to undo
     await page.keyboard.press('Control+z');
-    await page.waitForTimeout(500);
 
-    // Undo button should be disabled again (undo stack is empty after single stroke undo)
+    // Undo button should be disabled again (undo stack is empty after single
+    // stroke undo). expect(...).toBeDisabled() already polls/retries, so it
+    // doubles as the wait for the undo state update — no fixed delay needed.
     await expect(page.locator('[data-testid="canvas-undo"]')).toBeDisabled({ timeout: 3000 });
 
     // After undo, the save status still shows unsaved (handleUndo sets isDirty = true)

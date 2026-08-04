@@ -31,20 +31,37 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     const titleInput = page.locator('[data-testid="req-title"]');
     await titleInput.fill('Diff Test Requirement');
 
-    // Save the requirement
-    await page.locator('[data-testid="save-btn"]').click();
+    // Save the requirement. The save handler PATCHes the requirement and
+    // then invalidates the detail query, which triggers a background GET
+    // refetch (../RequirementEditors/useRequirementData.ts refresh()). Wait
+    // for that refetch response instead of a fixed delay, so the next edit
+    // is guaranteed to race against fresh, persisted state.
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
     // Wait for save to complete (button text returns from "Saving..." to "Save")
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    // Small delay for state stabilization
-    await page.waitForTimeout(1000);
 
     // Now modify the title
     await titleInput.fill('Diff Test Requirement - Modified');
 
     // Save again to create a new version
-    await page.locator('[data-testid="save-btn"]').click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Click the "View Diff" button
     const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
@@ -96,11 +113,19 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
-    // Fill in data and save
+    // Fill in data and save. See the previous test for why we wait for the
+    // detail-refetch GET rather than a fixed delay.
     await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
-    await page.locator('[data-testid="save-btn"]').click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Open diff view
     const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');

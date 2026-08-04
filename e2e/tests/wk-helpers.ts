@@ -243,8 +243,15 @@ export async function globalSearchAndClick(
 ): Promise<number> {
   await page.goto(`${FRONTEND_URL}/`);
   await page.locator('[data-testid="global-search"]').click();
+  // fill() triggers the 300ms-debounced handleSearchChange
+  // (SidebarNavigation.tsx), which then GETs /search/. Wait for that
+  // response instead of a fixed delay so the result count below reflects
+  // the actually-loaded results.
+  const responsePromise = page.waitForResponse(
+    (resp) => resp.url().includes('/search/') && resp.request().method() === 'GET'
+  );
   await page.locator('[data-testid="global-search"]').fill(query);
-  await page.waitForTimeout(600);
+  await responsePromise;
   const results = page.locator('[data-testid="global-search-result"]');
   return await results.count();
 }

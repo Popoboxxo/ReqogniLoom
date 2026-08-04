@@ -408,7 +408,11 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     // Two-step inline confirmation (REQ-012) — the first click only reveals
     // the confirm button, it doesn't call the close API by itself.
     await page.getByTestId('testrun-confirm-close-btn').click();
-    await page.waitForTimeout(1500);
+    // handleClose() (TestRunDetailEditor.tsx) awaits testRunsApi.close(),
+    // then renders the "testrun-close-success" status region — wait for
+    // that instead of a fixed delay, so the follow-up API assertion below
+    // is guaranteed to run after the close has actually taken effect.
+    await expect(page.getByTestId('testrun-close-success')).toBeVisible({ timeout: 8000 });
 
     // Nach dem Close: aggregate status "failed" + finished_at gesetzt
     const after = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
