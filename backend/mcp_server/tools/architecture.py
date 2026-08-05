@@ -64,6 +64,7 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
         "description": el.description,
         "element_type": el.element_type,
         "version": el.version,
+        "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
     }
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
@@ -127,6 +128,16 @@ class ArchitectureToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Element type (default 'component').",
                     },
+                    "parent_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional UUID of the parent ArchitectureElement. "
+                            "If omitted, a root element is created (subject to "
+                            "the workspace's single-root invariant I5). If "
+                            "provided, the new element is attached as a child "
+                            "of that element (invariants I1/I3 apply)."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -144,7 +155,13 @@ class ArchitectureToolGroup(BaseToolGroup):
                     },
                     "data": {
                         "type": "object",
-                        "description": "Fields to update (title, description, element_type, expected_version).",
+                        "description": (
+                            "Fields to update (title, description, element_type, "
+                            "expected_version, parent_id). 'parent_id' is optional: "
+                            "omit it to leave the current parent unchanged, set it "
+                            "to a UUID to re-parent, or set it to null to detach "
+                            "the element to root (subject to invariants I1/I3/I5)."
+                        ),
                     },
                 },
                 "required": ["id"],
@@ -304,6 +321,7 @@ class ArchitectureToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         description: str = params.get("description", "")
         element_type: str = params.get("element_type", "component")
+        parent_id = optional_uuid(params, "parent_id")
 
         try:
             el = self._service.create_architecture_element(
@@ -312,6 +330,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 description=description,
                 element_type=element_type,
+                parent_id=parent_id,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -350,6 +369,23 @@ class ArchitectureToolGroup(BaseToolGroup):
         except (TypeError, ValueError):
             return ToolResult.error("VALIDATION_ERROR", "'expected_version' must be an integer.")
 
+        # REQ-L1-044: 'parent_id' is optional and tri-state — distinguish
+        # "omitted" (leave current parent unchanged) from "set to null"
+        # (detach to root), matching the REST partial_update contract.
+        update_kwargs: Dict[str, Any] = {}
+        if "parent_id" in data:
+            raw_parent_id = data["parent_id"]
+            if raw_parent_id is None:
+                update_kwargs["parent_id"] = None
+            else:
+                try:
+                    update_kwargs["parent_id"] = UUID(str(raw_parent_id))
+                except (ValueError, AttributeError):
+                    return ToolResult.error(
+                        "VALIDATION_ERROR",
+                        f"Parameter 'parent_id' is not a valid UUID: '{raw_parent_id}'",
+                    )
+
         try:
             el = self._service.update_architecture_element(
                 arch_el_id=arch_id,
@@ -358,6 +394,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                 title=data.get("title"),
                 description=data.get("description"),
                 element_type=data.get("element_type"),
+                **update_kwargs,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

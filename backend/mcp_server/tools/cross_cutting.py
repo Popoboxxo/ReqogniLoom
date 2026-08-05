@@ -57,6 +57,7 @@ from application.services import (
     ValidationError,
     VALID_LINK_TYPES,
 )
+from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
@@ -286,16 +287,35 @@ class CrossCuttingToolGroup(BaseToolGroup):
         },
         {
             "name": "artifact.search",
-            "description": "Full-text search across all artifact types.",
+            "description": (
+                "Search across all artifact types. Combines a semantic "
+                "full-text pass (PostgreSQL tsvector) with a lexical pass "
+                "that matches the query as a case-insensitive substring of "
+                "an artifact's title, uid or ID — so exact names and ID "
+                "fragments are found too, and rank above semantic matches."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Search query string."},
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Search query string. Substring matching on "
+                            "title/uid/ID needs at least 2 characters."
+                        ),
+                    },
                     "workspace_id": {"type": "string", "description": "Optional workspace UUID filter."},
                     "type_filter": {
                         "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional list of artifact types to include.",
+                        "items": {
+                            "type": "string",
+                            "enum": sorted(SEARCHABLE_ARTIFACT_TYPES),
+                        },
+                        "description": (
+                            "Optional list of artifact types to include. "
+                            "Defaults to all searchable types. MainGoal is "
+                            "not searchable (no title, aggregated content)."
+                        ),
                     },
                     "page": {"type": "integer", "description": "Page number (default 1)."},
                     "limit": {"type": "integer", "description": "Page size (default 20)."},
