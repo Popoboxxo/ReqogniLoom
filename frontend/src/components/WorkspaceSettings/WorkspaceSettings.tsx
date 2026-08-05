@@ -35,6 +35,7 @@ import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmi
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { AiPromptsSection } from "./AiPromptsSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
+import { McpConnectionSection } from "./McpConnectionSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { PageHeader } from "../shared/PageHeader";
 
@@ -473,6 +474,13 @@ export default function WorkspaceSettings(): JSX.Element {
                 {t("settings.csvImport", "CSV-Import")}
               </button>
             </section>
+
+            {/* MCP connection info — read-only, everything an MCP client needs
+                to address this workspace (endpoints, workspace_id, auth). */}
+            <McpConnectionSection
+              workspaceId={activeWorkspace.id}
+              workspaceName={activeWorkspace.name}
+            />
           </>
         )}
 

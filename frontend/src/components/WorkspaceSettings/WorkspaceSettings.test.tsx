@@ -78,6 +78,12 @@ vi.mock("./CustomFieldsSection", () => ({
   CustomFieldsSection: () => <div data-testid="stub-custom-fields" />,
 }));
 
+// Stub McpConnectionSection — it renders a router <Link>, which the stubbed
+// react-router-dom above does not provide. Covered by its own test file.
+vi.mock("./McpConnectionSection", () => ({
+  McpConnectionSection: () => <div data-testid="stub-mcp-connection" />,
+}));
+
 describe("WorkspaceSettings tabs (REQ-015)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

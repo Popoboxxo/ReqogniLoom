@@ -599,7 +599,27 @@
         "decision_to_adr": "Decision → ADR"
       }
     },
-    "pageSummary": "Workspace configuration: preset, traceability, visibility, LLM settings and workflows."
+    "pageSummary": "Workspace configuration: preset, traceability, visibility, LLM settings and workflows.",
+    "mcp": {
+      "title": "MCP connection",
+      "hint": "Everything an MCP client (e.g. Claude Desktop or Claude Code) needs in order to connect to this workspace.",
+      "workspaceName": "Workspace name",
+      "workspaceId": "Workspace ID",
+      "workspaceIdHint": "An API key is bound to a user and tenant, not to a workspace. Almost every MCP tool therefore requires workspace_id as an explicit parameter on each tools/call.",
+      "httpEndpoint": "MCP endpoint (HTTP)",
+      "sseEndpoint": "MCP endpoint (SSE)",
+      "auth": "Authentication",
+      "authHint": "The API key must be sent as a header — X-API-Key: reqlo_… or Authorization: Bearer reqlo_…. An api_key query parameter is deliberately not supported.",
+      "tokenLink": "Create a personal access token in your profile",
+      "configExample": "Example configuration",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyWorkspaceName": "Copy workspace name",
+      "copyWorkspaceId": "Copy workspace ID",
+      "copyHttpEndpoint": "Copy HTTP endpoint",
+      "copySseEndpoint": "Copy SSE endpoint",
+      "copyConfigExample": "Copy example configuration"
+    }
   },
   "categories": {
     "stakeholder": "Stakeholder Requirement",
