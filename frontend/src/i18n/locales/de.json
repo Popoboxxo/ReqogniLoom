@@ -1137,7 +1137,13 @@
     "versions": "Versionen",
     "versionsNone": "Nur die aktuelle Version.",
     "empty": "Noch keine Ziele",
-    "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe fuer das Haupt-Ziel."
+    "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe fuer das Haupt-Ziel.",
+    "transition": {
+      "Freigegeben": "Freigeben",
+      "Entwurf": "Zurück zu Entwurf",
+      "Archiviert": "Archivieren"
+    },
+    "transitionReason": "Statuswechsel nach {{state}}."
   },
   "traceSpine": {
     "title": "Ableitungskette",

@@ -15,7 +15,8 @@ handlers.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.goal_service import GoalService
@@ -68,9 +69,12 @@ class GoalToolGroup(BaseToolGroup):
         "goal.query": "_handle_query",
         "goal.create": "_handle_create",
         "goal.create_version": "_handle_create_version",
+        "goal.update": "_handle_update",
         "goal.list_versions": "_handle_list_versions",
         "goal.transition": "_handle_transition",
         "goal.delete": "_handle_delete",
+        "goal.outdate": "_handle_outdate",
+        "goal.reactivate": "_handle_reactivate",
     }
     _TOOL_SCHEMAS = [
         {
@@ -133,6 +137,34 @@ class GoalToolGroup(BaseToolGroup):
             },
         },
         {
+            "name": "goal.update",
+            "description": (
+                "Update a Goal (write). Goals are immutable, lineage-versioned "
+                "rows, so this does NOT edit the addressed row: it appends a "
+                "new version to the same lineage carrying the given fields, "
+                "starting again at 'Entwurf'. Omitted fields are inherited "
+                "from the addressed version (PATCH semantics). Identical in "
+                "effect to goal.create_version, but addressed by goal_id "
+                "instead of lineage_id. 'status' cannot be changed here — use "
+                "goal.transition."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the Goal version to base the new version "
+                            "on (not the lineage_id)."
+                        ),
+                    },
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["goal_id"],
+            },
+        },
+        {
             "name": "goal.list_versions",
             "description": "List all versions in a Goal lineage, oldest first.",
             "inputSchema": {
@@ -177,11 +209,27 @@ class GoalToolGroup(BaseToolGroup):
         {
             "name": "goal.delete",
             "description": (
-                "Archive a Goal version (soft-delete, write). Goals are "
-                "immutable lineage-versioned rows, so this transitions the "
-                "version to 'Archiviert' via the WorkflowEngine (same path "
-                "as goal.transition) rather than removing the row. "
-                "Reversible through goal.transition back to 'Entwurf'."
+                "SOFT-ARCHIVE a Goal version (write). This is NOT a hard "
+                "delete: Goals are immutable, lineage-versioned rows, so the "
+                "row is never removed — the version is moved to the "
+                "'Archiviert' workflow state through the WorkflowEngine (the "
+                "same gated path as goal.transition). The row stays readable "
+                "via goal.read and goal.list_versions, and goal.query still "
+                "returns it when include_archived=true. "
+                "REACHABLE FROM: any state the workspace's Goal workflow "
+                "defines a transition to 'Archiviert' from — with the stock "
+                "'goal_default' preset that is 'Entwurf' and 'Freigegeben' "
+                "(both approver/admin only). A workspace whose Goal workflow "
+                "was customised, or that was provisioned before the "
+                "'Entwurf -> Archiviert' edge existed, may only allow it from "
+                "'Freigegeben'. "
+                "ON AN INVALID STATE: returns VALIDATION_ERROR (JSON-RPC "
+                "error, HTTP 400) naming the current state; call "
+                "goal.transition with an unreachable target to get the list "
+                "of states that ARE reachable in the error details. A caller "
+                "lacking the approver/admin role gets PERMISSION_DENIED. "
+                "REVERSIBLE via goal.reactivate (or goal.transition back to "
+                "'Entwurf'). Alias: goal.outdate."
             ),
             "inputSchema": {
                 "type": "object",
@@ -193,6 +241,65 @@ class GoalToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["goal_id"],
+            },
+        },
+        {
+            "name": "goal.outdate",
+            "description": (
+                "Soft-delete a Goal version (write). Exact alias of "
+                "goal.delete, named after the {entity}.outdate convention the "
+                "other artifact namespaces use — for Goals the soft-delete "
+                "state is the workflow's 'Archiviert', not the generic "
+                "'outdated' escape hatch, because 'outdated' is foreign to "
+                "the Goal state machine and would hide the row from the "
+                "archive filters. See goal.delete for the reachable source "
+                "states and error behaviour."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "string"},
+                    "id": {
+                        "type": "string",
+                        "description": "Alias of goal_id ({entity}.outdate convention).",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional audit reason for archiving.",
+                    },
+                    "change_reason": {
+                        "type": "string",
+                        "description": "Alias of reason.",
+                    },
+                },
+            },
+        },
+        {
+            "name": "goal.reactivate",
+            "description": (
+                "Restore an archived Goal version (write). Transitions it "
+                "back to the Goal workflow's initial state ('Entwurf' by "
+                "default) through the same gated path as goal.transition. "
+                "Deliberately does NOT restore the pre-archive state: only "
+                "'Freigegeben' versions feed MainGoal aggregation, so a "
+                "restored Goal returns as a draft and must be approved again. "
+                "The stock preset gates 'Archiviert -> Entwurf' on "
+                "approver/admin and requires a reason (defaulted to "
+                "'reactivated' when none is given)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "string"},
+                    "id": {
+                        "type": "string",
+                        "description": "Alias of goal_id ({entity}.reactivate convention).",
+                    },
+                    "change_reason": {
+                        "type": "string",
+                        "description": "Audit reason; defaults to 'reactivated'.",
+                    },
+                },
             },
         },
     ]
@@ -258,6 +365,52 @@ class GoalToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok(result)
 
+    @staticmethod
+    def _require_goal_id(params: Dict[str, Any]) -> UUID:
+        """Read the Goal id from ``goal_id`` or its ``id`` alias.
+
+        ``goal.*`` has always used ``goal_id``; the ``{entity}.outdate`` /
+        ``{entity}.reactivate`` tools generated by ``GenericCrudToolGroup`` use
+        ``id``. Both are accepted on those two tools so a client that learned
+        the generic convention is not tripped up by this bespoke group.
+        """
+        if params.get("goal_id") is None and params.get("id") is not None:
+            return require_uuid(params, "id")
+        return require_uuid(params, "goal_id")
+
+    def _handle_update(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Append a new lineage version carrying the updated fields.
+
+        Goals have no in-place update (immutable rows) — see the tool
+        description. ``status`` is rejected outright, mirroring
+        ``GenericCrudToolGroup._handle_update`` (#83 Bug 2): the workflow
+        engine is the only authority over the status field.
+        """
+        goal_id = require_uuid(params, "goal_id")
+        if "status" in params:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "'status' cannot be changed via goal.update; use "
+                "goal.transition for a state-machine-gated status change, or "
+                "goal.delete / goal.reactivate for the archive lifecycle.",
+            )
+        try:
+            result = GoalService().update(
+                goal_id,
+                auth_context,
+                title=params.get("title"),
+                description=params.get("description"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        return ToolResult.ok(result)
+
     def _handle_list_versions(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
@@ -274,15 +427,27 @@ class GoalToolGroup(BaseToolGroup):
         ``WorkflowFacade`` path ``POST /api/v1/goals/{id}/transitions/`` uses,
         so role / change_reason / signature gates behave identically across
         REST and MCP.
+
+        Issue #346 finding 3: a rejected target state used to answer with a
+        bare 400 that named the offending state but not the acceptable ones,
+        leaving the caller to guess. The error now carries the states actually
+        reachable from the version's current state, resolved through
+        ``GoalService.get_available_transitions`` (the same WorkflowFacade
+        lookup that backs ``GET /api/v1/goals/{id}/transitions/``) rather than
+        a second, drifting copy of the state machine.
         """
+        service = GoalService()
         goal_id = require_uuid(params, "goal_id")
         target_state = params.get("target_state") or params.get("to_status")
         if not target_state:
-            return ToolResult.error(
-                "VALIDATION_ERROR", "Required parameter 'target_state' is missing."
+            return self._invalid_target_state_error(
+                service,
+                goal_id,
+                auth_context,
+                "Required parameter 'target_state' is missing.",
             )
         try:
-            goal = GoalService().transition_status(
+            goal = service.transition_status(
                 goal_id,
                 str(target_state),
                 auth_context,
@@ -294,7 +459,9 @@ class GoalToolGroup(BaseToolGroup):
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
-            return ToolResult.error("VALIDATION_ERROR", str(exc))
+            return self._invalid_target_state_error(
+                service, goal_id, auth_context, str(exc)
+            )
         return ToolResult.ok(
             {
                 "id": str(goal.id),
@@ -304,41 +471,138 @@ class GoalToolGroup(BaseToolGroup):
             }
         )
 
-    def _handle_delete(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    @staticmethod
+    def _invalid_target_state_error(
+        service: GoalService,
+        goal_id: UUID,
+        auth_context: AuthContext,
+        message: str,
     ) -> ToolResult:
-        """Archive a Goal version (soft-delete) via the WorkflowEngine.
+        """Build the VALIDATION_ERROR for a rejected/missing ``target_state``.
+
+        Appends the states reachable from the Goal's current state to both the
+        human-readable message and the structured ``details`` payload
+        (``ErrorFormatter`` forwards ``details`` into the JSON-RPC error body),
+        so an MCP client can recover without a second round-trip. The lookup is
+        best-effort: it must never turn a 400 into a 500, so any failure to
+        resolve the transitions falls back to the bare message.
+        """
+        try:
+            current_state, targets = service.get_available_transitions(
+                goal_id, auth_context
+            )
+        except Exception:  # noqa: BLE001 — error path must not raise
+            return ToolResult.error("VALIDATION_ERROR", message)
+
+        if targets:
+            hint = (
+                f" Valid target states from '{current_state}': "
+                f"{', '.join(targets)}."
+            )
+        else:
+            hint = (
+                f" No target state is reachable from '{current_state}' for "
+                "this workspace's Goal workflow."
+            )
+        return ToolResult.error(
+            "VALIDATION_ERROR",
+            f"{message}{hint}",
+            details={
+                "current_state": current_state,
+                "valid_target_states": targets,
+            },
+        )
+
+    def _archive(
+        self,
+        *,
+        goal_id: UUID,
+        auth_context: AuthContext,
+        change_reason: Optional[str],
+    ) -> ToolResult:
+        """Shared implementation of ``goal.delete`` / ``goal.outdate``.
 
         Goals are immutable, lineage-versioned rows (see module docstring) —
         an outright DELETE would silently break lineage history and MainGoal
         aggregation. Consistent with the rest of the system's soft-delete
-        convention, this instead transitions the version to the 'Archiviert'
-        state through the exact same ``GoalService.transition_status`` /
-        ``WorkflowFacade`` path ``goal.transition`` uses, so role /
-        change_reason gates apply identically (no parallel delete logic).
+        convention, this instead transitions the version into the state the
+        workspace's Goal workflow flags as ``is_outdated_equivalent``
+        ('Archiviert' in the stock preset) through the exact same
+        ``GoalService.transition_status`` / ``WorkflowFacade`` path
+        ``goal.transition`` uses, so role / change_reason gates apply
+        identically (no parallel delete logic).
         """
-        goal_id = require_uuid(params, "goal_id")
+        service = GoalService()
         try:
-            goal = GoalService().transition_status(
-                goal_id,
-                "Archiviert",
-                auth_context,
-                change_reason=params.get("change_reason"),
+            goal = service.archive(
+                goal_id, auth_context, change_reason=change_reason
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
-            return ToolResult.error("VALIDATION_ERROR", str(exc))
-        return ToolResult.ok(
-            {
-                "id": str(goal.id),
-                "lineage_id": str(goal.lineage_id),
-                "sequence_number": goal.sequence_number,
-                "status": goal.status,
-            }
+            return self._invalid_target_state_error(
+                service, goal_id, auth_context, str(exc)
+            )
+        return ToolResult.ok(_goal_payload(goal))
+
+    def _handle_delete(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Soft-archive a Goal version (see the tool description for details)."""
+        return self._archive(
+            goal_id=require_uuid(params, "goal_id"),
+            auth_context=auth_context,
+            change_reason=params.get("change_reason"),
         )
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """``{entity}.outdate``-named alias of ``goal.delete``.
+
+        Deliberately NOT routed through ``workflow.services.outdate()`` like
+        the ``GenericCrudToolGroup`` entities: that escape hatch force-writes
+        the state ``"outdated"``, which is foreign to the Goal state machine
+        and — because ``Goal`` is registered in
+        ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` — would be
+        mirrored into ``Goal.status``, making the row slip past the
+        ``Archiviert`` filters in ``GoalService.list_current`` and reappear in
+        ``goal.query``.
+        """
+        return self._archive(
+            goal_id=self._require_goal_id(params),
+            auth_context=auth_context,
+            change_reason=params.get("reason") or params.get("change_reason"),
+        )
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Restore an archived Goal version to the workflow's initial state.
+
+        Mirrors ``{entity}.reactivate`` for the other namespaces, but through
+        the gated ``GoalService.restore`` rather than the forced
+        ``workflow.services.reactivate()`` — see ``_handle_outdate`` for why,
+        and ``GoalService.restore`` for why the pre-archive state is
+        deliberately not restored.
+        """
+        goal_id = self._require_goal_id(params)
+        service = GoalService()
+        try:
+            goal = service.restore(
+                goal_id, auth_context, change_reason=params.get("change_reason")
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return self._invalid_target_state_error(
+                service, goal_id, auth_context, str(exc)
+            )
+        return ToolResult.ok(_goal_payload(goal))
 
 
 class MainGoalToolGroup(BaseToolGroup):

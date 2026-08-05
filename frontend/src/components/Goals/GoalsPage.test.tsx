@@ -46,10 +46,31 @@ const selectGoal = async (id: string): Promise<void> => {
   fireEvent.click(await screen.findByTestId(`goals-tree-node-${id}`));
 };
 
+/**
+ * Issue #220: the lifecycle buttons render from the WorkflowEngine's
+ * allowed_transitions, so every test that touches them has to state what the
+ * server would allow. `requiresReason` mirrors the `goal_default` preset,
+ * where only `Entwurf -> Freigegeben` demands a change reason.
+ */
+const mockTransitions = (
+  ...allowed: { target_state: string; requires_change_reason?: boolean }[]
+): void => {
+  vi.mocked(goalsModule.goalsApi.getTransitions).mockResolvedValue({
+    current_state: "Entwurf",
+    states: ["Entwurf", "Freigegeben", "Archiviert"],
+    allowed_transitions: allowed.map((a) => ({
+      target_state: a.target_state,
+      requires_change_reason: a.requires_change_reason ?? false,
+      signature_gate: false,
+    })),
+  });
+};
+
 describe("GoalsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(null);
+    mockTransitions();
   });
 
   it("renders the two tree roots and shows the main goal by default", async () => {
@@ -100,6 +121,7 @@ describe("GoalsPage", () => {
 
   it("approves a draft goal via the workflow transitions endpoint", async () => {
     vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([makeGoal()]);
+    mockTransitions({ target_state: "Freigegeben", requires_change_reason: true });
     vi.mocked(goalsModule.goalsApi.transition).mockResolvedValue({
       id: "g1",
       previous_state: "Entwurf",
@@ -109,7 +131,7 @@ describe("GoalsPage", () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
-    fireEvent.click(await screen.findByTestId("goal-approve-button"));
+    fireEvent.click(await screen.findByTestId("goal-transition-Freigegeben"));
 
     await waitFor(() =>
       expect(goalsModule.goalsApi.transition).toHaveBeenCalledWith(
@@ -118,18 +140,107 @@ describe("GoalsPage", () => {
         expect.any(String)
       )
     );
+    // The preset requires a non-empty reason for this move.
+    expect(
+      vi.mocked(goalsModule.goalsApi.transition).mock.calls[0][2]
+    ).toBeTruthy();
   });
 
-  it("hides the approve control for an already approved goal", async () => {
+  it("hides the approve control when the workflow does not allow it", async () => {
     vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([
       makeGoal({ status: "Freigegeben" }),
     ]);
+    // From "Freigegeben" the goal_default preset offers archive / rework,
+    // never another approval.
+    mockTransitions(
+      { target_state: "Archiviert" },
+      { target_state: "Entwurf" }
+    );
 
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
     await screen.findByTestId("goal-detail");
-    expect(screen.queryByTestId("goal-approve-button")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("goal-transition-Freigegeben")
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("goal-transition-Archiviert")
+    ).toBeInTheDocument();
+  });
+
+  it("renders lifecycle buttons from allowed_transitions, not from the status name", async () => {
+    // A workspace with a customised Goal state machine (ADR-06): neither the
+    // state names nor the moves match the stock German preset. The button
+    // must still appear, labelled with the server's target state.
+    vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([
+      makeGoal({ status: "Proposed" }),
+    ]);
+    mockTransitions({ target_state: "Ratified", requires_change_reason: true });
+    vi.mocked(goalsModule.goalsApi.transition).mockResolvedValue({
+      id: "g1",
+      previous_state: "Proposed",
+      new_state: "Ratified",
+    });
+
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+
+    const button = await screen.findByTestId("goal-transition-Ratified");
+    expect(button).toHaveTextContent("Ratified");
+
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(goalsModule.goalsApi.transition).toHaveBeenCalledWith(
+        "g1",
+        "Ratified",
+        expect.any(String)
+      )
+    );
+  });
+
+  it("omits the change reason for a transition that does not require one", async () => {
+    vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([
+      makeGoal({ status: "Freigegeben" }),
+    ]);
+    mockTransitions({ target_state: "Archiviert", requires_change_reason: false });
+    vi.mocked(goalsModule.goalsApi.transition).mockResolvedValue({
+      id: "g1",
+      previous_state: "Freigegeben",
+      new_state: "Archiviert",
+    });
+
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+
+    fireEvent.click(await screen.findByTestId("goal-transition-Archiviert"));
+
+    await waitFor(() =>
+      expect(goalsModule.goalsApi.transition).toHaveBeenCalledWith(
+        "g1",
+        "Archiviert",
+        ""
+      )
+    );
+  });
+
+  it("renders no lifecycle button when the transitions endpoint fails", async () => {
+    // 404 = no workflow configured for this workspace/type. The detail pane
+    // degrades to read-only instead of showing a control that cannot work.
+    vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([makeGoal()]);
+    vi.mocked(goalsModule.goalsApi.getTransitions).mockRejectedValue(
+      new Error("Not found")
+    );
+
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+
+    await screen.findByTestId("goal-detail");
+    expect(
+      screen.queryByTestId("goal-transition-Freigegeben")
+    ).not.toBeInTheDocument();
+    // ...and no error banner: the goal itself loaded fine.
+    expect(screen.queryByTestId("goals-error")).not.toBeInTheDocument();
   });
 
   it("edits a goal by creating a new version in the same lineage", async () => {
@@ -180,6 +291,7 @@ describe("GoalsPage", () => {
 
   it("surfaces a rejected approval (role gate)", async () => {
     vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([makeGoal()]);
+    mockTransitions({ target_state: "Freigegeben", requires_change_reason: true });
     vi.mocked(goalsModule.goalsApi.transition).mockRejectedValue(
       new Error("Role not allowed")
     );
@@ -187,7 +299,7 @@ describe("GoalsPage", () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
-    fireEvent.click(await screen.findByTestId("goal-approve-button"));
+    fireEvent.click(await screen.findByTestId("goal-transition-Freigegeben"));
 
     expect(await screen.findByTestId("goals-error")).toHaveTextContent(/Role not allowed/);
   });

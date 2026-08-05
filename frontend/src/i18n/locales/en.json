@@ -1137,7 +1137,13 @@
     "versions": "Versions",
     "versionsNone": "Only the current version.",
     "empty": "No goals yet",
-    "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal."
+    "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal.",
+    "transition": {
+      "Freigegeben": "Approve",
+      "Entwurf": "Back to draft",
+      "Archiviert": "Archive"
+    },
+    "transitionReason": "Status change to {{state}}."
   },
   "traceSpine": {
     "title": "Derivation chain",
