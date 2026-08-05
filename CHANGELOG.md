@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-08-05
+
+> Note: a `v1.4.0` git tag exists in this repo's history (on commit `faafc354`,
+> 2026-08-03) but the `VERSION` file was never bumped to match at that point -
+> this release corrects the drift and is versioned relative to the actual
+> last file-tracked version (1.3.0), not the stray tag.
+
+### Breaking Changes
+- **SE Governance:** Baseline creation now enforces SE-Auditor review gate for BLOCKER findings; baseline snapshots with unverified critical issues cannot be finalized (#367)
+- **Workflow:** Change control board (CCB) approval flow now requires distinct approvers (same-person approval rejected); verification evidence now mandatory for transitioned-to-verified state (#367)
+
+### Security
+- Fixed stored XSS vulnerability in diagram SVG preview via attribute sanitization injection (#351)
+- Backend/API/MCP: patched custom field and baseline scoping security gaps (#354)
+
+### Added
+- MCP connection info panel in workspace settings showing real-time connection status and endpoint details (#358)
+- SE-conformance enforcement: mandatory field validation gates on baseline creation and requirement state transitions (#367)
+- SE-Auditor blocking gate: prevents baseline finalization when BLOCKER audit findings are unresolved (#367)
+- Verification evidence requirement: enforces artifact evidence submission for verified workflow state (#367)
+- UI-Konzept full rollout (Phases 0–8): complete design-system implementation across all artifact types
+  - Phase 0–1: shared primitives (Dialog, ListToolbar, cards, buttons)
+  - Phase 2: ADR/Risk/Issue/TestCase form layouts
+  - Phase 3: Requirements + Trace-Spine visual refinement
+  - Phase 4a: tree keyboard navigation
+  - Phase 4b: RequirementTreeNode + virtualization
+  - Phase 5: remaining routes (remaining artifact pages)
+  - Phase 6: Diagrams layout per E2 decision
+  - Phase 7: enforcement gates UI (7.1, 7.2, 7.3, 7.5)
+  - Phase 8: theming primitives and IBM Plex typography
+- IBM Plex font family integration for improved visual hierarchy and multilingual support
+
+### Fixed
+- 2 CRITICAL AI/LLM bugs: fixed write-mode persistence data loss and workspace-wide LLM tool timeouts causing 500 errors (#361)
+- 3 HIGH bugs: requirement save data corruption, LLM provider dropdown safety, MCP schema/search accuracy (#367)
+- Goal state transitions now driven dynamically; completed goal MCP lifecycle integration (#357)
+- Header font-family and summary display inconsistencies identified by live audit (#356)
+- UI component count unification and non-artifact page header inconsistencies (#348)
+- 25 remaining audit-2026-07 UI/backend issues resolved (#347)
+- GoalsTree false-positive entry in tree-implementation ratchet (#334)
+- Deployment example documentation drift corrected (#335)
+
+### Changed
+- SE governance model: baseline scope now enforces artifact-level conformance on finalization
+- Workflow engine: added ChangeRequestAffectedItem model for enhanced change-control traceability (#367, migration 0014)
+- Goal transitions: refactored to use dynamic state-machine evaluation for improved reliability
+
+### Infrastructure
+- Added database migration 0014 for ChangeRequestAffectedItem model supporting change-control linkage
+
 ## [1.3.0] — 2026-08-02
 
 ### Security
