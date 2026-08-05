@@ -306,7 +306,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
                       borderBottom: '1px solid var(--color-border-subtle)',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'var(--color-surface-hover)';
+                      e.currentTarget.style.background = 'var(--color-card-active-bg)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';

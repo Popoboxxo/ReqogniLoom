@@ -361,7 +361,7 @@ export default function ReviewsView({
                 border: "1px solid var(--color-border)",
                 background:
                   r.id === selectedId
-                    ? "var(--color-surface-hover, #eef2ff)"
+                    ? "var(--color-card-active-bg)"
                     : "var(--color-surface)",
                 cursor: "pointer",
               }}

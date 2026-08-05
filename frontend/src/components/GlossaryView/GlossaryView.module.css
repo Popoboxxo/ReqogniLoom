@@ -115,7 +115,7 @@
 }
 
 .globalBadge {
-  background: var(--color-warning-soft);
+  background: var(--color-badge-warning-bg);
   color: var(--color-warning);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
@@ -124,7 +124,7 @@
 }
 
 .globalBadgeDetail {
-  background: var(--color-warning-soft);
+  background: var(--color-badge-warning-bg);
   color: var(--color-warning);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
@@ -265,7 +265,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--color-primary-soft);
+  background: var(--color-card-active-bg);
   color: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-full);

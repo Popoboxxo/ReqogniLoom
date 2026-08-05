@@ -323,7 +323,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       {error && (
         <p
           data-testid="prompt-template-error"
-          style={{ color: "var(--color-error)", marginBottom: "var(--space-3)" }}
+          style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)" }}
         >
           {error}
         </p>

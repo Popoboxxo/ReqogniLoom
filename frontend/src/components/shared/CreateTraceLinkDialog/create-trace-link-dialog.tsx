@@ -222,7 +222,7 @@ function ElementPicker({
                 border: '1px solid var(--color-border)',
                 cursor: 'pointer',
                 background: typeFilter === key ? 'var(--color-primary)' : 'var(--color-surface)',
-                color: typeFilter === key ? 'var(--color-on-primary, #fff)' : 'var(--color-text)',
+                color: typeFilter === key ? 'var(--color-on-primary)' : 'var(--color-text)',
                 fontWeight: typeFilter === key ? 600 : 400,
               }}
             >
@@ -267,7 +267,7 @@ function ElementPicker({
                       gap: 'var(--space-2)',
                       padding: 'var(--space-2) var(--space-3)',
                       background: isSelected ? 'var(--color-primary)' : 'transparent',
-                      color: isSelected ? 'var(--color-on-primary, #fff)' : 'var(--color-text)',
+                      color: isSelected ? 'var(--color-on-primary)' : 'var(--color-text)',
                       border: 'none',
                       cursor: 'pointer',
                       textAlign: 'left',

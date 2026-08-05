@@ -51,7 +51,7 @@ const headingStyle: React.CSSProperties = {
 };
 
 const inputStyle: React.CSSProperties = {
-  background: "var(--color-bg)",
+  background: "var(--color-surface)",
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-3)",
@@ -248,7 +248,7 @@ export function ApiKeysSection(): JSX.Element {
               style={{
                 fontFamily: "monospace",
                 fontSize: "var(--font-size-sm)",
-                background: "var(--color-bg)",
+                background: "var(--color-surface)",
                 padding: "var(--space-1) var(--space-2)",
                 borderRadius: "var(--radius-sm)",
                 wordBreak: "break-all",
