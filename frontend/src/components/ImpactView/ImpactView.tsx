@@ -354,7 +354,16 @@ export function ImpactView(): JSX.Element {
 
   return (
     <div data-testid="impact-view">
-      <PageHeader title={t("nav.impact", "Impact-Analyse")} />
+      <PageHeader
+        title={t("nav.impact", "Impact-Analyse")}
+        summary={
+          rootArtifact
+            ? t("impact.summaryRootSelected", "Ausgehend von: {{title}}", {
+                title: rootArtifact.title,
+              })
+            : t("impact.summaryNoRoot", "Kein Artefakt ausgewählt")
+        }
+      />
 
       {!activeWorkspace ? (
         <p style={{ color: "var(--color-text-muted)" }}>
