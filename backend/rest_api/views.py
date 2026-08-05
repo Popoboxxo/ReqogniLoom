@@ -2316,17 +2316,31 @@ class BaselineViewSet(BaseEntityViewSet):
             raise
         return super().handle_exception(exc)
 
-    def _check_preset(self, request: Request) -> None:
-        """Gate this endpoint by preset. Raises Http404 if not visible."""
+    def _check_preset(self, request: Request, workspace_id: str | None = None) -> None:
+        """Gate this endpoint by preset. Raises Http404 if not visible.
+
+        Args:
+            workspace_id: Resolved workspace id (e.g. from the nested-route
+                ``workspace_pk`` URL kwarg, issue #49); takes precedence over
+                the request body/query-params/tenant-id fallbacks.
+        """
         self.request = request
-        self._guard_preset()
+        self._guard_preset(workspace_id_override=workspace_id)
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        self._check_preset(request)
+        """GET /api/v1/baselines/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/baselines/ — list workspace baselines.
+
+        Issue #49: baselines were only reachable at the flat, root-level
+        route, unlike Needs/Permissions/Audit/etc. which are workspace-scoped
+        via a nested ``workspaces/<workspace_pk>/...`` path. The nested route
+        is now registered too (rest_api/urls.py); the flat route is kept for
+        backward compatibility (frontend/MCP callers use ?workspace_id=).
+        """
+        workspace_id_str = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
+        self._check_preset(request, workspace_id=workspace_id_str)
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
             if not workspace_id_str:
                 return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
             items = self._svc().list_baselines(workspace_id=str(workspace_id_str), ctx=ctx)
@@ -2351,9 +2365,19 @@ class BaselineViewSet(BaseEntityViewSet):
         return Response(BaselineSerializer(_baseline_to_dict(item)).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
-        self._check_preset(request)
+        """POST /api/v1/baselines/ (flat) or /api/v1/workspaces/<workspace_id>/baselines/ (nested) — create baseline.
+
+        Issue #49: the nested-route ``workspace_pk`` URL kwarg (when present)
+        takes precedence over a body-supplied ``workspace_id`` so the
+        workspace-scoped route works even if the client omits the field.
+        """
+        workspace_pk = kwargs.get("workspace_pk")
+        self._check_preset(request, workspace_id=workspace_pk)
         lang = detect_lang(request)
-        ser = BaselineSerializer(data=request.data)
+        data_in = dict(request.data)
+        if workspace_pk and not data_in.get("workspace_id"):
+            data_in["workspace_id"] = workspace_pk
+        ser = BaselineSerializer(data=data_in)
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
@@ -2367,7 +2391,7 @@ class BaselineViewSet(BaseEntityViewSet):
                 name = f"Baseline {timezone.now().isoformat()}"
             create_kwargs = {
                 "scope": scope,
-                "workspace_id": str(data["workspace_id"]),
+                "workspace_id": str(workspace_pk or data["workspace_id"]),
                 "name": name,
                 "description": data.get("description"),
                 "ctx": ctx,

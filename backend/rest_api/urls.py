@@ -13,6 +13,7 @@ Registers:
   /api/v1/tracelinks/         TraceLinkViewSet (legacy path, kept for compat)
   /api/v1/trace-links/        TraceLinkViewSet (kebab-case alias, fix #233)
   /api/v1/baselines/          BaselineViewSet  (preset-gated)
+  /api/v1/workspaces/{id}/baselines/  BaselineViewSet list/create, workspace-scoped (issue #49)
   /api/v1/workflows/          WorkflowDefinitionViewSet
   /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
   /api/v1/adrs/               AdrViewSet (REQ-L1-029)
@@ -210,6 +211,14 @@ urlpatterns = [
         "workspaces/<uuid:workspace_pk>/needs/",
         StakeholderNeedViewSet.as_view({"get": "list", "post": "create"}),
         name="workspace-needs",
+    ),
+    # Baselines routing by workspace (issue #49) — mirrors the Needs pattern
+    # above. The flat "baselines/" route (registered via the router) is kept
+    # for backward compatibility (frontend/MCP callers use ?workspace_id=).
+    path(
+        "workspaces/<uuid:workspace_pk>/baselines/",
+        BaselineViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-baselines",
     ),
     # Custom field definitions (REQ-016) — workspace-scoped list/create.
     path(

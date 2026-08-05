@@ -1149,13 +1149,13 @@ class TestBaselinePresetGate:
 class TestBaselineViewSetListWorkspaceScoping:
     """GET /api/v1/baselines/ is workspace-scoped (#49).
 
-    ReqogniLoom's REST API scopes every entity list by a `?workspace_id=`
-    query param (not path-nesting, e.g. `workspaces/{id}/requirements/`) —
-    that's the project-wide convention (see requirements/, testcases/, etc.).
-    Baselines follow the same pattern: `list()` (rest_api/views.py) requires
+    The flat `/api/v1/baselines/?workspace_id=` route (this class) requires
     `workspace_id` and returns 400 without it, then forwards it (plus
     ctx.tenant_id) to `BaselineFacade.list_baselines()` ->
     `baseline.services.list_baselines()`, so no unscoped listing is possible.
+    As of #49 a nested `/api/v1/workspaces/{id}/baselines/` route also exists
+    (mirroring Needs/Permissions/Audit/etc.) — see
+    rest_api/tests/test_baseline_workspace_routing.py.
     """
 
     def test_list_without_workspace_id_returns_400(self) -> None:
