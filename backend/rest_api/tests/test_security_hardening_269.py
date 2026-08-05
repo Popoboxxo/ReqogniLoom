@@ -514,3 +514,302 @@ def test_glossary_term_is_a_declared_free_text_field():
     guarded = collect_free_text_field_names(GlossaryTermSerializer)
 
     assert {"term", "definition"} <= guarded
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 (extended) — the remaining free-text fields on GlossaryTerm
+#
+# ``term``/``definition`` were the two the issue named. Auditing the rest of
+# the serializer found two more user-authored fields that reached the DB raw:
+# ``abbreviation`` (a plain ``CharField``) and ``synonyms`` (a ``JSONField``
+# holding a *list of strings* — the guard only inspected scalars, so every
+# element slipped through).
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_glossary_abbreviation_rejects_stored_xss(sec_env):
+    """``abbreviation`` is user-authored prose too, and was unguarded."""
+    client = _authed_client()
+
+    resp = client.post(
+        "/api/v1/glossary/",
+        {
+            "workspace_id": str(sec_env["workspace"].id),
+            "term": "AbbrTerm",
+            "definition": "A perfectly ordinary definition.",
+            "abbreviation": "<img src=x onerror=alert(1)>",
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "abbreviation" in _field_errors(resp.json())
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_glossary_synonyms_list_items_are_guarded(sec_env):
+    """A payload nested inside a JSON *list* must be caught, not skipped.
+
+    This is the sharp edge of the ``JSONField`` case: the scalar guard returned
+    ``None`` for any non-``str`` input, so ``["<img src=x onerror=alert(1)>"]``
+    was persisted byte-identically — the exact finding-4 bug, one nesting level
+    down.
+    """
+    client = _authed_client()
+
+    resp = client.post(
+        "/api/v1/glossary/",
+        {
+            "workspace_id": str(sec_env["workspace"].id),
+            "term": "SynTerm",
+            "definition": "A perfectly ordinary definition.",
+            "synonyms": ["harmless", "<img src=x onerror=alert(1)>"],
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "synonyms" in _field_errors(resp.json())
+
+    listing = client.get(
+        f"/api/v1/glossary/?workspace_id={sec_env['workspace'].id}"
+    )
+    assert listing.json()["count"] == 0
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_glossary_synonyms_reject_dangerous_uri_scheme(sec_env):
+    """Finding 3's scheme rule must apply inside the list as well."""
+    client = _authed_client()
+
+    resp = client.post(
+        "/api/v1/glossary/",
+        {
+            "workspace_id": str(sec_env["workspace"].id),
+            "term": "SynSchemeTerm",
+            "definition": "A perfectly ordinary definition.",
+            "synonyms": ["javascript:alert(1)"],
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "synonyms" in _field_errors(resp.json())
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_glossary_accepts_ordinary_synonyms_and_abbreviation(sec_env):
+    """The guard must not turn legitimate glossary data into a 400."""
+    client = _authed_client()
+
+    resp = client.post(
+        "/api/v1/glossary/",
+        {
+            "workspace_id": str(sec_env["workspace"].id),
+            "term": "Requirement",
+            "definition": "A documented need that a design must satisfy.",
+            "abbreviation": "REQ",
+            "synonyms": ["Anforderung", "Need"],
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["synonyms"] == ["Anforderung", "Need"]
+    assert resp.json()["abbreviation"] == "REQ"
+
+
+@pytest.mark.django_db
+def test_all_glossary_free_text_fields_are_declared():
+    """Extends the seam guard to the fields added here."""
+    from rest_api.sanitization import collect_free_text_field_names
+    from rest_api.serializers import GlossaryTermSerializer
+
+    guarded = collect_free_text_field_names(GlossaryTermSerializer)
+
+    assert {"term", "definition", "abbreviation", "synonyms"} <= guarded
+
+
+def test_violation_scan_descends_into_lists_and_dicts():
+    """Unit-level contract for the nested scan the JSON fields depend on."""
+    from rest_api.sanitization import find_free_text_violation
+
+    assert find_free_text_violation(["ok", "<b>x</b>"]) is not None
+    assert find_free_text_violation(["ok", "javascript:alert(1)"]) is not None
+    assert find_free_text_violation({"k": "<script>x</script>"}) is not None
+    assert find_free_text_violation(["ok", "fine"]) is None
+    assert find_free_text_violation([]) is None
+    assert find_free_text_violation({"k": ["deep", "<b>x</b>"]}) is not None
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 (follow-up) — Artifact.custom_fields
+#
+# #290 turned ``CustomFieldsSerializerMixin.custom_fields`` from an inert class
+# attribute into a live, writable field. That closed a silent-drop bug and
+# opened a stored-XSS one in the same commit: the map round-trips
+# byte-identically into the SPA, the PDF/ReqIF exporters and MCP responses, and
+# nothing inspected it. Both halves of the map are guarded — see
+# ``persistence.custom_fields.validate_custom_fields`` for why the *keys* count
+# as user input too (they are not constrained by CustomFieldDefinition).
+# ---------------------------------------------------------------------------
+
+
+_CF_ENTITY_PAYLOADS: dict[str, tuple[str, dict[str, Any]]] = {
+    "requirement": ("/api/v1/requirements/", {"title": "CF sec requirement"}),
+    "need": ("/api/v1/needs/", {"title": "CF sec need"}),
+    "architecture": (
+        "/api/v1/architecture/",
+        {"title": "CF sec element", "element_type": "block"},
+    ),
+    "testcase": ("/api/v1/testcases/", {"title": "CF sec testcase"}),
+}
+
+
+def _cf_payload(sec_env: dict, entity: str, custom_fields: dict) -> tuple[str, dict]:
+    path, extra = _CF_ENTITY_PAYLOADS[entity]
+    return path, {
+        "workspace_id": str(sec_env["workspace"].id),
+        **extra,
+        "custom_fields": custom_fields,
+    }
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+@pytest.mark.parametrize("entity", sorted(_CF_ENTITY_PAYLOADS))
+@pytest.mark.parametrize(
+    "custom_fields",
+    [
+        {"owner": "<img src=x onerror=alert(1)>"},
+        {"link": "javascript:alert(1)"},
+        {"note": "&#106;avascript:alert(1)"},
+    ],
+    ids=["html-markup", "javascript-uri", "obfuscated-uri"],
+)
+def test_custom_fields_value_rejects_stored_xss(sec_env, entity, custom_fields):
+    """A payload in a custom-field *value* must 400, on every artifact type."""
+    client = _authed_client()
+    path, payload = _cf_payload(sec_env, entity, custom_fields)
+
+    resp = client.post(path, payload, format="json")
+
+    assert resp.status_code == 400, (entity, resp.content)
+    assert "custom_fields" in _field_errors(resp.json())
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_custom_fields_key_rejects_stored_xss(sec_env):
+    """Keys are attacker-controlled too — the SPA renders them as labels.
+
+    ``Artifact.custom_fields`` accepts any key the caller sends; the
+    ``CustomFieldDefinition`` schema (REQ-066) governs a *different* table and
+    constrains nothing here. So a key is user-authored free text at write time.
+    """
+    client = _authed_client()
+    path, payload = _cf_payload(
+        sec_env, "requirement", {"<img src=x onerror=alert(1)>": "harmless"}
+    )
+
+    resp = client.post(path, payload, format="json")
+
+    assert resp.status_code == 400, resp.content
+    assert "custom_fields" in _field_errors(resp.json())
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_custom_fields_patch_rejects_stored_xss_and_keeps_stored_value(sec_env):
+    """PATCH is the reported UI path; a rejection must not mutate the record."""
+    client = _authed_client()
+    path, payload = _cf_payload(sec_env, "requirement", {"owner": "alice"})
+    created = client.post(path, payload, format="json")
+    assert created.status_code == 201, created.content
+    req_id = created.json()["id"]
+
+    resp = client.patch(
+        f"{path}{req_id}/",
+        {"custom_fields": {"owner": "<script>alert(1)</script>"}},
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "custom_fields" in _field_errors(resp.json())
+    fresh = client.get(f"{path}{req_id}/")
+    assert fresh.json()["custom_fields"] == {"owner": "alice"}
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_legitimate_custom_fields_still_save(sec_env):
+    """The guard must not turn ordinary custom fields into a 400 (#290 stays fixed)."""
+    client = _authed_client()
+    path, payload = _cf_payload(
+        sec_env,
+        "requirement",
+        {"owner": "alice", "sprint": 7, "done": False, "note": None,
+         "url": "https://example.test/spec?a=1&b=2"},
+    )
+
+    resp = client.post(path, payload, format="json")
+
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["custom_fields"]["owner"] == "alice"
+    fresh = client.get(f"{path}{resp.json()['id']}/")
+    assert fresh.json()["custom_fields"]["url"] == "https://example.test/spec?a=1&b=2"
+
+
+@pytest.mark.django_db
+def test_custom_fields_is_a_declared_free_text_field():
+    """Seam guard: losing the ``SanitizedJSONField`` declaration would silently
+    disable the ViewSet-level check for the handlers that skip the serializer."""
+    from rest_api.sanitization import collect_free_text_field_names
+    from rest_api.serializers import (
+        ArchitectureElementSerializer,
+        ArtifactSerializer,
+        RequirementSerializer,
+        StakeholderNeedSerializer,
+        TestCaseSerializer,
+    )
+
+    for serializer_cls in (
+        ArtifactSerializer,
+        RequirementSerializer,
+        StakeholderNeedSerializer,
+        ArchitectureElementSerializer,
+        TestCaseSerializer,
+    ):
+        assert "custom_fields" in collect_free_text_field_names(serializer_cls), (
+            serializer_cls.__name__
+        )
+
+
+def test_validate_custom_fields_rejects_markup_outside_rest():
+    """The authoritative check sits in the persistence layer, not in DRF.
+
+    ``validate_custom_fields`` is the single intake every write path passes
+    (REST, MCP tools, direct service calls, ReqIF import), so guarding it there
+    closes the non-REST surfaces at the same time — the DRF field only adds the
+    field-scoped 400 envelope on top.
+    """
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    from persistence.custom_fields import validate_custom_fields
+
+    with pytest.raises(DjangoValidationError):
+        validate_custom_fields({"owner": "<img src=x onerror=alert(1)>"})
+    with pytest.raises(DjangoValidationError):
+        validate_custom_fields({"link": "javascript:alert(1)"})
+    with pytest.raises(DjangoValidationError):
+        validate_custom_fields({"<b>key</b>": "harmless"})
+
+    assert validate_custom_fields({"owner": "alice", "sprint": 7}) == {
+        "owner": "alice",
+        "sprint": 7,
+    }

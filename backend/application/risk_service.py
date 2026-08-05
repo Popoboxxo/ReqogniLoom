@@ -30,6 +30,10 @@ from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import (
+    has_field_changes,
+    snapshot_versioned_fields,
+)
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox, Risk
 
@@ -322,6 +326,12 @@ class RiskService(ServiceBase):
         if risk is None:
             raise NotFoundError(f"Risk {risk_id} not found")
 
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change. Taken before the
+        # score/severity recomputation too, so a recompute that lands on the
+        # same values is correctly treated as a no-op.
+        _before = snapshot_versioned_fields(risk)
+
         if title is not None:
             risk.title = title
         if description is not None:
@@ -358,9 +368,11 @@ class RiskService(ServiceBase):
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.
+        # #269 finding 5: only a real value change is a new revision.
         risk.save()
-        Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
-        risk.refresh_from_db(fields=["version"])
+        if has_field_changes(risk, _before):
+            Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
+            risk.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,

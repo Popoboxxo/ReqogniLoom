@@ -30,6 +30,10 @@ from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import (
+    has_field_changes,
+    snapshot_versioned_fields,
+)
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import Adr, DomainEventOutbox
 from traceability.types import LinkType
@@ -249,6 +253,10 @@ class AdrService(ServiceBase):
         if adr is None:
             raise NotFoundError(f"ADR {adr_id} not found")
 
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change.
+        _before = snapshot_versioned_fields(adr)
+
         if title is not None:
             if not title or len(title) < 3:
                 raise ValidationError("ADR title must be at least 3 characters")
@@ -265,9 +273,11 @@ class AdrService(ServiceBase):
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.
+        # #269 finding 5: only a real value change is a new revision.
         adr.save()
-        Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
-        adr.refresh_from_db(fields=["version"])
+        if has_field_changes(adr, _before):
+            Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
+            adr.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,

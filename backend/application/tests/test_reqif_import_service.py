@@ -581,3 +581,58 @@ class TestReqifImportUpsertCollisions:
             artifact__workspace=target_workspace, uid="REQ-001"
         )
         assert req1_copy.artifact_id != req1.artifact_id
+
+
+# ---------- Untrusted custom_fields in an imported file (#269 follow-up) ----
+
+
+class TestReqifImportCustomFieldsGuard:
+    """A ReqIF file is untrusted input; its custom fields go through the same
+    guard as a request body.
+
+    This import assigns ``artifact.custom_fields`` directly and calls
+    ``save(update_fields=...)``, which never runs the model validators — so
+    without the explicit ``validate_custom_fields`` call, an attacker-authored
+    file could seed markup / ``javascript:`` payloads straight into the map,
+    the exact surface that #290 made live for REST.
+    """
+
+    def test_spec_object_with_markup_in_custom_fields_is_skipped(
+        self, source_workspace, target_workspace
+    ):
+        tenant = source_workspace["tenant"]
+        # Written straight onto the model: validators do not run on ``save``,
+        # which is precisely how a hostile file's payload would arrive.
+        artifact = source_workspace["req1"].artifact
+        artifact.custom_fields = {"owner": "<img src=x onerror=alert(1)>"}
+        artifact.save(update_fields=["custom_fields"])
+
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.requirements.skipped == 1
+        assert any(
+            "custom_fields" in e["message"] for e in result.requirements.errors
+        ), result.requirements.errors
+        # The rest of the file still imports — a soft error, not a hard abort.
+        assert result.needs.created == 2
+        assert Requirement.objects.filter(
+            artifact__workspace=target_workspace, uid="REQ-001"
+        ).count() == 0
+
+    def test_ordinary_custom_fields_still_import(
+        self, source_workspace, target_workspace
+    ):
+        tenant = source_workspace["tenant"]
+        artifact = source_workspace["req1"].artifact
+        artifact.custom_fields = {"owner": "alice", "sprint": 7}
+        artifact.save(update_fields=["custom_fields"])
+
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.requirements.skipped == 0
+        imported = Requirement.objects.get(
+            artifact__workspace=target_workspace, uid="REQ-001"
+        )
+        assert imported.artifact.custom_fields == {"owner": "alice", "sprint": 7}

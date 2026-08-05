@@ -42,7 +42,11 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
-from application.artifact_service import _clean_custom_fields
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
 from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
@@ -324,6 +328,11 @@ class RequirementService(ServiceBase):
             if not change_reason:
                 raise ValidationError("change_reason required by workspace preset policy")
 
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change.
+        _before = snapshot_versioned_fields(requirement)
+        _custom_fields_changed = False
+
         if title is not None:
             requirement.title = title
         if description is not None:
@@ -346,9 +355,14 @@ class RequirementService(ServiceBase):
             )
             requirement.uid = uid
 
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Requirement snapshot and has to be compared separately.
         if custom_fields is not _UNSET:
-            requirement.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (requirement.artifact.custom_fields or {})
+            )
+            requirement.artifact.custom_fields = cleaned_custom_fields
             requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         # SN-30: If title, description, or status changed, we will propagate suspect
@@ -363,8 +377,16 @@ class RequirementService(ServiceBase):
         # missing any version bump at all — the baseline diff engine compares
         # stored version numbers, so without this increment every update appears
         # as version=1 forever, producing incorrect/empty diffs.
-        Requirement.objects.filter(id=requirement.id).update(version=F("version") + 1)
-        requirement.refresh_from_db(fields=["version"])
+        #
+        # #269 finding 5: gated on an actual value change. Bumping on every call
+        # made a no-op PATCH (unknown field, or a field re-sent with its current
+        # value) look like a new revision and produced diffs between identical
+        # snapshots.
+        if has_field_changes(requirement, _before) or _custom_fields_changed:
+            Requirement.objects.filter(id=requirement.id).update(
+                version=F("version") + 1
+            )
+            requirement.refresh_from_db(fields=["version"])
 
         # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
         # (title/description) changed, to avoid needless LLM calls on metadata-

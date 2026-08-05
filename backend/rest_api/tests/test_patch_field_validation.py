@@ -305,3 +305,82 @@ def test_patch_accepts_the_payload_the_ui_sends(patch_env):
 
     assert resp.status_code == 200, resp.content
     assert resp.json()["title"] == "UI title"
+
+
+# ---------------------------------------------------------------------------
+# #269 finding 5 — ``version`` is a change counter, not a request counter
+#
+# Rejecting unknown/protected keys removes the *reported* repro, but a PATCH
+# that re-sends a known field with its current value still reached the service.
+# The bump is now gated on a real value change in the service layer
+# (application.artifact_service.has_field_changes).
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_patch_resending_identical_values_does_not_bump_version(patch_env):
+    """A no-op PATCH must leave ``version`` alone.
+
+    The UI detail panels resend the whole form on every save, so re-sending
+    unchanged values is the common case, not an edge case. Bumping ``version``
+    for it made the baseline diff engine report revisions between identical
+    snapshots.
+    """
+    client = _client(patch_env)
+    need = _create_need(client, patch_env["workspace"].id)
+    version_before = need["version"]
+
+    resp = client.patch(
+        f"/api/v1/needs/{need['id']}/",
+        {"title": need["title"], "description": need["description"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["version"] == version_before
+    fresh = client.get(f"/api/v1/needs/{need['id']}/")
+    assert fresh.json()["version"] == version_before
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_patch_with_a_real_change_still_bumps_version(patch_env):
+    """The counterpart guard: gating must not disable versioning altogether."""
+    client = _client(patch_env)
+    need = _create_need(client, patch_env["workspace"].id)
+    version_before = need["version"]
+
+    resp = client.patch(
+        f"/api/v1/needs/{need['id']}/",
+        {"description": "genuinely different"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    fresh = client.get(f"/api/v1/needs/{need['id']}/")
+    assert fresh.json()["version"] == version_before + 1
+    assert fresh.json()["description"] == "genuinely different"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_patch_status_echo_alone_does_not_bump_version(patch_env):
+    """A status-only echo is accepted-and-ignored (#263), so it changes nothing.
+
+    Without the service-level gate this slipped past the payload validation and
+    still incremented ``version``.
+    """
+    client = _client(patch_env)
+    need = _create_need(client, patch_env["workspace"].id)
+    version_before = need["version"]
+
+    resp = client.patch(
+        f"/api/v1/needs/{need['id']}/",
+        {"status": need["status"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    fresh = client.get(f"/api/v1/needs/{need['id']}/")
+    assert fresh.json()["version"] == version_before

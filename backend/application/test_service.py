@@ -33,7 +33,11 @@ from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
-from application.artifact_service import _clean_custom_fields
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 
@@ -159,6 +163,11 @@ class TestService(ServiceBase):
         if test_case is None:
             raise NotFoundError(f"TestCase {test_case_id} not found")
 
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change.
+        _before = snapshot_versioned_fields(test_case)
+        _custom_fields_changed = False
+
         if title is not None:
             test_case.title = title
         if description is not None:
@@ -166,17 +175,24 @@ class TestService(ServiceBase):
         if steps is not None:
             test_case.steps = steps
 
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the TestCase snapshot and has to be compared separately.
         if custom_fields is not _UNSET:
-            test_case.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (test_case.artifact.custom_fields or {})
+            )
+            test_case.artifact.custom_fields = cleaned_custom_fields
             test_case.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         test_case.save()
         # Atomic version increment (REQ-L3-PL001-002): mirrors the fix applied to
         # RequirementService — update_test_case never bumped version, so every
         # update stayed at version=1 forever.
-        TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
-        test_case.refresh_from_db(fields=["version"])
+        # #269 finding 5: only a real value change is a new revision.
+        if has_field_changes(test_case, _before) or _custom_fields_changed:
+            TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
+            test_case.refresh_from_db(fields=["version"])
 
         self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
         self._emit_event(
