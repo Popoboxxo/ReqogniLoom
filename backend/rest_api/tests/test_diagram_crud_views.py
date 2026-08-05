@@ -14,12 +14,15 @@ rest_api/tests/test_diagram_versioning_views.py and test_diagram_canvas_views.py
 """
 from __future__ import annotations
 
+import json
 import uuid
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from rest_framework.test import APIRequestFactory
 
 from diagram.services import DiagramValidationError
+from diagram.validator import DiagramValidator
 from rest_api.diagram_views import DiagramViewSet
 
 FAKE_DIAGRAM_ID = uuid.uuid4()
@@ -146,3 +149,96 @@ class TestDiagramViewSetCreateValidation:
 
         assert response.status_code == 400
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+
+class TestDiagramViewSetCanvasStrokeTypeValidation:
+    """GH-352: the generic /api/v1/diagrams/ intake (payload_format=canvas_stroke)
+    must type-check numeric-role element fields exactly like the dedicated
+    canvas-strokes/ endpoint — not just check structure.
+
+    ``create_diagram`` itself is DB-backed (``@atomic_transaction`` opens a
+    real connection on entry), so it is mocked here like everywhere else in
+    this file to keep these tests DB-free. For the rejection case, the mock's
+    side effect calls the *real* ``DiagramValidator.validate_payload`` (the
+    same call ``create_diagram`` makes internally, before any persistence) so
+    the test exercises the actual GH-352 validation logic rather than a
+    canned error string.
+    """
+
+    def _post_canvas_stroke(self, content: str) -> Any:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "My Canvas Diagram",
+                "diagram_type": "canvas",
+                "payload_format": "canvas_stroke",
+                "content": content,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.Tenant"), patch(
+                "rest_api.diagram_views.User"
+            ):
+                return view(req)
+
+    def test_non_numeric_width_rejected_with_400(self) -> None:
+        """A rect element with a string 'width' must be rejected, not persisted."""
+        content = json.dumps({
+            "strokes": [
+                {"type": "rect", "x": 0, "y": 0, "width": "not-a-number", "height": 10},
+            ],
+        })
+
+        def _real_validation_side_effect(**kwargs: Any) -> None:
+            # Mirrors create_diagram's first step (before any DB write):
+            # DiagramManager.create_diagram() -> validate_payload(...).
+            DiagramValidator().validate_payload(
+                kwargs["diagram_type"], kwargs["payload_format"], kwargs["content"]
+            )
+            raise AssertionError(
+                "validation should have raised before persistence was reached"
+            )
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=_real_validation_side_effect,
+        ):
+            response = self._post_canvas_stroke(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "width" in response.data["error"]["message"]
+
+    def test_valid_canvas_stroke_payload_still_succeeds(self) -> None:
+        """Well-typed canvas_stroke payloads still pass validation (no regression)."""
+        content = json.dumps({
+            "strokes": [
+                {"type": "rect", "x": 0, "y": 0, "width": 100, "height": 50},
+                {"type": "text", "x": 10, "y": 10, "content": "hi", "font_size": 16},
+            ],
+        })
+
+        fake_diagram = MagicMock()
+        fake_diagram.id = FAKE_DIAGRAM_ID
+        fake_diagram.name = "My Canvas Diagram"
+        fake_diagram.diagram_type = "canvas"
+        fake_diagram.description = ""
+        fake_diagram.workspace_id = None
+        fake_diagram.current_version_id = None
+        fake_diagram.created_at = None
+        fake_diagram.versions.count.return_value = 1
+
+        with patch(
+            "rest_api.diagram_views.create_diagram", return_value=fake_diagram
+        ):
+            response = self._post_canvas_stroke(content)
+
+        assert response.status_code == 201

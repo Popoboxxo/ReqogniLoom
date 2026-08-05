@@ -24,6 +24,11 @@ diagram types (flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram
 Design notes (ADR-DS-01):
   Validation is intentionally decoupled from rendering.  This module is a
   pure function boundary — it never touches the database.
+
+GH-352: _validate_canvas_strokes() locally imports CanvasStrokeElementSerializer
+  (rest_api.serializers_diagram) to type-check numeric-role element fields, so
+  the generic /api/v1/diagrams/ intake path (payload_format=canvas_stroke)
+  enforces the same field types as the dedicated canvas-strokes/ endpoint.
 """
 from __future__ import annotations
 
@@ -320,6 +325,10 @@ class DiagramValidator:
           3. Total element count <= CANVAS_MAX_ELEMENTS (1000).
           4. Pen strokes have 'points' list with <= CANVAS_MAX_STROKE_POINTS (10000) points.
           5. Each element has required fields for its type.
+          6. Numeric-role fields (x, y, width, height, opacity, cx, cy, r,
+             x1/y1/x2/y2, font_size, ...) actually contain numbers (GH-352),
+             checked via the same CanvasStrokeElementSerializer used by the
+             dedicated canvas-strokes/ REST endpoint.
 
         Args:
             stroke_data: Canvas stroke data as a dict with 'strokes' key.
@@ -434,6 +443,36 @@ _CANVAS_ELEMENT_REQUIRED_FIELDS: dict[str, list[str]] = {
 }
 
 
+def _validate_element_field_types(element: dict) -> dict[str, list[str]]:
+    """Type-check a single canvas element's fields (GH-352).
+
+    Delegates to ``CanvasStrokeElementSerializer`` (rest_api.serializers_diagram)
+    — the exact same DRF serializer the dedicated ``canvas-strokes/`` REST
+    endpoint already uses — so the generic ``/api/v1/diagrams/`` intake path
+    (``payload_format=canvas_stroke``) enforces identical field types instead
+    of maintaining a second, independent type map that could drift out of
+    sync.
+
+    Imported locally (not at module import time) because this module lives in
+    the diagram Ext layer and must not create a hard, module-level dependency
+    on rest_api (Layer 3); the dependency only materializes when this
+    validation path actually runs.
+
+    Returns:
+        A dict of ``{field_name: [error, ...]}`` for any field that fails
+        type validation. Empty dict if all present fields are well-typed.
+    """
+    from rest_api.serializers_diagram import CanvasStrokeElementSerializer
+
+    serializer = CanvasStrokeElementSerializer(data=element)
+    if serializer.is_valid():
+        return {}
+    return {
+        field: [str(err) for err in errors]
+        for field, errors in serializer.errors.items()
+    }
+
+
 def _validate_canvas_strokes(stroke_data: dict) -> ValidationResult:
     """Validate canvas stroke data (internal implementation).
 
@@ -538,6 +577,25 @@ def _validate_canvas_strokes(stroke_data: dict) -> ValidationResult:
                     line_number=idx,
                     diagram_type="canvas",
                 )
+
+        # Check 4e: Field-level type validation (GH-352).
+        # Delegates to CanvasStrokeElementSerializer — the same DRF serializer
+        # used by the dedicated POST /diagrams/{id}/canvas-strokes/ endpoint —
+        # so numeric-role fields (x, y, width, height, opacity, cx, cy, r,
+        # x1/y1/x2/y2, font_size, ...) are type-checked identically on both
+        # intake paths and cannot silently drift apart. Local import to avoid
+        # a module-level dependency from this Ext-layer module onto rest_api.
+        field_errors = _validate_element_field_types(element)
+        if field_errors:
+            return ValidationResult(
+                is_valid=False,
+                error_msg=(
+                    f"Element at index {idx} (type='{elem_type}') has invalid "
+                    f"field value(s): {field_errors!r}."
+                ),
+                line_number=idx,
+                diagram_type="canvas",
+            )
 
     return ValidationResult(
         is_valid=True,
