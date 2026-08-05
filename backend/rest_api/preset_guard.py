@@ -194,8 +194,15 @@ class PresetGateMixin:
 
     preset_endpoint_key: str = ""  # Override in subclass
 
-    def _guard_preset(self) -> None:
-        """Check preset endpoint gate; raises Http404 or PermissionDenied."""
+    def _guard_preset(self, workspace_id_override: str | None = None) -> None:
+        """Check preset endpoint gate; raises Http404 or PermissionDenied.
+
+        Args:
+            workspace_id_override: Workspace id resolved by the caller (e.g.
+                a nested-route ``workspace_pk`` URL kwarg, issue #49). Takes
+                precedence over the request body/query-params/tenant-id
+                fallbacks below.
+        """
         from django.http import Http404
 
         if not self.preset_endpoint_key:
@@ -209,7 +216,8 @@ class PresetGateMixin:
         if self.request.method in ("POST", "PUT", "PATCH"):
             body_workspace_id = self.request.data.get("workspace_id") if hasattr(self.request, "data") else None
         workspace_id = (
-            body_workspace_id
+            workspace_id_override
+            or body_workspace_id
             or self.request.query_params.get("workspace_id")
             or (
                 str(auth_ctx.tenant_id)

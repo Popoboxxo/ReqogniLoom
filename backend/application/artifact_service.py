@@ -73,6 +73,78 @@ def _clean_custom_fields(value: object) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Version-bump gating (#269, finding 5)
+# ---------------------------------------------------------------------------
+
+#: Columns that must not take part in the "did anything actually change?"
+#: comparison: ``version`` is the counter under test, and the timestamps are
+#: bookkeeping that changes on every write by definition.
+_VERSION_NEUTRAL_FIELDS = frozenset({"version", "created_at", "modified_at"})
+
+
+def snapshot_versioned_fields(instance: Any) -> Dict[str, Any]:
+    """Capture an entity's concrete column values before an update applies.
+
+    Pair with :func:`has_field_changes` to decide whether an update is a real
+    change or a no-op. Reads ``_meta.concrete_fields`` so a newly added column
+    is covered automatically rather than needing a hand-maintained list.
+
+    Returns an empty mapping for anything that cannot be introspected (a test
+    double, most notably), which :func:`has_field_changes` reads as "unknown"
+    and therefore treats as changed — see its docstring.
+
+    Args:
+        instance: A loaded Django model instance, before any field assignment.
+
+    Returns:
+        Mapping of column attname -> current value; empty if not introspectable.
+    """
+    try:
+        concrete_fields = list(instance._meta.concrete_fields)
+    except (AttributeError, TypeError):
+        return {}
+    return {
+        field.attname: getattr(instance, field.attname)
+        for field in concrete_fields
+        if field.attname not in _VERSION_NEUTRAL_FIELDS
+    }
+
+
+def has_field_changes(instance: Any, snapshot: Dict[str, Any]) -> bool:
+    """Return True if any snapshotted column now holds a different value.
+
+    #269 finding 5: ``version`` used to be incremented for every ``update_*()``
+    call regardless of whether a single column actually moved, so a PATCH that
+    changed nothing still reported a bumped version. Since the baseline diff
+    engine compares stored version numbers, those phantom bumps produced diffs
+    between identical snapshots. Gating the increment on this predicate keeps
+    ``version`` an honest change counter.
+
+    An **empty snapshot means "cannot tell"**, not "nothing changed", and is
+    reported as changed. Every real model has at least a primary key, so this
+    only triggers for non-introspectable objects — in practice the ``MagicMock``
+    ORM doubles in the service unit tests. Failing towards a bump keeps the
+    conservative pre-existing behaviour whenever the comparison is blind: losing
+    a legitimate version increment would corrupt the baseline history, whereas a
+    surplus one is merely the old, tolerated inaccuracy.
+
+    Args:
+        instance: The same instance passed to :func:`snapshot_versioned_fields`,
+            after the update assignments have been applied.
+        snapshot: The mapping returned by :func:`snapshot_versioned_fields`.
+
+    Returns:
+        True if at least one column differs from its snapshotted value, or if
+        the snapshot is empty.
+    """
+    if not snapshot:
+        return True
+    return any(
+        getattr(instance, name) != value for name, value in snapshot.items()
+    )
+
+
+# ---------------------------------------------------------------------------
 # DTOs
 # ---------------------------------------------------------------------------
 

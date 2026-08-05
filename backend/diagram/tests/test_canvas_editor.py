@@ -183,6 +183,90 @@ class TestCanvasStrokeValidationInvalid:
 
 
 # ---------------------------------------------------------------------------
+# GH-352: numeric-role field type validation
+# ---------------------------------------------------------------------------
+
+class TestCanvasStrokeFieldTypeValidation:
+    """GH-352: numeric-role fields must actually contain numbers.
+
+    _validate_canvas_strokes() now delegates to CanvasStrokeElementSerializer
+    (the same DRF serializer used by the dedicated canvas-strokes/ endpoint)
+    so malformed types can no longer be silently persisted via the generic
+    /api/v1/diagrams/ intake path.
+    """
+
+    def test_rect_non_numeric_width_rejected(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes({
+            "strokes": [
+                {"type": "rect", "x": 0, "y": 0, "width": "not-a-number", "height": 10},
+            ],
+        })
+        assert result.is_valid is False
+        assert "width" in result.error_msg
+
+    def test_rect_non_numeric_x_rejected(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes({
+            "strokes": [
+                {"type": "rect", "x": [1, 2], "y": 0, "width": 10, "height": 10},
+            ],
+        })
+        assert result.is_valid is False
+        assert "x" in result.error_msg
+
+    def test_circle_non_numeric_radius_rejected(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes({
+            "strokes": [
+                {"type": "circle", "cx": 0, "cy": 0, "r": {"nested": "object"}},
+            ],
+        })
+        assert result.is_valid is False
+        assert "r" in result.error_msg
+
+    def test_text_non_numeric_font_size_rejected(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes({
+            "strokes": [
+                {"type": "text", "x": 0, "y": 0, "content": "hi", "font_size": "large"},
+            ],
+        })
+        assert result.is_valid is False
+        assert "font_size" in result.error_msg
+
+    def test_line_non_numeric_coordinates_rejected(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes({
+            "strokes": [
+                {"type": "line", "x1": "a", "y1": 0, "x2": 1, "y2": 1},
+            ],
+        })
+        assert result.is_valid is False
+        assert "x1" in result.error_msg
+
+    def test_opacity_non_numeric_rejected(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes({
+            "strokes": [
+                {
+                    "type": "rect",
+                    "x": 0,
+                    "y": 0,
+                    "width": 10,
+                    "height": 10,
+                    "opacity": "transparent",
+                },
+            ],
+        })
+        assert result.is_valid is False
+        assert "opacity" in result.error_msg
+
+    def test_valid_typed_fields_still_pass(self, validator: DiagramValidator) -> None:
+        """Sanity check: well-typed numeric fields keep passing (no regression)."""
+        result = validator.validate_canvas_strokes(VALID_CANVAS_STROKES)
+        assert result.is_valid is True
+
+    def test_valid_connectors_still_pass(self, validator: DiagramValidator) -> None:
+        result = validator.validate_canvas_strokes(VALID_CANVAS_CONNECTORS)
+        assert result.is_valid is True
+
+
+# ---------------------------------------------------------------------------
 # IF-DS-INT-005: Auto-Save persistence — create
 # ---------------------------------------------------------------------------
 

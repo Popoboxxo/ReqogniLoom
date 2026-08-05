@@ -35,7 +35,7 @@ from rest_framework import pagination, serializers
 from rest_framework.request import Request
 
 from rest_api.preset_guard import FieldFilter
-from rest_api.sanitization import validate_free_text
+from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
 from persistence.models import ElementType
 
 # ---------------------------------------------------------------------------
@@ -286,45 +286,11 @@ class PresetAwareSerializerMixin:
 
 
 # ---------------------------------------------------------------------------
-# Custom fields mixin (REQ-L2-AS-037)
-# ---------------------------------------------------------------------------
-
-
-class CustomFieldsSerializerMixin:
-    """Adds a writable ``custom_fields`` field with flat-map validation.
-
-    REQ-L2-AS-037: custom_fields lives on the shared Artifact node but is
-    exposed on every artifact-backed entity serializer so it can be read and
-    written through the entity's own endpoint. Validation is delegated to
-    :func:`persistence.custom_fields.validate_custom_fields` (single source of
-    truth — no duplicate rules per serializer).
-    """
-
-    custom_fields = serializers.JSONField(
-        required=False,
-        help_text=(
-            "User-defined custom attributes as a flat key-value map "
-            "(REQ-L2-AS-037). Values: string, number, boolean or null."
-        ),
-    )
-
-    def validate_custom_fields(self, value: Any) -> dict:
-        from django.core.exceptions import ValidationError as DjangoValidationError
-
-        from persistence.custom_fields import validate_custom_fields
-
-        try:
-            return validate_custom_fields(value)
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError(exc.messages[0] if exc.messages else str(exc))
-
-
-# ---------------------------------------------------------------------------
 # Free-text sanitization (SEC-03)
 # ---------------------------------------------------------------------------
 
 
-class SanitizedCharField(serializers.CharField):
+class SanitizedCharField(FreeTextFieldMarker, serializers.CharField):
     """CharField that *rejects* HTML markup and script-capable URI schemes.
 
     B006: XSS/SQLi payloads (e.g. ``<script>alert(1)</script>``) were stored
@@ -353,6 +319,82 @@ class SanitizedCharField(serializers.CharField):
         # No field_name here: DRF already nests a field-level error under the
         # field's key, so passing one would produce {"title": {"title": [...]}}.
         return validate_free_text(value)
+
+
+class SanitizedJSONField(FreeTextFieldMarker, serializers.JSONField):
+    """JSONField whose *nested* strings obey the free-text rules.
+
+    ``GlossaryTerm.synonyms`` is a list of user-authored labels. It is as
+    renderable as ``definition`` (the SPA and the PDF/ReqIF exporters print
+    synonyms verbatim), but the scalar guard skipped it: the value is a
+    ``list``, not a ``str``, so every element went to the database raw — #269
+    finding 4, one nesting level down.
+
+    ``find_free_text_violation`` walks the structure, so this covers list
+    items, dict values and dict keys alike.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        # As above: DRF nests field errors under the field's own key already.
+        return validate_free_text(value)
+
+
+# ---------------------------------------------------------------------------
+# Custom fields mixin (REQ-L2-AS-037)
+# ---------------------------------------------------------------------------
+
+
+class CustomFieldsSerializerMixin(metaclass=serializers.SerializerMetaclass):
+    """Adds a writable ``custom_fields`` field with flat-map validation.
+
+    REQ-L2-AS-037: custom_fields lives on the shared Artifact node but is
+    exposed on every artifact-backed entity serializer so it can be read and
+    written through the entity's own endpoint. Validation is delegated to
+    :func:`persistence.custom_fields.validate_custom_fields` (single source of
+    truth — no duplicate rules per serializer).
+
+    #290: the ``metaclass=`` is load-bearing, not decoration. DRF collects
+    declared fields in ``SerializerMetaclass._get_declared_fields``, which walks
+    ``bases`` and only reads a base's ``_declared_fields`` attribute. A *plain*
+    mixin never gets that attribute, so ``custom_fields`` stayed an inert class
+    attribute: ``'custom_fields' in RequirementSerializer().fields`` was
+    ``False``, the key never reached ``validated_data``, and the
+    ``if "custom_fields" in data:`` branches in ``rest_api.views`` were dead
+    code — every custom-field edit from the UI was silently dropped while the
+    request still reported 200. Applying the metaclass here registers the field
+    for every serializer mixing this in, which is what revives those branches.
+
+    #269 follow-up: making the field live also made it a *stored-XSS* surface —
+    keys and values round-trip byte-identically into the SPA, the PDF/ReqIF
+    exporters and MCP responses. It is therefore declared as a
+    :class:`SanitizedJSONField`, which (a) rejects markup / script URIs in the
+    map's keys and values and (b) enrols ``custom_fields`` in the ViewSet-level
+    guard, so the ~9 handlers that read ``request.data`` without running this
+    serializer still return a field-scoped 400. The same rule is enforced a
+    second time in ``persistence.custom_fields.validate_custom_fields`` for the
+    write paths that never see a serializer at all (MCP, ReqIF import).
+    """
+
+    custom_fields = SanitizedJSONField(
+        required=False,
+        help_text=(
+            "User-defined custom attributes as a flat key-value map "
+            "(REQ-L2-AS-037). Values: string, number, boolean or null. "
+            "HTML markup and script-capable URI schemes are rejected in both "
+            "keys and values."
+        ),
+    )
+
+    def validate_custom_fields(self, value: Any) -> dict:
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from persistence.custom_fields import validate_custom_fields
+
+        try:
+            return validate_custom_fields(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages[0] if exc.messages else str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +972,15 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
         default="Draft",
     )
+    # #290: AdrViewSet.partial_update forwards ``data.get("change_reason")`` to
+    # AdrService.update_adr(), which records it on the audit event. The field was
+    # never declared here, so DRF dropped it from validated_data and the audit
+    # trail silently recorded ``None`` for every edit. Same silent-drop class as
+    # the custom_fields bug, different cause (missing declaration, not a
+    # metaclass-less mixin). Bounded like RequirementSerializer.change_reason.
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -975,6 +1026,11 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         default="Identified",
+    )
+    # #290: see AdrSerializer.change_reason — RiskViewSet.partial_update
+    # forwards it to RiskService.update_risk() but DRF dropped it.
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
     )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
@@ -1125,6 +1181,11 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         },
     )
     tags = serializers.JSONField(required=False, default=list)
+    # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
+    # forwards it to IssueService.update_issue() but DRF dropped it.
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -1392,8 +1453,14 @@ class GlossaryTermVersionSerializer(serializers.Serializer):
     term_version = serializers.IntegerField(read_only=True)
     # #104: matches GlossaryTermSerializer.definition — unbounded before (DoS risk).
     definition = SanitizedCharField(max_length=20000)
-    synonyms = serializers.JSONField(required=False, default=list)
-    abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
+    # #269/4: both fields are user-authored prose that the SPA, the PDF report
+    # and the ReqIF export render verbatim, yet neither was guarded — only
+    # ``term``/``definition`` were. ``synonyms`` needs the JSON variant because
+    # its payload sits inside a list, which the scalar guard skipped.
+    synonyms = SanitizedJSONField(required=False, default=list)
+    abbreviation = SanitizedCharField(
+        required=False, allow_blank=True, default=""
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
 
@@ -1412,8 +1479,14 @@ class GlossaryTermSerializer(serializers.Serializer):
     )
     # #104: narrative definition field, unbounded before (DoS risk).
     definition = SanitizedCharField(max_length=20000)
-    synonyms = serializers.JSONField(required=False, default=list)
-    abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
+    # #269/4: both fields are user-authored prose that the SPA, the PDF report
+    # and the ReqIF export render verbatim, yet neither was guarded — only
+    # ``term``/``definition`` were. ``synonyms`` needs the JSON variant because
+    # its payload sits inside a list, which the scalar guard skipped.
+    synonyms = SanitizedJSONField(required=False, default=list)
+    abbreviation = SanitizedCharField(
+        required=False, allow_blank=True, default=""
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )

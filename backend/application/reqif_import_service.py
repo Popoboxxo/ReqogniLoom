@@ -128,6 +128,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -143,6 +144,7 @@ from application.reqif_export_service import (
     _SPEC_OBJECT_TYPE_NEED,
     _SPEC_OBJECT_TYPE_REQUIREMENT,
 )
+from persistence.custom_fields import validate_custom_fields
 from traceability.types import VALID_LINK_TYPES
 
 logger = logging.getLogger(__name__)
@@ -574,6 +576,20 @@ class ReqifImportService(ServiceBase):
                 if definition is not None and definition.long_name:
                     long_name = definition.long_name
             custom_fields[long_name] = attribute.value
+
+        # This import assigns ``artifact.custom_fields`` directly and calls
+        # ``save(update_fields=...)``, which does not run model validators — so
+        # the flat-map rules (and, since the #269 follow-up, the free-text guard
+        # that keeps markup / ``javascript:`` payloads out of the map) have to
+        # be applied explicitly here. A ReqIF file is untrusted input like any
+        # request body. A violation is a per-object soft error: the spec object
+        # is skipped and reported, the rest of the file still imports.
+        try:
+            custom_fields = validate_custom_fields(custom_fields)
+        except DjangoValidationError as exc:
+            raise _SoftError(
+                exc.messages[0] if exc.messages else "Invalid custom fields."
+            ) from exc
 
         verification_method = (
             _attr_value(_ATTR_VERIFICATION_METHOD) or None if kind == "Requirement" else None

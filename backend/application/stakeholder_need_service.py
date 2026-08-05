@@ -14,7 +14,11 @@ from django.db.models import F, Q
 from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
-from application.artifact_service import _clean_custom_fields
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
 from application.base import (
     NotFoundError,
     ServiceBase,
@@ -195,6 +199,13 @@ class StakeholderNeedService(ServiceBase):
                 if not change_reason:
                     raise ValidationError("change_reason is required by preset policy.")
 
+        # #269 finding 5: ``changes`` below records which fields were *supplied*,
+        # which is what the emitted event should name — but it is not a safe
+        # trigger for the version bump, because re-sending a field with its
+        # current value is a no-op. Snapshot the real column values instead.
+        _before = snapshot_versioned_fields(need)
+        _custom_fields_changed = False
+
         changes = {}
         if title is not _UNSET:
             need.title = title
@@ -212,13 +223,22 @@ class StakeholderNeedService(ServiceBase):
             need.moscow_priority = moscow_priority
             changes["moscow_priority"] = moscow_priority
 
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the StakeholderNeed snapshot and compared separately.
         if custom_fields is not _UNSET:
-            need.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (need.artifact.custom_fields or {})
+            )
+            need.artifact.custom_fields = cleaned_custom_fields
             need.artifact.save(update_fields=["custom_fields", "modified_at"])
             changes["custom_fields"] = True
 
-        if changes:
+        # Both conditions matter, and neither implies the other: ``changes``
+        # keeps "no field was supplied at all" a silent no-op (no event, no
+        # bump), while the value comparison additionally catches a field that
+        # was supplied but carries its current value (#269 finding 5).
+        if changes and (has_field_changes(need, _before) or _custom_fields_changed):
             need.version = F("version") + 1
             # REQ-159: AuthContext exposes user_id, not user.
             need.modified_by_id = ctx.user_id

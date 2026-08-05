@@ -16,43 +16,35 @@ without telling the caller. That has two defects, both reported in #269:
 
 This module replaces "strip quietly" with "reject loudly" and provides a single
 reusable seam so a *new* free-text field is protected by declaring it as
-:class:`~rest_api.serializers.SanitizedCharField` on the serializer — no
-per-ViewSet copy-paste.
+:class:`~rest_api.serializers.SanitizedCharField` (or ``SanitizedJSONField``
+for list/object-shaped prose such as ``GlossaryTerm.synonyms``) on the
+serializer — no per-ViewSet copy-paste. Both carry
+:class:`FreeTextFieldMarker`, which is what enrolment actually keys on.
 
-Two rule families are enforced:
-
-``HTML markup``
-    Any value whose ``strip_tags`` result differs from the input is rejected.
-    That is deliberately stricter than "reject known-dangerous tags": an
-    allow-list of safe tags invites bypasses, and the API stores plain text
-    everywhere (no field is rendered as HTML by design).
-
-``Dangerous URI schemes``
-    ``javascript:``, ``vbscript:`` and ``data:text/html`` are rejected even
-    though they contain no markup: the frontend renders Markdown descriptions
-    via ``MarkdownPreview``, which turns ``[x](javascript:alert(1))`` into a
-    real ``<a href>``. Matching is done on an *unescaped, control-character
-    stripped* copy so ``&#106;avascript:`` and ``java\\tscript:`` cannot slip
-    through.
-
-Trade-off (documented deliberately): prose that legitimately contains
-tag-shaped text (``if <input> is empty``) or the literal token ``javascript:``
-is now a ``400`` instead of being silently mangled. Rejecting is the safer and
-more honest of the two — the caller keeps its data and gets an actionable
-message, whereas the previous behaviour destroyed it.
+The two rule families (HTML markup, script-capable URI schemes) and the
+recursive scan live in :mod:`persistence.free_text`, which carries no DRF
+dependency so that non-REST write paths can apply exactly the same rules —
+notably ``persistence.custom_fields.validate_custom_fields``, which guards
+``Artifact.custom_fields`` for REST, MCP and ReqIF import alike. This module is
+the REST-facing wrapper and re-exports those symbols, so
+``from rest_api.sanitization import find_free_text_violation`` keeps working.
 """
 from __future__ import annotations
 
-import html
-import re
 from typing import Any, Iterable, Mapping
 
-from django.utils.html import strip_tags
 from rest_framework import serializers
+
+from persistence.free_text import (
+    DANGEROUS_URI_MESSAGE,
+    HTML_MARKUP_MESSAGE,
+    find_free_text_violation,
+)
 
 __all__ = [
     "DANGEROUS_URI_MESSAGE",
     "HTML_MARKUP_MESSAGE",
+    "FreeTextFieldMarker",
     "collect_free_text_field_names",
     "collect_free_text_violations",
     "find_free_text_violation",
@@ -60,63 +52,19 @@ __all__ = [
 ]
 
 
-#: Message returned when the value contains HTML/XML markup.
-HTML_MARKUP_MESSAGE = (
-    "contains disallowed content: HTML markup is not permitted in free-text "
-    "fields. Submit plain text (the value is rejected instead of silently "
-    "stripped so nothing is lost)."
-)
+class FreeTextFieldMarker:
+    """Mixin that declares a serializer field as guarded free text.
 
-#: Message returned when the value carries a script-capable URI scheme.
-DANGEROUS_URI_MESSAGE = (
-    "contains disallowed content: script-capable URI schemes "
-    "(javascript:, vbscript:, data:text/html) are not permitted."
-)
+    Enrolment used to be "is a ``SanitizedCharField``", which silently excluded
+    any free-text field that is not character-shaped — notably
+    ``GlossaryTerm.synonyms``, a ``JSONField`` holding a *list of strings*. The
+    marker decouples "this value is user-authored prose" from "this value is a
+    ``str``", so ``SanitizedJSONField`` enrols on exactly the same terms.
 
-#: Schemes that can execute script when a value ends up in an ``href``/``src``.
-_DANGEROUS_SCHEMES = ("javascript:", "vbscript:", "data:text/html")
-
-#: Characters an attacker may interleave to break up a scheme token without
-#: changing how a browser parses it: C0 controls (which include TAB, LF and CR
-#: — browsers strip those from a URL), DEL and the zero-width/BOM code points.
-#:
-#: The plain space (U+0020) is deliberately NOT in this set. A space inside a
-#: scheme makes it invalid for a browser too, so collapsing it would buy no
-#: security while turning ordinary prose ("Java Script: an overview") into a
-#: false positive.
-_OBFUSCATION_CHARS_RE = re.compile(
-    "[\x00-\x1f\x7f\u200b-\u200f\u2060\ufeff]+"
-)
-
-
-def _normalize_for_scheme_check(value: str) -> str:
-    """Return *value* in the form a browser would resolve a URI from.
-
-    HTML entities are decoded (twice, to catch ``&amp;#106;``) and the
-    obfuscation characters above are removed, so ``&#106;avascript&#58;`` and
-    ``java\\tscript:`` both normalise to ``javascript:``.
+    Defined here rather than in ``rest_api.serializers`` so
+    :func:`collect_free_text_field_names` can do its ``isinstance`` check
+    without importing that module (which imports this one).
     """
-    unescaped = html.unescape(html.unescape(value))
-    return _OBFUSCATION_CHARS_RE.sub("", unescaped).lower()
-
-
-def find_free_text_violation(value: Any) -> str | None:
-    """Return an error message when *value* is not acceptable free text.
-
-    Returns ``None`` for acceptable values and for non-string input (type
-    errors are the serializer's job, not this guard's).
-    """
-    if not isinstance(value, str) or not value:
-        return None
-
-    normalized = _normalize_for_scheme_check(value)
-    if any(scheme in normalized for scheme in _DANGEROUS_SCHEMES):
-        return DANGEROUS_URI_MESSAGE
-
-    if strip_tags(value) != value:
-        return HTML_MARKUP_MESSAGE
-
-    return None
 
 
 def validate_free_text(value: Any, field_name: str | None = None) -> Any:
@@ -136,26 +84,30 @@ def validate_free_text(value: Any, field_name: str | None = None) -> Any:
 def collect_free_text_field_names(serializer_cls: type | None) -> frozenset[str]:
     """Names of the fields *serializer_cls* declares as free text.
 
-    A field counts as free text when it is a ``SanitizedCharField`` instance.
-    Resolved from ``_declared_fields`` (a class attribute) so no serializer is
-    instantiated — this runs on every write request.
+    A field counts as free text when it carries :class:`FreeTextFieldMarker`
+    (``SanitizedCharField`` and ``SanitizedJSONField`` both do). Resolved from
+    ``_declared_fields`` (a class attribute) so no serializer is instantiated —
+    this runs on every write request.
 
-    .. note:: ``CustomFieldsSerializerMixin`` is a plain class without the DRF
-       metaclass, so anything it declares never reaches ``_declared_fields``.
-       That is a known, separate defect (see #263 notes); nothing declared
-       there is free text today.
+    .. note:: ``CustomFieldsSerializerMixin`` used to be a plain class whose
+       declarations never reached ``_declared_fields``. #290 gave it
+       ``SerializerMetaclass``, so its ``custom_fields`` JSON map became a
+       *live* — and initially unguarded — stored-XSS surface. It is now
+       declared as a ``SanitizedJSONField`` and therefore appears here, which
+       is what produces a field-scoped ``custom_fields`` error even on the
+       ViewSets that never run their serializer. The authoritative check for
+       that field additionally sits in
+       ``persistence.custom_fields.validate_custom_fields``, so non-REST write
+       paths (MCP, services, ReqIF import) are covered too.
     """
     if serializer_cls is None:
         return frozenset()
-
-    # Imported lazily: serializers.py imports this module.
-    from rest_api.serializers import SanitizedCharField
 
     declared: Mapping[str, Any] = getattr(serializer_cls, "_declared_fields", {})
     return frozenset(
         name
         for name, field in declared.items()
-        if isinstance(field, SanitizedCharField)
+        if isinstance(field, FreeTextFieldMarker)
     )
 
 
