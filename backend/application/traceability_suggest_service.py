@@ -110,12 +110,23 @@ SUGGEST_LINKS_PROMPT_TEMPLATE = (
 )
 
 
+# Prompt purpose name — must stay in the workspace-wide set of
+# ``llm_adapter.timeouts.WORKSPACE_WIDE_PURPOSES`` (issue #342).
+_SUGGEST_LINKS_PURPOSE = "traceability_suggest_links"
+
+
 class SuggestLinksResponseError(RuntimeError):
-    """Raised when the LLM returns a response that cannot be parsed as JSON.
+    """Raised when the LLM call fails or returns unparseable content.
 
     Sibling of ``application.ai_review_service.AiReviewResponseError``: the
     request itself was valid, but the provider misbehaved. Maps to HTTP 500
     in the REST layer and to an INTERNAL_ERROR ToolResult in the MCP layer.
+
+    Issue #342: this also covers *transport* failures (timeout, open circuit
+    breaker, SDK error). They used to escape ``_complete`` raw as an
+    ``LlmTransportError`` and reached the MCP/REST boundary as an unhandled
+    exception; now every caller gets the same catchable error type with an
+    actionable message.
     """
 
 
@@ -535,6 +546,16 @@ class TraceabilitySuggestService(ServiceBase):
         provider configuration error it degrades to the credential-free
         deterministic mock so the suggest-links flow never crashes
         (REQ-L2-AI-002; default provider is ``mock``).
+
+        Issue #342: the prompt spans every finding in the workspace, so the
+        call runs under the workspace-wide timeout resolved by
+        :func:`llm_adapter.timeouts.resolve_timeout_seconds` instead of the
+        provider's 30s config default. Transport failures (timeout, open
+        circuit breaker) are mapped to :class:`SuggestLinksResponseError`
+        rather than escaping as an unhandled ``LlmTransportError``.
+
+        Raises:
+            SuggestLinksResponseError: The provider call failed outright.
         """
         from django.conf import settings
 
@@ -544,6 +565,7 @@ class TraceabilitySuggestService(ServiceBase):
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.timeouts import resolve_timeout_seconds
 
         prompt = SUGGEST_LINKS_PROMPT_TEMPLATE.format(
             findings_json=json.dumps(finding_payloads)
@@ -563,9 +585,28 @@ class TraceabilitySuggestService(ServiceBase):
             provider_name = "mock"
             degraded = True
 
-        raw = provider.complete(
-            prompt, purpose="traceability_suggest_links", context=context
-        )
+        timeout = resolve_timeout_seconds(_SUGGEST_LINKS_PURPOSE)
+        try:
+            raw = provider.complete(
+                prompt,
+                purpose=_SUGGEST_LINKS_PURPOSE,
+                context=context,
+                timeout=timeout,
+            )
+        except Exception as error:  # noqa: BLE001 — see class docstring (#342)
+            logger.warning(
+                "traceability.suggest_links: provider %s call failed "
+                "(timeout=%ss): %s",
+                provider_name,
+                timeout,
+                error,
+            )
+            raise SuggestLinksResponseError(
+                f"The LLM provider '{provider_name}' did not answer the "
+                f"suggest_links request within {timeout:.0f}s ({error}). "
+                "Narrow the request (scope=document) or raise "
+                "LLM_LONG_RUNNING_TIMEOUT."
+            ) from error
         return raw, provider_name, degraded
 
     @staticmethod

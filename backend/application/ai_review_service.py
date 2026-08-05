@@ -66,12 +66,23 @@ AI_REVIEW_PROMPT_TEMPLATE = (
 )
 
 
+# Prompt purpose name — must stay in the workspace-wide set of
+# ``llm_adapter.timeouts.WORKSPACE_WIDE_PURPOSES`` (issue #342).
+_AI_REVIEW_PURPOSE = "audit_ai_review"
+
+
 class AiReviewResponseError(RuntimeError):
-    """Raised when the LLM returns a response that cannot be parsed as JSON.
+    """Raised when the LLM call fails or returns unparseable content.
 
     Sibling of ``application.ai_derivation_service.LlmResponseError``: the
     request itself was valid, but the provider misbehaved. Maps to HTTP 500
     in the REST layer and to an INTERNAL_ERROR ToolResult in the MCP layer.
+
+    Issue #342: this also covers *transport* failures (timeout, open circuit
+    breaker, SDK error). They used to escape ``_complete`` raw as an
+    ``LlmTransportError`` and reached the MCP/REST boundary as an unhandled
+    exception; now every caller gets the same catchable error type with an
+    actionable message.
     """
 
 
@@ -266,6 +277,16 @@ class AiReviewService(ServiceBase):
         provider configuration error it degrades to the credential-free
         deterministic mock so the review flow never crashes (REQ-L2-AI-002;
         default provider is ``mock``).
+
+        Issue #342: the prompt spans every finding in the workspace, so the
+        call runs under the workspace-wide timeout resolved by
+        :func:`llm_adapter.timeouts.resolve_timeout_seconds` instead of the
+        provider's 30s config default. Transport failures (timeout, open
+        circuit breaker) are mapped to :class:`AiReviewResponseError` rather
+        than escaping as an unhandled ``LlmTransportError``.
+
+        Raises:
+            AiReviewResponseError: The provider call failed outright.
         """
         from django.conf import settings
 
@@ -275,6 +296,7 @@ class AiReviewService(ServiceBase):
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.timeouts import resolve_timeout_seconds
 
         prompt = AI_REVIEW_PROMPT_TEMPLATE.format(
             findings_json=json.dumps(findings_payload)
@@ -294,7 +316,27 @@ class AiReviewService(ServiceBase):
             provider_name = "mock"
             degraded = True
 
-        raw = provider.complete(prompt, purpose="audit_ai_review", context=context)
+        timeout = resolve_timeout_seconds(_AI_REVIEW_PURPOSE)
+        try:
+            raw = provider.complete(
+                prompt,
+                purpose=_AI_REVIEW_PURPOSE,
+                context=context,
+                timeout=timeout,
+            )
+        except Exception as error:  # noqa: BLE001 — see class docstring (#342)
+            logger.warning(
+                "audit.ai_review: provider %s call failed (timeout=%ss): %s",
+                provider_name,
+                timeout,
+                error,
+            )
+            raise AiReviewResponseError(
+                f"The LLM provider '{provider_name}' did not answer the "
+                f"ai_review request within {timeout:.0f}s ({error}). "
+                "Narrow the request (scope=document) or raise "
+                "LLM_LONG_RUNNING_TIMEOUT."
+            ) from error
         return raw, provider_name, degraded
 
     @staticmethod

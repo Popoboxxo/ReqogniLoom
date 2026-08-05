@@ -1404,6 +1404,7 @@ class AiDerivationService(ServiceBase):
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
         from persistence.tenancy import TenantContext, TenantContextNotSetError
 
@@ -1479,7 +1480,10 @@ class AiDerivationService(ServiceBase):
             # REQ-084: hard sync timeout, same setting CapabilityRouter uses
             # for its own sync calls, so this free-form path never blocks the
             # request thread longer than a router-routed call could.
-            timeout = float(getattr(settings, "LLM_SYNC_TIMEOUT_SECONDS", 25))
+            # Issue #342: resolved per *purpose* — workspace-wide prompts
+            # (derive_glossary_from_workspace) get the longer cap, every
+            # single-artifact flow keeps the tight REQ-084 default.
+            timeout = resolve_timeout_seconds(purpose)
             result = provider.complete(
                 prompt, purpose=purpose, context=context, timeout=timeout
             )
