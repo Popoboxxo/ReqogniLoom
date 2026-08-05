@@ -8,7 +8,10 @@
  * Shows, in the order the concept prescribes:
  *   1. identity row  — <ArtifactId>, <StatusBadge>, <VersionBadge>
  *   2. title + description
- *   3. actions       — edit (= new lineage version) and approve (draft only)
+ *   3. actions       — edit (= new lineage version) plus one button per move
+ *                      the WorkflowEngine currently allows (issue #220: never
+ *                      gated on hardcoded state names — a workspace may
+ *                      customise its Goal state machine, ADR-06)
  *   4. workspace-defined attributes via <ArtifactCustomFields> (ch. 12.11)
  *   5. the version list of the lineage (GET /goals/{id}/versions/)
  *
@@ -28,17 +31,18 @@ import { VersionBadge } from "../shared/VersionBadge";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
+import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import type { ArtifactVersion, Goal } from "../../types";
-
-/** Workflow state a Goal must reach to count as aggregation input. */
-export const APPROVED_STATE = "Freigegeben";
-/** Initial workflow state of every newly created Goal version. */
-export const DRAFT_STATE = "Entwurf";
 
 export interface GoalDetailProps {
   goal: Goal;
   onEdit: (goal: Goal) => void;
-  onApprove: (goal: Goal) => void;
+  /**
+   * Perform one of the moves the WorkflowEngine currently allows. The whole
+   * transition descriptor is handed over (not just the target state) so the
+   * page can honour `requires_change_reason` without re-deriving it.
+   */
+  onTransition: (goal: Goal, transition: WorkflowAllowedTransition) => void;
 }
 
 const sectionLabelStyle: React.CSSProperties = {
@@ -49,11 +53,12 @@ const sectionLabelStyle: React.CSSProperties = {
   color: "var(--color-text)",
 };
 
-export function GoalDetail({ goal, onEdit, onApprove }: GoalDetailProps): JSX.Element {
+export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [transitions, setTransitions] = useState<WorkflowAllowedTransition[]>([]);
 
   // Trace spine (Task 3.3 — UI concept ch. 5). Goal is one of the nine
   // types the `/traceability/resolve/` endpoint covers (Task 3.2a); it has
@@ -94,6 +99,37 @@ export function GoalDetail({ goal, onEdit, onApprove }: GoalDetailProps): JSX.El
       cancelled = true;
     };
   }, [goal.id]);
+
+  // Issue #220: the lifecycle controls are driven by the WorkflowEngine, not
+  // by string equality against hardcoded German state names. A workspace may
+  // customise its Goal state machine (ADR-06), so which moves exist — and
+  // what they are called — is only knowable from the server. Same contract
+  // and same "render allowed_transitions as actions" shape ReviewsView and
+  // WorkflowStatusEditor use for every other artifact type.
+  //
+  // `goal.status` is in the dependency list on purpose: a completed
+  // transition changes it, which must re-fetch the now-different move set.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const resp = await goalsApi.getTransitions(goal.id);
+        if (cancelled) return;
+        setTransitions(
+          Array.isArray(resp?.allowed_transitions) ? resp.allowed_transitions : []
+        );
+      } catch {
+        // A 404 means "no workflow configured for this workspace/type"; a
+        // 403 means the caller may not move it. Both degrade to a read-only
+        // detail pane rather than an error banner — the versions list and
+        // the edit action stay usable (WorkflowStatusEditor does the same).
+        if (!cancelled) setTransitions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [goal.id, goal.status]);
 
   return (
     <article data-testid="goal-detail">
@@ -176,16 +212,25 @@ export function GoalDetail({ goal, onEdit, onApprove }: GoalDetailProps): JSX.El
         >
           {t("goals.edit", "Bearbeiten")}
         </button>
-        {goal.status === DRAFT_STATE && (
+        {transitions.map((transition, index) => (
           <button
+            key={transition.target_state}
             type="button"
-            className="btn-primary"
-            data-testid="goal-approve-button"
-            onClick={() => onApprove(goal)}
+            // The first available move is the primary one; a customised
+            // workflow may offer several (e.g. approve / archive).
+            className={index === 0 ? "btn-primary" : "btn-secondary"}
+            data-testid={`goal-transition-${transition.target_state}`}
+            onClick={() => onTransition(goal, transition)}
           >
-            {t("goals.approve", "Freigeben")}
+            {/* Label comes from the target state, with a translation only
+                for the states the stock `goal_default` preset ships. Any
+                custom state falls back to its own name, which is still
+                better than a wrong hardcoded label. */}
+            {t(`goals.transition.${transition.target_state}`, {
+              defaultValue: transition.target_state,
+            })}
           </button>
-        )}
+        ))}
       </div>
 
       {/* 4. Workspace-defined attributes — ch. 12.11. Renders nothing when

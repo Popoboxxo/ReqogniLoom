@@ -33,6 +33,14 @@ from persistence.models import Artifact, Tenant, Workspace
 
 logger = logging.getLogger(__name__)
 
+# Fallbacks for the ``goal_default`` preset's states (workflow/definition_store.py).
+# Only used when a workspace has no Goal workflow document at all — every code
+# path that can resolve the workspace's actual definition prefers that, so a
+# customised state machine (ADR-06) keeps working.
+DRAFT_STATE = "Entwurf"
+APPROVED_STATE = "Freigegeben"
+ARCHIVED_STATE = "Archiviert"
+
 
 class GoalService(ServiceBase):
     """Goal CRUD with lineage-based, immutable-row-per-version storage.
@@ -129,7 +137,7 @@ class GoalService(ServiceBase):
             sequence_number=sequence_number,
             title=title,
             description=description,
-            status="Entwurf",
+            status=DRAFT_STATE,
             created_by=str(ctx.user_id),
         )
         goal.save()
@@ -266,7 +274,7 @@ class GoalService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Goal.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_archived:
-            qs = qs.exclude(status="Archiviert")
+            qs = qs.exclude(status=ARCHIVED_STATE)
         latest_ids = (
             qs.order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")
@@ -304,13 +312,207 @@ class GoalService(ServiceBase):
             Goal.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                status="Freigegeben",
+                status=APPROVED_STATE,
             )
             .order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")
             .values_list("id", flat=True)
         )
         return list(Goal.objects.filter(id__in=list(approved_ids)))
+
+    def update(
+        self,
+        goal_id: uuid.UUID,
+        ctx: Any,
+        *,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        """Update a Goal by appending a new version to its lineage.
+
+        Goals are immutable-row-per-version (see module docstring), so there is
+        no in-place update: this reads the addressed version, merges the given
+        fields over it and delegates to :meth:`create_version` with the same
+        ``lineage_id``. The result is a fresh version at ``Entwurf`` — the
+        previous version keeps its own status and stays readable, which is what
+        makes the lineage an audit trail.
+
+        Omitted fields are carried over unchanged, so a caller may send only
+        the field it wants to change (PATCH semantics).
+
+        Args:
+            goal_id: UUID of the Goal *version* to base the new version on
+                (any version of the lineage; the new version is always
+                appended after the lineage's newest one).
+            ctx: Resolved AuthContext.
+            title: New title, or ``None`` to keep the current one.
+            description: New description, or ``None`` to keep the current one.
+
+        Returns:
+            dict describing the newly created Goal version (same shape as
+            :meth:`create_version`).
+
+        Raises:
+            NotFoundError: No such Goal in the active tenant.
+            ValidationError: ``Workspace.goals_enabled`` is False, or the
+                resulting title would be empty.
+            PermissionDeniedError: Caller lacks write permission.
+        """
+        goal = self.get(goal_id, ctx)
+        return self.create_version(
+            workspace_id=goal.workspace_id,
+            title=goal.title if title is None else title,
+            description=goal.description if description is None else description,
+            lineage_id=goal.lineage_id,
+            ctx=ctx,
+        )
+
+    def get_available_transitions(
+        self, goal_id: uuid.UUID, ctx: Any
+    ) -> tuple[Optional[str], list[str]]:
+        """Return ``(current_state, allowed target states)`` for a Goal version.
+
+        Read-only, and the single seam both the REST ``transitions/`` endpoint
+        and the MCP error paths use to answer "what may this Goal do next?" —
+        it delegates to ``WorkflowFacade.get_available_transitions`` rather than
+        re-deriving the state machine, so a workspace that customised its Goal
+        workflow (ADR-06) is reflected automatically.
+
+        Never raises for "no workflow configured": that degrades to an empty
+        target list, matching ``workflow.services.get_available_transitions``.
+
+        Args:
+            goal_id: UUID of the Goal version.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Tuple of the current state (``None`` when no workflow state exists)
+            and the list of states reachable from it.
+
+        Raises:
+            NotFoundError: No such Goal in the active tenant.
+        """
+        goal = self.get(goal_id, ctx)
+
+        from application.workflow_facade import WorkflowFacade
+
+        available = WorkflowFacade().get_available_transitions(
+            goal.id, ctx, item_type="Goal", workspace_id=goal.workspace_id
+        )
+        return available.current_state, [t.to_state for t in available.transitions]
+
+    def _resolve_archive_state(self, goal: Goal) -> str:
+        """Return the workflow state that means "archived" for this workspace.
+
+        The ``goal_default`` preset flags ``Archiviert`` with
+        ``is_outdated_equivalent`` (workflow/definition_store.py). Resolving the
+        flag instead of hardcoding the German label keeps archiving working for
+        a workspace whose Goal workflow was renamed or customised (ADR-06), and
+        falls back to ``"Archiviert"`` when the workspace has no workflow
+        document at all (then the transition itself decides).
+        """
+        from workflow.definition_store import get_state_meta
+        from workflow.services import get_workflow_json
+
+        workflow_json = get_workflow_json(goal.workspace_id, "Goal")
+        for state in workflow_json.get("states", []) or []:
+            if get_state_meta(workflow_json, state).get("is_outdated_equivalent"):
+                return str(state)
+        return ARCHIVED_STATE
+
+    def _resolve_initial_state(self, goal: Goal, ctx: Any) -> str:
+        """Return the Goal workflow's initial state for this workspace."""
+        from application.workflow_facade import WorkflowFacade
+
+        definition = WorkflowFacade().get_definition(
+            ctx, item_type="Goal", workspace_id=goal.workspace_id
+        )
+        if definition is None:
+            return DRAFT_STATE
+        return definition.initial_state
+
+    def archive(
+        self,
+        goal_id: uuid.UUID,
+        ctx: Any,
+        change_reason: Optional[str] = None,
+    ) -> Goal:
+        """Archive (soft-delete) a Goal version via the WorkflowEngine.
+
+        Immutable lineage rows must never be hard-deleted — that would tear a
+        hole in the version history and in MainGoal aggregation. Archiving is
+        therefore an ordinary, fully gated workflow transition into the state
+        flagged ``is_outdated_equivalent`` (``Archiviert`` by default), i.e. the
+        exact same path :meth:`transition_status` takes. It is reversible via
+        :meth:`restore`.
+
+        Args:
+            goal_id: UUID of the Goal version to archive.
+            ctx: Resolved AuthContext.
+            change_reason: Optional audit reason recorded on the transition.
+
+        Returns:
+            The refreshed Goal ORM instance.
+
+        Raises:
+            NotFoundError: No such Goal in the active tenant.
+            ValidationError: The workspace's Goal workflow has no transition
+                from the version's current state into the archived state.
+            PermissionDeniedError: Preset-level role gate blocked the move.
+        """
+        goal = self.get(goal_id, ctx)
+        return self.transition_status(
+            goal.id,
+            self._resolve_archive_state(goal),
+            ctx,
+            change_reason=change_reason,
+        )
+
+    def restore(
+        self,
+        goal_id: uuid.UUID,
+        ctx: Any,
+        change_reason: Optional[str] = None,
+    ) -> Goal:
+        """Restore an archived Goal version to the workflow's initial state.
+
+        Deliberately restores to ``initial_state`` (``Entwurf`` by default)
+        rather than to whatever state the version held before it was archived:
+        only ``Freigegeben`` versions are the *effective* version of their
+        lineage and may feed MainGoal aggregation (see :meth:`list_effective`),
+        so silently handing an un-archived Goal its old approval back would let
+        content re-enter the aggregation without anyone approving it. A restored
+        Goal is a draft and must be approved again.
+
+        Uses the same gated :meth:`transition_status` path as every other Goal
+        state change — not the ``workflow.services.outdate``/``reactivate``
+        escape hatch, whose forced ``"outdated"`` state is foreign to the Goal
+        state machine and would be mirrored into ``Goal.status``, making the
+        row invisible to the ``Archiviert`` filters in :meth:`list_current`.
+
+        Args:
+            goal_id: UUID of the archived Goal version.
+            ctx: Resolved AuthContext.
+            change_reason: Reason recorded on the transition. Defaults to
+                ``"reactivated"`` because the default ``Archiviert -> Entwurf``
+                transition requires a non-empty reason.
+
+        Returns:
+            The refreshed Goal ORM instance.
+
+        Raises:
+            NotFoundError: No such Goal in the active tenant.
+            ValidationError: The version is not in a state from which the
+                workflow allows a move back to the initial state.
+            PermissionDeniedError: Preset-level role gate blocked the move.
+        """
+        goal = self.get(goal_id, ctx)
+        return self.transition_status(
+            goal.id,
+            self._resolve_initial_state(goal, ctx),
+            ctx,
+            change_reason=change_reason or "reactivated",
+        )
 
     def transition_status(
         self,
@@ -372,4 +574,9 @@ class GoalService(ServiceBase):
         return goal
 
 
-__all__ = ["GoalService"]
+__all__ = [
+    "APPROVED_STATE",
+    "ARCHIVED_STATE",
+    "DRAFT_STATE",
+    "GoalService",
+]

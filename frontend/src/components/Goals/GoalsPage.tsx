@@ -29,10 +29,12 @@ import { goalsApi } from "../../api/goals";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { PageHeader } from "../shared/PageHeader";
 import { SplitView } from "../SplitView/SplitView";
-import { APPROVED_STATE, GoalDetail } from "./GoalDetail";
+import { resolveBadgeVariant } from "../../utils/statusBadge";
+import { GoalDetail } from "./GoalDetail";
 import { GoalForm } from "./GoalForm";
 import { GOALS_ROOT_NODE_ID, GoalsTree, MAIN_GOAL_NODE_ID } from "./GoalsTree";
 import { MainGoalPanel } from "./MainGoalPanel";
+import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import type { Goal } from "../../types";
 
 /** Create/edit form state. `null` = no form, `{ editing: null }` = create. */
@@ -72,7 +74,14 @@ export default function GoalsPage(): JSX.Element {
   );
 
   const summary = useMemo(() => {
-    const approved = goals.filter((g) => g.status === APPROVED_STATE).length;
+    // Issue #220: no hardcoded state name here either. `resolveBadgeVariant`
+    // is the codebase's shared status-semantics classifier (ch. 8.2) —
+    // "success" is the family of done/approved/released states across every
+    // artifact type and both locales, so a workspace that renamed its
+    // approved state still gets a truthful count instead of a constant 0.
+    const approved = goals.filter(
+      (g) => resolveBadgeVariant(g.status) === "success",
+    ).length;
     return [
       t("goals.summary", { count: goals.length, defaultValue: `${goals.length} Ziele` }),
       t("goals.approvedSuffix", {
@@ -121,17 +130,26 @@ export default function GoalsPage(): JSX.Element {
     [form, loadGoals, workspaceId],
   );
 
-  const handleApprove = useCallback(
-    async (goal: Goal): Promise<void> => {
+  const handleTransition = useCallback(
+    async (goal: Goal, transition: WorkflowAllowedTransition): Promise<void> => {
       setError(null);
       try {
-        await goalsApi.transition(goal.id, APPROVED_STATE, "Ziel freigegeben.");
+        // The WorkflowEngine rejects an empty reason where the transition
+        // demands one (`requires_change_reason`), so send a canned one for
+        // exactly those moves rather than for every move.
+        const changeReason = transition.requires_change_reason
+          ? t("goals.transitionReason", {
+              state: transition.target_state,
+              defaultValue: `Statuswechsel nach ${transition.target_state}.`,
+            })
+          : "";
+        await goalsApi.transition(goal.id, transition.target_state, changeReason);
         await loadGoals();
       } catch (err) {
         setError(extractErrorMessage(err));
       }
     },
-    [loadGoals],
+    [loadGoals, t],
   );
 
   const handleEdit = useCallback((goal: Goal): void => {
@@ -182,7 +200,9 @@ export default function GoalsPage(): JSX.Element {
         <GoalDetail
           goal={selectedGoal}
           onEdit={handleEdit}
-          onApprove={(goal) => void handleApprove(goal)}
+          onTransition={(goal, transition) =>
+            void handleTransition(goal, transition)
+          }
         />
       ) : null}
     </div>
