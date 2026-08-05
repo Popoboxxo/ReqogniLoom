@@ -132,9 +132,14 @@ test.describe('[UI-KONZEPT 16.1] Structural gates (h1 + scroll containers)', () 
       await page.goto(`${FRONTEND_URL}${route.path}`);
       await page.waitForLoadState('networkidle');
 
-      // Loading spinner (Suspense fallback, role="status") must resolve
-      // before the heading count is meaningful.
-      await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 15000 });
+      // Route-transition Suspense fallback must resolve before the heading
+      // count is meaningful. Scoped to its own data-testid, not a bare
+      // role="status" selector — some routes (e.g. WorkflowEditor) render
+      // a persistent, legitimate role="status" live-status bar that never
+      // disappears and isn't a loading indicator.
+      await expect(page.locator('[data-testid="route-suspense-fallback"]')).not.toBeVisible({
+        timeout: 15000,
+      });
 
       await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
     });
@@ -144,7 +149,9 @@ test.describe('[UI-KONZEPT 16.1] Structural gates (h1 + scroll containers)', () 
     }) => {
       await page.goto(`${FRONTEND_URL}${route.path}`);
       await page.waitForLoadState('networkidle');
-      await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="route-suspense-fallback"]')).not.toBeVisible({
+        timeout: 15000,
+      });
       // Content is present once the page's own heading has rendered — a
       // stand-in for "the route finished loading" that works identically
       // across all page types (list, dashboard, editor).

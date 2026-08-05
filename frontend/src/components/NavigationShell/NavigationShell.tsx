@@ -101,7 +101,6 @@ function AppShell(): JSX.Element {
       style={{
         display: "flex",
         minHeight: "100vh",
-        fontFamily: "sans-serif",
       }}
     >
       <SidebarNavigation />
@@ -114,7 +113,7 @@ function AppShell(): JSX.Element {
           reloadLabel={t("actions.reload")}
           backLabel={t("actions.back")}
         >
-          <Suspense fallback={<div role="status">{t("loading")}</div>}>
+          <Suspense fallback={<div role="status" data-testid="route-suspense-fallback">{t("loading")}</div>}>
             <Routes>
               <Route path="/" element={<DashboardViews />} />
               <Route path="/needs" element={<NeedsEditors />} />

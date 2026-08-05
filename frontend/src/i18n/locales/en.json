@@ -37,7 +37,7 @@
     "testCases": "Test Cases",
     "settings": "Workspace Settings",
     "systemSettings": "System Settings",
-    "profile": "Access Tokens",
+    "profile": "Profile",
     "glossary": "Glossary",
     "workflows": "Workflows",
     "logout": "Logout",
@@ -509,6 +509,10 @@
     "emptyTitle": "No risks yet",
     "emptyDescription": "Risks capture what could go wrong and how it is being mitigated.",
     "untitled": "Untitled"
+  },
+  "impact": {
+    "summaryRootSelected": "Starting from: {{title}}",
+    "summaryNoRoot": "No artifact selected"
   },
   "issues": {
     "selectIssue": "Select an issue from the list to view details.",

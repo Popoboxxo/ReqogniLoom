@@ -510,6 +510,10 @@
     "emptyDescription": "Risiken erfassen, was schiefgehen könnte und wie dem begegnet wird.",
     "untitled": "Unbenannt"
   },
+  "impact": {
+    "summaryRootSelected": "Ausgehend von: {{title}}",
+    "summaryNoRoot": "Kein Artefakt ausgewählt"
+  },
   "issues": {
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
     "createFailed": "Problem konnte nicht erstellt werden.",
