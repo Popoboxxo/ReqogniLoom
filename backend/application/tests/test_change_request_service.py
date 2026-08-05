@@ -408,7 +408,13 @@ class TestListChangeRequests:
 
 
 class TestTransitionStatus:
-    def test_transition_to_submitted(self):
+    def test_transition_delegates_to_workflow_engine(self):
+        """The WorkflowEngine is the sole authority (Lever 5).
+
+        The service must NOT write ``status`` itself — the engine mirrors it
+        via StateLifecycleManager._sync_status_mirror, so a ``cr.save()`` here
+        would push the stale in-memory status back over it.
+        """
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         cr = _make_cr(status="draft")
@@ -419,19 +425,23 @@ class TestTransitionStatus:
             patch.object(svc, "_set_tenant_context"),
             patch.object(svc, "_assert_write_permission"),
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch("application.workflow_facade.WorkflowFacade.transition") as mock_transition,
             patch.object(svc, "_audit"),
         ):
             mock_objects.filter.return_value.first.return_value = cr
             mock_objects.filter.return_value.update = MagicMock()
-            result = svc.transition_status(
+            svc.transition_status(
                 cr_id=CR_ID,
                 target_status="submitted",
                 ctx=ctx,
                 change_reason="Ready for CCB review",
             )
 
-        assert cr.status == "submitted"
-        cr.save.assert_called_once()
+        mock_transition.assert_called_once()
+        assert mock_transition.call_args[1]["target_state"] == "submitted"
+        assert mock_transition.call_args[1]["item_type"] == "ChangeRequest"
+        cr.save.assert_not_called()
+        cr.refresh_from_db.assert_called_once()
 
     def test_transition_invalid_status_raises(self):
         svc = ChangeRequestService()
@@ -468,21 +478,25 @@ class TestTransitionStatus:
                     ctx=ctx,
                 )
 
-    def test_transition_updates_change_reason(self):
+    def test_transition_persists_change_reason_and_bumps_version(self):
+        """change_reason + version go through a queryset update (never save()),
+        so the engine-written status mirror is not clobbered."""
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         cr = _make_cr(status="under_review")
         cr.save = MagicMock()
         cr.refresh_from_db = MagicMock()
+        update_mock = MagicMock()
 
         with (
             patch.object(svc, "_set_tenant_context"),
             patch.object(svc, "_assert_write_permission"),
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch("application.workflow_facade.WorkflowFacade.transition"),
             patch.object(svc, "_audit"),
         ):
             mock_objects.filter.return_value.first.return_value = cr
-            mock_objects.filter.return_value.update = MagicMock()
+            mock_objects.filter.return_value.update = update_mock
             svc.transition_status(
                 cr_id=CR_ID,
                 target_status="rejected",
@@ -490,7 +504,160 @@ class TestTransitionStatus:
                 change_reason="Does not meet safety requirements",
             )
 
-        assert cr.change_reason == "Does not meet safety requirements"
+        update_kwargs = update_mock.call_args[1]
+        assert update_kwargs["change_reason"] == "Does not meet safety requirements"
+        assert "version" in update_kwargs
+        cr.save.assert_not_called()
+
+    def test_missing_workflow_definition_is_not_swallowed(self):
+        """Lever 5: a missing ccb_approval definition used to be caught, logged
+        at DEBUG and followed by a direct status write — bypassing every CCB
+        control. It must now propagate."""
+        from workflow.definition_store import WorkflowDefinitionError
+
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        cr = _make_cr(status="draft")
+        cr.save = MagicMock()
+        cr.refresh_from_db = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch(
+                "application.workflow_facade.WorkflowFacade.transition",
+                side_effect=WorkflowDefinitionError("no definition for ChangeRequest"),
+            ),
+        ):
+            mock_objects.filter.return_value.first.return_value = cr
+            with pytest.raises(WorkflowDefinitionError):
+                svc.transition_status(
+                    cr_id=CR_ID,
+                    target_status="submitted",
+                    ctx=ctx,
+                    change_reason="Ready for CCB review",
+                )
+
+        assert cr.status == "draft"
+        cr.save.assert_not_called()
+
+    def test_missing_workflow_item_state_is_not_swallowed(self):
+        """Same for WorkflowStateError (no WorkflowItemState for the item)."""
+        from workflow.lifecycle_manager import WorkflowStateError
+
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        cr = _make_cr(status="draft")
+        cr.save = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch(
+                "application.workflow_facade.WorkflowFacade.transition",
+                side_effect=WorkflowStateError("no workflow state"),
+            ),
+        ):
+            mock_objects.filter.return_value.first.return_value = cr
+            with pytest.raises(WorkflowStateError):
+                svc.transition_status(
+                    cr_id=CR_ID, target_status="submitted", ctx=ctx
+                )
+
+        assert cr.status == "draft"
+        cr.save.assert_not_called()
+
+    def test_separation_of_duties_skipped_when_approval_workflows_disabled(self):
+        """Rigor gating: on minimal/standard the CCB stays lightweight, so the
+        requestor may decide their own CR (mirrors
+        PresetPolicyService.validate_transition_roles)."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID, user_id=USER_ID)
+        cr = _make_cr(status="under_review", requestor_id=USER_ID)
+        cr.save = MagicMock()
+        cr.refresh_from_db = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch("application.workflow_facade.WorkflowFacade.transition"),
+            patch.object(svc, "_audit"),
+            patch(
+                "application.change_request_service.get_preset_policy_service"
+            ) as mock_policy,
+        ):
+            mock_policy.return_value.is_feature_enabled.return_value = False
+            mock_objects.filter.return_value.first.return_value = cr
+            mock_objects.filter.return_value.update = MagicMock()
+            svc.transition_status(
+                cr_id=CR_ID,
+                target_status="approved",
+                ctx=ctx,
+                change_reason="self-approved on a lightweight tier",
+            )
+
+    def test_self_approval_denied_when_approval_workflows_enabled(self):
+        """Lever 5: requestor == approver is rejected with a clear error."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID, user_id=USER_ID, roles=("approver",))
+        cr = _make_cr(status="under_review", requestor_id=USER_ID)
+        cr.save = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch("application.workflow_facade.WorkflowFacade.transition") as mock_transition,
+            patch(
+                "application.change_request_service.get_preset_policy_service"
+            ) as mock_policy,
+        ):
+            mock_policy.return_value.is_feature_enabled.return_value = True
+            mock_objects.filter.return_value.first.return_value = cr
+            with pytest.raises(PermissionDeniedError, match="Separation of duties"):
+                svc.transition_status(
+                    cr_id=CR_ID,
+                    target_status="approved",
+                    ctx=ctx,
+                    change_reason="looks fine to me",
+                )
+
+        # The engine must never even be reached.
+        mock_transition.assert_not_called()
+        assert cr.status == "under_review"
+
+    def test_self_approval_allowed_for_non_decision_transitions(self):
+        """SoD applies to approve/reject only — the requestor must still be
+        able to submit and implement their own CR."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID, user_id=USER_ID)
+        cr = _make_cr(status="approved", requestor_id=USER_ID)
+        cr.save = MagicMock()
+        cr.refresh_from_db = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch("application.workflow_facade.WorkflowFacade.transition") as mock_transition,
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_capture_affected_items_after"),
+            patch.object(svc, "_link_baseline_if_enabled"),
+            patch(
+                "application.change_request_service.get_preset_policy_service"
+            ) as mock_policy,
+        ):
+            mock_policy.return_value.is_feature_enabled.return_value = True
+            mock_objects.filter.return_value.first.return_value = cr
+            mock_objects.filter.return_value.update = MagicMock()
+            svc.transition_status(
+                cr_id=CR_ID, target_status="implemented", ctx=ctx
+            )
+
+        mock_transition.assert_called_once()
 
     def test_transition_rejected_by_workflow_validation_raises_and_leaves_status(self):
         """WorkflowFacade.transition ValidationError must propagate, not be

@@ -104,6 +104,37 @@ class PresetPolicyService:
             )
             return False
 
+    def is_feature_enabled(self, workspace_id: str, feature_key: str) -> bool:
+        """Return True if *feature_key* is enabled by the workspace's preset.
+
+        IF-AS-INT-008 (generic variant). ADR-L3-PPL-01 keeps preset evaluation
+        in this component only — callers must not read ``presets.registry``
+        directly.
+
+        Fail-closed: an unresolvable workspace (unknown id, no preset config)
+        yields ``False``, i.e. the guarded feature degrades to a no-op instead
+        of raising. That is the desired behaviour for rigor-tier gating, where
+        a lower tier simply does not have the feature.
+
+        Args:
+            workspace_id: Workspace UUID (string or UUID).
+            feature_key: One of ``presets.registry.FEATURE_KEYS``.
+
+        Returns:
+            True if the workspace's active tier enables the feature.
+        """
+        try:
+            preset = self._get_preset(str(workspace_id))
+            return bool(preset.features.get(feature_key, False))
+        except Exception:
+            logger.debug(
+                "PresetPolicyService: is_feature_enabled failed ws=%s key=%s "
+                "— treating feature as disabled",
+                workspace_id,
+                feature_key,
+            )
+            return False
+
     # ---------- Public API (IF-AS-INT-006) ----------
 
     def is_scope_allowed(self, workspace_id: str, scope: str) -> bool:
