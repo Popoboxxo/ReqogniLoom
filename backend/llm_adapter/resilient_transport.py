@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 # REQ-082: 3 retries with exponential backoff 1s -> 2s -> 4s per provider call.
 LLM_MAX_RETRIES = 3
+
+# Issue #342: the retry budget is per *attempt*, and PolicyEngine's timeout
+# does not abort the worker thread (a timed-out attempt still blocks until the
+# provider actually answers). With a long per-attempt timeout the worst-case
+# wall clock therefore becomes (max_retries + 1) x timeout — minutes for a
+# workspace-wide call, far past any client or proxy timeout. Calls that already
+# get a generous per-attempt budget get a correspondingly smaller retry budget.
+LLM_LONG_CALL_THRESHOLD_SECONDS = 60.0
+LLM_LONG_CALL_MAX_RETRIES = 1
 LLM_BACKOFF_BASE_SECONDS = 1.0
 LLM_BACKOFF_FACTOR = 2.0
 LLM_BACKOFF_MAX_SECONDS = 4.0
@@ -151,6 +160,25 @@ def _breaker_for(target_subsystem: str, policy: Policy):
     return CircuitBreaker(target_subsystem, policy)
 
 
+def max_retries_for_timeout(timeout_seconds: float) -> int:
+    """Return the retry budget that fits *timeout_seconds* (issue #342).
+
+    Short per-attempt timeouts keep the full REQ-082 retry budget. Long ones
+    (>= :data:`LLM_LONG_CALL_THRESHOLD_SECONDS`, i.e. the workspace-wide
+    tools) are capped at :data:`LLM_LONG_CALL_MAX_RETRIES` so a hung provider
+    cannot stretch a single request into several minutes.
+
+    Args:
+        timeout_seconds: Per-attempt timeout the call will run under.
+
+    Returns:
+        Number of retries (attempts = returned value + 1).
+    """
+    if float(timeout_seconds) >= LLM_LONG_CALL_THRESHOLD_SECONDS:
+        return LLM_LONG_CALL_MAX_RETRIES
+    return LLM_MAX_RETRIES
+
+
 def resilient_call(
     operation: Callable[[], Any],
     *,
@@ -164,6 +192,8 @@ def resilient_call(
         provider_name: Provider class identifier (e.g. ``"anthropic"``); used
             as the per-class circuit-breaker target ``llm:<provider_name>``.
         timeout_seconds: Hard per-attempt timeout (enforced by PolicyEngine).
+            Also determines the retry budget — see
+            :func:`max_retries_for_timeout` (issue #342).
 
     Returns:
         The operation result on success (possibly after retries).
@@ -175,7 +205,7 @@ def resilient_call(
     target = f"llm:{provider_name}"
     policy = Policy(
         timeout_seconds=float(timeout_seconds),
-        max_retries=LLM_MAX_RETRIES,
+        max_retries=max_retries_for_timeout(timeout_seconds),
         backoff_base_seconds=LLM_BACKOFF_BASE_SECONDS,
         backoff_factor=LLM_BACKOFF_FACTOR,
         backoff_max_seconds=LLM_BACKOFF_MAX_SECONDS,

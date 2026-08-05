@@ -511,6 +511,20 @@ LLM_MODEL: str = config("LLM_MODEL", default="")
 # in the CapabilityRouter sync path; async Celery calls are NOT capped by this.
 LLM_SYNC_TIMEOUT_SECONDS: int = config("LLM_SYNC_TIMEOUT", default=25, cast=int)
 
+# Issue #342: workspace-wide prompts (glossary derivation from a whole
+# workspace, traceability.suggest_links, audit.ai_review) legitimately need
+# far more than the per-artifact cap above and always ran into it, surfacing
+# as an INTERNAL_ERROR / HTTP 500. They run under this longer, separate cap
+# instead; the tight default stays authoritative for every other call so a
+# genuinely hung single-artifact request is still cut off quickly. The set of
+# purposes this applies to lives in ``llm_adapter.timeouts``.
+# NOTE: an outer HTTP proxy timeout applies on top — nginx defaults to 60s
+# ``proxy_read_timeout`` (frontend/nginx.conf), so deployments that route MCP
+# through the frontend container must raise that too for values above 60.
+LLM_LONG_RUNNING_TIMEOUT_SECONDS: int = config(
+    "LLM_LONG_RUNNING_TIMEOUT", default=180, cast=int
+)
+
 # REQ-106: per-tenant daily token budget. When set (a positive integer), the
 # CapabilityRouter rejects further LLM calls for a tenant that has already
 # consumed this many tokens in the last 24 hours, returning a structured

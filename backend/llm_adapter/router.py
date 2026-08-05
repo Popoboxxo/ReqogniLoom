@@ -56,6 +56,7 @@ from llm_adapter.providers import (
     LlmProviderUnknownError,
     get_provider,
 )
+from llm_adapter.timeouts import sync_timeout_seconds
 from llm_adapter.token_tracking import (
     LLM_TOKEN_LIMIT_EXCEEDED,
     is_over_daily_limit,
@@ -89,13 +90,12 @@ def _sync_timeout_seconds() -> float:
     Read from ``settings.LLM_SYNC_TIMEOUT_SECONDS`` (env ``LLM_SYNC_TIMEOUT``,
     default 25s — below the typical 30s Gunicorn worker timeout). Falls back
     to 25 when Django settings are not configured (isolated unit tests).
-    """
-    try:
-        from django.conf import settings  # noqa: PLC0415
 
-        return float(getattr(settings, "LLM_SYNC_TIMEOUT_SECONDS", 25))
-    except Exception:  # noqa: BLE001 — settings unavailable outside Django
-        return 25.0
+    Delegates to :mod:`llm_adapter.timeouts`, the single seam for LLM timeout
+    resolution (issue #342). The router's own capabilities are all
+    single-artifact, so no workspace-wide purpose applies here.
+    """
+    return sync_timeout_seconds()
 
 
 def _read_enabled_capabilities() -> Set[str]:

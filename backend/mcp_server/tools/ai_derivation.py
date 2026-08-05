@@ -184,6 +184,12 @@ def derive_requirements_from_need(
                 source_item_type="StakeholderNeed",
                 link_type=LinkType.DERIVES_FROM.value,
                 policy=policy,
+                # issue #341: 'derives-from' points child -> parent
+                # (SE_LINK_SEMANTICS allows Requirement -> StakeholderNeed,
+                # not the reverse). Without this the link was built as
+                # Need --derives-from--> Requirement, which se_mode
+                # workspaces reject, rolling back every single draft.
+                new_entity_is_link_source=True,
             )
         except (ValidationError, NotFoundError) as exc:
             failed.append({"draft": draft, "error": str(exc)})
@@ -244,7 +250,8 @@ class AiDerivationToolGroup(BaseToolGroup):
                 "Propose system requirement drafts for a stakeholder need. "
                 "mode='preview' (default) returns drafts only; mode='write' "
                 "persists each draft as a Requirement and links it back to "
-                "the need via a 'derives-from' trace link."
+                "the need via a 'derives-from' trace link "
+                "(new Requirement -> Need)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -291,7 +298,7 @@ class AiDerivationToolGroup(BaseToolGroup):
                 "allocated to at least one architecture element. mode='preview' "
                 "(default) returns drafts only; mode='write' persists each draft "
                 "as a child Requirement and links it back to the parent via a "
-                "'derives-from' trace link."
+                "'derives-from' trace link (child -> parent)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -510,6 +517,14 @@ class AiDerivationToolGroup(BaseToolGroup):
                     source_item_type="Requirement",
                     link_type=LinkType.DERIVES_FROM.value,
                     policy=policy,
+                    # issue #341 (same class of bug): 'derives-from' points
+                    # child -> parent. Requirement -> Requirement passes the
+                    # SE matrix in either direction, so this produced a
+                    # silently inverted edge instead of a hard failure —
+                    # breaking descendant resolution in document-scope
+                    # baselines (BaselineStore/delta_index_builder expand
+                    # source=child -> target=parent) and TRACE-P5 audits.
+                    new_entity_is_link_source=True,
                 )
             except (ValidationError, NotFoundError) as exc:
                 failed.append({"draft": draft, "error": str(exc)})
