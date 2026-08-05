@@ -679,7 +679,7 @@ export default function TraceabilityView(): JSX.Element {
             fontSize: "var(--font-size-base)",
             fontWeight: 500,
             background: "var(--color-primary)",
-            color: "var(--color-on-primary, #fff)",
+            color: "var(--color-on-primary)",
             border: "none",
             borderRadius: "var(--radius-md)",
             cursor: !impactArtifact ? "not-allowed" : "pointer",

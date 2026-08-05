@@ -328,7 +328,7 @@ export default function WorkspaceSettings(): JSX.Element {
                       key={preset}
                       style={{
                         ...labelStyle,
-                        background: isActive ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)" : "transparent",
+                        background: isActive ? "rgba(var(--color-primary-rgb), 0.08)" : "transparent",
                         borderRadius: "var(--radius-md)",
                         padding: "var(--space-3)",
                         border: isActive ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",

@@ -179,7 +179,7 @@
 }
 
 .similarPanel {
-  background: var(--color-warning-bg);
+  background: var(--color-badge-warning-bg);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
@@ -232,7 +232,7 @@
 .similarItemScore {
   font-size: var(--font-size-sm);
   font-weight: 600;
-  color: var(--color-warning-text);
+  color: var(--color-badge-warning-text);
   margin-left: var(--space-2);
   white-space: nowrap;
 }

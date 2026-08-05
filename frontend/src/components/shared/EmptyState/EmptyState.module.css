@@ -43,11 +43,7 @@
   background: var(--color-primary);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  /* --color-on-primary is not defined in tokens.css; every other call
-     site in the codebase (ImpactView, TraceabilityView,
-     CreateTraceLinkDialog) uses this same var()-with-fallback pattern
-     rather than a bare hex literal. */
-  color: var(--color-on-primary, #fff);
+  color: var(--color-on-primary);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;

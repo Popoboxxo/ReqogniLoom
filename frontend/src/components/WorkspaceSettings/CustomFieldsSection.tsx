@@ -220,7 +220,7 @@ export function CustomFieldsSection({
                       onClick={() => void handleDelete(def.id)}
                       style={{
                         background: "transparent",
-                        color: "var(--color-error)",
+                        color: "var(--color-danger)",
                         border: "1px solid var(--color-border)",
                         borderRadius: "var(--radius-md)",
                         padding: "2px var(--space-2)",
@@ -296,7 +296,7 @@ export function CustomFieldsSection({
         <p
           data-testid="custom-fields-error"
           role="alert"
-          style={{ color: "var(--color-error)", marginTop: "var(--space-3)" }}
+          style={{ color: "var(--color-danger)", marginTop: "var(--space-3)" }}
         >
           {error}
         </p>

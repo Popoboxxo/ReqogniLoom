@@ -67,11 +67,13 @@
   /* Indigo — brand accent */
   --palette-indigo-400: #818cf8;
   --palette-indigo-500: #6366f1;
+  --palette-indigo-500-rgb: 99, 102, 241;
   --palette-indigo-500-a08: rgba(99, 102, 241, 0.08);
   --palette-indigo-500-a10: rgba(99, 102, 241, 0.1);
   --palette-indigo-500-a15: rgba(99, 102, 241, 0.15);
   --palette-indigo-500-a30: rgba(99, 102, 241, 0.3);
   --palette-indigo-600: #4f46e5;
+  --palette-indigo-600-rgb: 79, 70, 229;
   --palette-indigo-600-a06: rgba(79, 70, 229, 0.06);
   --palette-indigo-600-a25: rgba(79, 70, 229, 0.25);
   --palette-indigo-700: #4338ca;
@@ -131,12 +133,20 @@
   /* Colors - Premium Deep Dark/Slate Theme */
   --color-primary: var(--palette-indigo-500);
   --color-primary-dark: var(--palette-indigo-600);
+  /* Comma-separated R,G,B triplet (not a #hex/rgb() string) for call sites
+     that build rgba(var(--color-primary-rgb), alpha) themselves — always
+     kept in sync with --color-primary above. */
+  --color-primary-rgb: var(--palette-indigo-500-rgb);
   --color-surface: var(--palette-slate-900);
   --color-surface-raised: var(--palette-slate-800);
   --color-border: var(--palette-slate-700);
   --color-border-hover: var(--palette-slate-600);
+  --color-border-subtle: var(--palette-white-a08);
   --color-text: var(--palette-slate-50);
   --color-text-muted: var(--palette-slate-400);
+  /* Text color for content placed on a solid --color-primary background
+     (e.g. primary buttons, selected chips). */
+  --color-on-primary: var(--palette-white);
 
   --color-success: var(--palette-emerald-500);
   --color-warning: var(--palette-amber-500);
@@ -281,12 +291,15 @@
 :root[data-theme="light"] {
   --color-primary: var(--palette-indigo-600); /* darker for AA contrast on white */
   --color-primary-dark: var(--palette-indigo-700);
+  --color-primary-rgb: var(--palette-indigo-600-rgb);
   --color-surface: var(--palette-slate-50);
   --color-surface-raised: var(--palette-white);
   --color-border: var(--palette-slate-300);
   --color-border-hover: var(--palette-slate-400);
+  --color-border-subtle: var(--palette-slate-900-a08);
   --color-text: var(--palette-slate-900);
   --color-text-muted: var(--palette-slate-600);
+  --color-on-primary: var(--palette-white);
 
   --color-success: var(--palette-emerald-600);
   --color-warning: var(--palette-amber-700);
