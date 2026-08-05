@@ -187,8 +187,13 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // inline style was added back for the "canvas is still empty" hint.
 // Re-measured after that change: 1090. Baseline lowered in the same PR per
 // the ratchet rule above.
+// Issue #344 (silent Requirement save failure): `RequirementForm`'s save-error
+// banner moved from the bottom of the form up next to the Save button and now
+// uses the hoisted `saveErrorStyle` constant instead of an inline object
+// literal. Re-measured after that change: 1089. Baseline lowered in the same
+// PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1090;
+const STYLE_BRACE_BASELINE = 1089;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

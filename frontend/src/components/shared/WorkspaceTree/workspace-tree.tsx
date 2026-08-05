@@ -60,6 +60,9 @@ function levelBadgeColor(levelStr: string): string {
 const TYPE_BADGE_ABBREVIATION: Readonly<Record<string, string>> = {
   // Requirement types (backend values)
   SyReq: 'SR',
+  UseCase: 'UC',
+  FeatureReq: 'FR',
+  // Legacy requirement types, kept so historical rows still render a badge.
   SWReq: 'SW',
   HWReq: 'HW',
   // Requirement types (long-form display names)

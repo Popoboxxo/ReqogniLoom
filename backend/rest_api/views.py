@@ -3047,17 +3047,36 @@ def _test_run_result_to_dict(r: Any) -> dict[str, Any]:
 
 
 def _dto_from_orm(req: Any) -> dict[str, Any]:
-    """Convert Requirement ORM object to serializer-compatible dict."""
+    """Convert Requirement ORM object to serializer-compatible dict.
+
+    #344: ``type``, ``complexity_fibonacci`` and ``verification_method`` used to
+    be missing here. Because ``RequirementSerializer.type`` declares
+    ``default='SyReq'``, DRF substituted that default on *representation*, so
+    every REST response claimed ``type: "SyReq"`` and
+    ``complexity_fibonacci: null`` no matter what was stored. The UI reads those
+    values back into the form and echoes them on the next save, silently
+    reverting a real UseCase/FeatureReq classification (and any stored
+    complexity/verification method) on an unrelated description edit. Every
+    field the serializer can render must be sourced from the ORM object here.
+    """
     return {
         "id": str(req.id),
         "workspace_id": str(req.artifact.workspace_id) if hasattr(req, "artifact") else None,
         "artifact_id": str(req.artifact_id) if getattr(req, "artifact_id", None) else None,
+        "parent_id": (
+            str(parent_id)
+            if (parent_id := getattr(getattr(req, "artifact", None), "parent_id", None))
+            else None
+        ),
         "title": req.title,
         "description": getattr(req, "description", ""),
         "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
         "uid": getattr(req, "uid", None),
         "category": getattr(req, "category", ""),
         "status": getattr(req, "status", "draft"),
+        "type": getattr(req, "type", None) or "SyReq",
+        "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
+        "verification_method": getattr(req, "verification_method", None) or None,
         "custom_fields": _artifact_custom_fields(req),
         "version": req.version,
         "created_at": req.created_at,

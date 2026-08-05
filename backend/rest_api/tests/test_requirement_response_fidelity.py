@@ -1,0 +1,207 @@
+"""Requirement REST responses must report the values that are actually stored.
+
+Issue #344. ``_dto_from_orm`` (``rest_api/views.py``) omitted ``type``,
+``complexity_fibonacci`` and ``verification_method``. Since
+``RequirementSerializer.type`` declares ``default='SyReq'``, DRF substituted
+that default on *representation*, so every REST response claimed
+``type: "SyReq"`` regardless of what the service had persisted — a silent lie
+that the UI reads back into the edit form and echoes on the next save, thereby
+reverting a real classification on an unrelated description edit.
+
+Real DB + JWT (no mocked service): the defect lives in the view/serializer
+seam, which a mocked service would hide.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from django.test import override_settings
+from rest_framework.test import APIClient
+
+from auth_tenancy.models import ROLE_ADMIN, UserRole
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Tenant, User, Workspace
+
+_SECRET = "test-secret-not-a-real-key"
+
+_JWT_OVERRIDES = dict(
+    AUTH_JWT_SECRET=_SECRET,
+    AUTH_JWT_ISSUER="reqflow",
+    AUTH_JWT_AUDIENCE="reqflow-api",
+    AUTH_JWT_TTL_SECONDS=3600,
+)
+
+
+@pytest.fixture
+def fidelity_env(db):
+    """Tenant + admin + one standard-preset workspace."""
+    tenant = Tenant.objects.create(name="RF T", slug="rf-t", is_active=True)
+    admin = User.objects.create(username="rfadmin", email="rfadmin@t.test", tenant=tenant)
+    admin.set_password("rfpass123")
+    admin.save(update_fields=["password"])
+    set_request_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            tenant=tenant, name="RF WS", preset={"name": "standard"}
+        )
+        UserRole.objects.create(
+            tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
+        )
+        yield {"tenant": tenant, "workspace": workspace}
+    finally:
+        clear_request_tenant()
+
+
+def _client(fidelity_env: dict) -> APIClient:
+    client = APIClient()
+    resp = client.post(
+        "/api/v1/auth/login/",
+        {"username": "rfadmin", "password": "rfpass123"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.json()['token']}")
+    return client
+
+
+def _create_requirement(client: APIClient, workspace_id: Any) -> dict:
+    resp = client.post(
+        "/api/v1/requirements/",
+        {
+            "workspace_id": str(workspace_id),
+            "title": "Response fidelity requirement",
+            "description": "original description",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    return resp.json()
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_patch_response_reports_the_stored_type(fidelity_env):
+    """A changed ``type`` must be echoed back, not masked by the field default."""
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"type": "UseCase"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["type"] == "UseCase"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_reports_the_stored_type(fidelity_env):
+    """The same value must survive a fresh GET — the UI hydrates its form from it."""
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+    client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"type": "FeatureReq"},
+        format="json",
+    )
+
+    fresh = client.get(f"/api/v1/requirements/{requirement['id']}/")
+
+    assert fresh.status_code == 200, fresh.content
+    assert fresh.json()["type"] == "FeatureReq"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_syreq_type_fields_are_reported(fidelity_env):
+    """``complexity_fibonacci`` / ``verification_method`` were missing too.
+
+    They are only rendered for ``type == 'SyReq'`` (serializer
+    ``to_representation``), which is exactly the default type here.
+    """
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"complexity_fibonacci": 8, "verification_method": "Analysis"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["complexity_fibonacci"] == 8
+    assert body["verification_method"] == "Analysis"
+
+    fresh = client.get(f"/api/v1/requirements/{requirement['id']}/").json()
+    assert fresh["complexity_fibonacci"] == 8
+    assert fresh["verification_method"] == "Analysis"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_description_only_patch_does_not_revert_the_type(fidelity_env):
+    """The end-to-end shape of #344: an unrelated edit must not undo the type.
+
+    With the old response the UI read ``type: "SyReq"`` back into the form and
+    echoed it on the next save, silently reverting the classification.
+    """
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+    client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"type": "UseCase"},
+        format="json",
+    )
+
+    round_tripped = client.get(f"/api/v1/requirements/{requirement['id']}/").json()
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"description": "edited elsewhere", "type": round_tripped["type"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    fresh = client.get(f"/api/v1/requirements/{requirement['id']}/").json()
+    assert fresh["description"] == "edited elsewhere"
+    assert fresh["type"] == "UseCase"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_demonstration_verification_method_round_trips(fidelity_env):
+    """``RequirementSerializer`` omitted the model's 'Demonstration' choice.
+
+    ``persistence.models.VerificationMethod`` (and migration 0041) has carried
+    ``Demonstration`` all along, so a ReqIF-imported requirement using it 400'd
+    on its next save because the serializer's hard-coded choice list stopped
+    one value short of the model's.
+    """
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"verification_method": "Demonstration"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["verification_method"] == "Demonstration"
+
+    fresh = client.get(f"/api/v1/requirements/{requirement['id']}/").json()
+    assert fresh["verification_method"] == "Demonstration"
+
+
+def test_serializer_choices_match_the_model():
+    """Guard the seam itself: no choice list may drift from the model again."""
+    from persistence.models import VerificationMethod
+    from rest_api.serializers import RequirementSerializer
+
+    serializer_choices = set(
+        RequirementSerializer().fields["verification_method"].choices
+    )
+    assert serializer_choices == set(VerificationMethod.values)

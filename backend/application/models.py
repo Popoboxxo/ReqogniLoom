@@ -663,6 +663,26 @@ class ChangeRequest(models.Model):
         help_text="UUID of the user assigned as CCB reviewer.",
     )
     version = models.IntegerField(default=1)
+    # Configuration baseline of record for this change request (ISO 15288
+    # §6.4.3/§6.4.9). Nullable on purpose:
+    #   * the ``baselines`` preset feature is off on the ``minimal`` tier, so a
+    #     CR there simply never gets a baseline (no-op, not an error);
+    #   * a CR may be raised long before any baseline exists.
+    # SET_NULL rather than CASCADE/PROTECT: BaselineSnapshot is immutable and
+    # protected by DB triggers, but if a snapshot is ever removed by
+    # maintenance the CR record itself must survive.
+    baseline = models.ForeignKey(
+        "baseline.BaselineSnapshot",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="change_requests",
+        help_text=(
+            "Configuration baseline this change request is evaluated / "
+            "implemented against. Linked on approval when the workspace "
+            "preset enables baselines."
+        ),
+    )
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -684,6 +704,95 @@ class ChangeRequest(models.Model):
         return f"CR:{self.id}:{self.title[:40]}"
 
 
+class ChangeRequestAffectedItem(models.Model):
+    """One artifact affected by a :class:`ChangeRequest` (CCB impact record).
+
+    ISO 15288 §6.4.3/§6.4.9 configuration management requires a change request
+    to answer "*what* did this change, and relative to which baseline". The
+    free-text ``ChangeRequest.impact_assessment`` cannot answer that
+    machine-readably; this table does.
+
+    Schema deliberately mirrors ``baseline.models.BaselineDeltaIndexEntry``
+    (same codebase pattern for artifact-version snapshots):
+
+      * ``item_id`` is the **Artifact** UUID as a string — no cross-app FK, so
+        any artifact-backed entity type (Requirement, ArchitectureElement,
+        StakeholderNeed, TestCase, ...) can be referenced uniformly.
+      * ``entity_type`` is the same discriminator vocabulary
+        ("item" | "trace_link" | "glossary_term" | "icd" | ...).
+      * ``state_before`` / ``state_after`` hold the curated per-artifact-type
+        field set produced by ``baseline.state_capture.capture_states`` — the
+        very same helper the baseline snapshots use, so the two stay in sync
+        automatically when a new artifact type is added there.
+
+    ``version_before`` is captured when the item is attached to the CR,
+    ``version_after`` when the CR reaches ``approved`` / ``implemented``.
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-157
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    change_request = models.ForeignKey(
+        ChangeRequest,
+        on_delete=models.CASCADE,
+        related_name="affected_items",
+        db_index=True,
+    )
+    # Denormalised for RLS (see application/0014): every tenant-scoped ``as_*``
+    # table carries its own tenant_id so the row-level policy can apply.
+    tenant_id = models.UUIDField(db_index=True)
+
+    # Artifact UUID as string — mirrors BaselineDeltaIndexEntry.item_id.
+    item_id = models.CharField(max_length=64, db_index=True)
+    entity_type = models.CharField(max_length=32, default="item")
+
+    version_before = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Artifact version when the item was attached to the CR.",
+    )
+    version_after = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Artifact version when the CR was approved / implemented.",
+    )
+    state_before = models.JSONField(
+        null=True,
+        default=None,
+        help_text="Full curated entity state when attached (see state_capture).",
+    )
+    state_after = models.JSONField(
+        null=True,
+        default=None,
+        help_text="Full curated entity state at approval / implementation time.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+    unscoped = models.Manager()
+
+    class Meta:
+        db_table = "as_change_request_affected_item"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["change_request", "item_id"],
+                name="uq_cr_affected_item",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["change_request", "item_id"], name="idx_cr_affected_cr_item"
+            ),
+            models.Index(fields=["tenant_id"], name="idx_cr_affected_tenant"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CRAffectedItem(cr={self.change_request_id}, item={self.item_id})"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
@@ -693,6 +802,7 @@ __all__ = [
     "Risk",
     "Issue",
     "ChangeRequest",
+    "ChangeRequestAffectedItem",
     "Goal",
     "MainGoal",
 ]

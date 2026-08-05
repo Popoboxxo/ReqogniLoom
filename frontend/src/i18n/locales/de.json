@@ -548,6 +548,10 @@
     "devMode": "Entwickler-Modus",
     "seMode": "SE-Modus",
     "saved": "Gespeichert.",
+    "llm": {
+      "providerUnsupportedOption": "{{provider}} (von dieser UI-Version nicht unterstützt)",
+      "providerUnsupportedHint": "Provider \"{{provider}}\" wird von dieser UI-Version nicht unterstützt. Er bleibt beim Speichern unverändert, solange du keinen anderen Provider auswählst."
+    },
     "customFields": {
       "title": "Benutzerdefinierte Felder",
       "description": "Definiere zusätzliche Felder für dieses Workspace. Definierte Felder erscheinen im Bearbeitungsformular jeder Anforderung (Requirement) und können dort ausgefüllt werden.",
@@ -644,6 +648,8 @@
   "reqType": {
     "StReq": "Stakeholder-Anforderung (StReq)",
     "SyReq": "System-Anforderung (SyReq)",
+    "UseCase": "Use Case (UseCase)",
+    "FeatureReq": "Feature-Anforderung (FeatureReq)",
     "SWReq": "Software-Anforderung (SWReq)",
     "HWReq": "Hardware-Anforderung (HWReq)"
   },

@@ -548,6 +548,10 @@
     "devMode": "Dev Mode",
     "seMode": "SE Mode",
     "saved": "Saved.",
+    "llm": {
+      "providerUnsupportedOption": "{{provider}} (not supported by this UI version)",
+      "providerUnsupportedHint": "Provider \"{{provider}}\" is not supported by this UI version. It stays unchanged on save unless you pick a different provider."
+    },
     "customFields": {
       "title": "Custom Fields",
       "description": "Define additional fields for this workspace. Defined fields appear on every requirement's edit form, where they can be filled in.",
@@ -644,6 +648,8 @@
   "reqType": {
     "StReq": "Stakeholder Requirement (StReq)",
     "SyReq": "System Requirement (SyReq)",
+    "UseCase": "Use Case (UseCase)",
+    "FeatureReq": "Feature Requirement (FeatureReq)",
     "SWReq": "Software Requirement (SWReq)",
     "HWReq": "Hardware Requirement (HWReq)"
   },

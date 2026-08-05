@@ -44,8 +44,8 @@ export type EntityType =
  */
 export type RequirementSubType =
   | 'SyReq' // System Requirement
-  | 'SWReq' // Software Requirement
-  | 'HWReq'; // Hardware Requirement
+  | 'UseCase' // Use Case
+  | 'FeatureReq'; // Feature Requirement
 
 /**
  * Architecture element subtypes.

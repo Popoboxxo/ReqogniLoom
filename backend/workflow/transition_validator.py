@@ -28,6 +28,12 @@ from typing import Optional
 from uuid import UUID
 
 from .definition_store import WorkflowDefinitionDTO, WorkflowDefinitionError, WorkflowDefinitionStore
+from .precondition_rules import (
+    EC_MANDATORY_FIELDS_MISSING,
+    EC_VERIFICATION_EVIDENCE_MISSING,
+    check_mandatory_fields,
+    check_verification_evidence,
+)
 from .signature_gate import CredentialVerificationRequest, SignatureGateVerifier
 
 
@@ -158,10 +164,23 @@ class TransitionValidator:
       1. Transition exists in the active WorkflowDefinition.
       2. Requesting user has an allowed role.
       3. change_reason is present when required.
+      5. Mandatory-field completeness on approval transitions (tier-driven).
+      6. Verification evidence on "-> verified" transitions (V&V §3 "Passed").
       4. SignatureGate: credential present and valid.
 
+    Rules 5 and 6 are data preconditions (see
+    :mod:`workflow.precondition_rules`) and run *before* the signature gate —
+    countersigning an incomplete or unverified artifact is pointless. They are
+    no-ops for every transition that is not an approval / verification gate,
+    and fail open when they cannot be evaluated.
+
     Performance: < 10 ms for rules 1–3 + SignatureGate delegation is
-    excluded from the budget (ADR-L3-WE002-01, REQ-L2-WE-008).
+    excluded from the budget (ADR-L3-WE002-01, REQ-L2-WE-008). Rules 5 and 6
+    are likewise outside that budget: they only run on approval / verification
+    transitions (a small minority of all transitions) and each issues a
+    bounded, indexed handful of queries — rule 5 one primary-key lookup plus
+    the cached preset read, rule 6 one trace-link scan plus the existing
+    coverage aggregation.
     """
 
     def __init__(
@@ -288,6 +307,34 @@ class TransitionValidator:
                 error_message=self._change_reason_message(ws_str, definition),
             )
 
+        # ---- Rule 5: mandatory-field completeness (SE lever 1) ---------------
+        # Only fires on approval transitions; tier-driven via
+        # presets.registry.mandatory_fields. See workflow.precondition_rules.
+        violation = check_mandatory_fields(
+            workspace_id=ws_str,
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+            change_reason=request.change_reason,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
+            )
+
+        # ---- Rule 6: verification evidence (SE lever 3) ----------------------
+        # Only fires on "-> verified"; derives the V&V strategy §3 "Passed"
+        # state from the actual trace links + latest test-run results.
+        violation = check_verification_evidence(
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
+            )
+
         # ---- Rule 4: SignatureGate -------------------------------------------
         seal: str | None = None
         if transition.signature_gate:
@@ -334,4 +381,6 @@ __all__ = [
     "EC_SIGNATURE_REQUIRED",
     "EC_SIGNATURE_INVALID",
     "EC_DEFINITION_NOT_FOUND",
+    "EC_MANDATORY_FIELDS_MISSING",
+    "EC_VERIFICATION_EVIDENCE_MISSING",
 ]

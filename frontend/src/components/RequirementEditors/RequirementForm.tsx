@@ -19,7 +19,7 @@
  * IF-RF-EXT-OUT-001 → PATCH /api/v1/requirements/
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -40,6 +40,21 @@ import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from './MarkdownPreview';
 import { VersionBadge } from '../shared/VersionBadge';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
+
+/**
+ * #344: the save error banner lives directly under the header action row, i.e.
+ * next to the Save button the user just pressed. Hoisted to a module-level
+ * constant so it does not add to the inline-style ratchet (see
+ * `src/test/ui-ratchet.test.ts`).
+ */
+const saveErrorStyle: React.CSSProperties = {
+  color: 'var(--color-danger)',
+  border: '1px solid var(--color-danger)',
+  borderRadius: 'var(--radius-md)',
+  padding: 'var(--space-3)',
+  margin: 'var(--space-3) 0 0 0',
+  fontSize: 'var(--font-size-sm)',
+};
 
 /**
  * Props for RequirementForm.
@@ -102,6 +117,15 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   // UI state
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const saveErrorRef = useRef<HTMLParagraphElement | null>(null);
+
+  // #344: bring a freshly raised save error into view. `scrollIntoView` is
+  // absent in jsdom, hence the optional call.
+  useEffect(() => {
+    if (saveError) {
+      saveErrorRef.current?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [saveError]);
 
   /**
    * Validate form data before saving.
@@ -110,7 +134,16 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     if (!title.trim()) {
       return t('editor.titleRequired');
     }
-    if (isExtendedPreset && isFieldVisible('change_reason') && isFieldRequired('change_reason') && !changeReason.trim()) {
+    // #344: the backend requires a change_reason on EVERY update in the
+    // extended preset (PresetPolicyService.is_change_reason_required), and
+    // rejects the whole PATCH with 400 otherwise — the user's edit is lost.
+    // The old guard additionally required `isFieldRequired('change_reason')`,
+    // which comes from AttributeVisibilityConfig and defaults to `false` when
+    // no config row exists (the default state), so the client-side check never
+    // fired and every save in an extended workspace silently 400'd.
+    // The workspace preset is the authority here; an explicit
+    // AttributeVisibilityConfig can only make the field required in addition.
+    if ((isExtendedPreset || isFieldRequired('change_reason')) && !changeReason.trim()) {
       return t('req.changeReasonRequired');
     }
 
@@ -142,9 +175,17 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         title,
         description,
         category,
-        change_reason: changeReason,
         type,
       };
+
+      // #344: never send an empty `change_reason`. It is not a content field —
+      // it annotates *this* edit. Sending `""` cannot satisfy the extended
+      // preset's mandatory-reason policy (the backend 400s either way) and in
+      // a non-extended workspace it would blank the reason recorded for the
+      // previous revision. Only a reason the user actually typed is sent.
+      if (changeReason.trim()) {
+        updateData.change_reason = changeReason.trim();
+      }
 
       // Include type-specific fields
       if (type === 'SyReq') {
@@ -265,6 +306,20 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               )}
             </div>
           </div>
+          {/* #344: a failed save must never be invisible. The banner sits
+              directly under the action row (the Save button lives in the
+              header), and scrolls itself into view, so the user cannot miss it
+              no matter how far down the long form they had scrolled. */}
+          {saveError && (
+            <p
+              ref={saveErrorRef}
+              role="alert"
+              data-testid="req-save-error"
+              style={saveErrorStyle}
+            >
+              {saveError}
+            </p>
+          )}
           <div
             style={{
               display: 'flex',
@@ -385,9 +440,14 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                   onChange={(e) => setType(e.target.value as RequirementType)}
                   style={inputStyle}
                 >
+                  {/* #344: these must stay in sync with the backend's
+                      RequirementType choices (persistence/models.py) and the
+                      DB CHECK constraint from migration 0050. The dropdown
+                      used to offer SWReq/HWReq, which no longer exist there —
+                      picking one made the whole PATCH 400 and lost the edit. */}
                   <option value="SyReq">{t('reqType.SyReq')}</option>
-                  <option value="SWReq">{t('reqType.SWReq')}</option>
-                  <option value="HWReq">{t('reqType.HWReq')}</option>
+                  <option value="UseCase">{t('reqType.UseCase')}</option>
+                  <option value="FeatureReq">{t('reqType.FeatureReq')}</option>
                 </select>
               </div>
             )}
@@ -457,14 +517,18 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         )}
 
         {/* SECTION: Change Control */}
-        {isExtendedPreset && isFieldVisible('change_reason') && (
+        {/* #344: in the extended preset the change reason is mandatory
+            server-side, so the field must be rendered regardless of the
+            AttributeVisibilityConfig — hiding it would make every save
+            impossible to complete. */}
+        {isExtendedPreset && (
           <div style={{ marginBottom: 'var(--space-6)' }}>
             <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
               Change Control
             </h3>
             
             <label htmlFor="change-reason" style={labelStyle}>
-              {t('req.changeReason')} {isFieldRequired('change_reason') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+              {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
             </label>
             <textarea
               id="change-reason"
@@ -478,12 +542,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           </div>
         )}
 
-        {/* Error message */}
-        {saveError && (
-          <p role="alert" style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
-            {saveError}
-          </p>
-        )}
+        {/* #344: the save error banner moved up next to the Save button in the
+            header — down here it was ~350 lines below the fold, so a failed
+            save looked like nothing happened at all. */}
 
         {/* Actions moved to the header (P1-f). Diff is served by the
             ArtifactInspector right sidebar (REQ-001, REQ-L2-RF-036). */}

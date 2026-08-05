@@ -153,6 +153,49 @@ class AuditService(ServiceBase):
             )
             return "standard"
 
+    # ---------- Gate support (SE-conformance lever 2) ----------
+
+    def blocking_findings(
+        self,
+        workspace_id: str | UUID,
+        ctx: AuthContext,
+        *,
+        tier: Optional[str] = None,
+        scopes: Optional[Sequence[AuditScope]] = None,
+    ) -> List[Finding]:
+        """Return only the BLOCKER-severity findings for *workspace_id*.
+
+        The gate counterpart of :meth:`run_audit`: same RuleEngine, same
+        tier resolution, but no remediation analysis. Remediation proposals
+        cost one extra analysis pass (and several queries) per finding and are
+        only meaningful for the dashboard — a caller that just needs a
+        yes/no decision (e.g. :meth:`application.baseline_facade.BaselineFacade
+        .create_baseline`) must not pay for them.
+
+        Tier awareness is inherited unchanged from the RuleEngine: the Minimal
+        tier maps to an empty rule set in
+        ``traceability.audit.registry.RULE_PRESET_MAP`` (structurally enforced),
+        so this returns ``[]`` without issuing a single query there.
+
+        Args:
+            workspace_id: Target workspace UUID.
+            ctx: Resolved AuthContext (tenant scoping).
+            tier: Rigor tier override; resolved from the preset when ``None``.
+            scopes: Baseline scopes for scope-aware rules.
+
+        Returns:
+            All findings whose tier-resolved severity is
+            :attr:`Severity.BLOCKER`, in rule/scope order.
+        """
+        self._set_tenant_context(ctx)
+        result = self._engine.run(
+            tier=tier or self.resolve_tier(workspace_id),
+            workspace_id=str(workspace_id),
+            tenant_id=str(ctx.tenant_id),
+            scopes=scopes,
+        )
+        return [f for f in result.findings if f.severity is Severity.BLOCKER]
+
     # ---------- Audit run ----------
 
     def run_audit(

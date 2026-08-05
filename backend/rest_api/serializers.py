@@ -470,7 +470,10 @@ class RequirementSerializer(
         help_text="Complexity via Fibonacci scale (visible only for SyReq)",
     )
     verification_method = serializers.ChoiceField(
-        choices=['Test', 'Review', 'Analysis', 'Inspection'],
+        # Must mirror persistence.models.VerificationMethod (migration 0041).
+        # 'Demonstration' was missing here, so a ReqIF-imported requirement
+        # carrying it 400'd on its next save.
+        choices=['Test', 'Review', 'Analysis', 'Inspection', 'Demonstration'],
         required=False,
         allow_null=True,
         help_text="Verification method (visible only for SyReq)",

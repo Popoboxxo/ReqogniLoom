@@ -1,13 +1,149 @@
 """Generic MCP Tool Group for standard CRUD entities."""
 import inspect
+import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from application.base import NotFoundError
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import BaseToolGroup, ToolResult, require_uuid
+
+
+# ---------------------------------------------------------------------------
+# inputSchema introspection (#345 Finding 1)
+#
+# The create/update schemas used to advertise only ``workspace_id`` / ``id``
+# with ``additionalProperties: true``, while the wrapped service required up
+# to three more fields — a client that trusted the schema got a 400. Deriving
+# the schema from the service signature keeps it honest by construction: it
+# cannot drift when a service adds, renames or defaults a parameter.
+# ---------------------------------------------------------------------------
+
+_JSON_TYPE_BY_NAME: Dict[str, str] = {
+    "str": "string",
+    "uuid": "string",
+    "datetime": "string",
+    "date": "string",
+    "int": "integer",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "sequence": "array",
+    "dict": "object",
+    "mapping": "object",
+}
+
+_OPTIONAL_RE = re.compile(r"^(?:typing\.)?Optional\[(.+)\]$")
+
+# Enumerated free-form fields whose accepted values live in the model's
+# TextChoices — resolved from the model so the schema cannot drift. ``status``
+# is deliberately absent: it is workflow-managed (see ``_handle_update``).
+_ENUM_FIELDS_BY_PREFIX: Dict[str, Dict[str, str]] = {
+    "risk": {
+        "probability": "Probability",
+        "impact": "Impact",
+        "category": "Category",
+    },
+    "issue": {"severity": "Severity", "category": "Category"},
+}
+
+
+def _annotation_text(annotation: Any) -> str:
+    """Return an annotation as source-like text.
+
+    All wrapped services use ``from __future__ import annotations``, so
+    ``inspect.signature`` hands back strings; real objects are still handled
+    for services that do not.
+    """
+    if annotation is inspect.Parameter.empty:
+        return ""
+    if isinstance(annotation, str):
+        return annotation
+    return getattr(annotation, "__name__", None) or str(annotation)
+
+
+def _json_type_from_annotation(annotation: Any) -> Optional[str]:
+    """Map a parameter annotation to a JSON Schema type, or None if unknown."""
+    text = _annotation_text(annotation).strip()
+    if not text:
+        return None
+    match = _OPTIONAL_RE.match(text)
+    if match:
+        text = match.group(1).strip()
+    # "str | None" / "UUID | str"
+    if "|" in text:
+        parts = [p.strip() for p in text.split("|") if p.strip() not in ("None", "NoneType")]
+        if len(parts) != 1:
+            return None
+        text = parts[0]
+    base = text.split("[", 1)[0].strip().rsplit(".", 1)[-1]
+    return _JSON_TYPE_BY_NAME.get(base.lower())
+
+
+def _enum_values(prefix: str, field: str) -> Optional[List[str]]:
+    """Return the model's TextChoices values for a known enum field."""
+    choices_attr = _ENUM_FIELDS_BY_PREFIX.get(prefix, {}).get(field)
+    if choices_attr is None:
+        return None
+    try:
+        from application import models as application_models
+
+        model = getattr(application_models, prefix.capitalize())
+        return list(getattr(model, choices_attr).values)
+    except Exception:  # pragma: no cover - defensive: never break tools/list
+        return None
+
+
+def _fields_from_signature(
+    method: Callable[..., Any], *, prefix: str, skip: frozenset[str]
+) -> Tuple[Dict[str, Any], List[str], bool]:
+    """Derive (properties, required, accepts_extra) from a service method.
+
+    ``ctx``/``self`` are injected by the tool group, never sent by the client.
+    A parameter without a default is required; a scalar default is published
+    as the JSON Schema ``default`` so callers can see e.g. that
+    ``issue.create``'s ``severity`` falls back to "medium".
+    """
+    properties: Dict[str, Any] = {}
+    required: List[str] = []
+    accepts_extra = False
+
+    for name, param in inspect.signature(method).parameters.items():
+        if name in ("self", "ctx") or name in skip:
+            continue
+        if param.kind is inspect.Parameter.VAR_KEYWORD:
+            accepts_extra = True
+            continue
+        if param.kind is inspect.Parameter.VAR_POSITIONAL:
+            continue
+        # `status` is workflow-managed and rejected by `_handle_update`;
+        # never advertise it as an updatable field.
+        if name == "status" and "update" in getattr(method, "__name__", ""):
+            continue
+
+        field: Dict[str, Any] = {}
+        json_type = _json_type_from_annotation(param.annotation)
+        if json_type is not None:
+            field["type"] = json_type
+
+        enum_values = _enum_values(prefix, name)
+        if enum_values:
+            field["enum"] = enum_values
+
+        is_required = param.default is inspect.Parameter.empty
+        if is_required:
+            required.append(name)
+            field["description"] = f"Required. '{name}' as validated by the {prefix} service."
+        else:
+            field["description"] = f"Optional. '{name}' as accepted by the {prefix} service."
+            if isinstance(param.default, (str, int, float, bool)):
+                field["default"] = param.default
+
+        properties[name] = field
+
+    return properties, required, accepts_extra
 
 
 def _resolve_method(service: Any, prefix: str, action: str) -> Callable[..., Any]:
@@ -83,6 +219,33 @@ class GenericCrudToolGroup(BaseToolGroup):
             f"{prefix}.reactivate": "_handle_reactivate",
             f"{prefix}.query": "_handle_query",
         }
+        # #345 Finding 1: create/update schemas are derived from the wrapped
+        # service signature so `tools/list` states the real contract.
+        create_props, create_required, create_extra = _fields_from_signature(
+            self._create_method, prefix=prefix, skip=frozenset({"workspace_id"})
+        )
+        update_props, update_required, update_extra = _fields_from_signature(
+            self._update_method, prefix=prefix, skip=frozenset({self._update_id_param})
+        )
+        # `workspace_id` / `id` are consumed by the handlers themselves, so
+        # they are declared here rather than taken from the signature.
+        create_props = {
+            "workspace_id": {
+                "type": "string",
+                "description": "Required. UUID of the target workspace.",
+            },
+            **create_props,
+        }
+        create_required = ["workspace_id"] + create_required
+        update_props = {
+            "id": {
+                "type": "string",
+                "description": f"Required. UUID of the {prefix} entity.",
+            },
+            **update_props,
+        }
+        update_required = ["id"] + update_required
+
         # Instance-level JSON schemas (prefix is only known at construction).
         self._TOOL_SCHEMAS = [
             {
@@ -98,29 +261,33 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.create",
-                "description": f"Create a new {prefix} entity (write). Additional fields are forwarded to the service.",
+                "description": (
+                    f"Create a new {prefix} entity (write). Fields are passed "
+                    "flat at the top level of `params` — this tool group does "
+                    "NOT take a nested `data` object."
+                ),
                 "inputSchema": {
                     "type": "object",
-                    "properties": {
-                        "workspace_id": {
-                            "type": "string",
-                            "description": "UUID of the target workspace.",
-                        },
-                    },
-                    "required": ["workspace_id"],
-                    "additionalProperties": True,
+                    "properties": create_props,
+                    "required": create_required,
+                    "additionalProperties": create_extra,
                 },
             },
             {
                 "name": f"{prefix}.update",
-                "description": f"Update a {prefix} entity (write). Additional fields are forwarded to the service.",
+                "description": (
+                    f"Update a {prefix} entity (write). Only the fields you "
+                    "send are changed; they are passed flat at the top level "
+                    "of `params` — this tool group does NOT take a nested "
+                    f"`data` object. `status` is workflow-managed: use "
+                    f"{prefix}.outdate / {prefix}.reactivate or the REST "
+                    "workflow transitions endpoint."
+                ),
                 "inputSchema": {
                     "type": "object",
-                    "properties": {
-                        "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
-                    },
-                    "required": ["id"],
-                    "additionalProperties": True,
+                    "properties": update_props,
+                    "required": update_required,
+                    "additionalProperties": update_extra,
                 },
             },
             {

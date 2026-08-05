@@ -83,6 +83,7 @@ def _mock_arch_element(id_val=None, title="Arch El", element_type="component"):
     el.description = ""
     el.element_type = element_type
     el.version = 1
+    el.parent_id = None
     el.artifact = MagicMock()
     el.artifact.workspace_id = WORKSPACE_UUID
     return el
@@ -395,6 +396,68 @@ class TestArchitectureToolGroup:
         assert result.success is True
         assert "architecture_element" in result.data
         mock_audit.assert_called_once()
+        # Backward compatibility: omitting parent_id forwards None (root).
+        assert svc.create_architecture_element.call_args.kwargs["parent_id"] is None
+
+    @patch("mcp_server.tools.architecture.write_mcp_audit")
+    def test_architecture_create_forwards_parent_id_to_service(self, mock_audit):
+        """#fix: architecture.create previously dropped 'parent_id' silently.
+        Confirm it now reaches the ArchitectureService call, matching the
+        REST API's ArchitectureElementViewSet.create behaviour."""
+        group, svc, _ = self._group()
+        el = _mock_arch_element()
+        svc.create_architecture_element.return_value = el
+        parent_id = "00000000-0000-0000-0000-000000000099"
+
+        result = group.execute_tool(
+            tool_name="architecture.create",
+            params={
+                "title": "Child",
+                "workspace_id": str(WORKSPACE_UUID),
+                "parent_id": parent_id,
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.create_architecture_element.assert_called_once_with(
+            workspace_id=WORKSPACE_UUID,
+            title="Child",
+            ctx=EDITOR_CTX,
+            description="",
+            element_type="component",
+            parent_id=UUID(parent_id),
+        )
+
+    @patch("mcp_server.tools.architecture.write_mcp_audit")
+    def test_architecture_update_forwards_parent_id_to_service(self, mock_audit):
+        """architecture.update must forward an explicit 'parent_id' (including
+        null, to detach to root) for re-parenting via MCP, matching REST's
+        partial_update contract."""
+        group, svc, _ = self._group()
+        el = _mock_arch_element()
+        svc.update_architecture_element.return_value = el
+        parent_id = "00000000-0000-0000-0000-000000000088"
+
+        result = group.execute_tool(
+            tool_name="architecture.update",
+            params={
+                "id": str(el.id),
+                "data": {"expected_version": 1, "parent_id": parent_id},
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.update_architecture_element.assert_called_once_with(
+            arch_el_id=el.id,
+            ctx=EDITOR_CTX,
+            expected_version=1,
+            title=None,
+            description=None,
+            element_type=None,
+            parent_id=UUID(parent_id),
+        )
 
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_link_with_valid_type_calls_trace_service(self, mock_audit):
@@ -796,6 +859,21 @@ class TestCrossCuttingToolGroup:
         )
         assert result.success is True
         search_svc.search.assert_called_once()
+
+    def test_artifact_search_schema_publishes_full_type_filter_enum(self):
+        """#345 Finding 2b: `type_filter` used to accept only Requirement/
+        ArchitectureElement/TestCase — Needs, Goals and ADRs 400ed. The
+        published enum must be exactly what the service accepts."""
+        from application.search_service import SEARCHABLE_ARTIFACT_TYPES
+
+        group, _, _, _ = self._group()
+        schema = next(
+            s for s in group.get_tool_schemas() if s["name"] == "artifact.search"
+        )["inputSchema"]
+
+        enum_values = schema["properties"]["type_filter"]["items"]["enum"]
+        assert set(enum_values) == set(SEARCHABLE_ARTIFACT_TYPES)
+        assert {"StakeholderNeed", "Goal", "Adr"} <= set(enum_values)
 
     def test_artifact_search_requires_query(self):
         group, _, _, _ = self._group()

@@ -97,6 +97,11 @@ class BaselineFacade(ServiceBase):
             UUID(str(document_id)) if document_id is not None else None
         )
 
+        # SE-conformance gate: no baseline over known-broken traceability.
+        self._assert_no_blocking_findings(
+            workspace_id=ws_id, scope=scope, document_id=doc_id, ctx=ctx
+        )
+
         # Delegate to baseline.services (IF-BL-EXT-IN-001)
         from baseline.services import build as baseline_build
 
@@ -134,6 +139,78 @@ class BaselineFacade(ServiceBase):
         )
 
         return baseline_id
+
+    # ---------- SE-conformance gate (lever 2) ----------
+
+    def _assert_no_blocking_findings(
+        self,
+        *,
+        workspace_id: UUID,
+        scope: str,
+        document_id: Optional[UUID],
+        ctx: AuthContext,
+    ) -> None:
+        """Reject the baseline build when the SE-Auditor reports BLOCKERs.
+
+        A baseline is a governance artefact: freezing a trace graph that the
+        workspace's own rigor preset already declares broken makes every
+        downstream diff and audit trail authoritative over known-bad data.
+        The SE-Auditor (``traceability.audit``) has had BLOCKER-severity rules
+        since SysEng 2.0 Phase 2 but was only ever exposed as a *report*; this
+        is its first enforcement point.
+
+        Tier awareness comes entirely from the existing
+        ``RULE_PRESET_MAP``: Minimal maps to an empty rule set (structurally
+        enforced in ``traceability.audit.registry``), so this method issues no
+        query and never blocks there. Standard runs the baseline rule set with
+        TRACE-P2 downgraded to WARNING; Extended adds the SE-only rules —
+        both severity mappings are the RuleEngine's, not re-derived here.
+
+        Latency: run synchronously, matching the surrounding code path —
+        ``baseline.services.build`` (delta index + snapshot write) is itself
+        synchronous, and the audit is a bounded set of aggregate queries over
+        the same scope the build is about to walk. Making the gate async would
+        mean the build could not consume its verdict.
+
+        Raises:
+            ValidationError: One or more BLOCKER findings, listing each.
+        """
+        from application.audit_service import AuditService
+        from traceability.audit import AuditScope
+
+        audit_scope = AuditScope(
+            scope=scope,
+            artifact_id=str(document_id) if document_id is not None else None,
+        )
+        try:
+            findings = AuditService().blocking_findings(
+                workspace_id, ctx, scopes=[audit_scope]
+            )
+        except ValidationError:
+            raise
+        except Exception:  # noqa: BLE001
+            # Fail open on an auditor malfunction: an internal error in the
+            # gate must not make baselining impossible workspace-wide.
+            logger.exception(
+                "BaselineFacade: SE-Auditor gate failed for ws=%s scope=%s; "
+                "allowing the baseline build",
+                workspace_id,
+                scope,
+            )
+            return
+
+        if not findings:
+            return
+
+        details = "; ".join(
+            f"{f.rule_id} [{', '.join(f.artifact_ids) or 'graph'}]: {f.message}"
+            for f in findings
+        )
+        raise ValidationError(
+            f"Baseline cannot be created: the SE-Auditor reported "
+            f"{len(findings)} blocking finding(s) for this workspace. "
+            f"Resolve them first — {details}"
+        )
 
     def diff_baselines(
         self,

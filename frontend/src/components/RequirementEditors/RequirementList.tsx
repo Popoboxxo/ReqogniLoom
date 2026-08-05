@@ -35,8 +35,8 @@ import { REQ_CATEGORIES, WORKFLOW_STATES } from '../../types';
 function getTypeColor(type?: RequirementType): string {
   switch (type) {
     case 'SyReq': return '#10B981';
-    case 'SWReq': return '#8B5CF6';
-    case 'HWReq': return '#F59E0B';
+    case 'UseCase': return '#8B5CF6';
+    case 'FeatureReq': return '#F59E0B';
     default:      return '#6B7280';
   }
 }

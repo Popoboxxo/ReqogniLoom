@@ -2,7 +2,7 @@
  * ARCH-L1-001 ReactFrontend — LLM settings admin section (REQ-L2-LLM-001).
  *
  * Renders the tenant-scoped LLM provider configuration form:
- *   - provider dropdown (anthropic / openai / ollama / mock)
+ *   - provider dropdown (see LLM_PROVIDERS)
  *   - base_url input (Ollama only)
  *   - api_key password input (write-only; placeholder reflects api_key_is_set)
  *   - model_name text input
@@ -10,6 +10,18 @@
  *
  * The api_key is never returned by the backend; an empty submission keeps the
  * stored key unchanged.
+ *
+ * Forward compatibility (issue #274): the backend enum may know provider
+ * values that this frontend build does not. A `<select>` cannot render a
+ * value that has no matching `<option>` — the browser silently falls back to
+ * the FIRST option ("anthropic"), so a Save without any user edit used to
+ * overwrite a working configuration with a different provider. Two guards
+ * prevent that now:
+ *   1. an unrecognized server value is rendered as its own (selected) option
+ *      plus an explicit hint, so the UI never shows a wrong provider;
+ *   2. `provider` is only part of the PATCH payload when the selected value
+ *      is one this build actually knows — an untouched form can therefore
+ *      never downgrade an unknown-but-working provider.
  */
 
 import { useEffect, useState } from "react";
@@ -18,6 +30,7 @@ import {
   llmSettingsApi,
   LLM_PROVIDERS,
   type LlmProvider,
+  type LlmSettingsUpdate,
 } from "../../api/llm-settings";
 import { extractErrorMessage } from "../../api/client";
 
@@ -56,9 +69,30 @@ const inputStyle: React.CSSProperties = {
   marginBottom: "var(--space-4)",
 };
 
+/** Warning shown when the server reports a provider this build cannot edit. */
+const unsupportedProviderHintStyle: React.CSSProperties = {
+  color: "var(--color-warning)",
+  fontSize: "var(--font-size-sm)",
+  marginTop: "calc(-1 * var(--space-3))",
+  marginBottom: "var(--space-4)",
+};
+
+/**
+ * Type guard: does this build know `value` as a selectable provider?
+ *
+ * Deliberately kept local (rather than exported from `api/llm-settings`)
+ * because the test suite auto-mocks that module and re-supplies only the
+ * `LLM_PROVIDERS` constant.
+ */
+function isKnownProvider(value: string): value is LlmProvider {
+  return (LLM_PROVIDERS as readonly string[]).includes(value);
+}
+
 export function LlmSettingsSection(): JSX.Element {
   const { t } = useTranslation();
-  const [provider, setProvider] = useState<LlmProvider>("mock");
+  // Typed as `string`, not `LlmProvider`: the server may legitimately return
+  // an enum value this build predates (see the module docstring).
+  const [provider, setProvider] = useState<string>("mock");
   const [baseUrl, setBaseUrl] = useState("");
   const [modelName, setModelName] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -95,12 +129,14 @@ export function LlmSettingsSection(): JSX.Element {
     setError(null);
     setSavedOk(false);
     try {
-      const payload: {
-        provider: LlmProvider;
-        base_url: string;
-        model_name: string;
-        api_key?: string;
-      } = { provider, base_url: baseUrl, model_name: modelName };
+      const payload: LlmSettingsUpdate = {
+        base_url: baseUrl,
+        model_name: modelName,
+      };
+      // Only send provider when this build recognises the selected value.
+      // An unrecognised value can only originate from the server, and echoing
+      // a *different* one back would silently destroy a working config (#274).
+      if (isKnownProvider(provider)) payload.provider = provider;
       // Only send api_key when the user typed a new one (write-only field).
       if (apiKey) payload.api_key = apiKey;
       const updated = await llmSettingsApi.update(payload);
@@ -146,15 +182,41 @@ export function LlmSettingsSection(): JSX.Element {
         id="llm-provider"
         data-testid="llm-provider-select"
         value={provider}
-        onChange={(e) => setProvider(e.target.value as LlmProvider)}
+        onChange={(e) => setProvider(e.target.value)}
         style={inputStyle}
       >
+        {/*
+          Render the server value itself when it is unknown to this build, so
+          the browser cannot fall back to the first option and display a
+          provider that is not actually configured (#274).
+        */}
+        {!isKnownProvider(provider) && (
+          <option value={provider}>
+            {t(
+              "settings.llm.providerUnsupportedOption",
+              "{{provider}} (not supported by this UI version)",
+              { provider }
+            )}
+          </option>
+        )}
         {LLM_PROVIDERS.map((p) => (
           <option key={p} value={p}>
             {p}
           </option>
         ))}
       </select>
+      {!isKnownProvider(provider) && (
+        <p
+          data-testid="llm-provider-unsupported-hint"
+          style={unsupportedProviderHintStyle}
+        >
+          {t(
+            "settings.llm.providerUnsupportedHint",
+            "Provider \"{{provider}}\" is not supported by this UI version. It stays unchanged on save unless you pick a different provider.",
+            { provider }
+          )}
+        </p>
+      )}
 
       {provider === "ollama" && (
         <>

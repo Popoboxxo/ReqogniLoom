@@ -243,38 +243,50 @@ _EXPECTED_UPDATE_FIELDS = {
         "change_reason",
     },
     "glossary": {"definition", "synonyms", "abbreviation"},
+    "change_request": {
+        "title", "description", "impact_assessment", "change_reason",
+        "assigned_reviewer_id",
+    },
 }
 
+_EXPECTED_CREATE_FIELDS["change_request"] = {
+    "title", "description", "impact_assessment", "change_reason",
+    "requestor_id", "assigned_reviewer_id",
+}
 
-# NOTE: change_request is intentionally NOT parametrized into this test.
-# It currently fails for adr/risk/issue/glossary too (pre-existing:
-# GenericCrudToolGroup's create/update schemas only expose a static
-# "workspace_id"/"id" property plus additionalProperties: True, not the
-# concrete per-entity fields this test expects — Codeberg #94 regression,
-# out of scope for Phase 1 Task 4).
-@pytest.mark.xfail(
-    reason="Codeberg #94: GenericCrudToolGroup schemas don't expose concrete "
-    "per-entity fields yet — out of scope for Phase 1 Task 4",
-    strict=False,
-)
-@pytest.mark.parametrize(
-    "service_class_path,prefix",
-    [
-        ("application.adr_service.AdrService", "adr"),
-        ("application.risk_service.RiskService", "risk"),
-        ("application.issue_service.IssueService", "issue"),
-        ("application.glossary_service.GlossaryService", "glossary"),
-    ],
-)
-def test_create_and_update_schemas_expose_concrete_fields(service_class_path, prefix):
-    """The generic CRUD schemas must list concrete, entity-specific field
-    names — not just a bare additionalProperties: True bag (Codeberg #94)."""
+# #345 Finding 1: the real required set the wrapped service enforces. A
+# client that sends exactly these fields must not get a 400 — and a client
+# that omits one of them gets a VALIDATION_ERROR, so the schema has to say so.
+_EXPECTED_CREATE_REQUIRED = {
+    "adr": ["workspace_id", "title", "description"],
+    "risk": ["workspace_id", "title", "probability", "impact"],
+    "issue": ["workspace_id", "title"],
+    "glossary": ["workspace_id", "term", "definition"],
+    "change_request": ["workspace_id", "title"],
+}
+
+_SERVICE_PATHS = [
+    ("application.adr_service.AdrService", "adr"),
+    ("application.risk_service.RiskService", "risk"),
+    ("application.issue_service.IssueService", "issue"),
+    ("application.glossary_service.GlossaryService", "glossary"),
+    ("application.change_request_service.ChangeRequestService", "change_request"),
+]
+
+
+def _crud_group_for(service_class_path: str, prefix: str) -> GenericCrudToolGroup:
     import importlib
 
     module_path, class_name = service_class_path.rsplit(".", 1)
     service_class = getattr(importlib.import_module(module_path), class_name)
+    return GenericCrudToolGroup(prefix, service_class)
 
-    group = GenericCrudToolGroup(prefix, service_class)
+
+@pytest.mark.parametrize("service_class_path,prefix", _SERVICE_PATHS)
+def test_create_and_update_schemas_expose_concrete_fields(service_class_path, prefix):
+    """The generic CRUD schemas must list concrete, entity-specific field
+    names — not just a bare additionalProperties: True bag (Codeberg #94)."""
+    group = _crud_group_for(service_class_path, prefix)
     schemas = {s["name"]: s for s in group.get_tool_schemas()}
 
     create_props = set(schemas[f"{prefix}.create"]["inputSchema"]["properties"].keys())
@@ -282,8 +294,91 @@ def test_create_and_update_schemas_expose_concrete_fields(service_class_path, pr
 
     assert _EXPECTED_CREATE_FIELDS[prefix] <= create_props
     assert _EXPECTED_UPDATE_FIELDS[prefix] <= update_props
-    # additionalProperties stays True — no behaviour change, just documentation.
-    assert schemas[f"{prefix}.create"]["inputSchema"]["additionalProperties"] is True
+    # Every accepted field is now enumerated, and the services take no
+    # **kwargs — so unknown properties really are rejected (VALIDATION_ERROR).
+    assert schemas[f"{prefix}.create"]["inputSchema"]["additionalProperties"] is False
+    assert schemas[f"{prefix}.update"]["inputSchema"]["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("service_class_path,prefix", _SERVICE_PATHS)
+def test_create_schema_required_matches_service_signature(service_class_path, prefix):
+    """#345 Finding 1: `tools/list` must declare every server-side mandatory
+    field, not just `workspace_id`.
+
+    The expectation is cross-checked against the wrapped service's own
+    signature (a parameter without a default *is* mandatory), so this test
+    fails both when the schema under-declares and when the hard-coded
+    expectation drifts away from the service.
+    """
+    import inspect
+
+    group = _crud_group_for(service_class_path, prefix)
+    schemas = {s["name"]: s for s in group.get_tool_schemas()}
+    required = schemas[f"{prefix}.create"]["inputSchema"]["required"]
+
+    assert required == _EXPECTED_CREATE_REQUIRED[prefix]
+
+    signature_required = {
+        name
+        for name, param in inspect.signature(group._create_method).parameters.items()
+        if name not in ("self", "ctx") and param.default is inspect.Parameter.empty
+    }
+    assert set(required) == signature_required
+
+    # Everything declared required must also be a declared property.
+    properties = schemas[f"{prefix}.create"]["inputSchema"]["properties"]
+    assert set(required) <= set(properties)
+
+
+@pytest.mark.parametrize("service_class_path,prefix", _SERVICE_PATHS)
+def test_update_schema_documents_flat_field_convention(service_class_path, prefix):
+    """#345 secondary note: this tool group takes flat fields, while
+    requirement/test/architecture.update take a nested `data` object. The
+    conventions are not unified here — but each schema must state which one
+    it uses, so `data` must never appear as a property of these tools.
+    """
+    group = _crud_group_for(service_class_path, prefix)
+    schemas = {s["name"]: s for s in group.get_tool_schemas()}
+    update_schema = schemas[f"{prefix}.update"]
+
+    assert update_schema["inputSchema"]["required"] == ["id"]
+    assert "data" not in update_schema["inputSchema"]["properties"]
+    assert "flat" in update_schema["description"].lower()
+    # `status` is workflow-managed and rejected by the handler.
+    assert "status" not in update_schema["inputSchema"]["properties"]
+
+
+def test_issue_create_schema_publishes_severity_default_and_enum():
+    """#345: `severity` is optional with a "medium" default and a closed
+    value set — both are part of the contract a client needs."""
+    from application.issue_service import IssueService
+    from application.models import Issue
+
+    group = GenericCrudToolGroup("issue", IssueService)
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == "issue.create"
+    )["inputSchema"]
+
+    severity = schema["properties"]["severity"]
+    assert "severity" not in schema["required"]
+    assert severity["default"] == "medium"
+    assert severity["enum"] == list(Issue.Severity.values)
+
+
+def test_risk_create_schema_publishes_probability_impact_enums():
+    """#345 asked whether risk probability/impact are free-form strings:
+    they are CharFields with TextChoices, so the schema publishes the enum."""
+    from application.models import Risk
+    from application.risk_service import RiskService
+
+    group = GenericCrudToolGroup("risk", RiskService)
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == "risk.create"
+    )["inputSchema"]
+
+    assert schema["properties"]["probability"]["enum"] == list(Risk.Probability.values)
+    assert schema["properties"]["impact"]["enum"] == list(Risk.Impact.values)
+    assert schema["properties"]["probability"]["type"] == "string"
 
 
 # ---------------------------------------------------------------------------

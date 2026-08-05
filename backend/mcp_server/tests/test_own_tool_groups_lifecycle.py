@@ -228,6 +228,119 @@ class TestArchitectureLifecycleTools:
 
 
 # ---------------------------------------------------------------------------
+# ArchitectureToolGroup — parent_id wiring (architecture.create/update)
+# ---------------------------------------------------------------------------
+
+
+class TestArchitectureParentIdTools:
+    """architecture.create/update must forward 'parent_id' to the service,
+    exactly matching the REST API's already-existing capability. Covers the
+    fix for the MCP layer silently dropping 'parent_id'."""
+
+    def test_create_with_parent_id_attaches_as_child(self):
+        from application.architecture_service import ArchitectureService
+
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("arch-mcp-parent-create")
+        _ensure_workflow(tenant, workspace, "architecture_default", "ArchitectureElement")
+
+        svc = ArchitectureService()
+        group = ArchitectureToolGroup(service=svc)
+
+        root = svc.create_architecture_element(
+            workspace_id=workspace.id, title="Root", ctx=ctx
+        )
+
+        result = group._handle_create(
+            params={
+                "workspace_id": str(workspace.id),
+                "title": "Child",
+                "parent_id": str(root.id),
+            },
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+        assert result.success is True
+        child_data = result.data["architecture_element"]
+        assert child_data["parent_id"] == str(root.id)
+
+    def test_create_without_parent_id_still_creates_root(self):
+        from application.architecture_service import ArchitectureService
+
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("arch-mcp-parent-noparent")
+        _ensure_workflow(tenant, workspace, "architecture_default", "ArchitectureElement")
+
+        svc = ArchitectureService()
+        group = ArchitectureToolGroup(service=svc)
+
+        result = group._handle_create(
+            params={"workspace_id": str(workspace.id), "title": "Root"},
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+        assert result.success is True
+        root_data = result.data["architecture_element"]
+        assert root_data["parent_id"] is None
+
+    def test_create_second_root_without_parent_id_rejected_i5(self):
+        """Unchanged I5 behaviour: a second root (no parent_id, root already
+        exists) must still be rejected after the parent_id fix."""
+        from application.architecture_service import ArchitectureService
+
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("arch-mcp-parent-i5")
+        _ensure_workflow(tenant, workspace, "architecture_default", "ArchitectureElement")
+
+        svc = ArchitectureService()
+        group = ArchitectureToolGroup(service=svc)
+
+        group._handle_create(
+            params={"workspace_id": str(workspace.id), "title": "Root1"},
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+
+        result = group._handle_create(
+            params={"workspace_id": str(workspace.id), "title": "Root2"},
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_update_with_parent_id_reparents_element(self):
+        from application.architecture_service import ArchitectureService
+
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("arch-mcp-parent-update")
+        _ensure_workflow(tenant, workspace, "architecture_default", "ArchitectureElement")
+
+        svc = ArchitectureService()
+        group = ArchitectureToolGroup(service=svc)
+
+        root = svc.create_architecture_element(
+            workspace_id=workspace.id, title="Root", ctx=ctx
+        )
+        other = svc.create_architecture_element(
+            workspace_id=workspace.id, title="Other", ctx=ctx, parent_id=root.id
+        )
+        target_parent = svc.create_architecture_element(
+            workspace_id=workspace.id, title="NewParent", ctx=ctx, parent_id=root.id
+        )
+
+        result = group._handle_update(
+            params={
+                "id": str(other.id),
+                "data": {
+                    "expected_version": other.version,
+                    "parent_id": str(target_parent.id),
+                },
+            },
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+        assert result.success is True
+        assert result.data["architecture_element"]["parent_id"] == str(target_parent.id)
+
+
+# ---------------------------------------------------------------------------
 # TestToolGroup (McpTestToolGroup)
 # ---------------------------------------------------------------------------
 

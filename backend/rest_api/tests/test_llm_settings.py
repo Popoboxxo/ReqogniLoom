@@ -323,6 +323,35 @@ def test_patch_partial_update_keeps_existing_api_key(llm_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_opencode_go_provider_round_trips(llm_tenant):
+    """``opencode_go`` is accepted on write and echoed back on read (#273/#274).
+
+    The UI-side guard for unknown providers (issue #274) relies on a PATCH
+    that omits ``provider`` leaving the stored one untouched, so both halves
+    are asserted here.
+    """
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.patch(
+        "/api/v1/llm-settings/", {"provider": "opencode_go"}, format="json"
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["provider"] == "opencode_go"
+
+    # A PATCH that leaves `provider` out must not reset it.
+    resp = client.patch(
+        "/api/v1/llm-settings/", {"model_name": "gpt-oss"}, format="json"
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["provider"] == "opencode_go"
+
+    resp = client.get("/api/v1/llm-settings/")
+    assert resp.json()["provider"] == "opencode_go"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_non_admin_is_forbidden(llm_tenant):
     """A non-admin (editor) cannot read or write LLM settings."""
     client = APIClient()
