@@ -360,6 +360,96 @@ def test_decompose_next_level_write_mode_persists_child_requirements(ai_ctx):
         assert TraceLink.objects.filter(id=entry["trace_link_id"]).exists()
 
 
+# ---------------------------------------------------------------------------
+# issue #341 — mode="write" persisted nothing in se_mode workspaces because
+# the 'derives-from' link was built backwards (Need -> Requirement).
+# SE_LINK_SEMANTICS only allows Requirement -> StakeholderNeed, so
+# TraceLinkService raised and @atomic_transaction rolled every draft back.
+#
+# The pre-existing write-mode tests above run in the default dev_mode
+# workspace, where _check_se_semantics returns early — which is exactly why
+# they never caught this. These tests switch the workspace to se_mode.
+# ---------------------------------------------------------------------------
+
+
+def _enable_se_mode(tenant, workspace):
+    """Activate se_mode so TraceLinkService enforces SE endpoint semantics."""
+    from presets.models import WorkspacePresetConfig
+
+    WorkspacePresetConfig.objects.create(
+        workspace=workspace,
+        tenant_id=tenant.id,
+        active_tier="extended",
+        terminology_profile="se_mode",
+    )
+
+
+def test_derive_requirements_write_mode_persists_in_se_mode(ai_ctx):
+    """#341: every draft must persist, with a child -> parent derives-from link."""
+    tenant, ctx, workspace = ai_ctx
+    _enable_se_mode(tenant, workspace)
+    need = _make_need(tenant, workspace, "A need", "desc")
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_requirements_from_need",
+        {"need_id": str(need.id), "n": 2, "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    # The regression: written was [] and everything landed in failed.
+    assert result.data.get("failed", []) == []
+    written = result.data["written"]
+    assert len(written) == 2
+
+    from persistence.models import Requirement, TraceLink
+
+    for entry in written:
+        requirement = Requirement.objects.get(id=entry["id"])
+        link = TraceLink.objects.get(id=entry["trace_link_id"])
+        assert link.link_type == "derives-from"
+        # Direction: the new Requirement is the link SOURCE, the Need the target.
+        assert link.source_id == requirement.artifact_id
+        assert link.target_id == need.artifact_id
+
+
+def test_decompose_next_level_write_mode_link_direction_is_child_to_parent(ai_ctx):
+    """#341 sibling: decompose built 'derives-from' parent -> child (inverted)."""
+    _tenant, ctx, workspace = ai_ctx
+    _enable_se_mode(_tenant, workspace)
+    parent = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="parent", ctx=ctx
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Comp", ctx=ctx
+    )
+    TraceLinkService().allocate(
+        requirement_id=parent.id, architecture_element_id=arch.id, ctx=ctx
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.decompose_requirement_next_level",
+        {"requirement_id": str(parent.id), "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    assert result.data.get("failed", []) == []
+    written = result.data["written"]
+    assert len(written) >= 1
+
+    from persistence.models import Requirement, TraceLink
+
+    for entry in written:
+        child = Requirement.objects.get(id=entry["id"])
+        link = TraceLink.objects.get(id=entry["trace_link_id"])
+        assert link.link_type == "derives-from"
+        assert link.source_id == child.artifact_id
+        assert link.target_id == parent.artifact_id
+
+
 def test_invalid_mode_is_validation_error(ai_ctx):
     _tenant, ctx, workspace = ai_ctx
     need = _make_need(_tenant, workspace, "A need", "desc")
