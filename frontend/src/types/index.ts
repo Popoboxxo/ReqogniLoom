@@ -78,7 +78,14 @@ export type CustomFieldValue = string | number | boolean | null;
 
 export type CustomFields = Record<string, CustomFieldValue>;
 
-export type RequirementType = 'SyReq' | 'SWReq' | 'HWReq';
+/**
+ * #344: mirrors the backend `RequirementType` choices
+ * (`backend/persistence/models.py`), which are additionally pinned by the DB
+ * CHECK constraint added in migration 0050. The previous union
+ * (`'SyReq' | 'SWReq' | 'HWReq'`) drifted from the backend: writing SWReq or
+ * HWReq was rejected with 400 and the whole edit was discarded.
+ */
+export type RequirementType = 'SyReq' | 'UseCase' | 'FeatureReq';
 export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
 export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 
