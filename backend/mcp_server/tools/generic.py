@@ -39,8 +39,13 @@ _OPTIONAL_RE = re.compile(r"^(?:typing\.)?Optional\[(.+)\]$")
 
 # Enumerated free-form fields whose accepted values live in the model's
 # TextChoices — resolved from the model so the schema cannot drift. ``status``
-# is deliberately absent: it is workflow-managed (see ``_handle_update``).
+# is deliberately absent from the *update* schema (it is workflow-managed,
+# see ``_fields_from_signature``'s update-name guard and ``_handle_update``),
+# but it IS advertised for entities below on `{prefix}.create` (#374): the
+# service accepts an initial ``status`` there, so the enum values are useful
+# to document up front instead of leaving clients to guess.
 _ENUM_FIELDS_BY_PREFIX: Dict[str, Dict[str, str]] = {
+    "adr": {"status": "Status"},
     "risk": {
         "probability": "Probability",
         "impact": "Impact",
@@ -88,6 +93,16 @@ def _enum_values(prefix: str, field: str) -> Optional[List[str]]:
     if choices_attr is None:
         return None
     try:
+        # #374: "Deleted" is a soft-delete marker (REQ-006) that
+        # AdrValidator.VALID_STATUSES deliberately excludes from what a
+        # client may set via create/transition — the advertised enum must
+        # match what the service actually accepts, not the full model
+        # TextChoices.
+        if prefix == "adr" and field == "status":
+            from application.adr_service import AdrValidator
+
+            return sorted(AdrValidator.VALID_STATUSES)
+
         from application import models as application_models
 
         model = getattr(application_models, prefix.capitalize())

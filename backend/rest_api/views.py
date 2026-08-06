@@ -3386,6 +3386,7 @@ def _adr_to_dict(adr: Any) -> dict[str, Any]:
         "title": adr.title,
         "description": getattr(adr, "description", ""),
         "context": getattr(adr, "context", ""),
+        "decision": getattr(adr, "decision", ""),
         "consequences": getattr(adr, "consequences", ""),
         "uid": getattr(adr, "uid", None),
         "status": getattr(adr, "status", "Draft"),
@@ -3944,6 +3945,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 ctx=ctx,
                 context=data.get("context", ""),
+                decision=data.get("decision", ""),
                 consequences=data.get("consequences", ""),
                 status=data.get("status", "Draft"),
             )
@@ -3984,6 +3986,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 title=data.get("title"),
                 description=data.get("description"),
                 context=data.get("context"),
+                decision=data.get("decision"),
                 consequences=data.get("consequences"),
                 change_reason=data.get("change_reason"),
             )

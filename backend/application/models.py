@@ -226,6 +226,11 @@ class Adr(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(max_length=10000)
     context = models.TextField(max_length=5000, blank=True)
+    # #373: standard ADR terminology (context/decision/consequences) has no
+    # `decision` field — a client sending it as documented gets an
+    # unexpected-keyword TypeError. `description` is kept as-is (may carry a
+    # short summary distinct from the full decision rationale).
+    decision = models.TextField(max_length=5000, blank=True)
     consequences = models.TextField(max_length=5000, blank=True)
     uid = models.CharField(
         max_length=64,

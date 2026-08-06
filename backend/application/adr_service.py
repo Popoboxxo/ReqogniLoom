@@ -60,6 +60,7 @@ class AdrDTO:
     title: str
     description: str
     context: str
+    decision: str
     consequences: str
     status: str
     version: int
@@ -73,6 +74,7 @@ class AdrDTO:
             title=adr.title,
             description=adr.description,
             context=adr.context,
+            decision=adr.decision,
             consequences=adr.consequences,
             status=adr.status,
             version=adr.version,
@@ -142,6 +144,7 @@ class AdrService(ServiceBase):
         description: str,
         ctx: AuthContext,
         context: str = "",
+        decision: str = "",
         consequences: str = "",
         status: str = "Draft",
         uid: Optional[str] = None,
@@ -154,6 +157,8 @@ class AdrService(ServiceBase):
             description: Full ADR description (max 10,000 chars).
             ctx: Resolved AuthContext (tenant + roles).
             context: Optional context section (max 5,000 chars).
+            decision: Optional decision section (max 5,000 chars) — the
+                standard ADR "Decision" text (#373).
             consequences: Optional consequences section (max 5,000 chars).
             status: Initial status (default: Draft).
 
@@ -191,6 +196,7 @@ class AdrService(ServiceBase):
             title=title,
             description=description,
             context=context,
+            decision=decision,
             consequences=consequences,
             status=status,
             uid=uid,
@@ -229,6 +235,7 @@ class AdrService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         context: Optional[str] = None,
+        decision: Optional[str] = None,
         consequences: Optional[str] = None,
         change_reason: Optional[str] = None,
     ) -> Adr:
@@ -240,6 +247,7 @@ class AdrService(ServiceBase):
             title: New title (optional).
             description: New description (optional).
             context: New context section (optional).
+            decision: New decision section (optional, #373).
             consequences: New consequences section (optional).
             change_reason: Optional change rationale for audit.
 
@@ -267,6 +275,8 @@ class AdrService(ServiceBase):
             adr.description = description
         if context is not None:
             adr.context = context
+        if decision is not None:
+            adr.decision = decision
         if consequences is not None:
             adr.consequences = consequences
 
