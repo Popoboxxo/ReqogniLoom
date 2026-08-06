@@ -7,7 +7,11 @@ from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
 
-from mcp_server.tool_registry import ToolRegistry, _WRITE_TOOL_PREFIXES
+from mcp_server.tool_registry import (
+    ToolRegistry,
+    _READ_ONLY_TOOL_NAMES,
+    _READ_ONLY_TOOL_SUFFIXES,
+)
 
 # Find the repo root by looking for VERSION file, trying multiple parent levels
 # Local dev: backend/mcp_server/management/commands/export_tool_manifest.py → parents[4]
@@ -26,10 +30,18 @@ DEFAULT_OUT = REPO_ROOT / "docs" / "agent-templates" / "tool-manifest.json"
 
 
 def _is_write_tool(tool_name: str) -> bool:
-    return any(
-        tool_name == p or tool_name.startswith(f"{p}.")
-        for p in _WRITE_TOOL_PREFIXES
-    )
+    """Determine if a tool requires WRITE RBAC gate.
+
+    Uses fail-closed semantics: a tool is write-protected unless it is
+    explicitly known to be read-only, either by exact name in
+    _READ_ONLY_TOOL_NAMES or by matching a read-only suffix
+    (.read, .query). Unrecognised tools default to write-protected.
+    """
+    if tool_name in _READ_ONLY_TOOL_NAMES:
+        return False
+    if tool_name.endswith(_READ_ONLY_TOOL_SUFFIXES):
+        return False
+    return True
 
 
 def build_manifest() -> Dict[str, Any]:
@@ -86,9 +98,24 @@ class Command(BaseCommand):
         manifest = build_manifest()
         out_path = Path(options["out"])
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+
+        # Write manifest to file
+        manifest_json = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+        out_path.write_text(manifest_json, encoding="utf-8")
+
+        # Self-validate: round-trip through json.loads() to ensure valid JSON
+        try:
+            validated = json.loads(out_path.read_text(encoding="utf-8"))
+            if validated.get("tool_count") != len(validated.get("tools", [])):
+                raise ValueError(
+                    f"Manifest validation failed: tool_count ({validated['tool_count']}) "
+                    f"does not match tools array length ({len(validated.get('tools', []))})"
+                )
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"Manifest JSON validation failed after write to {out_path}: {e}"
+            ) from e
+
         self.stdout.write(
             self.style.SUCCESS(f"Wrote {manifest['tool_count']} tools to {out_path}")
         )
