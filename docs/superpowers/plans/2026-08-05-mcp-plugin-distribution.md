@@ -2098,3 +2098,32 @@ Expected: PASS
 git add dist/test_full_regeneration.py
 git commit -m "test: add end-to-end generator pipeline smoke test"
 ```
+
+---
+
+## Future Vision — Ambient Layer (nicht Teil dieses Plans)
+
+**Ziel:** ReqogniLoom soll den User in seiner Coding-Umgebung direkt begleiten — Needs,
+Requirements, Architektur, ADRs, Risiken, Tests, Issues, Diagramme, Baselines,
+Change-Requests — **ohne bewussten Trigger** durch den User. Kein "jetzt rufe ich MCP-Tool X
+auf", sondern ein Hintergrundsystem, das mitläuft, ableitet, aktualisiert und proaktiv
+zurückspielt.
+
+Dieser Plan liefert dafür nur das Fundament: sauber gescopte, RBAC-getrennte Tools + Skills,
+bewusst per Agent aufrufbar (PULL). Er liefert **keinen** ambienten/proaktiven Mechanismus
+(PUSH). Zwei Ausbaustufen, beide gewünscht, beide separat zu planen:
+
+1. **Hook-Schicht** — deterministische Trigger (Commit, PR, Save, CI-Lauf) rufen automatisch
+   passende MCP-Tools auf (z.B. Requirement-Draft aus Diff, Test-Run-Ergebnis aus CI).
+2. **Observer-Schicht** — ein laufender Agent beobachtet die Coding-Session/den Repo-Zustand
+   kontinuierlich und schlägt proaktiv Änderungen an **jedem** Artefakttyp vor, den
+   ReqogniLoom verwaltet — nicht nur Requirements, sondern das volle Artefakt-Spektrum:
+   Needs, Requirements (L0-L3), Architecture, Diagrams, Tests, ADRs, Risks, Issues,
+   Change-Requests, Baselines, Traceability-Links. Der Observer überwacht damit den
+   gesamten Artefakt-Baum, nicht nur einen Ausschnitt.
+
+Beide Stufen brauchen einen eigenen Brainstorming-/Design-Durchlauf (Trigger-Granularität,
+Noise-Vermeidung, Review-Gate vor Auto-Apply, Performance-Impact auf die Coding-Session). Erst
+nach diesem Plan (Tool-Manifest + RBAC-Rollen + Skills + Plugin-Packaging) angehen — er ist die
+Voraussetzung dafür, dass Hook- und Observer-Schicht überhaupt wissen, welche Tools mit welcher
+Berechtigung aufrufbar sind.
