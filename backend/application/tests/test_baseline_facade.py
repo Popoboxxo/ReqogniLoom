@@ -210,6 +210,7 @@ class TestCheckScopeAllowed:
     def test_raises_when_denied(self):
         mock_policy = MagicMock()
         mock_policy.is_scope_allowed.return_value = False
+        mock_policy.get_policy.return_value = ["document", "project"]
 
         with patch(
             "application.baseline_facade.get_preset_policy_service",
@@ -217,3 +218,20 @@ class TestCheckScopeAllowed:
         ):
             with pytest.raises(ValidationError, match="scope"):
                 BaselineFacade._check_scope_allowed("ws-123", "global")
+
+    def test_raises_with_allowed_values_in_message(self):
+        """Error message must list the workspace's actual allowed scopes (#271 item 5)."""
+        mock_policy = MagicMock()
+        mock_policy.is_scope_allowed.return_value = False
+        mock_policy.get_policy.return_value = ["document", "project"]
+
+        with patch(
+            "application.baseline_facade.get_preset_policy_service",
+            return_value=mock_policy,
+        ):
+            with pytest.raises(ValidationError) as exc_info:
+                BaselineFacade._check_scope_allowed("ws-123", "global")
+
+        mock_policy.get_policy.assert_called_once_with("ws-123", "baseline_scopes")
+        assert "document" in str(exc_info.value)
+        assert "project" in str(exc_info.value)

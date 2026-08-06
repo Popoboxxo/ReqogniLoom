@@ -26,8 +26,8 @@ identically to every other entity type's transitions.
 
 Feature gate: the whole MainGoal feature is gated by
 ``Workspace.goals_enabled`` (default False) — both ``create_manual`` and
-``generate_ai`` raise ``ValidationError`` when the flag is off, mirroring
-``GoalService.create_version``'s exact gate pattern. AI generation is gated
+``generate_ai`` raise ``PermissionDeniedError`` when the flag is off, mirroring
+``GoalService.create_version``'s exact gate pattern (#271 item 4). AI generation is gated
 additionally (not instead) by ``Workspace.goals_ai_enabled``. Read/transition
 methods (``approve``, ``get_current``, ``list_versions``) are ungated,
 mirroring GoalService's decision to gate only the write-creation paths.
@@ -40,7 +40,12 @@ from typing import Any, Optional
 
 from persistence.transactions import atomic_transaction
 
-from application.base import NotFoundError, ServiceBase, ValidationError
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceBase,
+    ValidationError,
+)
 from application.models import MainGoal
 from persistence.models import Artifact, Tenant, Workspace
 
@@ -72,8 +77,8 @@ class MainGoalService(ServiceBase):
             source and status.
 
         Raises:
-            ValidationError: ``Workspace.goals_enabled`` is False, or
-                ``content`` is empty.
+            PermissionDeniedError: ``Workspace.goals_enabled`` is False.
+            ValidationError: ``content`` is empty.
             NotFoundError: Tenant or Workspace not found.
         """
         self._set_tenant_context(ctx)
@@ -89,7 +94,10 @@ class MainGoalService(ServiceBase):
         # GoalService.create_version's gate — checked here (the sole manual
         # write path) rather than on any read method.
         if not workspace.goals_enabled:
-            raise ValidationError(
+            # Feature-gate/authorization concern, not input validation (#271
+            # item 4): the caller is not permitted to use this feature for
+            # this workspace, regardless of how well-formed the request is.
+            raise PermissionDeniedError(
                 f"Goals are not enabled for workspace {workspace_id}"
             )
 
@@ -123,9 +131,9 @@ class MainGoalService(ServiceBase):
             source, status and the Goal ids it was generated from.
 
         Raises:
-            ValidationError: ``Workspace.goals_enabled`` or
-                ``Workspace.goals_ai_enabled`` is False, or no approved Goal
-                exists yet.
+            PermissionDeniedError: ``Workspace.goals_enabled`` is False.
+            ValidationError: ``Workspace.goals_ai_enabled`` is False, or no
+                approved Goal exists yet.
             NotFoundError: Tenant or Workspace not found.
         """
         self._set_tenant_context(ctx)
@@ -134,7 +142,10 @@ class MainGoalService(ServiceBase):
         tenant, workspace = self._resolve_tenant_and_workspace(workspace_id, ctx)
 
         if not workspace.goals_enabled:
-            raise ValidationError(
+            # Feature-gate/authorization concern, not input validation (#271
+            # item 4): the caller is not permitted to use this feature for
+            # this workspace, regardless of how well-formed the request is.
+            raise PermissionDeniedError(
                 f"Goals are not enabled for workspace {workspace_id}"
             )
         # Checked in addition to (not instead of) goals_enabled above: the

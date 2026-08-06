@@ -100,7 +100,9 @@ def test_create_goal_requires_goals_enabled():
     req.auth_context = ctx
     resp = GoalViewSet.as_view({"post": "create"})(req)
 
-    assert resp.status_code == 400
+    # Feature-gate/authorization concern → 403, not a 400 validation error
+    # (#271 item 4: PermissionDeniedError instead of ValidationError).
+    assert resp.status_code == 403
 
 
 def test_list_goal_requires_workspace_id():

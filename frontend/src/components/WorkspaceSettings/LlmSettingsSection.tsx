@@ -218,7 +218,7 @@ export function LlmSettingsSection(): JSX.Element {
         </p>
       )}
 
-      {provider === "ollama" && (
+      {(provider === "ollama" || provider === "opencode_go") && (
         <>
           <label style={fieldLabelStyle} htmlFor="llm-base-url">
             {t("settings.llm.baseUrl", "Base URL")}

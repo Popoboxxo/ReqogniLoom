@@ -115,7 +115,7 @@ class MainGoalServiceCreateManualTests(TestCase):
         workspace = Workspace.objects.create(tenant=self.tenant, name="W-disabled")
         ctx = _make_ctx(tenant_id=self.tenant.id)
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(PermissionDeniedError):
             MainGoalService().create_manual(
                 workspace_id=workspace.id,
                 content="Manually authored main goal.",
@@ -194,7 +194,7 @@ class MainGoalServiceGenerateAiTests(TestCase):
         )
         ctx = _make_ctx(tenant_id=self.tenant.id)
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(PermissionDeniedError):
             MainGoalService().generate_ai(workspace_id=workspace.id, ctx=ctx)
 
     def test_generate_ai_raises_when_ai_disabled(self):

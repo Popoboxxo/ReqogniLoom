@@ -106,7 +106,7 @@ class GoalServiceTests(TestCase):
         workspace = Workspace.objects.create(tenant=self.tenant, name="W-disabled")
         ctx = _make_ctx(tenant_id=self.tenant.id)
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(PermissionDeniedError):
             GoalService().create_version(
                 workspace_id=workspace.id,
                 title="Reduce onboarding time",
