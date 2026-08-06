@@ -664,7 +664,18 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "issue_default": {
         "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         "transitions": _issue_transitions(),
-        "state_meta": {"Wontfix": {"is_outdated_equivalent": True}},
+        # REQ-Phase3 / GH-370: "Resolved" is the intended auto-approve
+        # destination — review.approve() must move an Issue towards being
+        # fixed, never towards the reject-equivalent "Wontfix" state (see
+        # is_outdated_equivalent below). Without this flag,
+        # ReviewToolGroup._transition_to_gate_target's fallback picked the
+        # first approval-gated transition it found, which from "Open" is
+        # "Open" -> "Wontfix" (the only approver/admin-gated hop) — the
+        # opposite of what "approve" should mean.
+        "state_meta": {
+            "Wontfix": {"is_outdated_equivalent": True},
+            "Resolved": {"auto_approve_target": True},
+        },
     },
     "testcase_default": {
         "states": ["Draft", "Ready", "Approved", "Deprecated"],
