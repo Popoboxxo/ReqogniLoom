@@ -185,7 +185,9 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
       ok: false,
       status: 401,
       json: async () => ({
-        error: "invalid_token",
+        // #271: the login endpoint reports "invalid_credentials";
+        // "invalid_token" is reserved for JWT parse/expiry failures.
+        error: "invalid_credentials",
         message: "Invalid username or password",
       }),
     });

@@ -112,10 +112,17 @@ class PasswordAuthenticationService:
             The authenticated, active :class:`~persistence.models.User`.
 
         Raises:
-            AuthenticationFailed: ``invalid_token`` if the credentials do not
-                match or the user is inactive. A single error code is used for
-                every failure mode so the boundary cannot leak which factor
+            AuthenticationFailed: ``invalid_credentials`` if the credentials do
+                not match or the user is inactive. A single error code is used
+                for every failure mode so the boundary cannot leak which factor
                 failed (no user-enumeration).
+
+                Issue #271 split this out of ``invalid_token``: that code is now
+                reserved for JWT parse/expiry failures on an already-issued
+                token, so a caller can tell "my access token expired" from "my
+                password is wrong". The anti-enumeration property is unchanged —
+                unknown user, wrong password and inactive user still share ONE
+                code and produce byte-identical responses.
         """
         # ``User`` is not tenant-scoped, so a plain lookup is correct here and runs
         # before any tenant context exists (mirrors API-key validation).
@@ -126,13 +133,13 @@ class PasswordAuthenticationService:
             from django.contrib.auth.hashers import check_password as _check
 
             _check(password, _dummy_password_hash())
-            raise AuthenticationFailed("invalid_token")
+            raise AuthenticationFailed("invalid_credentials")
 
         if not user.check_password(password):
-            raise AuthenticationFailed("invalid_token")
+            raise AuthenticationFailed("invalid_credentials")
 
         if not user.is_active:
-            raise AuthenticationFailed("invalid_token")
+            raise AuthenticationFailed("invalid_credentials")
 
         return user
 

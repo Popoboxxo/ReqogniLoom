@@ -89,7 +89,10 @@ def test_authenticate_credentials_wrong_password(tenant_a):
 
     with pytest.raises(AuthenticationFailed) as exc:
         _service().authenticate_credentials("alice", "battery-staple")
-    assert exc.value.code == "invalid_token"
+    # #271: ``invalid_credentials`` (not ``invalid_token``) — see the module
+    # docstring of auth_tenancy/errors.py. All three credential-rejection tests
+    # below assert the SAME code on purpose (anti-enumeration).
+    assert exc.value.code == "invalid_credentials"
 
 
 @pytest.mark.django_db
@@ -102,14 +105,14 @@ def test_authenticate_credentials_inactive_user(tenant_a):
 
     with pytest.raises(AuthenticationFailed) as exc:
         _service().authenticate_credentials("ghost", "correct-horse")
-    assert exc.value.code == "invalid_token"
+    assert exc.value.code == "invalid_credentials"
 
 
 @pytest.mark.django_db
 def test_authenticate_credentials_unknown_user():
     with pytest.raises(AuthenticationFailed) as exc:
         _service().authenticate_credentials("nobody", "whatever")
-    assert exc.value.code == "invalid_token"
+    assert exc.value.code == "invalid_credentials"
 
 
 # -- issue_token + round-trip --------------------------------------------

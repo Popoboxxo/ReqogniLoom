@@ -38,6 +38,7 @@ from django.http import Http404, HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -161,6 +162,19 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
 # ---------------------------------------------------------------------------
 
 
+class MalformedUuidInPath(APIException):
+    """400 for a URL path segment that is not a well-formed UUID (issue #271).
+
+    Carries an already-built ``build_error_response`` body as its ``detail`` so
+    ``rest_api.error_envelope.reqogniloom_exception_handler`` passes it through
+    unchanged (it short-circuits on a dict that already has an ``error`` key).
+    That keeps the response byte-compatible with the envelope every explicit
+    error in this module produces (REQ-071, REQ-L2-RA-009).
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+
+
 class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.ViewSet):
     """Shared behaviour: error mapping, auth context, preset gate, pagination.
 
@@ -176,6 +190,58 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
 
     serializer_class: type | None = None
     pagination_class = StandardPagination
+
+    #: URL path kwargs that MUST parse as a UUID (issue #271). Every subclass
+    #: resolves its detail routes by UUID today (``UUID(pk)`` in the handler, or
+    #: ``UUID(str(...))`` one layer down in the service — verified for
+    #: BaselineViewSet and CustomFieldDefinitionViewSet, which pass ``pk``
+    #: through as a string). A subclass whose lookup is genuinely *not* a UUID
+    #: must narrow this tuple, otherwise its detail route will start 400ing.
+    uuid_url_kwargs: tuple[str, ...] = ("pk", "workspace_pk", "workspace_id")
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        """Run DRF's setup, then reject malformed UUID path segments (#271).
+
+        Ordering matters: ``super().initial()`` performs authentication,
+        permission and throttle checks first, so an anonymous or unauthorised
+        caller still receives 401/403. Were the UUID check first, the
+        400-vs-401 difference would let an unauthenticated prober distinguish
+        real routes from garbage.
+        """
+        super().initial(request, *args, **kwargs)
+        self._reject_malformed_uuid_path_kwargs(request)
+
+    def _reject_malformed_uuid_path_kwargs(self, request: Request) -> None:
+        """Raise 400 when a ``uuid_url_kwargs`` path segment is not a UUID.
+
+        Previously each detail handler caught the ``ValueError`` from
+        ``UUID(pk)`` and answered 404, making "you sent garbage" indis-
+        tinguishable from "well-formed id, no such row" (issue #271). Those
+        per-handler ``except ValueError`` branches are deliberately left in
+        place: they are unreachable for HTTP traffic now, but still guard the
+        many unit tests that call ``view.retrieve(request, pk=...)`` directly,
+        and any other ``ValueError`` source inside the handler.
+        """
+        lang = detect_lang(request)
+        # ``dispatch()`` sets ``self.kwargs`` before ``initial()``; the getattr
+        # keeps a hand-rolled ``initial()`` call in a unit test from AttributeError.
+        url_kwargs = getattr(self, "kwargs", None) or {}
+        for name in self.uuid_url_kwargs:
+            raw = url_kwargs.get(name)
+            if raw is None:
+                continue
+            try:
+                UUID(str(raw))
+            except (ValueError, AttributeError, TypeError):
+                # The offending value is NOT echoed back — it is fully
+                # attacker-controlled and would be reflected into the body.
+                raise MalformedUuidInPath(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=f"'{name}' must be a well-formed UUID.",
+                    )
+                ) from None
 
     @property
     def paginator(self) -> StandardPagination:
