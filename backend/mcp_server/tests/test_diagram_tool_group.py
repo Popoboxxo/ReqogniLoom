@@ -390,4 +390,25 @@ class TestDiagramToolGroupLifecycle:
             TenantContext.clear_tenant()
 
 
+# ---------------------------------------------------------------------------
+# Schema validation (Issue #369)
+# ---------------------------------------------------------------------------
+
+
+def test_diagram_create_schema_publishes_diagram_type_enum():
+    """#369: diagram.create's `diagram_type` field must document its valid
+    values (enum). Valid values are from DiagramType enum: block, flow, context,
+    canvas, mermaid."""
+    group = DiagramToolGroup()
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == "diagram.create"
+    )["inputSchema"]
+
+    diagram_type_field = schema["properties"]["diagram_type"]
+    assert "enum" in diagram_type_field, (
+        "diagram_type missing 'enum' field in schema"
+    )
+    assert diagram_type_field["enum"] == ["block", "canvas", "context", "flow", "mermaid"]
+
+
 __all__: list[str] = []

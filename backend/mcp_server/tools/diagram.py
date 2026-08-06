@@ -115,6 +115,7 @@ class DiagramToolGroup(BaseToolGroup):
                     "name": {"type": "string", "description": "Diagram name."},
                     "diagram_type": {
                         "type": "string",
+                        "enum": ["block", "canvas", "context", "flow", "mermaid"],
                         "description": "One of 'block' | 'flow' | 'context' | 'canvas' | 'mermaid'.",
                     },
                     "payload_format": {
