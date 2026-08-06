@@ -26,6 +26,8 @@ Tools implemented:
   artifact.search      — full-text search across all artifact types
   artifact.get_tree    — hierarchical artifact structure rooted at an artifact
   workspace.get_context — workspace status summary for AI agent session start
+  workspace.list        — list workspaces (id, name, description) visible to
+                           the caller's tenant (issue #362)
   context.change_impact — trace-link + hierarchy walk plus LLM-assisted
                           impact ranking for a proposed change
 
@@ -190,6 +192,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
         "workspace.get_context": "_handle_workspace_get_context",
+        "workspace.list": "_handle_workspace_list",
         "workspace.llm_system_prompt": "_handle_llm_system_prompt",
         "context.test_coverage": "_handle_test_coverage",
         "context.change_impact": "_handle_change_impact",
@@ -372,6 +375,24 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "role": {
                         "type": "string",
                         "description": "Optional caller role label (documentation only, never filters data).",
+                    },
+                },
+            },
+        },
+        {
+            "name": "workspace.list",
+            "description": (
+                "List the workspaces visible to the caller's tenant. "
+                "Response: result.workspaces = [{id, name, description}], "
+                "result.count. Tenant-scoped (issue #362). Closed workspaces "
+                "(is_active=false) are excluded unless include_inactive=true."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "include_inactive": {
+                        "type": "boolean",
+                        "description": "Include closed/inactive workspaces (default false).",
                     },
                 },
             },
@@ -945,6 +966,44 @@ class CrossCuttingToolGroup(BaseToolGroup):
         context_data["workspace_id"] = workspace_id_str
 
         return ToolResult.ok({"workspace_context": context_data})
+
+    # ------------------------------------------------------------------
+    # workspace.list (Issue #362)
+    # ------------------------------------------------------------------
+
+    def _handle_workspace_list(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """workspace.list — list the workspaces visible to the caller's tenant.
+
+        Issue #362: read-only tenant-scoped listing tool, distinct from
+        ``workspace.get_context`` (single-workspace status summary) and the
+        admin-only lifecycle tools (``workspace.close``/``reactivate``/
+        ``delete``). Reuses ``WorkspaceService.list_workspaces``, the same
+        tenant-scoped query the REST API's WorkspaceViewSet is backed by,
+        rather than re-implementing the query here.
+
+        Closed workspaces (``is_active=False``) are excluded by default;
+        pass ``include_inactive=true`` to include them.
+        """
+        from application.workspace_service import WorkspaceService
+
+        include_inactive = bool(params.get("include_inactive", False))
+
+        workspaces_qs = WorkspaceService().list_workspaces(auth_context)
+        if not include_inactive:
+            workspaces_qs = workspaces_qs.filter(is_active=True)
+
+        workspaces = [
+            {
+                "id": str(workspace.id),
+                "name": workspace.name,
+                "description": workspace.description,
+            }
+            for workspace in workspaces_qs
+        ]
+
+        return ToolResult.ok({"workspaces": workspaces, "count": len(workspaces)})
 
     # ------------------------------------------------------------------
     # workspace.llm_system_prompt
