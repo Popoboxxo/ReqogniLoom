@@ -684,19 +684,28 @@ class Artifact(TenantScopedModel):
     CASCADE`` deletes children with their parent (REQ-L2-PL-009). The BTree index
     on ``parent`` backs recursive-CTE tree queries (REQ-L3-PL005-001).
 
-    Deprecated hierarchy mechanism (REQ-L1-030 / REQ-L2-TE-020 direction):
-    domain services (RequirementService, StakeholderNeedService, AdrService,
-    ...) create their backing Artifact rows without populating ``parent`` and
-    express hierarchy exclusively through 'derives-from' / 'parent-child'
-    TraceLinks instead (see traceability/types.py LinkType). ``parent`` is
-    still writable via the generic ArtifactService and read by a handful of
-    call sites (see TODOs at those sites), which makes it a second,
-    inconsistently-populated hierarchy mechanism alongside TraceLinks. The
-    single source of truth for artifact hierarchy going forward is the
-    'derives-from' TraceLink graph. This field is not removed here (would
-    require a migration / behavior change for existing callers) — new code
-    should not rely on it and existing call sites should migrate to
-    TraceLink-based hierarchy queries.
+    Who populates ``parent`` (corrected for issues #365/#366 — the field's
+    ``help_text`` below still carries the older, blanket "deprecated" wording
+    and is left untouched to avoid a cosmetic migration):
+
+    * ``RequirementService.create_requirement`` / ``.decompose`` set it to the
+      *parent Requirement's Artifact* id.
+    * ``ArchitectureService.create_architecture_element`` / re-parenting via
+      ``.update_architecture_element`` mirror ``ArchitectureElement.parent``
+      onto it (#366). Element hierarchy is authoritative in the FK tree and is
+      deliberately *not* expressed as a TraceLink (#365): the SE endpoint
+      matrix in ``traceability/types.py`` has no ArchitectureElement pair for
+      'derives-from', and ``CrossCuttingToolGroup._handle_change_impact``
+      walks the FK tree explicitly.
+    * ``StakeholderNeedService`` / ``AdrService`` / ... still leave it NULL and
+      express hierarchy through 'derives-from' TraceLinks only.
+
+    So ``parent`` and the TraceLink graph are two *complementary* views, not
+    interchangeable ones: cross-type relations (allocation, verification,
+    derivation) live in TraceLinks; the same-type containment tree that the
+    recursive-CTE readers (``ArtifactService.get_tree``, document-scope
+    baselines) walk lives in ``parent``. Any service that writes one of them
+    for a type listed above must write the other in the same transaction.
     """
 
     parent = models.ForeignKey(

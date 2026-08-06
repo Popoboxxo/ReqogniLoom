@@ -1186,6 +1186,16 @@ class TestInvariantServiceIntegration:
                 "application.architecture_service.ArchitectureElement.objects.create",
                 return_value=_make_arch_el(version=1),
             ),
+            # Index 6 — issue #366: create_architecture_element resolves the
+            # parent element's backing Artifact id before writing the Artifact
+            # row. Appended (not inserted) so the [:5] / [5] slices above keep
+            # their meaning.
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    **{"values_list.return_value.first.return_value": None}
+                ),
+            ),
         ]
 
     def test_create_with_parent_runs_validator(self):
@@ -1655,5 +1665,114 @@ class TestListArchitectureElementsSearchFilter:
 
         assert ids == {matching.id}
         assert other.id not in ids
+
+
+class TestArtifactParentMirrorsElementHierarchy:
+    """Issue #366: the backing Artifact tree must mirror the element tree.
+
+    ``ArchitectureElement.parent`` and ``Artifact.parent`` are two
+    representations of the same hierarchy. ``create_architecture_element``
+    used to populate only the former, so ``artifact.get_tree`` (a recursive
+    CTE over ``pl_artifact.parent_id``) reported every architecture element
+    as a childless root.
+    """
+
+    def test_create_child_sets_backing_artifact_parent(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        child = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Child Component",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+
+        child.artifact.refresh_from_db()
+        root.artifact.refresh_from_db()
+        # The Artifact parent is the *parent element's Artifact*, never the
+        # ArchitectureElement primary key (a distinct id space).
+        assert child.artifact.parent_id == root.artifact_id
+        assert root.artifact.parent_id is None
+
+    def test_create_root_leaves_backing_artifact_parent_null(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        root.artifact.refresh_from_db()
+        assert root.artifact.parent_id is None
+
+    def test_reparenting_updates_backing_artifact_parent(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        first = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="First Branch",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+        moving = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Moving Component",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+
+        svc.update_architecture_element(
+            arch_el_id=moving.id, ctx=arch_outdate_ctx, parent_id=first.id
+        )
+
+        moving.artifact.refresh_from_db()
+        assert moving.artifact.parent_id == first.artifact_id
+
+    def test_get_tree_returns_architecture_children(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        from application.artifact_service import ArtifactService
+
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        child = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Child Component",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+        grandchild = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Grandchild Component",
+            ctx=arch_outdate_ctx,
+            parent_id=child.id,
+        )
+
+        tree = ArtifactService().get_tree(
+            root_id=root.id,
+            workspace_id=arch_outdate_workspace.id,
+            ctx=arch_outdate_ctx,
+        )
+
+        assert tree.id == root.artifact_id
+        assert [c.id for c in tree.children] == [child.artifact_id]
+        assert [g.id for g in tree.children[0].children] == [grandchild.artifact_id]
 
 

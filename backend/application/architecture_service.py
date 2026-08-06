@@ -76,6 +76,30 @@ class ArchitectureService(ServiceBase):
         normalized = (element_type or "").strip().lower()
         return normalized or ElementType.COMPONENT
 
+    @staticmethod
+    def _parent_artifact_id(parent_element_id: Optional[UUID]) -> Optional[UUID]:
+        """Map an ArchitectureElement parent id to its backing Artifact id.
+
+        Issue #366: ``ArchitectureElement.parent`` and ``Artifact.parent`` are
+        two representations of the same hierarchy, but live in different id
+        spaces. Only the former was ever populated, so the recursive-CTE tree
+        queries over ``pl_artifact.parent_id`` (``ArtifactService.get_tree``,
+        document-scope baselines) saw a forest of roots instead of the real
+        decomposition tree.
+
+        Returns ``None`` for a root element and for an unresolvable parent —
+        the latter is already rejected by the I3 invariant check / the
+        ArchitectureElement FK constraint, which stay the single source of the
+        error message.
+        """
+        if parent_element_id is None:
+            return None
+        return (
+            ArchitectureElement.objects.filter(id=parent_element_id)
+            .values_list("artifact_id", flat=True)
+            .first()
+        )
+
     # ---------- CRUD (REQ-L2-AS-004) ----------
 
     @atomic_transaction
@@ -113,22 +137,31 @@ class ArchitectureService(ServiceBase):
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
 
-        artifact = Artifact.objects.create(
-            tenant=tenant,
-            workspace=workspace,
-            artifact_type="ArchitectureElement",
-            custom_fields=_clean_custom_fields(custom_fields),
-        )
-
         # REQ-L1-044 + SysEng 2.0 §1.2 (I5): hierarchy invariants, rigor-gated via
         # workspace preset. For a child (parent_id set) I1/I3 apply; for a root
         # (parent_id is None) I5 rejects a second root in the same workspace. The
         # validator is therefore invoked for every create, not only for children.
         # I3 also rejects cross-workspace parents (400 instead of 404 for a
         # dangling parent_id).
+        # Runs before the Artifact row is written so a rejected parent leaves no
+        # trace at all (previously the backing Artifact was created first).
         validator = ArchitectureElementInvariantValidator.for_workspace(workspace_id)
         validator.validate_parent_assignment(
             parent_id=parent_id, workspace_id=workspace_id
+        )
+
+        # Issue #366: mirror the element hierarchy onto the backing Artifact
+        # tree. ``parent_id`` is an ArchitectureElement primary key, while
+        # ``Artifact.parent`` points at another *Artifact* — two disjoint id
+        # spaces. Leaving Artifact.parent NULL made artifact.get_tree (a
+        # recursive CTE over pl_artifact.parent_id) report every architecture
+        # element as a childless root.
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="ArchitectureElement",
+            parent_id=self._parent_artifact_id(parent_id),
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         arch_el = ArchitectureElement.objects.create(
@@ -259,6 +292,13 @@ class ArchitectureService(ServiceBase):
             )
             arch_el.parent_id = parent_id
             changed_fields["parent_id"] = parent_id
+            # Issue #366: keep the backing Artifact tree in sync with the
+            # element tree, otherwise a re-parented element keeps reporting
+            # its old position through artifact.get_tree.
+            new_artifact_parent_id = self._parent_artifact_id(parent_id)
+            if arch_el.artifact.parent_id != new_artifact_parent_id:
+                arch_el.artifact.parent_id = new_artifact_parent_id
+                arch_el.artifact.save(update_fields=["parent", "modified_at"])
 
         # Atomic version increment + field persistence — guarded by
         # expected_version when provided.  Changed fields are written in the
