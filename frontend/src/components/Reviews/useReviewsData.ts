@@ -26,6 +26,23 @@ import { getReviewsResolver } from "./reviewsResolver";
 // REQ-144: the review queue only ever shows items in this workflow state.
 export const REVIEW_STATE = "in_review";
 
+// Issue #372: Goal/MainGoal (workflow/definition_store.py goal_default /
+// main_goal_default) don't have an "in_review" state at all — their
+// lifecycle is "Entwurf" -> "Freigegeben" -> "Archiviert", with "Entwurf"
+// gated by an approver-only transition (the same approval-gate shape the
+// MCP `review.list_pending` tool already recognizes generically). Without
+// this override the queue queried `status=in_review` for every type and
+// silently returned 0 Goal/MainGoal items even after they were added to
+// WorkflowArtifactType, because they never reach that state.
+const PENDING_STATE_OVERRIDES: Partial<Record<WorkflowArtifactType, string>> = {
+  goal: "Entwurf",
+  "main-goal": "Entwurf",
+};
+
+function pendingStateFor(type: WorkflowArtifactType): string {
+  return PENDING_STATE_OVERRIDES[type] ?? REVIEW_STATE;
+}
+
 // REQ-167: the queue is entity-type-agnostic; the requirement queue is the
 // default so existing callers (and the REQ-144 tests) keep working unchanged.
 const DEFAULT_ARTIFACT_TYPE: WorkflowArtifactType = "requirement";
@@ -101,7 +118,7 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
 
   const listQuery = useQuery({
     queryKey: reviewKeys.list(artifactType, workspaceId ?? ""),
-    queryFn: () => resolver.list(workspaceId as string, REVIEW_STATE),
+    queryFn: () => resolver.list(workspaceId as string, pendingStateFor(artifactType)),
     enabled: !!workspaceId,
   });
 

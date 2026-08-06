@@ -73,6 +73,16 @@ const REVIEW_ACTION_CONFIG: Record<
   // REQ-173: diagrams join the review queue on the default approved/draft pair;
   // the server-side state machine stays authoritative.
   diagram: { approve: "approved", reject: "draft" },
+  // Issue #372: Goal/MainGoal (workflow/definition_store.py goal_default /
+  // main_goal_default) use their own "Entwurf" -> "Freigegeben" ->
+  // "Archiviert" lifecycle (no draft/approved/in_review naming). The queue
+  // lists items in "Entwurf" (see useReviewsData's PENDING_STATE_OVERRIDES),
+  // so "approve" targets "Freigegeben"; there is no earlier state to reject
+  // back to, so "reject" targets "Archiviert" (discard the draft), mirroring
+  // the Entwurf -> Archiviert escape-hatch transition goal_default already
+  // defines for goal.delete (issue #216).
+  goal: { approve: "Freigegeben", reject: "Archiviert" },
+  "main-goal": { approve: "Freigegeben", reject: "Archiviert" },
 };
 
 // REQ-168: the entity types the review queue can switch between, derived from
@@ -104,6 +114,15 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   icd: "icd",
   glossary: "glossary",
   diagram: "diagram",
+  // Issue #372: ArtifactKind (shared/ArtifactInspector/types.ts) already
+  // defines "goal"/"mainGoal" diff kinds; wire them here so ArtifactDiff
+  // labels/routes correctly. Note: GoalViewSet/MainGoalViewSet only expose
+  // a `versions` action today (no `diff` action yet), so "View Diff" will
+  // surface a fetch error for these two types until that backend gap is
+  // closed separately — out of scope for this fix (pending list + filter +
+  // approve/reject).
+  goal: "goal",
+  "main-goal": "mainGoal",
 };
 
 function findTransition(
