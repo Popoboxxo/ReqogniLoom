@@ -1220,4 +1220,100 @@ def test_create_link_is_a_write_tool():
     from mcp_server.tool_registry import _READ_ONLY_TOOL_NAMES, _WRITE_TOOL_PREFIXES
 
     assert "traceability.create_link" in _WRITE_TOOL_PREFIXES
+
+
+# ---------------------------------------------------------------------------
+# workspace.list (Issue #362)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_workspace_list_returns_id_name_description(tenant_workspace_ctx):
+    """workspace.list returns {id, name, description} for the caller's tenant."""
+    from persistence.models import Workspace
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace.description = "First workspace"
+        workspace.save(update_fields=["description"])
+    finally:
+        TenantContext.clear_tenant()
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.list", params={}, auth_context=ctx, api_key=""
+    )
+
+    assert result.success is True
+    assert result.data["count"] == 1
+    entry = result.data["workspaces"][0]
+    assert entry == {
+        "id": str(workspace.id),
+        "name": workspace.name,
+        "description": "First workspace",
+    }
+
+
+@pytest.mark.django_db
+def test_workspace_list_is_tenant_isolated(tenant_workspace_ctx):
+    """A caller from tenant A must not see tenant B's workspaces."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    tenant_a, workspace_a, ctx_a = tenant_workspace_ctx
+    _, workspace_b, _ = _make_tenant_workspace_ctx("cross-cutting-ctx-b")
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.list", params={}, auth_context=ctx_a, api_key=""
+    )
+
+    assert result.success is True
+    ids = {entry["id"] for entry in result.data["workspaces"]}
+    assert str(workspace_a.id) in ids
+    assert str(workspace_b.id) not in ids
+
+
+@pytest.mark.django_db
+def test_workspace_list_excludes_inactive_by_default(tenant_workspace_ctx):
+    """Closed (is_active=False) workspaces are hidden unless include_inactive=true."""
+    from persistence.models import Workspace
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    TenantContext.set_tenant(tenant.id)
+    try:
+        closed = Workspace.objects.create(
+            tenant=tenant, name="closed-ws", is_active=False
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "workspace.list", params={}, auth_context=ctx, api_key=""
+    )
+    ids = {entry["id"] for entry in result.data["workspaces"]}
+    assert str(closed.id) not in ids
+    assert str(workspace.id) in ids
+
+    result_incl = group.execute_tool(
+        "workspace.list",
+        params={"include_inactive": True},
+        auth_context=ctx,
+        api_key="",
+    )
+    ids_incl = {entry["id"] for entry in result_incl.data["workspaces"]}
+    assert str(closed.id) in ids_incl
+    assert str(workspace.id) in ids_incl
+
+
+def test_workspace_list_is_read_only():
+    """workspace.list must be exempt from the fail-closed WRITE default (#99)."""
+    from mcp_server.tool_registry import _READ_ONLY_TOOL_NAMES, _WRITE_TOOL_PREFIXES
+
+    assert "workspace.list" in _READ_ONLY_TOOL_NAMES
+    assert "workspace.list" not in _WRITE_TOOL_PREFIXES
     assert "traceability.create_link" not in _READ_ONLY_TOOL_NAMES

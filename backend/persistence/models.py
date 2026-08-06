@@ -593,6 +593,11 @@ class Workspace(TenantScopedModel):
     """
 
     name = models.CharField(max_length=255)
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Issue #362: optional human-readable workspace description.",
+    )
     preset = models.JSONField(default=dict, blank=True)
     ai_prompts = models.JSONField(
         default=dict,

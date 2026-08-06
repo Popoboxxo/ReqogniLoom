@@ -187,6 +187,7 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "context.test_coverage",
         "workspace.get_context",
         "workspace.get_preferences",
+        "workspace.list",
         "workspace.llm_system_prompt",
         "permissions.check",
         "permissions.list",
