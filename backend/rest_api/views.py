@@ -1809,7 +1809,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().cascade_delete_trace_links(UUID(pk), ctx)
+            self._svc().delete_trace_link(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:

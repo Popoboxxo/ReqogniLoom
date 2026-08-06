@@ -312,6 +312,69 @@ class TestCascadeDeleteTraceLinks:
         assert count == 2
 
 
+class TestDeleteTraceLink:
+    """Codeberg #336: DELETE /api/v1/trace-links/{id}/ must actually delete
+    the TraceLink identified by its own id (not treat it as an entity id)."""
+
+    def test_deletes_link_via_manager(self):
+        """delete_trace_link delegates to TraceLinkManager.delete(link_id)."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        link_id = uuid.uuid4()
+
+        mock_manager = MagicMock()
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch(
+                "traceability.trace_link_manager.TraceLinkManager",
+                return_value=mock_manager,
+            ),
+        ):
+            svc.delete_trace_link(link_id, ctx)
+
+        mock_manager.delete.assert_called_once_with(link_id)
+
+    def test_missing_link_raises_not_found_error(self):
+        """TraceLink.DoesNotExist from the manager is remapped to NotFoundError."""
+        from persistence.models import TraceLink
+
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        link_id = uuid.uuid4()
+
+        mock_manager = MagicMock()
+        mock_manager.delete.side_effect = TraceLink.DoesNotExist()
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch(
+                "traceability.trace_link_manager.TraceLinkManager",
+                return_value=mock_manager,
+            ),
+        ):
+            with pytest.raises(NotFoundError):
+                svc.delete_trace_link(link_id, ctx)
+
+    def test_tenant_context_set_before_delete(self):
+        """_set_tenant_context runs before the manager delete call."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        link_id = uuid.uuid4()
+
+        mock_manager = MagicMock()
+        with (
+            patch(
+                "application.trace_link_service.ServiceBase._set_tenant_context"
+            ) as mock_set_ctx,
+            patch(
+                "traceability.trace_link_manager.TraceLinkManager",
+                return_value=mock_manager,
+            ),
+        ):
+            svc.delete_trace_link(link_id, ctx)
+
+        mock_set_ctx.assert_called_once_with(ctx)
+
+
 # ---------------------------------------------------------------------------
 # query_trace_links
 # ---------------------------------------------------------------------------
