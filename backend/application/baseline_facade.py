@@ -323,8 +323,10 @@ class BaselineFacade(ServiceBase):
         # get_preset_policy_service is imported at module level to allow test mocking.
         policy = get_preset_policy_service()
         if not policy.is_scope_allowed(workspace_id, scope):
+            allowed = policy.get_policy(workspace_id, "baseline_scopes")
             raise ValidationError(
-                f"Baseline scope '{scope}' is not allowed by the workspace preset."
+                f"Baseline scope '{scope}' is not allowed by the workspace preset. "
+                f"Allowed values: {sorted(allowed)}"
             )
 
 

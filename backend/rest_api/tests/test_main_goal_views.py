@@ -147,7 +147,9 @@ def test_create_manual_requires_goals_enabled():
     req.auth_context = ctx
     resp = MainGoalViewSet.as_view({"post": "create"})(req)
 
-    assert resp.status_code == 400
+    # Feature-gate/authorization concern → 403, not a 400 validation error
+    # (#271 item 4: PermissionDeniedError instead of ValidationError).
+    assert resp.status_code == 403
 
 
 def test_approve_rejects_editor_role():

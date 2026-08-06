@@ -15,7 +15,8 @@ versioning instead of in-place update.
 
 Feature gate: the whole Goal feature is gated by ``Workspace.goals_enabled``
 (default False, added in Task 2 / commit f419a23). ``create_version`` raises
-``ValidationError`` when the flag is off. AI-specific generation is gated
+``PermissionDeniedError`` when the flag is off (#271 item 4 — this is an
+authorization concern, not input validation). AI-specific generation is gated
 separately by ``Workspace.goals_ai_enabled`` — out of scope here, enforced by
 whichever AI-derivation service consumes GoalService in a later task.
 """
@@ -27,7 +28,12 @@ from typing import Any, Optional
 
 from persistence.transactions import atomic_transaction
 
-from application.base import NotFoundError, ServiceBase, ValidationError
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceBase,
+    ValidationError,
+)
 from application.models import Goal
 from persistence.models import Artifact, Tenant, Workspace
 
@@ -74,8 +80,8 @@ class GoalService(ServiceBase):
             title, description and status.
 
         Raises:
-            ValidationError: ``Workspace.goals_enabled`` is False, or
-                ``title`` is empty.
+            PermissionDeniedError: ``Workspace.goals_enabled`` is False.
+            ValidationError: ``title`` is empty.
             NotFoundError: Tenant or Workspace not found.
         """
         self._set_tenant_context(ctx)
@@ -100,7 +106,10 @@ class GoalService(ServiceBase):
         # ungated; only the mutating create/update/delete paths enforce
         # preconditions such as role and validation).
         if not workspace.goals_enabled:
-            raise ValidationError(
+            # Feature-gate/authorization concern, not input validation (#271
+            # item 4): the caller is not permitted to use this feature for
+            # this workspace, regardless of how well-formed the request is.
+            raise PermissionDeniedError(
                 f"Goals are not enabled for workspace {workspace_id}"
             )
 

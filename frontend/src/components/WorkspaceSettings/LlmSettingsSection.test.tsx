@@ -4,7 +4,7 @@
  * Verifies:
  * - form renders after the settings load
  * - the api_key field is type=password
- * - base_url input only appears for the ollama provider
+ * - base_url input appears for the ollama and opencode_go providers
  * - Save omits api_key when the user did not type a new one (write-only field)
  * - an unrecognized server-side provider is never silently replaced (#274)
  */
@@ -68,6 +68,28 @@ describe("LlmSettingsSection (REQ-L2-LLM-001)", () => {
     await userEvent.selectOptions(
       screen.getByTestId("llm-provider-select"),
       "ollama"
+    );
+    expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
+  });
+
+  // opencode_go defaults server-side to https://opencode.ai/zen/go/v1 but
+  // self-hosted overrides need a UI-reachable custom base-URL field, same as
+  // ollama (#275).
+  it("shows the base_url input for the opencode_go provider", async () => {
+    (llmSettingsModule as { LLM_PROVIDERS: readonly string[] }).LLM_PROVIDERS = [
+      "anthropic",
+      "openai",
+      "ollama",
+      "opencode_go",
+      "mock",
+    ];
+    render(<LlmSettingsSection />);
+    await screen.findByTestId("llm-provider-select");
+    expect(screen.queryByTestId("llm-base-url-input")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-provider-select"),
+      "opencode_go"
     );
     expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
   });
