@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Iterator
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,13 +29,10 @@ from llm_adapter.token_tracking import (
 from persistence.models import Tenant, TokenUsageRecord
 from persistence.tenancy import TenantContext
 
-
-@pytest.fixture(autouse=True)
-def _clear_tenant_context() -> Iterator[None]:
-    """Ensure no tenant context bleeds between tests."""
-    TenantContext.clear_tenant()
-    yield
-    TenantContext.clear_tenant()
+# Note (#360): TenantContext cleanup between tests is now handled by the
+# autouse ``_clear_tenant_context`` fixture in the root ``backend/conftest.py``
+# (applies to every test module in the suite, not just this file). Do not
+# re-add a local duplicate here.
 
 
 @pytest.fixture
