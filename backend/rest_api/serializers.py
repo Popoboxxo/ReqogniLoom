@@ -969,6 +969,9 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     # form-validator only, not a DB constraint, and is not enforced here since
     # this serializer doesn't call full_clean()).
     context = SanitizedCharField(allow_blank=True, default="", max_length=5000)
+    # #373: standard ADR terminology field (context/decision/consequences),
+    # previously missing — matches Adr.decision model TextField(max_length=5000).
+    decision = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(

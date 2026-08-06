@@ -220,7 +220,7 @@ def test_real_services_construct_without_error(service_class_path, prefix):
 # ---------------------------------------------------------------------------
 
 _EXPECTED_CREATE_FIELDS = {
-    "adr": {"title", "description", "context", "consequences", "status", "uid"},
+    "adr": {"title", "description", "context", "decision", "consequences", "status", "uid"},
     "risk": {
         "title", "probability", "impact", "description", "category", "owner",
         "mitigation_strategy", "status", "uid", "detection", "owner_user_id",
@@ -233,7 +233,7 @@ _EXPECTED_CREATE_FIELDS = {
 }
 
 _EXPECTED_UPDATE_FIELDS = {
-    "adr": {"title", "description", "context", "consequences", "change_reason"},
+    "adr": {"title", "description", "context", "decision", "consequences", "change_reason"},
     "risk": {
         "title", "description", "probability", "impact", "category", "owner",
         "mitigation_strategy", "change_reason", "detection", "owner_user_id",
@@ -363,6 +363,24 @@ def test_issue_create_schema_publishes_severity_default_and_enum():
     assert "severity" not in schema["required"]
     assert severity["default"] == "medium"
     assert severity["enum"] == list(Issue.Severity.values)
+
+
+def test_adr_create_schema_publishes_status_enum():
+    """#374: adr.create's `status` field must document its valid values —
+    previously absent from `_ENUM_FIELDS_BY_PREFIX`, leaving clients to
+    guess. Matches AdrValidator.VALID_STATUSES (excludes the soft-delete-only
+    "Deleted" marker, REQ-006), not the raw Adr.Status TextChoices."""
+    from application.adr_service import AdrService, AdrValidator
+
+    group = GenericCrudToolGroup("adr", AdrService)
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == "adr.create"
+    )["inputSchema"]
+
+    status_field = schema["properties"]["status"]
+    assert status_field["enum"] == sorted(AdrValidator.VALID_STATUSES)
+    assert "Deleted" not in status_field["enum"]
+    assert status_field["default"] == "Draft"
 
 
 def test_risk_create_schema_publishes_probability_impact_enums():

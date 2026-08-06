@@ -49,6 +49,7 @@ def _make_adr(**kwargs):
     adr.title = kwargs.get("title", "Use REST over SOAP")
     adr.description = kwargs.get("description", "REST is simpler")
     adr.context = kwargs.get("context", "")
+    adr.decision = kwargs.get("decision", "")
     adr.consequences = kwargs.get("consequences", "")
     adr.status = kwargs.get("status", "Draft")
     adr.version = kwargs.get("version", 1)
@@ -107,13 +108,15 @@ class TestAdrValidator:
 
 class TestAdrDTO:
     def test_from_orm_maps_fields(self):
-        adr = _make_adr()
+        adr = _make_adr(decision="Use REST")
         dto = AdrDTO.from_orm(adr)
         assert dto.id == adr.id
         assert dto.workspace_id == adr.workspace_id
         assert dto.title == adr.title
         assert dto.status == adr.status
         assert dto.version == adr.version
+        # #373: `decision` is a genuine ADR field, distinct from `description`.
+        assert dto.decision == "Use REST"
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +230,45 @@ class TestCreateAdr:
 
         assert result is created_adr
 
+    def test_decision_field_persisted_on_create(self):
+        """#373: `decision` is accepted as its own parameter and forwarded
+        to Adr.objects.create — not conflated with `description`."""
+        svc = AdrService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        created_adr = _make_adr()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch("application.adr_service.AdrService._emit_event"),
+            patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+            patch("workflow.services.initialize_workflow_states"),
+        ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
+            mock_mgr.create.return_value = created_adr
+
+            svc.create_adr(
+                workspace_id=WS_ID,
+                title="Use CQRS Pattern",
+                description="Command Query Responsibility Segregation",
+                ctx=ctx,
+                context="High write throughput required",
+                decision="Adopt CQRS with event sourcing",
+                consequences="Higher operational complexity",
+            )
+
+        mock_mgr.create.assert_called_once()
+        call_kwargs = mock_mgr.create.call_args.kwargs
+        assert call_kwargs["decision"] == "Adopt CQRS with event sourcing"
+        assert call_kwargs["description"] == "Command Query Responsibility Segregation"
+
 
 # ---------------------------------------------------------------------------
 # update_adr
@@ -305,6 +347,34 @@ class TestUpdateAdr:
         call_kwargs = mock_audit.call_args.kwargs
         assert call_kwargs["operation"] == "update"
         assert call_kwargs["change_reason"] == "fix"
+
+    def test_decision_field_updated(self):
+        """#373: update_adr writes `decision` onto the ADR when supplied."""
+        svc = AdrService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr(version=1, decision="Old decision")
+        existing_adr.save = MagicMock()
+        existing_adr.refresh_from_db = MagicMock(
+            side_effect=lambda fields=None: setattr(existing_adr, "version", existing_adr.version + 1)
+        )
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch("application.adr_service.AdrService._emit_event"),
+            patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+
+            result = svc.update_adr(
+                adr_id=ADR_ID,
+                ctx=ctx,
+                decision="New decision",
+            )
+
+        assert result.decision == "New decision"
 
 
 # ---------------------------------------------------------------------------
