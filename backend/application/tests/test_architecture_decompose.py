@@ -25,7 +25,7 @@ from application.architecture_decompose_service import (
     DecompositionAuditError,
     DecompositionNotAvailableError,
 )
-from application.base import PermissionDeniedError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     ArchitectureElement,
@@ -359,3 +359,255 @@ class TestRollback:
             assert excinfo.value.findings  # findings reported
             # Whole batch rolled back — no new architecture elements remain.
             assert ArchitectureElement.objects.count() == before_elems
+
+
+# ---------------------------------------------------------------------------
+# Issue #366 — the Artifact tree must mirror what commit_draft creates
+# ---------------------------------------------------------------------------
+
+
+class TestCommitPopulatesArtifactTree:
+    """``artifact.get_tree`` walks ``pl_artifact.parent_id`` (recursive CTE).
+
+    commit_draft used to leave that column NULL for every element and
+    requirement it created, so ``get_tree`` reported the freshly decomposed
+    root as childless even though the elements and their TraceLinks existed.
+    """
+
+    def test_commit_links_child_element_artifacts_under_the_root(
+        self, tenant, workspace, ctx
+    ):
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=2)
+
+            result = svc.commit_draft(ctx, draft)
+
+            for element_id in result.created_element_ids:
+                element = ArchitectureElement.objects.select_related(
+                    "artifact", "parent"
+                ).get(id=element_id)
+                assert element.parent_id is not None
+                assert element.artifact.parent_id == element.parent.artifact_id
+
+    def test_commit_links_child_requirement_artifacts_under_their_parent(
+        self, tenant, workspace, ctx
+    ):
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, anchor = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+
+            result = svc.commit_draft(ctx, draft)
+
+            # Mirrors RequirementService.decompose(): a derived requirement's
+            # Artifact hangs under the parent requirement's Artifact.
+            for req_id in result.created_requirement_ids:
+                child_req = Requirement.objects.select_related("artifact").get(
+                    id=req_id
+                )
+                assert child_req.artifact.parent_id == anchor.artifact_id
+
+    def test_get_tree_returns_the_committed_subtree(self, tenant, workspace, ctx):
+        from application.artifact_service import ArtifactService
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=2)
+            result = svc.commit_draft(ctx, draft)
+
+            tree = ArtifactService().get_tree(
+                root_id=root.id, workspace_id=workspace.id, ctx=ctx
+            )
+
+            def _flatten(node):
+                yield node.id
+                for child in node.children:
+                    yield from _flatten(child)
+
+            seen = set(_flatten(tree))
+            created_artifact_ids = {
+                ArchitectureElement.objects.get(id=eid).artifact_id
+                for eid in result.created_element_ids
+            }
+            assert created_artifact_ids <= seen
+            assert tree.children, "root must no longer be reported as childless"
+
+
+# ---------------------------------------------------------------------------
+# Issue #365 — which links commit_draft emits, and which it deliberately does
+# not (element->element hierarchy is an FK tree, not a TraceLink).
+# ---------------------------------------------------------------------------
+
+
+class TestCommitTraceLinkVisibility:
+    def test_created_links_are_returned_by_traceability_query(
+        self, tenant, workspace, ctx
+    ):
+        """Every link commit_draft reports must be queryable afterwards."""
+        from application.trace_link_service import TraceLinkService
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, anchor = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            result = svc.commit_draft(ctx, draft)
+
+            trace = TraceLinkService()
+            for req_id in result.created_requirement_ids:
+                found = trace.list_links_for_entity(
+                    entity_id=req_id, direction="upstream", ctx=ctx
+                ) + trace.list_links_for_entity(
+                    entity_id=req_id, direction="downstream", ctx=ctx
+                )
+                types = {link.link_type for link in found}
+                assert LinkType.ALLOCATED_TO.value in types
+                assert LinkType.DECOMPOSES.value in types
+                assert LinkType.DERIVES_FROM.value in types
+
+            # The anchor sees the decomposition from its own side, too.
+            anchor_links = trace.list_links_for_entity(
+                entity_id=anchor.id, direction="downstream", ctx=ctx
+            )
+            assert {
+                link.link_type for link in anchor_links
+            } >= {LinkType.DECOMPOSES.value}
+
+    def test_element_to_element_hierarchy_is_not_a_trace_link(
+        self, tenant, workspace, ctx
+    ):
+        """Documented invariant (#365): architecture hierarchy is an FK tree.
+
+        ``ArchitectureElement.parent`` (plus the mirrored ``Artifact.parent``)
+        is the single representation of element hierarchy; no TraceLink is
+        emitted for a parent-element -> child-element edge. See
+        ``traceability.types.SE_LINK_SEMANTICS`` (no ArchitectureElement pair
+        for ``derives-from``) and ``CrossCuttingToolGroup._handle_change_impact``,
+        which walks the FK tree explicitly for exactly this reason.
+        """
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            result = svc.commit_draft(ctx, draft)
+
+            child_artifact_ids = {
+                ArchitectureElement.objects.get(id=eid).artifact_id
+                for eid in result.created_element_ids
+            }
+            assert not TraceLink.objects.filter(
+                source_id=root.artifact_id, target_id__in=child_artifact_ids
+            ).exists()
+            # ...but the hierarchy is fully discoverable via the FK tree.
+            assert set(
+                ArchitectureElement.objects.filter(parent_id=root.id).values_list(
+                    "artifact_id", flat=True
+                )
+            ) == {
+                ArchitectureElement.objects.get(id=eid).artifact_id
+                for eid in result.created_element_ids
+                if ArchitectureElement.objects.get(id=eid).parent_id == root.id
+            }
+
+
+# ---------------------------------------------------------------------------
+# Issues #363 / #364 — reported regressions; these tests exist to prove they
+# do NOT reproduce on the current code.
+# ---------------------------------------------------------------------------
+
+
+class TestReportedRegressionsDoNotReproduce:
+    def test_commit_reuses_the_root_element_and_creates_no_duplicate(
+        self, tenant, workspace, ctx
+    ):
+        """#363: commit_draft must reuse ``root_element_id``, never re-create it."""
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+
+            result = svc.commit_draft(ctx, draft)
+
+            assert result.root_element_id == str(root.id)
+            # No second element carries the root's title, and the root is still
+            # the only element without a parent.
+            assert (
+                ArchitectureElement.objects.filter(title=root.title).count() == 1
+            )
+            roots = list(
+                ArchitectureElement.objects.filter(
+                    artifact__workspace_id=workspace.id, parent_id__isnull=True
+                ).values_list("id", flat=True)
+            )
+            assert roots == [root.id]
+            assert str(root.id) not in result.created_element_ids
+
+    def test_commit_with_a_missing_root_element_raises_instead_of_creating_one(
+        self, tenant, workspace, ctx
+    ):
+        """#363, hostile variant: a dangling root_element_id must 404."""
+        import uuid as _uuid
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=1, depth=1)
+            draft.root_element_id = str(_uuid.uuid4())
+
+            before = ArchitectureElement.objects.count()
+            with pytest.raises(NotFoundError):
+                svc.commit_draft(ctx, draft)
+            assert ArchitectureElement.objects.count() == before
+
+    def test_draft_node_with_blank_title_is_rejected(self):
+        """#364, part a: a node without a title never reaches the DB."""
+        from application.architecture_decompose_service import DraftNode
+
+        with pytest.raises(ValidationError):
+            DraftNode.from_dict(
+                {"temp_id": "n1", "title": "   ", "requirement": {"title": ""}}
+            )
+
+    def test_commit_never_persists_a_blank_titled_requirement(
+        self, tenant, workspace, ctx
+    ):
+        """#364, part b: empty requirement fields fall back to the node title."""
+        from application.architecture_decompose_service import (
+            DraftNode,
+            DraftRequirement,
+        )
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, breadth=1, depth=1)
+            # Hostile draft: every requirement field blanked out.
+            draft.nodes = [
+                DraftNode(
+                    temp_id="n1",
+                    parent_temp_id=None,
+                    title="Telemetry Component",
+                    description="",
+                    element_type="component",
+                    requirement=DraftRequirement(
+                        title="", description="", rationale=""
+                    ),
+                )
+            ]
+
+            result = svc.commit_draft(ctx, draft)
+
+            assert len(result.created_requirement_ids) == 1
+            created = Requirement.objects.get(id=result.created_requirement_ids[0])
+            assert created.title.strip() == "Telemetry Component"
+            assert not Requirement.objects.filter(title="").exists()

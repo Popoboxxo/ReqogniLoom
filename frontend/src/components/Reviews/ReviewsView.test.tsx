@@ -30,6 +30,20 @@ import React from "react";
 
 vi.mock("../../api/requirements");
 vi.mock("../../context/WorkspaceContext");
+vi.mock("../../api/workflow-transitions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/workflow-transitions")>();
+  return {
+    ...actual,
+    workflowTransitionsApi: {
+      listByStatus: vi.fn(),
+      getTransitions: vi.fn(),
+      transition: vi.fn(),
+      getWorkflowHistory: vi.fn(),
+      diff: vi.fn(),
+      versions: vi.fn(),
+    },
+  };
+});
 vi.mock("react-i18next", () => {
   const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
     typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
@@ -38,6 +52,7 @@ vi.mock("react-i18next", () => {
 
 import * as requirementsModule from "../../api/requirements";
 import * as workspaceContext from "../../context/WorkspaceContext";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { ForbiddenError } from "../../api/errors";
 
 import ReviewsView from "./ReviewsView";
@@ -392,5 +407,85 @@ describe("ReviewsView (REQ-144 smoke tests)", () => {
       expect(screen.getByTestId("review-history-entry-hist-1")).toBeInTheDocument();
     });
     expect(screen.getByText("draft → in_review")).toBeInTheDocument();
+  });
+
+  // Issue #372: Goal/MainGoal were missing from the Reviews UI's type filter
+  // entirely, so their 30 pending items never loaded even though the
+  // backend (review.list_pending / WorkflowItemState) tracks them fine.
+  describe("[#372] Goal/MainGoal type filter", () => {
+    it("offers Goal and Main Goal as selectable review types", async () => {
+      vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+      } as any);
+
+      renderReviewsView();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("reviews-type-select")).toBeInTheDocument();
+      });
+      expect(screen.getByRole("option", { name: "Goal" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Main Goal" })).toBeInTheDocument();
+    });
+
+    it("loads pending Goal items from /goals/ filtered by the Entwurf state, not in_review", async () => {
+      vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+      } as any);
+      vi.mocked(workflowTransitionsApi.listByStatus).mockResolvedValue([
+        { id: "goal-001", title: "Reduce onboarding time", version: 1 },
+      ] as any);
+      const user = userEvent.setup();
+
+      renderReviewsView();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("reviews-type-select")).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByTestId("reviews-type-select"), "goal");
+
+      await waitFor(() => {
+        expect(screen.getByText("Reduce onboarding time")).toBeInTheDocument();
+      });
+      expect(workflowTransitionsApi.listByStatus).toHaveBeenCalledWith(
+        "goal",
+        "ws-rev-001",
+        "Entwurf"
+      );
+    });
+
+    it("loads pending MainGoal items from /main-goals/ filtered by the Entwurf state", async () => {
+      vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+      } as any);
+      vi.mocked(workflowTransitionsApi.listByStatus).mockResolvedValue([
+        { id: "mgoal-001", title: "Unified onboarding vision", version: 1 },
+      ] as any);
+      const user = userEvent.setup();
+
+      renderReviewsView();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("reviews-type-select")).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByTestId("reviews-type-select"), "main-goal");
+
+      await waitFor(() => {
+        expect(screen.getByText("Unified onboarding vision")).toBeInTheDocument();
+      });
+      expect(workflowTransitionsApi.listByStatus).toHaveBeenCalledWith(
+        "main-goal",
+        "ws-rev-001",
+        "Entwurf"
+      );
+    });
   });
 });

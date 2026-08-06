@@ -438,6 +438,13 @@ class ArchitectureDecomposeService(ServiceBase):
         result = CommitResult(root_element_id=str(root_element.id))
         # temp_id -> (architecture_element_id, requirement_id) for parent lookup.
         created: Dict[str, Tuple[UUID, UUID]] = {}
+        # Issue #366: Requirement PK -> backing Artifact id. create_requirement's
+        # ``parent_id`` addresses the *Artifact* tree (see
+        # RequirementService.decompose, which passes ``parent_req.artifact_id``),
+        # while _resolve_parents works in the Requirement PK space. Without this
+        # translation the derived requirements were created with a NULL
+        # Artifact.parent and artifact.get_tree reported an empty subtree.
+        req_artifact_ids: Dict[UUID, UUID] = {anchor.id: anchor.artifact_id}
         new_artifact_ids: set[str] = set()
 
         with TransactionContextManager():
@@ -458,7 +465,9 @@ class ArchitectureDecomposeService(ServiceBase):
                     title=node.requirement.title or node.title,
                     ctx=ctx,
                     description=node.requirement.description,
+                    parent_id=req_artifact_ids.get(parent_req_id),
                 )
+                req_artifact_ids[child_req.id] = child_req.artifact_id
                 created[node.temp_id] = (child_element.id, child_req.id)
                 result.created_element_ids.append(str(child_element.id))
                 result.created_requirement_ids.append(str(child_req.id))
@@ -511,6 +520,16 @@ class ArchitectureDecomposeService(ServiceBase):
           * ``derives-from``  : child requirement -> parent requirement
         The ``derives-from`` link is what makes the output pass TRACE-P5 (and,
         together with the allocation, ARCH-003) by construction.
+
+        Deliberately **no** link is emitted for the parent-element ->
+        child-element edge (issue #365). Architecture hierarchy is an FK tree
+        (``ArchitectureElement.parent``, mirrored onto ``Artifact.parent`` so
+        ``artifact.get_tree`` can walk it — issue #366), not a TraceLink:
+        ``traceability.types.SE_LINK_SEMANTICS`` restricts ``derives-from`` to
+        Requirement/StakeholderNeed endpoints, and
+        ``CrossCuttingToolGroup._handle_change_impact`` walks the FK tree
+        explicitly for exactly this reason. Emitting a redundant link here
+        would add a *fourth* hierarchy representation instead of removing one.
         """
         alloc = self._trace.allocate(
             requirement_id=child_req_id,

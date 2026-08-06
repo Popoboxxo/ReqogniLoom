@@ -40,7 +40,14 @@ export type WorkflowArtifactType =
   | "architecture"
   | "icd"
   | "glossary"
-  | "diagram";
+  | "diagram"
+  // Issue #372: Goal/MainGoal are tracked via workflow_item_type "Goal" /
+  // "MainGoal" (backend/rest_api/views.py GoalViewSet/MainGoalViewSet,
+  // workflow/definition_store.py goal_default/main_goal_default) but were
+  // missing from this union, so the Reviews UI never offered them as a
+  // selectable type and their 30 pending items never loaded.
+  | "goal"
+  | "main-goal";
 
 /** A single allowed transition from the current state. */
 export interface WorkflowAllowedTransition {
@@ -111,6 +118,10 @@ const RESOURCE_PATH: Record<WorkflowArtifactType, string> = {
   glossary: "glossary",
   // Router registration (backend/rest_api/urls.py): DiagramViewSet → "diagrams".
   diagram: "diagrams",
+  // Issue #372: router registrations (backend/rest_api/urls.py) —
+  // GoalViewSet → "goals", MainGoalViewSet → "main-goals".
+  goal: "goals",
+  "main-goal": "main-goals",
 };
 
 const transitionsPath = (type: WorkflowArtifactType, id: UUID): string =>
