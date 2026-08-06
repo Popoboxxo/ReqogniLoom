@@ -158,6 +158,39 @@ def build_error_response(
     }
 
 
+def normalize_preset_blob(blob: Any) -> dict[str, Any]:
+    """Return ``blob`` with a consistent ``tier``/``name`` pair (issue #271).
+
+    ``Workspace.preset`` is written in three different shapes depending on the
+    row's age and provenance::
+
+        {"tier": "standard", ...}              WorkspaceService.create
+        {"tier": "x", "name": "x", ...}        WorkspaceService.switch_preset_tier
+        {"name": "extended"}                   legacy/seeded rows (e.g. Demo)
+
+    Both keys are emitted, resolved by preferring ``tier`` and falling back to
+    ``name``. ``tier`` is authoritative because ``switch_preset_tier`` — the
+    only writer that maintains both — always sets them to the same value, so a
+    disagreement can only mean ``name`` is a stale leftover.
+
+    Normalisation happens on READ only. Rewriting the stored blobs would need a
+    destructive, hard-to-reverse data migration over live tenant rows for what
+    is a low-priority hygiene issue; the read path is cheap and reversible.
+
+    Other keys (``language``, ``terminology_profile``) are preserved untouched,
+    and the input is never mutated. A missing/``None``/non-dict blob yields
+    ``{}`` rather than a fabricated tier — inventing one would mislabel the
+    workspace, and callers already default (the frontend falls back to
+    ``"standard"``).
+    """
+    if not isinstance(blob, dict):
+        return {}
+    resolved = blob.get("tier") or blob.get("name")
+    if not resolved:
+        return dict(blob)
+    return {**blob, "tier": resolved, "name": resolved}
+
+
 # ---------------------------------------------------------------------------
 # Pagination (REQ-L2-RA-010, REQ-L3-RA002-003)
 # ---------------------------------------------------------------------------
@@ -932,6 +965,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     # #71: free-text name field — sanitize consistent with other narrative
     # fields (SEC-03/B006) so HTML/script markup is stripped, not stored verbatim.
     name = SanitizedCharField(max_length=255)
+    # #271: passthrough on write, normalised on read — see to_representation.
     preset = serializers.JSONField(required=False, default=dict)
     ai_prompts = serializers.JSONField(required=False, default=dict)
     decomposition_link_type = serializers.CharField(
@@ -954,6 +988,12 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        """Emit a single, canonical ``preset`` shape regardless of storage (#271)."""
+        data = super().to_representation(instance)
+        data["preset"] = normalize_preset_blob(data.get("preset"))
+        return data
 
 
 class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
@@ -1612,6 +1652,7 @@ __all__ = [
     "BaselineDiffSerializer",
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
+    "normalize_preset_blob",
     "AdrSerializer",
     "RiskSerializer",
     "IssueSerializer",
