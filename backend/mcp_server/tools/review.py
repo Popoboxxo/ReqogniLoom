@@ -69,8 +69,9 @@ class ReviewToolGroup(BaseToolGroup):
             "description": (
                 "Approve an item currently awaiting review: transitions it to "
                 "its preset's auto_approve_target state (falls back to the "
-                "first available approver/admin-gated transition's target if "
-                "no explicit auto_approve_target is configured)."
+                "first available approver/admin-gated transition's target -- "
+                "excluding reject/outdated-equivalent states -- if no "
+                "explicit auto_approve_target is configured)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -288,7 +289,23 @@ class ReviewToolGroup(BaseToolGroup):
             None,
         )
         if target is None:
-            gate = next((t for t in available.transitions if is_approval_gate(t)), None)
+            # GH-370 hardening: never let the fallback implicitly "approve"
+            # into a reject/outdated-equivalent state (e.g. Issue.Wontfix).
+            # Such states are rejection endpoints, not approval endpoints --
+            # picking them here would make review.approve() indistinguishable
+            # from review.reject() for any preset that has no explicit
+            # auto_approve_target configured.
+            gate = next(
+                (
+                    t
+                    for t in available.transitions
+                    if is_approval_gate(t)
+                    and not get_state_meta(workflow_json, t.to_state).get(
+                        "is_outdated_equivalent", False
+                    )
+                ),
+                None,
+            )
             target = gate.to_state if gate is not None else None
 
         if target is None:

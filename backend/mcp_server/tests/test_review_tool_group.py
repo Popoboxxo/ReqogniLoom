@@ -115,6 +115,68 @@ def adr_in_draft(auth_context, workspace, adr_workflow):
 
 
 @pytest.fixture
+def issue_workflow(auth_context, workspace):
+    """Provision the issue_default workflow once for (workspace, "Issue")."""
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="issue_default",
+            item_type="Issue",
+            tenant_id=auth_context.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def issue_open(auth_context, workspace, issue_workflow):
+    """A freshly created Issue, still at its initial "Open" state."""
+    from application.issue_service import IssueService
+
+    return IssueService().create_issue(
+        workspace_id=workspace.id,
+        title="Open issue",
+        ctx=auth_context,
+        description="just filed",
+    )
+
+
+@pytest.fixture
+def issue_in_progress(auth_context, workspace, issue_workflow):
+    """An Issue transitioned Open -> In Progress -- one real approval-gated
+    hop ("In Progress" -> "Wontfix", approver/admin-only) away from the
+    reject path, and one editor-allowed hop away from its preset's real
+    auto_approve_target ("Resolved")."""
+    from application.issue_service import IssueService
+    from workflow.services import transition
+
+    created = IssueService().create_issue(
+        workspace_id=workspace.id,
+        title="In-progress issue",
+        ctx=auth_context,
+        description="being worked on",
+    )
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        transition(
+            item_id=created.id,
+            target_state="In Progress",
+            change_reason="picked up",
+            ctx=auth_context,
+            item_type="Issue",
+            workspace_id=workspace.id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    return created
+
+
+@pytest.fixture
 def adr_awaiting_review(auth_context, workspace, adr_workflow):
     """An Adr transitioned Draft -> In Review — one real approval-gated hop
     ("In Review" -> "Approved", approver/admin-only) away from its preset's
@@ -186,6 +248,55 @@ def test_approve_transitions_to_auto_approve_target(
         api_key,
     )
     assert result.data["new_state"] == "Approved"
+
+
+def test_approve_issue_in_progress_transitions_to_resolved_not_wontfix(
+    review_tool_group, auth_context, api_key, workspace, issue_in_progress
+):
+    """GH-370 regression: issue_default now marks "Resolved" as the
+    auto_approve_target (definition_store.py), so review.approve() on an
+    Issue one hop away from the real approval gate ("In Progress" ->
+    "Wontfix") must land on "Resolved" -- never on "Wontfix", which is a
+    rejection-equivalent state, not an approval outcome."""
+    result = review_tool_group.execute_tool(
+        "review.approve",
+        {
+            "item_id": str(issue_in_progress.id),
+            "item_type": "Issue",
+            "workspace_id": str(workspace.id),
+            "change_reason": "fix verified",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.data["new_state"] == "Resolved"
+    assert result.data["new_state"] != "Wontfix"
+
+
+def test_approve_issue_open_never_falls_back_to_wontfix(
+    review_tool_group, auth_context, api_key, workspace, issue_open
+):
+    """GH-370 regression: before this fix, review.approve() on a freshly
+    filed Issue ("Open") wrongly picked "Wontfix" -- the fallback's "first
+    approval-gated transition" from "Open" (Open -> Wontfix is the only
+    approver/admin-gated hop out of "Open"; Open -> In Progress is
+    editor-gated, not a gate). "Resolved" is not directly reachable from
+    "Open" in a single hop, so the hardened fallback now correctly refuses
+    to guess an approval target here (VALIDATION_ERROR) instead of silently
+    rejecting the issue by moving it to "Wontfix"."""
+    result = review_tool_group.execute_tool(
+        "review.approve",
+        {
+            "item_id": str(issue_open.id),
+            "item_type": "Issue",
+            "workspace_id": str(workspace.id),
+            "change_reason": "n/a",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
 
 
 # ---------------------------------------------------------------------------
