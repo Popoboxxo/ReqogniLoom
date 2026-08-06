@@ -491,6 +491,27 @@ class TraceLinkService(ServiceBase):
         deleted = batch_delete_trace_links(link_ids)
         return deleted
 
+    def delete_trace_link(self, link_id: UUID, ctx: AuthContext) -> None:
+        """Delete a single TraceLink by its own id (Codeberg #336).
+
+        Unlike :meth:`cascade_delete_trace_links` (which deletes links whose
+        source/target matches an *entity* id), this deletes the TraceLink
+        identified by *link_id* itself, e.g. for ``DELETE
+        /api/v1/trace-links/{id}/``.
+
+        Raises:
+            NotFoundError: *link_id* does not exist in the active tenant.
+        """
+        from persistence.models import TraceLink
+        from traceability.trace_link_manager import TraceLinkManager
+
+        self._set_tenant_context(ctx)
+
+        try:
+            TraceLinkManager().delete(link_id)
+        except TraceLink.DoesNotExist as exc:
+            raise NotFoundError(f"TraceLink {link_id} not found") from exc
+
     # ---------- Allocation (REQ-L1-042, REQ-L1-044) ----------
 
     def _check_allocation_invariant(
