@@ -159,8 +159,10 @@ class LoginView(APIView):
 
         if not isinstance(username, str) or not isinstance(password, str):
             record_login_failure(request)
+            # #271: same code as every other credential rejection below, so a
+            # malformed body is indistinguishable from a wrong password.
             return _auth_error_response(
-                "invalid_token",
+                "invalid_credentials",
                 accept_language=accept_language,
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )

@@ -50,6 +50,19 @@ _ERROR_CATALOG: dict[str, tuple[int, dict[str, str]]] = {
             "de": "Das übergebene Token ist fehlerhaft oder ungültig.",
         },
     ),
+    # Issue #271: the login endpoint used to report ``invalid_token`` too, so a
+    # caller could not tell an expired access token from a bad password. This
+    # code covers the whole login-credential-rejection family — unknown user,
+    # wrong password AND inactive user deliberately share it, so the boundary
+    # cannot be used to enumerate usernames (see
+    # ``PasswordAuthenticationService.authenticate_credentials``).
+    "invalid_credentials": (
+        401,
+        {
+            "en": "The provided credentials are invalid.",
+            "de": "Die übergebenen Anmeldedaten sind ungültig.",
+        },
+    ),
     "invalid_api_key": (
         401,
         {
