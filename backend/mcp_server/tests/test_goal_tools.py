@@ -315,3 +315,38 @@ def test_main_goal_approve_permission_denied(mock_service_cls):
     )
     assert result.success is False
     assert result.error_code == "PERMISSION_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# Schema validation (Issue #369)
+# ---------------------------------------------------------------------------
+
+
+def test_goal_outdate_schema_has_required_goal_id():
+    """#369: goal.outdate schema must declare 'required' with goal_id.
+    This is the established pattern for soft-delete tools (goal.delete also
+    has required=['goal_id'])."""
+    group = GoalToolGroup()
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == "goal.outdate"
+    )["inputSchema"]
+
+    assert "required" in schema, "goal.outdate schema missing 'required' field"
+    assert "goal_id" in schema["required"], (
+        "goal_id not in goal.outdate required fields"
+    )
+
+
+def test_goal_reactivate_schema_has_required_goal_id():
+    """#369: goal.reactivate schema must declare 'required' with goal_id.
+    This is the established pattern for lifecycle tools (goal.delete also
+    has required=['goal_id'])."""
+    group = GoalToolGroup()
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == "goal.reactivate"
+    )["inputSchema"]
+
+    assert "required" in schema, "goal.reactivate schema missing 'required' field"
+    assert "goal_id" in schema["required"], (
+        "goal_id not in goal.reactivate required fields"
+    )

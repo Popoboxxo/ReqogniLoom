@@ -272,6 +272,7 @@ class GoalToolGroup(BaseToolGroup):
                         "description": "Alias of reason.",
                     },
                 },
+                "required": ["goal_id"],
             },
         },
         {
@@ -300,6 +301,7 @@ class GoalToolGroup(BaseToolGroup):
                         "description": "Audit reason; defaults to 'reactivated'.",
                     },
                 },
+                "required": ["goal_id"],
             },
         },
     ]
