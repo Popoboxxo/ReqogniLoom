@@ -43,10 +43,15 @@ vi.mock("../WorkflowStatusEditor", () => ({
 }));
 
 // GH-353 Task 9: Mock GraphCanvas for read-only node_graph preview tests
+// Captures full props object to enable assertions on read-only mode
 vi.mock("../DiagramGraphEditor/GraphCanvas", () => ({
-  GraphCanvas: ({ nodes, edges }: { nodes: unknown[]; edges: unknown[] }) => (
-    <div data-testid="graph-canvas-readonly">
-      Nodes: {nodes.length}, Edges: {edges.length}
+  GraphCanvas: (props: any) => (
+    <div
+      data-testid="graph-canvas-readonly"
+      data-editmode={String(props.editMode)}
+      data-elementsselectable={String(props.elementsSelectable)}
+    >
+      Nodes: {props.nodes.length}, Edges: {props.edges.length}
     </div>
   ),
 }));
@@ -251,16 +256,16 @@ describe("DiagramDetailView preview (E2-D4)", () => {
     renderDetail();
 
     // Verify that the read-only React Flow canvas is rendered, not raw JSON
-    expect(screen.getByTestId("graph-canvas-readonly")).toBeInTheDocument();
+    const canvasElement = screen.getByTestId("graph-canvas-readonly");
+    expect(canvasElement).toBeInTheDocument();
     expect(screen.getByText(/Nodes: 2, Edges: 1/)).toBeInTheDocument();
     // Verify that the raw JSON preview is NOT rendered
     expect(screen.queryByTestId("diagram-source-preview")).not.toBeInTheDocument();
 
-    // GH-353 Task 9: Read-only props (editMode={false}, elementsSelectable={false})
-    // are now wired to GraphCanvas and passed explicitly. The rendering of
-    // graph-canvas-readonly proves the component works end-to-end; the props
-    // are verified by code inspection (elementsSelectable added to GraphCanvasProps,
-    // defaulted to editMode, and passed explicitly in DiagramDetailView).
+    // GH-353 Task 9: Assert read-only props are passed (catch regressions like
+    // accidentally flipping editMode={true} or dropping elementsSelectable={false})
+    expect(canvasElement.getAttribute("data-editmode")).toBe("false");
+    expect(canvasElement.getAttribute("data-elementsselectable")).toBe("false");
   });
 
   it("shows an error message when node_graph content is invalid JSON", () => {
