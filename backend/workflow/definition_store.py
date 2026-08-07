@@ -192,6 +192,18 @@ def _extended_transitions() -> list[dict[str, Any]]:
             "requires_change_reason": True,
             "signature_gate": False,
         },
+        # Issue #338: "verified" was a dead-end state — no transition led out
+        # of it, so a verified artifact could never be retired. Mirrors the
+        # existing approved->deprecated gate (same allowed_roles/
+        # requires_change_reason shape) since deprecating a verified artifact
+        # is an equivalent-weight governance action.
+        {
+            "from_state": "verified",
+            "to_state": "deprecated",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
     ]
 
 
