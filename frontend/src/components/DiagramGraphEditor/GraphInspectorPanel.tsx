@@ -10,7 +10,7 @@
  * rules to gate behind a confirm step).
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link2, Trash2, Unlink, Workflow } from "lucide-react";
 import type { GraphFlowEdge, GraphFlowNode } from "./graph-layout";
@@ -198,7 +198,12 @@ function NodeInspector({
         </>
       )}
 
-      <ArtifactRefPicker node={node} editMode={editMode} onUpdate={onUpdate} />
+      {/* key=node.id (I3, final review): NodeInspector is not remounted when
+          the selected node changes (React reuses the instance and updates
+          props), so ArtifactRefPicker's own local draft state (see below)
+          must be reset by a key change, or switching the selected node would
+          keep showing the PREVIOUS node's in-progress, uncommitted draft. */}
+      <ArtifactRefPicker key={node.id} node={node} editMode={editMode} onUpdate={onUpdate} />
 
       {editMode && (
         <div className={styles.editActions} data-testid="graph-inspector-node-actions">
@@ -225,6 +230,13 @@ function NodeInspector({
  * backend reconciler (Task 3) is the source of truth at write time, matching
  * the schema module's own doc comment.
  */
+/** Syntactically-valid-UUID check (any RFC 4122 variant/version). */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidGraphArtifactRefId(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
 function ArtifactRefPicker({
   node,
   editMode,
@@ -235,21 +247,45 @@ function ArtifactRefPicker({
   onUpdate: (patch: Partial<GraphNode>) => void;
 }): JSX.Element {
   const { t } = useTranslation();
-  const entityType = node.artifact_ref?.entity_type ?? GRAPH_ARTIFACT_ENTITY_TYPES[0];
-  const refId = node.artifact_ref?.id ?? "";
+
+  // I3 (final review): local draft state, NOT derived straight from
+  // `node.artifact_ref` on every render. Touching the entity-type select or
+  // typing a partial/invalid id must never leave a save-blocking
+  // `{ id: "" }` / partial-UUID `artifact_ref` on the node (validate_node_graph
+  // rejects that with no indication of which control caused it) — so
+  // `onUpdate` only ever receives a populated `artifact_ref` once the typed
+  // id is a syntactically valid UUID, and `undefined` otherwise. Deriving the
+  // *displayed* value straight from that same committed `node.artifact_ref`
+  // would make the id input un-typeable: every keystroke before the UUID is
+  // complete would round-trip through `undefined` and reset the field back to
+  // empty. Local draft state decouples "what the user is typing" from "what
+  // has actually been committed upstream". Reset when the selected node
+  // changes via the `key={node.id}` on this component (GraphInspectorPanel).
+  const [draftEntityType, setDraftEntityType] = useState<GraphArtifactEntityType>(
+    node.artifact_ref?.entity_type ?? GRAPH_ARTIFACT_ENTITY_TYPES[0]
+  );
+  const [draftRefId, setDraftRefId] = useState<string>(node.artifact_ref?.id ?? "");
+
+  const commit = (nextEntityType: GraphArtifactEntityType, nextRefId: string): void => {
+    onUpdate({
+      artifact_ref: isValidGraphArtifactRefId(nextRefId)
+        ? { entity_type: nextEntityType, id: nextRefId }
+        : undefined,
+    });
+  };
 
   return (
     <div data-testid="graph-inspector-artifact-ref">
       <div className={styles.sectionLabel}>{t("diagramGraph.inspector.artifactRef")}</div>
       <select
         className={styles.fieldSelect}
-        value={entityType}
+        value={draftEntityType}
         disabled={!editMode}
-        onChange={(e) =>
-          onUpdate({
-            artifact_ref: { entity_type: e.target.value as GraphArtifactEntityType, id: refId },
-          })
-        }
+        onChange={(e) => {
+          const next = e.target.value as GraphArtifactEntityType;
+          setDraftEntityType(next);
+          commit(next, draftRefId);
+        }}
         data-testid="graph-inspector-artifact-entity-type"
       >
         {GRAPH_ARTIFACT_ENTITY_TYPES.map((et) => (
@@ -261,9 +297,12 @@ function ArtifactRefPicker({
       <input
         className={styles.fieldInput}
         placeholder={t("diagramGraph.inspector.artifactIdPlaceholder")}
-        value={refId}
+        value={draftRefId}
         disabled={!editMode}
-        onChange={(e) => onUpdate({ artifact_ref: { entity_type: entityType, id: e.target.value } })}
+        onChange={(e) => {
+          setDraftRefId(e.target.value);
+          commit(draftEntityType, e.target.value);
+        }}
         data-testid="graph-inspector-artifact-id"
       />
       <div className={styles.artifactRefActions}>
@@ -272,7 +311,11 @@ function ArtifactRefPicker({
             type="button"
             className={styles.editActionButton}
             disabled={!editMode}
-            onClick={() => onUpdate({ artifact_ref: undefined })}
+            onClick={() => {
+              setDraftEntityType(GRAPH_ARTIFACT_ENTITY_TYPES[0]);
+              setDraftRefId("");
+              onUpdate({ artifact_ref: undefined });
+            }}
             data-testid="graph-inspector-artifact-clear"
           >
             <Unlink size={14} aria-hidden="true" />

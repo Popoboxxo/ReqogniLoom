@@ -38,7 +38,7 @@ import styles from "./DiagramGraphEditor.module.css";
 const NODE_TYPES: NodeTypes = { graphNode: GraphNode };
 const EDGE_TYPES: EdgeTypes = { graphEdge: GraphEdge };
 
-interface GraphCanvasProps {
+export interface GraphCanvasProps {
   nodes: GraphFlowNode[];
   edges: GraphFlowEdge[];
   isLoading: boolean;

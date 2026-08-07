@@ -351,12 +351,19 @@ def resolve_scope_item_ids(
 
     from django.db import connection
 
+    # M3 (Codeberg #353 final review): a Diagram's shadow Artifact
+    # (artifact_type='Diagram', diagram.traceability_connector
+    # ._resolve_artifact_id) exists purely to give the TraceabilityEngine a
+    # source row for DIAGRAM_REF/documents links — it is not a real domain
+    # artifact and must never appear as a synthetic, mostly-empty item in a
+    # project/global-scope baseline. Excluded from both scope queries below.
     if scope == "project":
         sql_ids = """
             SELECT a.id::text
             FROM pl_artifact a
             WHERE a.workspace_id = %s
               AND a.tenant_id = %s
+              AND a.artifact_type != 'Diagram'
             ORDER BY a.id
         """
         id_params: list = [str(workspace_id), str(tenant_id)]
@@ -365,6 +372,7 @@ def resolve_scope_item_ids(
             SELECT a.id::text
             FROM pl_artifact a
             WHERE a.tenant_id = %s
+              AND a.artifact_type != 'Diagram'
             ORDER BY a.id
         """
         id_params = [str(tenant_id)]

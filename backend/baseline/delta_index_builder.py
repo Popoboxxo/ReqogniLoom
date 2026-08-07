@@ -88,11 +88,17 @@ class ScopeResolver:
         """All Artifacts in a workspace, with their current version."""
         from django.db import connection
 
+        # M3 (Codeberg #353 final review): a Diagram's shadow Artifact
+        # (artifact_type='Diagram') is an internal implementation detail of
+        # the TraceabilityEngine link (diagram.traceability_connector
+        # ._resolve_artifact_id), not a real domain artifact — it must not
+        # appear as a synthetic, mostly-empty item in a project baseline.
         sql = """
             SELECT a.id::text, a.version
             FROM pl_artifact a
             WHERE a.workspace_id = %s
               AND a.tenant_id = %s
+              AND a.artifact_type != 'Diagram'
             ORDER BY a.id
         """
         with connection.cursor() as cur:
@@ -167,10 +173,13 @@ class ScopeResolver:
         """All Artifacts across all workspaces of the tenant."""
         from django.db import connection
 
+        # M3 (Codeberg #353 final review): same Diagram-shadow-Artifact
+        # exclusion as _resolve_project above, applied to global scope.
         sql = """
             SELECT a.id::text, a.version
             FROM pl_artifact a
             WHERE a.tenant_id = %s
+              AND a.artifact_type != 'Diagram'
             ORDER BY a.id
         """
         with connection.cursor() as cur:

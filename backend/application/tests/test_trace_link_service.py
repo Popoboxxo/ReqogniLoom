@@ -21,7 +21,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from application.base import NotFoundError, ValidationError
-from application.trace_link_service import TraceLinkService, VALID_LINK_TYPES
+from application.trace_link_service import (
+    TraceLinkService,
+    VALID_LINK_TYPES,
+    MANUAL_LINK_TYPES,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +103,31 @@ class TestCreateTraceLink:
                     ctx=ctx,
                 )
 
-    @pytest.mark.parametrize("link_type", list(VALID_LINK_TYPES))
+    def test_diagram_ref_link_type_raises_validation_error(self):
+        """I1 (Codeberg #353 final review): 'diagram-ref' IS a member of
+        VALID_LINK_TYPES (the reconciler needs it there) but must never be
+        creatable through manual TraceLink CRUD — a hand-authored one would
+        be silently deleted on the diagram's next node_graph save. This is a
+        distinct rejection reason from an unrecognised link_type, so it is
+        checked before source/target resolution, same as the invalid-type
+        check above."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+
+        with patch("application.trace_link_service.ServiceBase._set_tenant_context"):
+            with pytest.raises(ValidationError, match="system-managed"):
+                svc.create_trace_link(
+                    source_id=SOURCE_ID,
+                    target_id=TARGET_ID,
+                    link_type="diagram-ref",
+                    ctx=ctx,
+                )
+
+    @pytest.mark.parametrize("link_type", sorted(MANUAL_LINK_TYPES))
     def test_all_valid_link_types_accepted(self, link_type):
-        """All 8 standard link types pass validation and delegate to TE."""
+        """All manually-createable link types pass validation and delegate to
+        TE. Excludes 'diagram-ref' (I1) — covered separately above by
+        test_diagram_ref_link_type_raises_validation_error."""
         svc = TraceLinkService()
         ctx = _make_ctx()
         mock_result = MagicMock()

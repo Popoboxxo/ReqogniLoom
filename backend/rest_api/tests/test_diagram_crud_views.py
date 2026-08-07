@@ -24,6 +24,7 @@ from rest_framework.test import APIRequestFactory
 from diagram.services import DiagramValidationError
 from diagram.validator import DiagramValidator
 from rest_api.diagram_views import DiagramViewSet
+from traceability.exceptions import TraceLinkError
 
 FAKE_DIAGRAM_ID = uuid.uuid4()
 FAKE_TENANT_ID = uuid.uuid4()
@@ -149,6 +150,79 @@ class TestDiagramViewSetCreateValidation:
 
         assert response.status_code == 400
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+
+class TestDiagramViewSetTraceLinkErrorMapping:
+    """M4 (Codeberg #353 final review): a TraceLinkError raised by the
+    node_graph artifact_ref reconciler (e.g. a workspace-less legacy Diagram)
+    is a client-input problem, not a server fault — it must map to 400
+    VALIDATION_ERROR the same way DiagramValidationError already does,
+    instead of falling through to the generic 500 handler."""
+
+    def test_create_tracelinkerror_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "Refs a workspace-less legacy diagram",
+                "diagram_type": "block",
+                "payload_format": "node_graph",
+                "content": '{"nodes": [], "edges": []}',
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.Tenant"), patch(
+                "rest_api.diagram_views.User"
+            ):
+                with patch(
+                    "rest_api.diagram_views.create_diagram",
+                    side_effect=TraceLinkError(
+                        "Diagram has no workspace_id; a Diagram must be "
+                        "assigned to a workspace before it can back a "
+                        "TraceLink."
+                    ),
+                ):
+                    response = view(req)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "workspace" in response.data["error"]["message"]
+
+    def test_partial_update_tracelinkerror_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/diagrams/{FAKE_DIAGRAM_ID}/",
+            data={"payload_format": "node_graph", "content": '{"nodes": [], "edges": []}'},
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"patch": "partial_update"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.User"):
+                with patch(
+                    "rest_api.diagram_views.update_diagram",
+                    side_effect=TraceLinkError(
+                        "Diagram has no workspace_id; a Diagram must be "
+                        "assigned to a workspace before it can back a "
+                        "TraceLink."
+                    ),
+                ):
+                    response = view(req, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "workspace" in response.data["error"]["message"]
 
 
 class TestDiagramViewSetCanvasStrokeTypeValidation:

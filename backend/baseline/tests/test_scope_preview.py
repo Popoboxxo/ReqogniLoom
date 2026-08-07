@@ -231,6 +231,65 @@ class TestPreviewScopeItemsWithData:
         finally:
             TenantContext.clear_tenant()
 
+    def test_project_scope_excludes_diagram_shadow_artifacts(self):
+        """M3 (Codeberg #353 final review): a Diagram's shadow Artifact
+        (artifact_type='Diagram', diagram.traceability_connector
+        ._resolve_artifact_id) is an internal implementation detail, not a
+        real domain artifact — it must not appear in a project-scope
+        baseline preview."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Artifact
+        from baseline.services import preview_scope_items
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            ws1 = self._make_workspace(tenant, "WS-1")
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="requirement"
+            )
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="Diagram"
+            )
+
+            result = preview_scope_items(
+                scope="project",
+                workspace_id=ws1.id,
+                tenant_id=tenant.id,
+            )
+            assert result.count == 1
+            assert len(result.sample) == 1
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_global_scope_excludes_diagram_shadow_artifacts(self):
+        """M3 (Codeberg #353 final review): same Diagram-shadow-Artifact
+        exclusion as the project-scope test above, applied to global scope."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Artifact
+        from baseline.services import preview_scope_items
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            ws1 = self._make_workspace(tenant, "WS-1")
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="requirement"
+            )
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="Diagram"
+            )
+
+            result = preview_scope_items(
+                scope="global",
+                workspace_id=ws1.id,
+                tenant_id=tenant.id,
+            )
+            assert result.count == 1
+            assert len(result.sample) == 1
+        finally:
+            TenantContext.clear_tenant()
+
     def test_document_scope_counts_root_and_descendants(self):
         """REQ-L1-049: document scope counts root artifact + descendants."""
         from persistence.tenancy import TenantContext

@@ -1316,4 +1316,68 @@ def test_workspace_list_is_read_only():
 
     assert "workspace.list" in _READ_ONLY_TOOL_NAMES
     assert "workspace.list" not in _WRITE_TOOL_PREFIXES
-    assert "traceability.create_link" not in _READ_ONLY_TOOL_NAMES
+
+
+# ---------------------------------------------------------------------------
+# I1 (Codeberg #353 final review): 'diagram-ref' must never be manually
+# createable via traceability.create_link — it is reconciler-owned
+# (diagram.traceability_connector.sync_node_links) and would be silently
+# deleted on the diagram's next node_graph save.
+# ---------------------------------------------------------------------------
+
+def test_traceability_create_link_schema_excludes_diagram_ref():
+    """The published link_type enum must not offer 'diagram-ref' as a
+    manually-createable value (discoverability half of I1)."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from traceability.types import LinkType, MANUAL_LINK_TYPES
+
+    schema = next(
+        s
+        for s in CrossCuttingToolGroup._TOOL_SCHEMAS
+        if s["name"] == "traceability.create_link"
+    )
+    link_type_prop = schema["inputSchema"]["properties"]["link_type"]
+    assert "enum" in link_type_prop
+    assert set(link_type_prop["enum"]) == set(MANUAL_LINK_TYPES)
+    assert LinkType.DIAGRAM_REF.value not in link_type_prop["enum"]
+
+
+@pytest.mark.django_db
+def test_traceability_create_link_rejects_diagram_ref(tenant_workspace_ctx):
+    """Enforcement half of I1: even if a caller passes 'diagram-ref' directly
+    (bypassing the schema enum), the tool must reject it with a clear
+    VALIDATION_ERROR rather than creating a link the reconciler will later
+    delete without explanation."""
+    from application.requirement_service import RequirementService
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "Requirement")
+
+    req_svc = RequirementService()
+    req_a = req_svc.create_requirement(workspace_id=workspace.id, title="A", ctx=ctx)
+    req_b = req_svc.create_requirement(workspace_id=workspace.id, title="B", ctx=ctx)
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "traceability.create_link",
+        params={
+            "source_id": str(req_a.id),
+            "target_id": str(req_b.id),
+            "link_type": "diagram-ref",
+        },
+        auth_context=ctx,
+        api_key="",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+    from persistence.models import TraceLink
+    from traceability.types import LinkType
+
+    assert not TraceLink.objects.filter(
+        source_id=req_a.artifact_id,
+        target_id=req_b.artifact_id,
+        link_type=LinkType.DIAGRAM_REF,
+    ).exists()

@@ -40,7 +40,11 @@ from django.conf import settings
 from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
-from traceability.types import VALID_LINK_TYPES  # REQ-L1-030: single source of truth
+from traceability.types import (  # REQ-L1-030: single source of truth
+    VALID_LINK_TYPES,
+    MANUAL_LINK_TYPES,
+    LinkType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +267,8 @@ class TraceLinkService(ServiceBase):
             Created TraceLink ORM instance.
 
         Raises:
-            ValidationError: Invalid link_type or cross-workspace link.
+            ValidationError: Invalid link_type, a manually-authored
+                'diagram-ref' link, or cross-workspace link.
             NotFoundError:   Source or target entity does not exist.
         """
         self._set_tenant_context(ctx)
@@ -272,6 +277,21 @@ class TraceLinkService(ServiceBase):
             raise ValidationError(
                 f"Invalid link type '{link_type}'. "
                 f"Valid types: {sorted(VALID_LINK_TYPES)}"
+            )
+
+        # Codeberg #353 final review (I1): 'diagram-ref' is reconciler-owned
+        # (diagram.traceability_connector.sync_node_links) — a hand-authored
+        # one would be silently deleted on the diagram's next node_graph save
+        # (the reconciler's current-minus-desired cleanup), which looks like
+        # unexplained data loss to whoever just created it manually. This is
+        # the single choke point for manual TraceLink creation (REST
+        # trace-links endpoints and every MCP trace-link tool funnel through
+        # here), so blocking it here covers both transports.
+        if link_type == LinkType.DIAGRAM_REF:
+            raise ValidationError(
+                "'diagram-ref' is a system-managed link type maintained "
+                "automatically from a Diagram's node_graph content and "
+                "cannot be created or updated manually."
             )
 
         # Resolve Requirement/ArchitectureElement IDs to Artifact IDs
@@ -284,8 +304,6 @@ class TraceLinkService(ServiceBase):
 
         # REQ-L1-044 I4: allocated-to must not target an ancestor of the
         # source (Extended rigor only, gated inside the validator).
-        from traceability.types import LinkType
-
         if link_type == LinkType.ALLOCATED_TO:
             self._check_allocation_invariant(resolved_source, resolved_target)
 
@@ -966,4 +984,5 @@ __all__ = [
     "TraceLinkService",
     "SimilarTraceLinkDTO",
     "VALID_LINK_TYPES",
+    "MANUAL_LINK_TYPES",
 ]

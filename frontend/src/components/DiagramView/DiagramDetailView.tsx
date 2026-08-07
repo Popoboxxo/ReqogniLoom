@@ -35,6 +35,11 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { GraphCanvas } from "../DiagramGraphEditor/GraphCanvas";
+import {
+  parseNodeGraphContentStrict,
+  payloadToFlowEdges,
+  payloadToFlowNodes,
+} from "../DiagramGraphEditor/useGraphPayload";
 import { useDiagramDetail } from "./useDiagramData";
 import type { NodeGraphPayload } from "../../types";
 import {
@@ -51,6 +56,52 @@ export interface DiagramDetailViewProps {
   diagramId: string;
   onBack: () => void;
   onChanged: () => Promise<void> | void;
+}
+
+/**
+ * What this pane renders for a given ``payload_format``, and which
+ * fullscreen editor route (if any) its primary action navigates to.
+ *
+ * GH-353 Task 9 / final-review T9: replaces the three independently-computed
+ * `isCanvas`/`isNodeGraph`/`canRenderVisual` booleans (each re-deriving
+ * `payload_format === "..."`) and the nested `editorRoute` ternary chain with
+ * a single lookup keyed by `payload_format` — one place to add a future
+ * format instead of three-plus scattered equality checks.
+ */
+type PreviewKind = "node_graph" | "canvas" | "mermaid" | "source";
+
+interface PayloadFormatPreviewConfig {
+  previewKind: PreviewKind;
+  /** Fullscreen editor route for this format, or null when it has none
+   * (plantuml/json keep the inline source editor — D3/E2-D4). */
+  editorRoute: (diagramId: string) => string | null;
+}
+
+const PAYLOAD_FORMAT_PREVIEW: Record<string, PayloadFormatPreviewConfig> = {
+  node_graph: {
+    previewKind: "node_graph",
+    editorRoute: (id) => `/diagrams/${id}/graph`,
+  },
+  canvas_stroke: {
+    previewKind: "canvas",
+    editorRoute: (id) => `/diagrams/${id}/canvas`,
+  },
+  mermaid: {
+    previewKind: "mermaid",
+    editorRoute: (id) => `/diagrams/${id}/mermaid`,
+  },
+};
+
+/** plantuml/json (and any unrecognised future format) fall back to the
+ * inline source editor — no fullscreen route. */
+const DEFAULT_PREVIEW_CONFIG: PayloadFormatPreviewConfig = {
+  previewKind: "source",
+  editorRoute: () => null,
+};
+
+function previewConfigFor(payloadFormat: string | null | undefined): PayloadFormatPreviewConfig {
+  if (!payloadFormat) return DEFAULT_PREVIEW_CONFIG;
+  return PAYLOAD_FORMAT_PREVIEW[payloadFormat] ?? DEFAULT_PREVIEW_CONFIG;
 }
 
 export function DiagramDetailView({
@@ -97,10 +148,16 @@ export function DiagramDetailView({
   }, [detail]);
 
   // Parse node_graph payload for read-only preview (GH-353 Task 9).
+  // I4 (final review): uses the canonical, shape-validating
+  // parseNodeGraphContentStrict (useGraphPayload.ts) instead of a bespoke
+  // inline JSON.parse that only caught syntax errors, not e.g. a valid JSON
+  // object missing 'nodes'/'edges' arrays — that weaker check let this
+  // pane's other read-only-preview bug (C1: raw domain objects handed to
+  // GraphCanvas) through a task-scoped review undetected.
   useEffect(() => {
     if (detail?.payload_format === "node_graph" && detail?.content) {
       try {
-        const payload = JSON.parse(detail.content) as NodeGraphPayload;
+        const payload = parseNodeGraphContentStrict(detail.content);
         setNodeGraphPayload(payload);
         setNodeGraphError("");
       } catch (err) {
@@ -135,25 +192,18 @@ export function DiagramDetailView({
   const safeCanvasSvg = useMemo(() => sanitizeSvg(canvasSvg ?? ""), [canvasSvg]);
   const safeRenderedSvg = useMemo(() => sanitizeSvg(renderedSvg), [renderedSvg]);
 
-  const isCanvas = detail?.payload_format === "canvas_stroke";
-  const isNodeGraph = detail?.payload_format === "node_graph";
-  const canRenderVisual = detail?.payload_format === "mermaid";
+  // GH-353 Task 9 / final-review T9: previewKind + editorRoute are both
+  // derived from the single PAYLOAD_FORMAT_PREVIEW map above, keyed on
+  // `payload_format` (not `diagram_type`: the editors are bound to the
+  // payload endpoints — canvas-strokes / mermaid-source / node_graph content
+  // — and a diagram of type "flow" may well carry a mermaid payload).
+  const previewConfig = previewConfigFor(detail?.payload_format);
+  const previewKind = previewConfig.previewKind;
+  const isCanvas = previewKind === "canvas";
+  const isNodeGraph = previewKind === "node_graph";
+  const canRenderVisual = previewKind === "mermaid";
   const activeSource = isEditing ? editContent : detail?.content ?? "";
-
-  /**
-   * Fullscreen editor route for this payload format, or null when the format
-   * has none. Keyed on `payload_format`, not `diagram_type`: the editors are
-   * bound to the payload endpoints (canvas-strokes / mermaid-source /
-   * node_graph content, GH-353 Task 8), and a diagram of type "flow" may well
-   * carry a mermaid payload.
-   */
-  const editorRoute: string | null = isCanvas
-    ? `/diagrams/${diagramId}/canvas`
-    : isNodeGraph
-      ? `/diagrams/${diagramId}/graph`
-      : canRenderVisual
-        ? `/diagrams/${diagramId}/mermaid`
-        : null;
+  const editorRoute: string | null = previewConfig.editorRoute(diagramId);
 
   // Client-side Mermaid rendering for the Visual view.
   useEffect(() => {
@@ -385,9 +435,16 @@ export function DiagramDetailView({
                 {nodeGraphError}
               </p>
             ) : nodeGraphPayload ? (
+              // C1 (final review): GraphCanvas needs React-Flow-shaped nodes
+              // (data.node.label, type="graphNode"/"graphEdge") — passing the
+              // raw domain NodeGraphPayload.nodes/edges directly both fails
+              // `tsc` (GraphCanvasProps expects GraphFlowNode[]/GraphFlowEdge[])
+              // and, even where a loose type let it through, renders unlabeled
+              // default nodes because React Flow finds no NODE_TYPES/EDGE_TYPES
+              // match for a raw domain object.
               <GraphCanvas
-                nodes={nodeGraphPayload.nodes}
-                edges={nodeGraphPayload.edges}
+                nodes={payloadToFlowNodes(nodeGraphPayload)}
+                edges={payloadToFlowEdges(nodeGraphPayload)}
                 isLoading={false}
                 error={null}
                 selection={{ kind: "none" }}

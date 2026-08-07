@@ -50,6 +50,7 @@ from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.serializers import StandardPagination, build_error_response, detect_lang
+from traceability.exceptions import TraceLinkError
 
 
 class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
@@ -203,6 +204,17 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except TraceLinkError as exc:
+            # M4 (Codeberg #353 final review): a node_graph payload's
+            # artifact_ref reconciliation can raise TraceLinkError (e.g. a
+            # workspace-less legacy Diagram) — this is a client-input
+            # problem, not a server fault, so it maps to 400 the same as
+            # DiagramValidationError above rather than falling through to
+            # the generic 500 handler below.
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
@@ -273,6 +285,15 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
             )
         except DiagramValidationError as exc:
             # Same validation-before-persistence contract as create() (CR-02).
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except TraceLinkError as exc:
+            # M4 (Codeberg #353 final review): see create()'s identical
+            # handler above — a workspace-less legacy Diagram's node_graph
+            # artifact_ref reconciliation is a client-input problem (400),
+            # not a server fault (500).
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,

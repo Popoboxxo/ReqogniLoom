@@ -50,7 +50,7 @@ describe("GraphInspectorPanel — artifact-ref picker", () => {
     expect(screen.queryByTestId("graph-inspector-artifact-clear")).not.toBeInTheDocument();
   });
 
-  it("picking an entity type and typing an id patches the node's artifact_ref", () => {
+  it("picking an entity type and typing a complete id patches the node's artifact_ref", () => {
     const node: GraphNode = { id: "n1", type: "box", label: "N1", position: { x: 0, y: 0 } };
     const onUpdateNode = vi.fn();
     render(
@@ -67,19 +67,81 @@ describe("GraphInspectorPanel — artifact-ref picker", () => {
       />
     );
 
+    // I3 (final review): with no id typed yet, picking an entity type must
+    // NOT emit a save-blocking `{ id: "" }` — the ref stays unset (undefined)
+    // until the id is a syntactically valid UUID.
     fireEvent.change(screen.getByTestId("graph-inspector-artifact-entity-type"), {
       target: { value: "ArchitectureElement" },
     });
     expect(onUpdateNode).toHaveBeenLastCalledWith("n1", {
-      artifact_ref: { entity_type: "ArchitectureElement", id: "" },
+      artifact_ref: undefined,
     });
 
     fireEvent.change(screen.getByTestId("graph-inspector-artifact-id"), {
       target: { value: "3fa85f64-5717-4562-b3fc-2c963f66afa6" },
     });
     expect(onUpdateNode).toHaveBeenLastCalledWith("n1", {
-      artifact_ref: { entity_type: "Requirement", id: "3fa85f64-5717-4562-b3fc-2c963f66afa6" },
+      artifact_ref: {
+        entity_type: "ArchitectureElement",
+        id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      },
     });
+  });
+
+  it("I3 (final review): typing a partial/invalid id never produces a save-blocking artifact_ref, and preserves what was typed in the field", () => {
+    const node: GraphNode = { id: "n1", type: "box", label: "N1", position: { x: 0, y: 0 } };
+    const onUpdateNode = vi.fn();
+    render(
+      <GraphInspectorPanel
+        nodes={[makeFlowNode(node)]}
+        edges={EDGES}
+        selection={{ kind: "node", id: "n1" }}
+        onSelect={vi.fn()}
+        editMode
+        onUpdateNode={onUpdateNode}
+        onUpdateEdge={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onDeleteEdge={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("graph-inspector-artifact-id"), {
+      target: { value: "3fa85f64-not-a-full-uuid" },
+    });
+
+    // Every onUpdate call while the id is invalid must clear artifact_ref,
+    // never emit a partial/invalid one (validate_node_graph would reject it).
+    for (const call of onUpdateNode.mock.calls) {
+      expect(call[1]).toEqual({ artifact_ref: undefined });
+    }
+    // The input itself must still show exactly what the user typed — a naive
+    // fix that derives the displayed value from the (now-undefined)
+    // node.artifact_ref would reset the field to empty mid-typing.
+    expect(screen.getByTestId("graph-inspector-artifact-id")).toHaveValue(
+      "3fa85f64-not-a-full-uuid"
+    );
+  });
+
+  it("I2 (final review): the entity-type picker never offers GlossaryTerm — it has no backing Artifact and can never resolve", () => {
+    const node: GraphNode = { id: "n1", type: "box", label: "N1", position: { x: 0, y: 0 } };
+    render(
+      <GraphInspectorPanel
+        nodes={[makeFlowNode(node)]}
+        edges={EDGES}
+        selection={{ kind: "node", id: "n1" }}
+        onSelect={vi.fn()}
+        editMode
+        onUpdateNode={vi.fn()}
+        onUpdateEdge={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onDeleteEdge={vi.fn()}
+      />
+    );
+
+    const options = Array.from(
+      screen.getByTestId("graph-inspector-artifact-entity-type").querySelectorAll("option")
+    ).map((o) => o.getAttribute("value"));
+    expect(options).not.toContain("GlossaryTerm");
   });
 
   it("shows the clear button once a ref is set, and clearing removes it", () => {

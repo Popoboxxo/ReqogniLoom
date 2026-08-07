@@ -57,7 +57,7 @@ from application.services import (
     SearchService,
     TraceLinkService,
     ValidationError,
-    VALID_LINK_TYPES,
+    MANUAL_LINK_TYPES,
 )
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.traceability_suggest_service import (
@@ -281,7 +281,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                     "link_type": {
                         "type": "string",
-                        "enum": sorted(VALID_LINK_TYPES),
+                        # I1 (Codeberg #353 final review): 'diagram-ref' is
+                        # reconciler-owned and excluded here — it can never be
+                        # created via this manual tool (see MANUAL_LINK_TYPES).
+                        "enum": sorted(MANUAL_LINK_TYPES),
                         "description": "TraceLink type.",
                     },
                 },
@@ -686,10 +689,14 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "Parameter 'target_id' (or 'artifact_id') is required.",
             )
 
-        if link_type not in VALID_LINK_TYPES:
+        # MANUAL_LINK_TYPES excludes 'diagram-ref' (I1, Codeberg #353 final
+        # review): that link type is reconciler-owned and rejected again
+        # downstream in TraceLinkService.create_trace_link, but checking it
+        # here too gives a clearer, immediate error instead of a round-trip.
+        if link_type not in MANUAL_LINK_TYPES:
             return ToolResult.error(
                 "VALIDATION_ERROR",
-                f"Invalid link_type '{link_type}'. Valid types: {sorted(VALID_LINK_TYPES)}",
+                f"Invalid link_type '{link_type}'. Valid types: {sorted(MANUAL_LINK_TYPES)}",
             )
 
         try:

@@ -38,7 +38,18 @@ export const GRAPH_STYLE_ACCENTS: readonly GraphStyleAccent[] = [
   "muted",
 ];
 
-/** Mirrors diagram.node_graph.KNOWN_ARTIFACT_ENTITY_TYPES. */
+/**
+ * Entity types offered by the artifact-ref picker (GraphInspectorPanel).
+ *
+ * Mirrors diagram.node_graph.KNOWN_ARTIFACT_ENTITY_TYPES, EXCEPT
+ * "GlossaryTerm" (I2, GH-353 final review): GlossaryTerm has no backing
+ * Artifact row (see backend/diagram/traceability_connector.py
+ * ``_resolve_target_artifact_id``'s docstring — it always falls through to
+ * ``return None``), so a node referencing it can never resolve and always
+ * fails to save with a generic, confusing error. Removed from the picker
+ * rather than fixed on the backend — that's a pre-existing data-model gap,
+ * not something this fix attempts to close.
+ */
 export const GRAPH_ARTIFACT_ENTITY_TYPES: readonly GraphArtifactEntityType[] = [
   "Requirement",
   "StakeholderNeed",
@@ -47,7 +58,6 @@ export const GRAPH_ARTIFACT_ENTITY_TYPES: readonly GraphArtifactEntityType[] = [
   "Adr",
   "Risk",
   "Issue",
-  "GlossaryTerm",
   "Goal",
   "MainGoal",
 ];

@@ -91,7 +91,11 @@ from application.architecture_service import ArchitectureService  # noqa: F401
 from application.test_service import TestService  # noqa: F401
 
 # COMP-AS-005
-from application.trace_link_service import TraceLinkService, VALID_LINK_TYPES  # noqa: F401
+from application.trace_link_service import (  # noqa: F401
+    TraceLinkService,
+    VALID_LINK_TYPES,
+    MANUAL_LINK_TYPES,
+)
 
 # COMP-AS-012
 from application.preset_policy_service import (  # noqa: F401
@@ -208,6 +212,7 @@ __all__ = [
     "_registry",
     # Constants
     "VALID_LINK_TYPES",
+    "MANUAL_LINK_TYPES",
     # Helpers
     "get_preset_policy_service",
     # Step-2 services (COMP-AS-006..011)

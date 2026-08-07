@@ -78,6 +78,12 @@ export function layoutGraph(
       id: node.id,
       type: "graphNode",
       position: { x: pos.x - width / 2, y: pos.y - height / 2 },
+      // T8 (GH-353 final review): must match payloadToFlowNodes's
+      // width/height so the two node-construction paths (initial load vs.
+      // "Auto layout" toolbar action) produce the identical GraphFlowNode
+      // shape — a diverging shape here is the same defect class as C1.
+      width,
+      height,
       data: { node },
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,

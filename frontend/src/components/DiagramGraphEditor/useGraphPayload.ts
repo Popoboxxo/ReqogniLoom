@@ -37,23 +37,39 @@ function apiErrorMessage(err: unknown): string {
   return (err as { error?: { message?: string } })?.error?.message ?? String(err);
 }
 
+/**
+ * Parse the persisted `content` string into a `NodeGraphPayload`, throwing on
+ * malformed JSON *or* a shape that isn't a valid NodeGraphPayload (missing
+ * `nodes`/`edges` arrays). This is the single source of truth for "is this
+ * string a valid node_graph payload" — both `parseNodeGraphContent` (tolerant
+ * fallback, below) and callers that want to surface a parse error to the user
+ * (e.g. DiagramDetailView's read-only preview, GH-353 final review I4) build
+ * on this one validation instead of each re-implementing a slightly different
+ * (and, per the final review, weaker) check.
+ */
+export function parseNodeGraphContentStrict(content: string | null | undefined): NodeGraphPayload {
+  if (!content) return EMPTY_NODE_GRAPH_PAYLOAD;
+  const parsed = JSON.parse(content) as unknown;
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    Array.isArray((parsed as NodeGraphPayload).nodes) &&
+    Array.isArray((parsed as NodeGraphPayload).edges)
+  ) {
+    return parsed as NodeGraphPayload;
+  }
+  throw new Error(
+    "node_graph content is not a valid NodeGraphPayload (missing 'nodes'/'edges' arrays)."
+  );
+}
+
 /** Parse the persisted `content` string into a `NodeGraphPayload`, tolerating malformed/missing content. */
 export function parseNodeGraphContent(content: string | null | undefined): NodeGraphPayload {
-  if (!content) return EMPTY_NODE_GRAPH_PAYLOAD;
   try {
-    const parsed = JSON.parse(content) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      Array.isArray((parsed as NodeGraphPayload).nodes) &&
-      Array.isArray((parsed as NodeGraphPayload).edges)
-    ) {
-      return parsed as NodeGraphPayload;
-    }
+    return parseNodeGraphContentStrict(content);
   } catch {
-    /* fall through to empty payload */
+    return EMPTY_NODE_GRAPH_PAYLOAD;
   }
-  return EMPTY_NODE_GRAPH_PAYLOAD;
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   EMPTY_NODE_GRAPH_PAYLOAD,
   flowToPayload,
   parseNodeGraphContent,
+  parseNodeGraphContentStrict,
   payloadToFlowEdges,
   payloadToFlowNodes,
 } from "./useGraphPayload";
@@ -160,5 +161,28 @@ describe("parseNodeGraphContent", () => {
     expect(parseNodeGraphContent(JSON.stringify({ schema_version: 1 }))).toEqual(
       EMPTY_NODE_GRAPH_PAYLOAD
     );
+  });
+});
+
+describe("parseNodeGraphContentStrict (GH-353 final review I4)", () => {
+  it("parses a valid JSON-encoded payload string, same as the tolerant variant", () => {
+    const content = JSON.stringify(FULL_PAYLOAD);
+    expect(parseNodeGraphContentStrict(content)).toEqual(FULL_PAYLOAD);
+  });
+
+  it("returns the empty envelope for null/undefined/empty content (not an error)", () => {
+    expect(parseNodeGraphContentStrict(null)).toEqual(EMPTY_NODE_GRAPH_PAYLOAD);
+    expect(parseNodeGraphContentStrict(undefined)).toEqual(EMPTY_NODE_GRAPH_PAYLOAD);
+    expect(parseNodeGraphContentStrict("")).toEqual(EMPTY_NODE_GRAPH_PAYLOAD);
+  });
+
+  it("throws on malformed JSON instead of silently falling back", () => {
+    expect(() => parseNodeGraphContentStrict("{not json")).toThrow();
+  });
+
+  it("throws when nodes/edges are missing (valid JSON, wrong shape) instead of silently falling back", () => {
+    expect(() =>
+      parseNodeGraphContentStrict(JSON.stringify({ schema_version: 1 }))
+    ).toThrow(/NodeGraphPayload/);
   });
 });

@@ -160,6 +160,25 @@ describe("layoutGraph", () => {
     expect(flowEdges[0].targetHandle).toBe("top");
   });
 
+  it("sets width/height on every flow node, matching payloadToFlowNodes's contract (T8, GH-353 final review)", () => {
+    // Regression guard: layoutGraph and useGraphPayload.ts's payloadToFlowNodes
+    // are two independent GraphFlowNode-construction paths (auto-layout vs.
+    // initial load) that must produce the identical node shape — a divergence
+    // here is the same defect class as the C1 raw-domain-node bug.
+    const size = { width: 300, height: 120 };
+    const nodes = [node("a", { size }), node("b")];
+    const edges = [edge("e1", "a", "b")];
+
+    const { nodes: flowNodes } = layoutGraph(nodes, edges);
+    const a = flowNodes.find((n) => n.id === "a")!;
+    const b = flowNodes.find((n) => n.id === "b")!;
+
+    expect(a.width).toBe(300);
+    expect(a.height).toBe(120);
+    expect(b.width).toBe(DEFAULT_NODE_WIDTH);
+    expect(b.height).toBe(DEFAULT_NODE_HEIGHT);
+  });
+
   it("sets sourcePosition/targetPosition to Bottom/Top for every node (TB layout)", () => {
     const nodes = [node("a"), node("b")];
     const { nodes: flowNodes } = layoutGraph(nodes, []);
