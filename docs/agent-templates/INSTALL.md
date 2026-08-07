@@ -40,8 +40,9 @@ OpenCode already looks for them:
 2. Copy `dist/opencode/skills/*` into your project's `.opencode/skills/`.
    Each `SKILL.md` links to `../../DOMAIN_MODEL.md`, which this package does
    not ship (see the build script's reasoning) — also copy
-   `docs/agent-templates/DOMAIN_MODEL.md` to your project root (two levels
-   up from `.opencode/skills/<name>/`) so that link resolves.
+   `docs/agent-templates/DOMAIN_MODEL.md` to `.opencode/DOMAIN_MODEL.md`
+   (one level above `skills/`, i.e. two levels up from
+   `.opencode/skills/<name>/SKILL.md`) so that link resolves.
 3. Set the same two environment variables as the Claude Code install
    (`REQOGNILOOM_MCP_URL`, `REQOGNILOOM_API_KEY`) — OpenCode's `{env:...}`
    syntax resolves them at connection time, never store the literal key in
