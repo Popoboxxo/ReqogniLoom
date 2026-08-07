@@ -62,6 +62,10 @@ docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/Components/COMP-DS-001_DiagramMa
 node_modules/
 docs/se/METHODOLOGY_AUDIT.md
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # Generated artifacts and logs
 *.log
 test-results/

@@ -1,0 +1,3846 @@
+{
+  "generated_from": "reqogniloom==1.5.0",
+  "tool_count": 143,
+  "tools": [
+    {
+      "name": "admin.backup_create",
+      "prefix": "admin",
+      "is_write": true,
+      "description": "Create a new backup (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Optional free-form change reason."
+          },
+          "backup_type": {
+            "type": "string",
+            "description": "Backup type ('full' default or 'partial')."
+          }
+        }
+      }
+    },
+    {
+      "name": "admin.backup_list",
+      "prefix": "admin",
+      "is_write": false,
+      "description": "List backups newest-first (admin-only, read).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Optional BackupStatus filter."
+          },
+          "backup_type": {
+            "type": "string",
+            "description": "Optional BackupType filter."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (1..1000, default 100)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
+          }
+        }
+      }
+    },
+    {
+      "name": "admin.restore",
+      "prefix": "admin",
+      "is_write": true,
+      "description": "Restore from a backup with captcha 'RESTORE' (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "backup_id": {
+            "type": "string",
+            "description": "UUID of the backup to restore."
+          },
+          "confirmation_text": {
+            "type": "string",
+            "description": "Must equal the literal 'RESTORE' (case-sensitive captcha)."
+          },
+          "restore_type": {
+            "type": "string",
+            "description": "Advisory restore type ('full' default or 'partial')."
+          }
+        },
+        "required": [
+          "backup_id",
+          "confirmation_text"
+        ]
+      }
+    },
+    {
+      "name": "adr.create",
+      "prefix": "adr",
+      "is_write": true,
+      "description": "Create a new adr entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Required. 'title' as validated by the adr service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Required. 'description' as validated by the adr service."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional. 'context' as accepted by the adr service.",
+            "default": ""
+          },
+          "decision": {
+            "type": "string",
+            "description": "Optional. 'decision' as accepted by the adr service.",
+            "default": ""
+          },
+          "consequences": {
+            "type": "string",
+            "description": "Optional. 'consequences' as accepted by the adr service.",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Approved",
+              "Draft",
+              "In Review",
+              "Rejected",
+              "Superseded"
+            ],
+            "description": "Optional. 'status' as accepted by the adr service.",
+            "default": "Draft"
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional. 'uid' as accepted by the adr service."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "adr.delete",
+      "prefix": "adr",
+      "is_write": true,
+      "description": "Delete a adr entity (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the adr entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "adr.outdate",
+      "prefix": "adr",
+      "is_write": true,
+      "description": "Soft-delete a adr entity via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the adr entity."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "adr.query",
+      "prefix": "adr",
+      "is_write": false,
+      "description": "List adr entities in a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "adr.reactivate",
+      "prefix": "adr",
+      "is_write": true,
+      "description": "Restore an outdated adr entity to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the adr entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "adr.read",
+      "prefix": "adr",
+      "is_write": false,
+      "description": "Fetch a single adr entity by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the adr entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "adr.update",
+      "prefix": "adr",
+      "is_write": true,
+      "description": "Update a adr entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use adr.outdate / adr.reactivate or the REST workflow transitions endpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Required. UUID of the adr entity."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional. 'title' as accepted by the adr service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the adr service."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional. 'context' as accepted by the adr service."
+          },
+          "decision": {
+            "type": "string",
+            "description": "Optional. 'decision' as accepted by the adr service."
+          },
+          "consequences": {
+            "type": "string",
+            "description": "Optional. 'consequences' as accepted by the adr service."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional. 'change_reason' as accepted by the adr service."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ai_derivation.decompose_requirement_next_level",
+      "prefix": "ai_derivation",
+      "is_write": true,
+      "description": "Propose next-level requirement drafts for a requirement that is allocated to at least one architecture element. mode='preview' (default) returns drafts only; mode='write' persists each draft as a child Requirement and links it back to the parent via a 'derives-from' trace link (child -> parent).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "description": "UUID of the requirement to decompose."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_derivation.derive_adr_from_decision",
+      "prefix": "ai_derivation",
+      "is_write": true,
+      "description": "Structure a free-text decision description into an ADR draft (title, description, context, consequences). mode='preview' (default) returns the draft only; mode='write' persists it as an Adr. No trace link is created (the input is raw free text, not an existing artifact id — there is no source entity to link from).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace the resulting ADR would belong to."
+          },
+          "decision_description": {
+            "type": "string",
+            "description": "Free-text description of the decision."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "decision_description"
+        ]
+      }
+    },
+    {
+      "name": "ai_derivation.derive_glossary_from_workspace",
+      "prefix": "ai_derivation",
+      "is_write": true,
+      "description": "Propose glossary term drafts extracted from a workspace's requirements and architecture elements. mode='preview' (default) returns drafts only; mode='write' persists each draft as a GlossaryTerm. No trace link is created (a Workspace id cannot be a trace-link source and GlossaryTerm has no backing Artifact).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to scan."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_derivation.derive_requirements_from_need",
+      "prefix": "ai_derivation",
+      "is_write": true,
+      "description": "Propose system requirement drafts for a stakeholder need. mode='preview' (default) returns drafts only; mode='write' persists each draft as a Requirement and links it back to the need via a 'derives-from' trace link (new Requirement -> Need).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "need_id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          },
+          "n": {
+            "type": "integer",
+            "description": "Number of requirement drafts (default 3)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "need_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_derivation.derive_risks_from_architecture",
+      "prefix": "ai_derivation",
+      "is_write": true,
+      "description": "Propose risk drafts for an architecture element. mode='preview' (default) returns drafts only; mode='write' persists each draft as a Risk and links it back to the architecture element via a 'traces' trace link.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "architecture_element_id": {
+            "type": "string",
+            "description": "UUID of the architecture element."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "architecture_element_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_derivation.suggest_architecture_for_requirement",
+      "prefix": "ai_derivation",
+      "is_write": true,
+      "description": "Suggest existing architecture elements that could satisfy an unassigned requirement. mode='preview' (default) returns element ids only; mode='write' allocates the requirement to the top-ranked suggested element via an 'allocated-to' trace link (only one allocation per requirement is possible; no new ArchitectureElement is ever created by this tool).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "architecture.create",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "Create a new ArchitectureElement (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Element title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Element description."
+          },
+          "element_type": {
+            "type": "string",
+            "description": "Element type (default 'component')."
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "Optional UUID of the parent ArchitectureElement. If omitted, a root element is created (subject to the workspace's single-root invariant I5). If provided, the new element is attached as a child of that element (invariants I1/I3 apply)."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "architecture.decompose",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "SysEng 2.0 N1: generate a non-persistent decomposition draft for an ArchitectureElement (child elements + derived requirements + internal trace links). Review the returned draft, then persist it via architecture.decompose_commit. Available only in standard/extended rigor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "element_id": {
+            "type": "string",
+            "description": "UUID of the ArchitectureElement (Subsystem) to decompose."
+          },
+          "breadth": {
+            "type": "integer",
+            "description": "Child elements per level (1..5, default 2)."
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Recursion depth (1..3, default 1)."
+          }
+        },
+        "required": [
+          "element_id"
+        ]
+      }
+    },
+    {
+      "name": "architecture.decompose_commit",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "SysEng 2.0 N1: commit a reviewed decomposition draft in one transaction. Rolls back entirely if any part fails or the result violates ARCH-003/TRACE-P4/P5 (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft": {
+            "type": "object",
+            "description": "The draft object returned by architecture.decompose."
+          }
+        },
+        "required": [
+          "draft"
+        ]
+      }
+    },
+    {
+      "name": "architecture.get",
+      "prefix": "architecture",
+      "is_write": false,
+      "description": "Fetch a single ArchitectureElement by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the architecture element."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "architecture.link",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "Create a TraceLink between an architecture element and a target (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "arch_id": {
+            "type": "string",
+            "description": "UUID of the source architecture element."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "UUID of the link target."
+          },
+          "link_type": {
+            "type": "string",
+            "enum": [
+              "allocated-to",
+              "copy-of",
+              "decides",
+              "decomposes",
+              "derives-from",
+              "documents",
+              "implements",
+              "parent-child",
+              "realizes",
+              "refines",
+              "satisfies",
+              "traces",
+              "uses-term",
+              "verifies"
+            ],
+            "description": "TraceLink type. Must be one of the enum values (#33: previously undocumented in this schema)."
+          }
+        },
+        "required": [
+          "arch_id",
+          "target_id",
+          "link_type"
+        ]
+      }
+    },
+    {
+      "name": "architecture.outdate",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "Soft-delete an ArchitectureElement via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the architecture element."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "architecture.query",
+      "prefix": "architecture",
+      "is_write": false,
+      "description": "List ArchitectureElements in a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) elements. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "architecture.reactivate",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "Restore an outdated ArchitectureElement to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the architecture element."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "architecture.update",
+      "prefix": "architecture",
+      "is_write": true,
+      "description": "Update an ArchitectureElement (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the architecture element."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Expected version for optimistic locking."
+          },
+          "data": {
+            "type": "object",
+            "description": "Fields to update (title, description, element_type, expected_version, parent_id). 'parent_id' is optional: omit it to leave the current parent unchanged, set it to a UUID to re-parent, or set it to null to detach the element to root (subject to invariants I1/I3/I5)."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "artifact.get_tree",
+      "prefix": "artifact",
+      "is_write": false,
+      "description": "Return the hierarchical artifact structure rooted at an artifact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "description": "UUID of the root artifact."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          }
+        },
+        "required": [
+          "root_id",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "artifact.search",
+      "prefix": "artifact",
+      "is_write": false,
+      "description": "Search across all artifact types. Combines a semantic full-text pass (PostgreSQL tsvector) with a lexical pass that matches the query as a case-insensitive substring of an artifact's title, uid or ID — so exact names and ID fragments are found too, and rank above semantic matches.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query string. Substring matching on title/uid/ID needs at least 2 characters."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace UUID filter."
+          },
+          "type_filter": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Adr",
+                "ArchitectureElement",
+                "ChangeRequest",
+                "GlossaryTerm",
+                "Goal",
+                "Issue",
+                "Requirement",
+                "Risk",
+                "StakeholderNeed",
+                "TestCase"
+              ]
+            },
+            "description": "Optional list of artifact types to include. Defaults to all searchable types. MainGoal is not searchable (no title, aggregated content)."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 20)."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "audit.ai_review",
+      "prefix": "audit",
+      "is_write": false,
+      "description": "SysEng 2.0 N8: run the SE-Auditor for a workspace and bundle its findings into strategic refactoring packages via the LLM adapter (mock by default). Read-only/advisory — nothing is persisted; every returned finding reference is a real finding from this audit run.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "scope": {
+            "type": "string",
+            "description": "Optional baseline scope (document|project|global)."
+          },
+          "scope_artifact_id": {
+            "type": "string",
+            "description": "Required when scope=document (subtree root)."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "audit.query",
+      "prefix": "audit",
+      "is_write": false,
+      "description": "Query the audit log with filters (admin-only, read).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Actor user/agent id filter."
+          },
+          "operation": {
+            "type": "string",
+            "description": "Operation filter (create|update|delete|transition)."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Reserved forward-compat UUID (validated, not applied)."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "ISO-8601 inclusive lower bound on timestamp."
+          },
+          "end_time": {
+            "type": "string",
+            "description": "ISO-8601 inclusive upper bound on timestamp."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (1..200, default 100)."
+          }
+        }
+      }
+    },
+    {
+      "name": "baseline.compare",
+      "prefix": "baseline",
+      "is_write": false,
+      "description": "Compute the structural diff between two baselines (added/removed/changed items).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "baseline_a_id": {
+            "type": "string",
+            "description": "Reference (older) baseline UUID."
+          },
+          "baseline_b_id": {
+            "type": "string",
+            "description": "Target (newer) baseline UUID."
+          }
+        },
+        "required": [
+          "baseline_a_id",
+          "baseline_b_id"
+        ]
+      }
+    },
+    {
+      "name": "baseline.create",
+      "prefix": "baseline",
+      "is_write": true,
+      "description": "Create an immutable Baseline snapshot for a workspace (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "scope": {
+            "type": "string",
+            "description": "One of 'document' | 'project' | 'global'."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable baseline name (unique per workspace)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description."
+          },
+          "document_id": {
+            "type": "string",
+            "description": "Document Artifact UUID — required when scope='document'."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "scope",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "baseline.get",
+      "prefix": "baseline",
+      "is_write": false,
+      "description": "Fetch full Baseline detail, including its delta-index entries.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the baseline."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "baseline.list",
+      "prefix": "baseline",
+      "is_write": false,
+      "description": "List Baseline summaries for a workspace, optionally filtered by scope.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "scope": {
+            "type": "string",
+            "description": "Optional scope filter: 'document' | 'project' | 'global'."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.create",
+      "prefix": "change_request",
+      "is_write": true,
+      "description": "Create a new change_request entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Required. 'title' as validated by the change_request service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the change_request service.",
+            "default": ""
+          },
+          "impact_assessment": {
+            "type": "string",
+            "description": "Optional. 'impact_assessment' as accepted by the change_request service.",
+            "default": ""
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional. 'change_reason' as accepted by the change_request service.",
+            "default": ""
+          },
+          "requestor_id": {
+            "type": "string",
+            "description": "Optional. 'requestor_id' as accepted by the change_request service."
+          },
+          "assigned_reviewer_id": {
+            "type": "string",
+            "description": "Optional. 'assigned_reviewer_id' as accepted by the change_request service."
+          },
+          "affected_item_ids": {
+            "description": "Optional. 'affected_item_ids' as accepted by the change_request service."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "change_request.delete",
+      "prefix": "change_request",
+      "is_write": true,
+      "description": "Delete a change_request entity (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the change_request entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.outdate",
+      "prefix": "change_request",
+      "is_write": true,
+      "description": "Soft-delete a change_request entity via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the change_request entity."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.query",
+      "prefix": "change_request",
+      "is_write": false,
+      "description": "List change_request entities in a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.reactivate",
+      "prefix": "change_request",
+      "is_write": true,
+      "description": "Restore an outdated change_request entity to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the change_request entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.read",
+      "prefix": "change_request",
+      "is_write": false,
+      "description": "Fetch a single change_request entity by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the change_request entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.update",
+      "prefix": "change_request",
+      "is_write": true,
+      "description": "Update a change_request entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use change_request.outdate / change_request.reactivate or the REST workflow transitions endpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Required. UUID of the change_request entity."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional. 'title' as accepted by the change_request service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the change_request service."
+          },
+          "impact_assessment": {
+            "type": "string",
+            "description": "Optional. 'impact_assessment' as accepted by the change_request service."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional. 'change_reason' as accepted by the change_request service."
+          },
+          "assigned_reviewer_id": {
+            "type": "string",
+            "description": "Optional. 'assigned_reviewer_id' as accepted by the change_request service."
+          },
+          "affected_item_ids": {
+            "description": "Optional. 'affected_item_ids' as accepted by the change_request service."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "context.change_impact",
+      "prefix": "context",
+      "is_write": false,
+      "description": "Return entities potentially affected by a proposed change to a single Requirement/ArchitectureElement/TestCase/StakeholderNeed, for AI-agent context building. Gathers upstream+downstream TraceLink neighbours plus (for an ArchitectureElement anchor) direct decomposition children, then asks the LLM adapter (mock by default) to annotate each with a rough affected/rationale verdict against ``change_description``. Response: result.affected_entities (list of {id, entity_type, title, link_type, relation, likely_affected, rationale}) and result.change_description (echoed back). ``include_outdated`` (default false) excludes outdated neighbours. Read-only/advisory -- nothing is persisted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "description": "UUID of the entity being changed."
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "Requirement",
+              "ArchitectureElement",
+              "TestCase",
+              "StakeholderNeed"
+            ],
+            "description": "Type of the entity being changed."
+          },
+          "change_description": {
+            "type": "string",
+            "description": "Natural-language description of the proposed change."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include outdated neighbours (default false)."
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_type"
+        ]
+      }
+    },
+    {
+      "name": "context.test_coverage",
+      "prefix": "context",
+      "is_write": false,
+      "description": "Return the TestCases verifying a single Requirement, plus coverage gaps, for AI-agent context building. Response: result.test_cases (list of {id, result}) and result.gaps (list — the Requirement's own id when it has no verifying TestCase, else empty). ``include_outdated`` (default false) includes outdated Requirements/TestCases in the lookup.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "description": "UUID of the Requirement to look up coverage for."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include outdated Requirements/TestCases (default false)."
+          }
+        },
+        "required": [
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "custom_field.get",
+      "prefix": "custom_field",
+      "is_write": false,
+      "description": "Fetch a custom field definition by ID (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the custom field definition."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "custom_field.query",
+      "prefix": "custom_field",
+      "is_write": false,
+      "description": "List custom field definitions for a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "diagram.create",
+      "prefix": "diagram",
+      "is_write": true,
+      "description": "Create a new diagram with its initial version (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the owning workspace."
+          },
+          "name": {
+            "type": "string",
+            "description": "Diagram name."
+          },
+          "diagram_type": {
+            "type": "string",
+            "enum": [
+              "block",
+              "canvas",
+              "context",
+              "flow",
+              "mermaid"
+            ],
+            "description": "One of 'block' | 'flow' | 'context' | 'canvas' | 'mermaid'."
+          },
+          "payload_format": {
+            "type": "string",
+            "description": "One of 'mermaid' | 'plantuml' | 'json' | 'canvas_stroke'."
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw diagram payload string."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional free-text description."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "Optional target Artifact UUID for a 'documents' TraceLink."
+          }
+        },
+        "required": [
+          "name",
+          "diagram_type",
+          "payload_format",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "diagram.get",
+      "prefix": "diagram",
+      "is_write": false,
+      "description": "Fetch a diagram by ID (current or a specific version).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the diagram."
+          },
+          "version_number": {
+            "type": "integer",
+            "description": "Optional specific version. Defaults to current."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "diagram.outdate",
+      "prefix": "diagram",
+      "is_write": true,
+      "description": "Soft-delete a diagram via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the diagram."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "diagram.query",
+      "prefix": "diagram",
+      "is_write": false,
+      "description": "List diagrams for a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "include_deleted": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) diagrams. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "diagram.reactivate",
+      "prefix": "diagram",
+      "is_write": true,
+      "description": "Restore an outdated diagram to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the diagram."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "diagram.update",
+      "prefix": "diagram",
+      "is_write": true,
+      "description": "Append a new immutable version to an existing diagram (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the diagram."
+          },
+          "payload_format": {
+            "type": "string",
+            "description": "New payload format."
+          },
+          "content": {
+            "type": "string",
+            "description": "New raw payload string."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "Optional target Artifact UUID for an additional TraceLink."
+          }
+        },
+        "required": [
+          "id",
+          "payload_format",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "events.dlq_list",
+      "prefix": "events",
+      "is_write": false,
+      "description": "List Domain-Event dead-letter-queue entries (admin-only, read).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "description": "Optional event_type filter."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (1..1000, default 100)."
+          }
+        }
+      }
+    },
+    {
+      "name": "events.dlq_replay",
+      "prefix": "events",
+      "is_write": true,
+      "description": "Replay a single DLQ event back into the outbox (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "UUID of the original DomainEventDLQ.event_id."
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "glossary.create",
+      "prefix": "glossary",
+      "is_write": true,
+      "description": "Create a new glossary entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "term": {
+            "type": "string",
+            "description": "Required. 'term' as validated by the glossary service."
+          },
+          "definition": {
+            "type": "string",
+            "description": "Required. 'definition' as validated by the glossary service."
+          },
+          "synonyms": {
+            "type": "array",
+            "description": "Optional. 'synonyms' as accepted by the glossary service."
+          },
+          "abbreviation": {
+            "type": "string",
+            "description": "Optional. 'abbreviation' as accepted by the glossary service.",
+            "default": ""
+          }
+        },
+        "required": [
+          "workspace_id",
+          "term",
+          "definition"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "glossary.delete",
+      "prefix": "glossary",
+      "is_write": true,
+      "description": "Delete a glossary entity (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the glossary entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "glossary.outdate",
+      "prefix": "glossary",
+      "is_write": true,
+      "description": "Soft-delete a glossary entity via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the glossary entity."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "glossary.query",
+      "prefix": "glossary",
+      "is_write": false,
+      "description": "List glossary entities in a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "glossary.reactivate",
+      "prefix": "glossary",
+      "is_write": true,
+      "description": "Restore an outdated glossary entity to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the glossary entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "glossary.read",
+      "prefix": "glossary",
+      "is_write": false,
+      "description": "Fetch a single glossary entity by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the glossary entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "glossary.update",
+      "prefix": "glossary",
+      "is_write": true,
+      "description": "Update a glossary entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use glossary.outdate / glossary.reactivate or the REST workflow transitions endpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Required. UUID of the glossary entity."
+          },
+          "term": {
+            "type": "string",
+            "description": "Optional. 'term' as accepted by the glossary service."
+          },
+          "definition": {
+            "type": "string",
+            "description": "Optional. 'definition' as accepted by the glossary service."
+          },
+          "synonyms": {
+            "type": "array",
+            "description": "Optional. 'synonyms' as accepted by the glossary service."
+          },
+          "abbreviation": {
+            "type": "string",
+            "description": "Optional. 'abbreviation' as accepted by the glossary service."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "goal.create",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "Create a new Goal (starts a new lineage, sequence 1).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "goal.create_version",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "Create a new version within an existing Goal lineage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "lineage_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "lineage_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "goal.delete",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "SOFT-ARCHIVE a Goal version (write). This is NOT a hard delete: Goals are immutable, lineage-versioned rows, so the row is never removed — the version is moved to the 'Archiviert' workflow state through the WorkflowEngine (the same gated path as goal.transition). The row stays readable via goal.read and goal.list_versions, and goal.query still returns it when include_archived=true. REACHABLE FROM: any state the workspace's Goal workflow defines a transition to 'Archiviert' from — with the stock 'goal_default' preset that is 'Entwurf' and 'Freigegeben' (both approver/admin only). A workspace whose Goal workflow was customised, or that was provisioned before the 'Entwurf -> Archiviert' edge existed, may only allow it from 'Freigegeben'. ON AN INVALID STATE: returns VALIDATION_ERROR (JSON-RPC error, HTTP 400) naming the current state; call goal.transition with an unreachable target to get the list of states that ARE reachable in the error details. A caller lacking the approver/admin role gets PERMISSION_DENIED. REVERSIBLE via goal.reactivate (or goal.transition back to 'Entwurf'). Alias: goal.outdate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string"
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional audit reason for archiving."
+          }
+        },
+        "required": [
+          "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "goal.list_versions",
+      "prefix": "goal",
+      "is_write": false,
+      "description": "List all versions in a Goal lineage, oldest first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lineage_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lineage_id"
+        ]
+      }
+    },
+    {
+      "name": "goal.outdate",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "Soft-delete a Goal version (write). Exact alias of goal.delete, named after the {entity}.outdate convention the other artifact namespaces use — for Goals the soft-delete state is the workflow's 'Archiviert', not the generic 'outdated' escape hatch, because 'outdated' is foreign to the Goal state machine and would hide the row from the archive filters. See goal.delete for the reachable source states and error behaviour.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Alias of goal_id ({entity}.outdate convention)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason for archiving."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Alias of reason."
+          }
+        },
+        "required": [
+          "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "goal.query",
+      "prefix": "goal",
+      "is_write": false,
+      "description": "List the current version of every Goal lineage in a workspace (read-only). By default omits lineages whose current version is 'Archiviert'; set include_archived to list those too.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "include_archived": {
+            "type": "boolean",
+            "description": "If true, include lineages whose current version is 'Archiviert'. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "goal.reactivate",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "Restore an archived Goal version (write). Transitions it back to the Goal workflow's initial state ('Entwurf' by default) through the same gated path as goal.transition. Deliberately does NOT restore the pre-archive state: only 'Freigegeben' versions feed MainGoal aggregation, so a restored Goal returns as a draft and must be approved again. The stock preset gates 'Archiviert -> Entwurf' on approver/admin and requires a reason (defaulted to 'reactivated' when none is given).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Alias of goal_id ({entity}.reactivate convention)."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Audit reason; defaults to 'reactivated'."
+          }
+        },
+        "required": [
+          "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "goal.read",
+      "prefix": "goal",
+      "is_write": false,
+      "description": "Read a single Goal version by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "goal.transition",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "Transition a Goal version's workflow state (e.g. Entwurf -> Freigegeben). Only Freigegeben versions feed MainGoal aggregation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string"
+          },
+          "target_state": {
+            "type": "string",
+            "enum": [
+              "Entwurf",
+              "Freigegeben",
+              "Archiviert"
+            ],
+            "description": "Target workflow state. These are the ``goal_default`` preset's states; a workspace with a customised Goal workflow may accept further states."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the change. Required by the Entwurf -> Freigegeben transition."
+          },
+          "credential": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id",
+          "target_state"
+        ]
+      }
+    },
+    {
+      "name": "goal.update",
+      "prefix": "goal",
+      "is_write": true,
+      "description": "Update a Goal (write). Goals are immutable, lineage-versioned rows, so this does NOT edit the addressed row: it appends a new version to the same lineage carrying the given fields, starting again at 'Entwurf'. Omitted fields are inherited from the addressed version (PATCH semantics). Identical in effect to goal.create_version, but addressed by goal_id instead of lineage_id. 'status' cannot be changed here — use goal.transition.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "description": "UUID of the Goal version to base the new version on (not the lineage_id)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "issue.create",
+      "prefix": "issue",
+      "is_write": true,
+      "description": "Create a new issue entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Required. 'title' as validated by the issue service."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ],
+            "description": "Optional. 'severity' as accepted by the issue service.",
+            "default": "medium"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the issue service.",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "defect",
+              "improvement",
+              "documentation",
+              "question"
+            ],
+            "description": "Optional. 'category' as accepted by the issue service.",
+            "default": "defect"
+          },
+          "assignee_id": {
+            "type": "string",
+            "description": "Optional. 'assignee_id' as accepted by the issue service."
+          },
+          "due_date": {
+            "description": "Optional. 'due_date' as accepted by the issue service."
+          },
+          "tags": {
+            "type": "array",
+            "description": "Optional. 'tags' as accepted by the issue service."
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional. 'status' as accepted by the issue service.",
+            "default": "Open"
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional. 'uid' as accepted by the issue service."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "issue.delete",
+      "prefix": "issue",
+      "is_write": true,
+      "description": "Delete a issue entity (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the issue entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "issue.outdate",
+      "prefix": "issue",
+      "is_write": true,
+      "description": "Soft-delete a issue entity via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the issue entity."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "issue.query",
+      "prefix": "issue",
+      "is_write": false,
+      "description": "List issue entities in a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "issue.reactivate",
+      "prefix": "issue",
+      "is_write": true,
+      "description": "Restore an outdated issue entity to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the issue entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "issue.read",
+      "prefix": "issue",
+      "is_write": false,
+      "description": "Fetch a single issue entity by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the issue entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "issue.update",
+      "prefix": "issue",
+      "is_write": true,
+      "description": "Update a issue entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use issue.outdate / issue.reactivate or the REST workflow transitions endpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Required. UUID of the issue entity."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional. 'title' as accepted by the issue service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the issue service."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ],
+            "description": "Optional. 'severity' as accepted by the issue service."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "defect",
+              "improvement",
+              "documentation",
+              "question"
+            ],
+            "description": "Optional. 'category' as accepted by the issue service."
+          },
+          "due_date": {
+            "description": "Optional. 'due_date' as accepted by the issue service."
+          },
+          "tags": {
+            "type": "array",
+            "description": "Optional. 'tags' as accepted by the issue service."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional. 'change_reason' as accepted by the issue service."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "main_goal.approve",
+      "prefix": "main_goal",
+      "is_write": true,
+      "description": "Approve a MainGoal draft, making it the currently valid version. This is the only MainGoal transition exposed over MCP: it moves the row from 'Entwurf' to 'Freigegeben'. Returns {\"main_goal\": {...}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "main_goal_id": {
+            "type": "string"
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the approval. Required by the Entwurf -> Freigegeben transition; a default is supplied when omitted."
+          }
+        },
+        "required": [
+          "main_goal_id"
+        ]
+      }
+    },
+    {
+      "name": "main_goal.create_manual",
+      "prefix": "main_goal",
+      "is_write": true,
+      "description": "Manually create a new MainGoal draft. Returns the persisted draft as {\"main_goal\": {id, sequence_number, content, source, status, ...}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "main_goal.generate",
+      "prefix": "main_goal",
+      "is_write": true,
+      "description": "Generate a new MainGoal draft via LLM aggregation of the workspace's approved Goals. Returns the persisted draft as {\"main_goal\": {id, sequence_number, content, source, status, ...}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "main_goal.list_versions",
+      "prefix": "main_goal",
+      "is_write": false,
+      "description": "List all MainGoal versions for a workspace, oldest first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "main_goal.read",
+      "prefix": "main_goal",
+      "is_write": false,
+      "description": "Read the currently valid (Freigegeben) MainGoal for a workspace. Returns {\"main_goal\": {...}}, or {\"main_goal\": null, \"reason\": ...} when no version has been approved yet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "needs.create",
+      "prefix": "needs",
+      "is_write": true,
+      "description": "Create a new StakeholderNeed (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Need title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Need description."
+          },
+          "category": {
+            "type": "string",
+            "description": "Need category."
+          },
+          "moscow_priority": {
+            "type": "string",
+            "description": "MoSCoW priority (Must/Should/Could/Won't)."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "needs.derive_requirements",
+      "prefix": "needs",
+      "is_write": true,
+      "description": "Propose system requirement drafts for a StakeholderNeed (LLM). Synchronous — mode='preview' (default) returns drafts only; mode='write' persists each draft as a Requirement and links it back to the need via a 'derives-from' trace link. Equivalent to ai_derivation.derive_requirements_from_need (fix #112 — this tool used to dispatch an async task that sent the LLM only the need's UUID, persisted nothing, and had no reachable task-status endpoint).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          },
+          "n": {
+            "type": "integer",
+            "description": "Number of requirement drafts (default 3)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "needs.get_traces",
+      "prefix": "needs",
+      "is_write": false,
+      "description": "List incoming and outgoing TraceLinks for a StakeholderNeed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "needs.outdate",
+      "prefix": "needs",
+      "is_write": true,
+      "description": "Soft-delete a StakeholderNeed via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "needs.query",
+      "prefix": "needs",
+      "is_write": false,
+      "description": "List StakeholderNeeds for a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "include_deleted": {
+            "type": "boolean",
+            "description": "Include soft-deleted needs (default: false)."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "needs.reactivate",
+      "prefix": "needs",
+      "is_write": true,
+      "description": "Restore an outdated StakeholderNeed to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "needs.read",
+      "prefix": "needs",
+      "is_write": false,
+      "description": "Fetch a single StakeholderNeed by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "needs.update",
+      "prefix": "needs",
+      "is_write": true,
+      "description": "Update an existing StakeholderNeed (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stakeholder need."
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "READ-ONLY (REQ-143). Ignored on write — the WorkflowEngine owns the lifecycle state. Present for backward compatibility only."
+          },
+          "moscow_priority": {
+            "type": "string"
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the change."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "permissions.check",
+      "prefix": "permissions",
+      "is_write": false,
+      "description": "Evaluate the caller's effective permission (read).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "permission_level": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ],
+            "description": "Permission level being queried."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "Optional artifact UUID; omit for a workspace-wide check."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "permission_level"
+        ]
+      }
+    },
+    {
+      "name": "permissions.list",
+      "prefix": "permissions",
+      "is_write": false,
+      "description": "List permission rules for a (user, workspace) pair (admin-only, read).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the user."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "Optional artifact UUID to filter on."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "permissions.revoke",
+      "prefix": "permissions",
+      "is_write": true,
+      "description": "Revoke a permission rule by its ID (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "permission_id": {
+            "type": "string",
+            "description": "UUID of the permission row to delete."
+          }
+        },
+        "required": [
+          "permission_id"
+        ]
+      }
+    },
+    {
+      "name": "permissions.set_rule",
+      "prefix": "permissions",
+      "is_write": true,
+      "description": "Grant or upsert an item-permission rule (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the user receiving the rule."
+          },
+          "permission_level": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "none"
+            ],
+            "description": "Permission level to grant."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "Optional artifact UUID; omit for a workspace-wide default rule."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "user_id",
+          "permission_level"
+        ]
+      }
+    },
+    {
+      "name": "prompt_template.create",
+      "prefix": "prompt_template",
+      "is_write": true,
+      "description": "Publish a new active version of a prompt template for a (tenant, workspace_id, name) scope, deactivating whatever version was previously active for that exact scope. Equivalent to prompt_template.update (alias).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name."
+          },
+          "content": {
+            "type": "string",
+            "description": "Prompt body."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope. Omit for a tenant-wide default template."
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "prompt_template.get",
+      "prefix": "prompt_template",
+      "is_write": false,
+      "description": "Return the effective LLM prompt content for a given template name, for the active tenant (and, if workspace_id is given, that workspace's override if one exists). Falls back to the factory default for any of the 7 known template names (need_to_sysreq | sysreq_to_arch_assign | sysreq_decompose_next_level | testcase_derive | architecture_to_risk | workspace_to_glossary | decision_to_adr) when no row has been created.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "string",
+            "description": "Template name (open-ended -- any name created via prompt_template.create is valid, not just the factory-default slots)."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope to check for an override before falling back to the tenant-global template."
+          }
+        },
+        "required": [
+          "slot"
+        ]
+      }
+    },
+    {
+      "name": "prompt_template.list",
+      "prefix": "prompt_template",
+      "is_write": false,
+      "description": "List all currently-active prompt templates for the tenant, optionally filtered to a single workspace scope.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "prompt_template.update",
+      "prefix": "prompt_template",
+      "is_write": true,
+      "description": "Publish a new active version of a prompt template for a (tenant, workspace_id, name) scope, deactivating whatever version was previously active for that exact scope. Equivalent to prompt_template.create (alias).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name."
+          },
+          "content": {
+            "type": "string",
+            "description": "Prompt body."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope. Omit for a tenant-wide default template."
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "requirement.check_consistency",
+      "prefix": "requirement",
+      "is_write": false,
+      "description": "AI consistency check across a workspace's requirements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.create",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Create a new requirement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "requirement.decompose",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "AI decomposition of a requirement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          }
+        },
+        "required": [
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.derive",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Derive a requirement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "parent_requirement_id": {
+            "type": "string",
+            "description": "UUID of the parent requirement."
+          },
+          "architecture_element_id": {
+            "type": "string",
+            "description": "UUID of the ArchitectureElement to derive onto."
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the derived child requirement."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of the derived child requirement."
+          }
+        },
+        "required": [
+          "parent_requirement_id",
+          "architecture_element_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "requirement.get",
+      "prefix": "requirement",
+      "is_write": false,
+      "description": "Fetch a single requirement by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.outdate",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Soft-delete a requirement via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.query",
+      "prefix": "requirement",
+      "is_write": false,
+      "description": "List requirements with optional workspace filter.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) requirements. Defaults to false."
+          }
+        }
+      }
+    },
+    {
+      "name": "requirement.reactivate",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Restore an outdated requirement to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.update",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Update an existing requirement. Note: `status` is read-only (REQ-143) — the WorkflowEngine owns the lifecycle state; use the transitions endpoint to change it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          },
+          "data": {
+            "type": "object",
+            "description": "Fields to update. `status` is READ-ONLY (REQ-143) and ignored if present — the WorkflowEngine owns the lifecycle state; use the transitions endpoint instead.",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "change_reason": {
+                "type": "string",
+                "description": "Reason for the change. Required when the workspace's change_reason preset policy is 'mandatory' (e.g. extended preset)."
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.validate",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "AI validation of a requirement.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          }
+        },
+        "required": [
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "review.approve",
+      "prefix": "review",
+      "is_write": true,
+      "description": "Approve an item currently awaiting review: transitions it to its preset's auto_approve_target state (falls back to the first available approver/admin-gated transition's target -- excluding reject/outdated-equivalent states -- if no explicit auto_approve_target is configured).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "change_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "review.list_pending",
+      "prefix": "review",
+      "is_write": false,
+      "description": "List items in a workspace whose current workflow state is one hop away from a human approval gate (a transition whose allowed_roles excludes 'editor').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Optional entity type filter."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace to scope the search to."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "review.reject",
+      "prefix": "review",
+      "is_write": true,
+      "description": "Reject an item currently awaiting review: transitions it to the universal 'outdated' state (Phase 0), recording reason in the workflow history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "review.request_changes",
+      "prefix": "review",
+      "is_write": true,
+      "description": "Send an item currently awaiting review back to its workflow's initial state for rework, recording reason in the workflow history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "risk.create",
+      "prefix": "risk",
+      "is_write": true,
+      "description": "Create a new risk entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Required. 'title' as validated by the risk service."
+          },
+          "probability": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Required. 'probability' as validated by the risk service."
+          },
+          "impact": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Required. 'impact' as validated by the risk service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the risk service.",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "operational",
+              "organizational",
+              "business"
+            ],
+            "description": "Optional. 'category' as accepted by the risk service.",
+            "default": "technical"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Optional. 'owner' as accepted by the risk service.",
+            "default": ""
+          },
+          "mitigation_strategy": {
+            "type": "string",
+            "description": "Optional. 'mitigation_strategy' as accepted by the risk service.",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional. 'status' as accepted by the risk service.",
+            "default": "Identified"
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional. 'uid' as accepted by the risk service."
+          },
+          "detection": {
+            "type": "integer",
+            "description": "Optional. 'detection' as accepted by the risk service.",
+            "default": 5
+          },
+          "owner_user_id": {
+            "type": "string",
+            "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title",
+          "probability",
+          "impact"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "risk.delete",
+      "prefix": "risk",
+      "is_write": true,
+      "description": "Delete a risk entity (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the risk entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "risk.outdate",
+      "prefix": "risk",
+      "is_write": true,
+      "description": "Soft-delete a risk entity via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the risk entity."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "risk.query",
+      "prefix": "risk",
+      "is_write": false,
+      "description": "List risk entities in a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "risk.reactivate",
+      "prefix": "risk",
+      "is_write": true,
+      "description": "Restore an outdated risk entity to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the risk entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "risk.read",
+      "prefix": "risk",
+      "is_write": false,
+      "description": "Fetch a single risk entity by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the risk entity."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "risk.update",
+      "prefix": "risk",
+      "is_write": true,
+      "description": "Update a risk entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use risk.outdate / risk.reactivate or the REST workflow transitions endpoint.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Required. UUID of the risk entity."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional. 'title' as accepted by the risk service."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional. 'description' as accepted by the risk service."
+          },
+          "probability": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Optional. 'probability' as accepted by the risk service."
+          },
+          "impact": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Optional. 'impact' as accepted by the risk service."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "technical",
+              "operational",
+              "organizational",
+              "business"
+            ],
+            "description": "Optional. 'category' as accepted by the risk service."
+          },
+          "owner": {
+            "type": "string",
+            "description": "Optional. 'owner' as accepted by the risk service."
+          },
+          "mitigation_strategy": {
+            "type": "string",
+            "description": "Optional. 'mitigation_strategy' as accepted by the risk service."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional. 'change_reason' as accepted by the risk service."
+          },
+          "detection": {
+            "type": "integer",
+            "description": "Optional. 'detection' as accepted by the risk service."
+          },
+          "owner_user_id": {
+            "type": "string",
+            "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "test.create",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Create a TestCase, optionally auto-linked to a requirement (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Test case title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Test case description."
+          },
+          "type": {
+            "type": "string",
+            "description": "Test type (default 'Unit')."
+          },
+          "linked_req_id": {
+            "type": "string",
+            "description": "Optional requirement UUID to create a 'verifies' TraceLink."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "test.derive_from_requirement",
+      "prefix": "test",
+      "is_write": true,
+      "description": "SysEng 2.0 N5: propose a TestCase draft (title, description, steps) for a Requirement via the LLM adapter. mode='preview' (default) returns the draft only; mode='write' persists it as a TestCase and links it back to the requirement via a 'verifies' trace link.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "description": "UUID of the source requirement."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "write"
+            ],
+            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ],
+            "description": "Only relevant for mode='write'. 'manual' (default) leaves new entities in their initial draft state; 'auto' best-effort auto-advances them through their workflow."
+          }
+        },
+        "required": [
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "test.get",
+      "prefix": "test",
+      "is_write": false,
+      "description": "Fetch a single TestCase by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the test case."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "test.link",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Create a 'verifies' TraceLink between a TestCase and a Requirement (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "description": "UUID of the test case."
+          },
+          "req_id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          }
+        },
+        "required": [
+          "test_id",
+          "req_id"
+        ]
+      }
+    },
+    {
+      "name": "test.outdate",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Soft-delete a TestCase via the workflow engine's outdate escape hatch (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the test case."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "test.query",
+      "prefix": "test",
+      "is_write": false,
+      "description": "List TestCases in a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include outdated (soft-deleted) test cases. Defaults to false."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "test.reactivate",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Restore an outdated TestCase to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the test case."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "test.run_create",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Create a TestRun (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "name": {
+            "type": "string",
+            "description": "Test run name."
+          },
+          "ci_job_id": {
+            "type": "string",
+            "description": "Optional CI job identifier."
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of test case UUIDs to include."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "test.run_get",
+      "prefix": "test",
+      "is_write": false,
+      "description": "Fetch a TestRun with its results by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "UUID of the test run."
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "test.run_report_results",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Add result(s) to a TestRun (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "UUID of the test run."
+          },
+          "results": {
+            "type": "array",
+            "description": "List of result entries. A single result object (not wrapped in an array) is also accepted.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "test_case_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "One of passed|failed|blocked|not_run."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "duration_ms": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "test_case_id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "run_id",
+          "results"
+        ]
+      }
+    },
+    {
+      "name": "test.update",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Update TestCase fields including execution_status (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the test case."
+          },
+          "data": {
+            "type": "object",
+            "description": "Fields to update (title, description, steps, status)."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "traceability.create_link",
+      "prefix": "traceability",
+      "is_write": true,
+      "description": "Create a TraceLink between two artifacts/entities (write, audited). Generic counterpart to architecture.link/test.link for Need->Requirement, Requirement->Requirement and any other core-entity pair (fix #121). Compatible with traceability.suggest_links output: pass a suggestion's 'source_artifact_id' as 'source_id' and a ranked candidate's 'artifact_id' as 'target_id' (both accepted as aliases) to accept that suggestion.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "UUID of the link source (alias: source_artifact_id)."
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "description": "Alias for 'source_id' (matches suggest_links output)."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "UUID of the link target (alias: artifact_id)."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "Alias for 'target_id' (matches a suggest_links ranked candidate's 'artifact_id')."
+          },
+          "link_type": {
+            "type": "string",
+            "enum": [
+              "allocated-to",
+              "copy-of",
+              "decides",
+              "decomposes",
+              "derives-from",
+              "documents",
+              "implements",
+              "parent-child",
+              "realizes",
+              "refines",
+              "satisfies",
+              "traces",
+              "uses-term",
+              "verifies"
+            ],
+            "description": "TraceLink type."
+          }
+        },
+        "required": [
+          "link_type"
+        ]
+      }
+    },
+    {
+      "name": "traceability.query",
+      "prefix": "traceability",
+      "is_write": false,
+      "description": "Return the upstream/downstream TraceLink graph for an artifact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of the artifact."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "upstream",
+              "downstream",
+              "both"
+            ],
+            "description": "Traversal direction (default 'both')."
+          }
+        },
+        "required": [
+          "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "traceability.suggest_links",
+      "prefix": "traceability",
+      "is_write": false,
+      "description": "SysEng 2.0 N3 (first stage): run the SE-Auditor for a workspace, filter findings that name a missing trace link (TRACE-P1/-P1b/-P2), and rank each finding's deterministic candidate pool via the LLM adapter (mock by default). Read-only/advisory — nothing is persisted; every returned finding/candidate reference is a real one from this run. No pgvector/embedding search is performed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "scope": {
+            "type": "string",
+            "description": "Optional baseline scope (document|project|global)."
+          },
+          "scope_artifact_id": {
+            "type": "string",
+            "description": "Required when scope=document (subtree root)."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "user.assign_role",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Assign a role to a user in a workspace (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the target user."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer",
+              "approver"
+            ],
+            "description": "Role to assign."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Active workspace preset (gates the approver role)."
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_id",
+          "role",
+          "preset"
+        ]
+      }
+    },
+    {
+      "name": "user.create",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Create a new user (admin-only, write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Unique username."
+          },
+          "email": {
+            "type": "string",
+            "description": "Unique email address."
+          },
+          "password": {
+            "type": "string",
+            "description": "Password, at least 8 characters."
+          },
+          "role": {
+            "type": "string",
+            "description": "Informational initial role hint (default 'viewer')."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Informational active preset hint (default 'basic')."
+          },
+          "tenant_id": {
+            "type": "string",
+            "description": "Optional tenant UUID (superuser callers only)."
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "user.deactivate",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Deactivate a user (is_active=False), admin-only, write, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the user to deactivate."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "user.list",
+      "prefix": "user",
+      "is_write": false,
+      "description": "List users, tenant-scoped (admin-only, read).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Optional tenant UUID (defaults to caller's tenant)."
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Optional active-state filter; omit to return both."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (1..500, default 100)."
+          }
+        }
+      }
+    },
+    {
+      "name": "workspace.close",
+      "prefix": "workspace",
+      "is_write": true,
+      "description": "Soft-delete a workspace (is_active=False), admin-only, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to close."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "workspace.delete",
+      "prefix": "workspace",
+      "is_write": true,
+      "description": "Hard-delete a workspace with captcha confirmation, admin-only, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to delete."
+          },
+          "confirmation_text": {
+            "type": "string",
+            "description": "Must equal the workspace name (case-sensitive captcha)."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "confirmation_text"
+        ]
+      }
+    },
+    {
+      "name": "workspace.get_context",
+      "prefix": "workspace",
+      "is_write": false,
+      "description": "Return a workspace status summary for agent orientation. Response: result.workspace_context = {tenant_id, user_id, active_roles (roles resolved for the calling API key), workspace_id}. If workspace_id is given, additionally: preset (active rigor preset name), preset_features (dict of enabled feature flags for the preset), change_reason_policy, terminology (dev_mode/se_mode label profile), and open_requirements_count (Requirements with status != 'approved' in the workspace). ``depth`` (summary|normal|full, default summary) also adds entity counts: requirements, architecture, tests, risks. ``include_outdated`` (default false) includes outdated items in those counts. ``role`` is an optional label echoed back for prompt-shaping by the caller — it never filters the returned data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional UUID of the workspace to summarise."
+          },
+          "depth": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "normal",
+              "full"
+            ],
+            "description": "Response depth (default 'summary')."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include outdated items in entity counts (default false)."
+          },
+          "role": {
+            "type": "string",
+            "description": "Optional caller role label (documentation only, never filters data)."
+          }
+        }
+      }
+    },
+    {
+      "name": "workspace.get_preferences",
+      "prefix": "workspace",
+      "is_write": false,
+      "description": "Retrieve workspace configuration preferences (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "workspace.list",
+      "prefix": "workspace",
+      "is_write": false,
+      "description": "List the workspaces visible to the caller's tenant. Response: result.workspaces = [{id, name, description}], result.count. Tenant-scoped (issue #362). Closed workspaces (is_active=false) are excluded unless include_inactive=true.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "include_inactive": {
+            "type": "boolean",
+            "description": "Include closed/inactive workspaces (default false)."
+          }
+        }
+      }
+    },
+    {
+      "name": "workspace.llm_system_prompt",
+      "prefix": "workspace",
+      "is_write": false,
+      "description": "Render a natural-language system prompt for AI-agent session start, built from the same entity data as ``workspace.get_context`` (active requirements, architecture elements, test coverage). Response: result.system_prompt (str). Read-only — does not persist or mutate anything. ``role`` is echoed as a text label only (\"Du bist als {role} unterwegs\") and never filters the underlying data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to summarise."
+          },
+          "role": {
+            "type": "string",
+            "description": "Optional caller role label (documentation only, never filters data)."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include outdated items in the underlying entity data (default false)."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "workspace.reactivate",
+      "prefix": "workspace",
+      "is_write": true,
+      "description": "Undo a workspace close (is_active=True), admin-only, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to reactivate."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    }
+  ]
+}

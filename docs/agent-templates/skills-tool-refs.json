@@ -1,0 +1,49 @@
+{
+  "vmodell-decomposition": [
+    "workspace.get_context", "goal.read", "goal.query", "main_goal.read",
+    "needs.create", "needs.update", "custom_field.get", "custom_field.query",
+    "requirement.create", "requirement.derive", "traceability.create_link",
+    "ai_derivation.derive_requirements_from_need", "needs.derive_requirements",
+    "requirement.decompose", "ai_derivation.decompose_requirement_next_level",
+    "ai_derivation.suggest_architecture_for_requirement",
+    "requirement.validate", "requirement.check_consistency",
+    "traceability.query", "traceability.suggest_links",
+    "glossary.read", "artifact.search", "artifact.get_tree",
+    "prompt_template.list", "prompt_template.get",
+    "needs.read", "needs.get_traces", "requirement.get", "requirement.query", "requirement.update"
+  ],
+  "test-lifecycle": [
+    "workspace.get_context", "custom_field.get", "custom_field.query",
+    "requirement.get", "requirement.query", "traceability.query",
+    "test.create", "test.update", "test.link",
+    "test.run_create", "test.run_report_results", "test.run_get",
+    "test.derive_from_requirement", "artifact.search", "test.get", "test.query"
+  ],
+  "risk-derivation": [
+    "workspace.get_context", "custom_field.get", "custom_field.query",
+    "requirement.get", "requirement.query", "architecture.get", "architecture.query",
+    "diagram.get", "diagram.query", "artifact.search", "traceability.query",
+    "ai_derivation.derive_risks_from_architecture",
+    "risk.create", "risk.update", "traceability.create_link", "risk.delete", "risk.read"
+  ],
+  "ccb-approval-and-baseline": [
+    "workspace.get_context", "adr.create", "adr.update", "adr.outdate", "adr.reactivate",
+    "adr.delete", "issue.outdate", "issue.reactivate", "issue.delete", "issue.update",
+    "change_request.create", "change_request.update", "baseline.get", "baseline.compare",
+    "baseline.list", "review.approve", "review.list_pending", "review.reject",
+    "review.request_changes", "requirement.update", "architecture.update", "diagram.update",
+    "diagram.outdate", "diagram.reactivate", "change_request.outdate", "change_request.reactivate",
+    "baseline.create", "traceability.query", "traceability.suggest_links",
+    "traceability.create_link", "artifact.search", "adr.read", "issue.read", "issue.create",
+    "change_request.read", "change_request.query", "diagram.create", "diagram.get", "diagram.query"
+  ],
+  "traceability-audit": [
+    "workspace.get_context", "custom_field.get", "custom_field.query",
+    "requirement.query", "architecture.query", "test.query",
+    "artifact.get_tree", "diagram.get", "diagram.query", "traceability.query",
+    "adr.read", "risk.read", "issue.read", "goal.query", "main_goal.read",
+    "baseline.list", "baseline.compare", "change_request.query", "review.list_pending",
+    "artifact.search", "glossary.read", "requirement.get", "architecture.get", "test.get",
+    "goal.read", "baseline.get", "change_request.read"
+  ]
+}
