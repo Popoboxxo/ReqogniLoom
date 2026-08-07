@@ -16,13 +16,24 @@ Envelope::
       "viewport": {"x": 0, "y": 0, "zoom": 1}
     }
 
-Design notes (mirrors ADR-DS-01 for the rest of ``diagram/``):
+Design notes:
   This module is a PURE function boundary — it never touches the database,
   never imports Django, and never imports ``rest_api`` or any Ext-layer
   module (dependency direction is always ``rest_api`` -> ``diagram``, never
   the reverse). Its only intra-app dependency is :mod:`diagram.validator`,
   reused for the shared, already-frozen ``ValidationResult`` return type
   (no new error-surfacing plumbing, per the Task 1 brief).
+
+Design decisions (ADR-DS-02):
+  - Positions are stored IN the payload (frontend: useGraphPayload.flowToPayload()),
+    not in localStorage. This ensures position data survives browser restart and is
+    shareable across team members. See REQ-L1-100 for the payload format spec.
+  - No server-side SVG rendering on the read path; SVG is generated only on
+    explicit export request (Task 6: POST /diagrams/{id}/export). Preview uses
+    React Flow canvas renderer (client-side). This reduces backend load for view
+    operations; SVG rendering is deferred to high-value operations only.
+  - DIAGRAM_REF trace links are reconciler-owned (never hand-authored); see
+    REQ-L1-101 and backend/traceability/types.py for link type definition.
 """
 from __future__ import annotations
 
