@@ -43,6 +43,8 @@ import {
   formDangerButtonStyle,
   formPrimaryButtonStyle,
   previewBoxStyle,
+  previewErrorStyle,
+  previewEmptyStyle,
 } from "./diagram-view-shared";
 
 export interface DiagramDetailViewProps {
@@ -379,7 +381,7 @@ export function DiagramDetailView({
         {isNodeGraph ? (
           <div data-testid="diagram-node-graph-section" style={previewBoxStyle}>
             {nodeGraphError ? (
-              <p role="alert" data-testid="diagram-node-graph-error" style={{ color: "var(--color-danger)", margin: 0 }}>
+              <p role="alert" data-testid="diagram-node-graph-error" style={previewErrorStyle}>
                 {nodeGraphError}
               </p>
             ) : nodeGraphPayload ? (
@@ -391,6 +393,7 @@ export function DiagramDetailView({
                 selection={{ kind: "none" }}
                 onSelect={() => {}}
                 editMode={false}
+                elementsSelectable={false}
                 onConnectNodes={() => {}}
                 onRenameNode={() => {}}
                 onNodeDragStop={() => {}}
@@ -399,7 +402,7 @@ export function DiagramDetailView({
                 onAutoLayout={() => {}}
               />
             ) : (
-              <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+              <p style={previewEmptyStyle}>
                 {t("diagrams.emptySource", "(no source)")}
               </p>
             )}

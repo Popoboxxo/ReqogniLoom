@@ -140,3 +140,21 @@ export const formDangerButtonStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
   fontFamily: "inherit",
 };
+
+/**
+ * GH-353 Task 9: Error message styling for read-only preview errors
+ * (e.g., invalid JSON in node_graph payload).
+ */
+export const previewErrorStyle: React.CSSProperties = {
+  color: "var(--color-danger)",
+  margin: 0,
+};
+
+/**
+ * GH-353 Task 9: Empty content placeholder styling for read-only previews
+ * (e.g., empty node_graph or mermaid source).
+ */
+export const previewEmptyStyle: React.CSSProperties = {
+  color: "var(--color-text-muted)",
+  margin: 0,
+};

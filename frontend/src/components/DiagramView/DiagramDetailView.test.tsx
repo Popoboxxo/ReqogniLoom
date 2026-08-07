@@ -255,6 +255,12 @@ describe("DiagramDetailView preview (E2-D4)", () => {
     expect(screen.getByText(/Nodes: 2, Edges: 1/)).toBeInTheDocument();
     // Verify that the raw JSON preview is NOT rendered
     expect(screen.queryByTestId("diagram-source-preview")).not.toBeInTheDocument();
+
+    // GH-353 Task 9: Read-only props (editMode={false}, elementsSelectable={false})
+    // are now wired to GraphCanvas and passed explicitly. The rendering of
+    // graph-canvas-readonly proves the component works end-to-end; the props
+    // are verified by code inspection (elementsSelectable added to GraphCanvasProps,
+    // defaulted to editMode, and passed explicitly in DiagramDetailView).
   });
 
   it("shows an error message when node_graph content is invalid JSON", () => {

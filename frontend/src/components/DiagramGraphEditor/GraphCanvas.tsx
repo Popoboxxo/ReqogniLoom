@@ -57,6 +57,7 @@ interface GraphCanvasProps {
   onDeleteSelection: () => void;
   onAddNode: () => void;
   onAutoLayout: () => void;
+  elementsSelectable?: boolean;
 }
 
 function CanvasInner({
@@ -71,6 +72,7 @@ function CanvasInner({
   onDeleteSelection,
   onAddNode,
   onAutoLayout,
+  elementsSelectable = editMode,
 }: GraphCanvasProps): JSX.Element {
   const { t } = useTranslation();
   const { fitView } = useReactFlow();
@@ -175,7 +177,7 @@ function CanvasInner({
         maxZoom={2}
         nodesDraggable={editMode}
         nodesConnectable={editMode}
-        elementsSelectable
+        elementsSelectable={elementsSelectable}
         deleteKeyCode={null}
         zoomOnDoubleClick={false}
         proOptions={{ hideAttribution: true }}
