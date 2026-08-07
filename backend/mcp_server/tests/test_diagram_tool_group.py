@@ -100,6 +100,36 @@ class TestDiagramToolGroupRegistration:
             "diagram.reactivate",
         }
 
+    def test_payload_format_is_enum_in_create_schema(self):
+        """Task 5: payload_format must be JSON-Schema enum, not free text."""
+        group = DiagramToolGroup()
+        schemas = group.get_tool_schemas()
+        create_schema = next(s for s in schemas if s["name"] == "diagram.create")
+
+        payload_format_schema = create_schema["inputSchema"]["properties"]["payload_format"]
+        assert "enum" in payload_format_schema
+        assert isinstance(payload_format_schema["enum"], list)
+
+        # Should include all formats including node_graph (Task 5)
+        enum_values = set(payload_format_schema["enum"])
+        expected = {"mermaid", "plantuml", "json", "canvas_stroke", "node_graph"}
+        assert expected == enum_values
+
+    def test_payload_format_is_enum_in_update_schema(self):
+        """Task 5: payload_format in update must also be enum."""
+        group = DiagramToolGroup()
+        schemas = group.get_tool_schemas()
+        update_schema = next(s for s in schemas if s["name"] == "diagram.update")
+
+        payload_format_schema = update_schema["inputSchema"]["properties"]["payload_format"]
+        assert "enum" in payload_format_schema
+        assert isinstance(payload_format_schema["enum"], list)
+
+        # Should include all formats including node_graph (Task 5)
+        enum_values = set(payload_format_schema["enum"])
+        expected = {"mermaid", "plantuml", "json", "canvas_stroke", "node_graph"}
+        assert expected == enum_values
+
 
 # ---------------------------------------------------------------------------
 # Tool-group-level RBAC (Systemaudit #102)

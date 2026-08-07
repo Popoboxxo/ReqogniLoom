@@ -21,6 +21,7 @@ REQ-L3-MAP-001 acceptance criteria:
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -28,6 +29,75 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # MCP response helpers
 # ---------------------------------------------------------------------------
+
+def _render_node_graph_summary(content: str) -> str:
+    """Render a node_graph diagram as a readable summary table.
+
+    Parses the JSON node_graph payload and generates Markdown tables for
+    nodes and edges to replace the raw JSON dump. If parsing fails, falls
+    back to the raw content.
+
+    Args:
+        content: Raw JSON string of node_graph payload.
+
+    Returns:
+        Markdown string with node/edge summary tables.
+    """
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        # Fall back to raw content if JSON parsing fails
+        return content
+
+    lines = ["## Nodes", ""]
+
+    # Render nodes table
+    nodes = data.get("nodes", [])
+    if nodes:
+        lines.append("| ID | Type | Label | Artifact Ref |")
+        lines.append("|----|----|----|----|")
+        for node in nodes:
+            node_id = node.get("id", "")
+            node_type = node.get("type", "")
+            label = node.get("label", "")
+            artifact_ref = node.get("artifact_ref", {})
+            if artifact_ref and isinstance(artifact_ref, dict):
+                entity_type = artifact_ref.get("entity_type", "")
+                ref_id = artifact_ref.get("id", "")
+                artifact_str = f"{entity_type}#{ref_id}" if entity_type and ref_id else ""
+            else:
+                artifact_str = ""
+            # Escape pipes in label and artifact_str for markdown table
+            label = label.replace("|", "\\|") if label else ""
+            artifact_str = artifact_str.replace("|", "\\|") if artifact_str else ""
+            lines.append(f"| {node_id} | {node_type} | {label} | {artifact_str} |")
+        lines.append("")
+    else:
+        lines.append("(No nodes)")
+        lines.append("")
+
+    # Render edges table
+    lines.append("## Edges")
+    lines.append("")
+    edges = data.get("edges", [])
+    if edges:
+        lines.append("| ID | Source → Target | Type | Label |")
+        lines.append("|---|---|---|---|")
+        for edge in edges:
+            edge_id = edge.get("id", "")
+            source = edge.get("source", "")
+            target = edge.get("target", "")
+            edge_type = edge.get("type", "")
+            label = edge.get("label", "")
+            label = label.replace("|", "\\|") if label else ""
+            lines.append(f"| {edge_id} | {source} → {target} | {edge_type} | {label} |")
+        lines.append("")
+    else:
+        lines.append("(No edges)")
+        lines.append("")
+
+    return "\n".join(lines)
+
 
 def _ok_response(diagram_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Format a successful MCP artifact.get response."""
@@ -58,6 +128,7 @@ def _to_markdown(diagram_data: dict[str, Any]) -> str:
     """Serialise diagram data as a Markdown/plaintext string for MCP clients.
 
     REQ-L3-MAP-001: payload returned as Markdown/plaintext representation.
+    For node_graph format, renders a summary table instead of raw JSON.
     """
     lines = [
         f"# Diagram: {diagram_data.get('name', 'Unnamed')}",
@@ -67,11 +138,22 @@ def _to_markdown(diagram_data: dict[str, Any]) -> str:
         f"- **Format:** {diagram_data.get('payload_format')}",
         f"- **Render hint:** {diagram_data.get('render_hint')}",
         "",
-        "## Payload",
-        "```",
-        diagram_data.get("content", ""),
-        "```",
     ]
+
+    # For node_graph format, render a summary table instead of raw JSON
+    if diagram_data.get("payload_format") == "node_graph":
+        content = diagram_data.get("content", "")
+        summary = _render_node_graph_summary(content)
+        lines.append(summary)
+    else:
+        # For other formats, render raw content in code block
+        lines.extend([
+            "## Payload",
+            "```",
+            diagram_data.get("content", ""),
+            "```",
+        ])
+
     return "\n".join(lines)
 
 

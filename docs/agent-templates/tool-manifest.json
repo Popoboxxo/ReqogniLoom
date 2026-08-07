@@ -610,6 +610,7 @@
               "decides",
               "decomposes",
               "derives-from",
+              "diagram-ref",
               "documents",
               "implements",
               "parent-child",
@@ -1264,7 +1265,14 @@
           },
           "payload_format": {
             "type": "string",
-            "description": "One of 'mermaid' | 'plantuml' | 'json' | 'canvas_stroke'."
+            "enum": [
+              "mermaid",
+              "plantuml",
+              "json",
+              "canvas_stroke",
+              "node_graph"
+            ],
+            "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'."
           },
           "content": {
             "type": "string",
@@ -1385,7 +1393,14 @@
           },
           "payload_format": {
             "type": "string",
-            "description": "New payload format."
+            "enum": [
+              "mermaid",
+              "plantuml",
+              "json",
+              "canvas_stroke",
+              "node_graph"
+            ],
+            "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'."
           },
           "content": {
             "type": "string",
@@ -3501,6 +3516,7 @@
               "decides",
               "decomposes",
               "derives-from",
+              "diagram-ref",
               "documents",
               "implements",
               "parent-child",

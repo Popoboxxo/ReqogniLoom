@@ -120,7 +120,8 @@ class DiagramToolGroup(BaseToolGroup):
                     },
                     "payload_format": {
                         "type": "string",
-                        "description": "One of 'mermaid' | 'plantuml' | 'json' | 'canvas_stroke'.",
+                        "enum": ["mermaid", "plantuml", "json", "canvas_stroke", "node_graph"],
+                        "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'.",
                     },
                     "content": {"type": "string", "description": "Raw diagram payload string."},
                     "description": {"type": "string", "description": "Optional free-text description."},
@@ -154,7 +155,11 @@ class DiagramToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the diagram."},
-                    "payload_format": {"type": "string", "description": "New payload format."},
+                    "payload_format": {
+                        "type": "string",
+                        "enum": ["mermaid", "plantuml", "json", "canvas_stroke", "node_graph"],
+                        "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'.",
+                    },
                     "content": {"type": "string", "description": "New raw payload string."},
                     "target_id": {
                         "type": "string",
