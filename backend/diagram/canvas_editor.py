@@ -43,6 +43,7 @@ from typing import Optional
 
 from diagram.manager import DiagramManager, DiagramResult
 from diagram.models import Diagram, DiagramType, DiagramVersion, PayloadFormat
+from diagram.svg_safety import escape_xml_text
 from diagram.traceability_connector import TraceabilityConnector
 from diagram.validator import DiagramValidator
 
@@ -75,15 +76,14 @@ class CanvasExportResult:
 # ---------------------------------------------------------------------------
 
 def _escape_xml_attr(value: object) -> str:
-    """Escape special characters for XML attribute values."""
-    return (
-        str(value)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
-    )
+    """Escape special characters for XML attribute values.
+
+    Delegates to :func:`diagram.svg_safety.escape_xml_text` — the shared,
+    format-agnostic implementation also used by
+    :mod:`diagram.node_graph_renderer` (GH-353 Task 6), so this stays the
+    single source of truth for XML escaping across both SVG export paths.
+    """
+    return escape_xml_text(value)
 
 
 def _safe_number(value: object, default: float) -> float:

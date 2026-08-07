@@ -31,10 +31,12 @@ Render-export stubs (PNG/SVG):
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
 from diagram.models import DiagramType, PayloadFormat
+from diagram.node_graph_renderer import render_svg as _render_node_graph_svg
 
 
 # ---------------------------------------------------------------------------
@@ -188,17 +190,42 @@ class DiagramRenderer:
         )
 
     def export_svg(self, renderable: RenderableDiagram) -> str:
-        """Stub: Export diagram as SVG string.
+        """Export a diagram as an SVG string.
 
-        NOT IMPLEMENTED in v1.
+        GH-353 (Task 6): implemented for ``node_graph`` payloads only —
+        delegates to :func:`diagram.node_graph_renderer.render_svg`, the
+        module carrying the XSS-hardening burden for that format. Every
+        other ``payload_format`` (mermaid, plantuml, json, canvas_stroke)
+        stays a documented ``NotImplementedError`` stub, per the Task 6
+        brief and ADR-DS-01 scoping — ``canvas_stroke`` already has its own
+        SVG export via :meth:`diagram.canvas_editor.CanvasEditor.export_svg`
+        (a different call path, not this one).
+
+        Args:
+            renderable: A :class:`RenderableDiagram` as returned by
+                :meth:`prepare_renderable` (or ``DiagramManager.get_diagram``
+                via its ``renderable`` field).
+
+        Returns:
+            A well-formed SVG string, for ``payload_format == "node_graph"``.
 
         Raises:
-            NotImplementedError: Always. SVG export is deferred to v2.
+            NotImplementedError: For every ``payload_format`` other than
+                ``node_graph``.
+            diagram.node_graph_renderer.NodeGraphRenderError: If the
+                ``node_graph`` payload cannot be safely rendered (see that
+                module — should be unreachable for a payload that already
+                passed :func:`diagram.node_graph.validate_node_graph`).
         """
-        raise NotImplementedError(
-            "SVG export is not implemented in v1. "
-            "Use the content field of RenderableDiagram for client-side rendering."
-        )
+        if renderable.payload_format != PayloadFormat.NODE_GRAPH:
+            raise NotImplementedError(
+                "SVG export is only implemented for the 'node_graph' payload "
+                f"format in v1 (got {renderable.payload_format!r}). "
+                "Use the content field of RenderableDiagram for client-side "
+                "rendering of other formats."
+            )
+        payload = json.loads(renderable.content)
+        return _render_node_graph_svg(payload)
 
     # ------------------------------------------------------------------
     # IF-DS-INT-008: get_render_hints — COMP-DS-007

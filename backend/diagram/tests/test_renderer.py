@@ -11,8 +11,11 @@ IF-DS-INT-008: get_render_hints(diagram_type, payload_format) -> RenderHints
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from diagram.node_graph_renderer import NodeGraphRenderError
 from diagram.renderer import DiagramRenderer, RenderableDiagram, RenderHints
 
 
@@ -74,6 +77,67 @@ class TestExportStubs:
     def test_export_svg_raises_not_implemented(self, renderer: DiagramRenderer) -> None:
         r = renderer.prepare_renderable("flow", "mermaid", "flowchart TD\n  A-->B")
         with pytest.raises(NotImplementedError):
+            renderer.export_svg(r)
+
+
+# ---------------------------------------------------------------------------
+# GH-353 (Task 6): export_svg dispatch — node_graph implemented, every other
+# format stays a documented NotImplementedError stub.
+# ---------------------------------------------------------------------------
+
+_NODE_GRAPH_PAYLOAD: dict = {
+    "schema_version": 1,
+    "nodes": [
+        {"id": "n-1", "type": "box", "label": "A", "position": {"x": 0, "y": 0}},
+    ],
+    "edges": [],
+}
+
+
+class TestExportSvgNodeGraphDispatch:
+    def test_node_graph_export_svg_returns_svg_string(self, renderer: DiagramRenderer) -> None:
+        r = renderer.prepare_renderable(
+            "block", "node_graph", json.dumps(_NODE_GRAPH_PAYLOAD)
+        )
+        svg = renderer.export_svg(r)
+        assert svg.startswith("<svg")
+        assert svg.rstrip().endswith("</svg>")
+        assert "A" in svg
+
+    @pytest.mark.parametrize(
+        "diagram_type,payload_format,content",
+        [
+            ("block", "mermaid", "block-beta\n  A[X]"),
+            ("flow", "mermaid", "flowchart TD\n  A-->B"),
+            ("block", "plantuml", "@startuml\nA\n@enduml"),
+            ("flow", "json", '{"nodes":[],"edges":[]}'),
+            ("canvas", "canvas_stroke", '{"strokes":[]}'),
+        ],
+    )
+    def test_non_node_graph_formats_still_raise_not_implemented(
+        self, renderer: DiagramRenderer, diagram_type: str, payload_format: str, content: str
+    ) -> None:
+        r = renderer.prepare_renderable(diagram_type, payload_format, content)
+        with pytest.raises(NotImplementedError):
+            renderer.export_svg(r)
+
+    def test_node_graph_export_svg_propagates_render_errors(
+        self, renderer: DiagramRenderer
+    ) -> None:
+        """Defense-in-depth: a node_graph payload that bypassed validation
+        (here, an unknown node type) must surface as a render error, not a
+        silently-wrong SVG or an unrelated crash."""
+        hostile_payload = {
+            "schema_version": 1,
+            "nodes": [
+                {"id": "n-1", "type": "hexagon", "label": "A", "position": {"x": 0, "y": 0}}
+            ],
+            "edges": [],
+        }
+        r = renderer.prepare_renderable(
+            "block", "node_graph", json.dumps(hostile_payload)
+        )
+        with pytest.raises(NodeGraphRenderError):
             renderer.export_svg(r)
 
 

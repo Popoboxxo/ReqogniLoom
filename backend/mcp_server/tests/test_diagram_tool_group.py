@@ -12,6 +12,8 @@ req_id  : REQ-L2-DS-001, REQ-L3-DM-001..004, REQ-066, REQ-173
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from auth_tenancy.context import AuthContext
@@ -304,6 +306,235 @@ class TestDiagramToolGroupCrud:
 
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# GH-353 Task 6: diagram.get(export_format="svg")
+# ---------------------------------------------------------------------------
+
+VALID_NODE_GRAPH_CONTENT = (
+    '{"schema_version": 1, "nodes": [{"id": "n-1", "type": "box", '
+    '"label": "Auth Service", "position": {"x": 0, "y": 0}}], "edges": []}'
+)
+
+
+class TestDiagramToolGroupExportSvg:
+    def test_export_format_svg_on_node_graph_returns_svg(self):
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-svg-ok")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Node Graph Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "node_graph",
+                    "content": VALID_NODE_GRAPH_CONTENT,
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            assert create_result.success is True
+            diagram_id = create_result.data["diagram"]["id"]
+
+            get_result = group._handle_get(
+                params={"id": diagram_id, "export_format": "svg"},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert get_result.success is True
+        assert get_result.data["diagram"]["export_format"] == "svg"
+        svg = get_result.data["diagram"]["svg"]
+        assert svg.startswith("<svg")
+        assert svg.rstrip().endswith("</svg>")
+        assert "Auth Service" in svg
+
+    def test_export_format_svg_on_mermaid_returns_400_not_500(self):
+        """Done-when criterion: a non-node_graph diagram + export_format='svg'
+        returns 400 VALIDATION_ERROR, never a 500/uncaught exception."""
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-svg-wrong-fmt")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Mermaid Diagram",
+                    "diagram_type": "flow",
+                    "payload_format": "mermaid",
+                    "content": "flowchart TD\n  A-->B",
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            assert create_result.success is True
+            diagram_id = create_result.data["diagram"]["id"]
+
+            get_result = group._handle_get(
+                params={"id": diagram_id, "export_format": "svg"},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert get_result.success is False
+        assert get_result.error_code == "VALIDATION_ERROR"
+
+    def test_export_format_svg_on_json_payload_format_returns_validation_error(self):
+        """Same as mermaid above, but for the plain 'json' payload_format —
+        every non-node_graph format must be rejected the same way."""
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-svg-json")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "JSON Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "json",
+                    "content": VALID_JSON_BLOCK,
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            assert create_result.success is True
+            diagram_id = create_result.data["diagram"]["id"]
+
+            get_result = group._handle_get(
+                params={"id": diagram_id, "export_format": "svg"},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert get_result.success is False
+        assert get_result.error_code == "VALIDATION_ERROR"
+
+    def test_export_format_unsupported_value_returns_validation_error(self):
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-svg-badval")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Node Graph Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "node_graph",
+                    "content": VALID_NODE_GRAPH_CONTENT,
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            diagram_id = create_result.data["diagram"]["id"]
+
+            get_result = group._handle_get(
+                params={"id": diagram_id, "export_format": "pdf"},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert get_result.success is False
+        assert get_result.error_code == "VALIDATION_ERROR"
+
+    def test_export_format_omitted_returns_canonical_json_as_before(self):
+        """No export_format => default behaviour (canonical JSON content),
+        unchanged from before this task."""
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-svg-default")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Node Graph Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "node_graph",
+                    "content": VALID_NODE_GRAPH_CONTENT,
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            diagram_id = create_result.data["diagram"]["id"]
+
+            get_result = group._handle_get(
+                params={"id": diagram_id},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert get_result.success is True
+        # Content may be re-serialised (key order/formatting) on persistence,
+        # so compare parsed JSON rather than the raw string.
+        assert json.loads(get_result.data["diagram"]["content"]) == json.loads(
+            VALID_NODE_GRAPH_CONTENT
+        )
+        assert "svg" not in get_result.data["diagram"]
+
+    def test_export_format_svg_on_hostile_node_graph_returns_validation_error(self):
+        """A node_graph payload that somehow bypassed validate_node_graph
+        (unknown node type) must surface as VALIDATION_ERROR, not a 500."""
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-svg-hostile")
+        group = DiagramToolGroup()
+
+        hostile_content = (
+            '{"schema_version": 1, "nodes": [{"id": "n-1", "type": "box", '
+            '"label": "A", "position": {"x": 0, "y": 0}}], "edges": []}'
+        )
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Node Graph Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "node_graph",
+                    "content": hostile_content,
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            diagram_id = create_result.data["diagram"]["id"]
+
+            # Mutate the persisted payload directly to smuggle an unknown
+            # node type past validate_node_graph (write path validates on
+            # create/update, so this simulates a bypass — e.g. a future
+            # write path or manual DB edit — reaching the render path).
+            from diagram.models import DiagramVersion
+
+            version = DiagramVersion.objects.get(
+                diagram_id=diagram_id, version_number=1
+            )
+            version.payload = version.payload.replace('"box"', '"hexagon"')
+            version.save(update_fields=["payload"])
+
+            get_result = group._handle_get(
+                params={"id": diagram_id, "export_format": "svg"},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert get_result.success is False
+        assert get_result.error_code == "VALIDATION_ERROR"
 
 
 # ---------------------------------------------------------------------------
