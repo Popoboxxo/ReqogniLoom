@@ -29,6 +29,18 @@ Shadow-Artifact pattern (Codeberg #353 Task 3, closes #392):
   that shadow Artifact; both this module's own "documents" link path and the
   Task 4 "diagram-ref" reconciler call it, so the fix lives in exactly one
   place.
+
+Per-node artifact_ref reconciler (Codeberg #353 Task 4):
+  ``sync_node_links`` reconciles the *desired* set of ``LinkType.DIAGRAM_REF``
+  TraceLinks (derived from a ``node_graph`` payload's per-node
+  ``artifact_ref`` fields, see ``diagram.node_graph.extract_artifact_refs``)
+  against the *current* set already persisted for the Diagram's shadow
+  Artifact — creating what's missing, deleting what's no longer referenced,
+  and leaving the rest untouched. It is reconciler-owned and MUST NEVER read,
+  create or delete a TraceLink of any other ``link_type`` (in particular the
+  hand-authored ``documents`` link created by ``create_document_link`` above)
+  on the same Diagram/artifact pair — every query and mutation below is
+  therefore hard-filtered to ``link_type=LinkType.DIAGRAM_REF``.
 """
 from __future__ import annotations
 
@@ -119,6 +131,270 @@ def _resolve_artifact_id(diagram: Diagram) -> uuid.UUID:
 
 
 # ---------------------------------------------------------------------------
+# Per-node artifact_ref -> Artifact resolution (Codeberg #353 Task 4)
+# ---------------------------------------------------------------------------
+
+def _resolve_target_artifact_id(
+    entity_type: Optional[str],
+    ref_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+) -> Optional[uuid.UUID]:
+    """Resolve one validated node_graph ``artifact_ref`` to a target Artifact id.
+
+    Returns ``None`` — a single "unresolvable" outcome — for all three abort
+    conditions the Task 4 brief lists as equivalent: the referenced entity
+    does not exist, belongs to a different tenant, or is soft-deleted. The
+    caller (``sync_node_links``) turns a ``None`` into a save-aborting
+    ``DiagramValidationError`` naming the offending node.
+
+    Tenant scoping differs by entity type:
+      * ``Requirement`` / ``StakeholderNeed`` / ``ArchitectureElement`` /
+        ``TestCase`` are ``persistence.models.TenantScopedModel`` — their
+        default ``objects`` manager already filters to the active
+        ``TenantContext`` (persistence.tenancy), so a foreign-tenant id is
+        simply invisible here, the same outcome as a nonexistent id.
+      * ``Adr`` / ``Risk`` / ``Issue`` / ``Goal`` / ``MainGoal``
+        (``application.models``) are plain ``models.Model`` with an explicit
+        ``tenant_id`` column and no tenant-scoping manager (mirrors
+        ``RiskService.delete_risk`` / ``IssueService.delete_issue``, which
+        filter ``tenant_id=ctx.tenant_id`` explicitly for the same reason) —
+        filtered explicitly against *tenant_id* here.
+      * ``GlossaryTerm`` has no backing Artifact at all
+        (``persistence.models.GlossaryTerm`` carries no ``artifact`` FK) and
+        can therefore never back a TraceLink; always unresolvable. This is a
+        pre-existing data-model gap (Task 4 does not attempt to close it),
+        not a bug introduced by the reconciler.
+
+    Soft-delete, per entity type's actual mechanism in this codebase (two
+    independent mechanisms coexist — see REQ-006 vs. the WorkflowEngine
+    "outdated" state):
+      * ``Requirement`` / ``TestCase``: denormalized WorkflowEngine ``status``
+        mirror == ``"outdated"`` (mirrors
+        ``traceability.coverage_calculator._exclude_outdated_testcase_ids``).
+      * ``ArchitectureElement``: no status mirror -> excluded via
+        ``workflow.services.outdated_item_ids("ArchitectureElement")``.
+      * ``StakeholderNeed``: REQ-006 ``lifecycle_status == "deleted"``.
+      * ``Adr``: its own ``Adr.Status.DELETED`` sentinel on ``status``.
+      * ``Risk`` / ``Issue``: hard-deleted by ``RiskService.delete_risk`` /
+        ``IssueService.delete_issue`` — a missing row already covers this,
+        no extra exclusion needed.
+      * ``Goal`` / ``MainGoal``: append-only, versioned rows with no
+        soft-delete concept — existence + tenant match is sufficient.
+
+    Args:
+        entity_type: One of ``diagram.node_graph.KNOWN_ARTIFACT_ENTITY_TYPES``
+            (already validated by ``validate_node_graph`` before this runs).
+        ref_id:      The referenced entity's own primary key (already
+            validated as a UUID string by ``validate_node_graph``).
+        tenant_id:   The active tenant (``diagram.tenant_id``), used for the
+            explicit-filter entity types above.
+
+    Returns:
+        The resolved target Artifact UUID, or ``None`` if unresolvable.
+    """
+    if entity_type == "Requirement":
+        from persistence.models import Requirement
+
+        obj = Requirement.objects.filter(id=ref_id).exclude(status="outdated").first()
+        return obj.artifact_id if obj else None
+
+    if entity_type == "TestCase":
+        from persistence.models import TestCase
+
+        obj = TestCase.objects.filter(id=ref_id).exclude(status="outdated").first()
+        return obj.artifact_id if obj else None
+
+    if entity_type == "StakeholderNeed":
+        from persistence.models import StakeholderNeed
+
+        obj = (
+            StakeholderNeed.objects.filter(id=ref_id)
+            .exclude(lifecycle_status="deleted")
+            .first()
+        )
+        return obj.artifact_id if obj else None
+
+    if entity_type == "ArchitectureElement":
+        from persistence.models import ArchitectureElement
+        from workflow.services import outdated_item_ids
+
+        obj = (
+            ArchitectureElement.objects.filter(id=ref_id)
+            .exclude(id__in=outdated_item_ids("ArchitectureElement"))
+            .first()
+        )
+        return obj.artifact_id if obj else None
+
+    if entity_type == "Adr":
+        from application.models import Adr
+
+        obj = (
+            Adr.objects.filter(id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False)
+            .exclude(status=Adr.Status.DELETED)
+            .first()
+        )
+        return obj.artifact_id if obj else None
+
+    if entity_type == "Risk":
+        from application.models import Risk
+
+        obj = Risk.objects.filter(
+            id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False
+        ).first()
+        return obj.artifact_id if obj else None
+
+    if entity_type == "Issue":
+        from application.models import Issue
+
+        obj = Issue.objects.filter(
+            id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False
+        ).first()
+        return obj.artifact_id if obj else None
+
+    if entity_type == "Goal":
+        from application.models import Goal
+
+        obj = Goal.objects.filter(id=ref_id, tenant_id=tenant_id).first()
+        return obj.artifact_id if obj else None
+
+    if entity_type == "MainGoal":
+        from application.models import MainGoal
+
+        obj = MainGoal.objects.filter(id=ref_id, tenant_id=tenant_id).first()
+        return obj.artifact_id if obj else None
+
+    # GlossaryTerm (not Artifact-backed) and any unrecognised entity_type:
+    # always unresolvable.
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Per-node trace-link reconciler — IF-DS-INT-003 (Codeberg #353 Task 4)
+# ---------------------------------------------------------------------------
+
+def sync_node_links(
+    diagram: Diagram,
+    node_graph_payload: dict,
+    created_by_id: Optional[uuid.UUID] = None,
+) -> None:
+    """Reconcile a Diagram's ``DIAGRAM_REF`` TraceLinks to its node_graph refs.
+
+    Called by DiagramManager after a ``node_graph`` payload has been
+    validated and (for create/update) persisted, so that the set of
+    ``LinkType.DIAGRAM_REF`` TraceLinks whose source is this Diagram's shadow
+    Artifact always mirrors the distinct set of ``artifact_ref`` targets
+    currently present in the payload:
+
+      * A target referenced by one or more nodes but with no existing link
+        gets one created (never more than one, even if N nodes reference the
+        same artifact — REQ dedupe).
+      * An existing link whose target is no longer referenced by any node
+        gets deleted.
+      * An existing link whose target is still referenced is left alone
+        (re-saving an unchanged graph is a no-op: no new rows, no deletes).
+
+    Global safety invariant (the entire point of this function): the
+    "current" query below filters ``link_type=LinkType.DIAGRAM_REF`` and
+    NEVER omits that filter — a hand-authored ``documents`` link (or any
+    other link_type) on the exact same Diagram/artifact pair is therefore
+    never read, created or deleted by this reconciler, no matter what the
+    node_graph payload contains.
+
+    Unresolvable refs abort the *entire* save (no partial application): if
+    any node's ``artifact_ref`` does not resolve to an existing, same-tenant,
+    non-soft-deleted Artifact, this raises before any TraceLink is created or
+    deleted, naming the offending node id. Callers (DiagramManager) run this
+    inside the same ``@atomic_transaction`` as the diagram/version write, so
+    an abort here also rolls back the diagram save itself.
+
+    Args:
+        diagram:            The just-created/updated Diagram ORM instance
+            (must belong to the active tenant; ``diagram.tenant_id`` is used
+            for the entity types without a tenant-scoping manager).
+        node_graph_payload: The already-validated ``node_graph`` payload
+            dict (call ``diagram.node_graph.validate_node_graph`` first).
+        created_by_id:      Optional actor UUID for audit metadata on newly
+            created links.
+
+    Raises:
+        DiagramValidationError: A node's ``artifact_ref`` does not resolve to
+            an existing, same-tenant, non-soft-deleted Artifact. Mapped to
+            ``400 VALIDATION_ERROR`` by the same REST/MCP handlers that
+            already catch this exception for payload validation (CR-02) —
+            no separate exception-mapping code needed at those layers.
+        TraceLinkError: The Diagram has no ``workspace_id`` (via
+            ``_resolve_artifact_id`` — REQ-173, unchanged Task 3 contract).
+    """
+    from diagram.node_graph import extract_artifact_refs
+    from diagram.validator import DiagramValidationError
+    from persistence.models import TraceLink
+    from traceability.types import LinkType
+
+    refs = extract_artifact_refs(node_graph_payload)
+
+    desired_ids: set[uuid.UUID] = set()
+    for node_id, artifact_ref in refs:
+        entity_type = artifact_ref.get("entity_type")
+        raw_ref_id = artifact_ref.get("id")
+        try:
+            ref_uuid = uuid.UUID(str(raw_ref_id))
+        except (ValueError, TypeError, AttributeError):
+            ref_uuid = None
+
+        resolved = (
+            _resolve_target_artifact_id(entity_type, ref_uuid, diagram.tenant_id)
+            if ref_uuid is not None
+            else None
+        )
+        if resolved is None:
+            raise DiagramValidationError(
+                f"Node '{node_id}': artifact_ref "
+                f"(entity_type={entity_type!r}, id={raw_ref_id!r}) does not "
+                "resolve to an existing, same-tenant artifact."
+            )
+        desired_ids.add(resolved)
+
+    if not desired_ids and diagram.artifact_id is None:
+        # No refs in the payload, and this Diagram has never had a shadow
+        # Artifact created — so no DIAGRAM_REF link could possibly exist for
+        # it yet either. Skip _resolve_artifact_id entirely: it requires
+        # diagram.workspace_id to be set, and a node_graph payload with no
+        # artifact_ref nodes at all must keep working for workspace-less
+        # Diagrams (see diagram.tests.test_manager.TestNodeGraphWritePath,
+        # none of which pass workspace_id).
+        return
+
+    diagram_artifact_id = _resolve_artifact_id(diagram)
+
+    # Step 4 (the entire safety mechanism) — see module/function docstring:
+    # this filter MUST always include link_type=LinkType.DIAGRAM_REF.
+    current_links = list(
+        TraceLink.objects.filter(
+            source_id=diagram_artifact_id, link_type=LinkType.DIAGRAM_REF
+        )
+    )
+    current_ids = {link.target_id for link in current_links}
+
+    to_delete_ids = current_ids - desired_ids
+    to_create_ids = desired_ids - current_ids
+
+    if to_delete_ids:
+        TraceLink.objects.filter(
+            source_id=diagram_artifact_id,
+            link_type=LinkType.DIAGRAM_REF,
+            target_id__in=to_delete_ids,
+        ).delete()
+
+    for target_id in to_create_ids:
+        create_trace_link(
+            source_id=diagram_artifact_id,
+            target_id=target_id,
+            link_type=LinkType.DIAGRAM_REF,
+            created_by_id=created_by_id,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Public interface — IF-DS-INT-003 / IF-L1-034
 # ---------------------------------------------------------------------------
 
@@ -180,4 +456,5 @@ class TraceabilityConnector:
 __all__ = [
     "TraceabilityConnector",
     "_resolve_artifact_id",
+    "sync_node_links",
 ]
