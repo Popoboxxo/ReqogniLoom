@@ -46,7 +46,12 @@ interface GraphCanvasProps {
   selection: Selection;
   onSelect: (selection: Selection) => void;
   editMode: boolean;
-  onConnectNodes: (source: string, target: string) => void;
+  onConnectNodes: (
+    source: string,
+    target: string,
+    sourceHandle: string | null,
+    targetHandle: string | null
+  ) => void;
   onRenameNode: (id: string, newLabel: string) => void;
   onNodeDragStop: (id: string, position: { x: number; y: number }) => void;
   onDeleteSelection: () => void;
@@ -109,7 +114,10 @@ function CanvasInner({
 
   const handleConnect = useCallback<OnConnect>(
     (c: Connection) => {
-      if (c.source && c.target) onConnectNodes(c.source, c.target);
+      // Forward the actual handle ids the user dragged from/to — see
+      // DiagramGraphEditorPage.tsx's handleConnectNodes for the fallback
+      // when React Flow reports no specific handle.
+      if (c.source && c.target) onConnectNodes(c.source, c.target, c.sourceHandle, c.targetHandle);
     },
     [onConnectNodes]
   );

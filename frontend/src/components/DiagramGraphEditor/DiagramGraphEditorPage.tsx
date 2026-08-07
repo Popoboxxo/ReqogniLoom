@@ -39,7 +39,7 @@ import {
   payloadToFlowNodes,
   useGraphPayload,
 } from "./useGraphPayload";
-import type { GraphEdge, GraphNode } from "../../types";
+import type { GraphEdge, GraphHandlePosition, GraphNode } from "../../types";
 import styles from "./DiagramGraphEditor.module.css";
 
 // Stable empty-array identities so `nodes`/`edges` below don't produce a new
@@ -52,6 +52,17 @@ function newNodeId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * React Flow's `Connection.sourceHandle`/`targetHandle` are `string | null`
+ * (GraphNode.tsx's own handle ids are always one of these four). Used to
+ * validate a real handle before trusting it, so a `null` (or otherwise
+ * unexpected) value falls through to the caller's default instead of being
+ * written into the saved payload as-is.
+ */
+function isGraphHandlePosition(value: string | null | undefined): value is GraphHandlePosition {
+  return value === "top" || value === "right" || value === "bottom" || value === "left";
 }
 
 export function DiagramGraphEditorPage(): JSX.Element {
@@ -156,23 +167,55 @@ export function DiagramGraphEditorPage(): JSX.Element {
     setSelection({ kind: "node", id });
   }, [nodes.length, t]);
 
-  const handleConnectNodes = useCallback((source: string, target: string): void => {
-    const id = newNodeId();
-    const newEdge: GraphFlowEdge = {
-      id,
-      source,
-      target,
-      type: "graphEdge",
-      sourceHandle: "bottom",
-      targetHandle: "top",
-      data: { edge: { id, source, target, type: "flow" } },
-    };
-    setDraft((prev) => ({
-      nodes: prev?.nodes ?? [],
-      edges: [...(prev?.edges ?? []), newEdge],
-    }));
-    setSelection({ kind: "edge", id });
-  }, []);
+  const handleConnectNodes = useCallback(
+    (
+      source: string,
+      target: string,
+      sourceHandle: string | null,
+      targetHandle: string | null
+    ): void => {
+      const id = newNodeId();
+      // Thread the handle the user actually dragged from/to (React Flow's
+      // Connection.sourceHandle/targetHandle) through to the created edge —
+      // only fall back to the dagre-style bottom/top default when React Flow
+      // reports no specific handle (e.g. a connection not started from a
+      // named handle). Reviewer finding (Task 8, round 1): this previously
+      // hardcoded bottom/top unconditionally, discarding e.g. a left/right
+      // connection in this free-form editor (unlike WorkflowEditor's
+      // rank-oriented state machine, where bottom/top is a reasonable
+      // default for every edge).
+      const resolvedSourceHandle: GraphHandlePosition = isGraphHandlePosition(sourceHandle)
+        ? sourceHandle
+        : "bottom";
+      const resolvedTargetHandle: GraphHandlePosition = isGraphHandlePosition(targetHandle)
+        ? targetHandle
+        : "top";
+      const newEdge: GraphFlowEdge = {
+        id,
+        source,
+        target,
+        type: "graphEdge",
+        sourceHandle: resolvedSourceHandle,
+        targetHandle: resolvedTargetHandle,
+        data: {
+          edge: {
+            id,
+            source,
+            target,
+            type: "flow",
+            source_handle: resolvedSourceHandle,
+            target_handle: resolvedTargetHandle,
+          },
+        },
+      };
+      setDraft((prev) => ({
+        nodes: prev?.nodes ?? [],
+        edges: [...(prev?.edges ?? []), newEdge],
+      }));
+      setSelection({ kind: "edge", id });
+    },
+    []
+  );
 
   const handleDeleteNode = useCallback((id: string): void => {
     setDraft((prev) => {
