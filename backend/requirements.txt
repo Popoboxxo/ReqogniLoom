@@ -28,10 +28,15 @@ pytest>=9.0.3,<10.0
 # pytest-django 4.12.0 is the first release whose own test matrix runs against
 # pytest>=9; earlier 4.x releases predate pytest 9 entirely. Its install
 # requirement is only `pytest>=7`, so the floor has to be pinned here.
-# Heads-up: pytest-django 4.12.1 drops support for Django 4.2, which this file
-# still pins above. When 4.12.1 is released this range will resolve to it and
-# break — the fix is upgrading Django (4.2 is past end of life), not capping.
-pytest-django>=4.12.0,<5.0
+# CAPPED at <4.12.1: pytest-django 4.12.1 drops support for Django 4.2, which
+# this file still pins above (see the `django` pin near the top of this file).
+# 4.13.0 resolving in here broke every @pytest.mark.django_db test with
+# `AttributeError: type object 'PytestDjangoTestCase' has no attribute
+# '_pre_setup_ran_eagerly'` (that internal hook only exists on pytest-django
+# builds targeting Django>=5.0). The real fix is upgrading Django (4.2 is past
+# end of life) — this cap is the safe stopgap until that migration happens,
+# not a long-term pin. Remove this cap in the same change that upgrades Django.
+pytest-django>=4.12.0,<4.12.1
 pypdf>=6.14.2,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
