@@ -15,7 +15,9 @@ below.
    workspace-specific test-case fields beyond that (e.g. a required environment/browser matrix).
 2. Find the requirement you're testing with `requirement.get`/`requirement.query`, and check
    `traceability.query` to see whether a test case already covers it — don't create duplicates.
-3. Create the test case with `test.create`; refine with `test.update`.
+3. Create the test case with `test.create`; refine with `test.update`. `test.get` fetches a single
+   test case by ID and `test.query` searches by criteria — use either before creating, to confirm
+   you're editing the right existing case rather than duplicating it.
 4. Link it to the requirement with `test.link` using the `TESTS` link type.
 5. When it's time to execute: `test.run_create` starts a run, `test.run_report_results` records
    outcomes per test case (`passed`/`failed`/`blocked`/`skipped` — this also advances the run's

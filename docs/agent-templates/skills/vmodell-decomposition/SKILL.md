@@ -15,8 +15,10 @@ presets referenced below.
    should ultimately serve; flag (don't silently proceed) if it doesn't trace toward any active
    goal.
 2. Capture the raw stakeholder need with `needs.create`; refine it with `needs.update` as
-   understanding sharpens. `custom_field.get`/`custom_field.query` show workspace-specific fields
-   to fill in beyond the core schema.
+   understanding sharpens. `needs.read` fetches a single need by ID once captured, and
+   `needs.get_traces` shows which requirements have already been derived from it, so you can tell
+   an already-decomposed need from one still waiting. `custom_field.get`/`custom_field.query` show
+   workspace-specific fields to fill in beyond the core schema.
 3. Derive the first requirement level either by hand (`requirement.create` + an explicit
    `DERIVED_FROM` link via `traceability.create_link`) or by asking the LLM adapter via
    `ai_derivation.derive_requirements_from_need` / `needs.derive_requirements` — both call the
@@ -24,7 +26,11 @@ presets referenced below.
    needs-scoped convenience wrapper. `requirement.derive` is the generic single-requirement
    derivation call for deriving one requirement from another already-existing requirement
    (rather than from a raw stakeholder need) — use it when the source is itself a requirement.
-4. Decompose a requirement to the next V-Modell level with `requirement.decompose` (manual) or
+4. Fetch the requirement you're about to decompose with `requirement.get` (by ID) or
+   `requirement.query` (by criteria, when you don't have an exact ID); `requirement.update`
+   revises its fields directly when a decomposition pass surfaces a correction on the source
+   requirement itself, without going through `decompose`/`derive` again. Decompose it to the next
+   V-Modell level with `requirement.decompose` (manual) or
    `ai_derivation.decompose_requirement_next_level` (LLM-assisted). After decomposing,
    `ai_derivation.suggest_architecture_for_requirement` proposes which architecture element(s) the
    new requirement level should map to — review before an architecture-owning identity actually

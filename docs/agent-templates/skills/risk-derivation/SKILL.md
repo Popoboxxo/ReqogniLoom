@@ -22,7 +22,8 @@ below.
    for a given architecture element — use it to seed a review pass, not as a final risk record;
    always assess likelihood/impact/mitigation yourself before recording anything.
 5. Create the risk with `risk.create` (likelihood, impact, mitigation, and the linked
-   requirement/architecture IDs); refine with `risk.update` as assessment matures. Risk-to-entity
+   requirement/architecture IDs); refine with `risk.update` as assessment matures, and `risk.read`
+   fetches a single risk by ID when you already know which one you're revisiting. Risk-to-entity
    linking for the primary threatened element is driven by fields on the risk itself; use
    `traceability.create_link` directly when a risk needs an additional `RELATED_TO`/
    `CONFLICTS_WITH` link beyond that primary one. `risk.delete` is for a risk record created in
