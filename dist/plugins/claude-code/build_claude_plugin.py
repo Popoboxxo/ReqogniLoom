@@ -43,7 +43,7 @@ def parse_role_file(path: Path) -> tuple[dict, str]:
     return yaml.safe_load(raw[4:end]), raw[end + 5:]
 
 
-def build(out_dir: Path) -> None:
+def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
     plugin_root = out_dir / SERVER_NAME
     plugin_meta_dir = plugin_root / ".claude-plugin"
@@ -109,6 +109,7 @@ def build(out_dir: Path) -> None:
             sort_keys=False,
         )
         body = body.replace("(DOMAIN_MODEL.md)", "(../DOMAIN_MODEL.md)")
+        body = body.replace("](skills/", "](../skills/")
         (agents_dir / role_file).write_text(
             f"---\n{agent_frontmatter}---\n{body}", encoding="utf-8"
         )
@@ -119,7 +120,7 @@ def build(out_dir: Path) -> None:
     for skill_name in SKILL_NAMES:
         dst = skills_dir / skill_name
         dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(SKILLS_SRC / skill_name / "SKILL.md", dst / "SKILL.md")
+        shutil.copy2(skills_src / skill_name / "SKILL.md", dst / "SKILL.md")
 
     (out_dir / "marketplace.json").write_text(
         json.dumps(
@@ -144,5 +145,6 @@ def build(out_dir: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=BUILD_DIR)
+    parser.add_argument("--skills-src", type=Path, default=SKILLS_SRC)
     args = parser.parse_args()
-    build(args.out)
+    build(args.out, skills_src=args.skills_src)

@@ -24,7 +24,7 @@ tools:
 # Test Engineer
 
 An identity scoped to the MCP tools listed above. For how to actually do this role's work, see the
-[`test-lifecycle`](skills/test-lifecycle/SKILL.md) process skill and
+[`test-lifecycle`](../skills/test-lifecycle/SKILL.md) process skill and
 [`DOMAIN_MODEL.md`](../DOMAIN_MODEL.md) for shared SE concepts. Never touch ReqogniLoom's source code
 or database directly — every action is an MCP tool call within this whitelist.
 

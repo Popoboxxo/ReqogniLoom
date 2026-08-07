@@ -21,7 +21,7 @@ SKILL_NAMES = [
 ]
 
 
-def build(out_dir: Path) -> None:
+def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
     plugin_root = out_dir / SERVER_NAME
     plugin_root.mkdir(parents=True, exist_ok=True)
@@ -66,7 +66,7 @@ def build(out_dir: Path) -> None:
     if skills_out.exists():
         shutil.rmtree(skills_out)
     for skill_name in SKILL_NAMES:
-        src = SKILLS_SRC / skill_name
+        src = skills_src / skill_name
         dst = skills_out / skill_name
         dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src / "SKILL.md", dst / "SKILL.md")
@@ -75,5 +75,6 @@ def build(out_dir: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=BUILD_DIR)
+    parser.add_argument("--skills-src", type=Path, default=SKILLS_SRC)
     args = parser.parse_args()
-    build(args.out)
+    build(args.out, skills_src=args.skills_src)

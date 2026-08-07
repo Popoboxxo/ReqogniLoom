@@ -63,6 +63,7 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     ).read_text()
     assert "](../DOMAIN_MODEL.md)" in architect_md
     assert "](../../DOMAIN_MODEL.md)" in skill
+    assert "](../skills/vmodell-decomposition/SKILL.md)" in architect_md
 
 
 def test_build_claude_plugin_all_json_files_parse(tmp_path):

@@ -39,7 +39,7 @@ tools:
 
 An identity scoped to the MCP tools listed above — a real authorization boundary, not just
 documentation. For how to actually do this role's work, see the
-[`vmodell-decomposition`](skills/vmodell-decomposition/SKILL.md) process skill and
+[`vmodell-decomposition`](../skills/vmodell-decomposition/SKILL.md) process skill and
 [`DOMAIN_MODEL.md`](../DOMAIN_MODEL.md) for shared SE concepts (REQ-ID schema, trace-link types,
 rigor presets). Never touch ReqogniLoom's source code or database directly — every action is an
 MCP tool call within this whitelist.

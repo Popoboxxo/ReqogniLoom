@@ -29,7 +29,7 @@ SKILL_NAMES = [
 ]
 
 
-def build(out_dir: Path) -> None:
+def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     (out_dir / "opencode.json.snippet").write_text(
@@ -55,11 +55,12 @@ def build(out_dir: Path) -> None:
     for skill_name in SKILL_NAMES:
         dst = skills_out / skill_name
         dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(SKILLS_SRC / skill_name / "SKILL.md", dst / "SKILL.md")
+        shutil.copy2(skills_src / skill_name / "SKILL.md", dst / "SKILL.md")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=BUILD_DIR)
+    parser.add_argument("--skills-src", type=Path, default=SKILLS_SRC)
     args = parser.parse_args()
-    build(args.out)
+    build(args.out, skills_src=args.skills_src)
