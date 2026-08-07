@@ -54,6 +54,7 @@ class PayloadFormat(models.TextChoices):
     PLANTUML = "plantuml", "PlantUML"
     JSON = "json", "Structured JSON"
     CANVAS_STROKE = "canvas_stroke", "Canvas Stroke Data (JSON)"
+    NODE_GRAPH = "node_graph", "Node Graph (JSON)"
 
 
 # ---------------------------------------------------------------------------

@@ -242,3 +242,147 @@ class TestDiagramViewSetCanvasStrokeTypeValidation:
             response = self._post_canvas_stroke(content)
 
         assert response.status_code == 201
+
+
+class TestDiagramViewSetNodeGraphValidation:
+    """GH-353 (Task 1): POST /api/v1/diagrams/ with payload_format=node_graph.
+
+    ``create_diagram`` is DB-backed, so it is mocked here like everywhere
+    else in this file. For the rejection cases, the mock's side effect calls
+    the *real* ``DiagramValidator.validate_payload`` (mirrors the GH-352
+    canvas_stroke tests above) so the test exercises the actual node_graph
+    validation logic rather than a canned error string.
+    """
+
+    _VALID_CONTENT = json.dumps({
+        "schema_version": 1,
+        "nodes": [
+            {
+                "id": "n-1",
+                "type": "box",
+                "label": "Auth Service",
+                "position": {"x": 0, "y": 0},
+            },
+        ],
+        "edges": [],
+    })
+
+    def _post_node_graph(self, content: str) -> Any:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "My Node Graph Diagram",
+                "diagram_type": "block",
+                "payload_format": "node_graph",
+                "content": content,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.Tenant"), patch(
+                "rest_api.diagram_views.User"
+            ):
+                return view(req)
+
+    def _real_validation_side_effect(self, **kwargs: Any) -> None:
+        # Mirrors create_diagram's first step (before any DB write):
+        # DiagramManager.create_diagram() -> validate_payload(...).
+        DiagramValidator().validate_payload(
+            kwargs["diagram_type"], kwargs["payload_format"], kwargs["content"]
+        )
+        raise AssertionError(
+            "validation should have raised before persistence was reached"
+        )
+
+    def test_valid_node_graph_returns_201(self) -> None:
+        """Done-when: a valid node_graph payload is accepted."""
+        fake_diagram = MagicMock()
+        fake_diagram.id = FAKE_DIAGRAM_ID
+        fake_diagram.name = "My Node Graph Diagram"
+        fake_diagram.diagram_type = "block"
+        fake_diagram.description = ""
+        fake_diagram.workspace_id = None
+        fake_diagram.current_version_id = None
+        fake_diagram.created_at = None
+        fake_diagram.versions.count.return_value = 1
+
+        with patch(
+            "rest_api.diagram_views.create_diagram", return_value=fake_diagram
+        ):
+            response = self._post_node_graph(self._VALID_CONTENT)
+
+        assert response.status_code == 201
+
+    def test_dangling_edge_endpoint_rejected_with_400(self) -> None:
+        """Done-when: a dangling edge endpoint is rejected with 400 VALIDATION_ERROR."""
+        content = json.dumps({
+            "schema_version": 1,
+            "nodes": [
+                {"id": "n-1", "type": "box", "label": "A", "position": {"x": 0, "y": 0}},
+            ],
+            "edges": [
+                {"id": "e-1", "source": "n-1", "target": "ghost", "type": "flow"},
+            ],
+        })
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=self._real_validation_side_effect,
+        ):
+            response = self._post_node_graph(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "dangling" in response.data["error"]["message"]
+
+    def test_unknown_node_type_rejected_with_400(self) -> None:
+        """Done-when: an unknown node type is rejected with 400 VALIDATION_ERROR."""
+        content = json.dumps({
+            "schema_version": 1,
+            "nodes": [
+                {"id": "n-1", "type": "hexagon", "label": "A", "position": {"x": 0, "y": 0}},
+            ],
+            "edges": [],
+        })
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=self._real_validation_side_effect,
+        ):
+            response = self._post_node_graph(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_over_cap_payload_rejected_with_400(self) -> None:
+        """Done-when: an over-cap payload (> 500 nodes) is rejected with 400."""
+        content = json.dumps({
+            "schema_version": 1,
+            "nodes": [
+                {
+                    "id": f"n-{i}",
+                    "type": "box",
+                    "label": "",
+                    "position": {"x": i, "y": i},
+                }
+                for i in range(501)
+            ],
+            "edges": [],
+        })
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=self._real_validation_side_effect,
+        ):
+            response = self._post_node_graph(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "500" in response.data["error"]["message"]

@@ -100,6 +100,15 @@ _RENDER_HINTS: dict[tuple[str, str], str] = {
     (DiagramType.CONTEXT, PayloadFormat.PLANTUML): "plantuml-js",
     (DiagramType.CONTEXT, PayloadFormat.JSON): "custom-json",
     (DiagramType.MERMAID, PayloadFormat.MERMAID): "mermaid.js",
+    # GH-353 (Task 1): node_graph is a strictly-typed node/edge format,
+    # rendered client-side via React Flow — additive only, every DiagramType
+    # may carry a node_graph version. Unmapped combinations already fall
+    # back to "unknown" without raising, so this cannot break existing hints.
+    (DiagramType.BLOCK, PayloadFormat.NODE_GRAPH): "react-flow",
+    (DiagramType.FLOW, PayloadFormat.NODE_GRAPH): "react-flow",
+    (DiagramType.CONTEXT, PayloadFormat.NODE_GRAPH): "react-flow",
+    (DiagramType.CANVAS, PayloadFormat.NODE_GRAPH): "react-flow",
+    (DiagramType.MERMAID, PayloadFormat.NODE_GRAPH): "react-flow",
 }
 
 # Supported Mermaid diagram types for COMP-DS-007 — REQ-L2-DS-007
