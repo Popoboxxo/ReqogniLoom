@@ -4,7 +4,8 @@
  * Verifies:
  * - form renders after the settings load
  * - the api_key field is type=password
- * - base_url input appears for the ollama and opencode_go providers
+ * - base_url input appears for the ollama, opencode_go, anthropic and
+ *   openai providers
  * - Save omits api_key when the user did not type a new one (write-only field)
  * - an unrecognized server-side provider is never silently replaced (#274)
  */
@@ -90,6 +91,33 @@ describe("LlmSettingsSection (REQ-L2-LLM-001)", () => {
     await userEvent.selectOptions(
       screen.getByTestId("llm-provider-select"),
       "opencode_go"
+    );
+    expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
+  });
+
+  // Custom base URLs (proxies, self-hosted gateways) must also be
+  // configurable for the two "cloud" providers, not just the self-hosted
+  // ones (#212).
+  it("shows the base_url input for the anthropic provider", async () => {
+    render(<LlmSettingsSection />);
+    await screen.findByTestId("llm-provider-select");
+    expect(screen.queryByTestId("llm-base-url-input")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-provider-select"),
+      "anthropic"
+    );
+    expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
+  });
+
+  it("shows the base_url input for the openai provider", async () => {
+    render(<LlmSettingsSection />);
+    await screen.findByTestId("llm-provider-select");
+    expect(screen.queryByTestId("llm-base-url-input")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-provider-select"),
+      "openai"
     );
     expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
   });

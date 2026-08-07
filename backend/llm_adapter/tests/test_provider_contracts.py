@@ -14,6 +14,9 @@ with a dummy ProviderConfig; their _chat / SDK methods are never invoked.
 from __future__ import annotations
 
 import inspect
+import sys
+import types
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -284,3 +287,105 @@ def test_http_provider_falls_back_to_default_model_name(provider_cls: type) -> N
     )
     provider = provider_cls(config)
     assert provider.model_name == provider_cls.MODEL_NAME
+
+
+# ---------------------------------------------------------------------------
+# base_url passthrough (issue #212): AnthropicProvider / OpenAiProvider must
+# forward a configured api_base_url to the underlying SDK client so custom
+# endpoints (proxies, self-hosted gateways) are actually reachable. Both SDK
+# modules are imported lazily inside the provider methods, so - mirroring the
+# `requests` fake-module pattern in test_resilient_transport.py - a fake
+# module is injected into sys.modules for the duration of the call.
+# ---------------------------------------------------------------------------
+
+
+def _fake_anthropic_module(captured: dict) -> types.ModuleType:
+    """Build a fake `anthropic` module recording the Anthropic() kwargs."""
+
+    def _anthropic_ctor(**kwargs):
+        captured["kwargs"] = kwargs
+        client = MagicMock()
+        message = MagicMock()
+        message.content = [MagicMock(text='{"score": 1.0, "suggestions": []}')]
+        message.usage = MagicMock(input_tokens=1, output_tokens=1)
+        client.messages.create.return_value = message
+        return client
+
+    fake_module = types.ModuleType("anthropic")
+    fake_module.Anthropic = _anthropic_ctor
+    return fake_module
+
+
+def _fake_openai_module(captured: dict) -> types.ModuleType:
+    """Build a fake `openai` module recording the OpenAI() kwargs."""
+
+    def _openai_ctor(**kwargs):
+        captured["kwargs"] = kwargs
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        response.usage = MagicMock(total_tokens=2)
+        client.chat.completions.create.return_value = response
+        return client
+
+    fake_module = types.ModuleType("openai")
+    fake_module.OpenAI = _openai_ctor
+    return fake_module
+
+
+def test_anthropic_provider_forwards_configured_base_url() -> None:
+    """[Issue #212] A configured api_base_url must reach anthropic.Anthropic()."""
+    captured: dict = {}
+    fake_anthropic = _fake_anthropic_module(captured)
+    config = ProviderConfig(
+        provider_name="anthropic",
+        api_key="sk-dummy",
+        api_base_url="https://custom-anthropic-proxy.example.com",
+    )
+    provider = AnthropicProvider(config)
+    with patch.dict(sys.modules, {"anthropic": fake_anthropic}):
+        provider._chat("hello")
+    assert captured["kwargs"]["base_url"] == "https://custom-anthropic-proxy.example.com"
+
+
+def test_anthropic_provider_falls_back_to_sdk_default_when_base_url_unset() -> None:
+    """[Issue #212] An unset/empty api_base_url must not pass a literal empty
+    string to the SDK - it must pass None so the SDK's own default applies."""
+    captured: dict = {}
+    fake_anthropic = _fake_anthropic_module(captured)
+    config = ProviderConfig(
+        provider_name="anthropic", api_key="sk-dummy", api_base_url=""
+    )
+    provider = AnthropicProvider(config)
+    with patch.dict(sys.modules, {"anthropic": fake_anthropic}):
+        provider._chat("hello")
+    assert captured["kwargs"]["base_url"] is None
+
+
+def test_openai_provider_forwards_configured_base_url() -> None:
+    """[Issue #212] A configured api_base_url must reach openai.OpenAI()."""
+    captured: dict = {}
+    fake_openai = _fake_openai_module(captured)
+    config = ProviderConfig(
+        provider_name="openai",
+        api_key="sk-dummy",
+        api_base_url="https://custom-openai-proxy.example.com",
+    )
+    provider = OpenAiProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert captured["kwargs"]["base_url"] == "https://custom-openai-proxy.example.com"
+
+
+def test_openai_provider_falls_back_to_sdk_default_when_base_url_unset() -> None:
+    """[Issue #212] An unset/empty api_base_url must not pass a literal empty
+    string to the SDK - it must pass None so the SDK's own default applies."""
+    captured: dict = {}
+    fake_openai = _fake_openai_module(captured)
+    config = ProviderConfig(
+        provider_name="openai", api_key="sk-dummy", api_base_url=""
+    )
+    provider = OpenAiProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert captured["kwargs"]["base_url"] is None

@@ -985,7 +985,10 @@ class AnthropicProvider(_BaseHttpProvider):
             ) from exc
 
         effective_timeout = self._effective_timeout(timeout)
-        client = anthropic.Anthropic(api_key=self._config.api_key)
+        client = anthropic.Anthropic(
+            api_key=self._config.api_key,
+            base_url=self._config.api_base_url or None,
+        )
         message = self._resilient(
             lambda: client.messages.create(
                 model=self.model_name,
@@ -1016,7 +1019,10 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415 (lazy import intentional)
 
             effective_timeout = self._effective_timeout(timeout)
-            client = anthropic.Anthropic(api_key=self._config.api_key)
+            client = anthropic.Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url or None,
+            )
             message = self._resilient(
                 lambda: client.messages.create(
                     model=self.model_name,
@@ -1069,7 +1075,10 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415
 
             effective_timeout = self._effective_timeout(timeout)
-            client = anthropic.Anthropic(api_key=self._config.api_key)
+            client = anthropic.Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url or None,
+            )
             message = self._resilient(
                 lambda: client.messages.create(
                     model=self.model_name,
@@ -1122,7 +1131,10 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415
 
             effective_timeout = self._effective_timeout(timeout)
-            client = anthropic.Anthropic(api_key=self._config.api_key)
+            client = anthropic.Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url or None,
+            )
             message = self._resilient(
                 lambda: client.messages.create(
                     model=self.model_name,
@@ -1222,7 +1234,11 @@ class OpenAiProvider(_BaseHttpProvider):
             ) from exc
 
         effective_timeout = self._effective_timeout(timeout)
-        client = OpenAI(api_key=self._config.api_key, timeout=effective_timeout)
+        client = OpenAI(
+            api_key=self._config.api_key,
+            base_url=self._config.api_base_url or None,
+            timeout=effective_timeout,
+        )
         response = self._resilient(
             lambda: client.chat.completions.create(
                 model=self.model_name,
