@@ -780,6 +780,92 @@
     "openEditor": "Open editor",
     "emptyCanvas": "This canvas is still empty."
   },
+  "diagramGraph": {
+    "header": {
+      "back": "Back",
+      "titleDefault": "Diagram Editor",
+      "missingDiagramId": "No diagram id in the route.",
+      "viewMode": "View mode",
+      "viewModeLabels": {
+        "visual": "Visual",
+        "code": "Code"
+      },
+      "editing": "Editing",
+      "readOnly": "Read only",
+      "save": "Save",
+      "saving": "Saving...",
+      "dismissError": "Dismiss error"
+    },
+    "canvas": {
+      "loading": "Loading diagram...",
+      "loadErrorTitle": "Failed to load diagram",
+      "emptyTitle": "No nodes yet",
+      "emptyHintEdit": "Use \"Add node\" in the toolbar to create your first node.",
+      "emptyHintReadOnly": "Enable edit mode to add nodes.",
+      "newNodeLabel": "New Node",
+      "nodeAriaLabel": "Node {{label}} ({{type}})",
+      "nodeLinkedAriaLabel": "Linked to {{entityType}}"
+    },
+    "toolbar": {
+      "ariaLabel": "Diagram toolbar",
+      "addNode": "Add node",
+      "autoLayout": "Auto layout",
+      "autoLayoutTitle": "Automatically arrange nodes (overwrites current positions)",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "fitToView": "Fit to view",
+      "toggleGrid": "Toggle grid"
+    },
+    "inspector": {
+      "ariaLabel": "Properties panel",
+      "title": "Properties",
+      "emptyPrompt": "Select a node or edge to see its properties.",
+      "clearSelection": "Clear selection",
+      "label": "Label",
+      "type": "Type",
+      "accent": "Accent color",
+      "parentGroup": "Parent group",
+      "noParent": "None",
+      "artifactRef": "Artifact link",
+      "artifactIdPlaceholder": "Artifact ID (UUID)",
+      "artifactClear": "Remove link",
+      "artifactUnlinked": "Not linked",
+      "deleteNode": "Delete node",
+      "lineStyle": "Line style",
+      "sourceHandle": "Source handle",
+      "targetHandle": "Target handle",
+      "deleteEdge": "Delete edge"
+    },
+    "nodeTypes": {
+      "box": "Box",
+      "rounded": "Rounded",
+      "ellipse": "Ellipse",
+      "diamond": "Diamond",
+      "note": "Note",
+      "group": "Group"
+    },
+    "edgeTypes": {
+      "flow": "Flow",
+      "association": "Association",
+      "dependency": "Dependency",
+      "containment": "Containment"
+    },
+    "accents": {
+      "default": "Default",
+      "primary": "Primary",
+      "success": "Success",
+      "warning": "Warning",
+      "danger": "Danger",
+      "muted": "Muted"
+    },
+    "lineStyles": {
+      "solid": "Solid",
+      "dashed": "Dashed"
+    },
+    "toast": {
+      "saved": "Diagram saved."
+    }
+  },
   "canvas": {
     "toolbar": {
       "pen": "Pen",

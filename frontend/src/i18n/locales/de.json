@@ -780,6 +780,92 @@
     "openEditor": "Editor öffnen",
     "emptyCanvas": "Diese Zeichenfläche ist noch leer."
   },
+  "diagramGraph": {
+    "header": {
+      "back": "Zurück",
+      "titleDefault": "Diagramm-Editor",
+      "missingDiagramId": "Keine Diagramm-ID in der Route.",
+      "viewMode": "Ansicht",
+      "viewModeLabels": {
+        "visual": "Visuell",
+        "code": "Code"
+      },
+      "editing": "Bearbeiten",
+      "readOnly": "Nur lesen",
+      "save": "Speichern",
+      "saving": "Speichert...",
+      "dismissError": "Fehler ausblenden"
+    },
+    "canvas": {
+      "loading": "Diagramm wird geladen...",
+      "loadErrorTitle": "Diagramm konnte nicht geladen werden",
+      "emptyTitle": "Noch keine Knoten",
+      "emptyHintEdit": "Über \"Knoten hinzufügen\" in der Werkzeugleiste einen ersten Knoten anlegen.",
+      "emptyHintReadOnly": "Aktiviere den Bearbeitungsmodus, um Knoten hinzuzufügen.",
+      "newNodeLabel": "Neuer Knoten",
+      "nodeAriaLabel": "Knoten {{label}} ({{type}})",
+      "nodeLinkedAriaLabel": "Verknüpft mit {{entityType}}"
+    },
+    "toolbar": {
+      "ariaLabel": "Diagramm-Werkzeugleiste",
+      "addNode": "Knoten hinzufügen",
+      "autoLayout": "Auto-Layout",
+      "autoLayoutTitle": "Knoten automatisch anordnen (überschreibt aktuelle Positionen)",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "fitToView": "Einpassen",
+      "toggleGrid": "Raster umschalten"
+    },
+    "inspector": {
+      "ariaLabel": "Eigenschaften-Panel",
+      "title": "Eigenschaften",
+      "emptyPrompt": "Knoten oder Kante auswählen, um Eigenschaften anzuzeigen.",
+      "clearSelection": "Auswahl aufheben",
+      "label": "Beschriftung",
+      "type": "Typ",
+      "accent": "Akzentfarbe",
+      "parentGroup": "Übergeordnete Gruppe",
+      "noParent": "Keine",
+      "artifactRef": "Artefakt-Verknüpfung",
+      "artifactIdPlaceholder": "Artefakt-ID (UUID)",
+      "artifactClear": "Verknüpfung entfernen",
+      "artifactUnlinked": "Nicht verknüpft",
+      "deleteNode": "Knoten löschen",
+      "lineStyle": "Linienstil",
+      "sourceHandle": "Start-Anschluss",
+      "targetHandle": "Ziel-Anschluss",
+      "deleteEdge": "Kante löschen"
+    },
+    "nodeTypes": {
+      "box": "Rechteck",
+      "rounded": "Abgerundet",
+      "ellipse": "Ellipse",
+      "diamond": "Raute",
+      "note": "Notiz",
+      "group": "Gruppe"
+    },
+    "edgeTypes": {
+      "flow": "Fluss",
+      "association": "Assoziation",
+      "dependency": "Abhängigkeit",
+      "containment": "Enthaltensein"
+    },
+    "accents": {
+      "default": "Standard",
+      "primary": "Primär",
+      "success": "Erfolg",
+      "warning": "Warnung",
+      "danger": "Gefahr",
+      "muted": "Gedämpft"
+    },
+    "lineStyles": {
+      "solid": "Durchgezogen",
+      "dashed": "Gestrichelt"
+    },
+    "toast": {
+      "saved": "Diagramm gespeichert."
+    }
+  },
   "canvas": {
     "toolbar": {
       "pen": "Stift",

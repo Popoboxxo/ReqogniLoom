@@ -111,20 +111,24 @@ export function DiagramDetailView({
   const safeRenderedSvg = useMemo(() => sanitizeSvg(renderedSvg), [renderedSvg]);
 
   const isCanvas = detail?.payload_format === "canvas_stroke";
+  const isNodeGraph = detail?.payload_format === "node_graph";
   const canRenderVisual = detail?.payload_format === "mermaid";
   const activeSource = isEditing ? editContent : detail?.content ?? "";
 
   /**
    * Fullscreen editor route for this payload format, or null when the format
    * has none. Keyed on `payload_format`, not `diagram_type`: the editors are
-   * bound to the payload endpoints (canvas-strokes / mermaid-source), and a
-   * diagram of type "flow" may well carry a mermaid payload.
+   * bound to the payload endpoints (canvas-strokes / mermaid-source /
+   * node_graph content, GH-353 Task 8), and a diagram of type "flow" may well
+   * carry a mermaid payload.
    */
   const editorRoute: string | null = isCanvas
     ? `/diagrams/${diagramId}/canvas`
-    : canRenderVisual
-      ? `/diagrams/${diagramId}/mermaid`
-      : null;
+    : isNodeGraph
+      ? `/diagrams/${diagramId}/graph`
+      : canRenderVisual
+        ? `/diagrams/${diagramId}/mermaid`
+        : null;
 
   // Client-side Mermaid rendering for the Visual view.
   useEffect(() => {
