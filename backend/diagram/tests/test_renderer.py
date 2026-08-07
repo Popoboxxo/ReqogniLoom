@@ -140,6 +140,20 @@ class TestExportSvgNodeGraphDispatch:
         with pytest.raises(NodeGraphRenderError):
             renderer.export_svg(r)
 
+    def test_node_graph_export_svg_raises_render_error_on_invalid_json(
+        self, renderer: DiagramRenderer
+    ) -> None:
+        """Review fix (round 1): a node_graph-formatted diagram whose
+        persisted content is not valid JSON must surface as
+        NodeGraphRenderError, not an uncaught json.JSONDecodeError (which
+        mcp_server/tools/diagram.py's two-exception handler would not
+        catch, producing a 500 instead of VALIDATION_ERROR)."""
+        r = renderer.prepare_renderable(
+            "block", "node_graph", "{not valid json"
+        )
+        with pytest.raises(NodeGraphRenderError):
+            renderer.export_svg(r)
+
 
 # ---------------------------------------------------------------------------
 # REQ-L2-DS-007: RenderHints for Mermaid diagram types

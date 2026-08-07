@@ -401,6 +401,49 @@ class TestMalformedPayload:
         with pytest.raises(NodeGraphRenderError):
             render_svg(payload)
 
+    # -----------------------------------------------------------------
+    # Review fix (round 1): non-dict position/size/style must raise
+    # NodeGraphRenderError, not an uncaught AttributeError from a bare
+    # `.get()` call on a list/string/number. Reachable only if validation
+    # was bypassed -- exactly the threat model this module defends against.
+    # -----------------------------------------------------------------
+
+    @pytest.mark.parametrize("bad_position", [["not", "a", "dict"], "0,0", 42, True])
+    def test_non_dict_node_position_raises_render_error_not_attribute_error(
+        self, bad_position
+    ) -> None:
+        payload = _graph()
+        payload["nodes"][1]["position"] = bad_position
+        with pytest.raises(NodeGraphRenderError):
+            render_svg(payload)
+
+    @pytest.mark.parametrize("bad_size", [["not", "a", "dict"], "100x50", 42, True])
+    def test_non_dict_node_size_raises_render_error_not_attribute_error(
+        self, bad_size
+    ) -> None:
+        payload = _graph()
+        payload["nodes"][1]["size"] = bad_size
+        with pytest.raises(NodeGraphRenderError):
+            render_svg(payload)
+
+    @pytest.mark.parametrize("bad_style", [["not", "a", "dict"], "primary", 42, True])
+    def test_non_dict_node_style_raises_render_error_not_attribute_error(
+        self, bad_style
+    ) -> None:
+        payload = _graph()
+        payload["nodes"][1]["style"] = bad_style
+        with pytest.raises(NodeGraphRenderError):
+            render_svg(payload)
+
+    @pytest.mark.parametrize("bad_style", [["not", "a", "dict"], "solid", 42, True])
+    def test_non_dict_edge_style_raises_render_error_not_attribute_error(
+        self, bad_style
+    ) -> None:
+        payload = _graph()
+        payload["edges"][0]["style"] = bad_style
+        with pytest.raises(NodeGraphRenderError):
+            render_svg(payload)
+
 
 # ---------------------------------------------------------------------------
 # Whole-graph XSS regression sweep (mirrors test_canvas_editor's parametrized

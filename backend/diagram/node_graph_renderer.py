@@ -108,6 +108,13 @@ _NODE_RENDERERS: dict[str, Any]
 # have a mapping entry here, or a validator-accepted payload could still
 # reach an "unmapped enum" raise below purely because this module's maps
 # drifted out of sync with the schema. Fails fast at import time.
+#
+# Note: these are maintenance/CI guards, not the live security boundary --
+# `assert` is stripped under `python -O`. The actual defense against a
+# hostile/unmapped enum value is the per-call dict lookup + `except
+# KeyError: raise NodeGraphRenderError(...)` in _accent_color/
+# _line_dasharray/_render_edge below, which is not an `assert` and cannot
+# be optimized away.
 assert set(_ACCENT_COLORS) == STYLE_ACCENTS, "accent color map out of sync with STYLE_ACCENTS"
 assert set(_LINE_DASH) == EDGE_LINE_STYLES, "line dash map out of sync with EDGE_LINE_STYLES"
 assert set(_EDGE_TYPE_MARKER) == EDGE_TYPES, "edge marker map out of sync with EDGE_TYPES"
@@ -145,6 +152,28 @@ def _finite_float(value: Any) -> float:
     return number
 
 
+def _require_dict_or_none(value: Any, field_name: str) -> dict:
+    """Return *value* if it's a dict, ``{}`` if it's ``None``/absent, else raise.
+
+    Review fix (round 1): ``position``/``size``/``style`` were previously read
+    via bare ``(value or {}).get(...)`` — correct for ``None``/absent, but a
+    non-dict *truthy* value (a list, string, or number — exactly the
+    "validation was bypassed" threat model this module's docstring calls
+    out) made ``.get()`` raise an uncaught ``AttributeError`` instead of the
+    intended :class:`NodeGraphRenderError`. Mirrors the ``isinstance``
+    guard :func:`_viewport_attrs` already used for ``viewport`` — applied
+    consistently here so every "should be an object" field fails the same
+    way.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise NodeGraphRenderError(
+            f"Expected {field_name!r} to be a JSON object, got {value!r}."
+        )
+    return value
+
+
 def _num_attr(value: Any) -> str:
     """Render an untrusted numeric field as a safe, fixed-precision SVG value.
 
@@ -160,18 +189,20 @@ def _num_attr(value: Any) -> str:
     return f"{_finite_float(value):.{_NUMERIC_PRECISION}f}"
 
 
-def _accent_color(style: Optional[dict]) -> str:
+def _accent_color(style: Any) -> str:
     """Map ``style.accent`` to a fixed SVG color via the literal dict above."""
-    accent = (style or {}).get("accent", _DEFAULT_ACCENT)
+    style = _require_dict_or_none(style, "style")
+    accent = style.get("accent", _DEFAULT_ACCENT)
     try:
         return _ACCENT_COLORS[accent]
     except KeyError as exc:
         raise NodeGraphRenderError(f"Unknown style.accent value: {accent!r}.") from exc
 
 
-def _line_dasharray(style: Optional[dict]) -> str:
+def _line_dasharray(style: Any) -> str:
     """Map ``style.line`` to a fixed SVG dasharray via the literal dict above."""
-    line = (style or {}).get("line", _DEFAULT_LINE)
+    style = _require_dict_or_none(style, "style")
+    line = style.get("line", _DEFAULT_LINE)
     try:
         return _LINE_DASH[line]
     except KeyError as exc:
@@ -197,8 +228,8 @@ def _label_text(label: Any, x: str, y: str) -> str:
 
 def _node_geometry_floats(node: dict) -> tuple[float, float, float, float]:
     """Return (x, y, width, height) as validated finite floats."""
-    position = node.get("position") or {}
-    size = node.get("size") or {}
+    position = _require_dict_or_none(node.get("position"), "position")
+    size = _require_dict_or_none(node.get("size"), "size")
     x = _finite_float(position.get("x"))
     y = _finite_float(position.get("y"))
     w = _finite_float(size.get("width", _DEFAULT_NODE_WIDTH))
@@ -296,6 +327,9 @@ _NODE_RENDERERS = {
     "note": _render_note,
     "group": _render_group,
 }
+# Same maintenance/CI-guard caveat as the enum-map asserts above: the live
+# defense against an unknown node.type is _render_node's `.get(node_type,
+# _MISSING)` + explicit `is _MISSING` check below, not this assert.
 assert set(_NODE_RENDERERS) == NODE_TYPES, "node renderer map out of sync with NODE_TYPES"
 
 

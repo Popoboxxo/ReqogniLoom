@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from diagram.models import DiagramType, PayloadFormat
+from diagram.node_graph_renderer import NodeGraphRenderError
 from diagram.node_graph_renderer import render_svg as _render_node_graph_svg
 
 
@@ -213,9 +214,13 @@ class DiagramRenderer:
             NotImplementedError: For every ``payload_format`` other than
                 ``node_graph``.
             diagram.node_graph_renderer.NodeGraphRenderError: If the
-                ``node_graph`` payload cannot be safely rendered (see that
-                module — should be unreachable for a payload that already
-                passed :func:`diagram.node_graph.validate_node_graph`).
+                ``node_graph`` payload cannot be safely rendered — either
+                because the persisted content is not valid JSON (review fix
+                round 1: previously an uncaught ``json.JSONDecodeError``),
+                or because :func:`diagram.node_graph_renderer.render_svg`
+                itself refuses it (see that module — should be unreachable
+                for a payload that already passed
+                :func:`diagram.node_graph.validate_node_graph`).
         """
         if renderable.payload_format != PayloadFormat.NODE_GRAPH:
             raise NotImplementedError(
@@ -224,7 +229,12 @@ class DiagramRenderer:
                 "Use the content field of RenderableDiagram for client-side "
                 "rendering of other formats."
             )
-        payload = json.loads(renderable.content)
+        try:
+            payload = json.loads(renderable.content)
+        except json.JSONDecodeError as exc:
+            raise NodeGraphRenderError(
+                f"node_graph diagram content is not valid JSON: {exc}."
+            ) from exc
         return _render_node_graph_svg(payload)
 
     # ------------------------------------------------------------------
