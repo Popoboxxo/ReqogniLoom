@@ -31,6 +31,7 @@ from application.workflow_facade import WorkflowFacade
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
+    mcp_audit_handoff,
     require_param,
     require_uuid,
     write_mcp_audit,
@@ -231,14 +232,18 @@ class ReviewToolGroup(BaseToolGroup):
             )
 
         try:
-            result = facade.transition(
-                item_id=item_id,
-                target_state=definition.initial_state,
-                change_reason=reason,
-                ctx=auth_context,
-                item_type=item_type,
-                workspace_id=workspace_id,
-            )
+            # Codeberg #313: suppress WorkflowFacade.transition's single
+            # internal _audit() call (operation="transition", same entity) —
+            # write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                result = facade.transition(
+                    item_id=item_id,
+                    target_state=definition.initial_state,
+                    change_reason=reason,
+                    ctx=auth_context,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
@@ -315,14 +320,18 @@ class ReviewToolGroup(BaseToolGroup):
             )
 
         try:
-            result = facade.transition(
-                item_id=item_id,
-                target_state=target,
-                change_reason=reason,
-                ctx=auth_context,
-                item_type=item_type,
-                workspace_id=workspace_id,
-            )
+            # Codeberg #313: suppress WorkflowFacade.transition's single
+            # internal _audit() call (operation="transition", same entity) —
+            # write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                result = facade.transition(
+                    item_id=item_id,
+                    target_state=target,
+                    change_reason=reason,
+                    ctx=auth_context,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:

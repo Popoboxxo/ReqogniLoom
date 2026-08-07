@@ -155,6 +155,14 @@ class ServiceBase:
         REQ-L2-AS-019: Every write operation produces an audit entry.
         The entry is written in the same transaction as the mutation;
         a rollback removes both (atomic consistency, REQ-L2-AL-004).
+
+        Codeberg #313: this call is a silent no-op while an
+        ``audit.services.mcp_audit_handoff()`` context is active on the
+        current thread — an MCP tool handler uses that to suppress this
+        entry for the one service call whose write it is about to
+        re-log itself (with MCP enrichment) via
+        ``mcp_server.tools.base.write_mcp_audit``. See
+        ``audit.services.log_write`` for the actual check.
         """
         try:
             from audit.services import log_write

@@ -58,6 +58,7 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
+    mcp_audit_handoff,
     require_param,
     require_uuid,
     write_mcp_audit,
@@ -238,11 +239,19 @@ class BackupToolGroup(BaseToolGroup):
             metadata["reason"] = reason
 
         try:
-            row = self._backup_service.create_backup(
-                auth_context,
-                backup_type=backup_type,
-                metadata=metadata,
-            )
+            # Codeberg #313: suppress create_backup's single internal
+            # _audit() call on the success path (same entity) —
+            # write_mcp_audit below is the sole entry. NOTE: admin.restore
+            # (below) is deliberately NOT wrapped this way — its service
+            # writes two legitimate audit entries (start + complete) for a
+            # synthetic restore_event_id that differs from the entity_id
+            # write_mcp_audit uses there; wrapping would silently drop both.
+            with mcp_audit_handoff():
+                row = self._backup_service.create_backup(
+                    auth_context,
+                    backup_type=backup_type,
+                    metadata=metadata,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

@@ -71,6 +71,7 @@ from traceability.audit import AuditScope
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
@@ -693,12 +694,16 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
         try:
-            trace_link = self._trace_service.create_trace_link(
-                source_id=source_id,
-                target_id=target_id,
-                link_type=link_type,
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress create_trace_link's single internal
+            # _audit() call for the same TraceLink — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                trace_link = self._trace_service.create_trace_link(
+                    source_id=source_id,
+                    target_id=target_id,
+                    link_type=link_type,
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:

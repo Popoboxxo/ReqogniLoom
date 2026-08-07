@@ -47,6 +47,7 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
@@ -324,14 +325,18 @@ class ArchitectureToolGroup(BaseToolGroup):
         parent_id = optional_uuid(params, "parent_id")
 
         try:
-            el = self._service.create_architecture_element(
-                workspace_id=workspace_id,
-                title=str(title),
-                ctx=auth_context,
-                description=description,
-                element_type=element_type,
-                parent_id=parent_id,
-            )
+            # Codeberg #313: suppress create_architecture_element's single
+            # internal _audit() call for the same entity — write_mcp_audit
+            # below is the sole entry.
+            with mcp_audit_handoff():
+                el = self._service.create_architecture_element(
+                    workspace_id=workspace_id,
+                    title=str(title),
+                    ctx=auth_context,
+                    description=description,
+                    element_type=element_type,
+                    parent_id=parent_id,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -387,15 +392,19 @@ class ArchitectureToolGroup(BaseToolGroup):
                     )
 
         try:
-            el = self._service.update_architecture_element(
-                arch_el_id=arch_id,
-                ctx=auth_context,
-                expected_version=expected_version,
-                title=data.get("title"),
-                description=data.get("description"),
-                element_type=data.get("element_type"),
-                **update_kwargs,
-            )
+            # Codeberg #313: suppress update_architecture_element's single
+            # internal _audit() call for the same entity — write_mcp_audit
+            # below is the sole entry.
+            with mcp_audit_handoff():
+                el = self._service.update_architecture_element(
+                    arch_el_id=arch_id,
+                    ctx=auth_context,
+                    expected_version=expected_version,
+                    title=data.get("title"),
+                    description=data.get("description"),
+                    element_type=data.get("element_type"),
+                    **update_kwargs,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except OptimisticLockError as exc:
@@ -440,12 +449,16 @@ class ArchitectureToolGroup(BaseToolGroup):
             )
 
         try:
-            trace_link = self._trace_service.create_trace_link(
-                source_id=arch_id,
-                target_id=target_id,
-                link_type=link_type,
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress create_trace_link's single internal
+            # _audit() call for the same TraceLink — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                trace_link = self._trace_service.create_trace_link(
+                    source_id=arch_id,
+                    target_id=target_id,
+                    link_type=link_type,
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
