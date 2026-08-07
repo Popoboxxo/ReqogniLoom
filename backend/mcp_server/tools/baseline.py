@@ -39,6 +39,7 @@ from application.baseline_facade import BaselineFacade
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
@@ -165,14 +166,18 @@ class BaselineToolGroup(BaseToolGroup):
         document_id = optional_uuid(params, "document_id")
 
         try:
-            baseline_id = self._facade.create_baseline(
-                scope=str(scope),
-                workspace_id=workspace_id,
-                name=str(name),
-                ctx=auth_context,
-                description=description,
-                document_id=document_id,
-            )
+            # Codeberg #313: suppress create_baseline's single internal
+            # _audit() call (operation="baseline.create", same entity) —
+            # write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                baseline_id = self._facade.create_baseline(
+                    scope=str(scope),
+                    workspace_id=workspace_id,
+                    name=str(name),
+                    ctx=auth_context,
+                    description=description,
+                    document_id=document_id,
+                )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:

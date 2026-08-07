@@ -42,6 +42,7 @@ from diagram.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
@@ -245,17 +246,22 @@ class DiagramToolGroup(BaseToolGroup):
         user = self._resolve_user(auth_context)
 
         try:
-            diagram = create_diagram(
-                name=str(name),
-                diagram_type=str(diagram_type),
-                payload_format=str(payload_format),
-                content=str(content),
-                tenant=tenant,
-                description=str(description),
-                created_by=user,
-                target_id=target_id,
-                workspace_id=workspace_id,
-            )
+            # Codeberg #313: create_diagram writes its own audit entry via a
+            # direct audit.services.log_write call (bypassing
+            # ServiceBase._audit, unlike most other services) — suppress it
+            # here so write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                diagram = create_diagram(
+                    name=str(name),
+                    diagram_type=str(diagram_type),
+                    payload_format=str(payload_format),
+                    content=str(content),
+                    tenant=tenant,
+                    description=str(description),
+                    created_by=user,
+                    target_id=target_id,
+                    workspace_id=workspace_id,
+                )
         except DiagramValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
@@ -320,13 +326,17 @@ class DiagramToolGroup(BaseToolGroup):
         user = self._resolve_user(auth_context)
 
         try:
-            new_version = update_diagram(
-                diagram_id=diagram_id,
-                payload_format=str(payload_format),
-                content=str(content),
-                modified_by=user,
-                target_id=target_id,
-            )
+            # Codeberg #313: update_diagram writes its own audit entry via a
+            # direct audit.services.log_write call — suppress it here so
+            # write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                new_version = update_diagram(
+                    diagram_id=diagram_id,
+                    payload_format=str(payload_format),
+                    content=str(content),
+                    modified_by=user,
+                    target_id=target_id,
+                )
         except Diagram.DoesNotExist:
             return ToolResult.error("NOT_FOUND", f"Diagram {diagram_id} not found.")
         except DiagramValidationError as exc:

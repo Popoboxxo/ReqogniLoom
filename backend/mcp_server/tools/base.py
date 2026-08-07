@@ -19,6 +19,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
+from audit.services import mcp_audit_handoff
 from mcp_server.protocol_handler import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,12 @@ def write_mcp_audit(
     The api_key is passed as the raw secret to ``audit.services.log_write``;
     the SHA-256 hashing (with ``"sha256:"`` prefix) is performed by
     ``audit.writer.ContextEnricher`` — the raw key is never stored.
+
+    Codeberg #313: for handlers whose sole underlying ApplicationService
+    call would otherwise write its own, redundant internal entry for this
+    same entity, wrap that one call in :func:`mcp_audit_handoff` (re-exported
+    here from ``audit.services``) immediately before calling this function —
+    this call then becomes the single audit entry for the operation.
     """
     try:
         from audit.services import log_write
@@ -191,4 +198,5 @@ __all__ = [
     "optional_uuid",
     "require_uuid",
     "write_mcp_audit",
+    "mcp_audit_handoff",
 ]

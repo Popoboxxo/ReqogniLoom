@@ -83,6 +83,7 @@ from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
     ToolResult,
+    mcp_audit_handoff,
     require_uuid,
     write_mcp_audit,
 )
@@ -449,11 +450,15 @@ class AiDerivationToolGroup(BaseToolGroup):
         from application.trace_link_service import TraceLinkService
 
         top_choice = suggested_ids[0]
-        link = TraceLinkService().allocate(
-            requirement_id=requirement_id,
-            architecture_element_id=UUID(top_choice),
-            ctx=auth_context,
-        )
+        # Codeberg #313: suppress allocate()'s single internal _audit() call
+        # (via create_trace_link, same TraceLink) — write_mcp_audit below is
+        # the sole entry.
+        with mcp_audit_handoff():
+            link = TraceLinkService().allocate(
+                requirement_id=requirement_id,
+                architecture_element_id=UUID(top_choice),
+                ctx=auth_context,
+            )
         write_mcp_audit(
             ctx=auth_context,
             operation="suggest_architecture_for_requirement",
@@ -719,15 +724,20 @@ class AiDerivationToolGroup(BaseToolGroup):
         # is a resolvable TraceLink endpoint (it is).
         draft = preview["draft"]
         try:
-            result = self._service._write_adr_draft(
-                ctx=auth_context,
-                workspace_id=workspace_id,
-                title=draft["title"],
-                description=draft["description"],
-                context=draft["context"],
-                consequences=draft["consequences"],
-                policy=policy,
-            )
+            # Codeberg #313: suppress _write_adr_draft's single internal
+            # _audit() call (via AdrService.create_adr, same entity; no
+            # TraceLink is created for this flow — see the docstring) —
+            # write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                result = self._service._write_adr_draft(
+                    ctx=auth_context,
+                    workspace_id=workspace_id,
+                    title=draft["title"],
+                    description=draft["description"],
+                    context=draft["context"],
+                    consequences=draft["consequences"],
+                    policy=policy,
+                )
         except (ValidationError, NotFoundError) as exc:
             error_code = "VALIDATION_ERROR" if isinstance(exc, ValidationError) else "NOT_FOUND"
             return ToolResult.error(error_code, str(exc))

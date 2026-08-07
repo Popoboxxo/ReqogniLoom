@@ -53,12 +53,17 @@ from persistence.models import (
 from presets.models import WorkspacePresetConfig
 
 # Auth & tenancy — for UserRole/ApiKey seeding and role constants.
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import (
     ROLE_ADMIN,
     ItemPermission,
     ITEM_PERMISSION_READ,
     UserRole,
 )
+
+# Application — RequirementService for the REST-simulated regression test
+# (Codeberg #313: calls the service directly, bypassing MCP entirely).
+from application.requirement_service import RequirementService
 
 # Application — DLQ rows live outside the TenantScopedModel lineage.
 from application.models import DomainEventDLQ
@@ -1080,3 +1085,211 @@ def test_audit_entry_for_requirement_create_records_requirement_id(
     assert entry is not None
     assert str(entry.entity_id) == req_id
     assert entry.op == "create"
+
+
+# ---------------------------------------------------------------------------
+# Codeberg #313 — MCP write tools must not double-audit
+# ---------------------------------------------------------------------------
+#
+# test_write_tool_creates_audit_entry (above) filters
+# ``AuditEntry.objects.filter(client_name=tool_name, ...)`` and only
+# inspects the *most recent* match — it would never have caught #313,
+# because the redundant internal ServiceBase._audit() entry has
+# client_name=None and is silently excluded by that filter. The three
+# tests below count ALL AuditEntry rows for the affected entity_id,
+# unfiltered by client_name, which is what actually proves "exactly one".
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requirement_create_writes_exactly_one_audit_entry_total(
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
+):
+    """Codeberg #313: requirement.create must write exactly ONE AuditEntry
+    row for the created Requirement — not two (one from
+    RequirementService._audit via ServiceBase, one from write_mcp_audit).
+
+    The sole entry must still carry the MCP enrichment (client_name,
+    hashed api_key, actor_type='agent') write_mcp_audit adds.
+    """
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {"title": "313 regression", "workspace_id": str(e2e_workspace.id)},
+    )
+    assert response.status_code == 200, response.content
+    req_id = extract_result(response)["requirement"]["id"]
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=req_id,
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    assert len(entries) == 1, (
+        f"requirement.create wrote {len(entries)} AuditEntry row(s) for "
+        f"entity_id={req_id}, expected exactly 1 (Codeberg #313): "
+        f"{[(e.op, e.client_name, e.actor_type) for e in entries]}"
+    )
+    entry = entries[0]
+    assert entry.source == AuditEntry.SOURCE_MCP
+    assert entry.actor_type == AuditEntry.ACTOR_TYPE_AGENT
+    assert entry.client_name == "requirement.create"
+    assert entry.api_key_hash, "sole entry must carry the MCP-hashed api_key"
+    assert entry.actor == str(e2e_user_admin.id)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requirement_update_writes_exactly_one_audit_entry_total(
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_userrole_admin: UserRole,
+):
+    """Codeberg #313: requirement.update must write exactly ONE AuditEntry
+    row (same duplicate pattern as create, on the update path)."""
+    req = _seed_requirement(e2e_workspace)
+    response = post_mcp(
+        admin_client,
+        "requirement.update",
+        {
+            "id": str(req.id),
+            "workspace_id": str(e2e_workspace.id),
+            "data": {"title": "313 updated", "change_reason": "regression test"},
+        },
+    )
+    assert response.status_code == 200, response.content
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=req.id,
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    assert len(entries) == 1, (
+        f"requirement.update wrote {len(entries)} AuditEntry row(s) for "
+        f"entity_id={req.id}, expected exactly 1 (Codeberg #313): "
+        f"{[(e.op, e.client_name, e.actor_type) for e in entries]}"
+    )
+    assert entries[0].client_name == "requirement.update"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rest_originated_create_still_writes_exactly_one_audit_entry(
+    e2e_workspace: Workspace,
+    e2e_tenant: Tenant,
+    e2e_user_admin: User,
+):
+    """Codeberg #313 regression guard: a REST-style caller (no MCP, no
+    ``mcp_audit_handoff()`` in play at all) calling
+    ``RequirementService.create_requirement`` directly must still produce
+    exactly one AuditEntry row, with the pre-#313 REST shape (source='rest',
+    actor_type='user', client_name=None) — proving the new suppression
+    mechanism defaults to inactive and does not leak across calls.
+    """
+    ctx = AuthContext(
+        user_id=e2e_user_admin.id,
+        tenant_id=e2e_tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        req = RequirementService().create_requirement(
+            workspace_id=e2e_workspace.id,
+            title="313 REST regression",
+            ctx=ctx,
+        )
+        entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=req.id,
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    assert len(entries) == 1, (
+        f"direct RequirementService.create_requirement() call wrote "
+        f"{len(entries)} AuditEntry row(s), expected exactly 1: "
+        f"{[(e.op, e.client_name, e.source) for e in entries]}"
+    )
+    entry = entries[0]
+    assert entry.source == AuditEntry.SOURCE_REST
+    assert entry.actor_type == AuditEntry.ACTOR_TYPE_USER
+    assert entry.client_name is None
+    assert entry.op == "create"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requirement_decompose_still_writes_one_entry_per_child(
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_userrole_admin: UserRole,
+    mock_llm_configured: None,
+    mock_llm_deep: None,
+):
+    """Codeberg #313 non-regression: requirement.decompose is a genuine
+    multi-entity operation (mock_llm_deep returns 2 children) — the fix
+    must NOT suppress the per-child internal audit entries. Each child
+    Requirement gets its own ``_audit(op='create', entity_type='Requirement',
+    entity_id=child.id)`` from RequirementService.create_requirement,
+    distinct from the single MCP-level ``op='decompose'`` summary entry
+    write_mcp_audit writes for the *parent*.
+    """
+    parent = _seed_requirement(e2e_workspace, title="313 decompose parent")
+
+    response = post_mcp(
+        admin_client,
+        "requirement.decompose",
+        {"requirement_id": str(parent.id), "workspace_id": str(e2e_workspace.id)},
+    )
+    assert response.status_code == 200, response.content
+    result = extract_result(response)
+    child_ids = [c["id"] for c in result["children"]]
+    assert len(child_ids) == 2, f"expected 2 children from mock_llm_deep, got {result}"
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        child_create_entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id__in=child_ids,
+                op="create",
+            )
+        )
+        parent_decompose_entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=parent.id,
+                op="decompose",
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    # One legitimate internal "create" entry per child — not suppressed.
+    assert len(child_create_entries) == 2, (
+        f"expected one internal 'create' AuditEntry per decomposed child, "
+        f"got {len(child_create_entries)}: {[e.entity_id for e in child_create_entries]}"
+    )
+    assert {str(e.entity_id) for e in child_create_entries} == set(child_ids)
+    # And exactly one MCP-level "decompose" summary entry for the parent.
+    assert len(parent_decompose_entries) == 1

@@ -110,6 +110,7 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
+    mcp_audit_handoff,
     optional_uuid,
     require_uuid,
     write_mcp_audit,
@@ -605,9 +606,13 @@ class AuditToolGroup(BaseToolGroup):
         event_id = require_uuid(params, "event_id")
 
         try:
-            snapshot = self._dlq_service.replay_dlq_event(
-                auth_context, event_id=event_id
-            )
+            # Codeberg #313: suppress replay_dlq_event's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                snapshot = self._dlq_service.replay_dlq_event(
+                    auth_context, event_id=event_id
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

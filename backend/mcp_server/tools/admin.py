@@ -50,6 +50,7 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     require_param,
     require_uuid,
     write_mcp_audit,
@@ -209,7 +210,11 @@ class AdminToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
 
         try:
-            workspace = self._service.close_workspace(workspace_id, auth_context)
+            # Codeberg #313: suppress close_workspace's single internal
+            # _audit() call (same operation/entity) — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                workspace = self._service.close_workspace(workspace_id, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -242,7 +247,11 @@ class AdminToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
 
         try:
-            workspace = self._service.reactivate_workspace(workspace_id, auth_context)
+            # Codeberg #313: suppress reactivate_workspace's single internal
+            # _audit() call (same operation/entity) — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                workspace = self._service.reactivate_workspace(workspace_id, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -278,11 +287,15 @@ class AdminToolGroup(BaseToolGroup):
         confirmation_text = require_param(params, "confirmation_text")
 
         try:
-            self._service.delete_workspace(
-                workspace_id=workspace_id,
-                confirmation_text=str(confirmation_text),
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress delete_workspace's single internal
+            # _audit() call (same operation/entity) — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                self._service.delete_workspace(
+                    workspace_id=workspace_id,
+                    confirmation_text=str(confirmation_text),
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

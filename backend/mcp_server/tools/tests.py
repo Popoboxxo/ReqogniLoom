@@ -67,6 +67,7 @@ from mcp_server.tools.ai_derivation import (
 )
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
@@ -367,13 +368,17 @@ class McpTestToolGroup(BaseToolGroup):
         linked_req_id = optional_uuid(params, "linked_req_id")
 
         try:
-            tc = self._service.create_test_case(
-                workspace_id=workspace_id,
-                title=str(title),
-                ctx=auth_context,
-                description=description,
-                test_type=test_type,
-            )
+            # Codeberg #313: suppress create_test_case's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                tc = self._service.create_test_case(
+                    workspace_id=workspace_id,
+                    title=str(title),
+                    ctx=auth_context,
+                    description=description,
+                    test_type=test_type,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -393,12 +398,16 @@ class McpTestToolGroup(BaseToolGroup):
         trace_link_id: Optional[str] = None
         if linked_req_id:
             try:
-                tl = self._trace_service.create_trace_link(
-                    source_id=tc.artifact_id,
-                    target_id=linked_req_id,
-                    link_type="verifies",
-                    ctx=auth_context,
-                )
+                # Codeberg #313: suppress create_trace_link's single
+                # internal _audit() call for the same TraceLink —
+                # write_mcp_audit below is the sole entry.
+                with mcp_audit_handoff():
+                    tl = self._trace_service.create_trace_link(
+                        source_id=tc.artifact_id,
+                        target_id=linked_req_id,
+                        link_type="verifies",
+                        ctx=auth_context,
+                    )
                 trace_link_id = str(tl.id) if hasattr(tl, "id") else None
                 write_mcp_audit(
                     ctx=auth_context,
@@ -444,11 +453,15 @@ class McpTestToolGroup(BaseToolGroup):
                     f"Invalid status '{status}'. Valid: {sorted(_VALID_STATUSES)}",
                 )
             try:
-                tc = self._service.update_test_status(
-                    test_case_id=tc_id,
-                    execution_status=status,
-                    ctx=auth_context,
-                )
+                # Codeberg #313: suppress update_test_status's single
+                # internal _audit() call for the same entity —
+                # write_mcp_audit below is the sole entry.
+                with mcp_audit_handoff():
+                    tc = self._service.update_test_status(
+                        test_case_id=tc_id,
+                        execution_status=status,
+                        ctx=auth_context,
+                    )
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
@@ -458,13 +471,17 @@ class McpTestToolGroup(BaseToolGroup):
         else:
             # General field update
             try:
-                tc = self._service.update_test_case(
-                    test_case_id=tc_id,
-                    ctx=auth_context,
-                    title=data.get("title"),
-                    description=data.get("description"),
-                    steps=data.get("steps"),
-                )
+                # Codeberg #313: suppress update_test_case's single internal
+                # _audit() call for the same entity — write_mcp_audit below
+                # is the sole entry.
+                with mcp_audit_handoff():
+                    tc = self._service.update_test_case(
+                        test_case_id=tc_id,
+                        ctx=auth_context,
+                        title=data.get("title"),
+                        description=data.get("description"),
+                        steps=data.get("steps"),
+                    )
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
@@ -505,12 +522,16 @@ class McpTestToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
         try:
-            tl = self._trace_service.create_trace_link(
-                source_id=UUID(str(tc.artifact_id)),
-                target_id=req_id,
-                link_type="verifies",
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress create_trace_link's single internal
+            # _audit() call for the same TraceLink — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                tl = self._trace_service.create_trace_link(
+                    source_id=UUID(str(tc.artifact_id)),
+                    target_id=req_id,
+                    link_type="verifies",
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -565,13 +586,17 @@ class McpTestToolGroup(BaseToolGroup):
             )
 
         try:
-            tr = self._run_service.create_test_run(
-                workspace_id=workspace_id,
-                name=str(name),
-                ctx=auth_context,
-                ci_job_id=str(ci_job_id),
-                test_case_ids=test_case_ids,
-            )
+            # Codeberg #313: suppress create_test_run's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                tr = self._run_service.create_test_run(
+                    workspace_id=workspace_id,
+                    name=str(name),
+                    ctx=auth_context,
+                    ci_job_id=str(ci_job_id),
+                    test_case_ids=test_case_ids,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -688,11 +713,15 @@ class McpTestToolGroup(BaseToolGroup):
             })
 
         try:
-            created = self._run_service.add_results_bulk(
-                test_run_id=run_id,
-                results=normalized,
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress add_results_bulk's single internal
+            # _audit() call (one batch-level "update"/TestRun entry, not
+            # per-result) — write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                created = self._run_service.add_results_bulk(
+                    test_run_id=run_id,
+                    results=normalized,
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:

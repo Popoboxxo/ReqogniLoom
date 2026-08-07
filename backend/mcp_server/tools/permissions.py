@@ -56,6 +56,7 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
+    mcp_audit_handoff,
     optional_uuid,
     require_uuid,
     write_mcp_audit,
@@ -201,14 +202,18 @@ class PermissionsToolGroup(BaseToolGroup):
         artifact_id = optional_uuid(params, "artifact_id")
 
         try:
-            permission = self._service.grant_permission(
-                auth_context,
-                user_id=user_id,
-                workspace_id=workspace_id,
-                artifact_id=artifact_id,
-                level=level.strip().lower(),
-                granted_by_user_id=auth_context.user_id,
-            )
+            # Codeberg #313: suppress grant_permission's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                permission = self._service.grant_permission(
+                    auth_context,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    artifact_id=artifact_id,
+                    level=level.strip().lower(),
+                    granted_by_user_id=auth_context.user_id,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -303,12 +308,16 @@ class PermissionsToolGroup(BaseToolGroup):
             )
 
         try:
-            deleted = self._service.revoke_permission(
-                auth_context,
-                user_id=perm.user_id,
-                workspace_id=perm.workspace_id,
-                artifact_id=perm.artifact_id,
-            )
+            # Codeberg #313: suppress revoke_permission's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                deleted = self._service.revoke_permission(
+                    auth_context,
+                    user_id=perm.user_id,
+                    workspace_id=perm.workspace_id,
+                    artifact_id=perm.artifact_id,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

@@ -46,6 +46,7 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
@@ -312,14 +313,18 @@ class RequirementsToolGroup(BaseToolGroup):
         parent_id = optional_uuid(params, "parent_id")
 
         try:
-            req = self._service.create_requirement(
-                workspace_id=workspace_id,
-                title=str(title),
-                ctx=auth_context,
-                description=description,
-                category=category,
-                parent_id=parent_id,
-            )
+            # Codeberg #313: create_requirement's single internal _audit()
+            # call (same entity_type+entity_id as below) is suppressed here;
+            # write_mcp_audit is the sole entry for this create.
+            with mcp_audit_handoff():
+                req = self._service.create_requirement(
+                    workspace_id=workspace_id,
+                    title=str(title),
+                    ctx=auth_context,
+                    description=description,
+                    category=category,
+                    parent_id=parent_id,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -327,9 +332,8 @@ class RequirementsToolGroup(BaseToolGroup):
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
-        # MCP audit entry (REQ-L2-MC-012) — ApplicationService already wrote
-        # an internal audit entry; write additional MCP-specific one with
-        # agent identity + api_key_hash + tool_name.
+        # MCP audit entry (REQ-L2-MC-012) with agent identity + api_key_hash
+        # + tool_name — the sole entry for this create (see above).
         write_mcp_audit(
             ctx=auth_context,
             operation="create",
@@ -352,14 +356,18 @@ class RequirementsToolGroup(BaseToolGroup):
         data: Dict[str, Any] = params.get("data") or {}
 
         try:
-            req = self._service.update_requirement(
-                requirement_id=req_id,
-                ctx=auth_context,
-                title=data.get("title"),
-                description=data.get("description"),
-                category=data.get("category"),
-                change_reason=data.get("change_reason"),
-            )
+            # Codeberg #313: suppress update_requirement's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                req = self._service.update_requirement(
+                    requirement_id=req_id,
+                    ctx=auth_context,
+                    title=data.get("title"),
+                    description=data.get("description"),
+                    category=data.get("category"),
+                    change_reason=data.get("change_reason"),
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
