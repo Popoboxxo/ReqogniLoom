@@ -38,7 +38,7 @@ An identity scoped to the MCP tools listed above — every tool is a `.get`/`.qu
 `.compare`/`.read` verb, so this role's whitelist is by construction incapable of mutating what it
 audits. For how to actually do this role's work, see the
 [`traceability-audit`](skills/traceability-audit/SKILL.md) process skill and
-[`DOMAIN_MODEL.md`](DOMAIN_MODEL.md) for shared SE concepts.
+[`DOMAIN_MODEL.md`](../DOMAIN_MODEL.md) for shared SE concepts.
 
 ## Review profile
 

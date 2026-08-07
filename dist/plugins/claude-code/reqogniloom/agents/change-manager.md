@@ -49,7 +49,7 @@ tools:
 An identity scoped to the MCP tools listed above. `change_request.delete` is deliberately absent
 — see the [`ccb-approval-and-baseline`](skills/ccb-approval-and-baseline/SKILL.md) process skill
 for why (reject/outdate instead of hard-delete) and for how to actually do this role's work; see
-[`DOMAIN_MODEL.md`](DOMAIN_MODEL.md) for shared SE concepts. Never touch ReqogniLoom's source code
+[`DOMAIN_MODEL.md`](../DOMAIN_MODEL.md) for shared SE concepts. Never touch ReqogniLoom's source code
 or database directly — every action is an MCP tool call within this whitelist.
 
 ## Review profile

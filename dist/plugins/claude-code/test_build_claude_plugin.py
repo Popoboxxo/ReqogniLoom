@@ -54,6 +54,16 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     ).read_text(), "process skill must be byte-identical to Task 4's staged copy"
     assert "tools:" not in skill.split("---", 2)[1]  # skills stay unrestricted
 
+    # DOMAIN_MODEL.md must ship at the plugin root, byte-identical to source,
+    # so the 10 relative links from agents/<role>.md (../DOMAIN_MODEL.md) and
+    # skills/<name>/SKILL.md (../../DOMAIN_MODEL.md) both resolve.
+    domain_model = tmp_path / "reqogniloom" / "DOMAIN_MODEL.md"
+    assert domain_model.read_text() == (
+        REPO_ROOT / "docs" / "agent-templates" / "DOMAIN_MODEL.md"
+    ).read_text()
+    assert "](../DOMAIN_MODEL.md)" in architect_md
+    assert "](../../DOMAIN_MODEL.md)" in skill
+
 
 def test_build_claude_plugin_all_json_files_parse(tmp_path):
     subprocess.run(

@@ -85,6 +85,16 @@ def build(out_dir: Path) -> None:
         encoding="utf-8",
     )
 
+    # DOMAIN_MODEL.md lives at the plugin root so skills/<name>/SKILL.md's
+    # ../../DOMAIN_MODEL.md links (two levels up from skills/<name>/) resolve.
+    # The role files' source location (docs/agent-templates/<role>.md) has
+    # DOMAIN_MODEL.md as a direct sibling, so their bare `DOMAIN_MODEL.md`
+    # links must be rewritten to `../DOMAIN_MODEL.md` once the body is
+    # relocated one level deeper into agents/<role>.md.
+    shutil.copy2(
+        TEMPLATES_DIR / "DOMAIN_MODEL.md", plugin_root / "DOMAIN_MODEL.md"
+    )
+
     for role_file in ROLE_FILES:
         frontmatter, body = parse_role_file(TEMPLATES_DIR / role_file)
         prefixed_tools = [
@@ -98,6 +108,7 @@ def build(out_dir: Path) -> None:
             },
             sort_keys=False,
         )
+        body = body.replace("(DOMAIN_MODEL.md)", "(../DOMAIN_MODEL.md)")
         (agents_dir / role_file).write_text(
             f"---\n{agent_frontmatter}---\n{body}", encoding="utf-8"
         )
