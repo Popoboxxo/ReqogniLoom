@@ -246,3 +246,133 @@ class TestResolveArtifactId:
 
             with pytest.raises(TraceLinkError):
                 _resolve_artifact_id(diagram)
+
+
+# ---------------------------------------------------------------------------
+# Codeberg #353 Task 3, code-review round 1: race-condition regression
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db(transaction=True)
+class TestResolveArtifactIdConcurrency:
+    """Proves select_for_update() actually serializes concurrent callers.
+
+    Review finding: the original read-then-write had no locking, so two
+    concurrent callers resolving the same Diagram could both observe
+    ``artifact_id is None`` and both INSERT a shadow Artifact (last writer
+    wins, one Artifact silently orphaned). The single-threaded idempotency
+    test above cannot catch this — it never has two callers in flight at
+    once. This test uses two real threads, each with its own DB connection
+    and its own transaction (``transaction=True`` / TransactionTestCase
+    semantics — a plain ``django_db`` test shares one connection and cannot
+    exhibit a genuine row-lock wait), to force the race and assert the lock
+    actually blocks the second caller.
+    """
+
+    def test_concurrent_calls_produce_exactly_one_shadow_artifact(
+        self, tenant_a, workspace_a
+    ) -> None:
+        import threading
+        import time
+        from unittest.mock import patch
+
+        from django.db import close_old_connections, transaction
+
+        from diagram.models import Diagram
+        from diagram.tests.conftest import active_tenant
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+
+        with active_tenant(tenant_a):
+            diagram = Diagram.objects.create(
+                name="Concurrency Diagram",
+                diagram_type="block",
+                tenant=tenant_a,
+                workspace_id=workspace_a.id,
+            )
+        diagram_id = diagram.id
+        tenant_id = tenant_a.id
+
+        # Synchronization: thread A signals lock_acquired once it is inside
+        # Artifact creation (i.e. it is holding the row lock acquired by its
+        # select_for_update()); it then blocks on `proceed` so thread B has
+        # a real window to attempt (and, if the fix works, be forced to
+        # wait for) the same lock.
+        lock_acquired = threading.Event()
+        proceed = threading.Event()
+        results: dict[str, object] = {}
+        errors: list[BaseException] = []
+
+        real_create = Artifact.objects.create
+
+        def _slow_create(*args, **kwargs):
+            lock_acquired.set()
+            proceed.wait(timeout=5)
+            return real_create(*args, **kwargs)
+
+        def _worker_a() -> None:
+            close_old_connections()
+            try:
+                TenantContext.set_tenant(tenant_id)
+                with transaction.atomic():
+                    d = Diagram.objects.get(pk=diagram_id)
+                    with patch.object(
+                        Artifact.objects, "create", side_effect=_slow_create
+                    ):
+                        results["a"] = _resolve_artifact_id(d)
+            except BaseException as exc:  # noqa: BLE001 - surfaced on main thread
+                errors.append(exc)
+            finally:
+                TenantContext.clear_tenant()
+                close_old_connections()
+
+        def _worker_b() -> None:
+            close_old_connections()
+            try:
+                TenantContext.set_tenant(tenant_id)
+                # Only start racing once thread A actually holds the lock
+                # (is inside Artifact creation), otherwise this thread might
+                # simply win the race instead of proving mutual exclusion.
+                assert lock_acquired.wait(timeout=5), "thread A never reached create()"
+                with transaction.atomic():
+                    d = Diagram.objects.get(pk=diagram_id)
+                    started = time.monotonic()
+                    results["b"] = _resolve_artifact_id(d)
+                    results["b_waited"] = time.monotonic() - started
+            except BaseException as exc:  # noqa: BLE001 - surfaced on main thread
+                errors.append(exc)
+            finally:
+                TenantContext.clear_tenant()
+                close_old_connections()
+
+        thread_a = threading.Thread(target=_worker_a)
+        thread_b = threading.Thread(target=_worker_b)
+
+        thread_a.start()
+        thread_b.start()
+        # Give thread B time to actually queue up on select_for_update()
+        # (blocked, holding its own transaction open) before we let thread A
+        # finish and commit.
+        assert lock_acquired.wait(timeout=5), "thread A never reached create()"
+        time.sleep(0.3)
+        proceed.set()
+
+        thread_a.join(timeout=10)
+        thread_b.join(timeout=10)
+
+        assert not thread_a.is_alive(), "thread A did not finish in time"
+        assert not thread_b.is_alive(), "thread B did not finish in time"
+        assert not errors, f"worker thread(s) raised: {errors!r}"
+
+        assert results["a"] == results["b"], (
+            "both concurrent callers must resolve to the SAME shadow "
+            "Artifact id — this is exactly the race the code review flagged"
+        )
+        assert results["b_waited"] >= 0.25, (
+            "thread B should have BLOCKED on select_for_update() while "
+            "thread A held the row lock (observed wait: "
+            f"{results['b_waited']!r}s) — a wait this short means the lock "
+            "did not actually serialize the two callers"
+        )
+
+        with active_tenant(tenant_a):
+            assert Artifact.objects.filter(artifact_type="Diagram").count() == 1
