@@ -34,7 +34,9 @@ import { sanitizeSvg } from "../../utils/sanitizeSvg";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
+import { GraphCanvas } from "../DiagramGraphEditor/GraphCanvas";
 import { useDiagramDetail } from "./useDiagramData";
+import type { NodeGraphPayload } from "../../types";
 import {
   diagramVersionLabel,
   formCancelButtonStyle,
@@ -77,6 +79,10 @@ export function DiagramDetailView({
   const [renderedSvg, setRenderedSvg] = useState<string>("");
   const [renderError, setRenderError] = useState<string>("");
 
+  // Node graph payload parsing for read-only preview (GH-353 Task 9)
+  const [nodeGraphPayload, setNodeGraphPayload] = useState<NodeGraphPayload | null>(null);
+  const [nodeGraphError, setNodeGraphError] = useState<string>("");
+
   // Reset the view when switching diagrams and seed the source draft once the
   // detail row is (re)loaded.
   useEffect(() => {
@@ -87,6 +93,23 @@ export function DiagramDetailView({
   useEffect(() => {
     if (detail) setEditContent(detail.content ?? "");
   }, [detail]);
+
+  // Parse node_graph payload for read-only preview (GH-353 Task 9).
+  useEffect(() => {
+    if (detail?.payload_format === "node_graph" && detail?.content) {
+      try {
+        const payload = JSON.parse(detail.content) as NodeGraphPayload;
+        setNodeGraphPayload(payload);
+        setNodeGraphError("");
+      } catch (err) {
+        setNodeGraphPayload(null);
+        setNodeGraphError(err instanceof Error ? err.message : String(err));
+      }
+    } else {
+      setNodeGraphPayload(null);
+      setNodeGraphError("");
+    }
+  }, [detail?.payload_format, detail?.content]);
 
   // Current-version ref for the ArtifactInspector (REQ-L2-RF-035).
   const currentVersion: VersionRef | undefined = useMemo(() => {
@@ -351,10 +374,37 @@ export function DiagramDetailView({
           </p>
         )}
 
-        {/* D4: canvas diagrams show the server-rendered SVG export
-            (REQ-L2-DS-006, IF-L1-060) read-only; drawing happens on the
-            fullscreen /diagrams/:id/canvas route (D3). */}
-        {isCanvas ? (
+        {/* GH-353 Task 9: node_graph diagrams show the read-only React Flow
+            preview; editing happens on the fullscreen /diagrams/:id/graph route. */}
+        {isNodeGraph ? (
+          <div data-testid="diagram-node-graph-section" style={previewBoxStyle}>
+            {nodeGraphError ? (
+              <p role="alert" data-testid="diagram-node-graph-error" style={{ color: "var(--color-danger)", margin: 0 }}>
+                {nodeGraphError}
+              </p>
+            ) : nodeGraphPayload ? (
+              <GraphCanvas
+                nodes={nodeGraphPayload.nodes}
+                edges={nodeGraphPayload.edges}
+                isLoading={false}
+                error={null}
+                selection={{ kind: "none" }}
+                onSelect={() => {}}
+                editMode={false}
+                onConnectNodes={() => {}}
+                onRenameNode={() => {}}
+                onNodeDragStop={() => {}}
+                onDeleteSelection={() => {}}
+                onAddNode={() => {}}
+                onAutoLayout={() => {}}
+              />
+            ) : (
+              <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+                {t("diagrams.emptySource", "(no source)")}
+              </p>
+            )}
+          </div>
+        ) : isCanvas ? (
           <div data-testid="diagram-canvas-section" style={previewBoxStyle}>
             {isCanvasLoading ? (
               <p role="status">{t("loading", "Loading...")}</p>

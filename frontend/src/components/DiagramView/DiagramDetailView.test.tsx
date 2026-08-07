@@ -42,6 +42,15 @@ vi.mock("../WorkflowStatusEditor", () => ({
   WorkflowStatusEditor: () => <div data-testid="workflow-status-editor" />,
 }));
 
+// GH-353 Task 9: Mock GraphCanvas for read-only node_graph preview tests
+vi.mock("../DiagramGraphEditor/GraphCanvas", () => ({
+  GraphCanvas: ({ nodes, edges }: { nodes: unknown[]; edges: unknown[] }) => (
+    <div data-testid="graph-canvas-readonly">
+      Nodes: {nodes.length}, Edges: {edges.length}
+    </div>
+  ),
+}));
+
 const useDiagramDetailMock = vi.fn();
 vi.mock("./useDiagramData", () => ({
   useDiagramDetail: (id: string) => useDiagramDetailMock(id),
@@ -186,5 +195,83 @@ describe("DiagramDetailView preview (E2-D4)", () => {
     expect(screen.queryByTestId("diagram-open-editor-btn")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("diagram-edit-btn"));
     expect(screen.getByTestId("diagram-source-textarea")).toBeInTheDocument();
+  });
+
+  // GH-353 Task 9: node_graph diagrams show read-only React Flow preview
+  it("navigates a node_graph diagram to the fullscreen graph route", async () => {
+    useDiagramDetailMock.mockReturnValue(
+      hookResult({
+        detail: detailRow({
+          payload_format: "node_graph",
+          content: JSON.stringify({
+            schema_version: 1,
+            nodes: [{ id: "n1", type: "box", label: "Start", position: { x: 0, y: 0 } }],
+            edges: [],
+          }),
+        }),
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderDetail();
+    // No inline "Edit Source" affordance for a format that owns an editor.
+    expect(screen.queryByTestId("diagram-edit-btn")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("diagram-open-editor-btn"));
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      `/diagrams/${DIAGRAM_ID}/graph`,
+    );
+  });
+
+  it("renders the read-only React Flow preview for a node_graph diagram", () => {
+    useDiagramDetailMock.mockReturnValue(
+      hookResult({
+        detail: detailRow({
+          payload_format: "node_graph",
+          content: JSON.stringify({
+            schema_version: 1,
+            nodes: [
+              { id: "n1", type: "box", label: "Start", position: { x: 0, y: 0 } },
+              { id: "n2", type: "box", label: "End", position: { x: 100, y: 100 } },
+            ],
+            edges: [
+              {
+                id: "e1",
+                source: "n1",
+                target: "n2",
+                type: "flow",
+              },
+            ],
+          }),
+        }),
+      }),
+    );
+
+    renderDetail();
+
+    // Verify that the read-only React Flow canvas is rendered, not raw JSON
+    expect(screen.getByTestId("graph-canvas-readonly")).toBeInTheDocument();
+    expect(screen.getByText(/Nodes: 2, Edges: 1/)).toBeInTheDocument();
+    // Verify that the raw JSON preview is NOT rendered
+    expect(screen.queryByTestId("diagram-source-preview")).not.toBeInTheDocument();
+  });
+
+  it("shows an error message when node_graph content is invalid JSON", () => {
+    useDiagramDetailMock.mockReturnValue(
+      hookResult({
+        detail: detailRow({
+          payload_format: "node_graph",
+          content: "{ invalid json",
+        }),
+      }),
+    );
+
+    renderDetail();
+
+    expect(screen.getByTestId("diagram-node-graph-error")).toBeInTheDocument();
+    // Error message varies by JS engine; just check it's present and mentions JSON
+    const errorText = screen.getByTestId("diagram-node-graph-error").textContent;
+    expect(errorText).toMatch(/JSON|Unexpected|Expected/);
   });
 });

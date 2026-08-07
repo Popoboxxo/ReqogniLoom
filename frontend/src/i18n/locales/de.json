@@ -776,6 +776,12 @@
       "code": "Code",
       "visual": "Visuell"
     },
+    "formatLabels": {
+      "nodeGraph": "Strukturierter Graph",
+      "mermaid": "Mermaid-Diagramm",
+      "plantuml": "PlantUML",
+      "canvasStroke": "Freihand-Skizze"
+    },
     "typeUnknown": "Sonstige",
     "openEditor": "Editor öffnen",
     "emptyCanvas": "Diese Zeichenfläche ist noch leer."

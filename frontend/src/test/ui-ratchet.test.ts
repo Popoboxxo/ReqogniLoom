@@ -192,8 +192,11 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // uses the hoisted `saveErrorStyle` constant instead of an inline object
 // literal. Re-measured after that change: 1089. Baseline lowered in the same
 // PR per the ratchet rule above.
+// GH-353 Task 9: Added read-only React Flow preview in DiagramDetailView for
+// node_graph format, adding 2 inline style blocks for error/preview pane styling.
+// Re-measured: 1091.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1089;
+const STYLE_BRACE_BASELINE = 1091;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

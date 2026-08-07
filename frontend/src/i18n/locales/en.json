@@ -776,6 +776,12 @@
       "code": "Code",
       "visual": "Visual"
     },
+    "formatLabels": {
+      "nodeGraph": "Structured Graph",
+      "mermaid": "Mermaid Diagram",
+      "plantuml": "PlantUML",
+      "canvasStroke": "Freehand Sketch"
+    },
     "typeUnknown": "Other",
     "openEditor": "Open editor",
     "emptyCanvas": "This canvas is still empty."
