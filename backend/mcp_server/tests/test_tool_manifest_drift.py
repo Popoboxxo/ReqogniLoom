@@ -37,3 +37,18 @@ def test_committed_manifest_matches_live_registry():
         f"{len(stale)} tool(s) in the committed manifest no longer exist in "
         f"the registry — regenerate and commit: {sorted(stale)}"
     )
+
+    # Name sets can match while the security-relevant is_write flag still
+    # drifts (e.g. a tool's write-gating changes without a rename). Compare
+    # (name, is_write) pairs too so that case is caught here instead of
+    # going unnoticed with a stale committed manifest.
+    committed_write_flags = {t["name"]: t["is_write"] for t in committed["tools"]}
+    live_write_flags = {t["name"]: t["is_write"] for t in live["tools"]}
+    flipped = sorted(
+        name for name in committed_write_flags.keys() & live_write_flags.keys()
+        if committed_write_flags[name] != live_write_flags[name]
+    )
+    assert not flipped, (
+        f"is_write changed for {len(flipped)} tool(s) without a name change — "
+        f"run export_tool_manifest and commit: {flipped}"
+    )

@@ -7,11 +7,7 @@ from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
 
-from mcp_server.tool_registry import (
-    ToolRegistry,
-    _READ_ONLY_TOOL_NAMES,
-    _READ_ONLY_TOOL_SUFFIXES,
-)
+from mcp_server.tool_registry import ToolRegistry
 
 # Find the repo root by looking for VERSION file, trying multiple parent levels
 # Local dev: backend/mcp_server/management/commands/export_tool_manifest.py → parents[4]
@@ -27,21 +23,6 @@ def _find_repo_root() -> Path:
 
 REPO_ROOT = _find_repo_root()
 DEFAULT_OUT = REPO_ROOT / "docs" / "agent-templates" / "tool-manifest.json"
-
-
-def _is_write_tool(tool_name: str) -> bool:
-    """Determine if a tool requires WRITE RBAC gate.
-
-    Uses fail-closed semantics: a tool is write-protected unless it is
-    explicitly known to be read-only, either by exact name in
-    _READ_ONLY_TOOL_NAMES or by matching a read-only suffix
-    (.read, .query). Unrecognised tools default to write-protected.
-    """
-    if tool_name in _READ_ONLY_TOOL_NAMES:
-        return False
-    if tool_name.endswith(_READ_ONLY_TOOL_SUFFIXES):
-        return False
-    return True
 
 
 def build_manifest() -> Dict[str, Any]:
@@ -74,7 +55,7 @@ def build_manifest() -> Dict[str, Any]:
                 {
                     "name": name,
                     "prefix": name.split(".", 1)[0] if "." in name else name,
-                    "is_write": _is_write_tool(name),
+                    "is_write": registry._is_write_tool(name),
                     "description": schema.get("description", ""),
                     "inputSchema": schema.get("inputSchema", {}),
                 }

@@ -527,7 +527,7 @@
     {
       "name": "architecture.decompose",
       "prefix": "architecture",
-      "is_write": false,
+      "is_write": true,
       "description": "SysEng 2.0 N1: generate a non-persistent decomposition draft for an ArchitectureElement (child elements + derived requirements + internal trace links). Review the returned draft, then persist it via architecture.decompose_commit. Available only in standard/extended rigor.",
       "inputSchema": {
         "type": "object",
@@ -1614,7 +1614,7 @@
     {
       "name": "goal.create",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Create a new Goal (starts a new lineage, sequence 1).",
       "inputSchema": {
         "type": "object",
@@ -1638,7 +1638,7 @@
     {
       "name": "goal.create_version",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Create a new version within an existing Goal lineage.",
       "inputSchema": {
         "type": "object",
@@ -1666,7 +1666,7 @@
     {
       "name": "goal.delete",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "SOFT-ARCHIVE a Goal version (write). This is NOT a hard delete: Goals are immutable, lineage-versioned rows, so the row is never removed — the version is moved to the 'Archiviert' workflow state through the WorkflowEngine (the same gated path as goal.transition). The row stays readable via goal.read and goal.list_versions, and goal.query still returns it when include_archived=true. REACHABLE FROM: any state the workspace's Goal workflow defines a transition to 'Archiviert' from — with the stock 'goal_default' preset that is 'Entwurf' and 'Freigegeben' (both approver/admin only). A workspace whose Goal workflow was customised, or that was provisioned before the 'Entwurf -> Archiviert' edge existed, may only allow it from 'Freigegeben'. ON AN INVALID STATE: returns VALIDATION_ERROR (JSON-RPC error, HTTP 400) naming the current state; call goal.transition with an unreachable target to get the list of states that ARE reachable in the error details. A caller lacking the approver/admin role gets PERMISSION_DENIED. REVERSIBLE via goal.reactivate (or goal.transition back to 'Entwurf'). Alias: goal.outdate.",
       "inputSchema": {
         "type": "object",
@@ -1704,7 +1704,7 @@
     {
       "name": "goal.outdate",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Soft-delete a Goal version (write). Exact alias of goal.delete, named after the {entity}.outdate convention the other artifact namespaces use — for Goals the soft-delete state is the workflow's 'Archiviert', not the generic 'outdated' escape hatch, because 'outdated' is foreign to the Goal state machine and would hide the row from the archive filters. See goal.delete for the reachable source states and error behaviour.",
       "inputSchema": {
         "type": "object",
@@ -1754,7 +1754,7 @@
     {
       "name": "goal.reactivate",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Restore an archived Goal version (write). Transitions it back to the Goal workflow's initial state ('Entwurf' by default) through the same gated path as goal.transition. Deliberately does NOT restore the pre-archive state: only 'Freigegeben' versions feed MainGoal aggregation, so a restored Goal returns as a draft and must be approved again. The stock preset gates 'Archiviert -> Entwurf' on approver/admin and requires a reason (defaulted to 'reactivated' when none is given).",
       "inputSchema": {
         "type": "object",
@@ -1796,7 +1796,7 @@
     {
       "name": "goal.transition",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Transition a Goal version's workflow state (e.g. Entwurf -> Freigegeben). Only Freigegeben versions feed MainGoal aggregation.",
       "inputSchema": {
         "type": "object",
@@ -1830,7 +1830,7 @@
     {
       "name": "goal.update",
       "prefix": "goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Update a Goal (write). Goals are immutable, lineage-versioned rows, so this does NOT edit the addressed row: it appends a new version to the same lineage carrying the given fields, starting again at 'Entwurf'. Omitted fields are inherited from the addressed version (PATCH semantics). Identical in effect to goal.create_version, but addressed by goal_id instead of lineage_id. 'status' cannot be changed here — use goal.transition.",
       "inputSchema": {
         "type": "object",
@@ -2081,7 +2081,7 @@
     {
       "name": "main_goal.approve",
       "prefix": "main_goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Approve a MainGoal draft, making it the currently valid version. This is the only MainGoal transition exposed over MCP: it moves the row from 'Entwurf' to 'Freigegeben'. Returns {\"main_goal\": {...}}.",
       "inputSchema": {
         "type": "object",
@@ -2102,7 +2102,7 @@
     {
       "name": "main_goal.create_manual",
       "prefix": "main_goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Manually create a new MainGoal draft. Returns the persisted draft as {\"main_goal\": {id, sequence_number, content, source, status, ...}}.",
       "inputSchema": {
         "type": "object",
@@ -2123,7 +2123,7 @@
     {
       "name": "main_goal.generate",
       "prefix": "main_goal",
-      "is_write": false,
+      "is_write": true,
       "description": "Generate a new MainGoal draft via LLM aggregation of the workspace's approved Goals. Returns the persisted draft as {\"main_goal\": {id, sequence_number, content, source, status, ...}}.",
       "inputSchema": {
         "type": "object",
@@ -2209,7 +2209,7 @@
     {
       "name": "needs.derive_requirements",
       "prefix": "needs",
-      "is_write": false,
+      "is_write": true,
       "description": "Propose system requirement drafts for a StakeholderNeed (LLM). Synchronous — mode='preview' (default) returns drafts only; mode='write' persists each draft as a Requirement and links it back to the need via a 'derives-from' trace link. Equivalent to ai_derivation.derive_requirements_from_need (fix #112 — this tool used to dispatch an async task that sent the LLM only the need's UUID, persisted nothing, and had no reachable task-status endpoint).",
       "inputSchema": {
         "type": "object",
