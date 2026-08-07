@@ -37,6 +37,7 @@ Design (Task 7 brief):
 from __future__ import annotations
 
 import json
+import traceback
 import uuid
 from dataclasses import dataclass
 from typing import Optional
@@ -125,9 +126,31 @@ class Command(BaseCommand):
         for diagram_id, tenant_id in targets:
             TenantContext.set_tenant(tenant_id)
             try:
-                reports.append(self._process_one(manager, diagram_id, apply_changes))
+                report = self._process_one(manager, diagram_id, apply_changes)
+            except Exception as exc:  # noqa: BLE001 - see module docstring: one
+                # diagram's bug must never abort a --workspace batch. This is
+                # the general-purpose safety net beyond the typed
+                # DiagramValidationError handling already inside
+                # _process_one's own write call — it catches everything else
+                # (e.g. an unanticipated exception from DiagramManager, the
+                # renderer, or a bug in this command itself) so the loop can
+                # still move on to the next diagram. Full traceback goes to
+                # stderr for diagnosability; the report line stays short.
+                self.stderr.write(
+                    self.style.ERROR(
+                        f"Unexpected error processing diagram {diagram_id}: {exc!r}"
+                    )
+                )
+                self.stderr.write(traceback.format_exc())
+                report = _DiagramReport(
+                    diagram_id,
+                    "<unknown>",
+                    False,
+                    f"unexpected error: {type(exc).__name__}: {exc}",
+                )
             finally:
                 TenantContext.clear_tenant()
+            reports.append(report)
 
         if original_tenant_id is not None:
             TenantContext.set_tenant(original_tenant_id)

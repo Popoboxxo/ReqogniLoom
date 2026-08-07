@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+from unittest.mock import patch
 
 import pytest
 from django.core.management import CommandError, call_command
@@ -209,6 +210,57 @@ class TestRefusesFreehandPathDiagram:
             bad.refresh_from_db()
             assert good.current_version.payload_format == PayloadFormat.NODE_GRAPH
             assert bad.current_version.payload_format == PayloadFormat.CANVAS_STROKE
+
+    def test_unexpected_non_validation_error_does_not_abort_the_workspace_run(
+        self, manager, tenant_a, workspace_a
+    ) -> None:
+        """Review fix (Important finding, round 1): only DiagramValidationError was
+        previously caught around the write call; any OTHER exception raised while
+        processing one diagram (e.g. a bug, or an unanticipated error surfaced by
+        DiagramManager) propagated out of the --workspace loop and aborted
+        processing of every diagram after it. This asserts the general guarantee
+        the module docstring promises: one diagram's unexpected failure is
+        reported and skipped, the rest of the batch still converts.
+        """
+        with active_tenant(tenant_a):
+            good = _make_canvas_diagram(
+                manager, tenant_a, workspace_a, _RECTS_AND_CONNECTOR, name="Good Diagram"
+            )
+            boom = _make_canvas_diagram(
+                manager, tenant_a, workspace_a, _RECTS_AND_CONNECTOR, name="Boom Diagram"
+            )
+
+        original_update_diagram = DiagramManager.update_diagram
+
+        def _flaky_update_diagram(self, *, diagram_id, **kwargs):
+            if diagram_id == boom.id:
+                raise RuntimeError("simulated unexpected failure")
+            return original_update_diagram(self, diagram_id=diagram_id, **kwargs)
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with patch.object(DiagramManager, "update_diagram", _flaky_update_diagram):
+            call_command(
+                "convert_canvas_to_node_graph",
+                f"--workspace={workspace_a.id}",
+                "--apply",
+                stdout=out,
+                stderr=err,
+            )
+
+        report = out.getvalue()
+        assert "CONVERTED" in report
+        assert "SKIPPED" in report
+        assert "unexpected error" in report
+        assert "simulated unexpected failure" in err.getvalue()
+
+        with active_tenant(tenant_a):
+            good.refresh_from_db()
+            boom.refresh_from_db()
+            # The healthy diagram still converted despite the other one blowing up.
+            assert good.current_version.payload_format == PayloadFormat.NODE_GRAPH
+            # The failing diagram's source canvas_stroke version is untouched.
+            assert boom.current_version.payload_format == PayloadFormat.CANVAS_STROKE
 
 
 # ---------------------------------------------------------------------------
