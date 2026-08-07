@@ -65,6 +65,7 @@ class TestValidLinkTypes:
         "uses-term",
         "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "decomposes",  # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4 — hardcoded decompose() output
+        "diagram-ref",  # Codeberg #353 Task 3 — reconciler-owned only, see traceability/types.py
     }
 
     def test_all_ten_types_present(self):

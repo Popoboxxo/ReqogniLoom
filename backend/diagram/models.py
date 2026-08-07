@@ -95,6 +95,23 @@ class Diagram(TenantScopedModel):
     )
     # Optional free-text description for UI / MCP context
     description = models.TextField(blank=True, default="")
+    # Codeberg #353 Task 3 / #392: shadow Artifact side-channel. Diagram is
+    # deliberately NOT an Artifact subclass (see traceability_connector.py's
+    # module docstring) — this nullable 1:1 FK gives a Diagram a real,
+    # persisted Artifact row it can own so it can act as a valid TraceLink
+    # endpoint (Artifact.unscoped.get(pk=...) needs a real Artifact row;
+    # a bare diagram.id always raised SourceNotFoundError, #392). Lazily
+    # created on first use by diagram.traceability_connector._resolve_artifact_id
+    # — NOT backfilled for pre-existing rows in this task. on_delete=SET_NULL
+    # so deleting the shadow Artifact (e.g. cascade from a TraceLink cleanup)
+    # never cascades into deleting the Diagram itself.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="diagram",
+    )
 
     class Meta:
         db_table = "diagram_diagram"

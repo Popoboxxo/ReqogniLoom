@@ -11,28 +11,83 @@ External interface (outgoing):
   IF-L1-034: creates a TraceLink of link_type='documents' via
              traceability.services.create_trace_link
 
-Links a Diagram's artifact-proxy UUID to a target artifact (Requirement or
+Links a Diagram's shadow-Artifact to a target artifact (Requirement or
 ArchitectureElement) using the TraceabilityEngine (ARCH-L1-007) with
 link_type='documents' (LinkType.DOCUMENTS).
 
-Note on artifact-proxy pattern:
-  Diagram entities do not inherit from persistence.models.Artifact because they
-  are a standalone domain entity in the DiagramService module.  For traceability
-  purposes the Diagram's own UUID (diagram.id) is passed as the source_id.
-  The TraceabilityEngine stores this UUID in TraceLink.source and the
-  PersistenceLayer's RLS/foreign-key constraints do not enforce referential
-  integrity across application-layer entities — only persistence.Artifact rows
-  carry the FK constraint.  This is the accepted trade-off for the DiagramService
-  module (bounded context); a proper Artifact proxy can be introduced via a
-  migration in a future iteration without changing this interface.
+Shadow-Artifact pattern (Codeberg #353 Task 3, closes #392):
+  Diagram entities do not inherit from persistence.models.Artifact — they
+  remain a standalone domain entity in the DiagramService module (bounded
+  context, unchanged by this fix). What changed: a Diagram's *raw* UUID is no
+  longer used directly as a TraceLink source_id. TraceLinkManager.create looks
+  up the source via ``Artifact.unscoped.get(pk=source_id)`` — a bare
+  ``diagram.id`` never resolves there, so every "documents" link creation
+  raised SourceNotFoundError (#392). Diagram now owns an optional, lazily-
+  created 1:1 ``Diagram.artifact`` side-channel FK (persistence/models.py via
+  diagram/models.py, migration 0007) to a *real*, persisted Artifact row.
+  ``_resolve_artifact_id`` is the single choke point that creates/looks up
+  that shadow Artifact; both this module's own "documents" link path and the
+  Task 4 "diagram-ref" reconciler call it, so the fix lives in exactly one
+  place.
 """
 from __future__ import annotations
 
 import uuid
 from typing import Optional
 
+from diagram.models import Diagram
+from persistence.models import Artifact
 from traceability.services import create_trace_link
 from traceability.exceptions import TraceLinkError
+
+
+# ---------------------------------------------------------------------------
+# Shadow-Artifact resolution (Codeberg #353 Task 3 / #392)
+# ---------------------------------------------------------------------------
+
+def _resolve_artifact_id(diagram: Diagram) -> uuid.UUID:
+    """Resolve the shadow Artifact id backing *diagram*, creating it lazily.
+
+    Idempotent: if ``diagram.artifact_id`` is already set, it is returned
+    unchanged — no second shadow Artifact is ever created for the same
+    Diagram.
+
+    Transaction-safety: performs a write (Artifact creation + Diagram save)
+    but never opens its own transaction. It must be called from inside the
+    caller's existing atomic block (DiagramManager's write paths are already
+    wrapped in ``@atomic_transaction`` — persistence.transactions) so that a
+    rollback of the outer operation also rolls back the shadow Artifact.
+
+    Args:
+        diagram: The Diagram ORM instance to resolve/attach a shadow
+            Artifact for.
+
+    Returns:
+        The UUID of the (possibly newly-created) shadow Artifact.
+
+    Raises:
+        TraceLinkError: If the diagram has no ``workspace_id`` set. An
+            Artifact row requires a non-null ``workspace`` FK
+            (persistence.models.Artifact), so a Diagram must first be
+            assigned to a workspace (REQ-173) before it can back a TraceLink.
+    """
+    if diagram.artifact_id is not None:
+        return diagram.artifact_id
+
+    if diagram.workspace_id is None:
+        raise TraceLinkError(
+            f"Diagram {diagram.id} has no workspace_id; a Diagram must be "
+            "assigned to a workspace before it can back a TraceLink."
+        )
+
+    artifact = Artifact.objects.create(
+        artifact_type="Diagram",
+        tenant=diagram.tenant,
+        workspace_id=diagram.workspace_id,
+    )
+    diagram.artifact = artifact
+    diagram.save(update_fields=["artifact", "modified_at"])
+    return artifact.id
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +116,10 @@ class TraceabilityConnector:
 
         IF-DS-INT-003 contract: create_document_link(diagram_id, target_id)
 
+        #392 fix: resolves *diagram_id* to its shadow Artifact id via
+        ``_resolve_artifact_id`` before delegating to the TraceabilityEngine,
+        instead of passing the raw Diagram UUID as source_id.
+
         Args:
             diagram_id:     UUID of the Diagram (source side).
             target_id:      UUID of the target Artifact (Requirement or
@@ -71,13 +130,19 @@ class TraceabilityConnector:
             The created TraceLink ORM object (from TraceabilityEngine).
 
         Raises:
+            Diagram.DoesNotExist: If diagram_id does not resolve to a Diagram
+                                  in the active tenant.
             TraceLinkError:       If TraceabilityEngine rejects the link
-                                  (e.g. target not found, cross-tenant, cycle).
+                                  (e.g. target not found, cross-tenant, cycle),
+                                  or if the Diagram has no workspace assigned.
                                   REQ-L3-TC-001: errors propagated transparently.
         """
+        diagram = Diagram.objects.get(id=diagram_id)
+        resolved_source_id = _resolve_artifact_id(diagram)
+
         # IF-L1-034: delegate to TraceabilityEngine public facade
         return create_trace_link(
-            source_id=diagram_id,
+            source_id=resolved_source_id,
             target_id=target_id,
             link_type=self.LINK_TYPE,
             created_by_id=created_by_id,
@@ -86,4 +151,5 @@ class TraceabilityConnector:
 
 __all__ = [
     "TraceabilityConnector",
+    "_resolve_artifact_id",
 ]

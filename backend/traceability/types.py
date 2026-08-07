@@ -54,6 +54,9 @@ class LinkType(str, Enum):
     # (formerly read from Workspace.decomposition_link_type). Not a rename of
     # PARENT_CHILD: existing parent-child TraceLinks/baselines are untouched.
     DECOMPOSES = "decomposes"
+    # Codeberg #353 Task 3: Reconciler-owned only (Codeberg #353) — never
+    # hand-authored, never touched by manual trace-link CRUD.
+    DIAGRAM_REF = "diagram-ref"
 
     @classmethod
     def values(cls) -> frozenset[str]:

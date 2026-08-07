@@ -276,6 +276,66 @@ class TestDiagramToolGroupCrud:
         assert result.error_code == "NOT_FOUND"
 
 
+# ---------------------------------------------------------------------------
+# Codeberg #353 Task 3 / #392 regression: diagram.create + target_id must
+# persist a real 'documents' TraceLink end-to-end (nothing mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestDiagramCreateTargetIdTraceLink:
+    def test_create_with_target_id_persists_documents_tracelink(self):
+        """#392: diagram.create(target_id=...) always raised SourceNotFoundError
+        deep inside TraceLinkManager.create, because a bare Diagram UUID is not
+        a valid Artifact row (TraceLinkManager looks endpoints up via
+        Artifact.unscoped.get(pk=...)). This proves the fix end-to-end through
+        the real MCP handler, real DiagramManager, real TraceabilityConnector
+        and a real persisted TraceLink row — nothing here is mocked, unlike
+        TestDiagramToolGroupCrud (which never sets target_id) or
+        diagram/tests/test_traceability_connector.py's
+        TestCreateDocumentLinkWithManagerIntegration (which mocks
+        create_trace_link).
+        """
+        from diagram.models import Diagram
+        from persistence.models import Artifact, TraceLink
+
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-392")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            target_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Diagram with target_id",
+                    "diagram_type": "block",
+                    "payload_format": "json",
+                    "content": VALID_JSON_BLOCK,
+                    "target_id": str(target_artifact.id),
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            assert result.success is True
+            diagram_id = result.data["diagram"]["id"]
+
+            diagram = Diagram.objects.get(id=diagram_id)
+            assert diagram.artifact_id is not None
+
+            link = TraceLink.objects.get(
+                source_id=diagram.artifact_id,
+                target_id=target_artifact.id,
+                link_type="documents",
+            )
+            assert link.source_id == diagram.artifact_id
+            assert link.target_id == target_artifact.id
+        finally:
+            TenantContext.clear_tenant()
+
+
 class TestDiagramToolGroupLifecycle:
     def test_outdate_then_reactivate_roundtrip(self):
         tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-lifecycle")
