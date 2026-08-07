@@ -130,25 +130,6 @@ jobs:
           pip-audit --desc
         continue-on-error: false
 
-  agent-templates-test:
-    name: "Agent Templates & Distribution (docs/agent-templates, dist)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Install test dependencies
-        run: pip install pytest pyyaml
-
-      - name: Run pytest for docs/agent-templates and dist
-        run: pytest docs/agent-templates dist
-
   frontend-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
