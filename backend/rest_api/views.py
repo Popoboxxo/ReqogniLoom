@@ -2419,7 +2419,21 @@ class BaselineViewSet(BaseEntityViewSet):
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        self._check_preset(request)
+        """GET /api/v1/baselines/<pk>/ — full baseline detail incl. entries.
+
+        Issue #398: this used to run the preset gate before loading the
+        baseline. With no ``workspace_id`` in the URL or query string, the
+        gate's last-resort fallback substitutes the *tenant* id for the
+        workspace id; ``presets.gate`` then looks that id up in ``pl_workspace``
+        and raises ``DoesNotExist``, which ``_guard_preset`` maps to a bare
+        ``Http404``. Every detail request therefore 404ed regardless of preset,
+        and the UI's "Captured items" panel hung forever.
+
+        The baseline itself knows its workspace, so it is resolved first (the
+        service is tenant-scoped and raises NotFoundError for foreign
+        baselines) and the gate is then applied to the *real* workspace. Both
+        orders answer 404 to an unauthorised caller, so nothing is leaked.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -2428,6 +2442,7 @@ class BaselineViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        self._check_preset(request, workspace_id=str(item.workspace_id))
         return Response(BaselineSerializer(_baseline_to_dict(item)).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
@@ -2493,7 +2508,6 @@ class BaselineViewSet(BaseEntityViewSet):
         (REQ-L2-BL-003, REQ-L2-BL-012). Both baselines must be non-equal and
         belong to the caller's tenant.
         """
-        self._check_preset(request)
         lang = detect_lang(request)
 
         a_str = request.query_params.get("baseline_a")
@@ -2523,8 +2537,23 @@ class BaselineViewSet(BaseEntityViewSet):
             # Tenant-scoping: resolving each baseline via the tenant-scoped
             # store raises NotFoundError for baselines outside the caller's
             # tenant before the diff runs (REQ-L2-TE-011).
-            svc.get_baseline(a_id, ctx)
+            baseline_a = svc.get_baseline(a_id, ctx)
             svc.get_baseline(b_id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("BaselineViewSet.diff: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        # Issue #398: the preset gate needs a real workspace id. This endpoint
+        # carries none in its URL or query string, and the gate's tenant-id
+        # fallback resolves to no workspace at all (-> bare Http404 for every
+        # caller). Gate on the resolved baseline's own workspace instead —
+        # outside the try/except, because the gate signals "endpoint hidden by
+        # preset" with Http404, which handle_exception must re-raise verbatim.
+        self._check_preset(request, workspace_id=str(baseline_a.workspace_id))
+
+        try:
             result = svc.diff_baselines(a_id, b_id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
