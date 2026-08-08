@@ -157,6 +157,45 @@ class TestAttributeVisibilityConfigService:
         assert second[0].version == 2
 
 
+class TestDescribeSchema:
+    def test_describe_schema_lists_every_requirement_field(self):
+        tenant, user = _tenant_user("avc")
+        ctx = _make_ctx(tenant_id=tenant.id, user_id=user.id)
+        svc = AttributeVisibilityConfigService()
+
+        schema = svc.describe_schema(ctx, entity_type="Requirement")
+
+        names = {row["attribute_name"] for row in schema}
+        from application.requirement_bundle_service import REQUIREMENT_ALL_FIELDS
+
+        assert names == set(REQUIREMENT_ALL_FIELDS)
+        assert all(row["entity_type"] == "Requirement" for row in schema)
+        assert all(isinstance(row["is_visible"], bool) for row in schema)
+
+    def test_describe_schema_reflects_explicit_hidden_config(self):
+        tenant, user = _tenant_user("avc")
+        ctx = _make_ctx(tenant_id=tenant.id, user_id=user.id)
+        svc = AttributeVisibilityConfigService()
+        svc.create_config(
+            ctx, entity_type="Requirement", attribute_name="description", is_visible=False
+        )
+
+        schema = svc.describe_schema(ctx, entity_type="Requirement")
+
+        row = next(r for r in schema if r["attribute_name"] == "description")
+        assert row["is_visible"] is False
+
+    def test_describe_schema_without_entity_type_returns_all_known_types(self):
+        tenant, user = _tenant_user("avc")
+        ctx = _make_ctx(tenant_id=tenant.id, user_id=user.id)
+        svc = AttributeVisibilityConfigService()
+
+        schema = svc.describe_schema(ctx)
+
+        entity_types = {row["entity_type"] for row in schema}
+        assert "Requirement" in entity_types
+
+
 # ---------------------------------------------------------------------------
 # CustomFieldService
 # ---------------------------------------------------------------------------
