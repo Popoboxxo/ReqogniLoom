@@ -281,9 +281,19 @@ def test_application_config_registers_post_migrate_receiver():
     """[REQ-188] should register the self-init receiver on the post_migrate signal with the documented dispatch_uid"""
     from django.db.models.signals import post_migrate
 
+    # ``Signal.receivers`` is a Django internal with no public introspection
+    # equivalent, and its entry shape is NOT stable across Django versions:
+    # Django 4.2 stored ``(lookup_key, receiver)`` while Django 5.0+ appends a
+    # third ``is_async`` element (``(lookup_key, receiver, is_async)``) as part
+    # of the async-signal support added in 5.0. Unpacking a fixed arity here
+    # therefore broke on the 4.2 -> 5.2 upgrade with "too many values to
+    # unpack (expected 2)".
+    #
+    # Only element 0 (the ``lookup_key``, itself a ``(dispatch_uid, sender_id)``
+    # tuple) carries the contract under test, so index it positionally and stay
+    # agnostic about how many elements follow — the same version-robust access
+    # pattern already used in test_cache_invalidation.py.
     dispatch_uids = {
-        receiver_key[0]
-        for receiver_key, _receiver in post_migrate.receivers
-        if isinstance(receiver_key, tuple)
+        entry[0][0] for entry in post_migrate.receivers if isinstance(entry[0], tuple)
     }
     assert "application.self_init.run_self_init" in dispatch_uids
