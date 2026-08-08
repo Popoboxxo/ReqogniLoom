@@ -55,7 +55,13 @@ requests>=2.34.2,<3.0
 
 # Field-level encryption (REQ-081) — Fernet symmetric encryption for
 # persistence.LlmSettings.api_key at rest.
-cryptography>=49.0.0,<50.0
+# Floor raised to 50.0.0 for PYSEC-2026-3552: pkcs7_decrypt_der/pem/smime
+# leaked RecipientInfo decryption outcome via distinguishable errors and
+# timing (Bleichenbacher oracle against the content-encryption key),
+# introduced in 44.0.0, fixed in 50.0.0. Not exploitable via this app's
+# own Fernet usage (no attacker-supplied PKCS#7 EnvelopedData is ever
+# decrypted here) but the CI pip-audit gate forces the floor regardless.
+cryptography>=50.0.0,<51.0
 
 # Observability (REQ-063)
 python-json-logger>=4.1.0,<5.0
