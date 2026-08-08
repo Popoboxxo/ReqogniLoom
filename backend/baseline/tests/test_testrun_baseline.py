@@ -365,19 +365,28 @@ class TestStateCaptureTestRuns:
              patch("persistence.models.Requirement") as MockReq, \
              patch("persistence.models.ArchitectureElement") as MockAE, \
              patch("persistence.models.StakeholderNeed") as MockSN, \
-             patch("persistence.models.TestCase") as MockTC:
+             patch("persistence.models.TestCase") as MockTC, \
+             patch("application.models.Adr") as MockAdr, \
+             patch("application.models.Risk") as MockRisk, \
+             patch("application.models.Issue") as MockIssue, \
+             patch("application.models.Goal") as MockGoal, \
+             patch("application.models.MainGoal") as MockMainGoal:
             MockTR.unscoped.filter.return_value = [mock_run]
             # item queries return nothing — bare artifact path
             mock_art = MagicMock()
             mock_art.id = art_id
             mock_art.artifact_type = "generic"
+            # Issue #398: the Artifact header now also carries custom_fields
+            # and parent_id, which are captured for every artifact-backed item.
             MockArt.unscoped.filter.return_value.values_list.return_value = [
-                (art_id, "generic")
+                (art_id, "generic", {"rationale": "kept"}, None)
             ]
             MockReq.unscoped.filter.return_value = []
             MockAE.unscoped.filter.return_value = []
             MockSN.unscoped.filter.return_value = []
             MockTC.unscoped.filter.return_value = []
+            for mock_model in (MockAdr, MockRisk, MockIssue, MockGoal, MockMainGoal):
+                mock_model.objects.filter.return_value = []
 
             states = capture_states(tuples, TENANT_ID)
 
@@ -385,6 +394,11 @@ class TestStateCaptureTestRuns:
         assert run_id in states
         assert states[run_id]["entity_type"] == "test_run"
         assert states[run_id]["name"] == "Smoke test"
+
+        # bare artifact still gets the shared Artifact envelope (#398)
+        assert states[art_id]["artifact_type"] == "generic"
+        assert states[art_id]["custom_fields"] == {"rationale": "kept"}
+        assert states[art_id]["artifact_parent_id"] is None
 
 
 # ---------------------------------------------------------------------------

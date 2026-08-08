@@ -18,9 +18,9 @@ Performance (ADR-L3-BL001-01 spirit, N+1 avoidance):
   batched query using ``id__in`` / ``artifact_id__in``. No per-item DB round
   trips are issued. For the "item" entity_type — where ``item_id`` is an
   Artifact UUID that may back a Requirement, ArchitectureElement,
-  StakeholderNeed or TestCase — one query per candidate domain table is issued
-  (4 queries total, independent of item count) plus one for the Artifact
-  headers.
+  StakeholderNeed, TestCase, Adr, Risk, Issue, Goal or MainGoal — one query per
+  candidate domain table is issued (a constant, independent of item count) plus
+  one for the Artifact headers.
 
 Tenant isolation:
   All queries go through the ``unscoped`` manager with an explicit
@@ -85,7 +85,20 @@ def _capture_items(
 
     ``item_id`` is the Artifact UUID. The concrete domain entity is discovered
     by batch-querying each candidate table on ``artifact_id__in``. This is a
-    fixed number of queries (5) regardless of how many items are captured.
+    fixed number of queries (one per candidate table plus one for the Artifact
+    headers) regardless of how many items are captured.
+
+    Issue #398: the captured field set is the *only* thing a baseline diff can
+    ever see, because :mod:`baseline.diff_engine` compares snapshotted values
+    rather than a version counter. A field that is not captured here is a field
+    whose drift is structurally invisible — so every user-editable column of
+    every artifact-backed entity belongs in this map. Before #398 the map was
+    missing ``Requirement.acceptance_criteria`` / ``level``, the workflow
+    ``status`` of TestCases, ``lifecycle_status`` (soft-delete) everywhere, the
+    element re-parenting signal, ``Artifact.custom_fields`` (which is where
+    user-defined attributes such as a "rationale" live) and, most severely, the
+    entire content of ADRs / Risks / Issues / Goals — those fell through to the
+    "bare artifact" branch and were snapshotted as ``{"artifact_type": "Adr"}``.
     """
     uuids = _to_uuids(item_ids)
     if not uuids:
@@ -99,13 +112,19 @@ def _capture_items(
         TestCase,
     )
 
-    # Artifact headers — provides artifact_type as a fallback discriminator.
-    artifact_type_by_id: dict[str, str] = {}
-    for art_id, art_type in (
+    # Artifact headers — the shared envelope of every artifact-backed entity.
+    # ``artifact_type`` doubles as a fallback discriminator; ``custom_fields``
+    # and ``parent`` are real, user-visible state that no subtype table holds.
+    artifact_header_by_id: dict[str, dict[str, Any]] = {}
+    for art_id, art_type, custom_fields, parent_id in (
         Artifact.unscoped.filter(id__in=uuids, tenant_id=tenant_id)
-        .values_list("id", "artifact_type")
+        .values_list("id", "artifact_type", "custom_fields", "parent_id")
     ):
-        artifact_type_by_id[str(art_id)] = art_type
+        artifact_header_by_id[str(art_id)] = {
+            "artifact_type_raw": art_type,
+            "custom_fields": custom_fields or {},
+            "artifact_parent_id": str(parent_id) if parent_id else None,
+        }
 
     states: dict[str, dict[str, Any]] = {}
 
@@ -118,12 +137,15 @@ def _capture_items(
             "uid": req.uid,
             "title": req.title,
             "description": req.description,
+            "acceptance_criteria": req.acceptance_criteria,
             "category": req.category,
             "status": req.status,
             "type": req.type,
+            "level": req.level,
             "complexity_fibonacci": req.complexity_fibonacci,
             "verification_method": req.verification_method,
             "suspect": req.suspect,
+            "lifecycle_status": req.lifecycle_status,
             "version": req.version,
         }
 
@@ -137,9 +159,11 @@ def _capture_items(
             "title": ae.title,
             "description": ae.description,
             "element_type": ae.element_type,
+            "parent_id": str(ae.parent_id) if ae.parent_id else None,
             "asil_level": ae.asil_level,
             "make_or_buy": ae.make_or_buy,
             "suspect": ae.suspect,
+            "lifecycle_status": ae.lifecycle_status,
             "version": ae.version,
         }
 
@@ -156,6 +180,7 @@ def _capture_items(
             "status": sn.status,
             "moscow_priority": sn.moscow_priority,
             "suspect": sn.suspect,
+            "lifecycle_status": sn.lifecycle_status,
             "version": sn.version,
         }
 
@@ -169,20 +194,134 @@ def _capture_items(
             "title": tc.title,
             "description": tc.description,
             "steps": tc.steps,
+            "test_type": tc.test_type,
+            "status": tc.status,
             "suspect": tc.suspect,
             "version": tc.version,
         }
 
-    # Bare artifacts (no domain entity found) — capture the type + version so
-    # the entry is not left stateless.
+    states.update(
+        _capture_application_entities(uuids, tenant_id, artifact_header_by_id)
+    )
+
+    # Merge the shared Artifact envelope into every captured state and give
+    # bare artifacts (no domain entity found) at least that envelope, so their
+    # entry is not left effectively stateless.
     for item_id in item_ids:
-        if item_id in states:
+        header = artifact_header_by_id.get(item_id)
+        if header is None:
             continue
-        art_type = artifact_type_by_id.get(item_id)
-        if art_type is not None:
-            states[item_id] = {
-                "artifact_type": art_type,
-            }
+        state = states.get(item_id)
+        if state is None:
+            state = {"artifact_type": header["artifact_type_raw"]}
+            states[item_id] = state
+        state["custom_fields"] = header["custom_fields"]
+        state["artifact_parent_id"] = header["artifact_parent_id"]
+
+    return states
+
+
+def _capture_application_entities(
+    uuids: list[uuid.UUID],
+    tenant_id: uuid.UUID,
+    artifact_header_by_id: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Capture Artifact-backed entities that live in ``application.models``.
+
+    ADR / Risk / Issue / Goal / MainGoal each own a backing Artifact (their
+    ``artifact`` OneToOne) and therefore appear in every project and global
+    baseline — but none of them had a state capture, so their entire content
+    was invisible to a baseline diff (issue #398).
+
+    One batched query per table, matching the pattern above. These models are
+    plain (non-tenant-scoped) ``models.Model`` subclasses with a flat
+    ``tenant_id`` UUID column, so the tenant filter is applied explicitly.
+
+    ``artifact_type`` deliberately echoes the raw ``Artifact.artifact_type``
+    string rather than a normalized label: these entries used to fall through
+    to the bare-artifact branch, which stored exactly that raw value. Keeping
+    it identical means a diff that straddles this change sees only *added*
+    keys (which ``_field_diff`` ignores) instead of a spurious
+    ``artifact_type: "Adr" -> "adr"`` change on every ADR in the workspace.
+    """
+    from application.models import Adr, Goal, Issue, MainGoal, Risk
+
+    states: dict[str, dict[str, Any]] = {}
+
+    def _raw_type(artifact_id: Any, fallback: str) -> str:
+        header = artifact_header_by_id.get(str(artifact_id))
+        if header is None:
+            return fallback
+        return header.get("artifact_type_raw") or fallback
+
+    for adr in Adr.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+        states[str(adr.artifact_id)] = {
+            "artifact_type": _raw_type(adr.artifact_id, "Adr"),
+            "uid": adr.uid,
+            "title": adr.title,
+            "description": adr.description,
+            "context": adr.context,
+            "decision": adr.decision,
+            "consequences": adr.consequences,
+            "status": adr.status,
+            "version": adr.version,
+        }
+
+    for risk in Risk.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+        states[str(risk.artifact_id)] = {
+            "artifact_type": _raw_type(risk.artifact_id, "Risk"),
+            "uid": risk.uid,
+            "title": risk.title,
+            "description": risk.description,
+            "category": risk.category,
+            "probability": risk.probability,
+            "impact": risk.impact,
+            "detection": risk.detection,
+            "risk_score": risk.risk_score,
+            "severity": risk.severity,
+            "owner": risk.owner,
+            "owner_user_id": str(risk.owner_user_id) if risk.owner_user_id else None,
+            "mitigation_strategy": risk.mitigation_strategy,
+            "status": risk.status,
+            "version": risk.version,
+        }
+
+    for issue in Issue.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+        states[str(issue.artifact_id)] = {
+            "artifact_type": _raw_type(issue.artifact_id, "Issue"),
+            "uid": issue.uid,
+            "title": issue.title,
+            "description": issue.description,
+            "severity": issue.severity,
+            "category": issue.category,
+            "assignee_id": str(issue.assignee_id) if issue.assignee_id else None,
+            "due_date": issue.due_date.isoformat() if issue.due_date else None,
+            "tags": issue.tags,
+            "status": issue.status,
+            "version": issue.version,
+        }
+
+    for goal in Goal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+        states[str(goal.artifact_id)] = {
+            "artifact_type": _raw_type(goal.artifact_id, "Goal"),
+            "lineage_id": str(goal.lineage_id),
+            "sequence_number": goal.sequence_number,
+            "title": goal.title,
+            "description": goal.description,
+            "status": goal.status,
+            "version": goal.version,
+        }
+
+    for mg in MainGoal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+        states[str(mg.artifact_id)] = {
+            "artifact_type": _raw_type(mg.artifact_id, "MainGoal"),
+            "sequence_number": mg.sequence_number,
+            "content": mg.content,
+            "source": mg.source,
+            "generated_from_goal_ids": mg.generated_from_goal_ids,
+            "status": mg.status,
+            "version": mg.version,
+        }
 
     return states
 

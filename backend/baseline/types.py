@@ -62,15 +62,20 @@ class BaselineMetadata:
 
 @dataclass(frozen=True)
 class ChangedItem:
-    """Represents an item present in both baselines with a version change.
+    """Represents an item present in both baselines whose content differs.
 
     COMP-BL-002, REQ-L2-BL-003, REQ-L2-BL-012.
 
     ``field_changes`` holds a per-field diff of the captured state, e.g.
-    ``{"title": {"old": "A", "new": "B"}}``. It is populated only when BOTH
-    baselines stored a full-state snapshot for the item (REQ-L2-BL-012). When
-    either side is a legacy entry with no state, it stays ``None`` and callers
-    fall back to the version-number delta.
+    ``{"title": {"old": "A", "new": "B"}}``. It is populated whenever BOTH
+    baselines stored a full-state snapshot for the item, and is then the
+    *reason* the item is listed as changed at all (issue #398) — it is never
+    empty in that case. When either side is a legacy entry with no state it
+    stays ``None`` and the item was classified by the version-number delta.
+
+    ``old_version`` / ``new_version`` report the entity's own version taken
+    from the snapshot when available, falling back to the delta-index value
+    (``Artifact.version``) for legacy entries.
     """
 
     id: str
@@ -87,7 +92,8 @@ class DiffResult:
 
     added: item_ids present in B but not A.
     removed: item_ids present in A but not B.
-    changed: items present in both with differing versions.
+    changed: items present in both whose captured field values differ (or,
+        for legacy entries without a snapshot, whose recorded version differs).
     """
 
     added: list[str] = field(default_factory=list)
