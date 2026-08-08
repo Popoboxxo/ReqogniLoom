@@ -229,19 +229,39 @@ test.describe('[GH-353 Task 8] DiagramGraphEditor (node_graph)', () => {
     const response = await patchPromise;
     expect(response.status()).toBeLessThan(300);
 
-    const savedNodeBox = await page.locator('[data-testid="graph-canvas"] [data-testid^="graph-node-"]').boundingBox();
+    const nodeSelector = '[data-testid="graph-canvas"] [data-testid^="graph-node-"]';
+    // React Flow writes each node's GRAPH-SPACE position onto its wrapper as a
+    // `transform: translate(Xpx, Ypx)`, independent of the viewport's own
+    // pan/zoom. That is the value ADR-DS-02 promises round-trips through the
+    // saved payload, so assert it directly — a screen bounding box alone
+    // cannot tell "the position was lost" apart from "the viewport was
+    // re-framed", and conflating the two is what made this test's original
+    // failure hard to read.
+    const graphNodeWrapper = page.locator('.react-flow__node');
+    const savedTransform = await graphNodeWrapper.first().evaluate((el) => el.style.transform);
+    const savedNodeBox = await page.locator(nodeSelector).boundingBox();
 
     await page.reload();
-    await expect(page.locator('[data-testid="graph-canvas"] [data-testid^="graph-node-"]')).toBeVisible({
-      timeout: 10000,
-    });
+    await expect(page.locator(nodeSelector)).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Persisted Node')).toBeVisible({ timeout: 5000 });
 
-    const reloadedNodeBox = await page.locator('[data-testid="graph-canvas"] [data-testid^="graph-node-"]').boundingBox();
+    const reloadedTransform = await graphNodeWrapper.first().evaluate((el) => el.style.transform);
+    const reloadedNodeBox = await page.locator(nodeSelector).boundingBox();
+
+    // 1. The graph-space position itself survived the round-trip through the
+    //    saved payload (no dagre re-layout on load).
+    expect(savedTransform).toMatch(/translate\(/);
+    expect(reloadedTransform).toBe(savedTransform);
+
+    // 2. ...and the rendered view is not re-framed either. `fitView` derives
+    //    its bounds from each node's declared/measured dimensions, so a node
+    //    whose width/height differ between the add path and the load path
+    //    shifts the whole viewport on reload even though (1) still holds —
+    //    exactly the GH-353 defect this assertion guards (a 40px x-shift from
+    //    `handleAddNode` omitting the width/height that `payloadToFlowNodes`
+    //    declares).
     expect(savedNodeBox).not.toBeNull();
     expect(reloadedNodeBox).not.toBeNull();
-    // Position after reload matches the position at save time (within a small
-    // tolerance for fit-view/rounding), i.e. it was NOT silently re-laid-out.
     expect(Math.abs(reloadedNodeBox!.x - savedNodeBox!.x)).toBeLessThan(40);
     expect(Math.abs(reloadedNodeBox!.y - savedNodeBox!.y)).toBeLessThan(40);
   });

@@ -940,8 +940,13 @@ class Requirement(TenantScopedModel):
             # recognizes SyReq/UseCase/FeatureReq). This CHECK constraint
             # makes the choice set a hard DB-level invariant so this class of
             # bug cannot recur for future SE-mask splits either.
+            # ``condition=`` (not ``check=``): Django 5.1 renamed the kwarg and
+            # 5.2 emits RemovedInDjango60Warning for the old spelling. Purely a
+            # rename — ``CheckConstraint.deconstruct()`` has emitted
+            # ``condition`` since 5.1 regardless of which kwarg was passed, so
+            # the migration state (and therefore the emitted SQL) is unchanged.
             models.CheckConstraint(
-                check=models.Q(type__in=[c[0] for c in RequirementType.choices]),
+                condition=models.Q(type__in=[c[0] for c in RequirementType.choices]),
                 name="ck_requirement_type_valid",
             ),
             # #133: uid was only enforced application-side (check-then-insert in

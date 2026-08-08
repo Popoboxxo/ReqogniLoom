@@ -32,12 +32,14 @@ vi.mock("react-i18next", () => {
 // targetHandle) tuples under test.
 vi.mock("./GraphCanvas", () => ({
   GraphCanvas: (props: {
+    nodes: { id: string; width?: number; height?: number }[];
     onConnectNodes: (
       source: string,
       target: string,
       sourceHandle: string | null,
       targetHandle: string | null
     ) => void;
+    onAddNode: () => void;
   }) => (
     <div data-testid="graph-canvas-stub">
       <button
@@ -54,12 +56,24 @@ vi.mock("./GraphCanvas", () => ({
       >
         connect null-&gt;null
       </button>
+      <button type="button" data-testid="stub-add-node" onClick={() => props.onAddNode()}>
+        add node
+      </button>
+      {/* The dimensions the page hands React Flow, exposed for assertion. */}
+      <div
+        data-testid="stub-node-dimensions"
+        data-dimensions={JSON.stringify(
+          props.nodes.map((n) => ({ id: n.id, width: n.width, height: n.height }))
+        )}
+      />
     </div>
   ),
 }));
 
 import * as useGraphPayloadModule from "./useGraphPayload";
 import { DiagramGraphEditorPage } from "./DiagramGraphEditorPage";
+import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from "./graph-layout";
+import { payloadToFlowNodes } from "./useGraphPayload";
 import type { NodeGraphPayload } from "../../types";
 
 vi.mock("./useGraphPayload", async (importOriginal) => {
@@ -97,6 +111,12 @@ function renderPage(): void {
   );
 }
 
+/** Read back the width/height the page hands React Flow for each node. */
+function readNodeDimensions(): { id: string; width?: number; height?: number }[] {
+  const raw = screen.getByTestId("stub-node-dimensions").getAttribute("data-dimensions") ?? "[]";
+  return JSON.parse(raw) as { id: string; width?: number; height?: number }[];
+}
+
 /** Toggle to the Code view and parse the live in-editor JSON payload. */
 function readCodeViewPayload(): NodeGraphPayload {
   fireEvent.click(screen.getByTestId("graph-viewmode-code-btn"));
@@ -127,5 +147,45 @@ describe("DiagramGraphEditorPage — connect handle threading", () => {
     expect(payload.edges).toHaveLength(1);
     expect(payload.edges[0].source_handle).toBe("bottom");
     expect(payload.edges[0].target_handle).toBe("top");
+  });
+});
+
+/**
+ * GH-353 regression: React Flow only measures a node's DOM box when the node
+ * does NOT declare `width`/`height`. `handleAddNode` used to omit both, so a
+ * freshly added node was measured (~140x44) while the identical node re-read
+ * from the saved payload declares 180x64 — different `fitView` bounds before
+ * and after a reload, i.e. the diagram visibly jumps even though the saved
+ * position round-trips correctly (E2E
+ * test_graph_save_persists_and_positions_survive_reload failed with a 40px
+ * x-shift). Every GraphFlowNode construction path must produce the identical
+ * shape; this pins the add-node path against the load path.
+ */
+describe("DiagramGraphEditorPage — node dimension consistency", () => {
+  it("gives a newly added node the same width/height the load path declares", () => {
+    renderPage();
+
+    fireEvent.click(screen.getByTestId("stub-add-node"));
+
+    const dimensions = readNodeDimensions();
+    expect(dimensions).toHaveLength(PAYLOAD.nodes.length + 1);
+
+    const loadPathDimensions = payloadToFlowNodes(PAYLOAD).map((n) => ({
+      width: n.width,
+      height: n.height,
+    }));
+    // Sanity-check the reference path itself so this test cannot pass by
+    // both paths degrading to `undefined` together.
+    expect(loadPathDimensions[0]).toEqual({
+      width: DEFAULT_NODE_WIDTH,
+      height: DEFAULT_NODE_HEIGHT,
+    });
+
+    for (const node of dimensions) {
+      expect({ width: node.width, height: node.height }).toEqual({
+        width: DEFAULT_NODE_WIDTH,
+        height: DEFAULT_NODE_HEIGHT,
+      });
+    }
   });
 });

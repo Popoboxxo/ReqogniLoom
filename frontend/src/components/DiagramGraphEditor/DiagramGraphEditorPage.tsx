@@ -30,7 +30,7 @@ import { AlertCircle, ArrowLeft } from "lucide-react";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphInspectorPanel } from "./GraphInspectorPanel";
 import type { Selection } from "./constants";
-import { layoutGraph } from "./graph-layout";
+import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, layoutGraph } from "./graph-layout";
 import type { GraphFlowEdge, GraphFlowNode } from "./graph-layout";
 import {
   EMPTY_NODE_GRAPH_PAYLOAD,
@@ -151,6 +151,19 @@ export function DiagramGraphEditorPage(): JSX.Element {
       id,
       type: "graphNode",
       position: { x: 80 + nodes.length * 24, y: 80 + nodes.length * 24 },
+      // Same explicit dimensions as `payloadToFlowNodes` (initial load) and
+      // `layoutGraph` (auto-layout): React Flow skips DOM measurement for a
+      // node that declares width/height, so a node created WITHOUT them gets
+      // measured (~140x44, driven by .graphNode's min-width and its content)
+      // while the very same node re-read from the saved payload declares
+      // 180x64. That divergence silently re-frames `fitView` across a reload
+      // — the node's saved position round-trips correctly, but the viewport
+      // does not, so the diagram visibly jumps (GH-353 E2E
+      // test_graph_save_persists_and_positions_survive_reload). All three
+      // GraphFlowNode construction paths must produce the identical shape;
+      // see graph-layout.ts's module doc.
+      width: DEFAULT_NODE_WIDTH,
+      height: DEFAULT_NODE_HEIGHT,
       data: {
         node: {
           id,
