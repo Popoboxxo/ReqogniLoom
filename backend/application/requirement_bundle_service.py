@@ -193,10 +193,24 @@ class RequirementBundleQueryService(ServiceBase):
         # silently flattened." Only meaningful for an unbounded request
         # (depth=None -> effective_cap=MAX_DEPTH); an explicit depth is a
         # deliberately scoped query, not a truncation of an unbounded one.
-        # Re-runs the (cheap, index-backed) recursive walk on its own to
-        # check whether any arch_tree row actually reached the cap — i.e.
-        # the recursion was cut off, not that it naturally terminated
-        # earlier — independent of whether a Requirement was found there.
+        #
+        # Fix (code review, round 2): the round-1 version checked
+        # ``EXISTS (SELECT 1 FROM arch_tree WHERE depth >= effective_cap)`` —
+        # that only proves a node exists AT the cap depth, not that anything
+        # was cut off there. A hierarchy exactly MAX_DEPTH levels deep with
+        # no further children naturally reaches (and includes) that boundary
+        # node too, so the round-1 check false-positived on perfectly
+        # complete, untruncated results. The correct test is whether some
+        # ALLOCATED_TO edge actually *targets* a depth-effective_cap node —
+        # i.e. there is a real child beyond the cap that the recursion's
+        # ``t.depth < effective_cap`` guard stopped it from adding — not
+        # whether the boundary node itself merely exists.
+        #
+        # Runs the recursive walk a second time to answer this (cheap,
+        # index-backed given MAX_DEPTH=20 and pl_tracelink's
+        # idx_tracelink_graph index; a known, deliberate tradeoff over
+        # threading a "did we cut something off" flag through the main
+        # query, which would need the same recursion structure anyway).
         truncated = False
         if depth is None:
             truncation_sql = """
@@ -211,12 +225,22 @@ class RequirementBundleQueryService(ServiceBase):
                     WHERE tl.link_type = %s
                       AND t.depth < %s
                 )
-                SELECT EXISTS (SELECT 1 FROM arch_tree WHERE depth >= %s);
+                SELECT EXISTS (
+                    SELECT 1 FROM pl_tracelink tl
+                    JOIN arch_tree t ON tl.target_id = t.element_artifact_id
+                    WHERE tl.link_type = %s AND t.depth = %s
+                );
             """
             with connection.cursor() as cursor:
                 cursor.execute(
                     truncation_sql,
-                    [str(root_artifact_id), allocated_to, effective_cap, effective_cap],
+                    [
+                        str(root_artifact_id),
+                        allocated_to,
+                        effective_cap,
+                        allocated_to,
+                        effective_cap,
+                    ],
                 )
                 truncated = bool(cursor.fetchone()[0])
 

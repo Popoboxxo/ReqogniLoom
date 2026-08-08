@@ -9,6 +9,7 @@ import pytest
 
 from application.base import NotFoundError
 from application.requirement_bundle_service import (
+    MAX_DEPTH,
     BundleDepthExceededError,
     RequirementBundleQueryService,
 )
@@ -275,3 +276,35 @@ class TestGetBundleTruncationAndDedup:
         assert len(result.items) == 1
         assert result.items[0].requirement_id == req.id
         assert result.items[0].depth == 1
+
+    def test_truncation_flag_false_for_natural_boundary_at_exactly_max_depth(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        """Regression test for the code-review round-2 finding: a hierarchy
+        that is exactly MAX_DEPTH (20) levels deep and terminates naturally
+        (no further children beyond the boundary, no Requirement near it)
+        must NOT be reported as truncated — nothing was actually cut off.
+
+        The round-1 fix computed truncation as ``EXISTS (SELECT 1 FROM
+        arch_tree WHERE depth >= effective_cap)``, which only proves a node
+        exists at the cap depth, not that anything was cut off there. Since
+        the recursive walk always visits (and includes) the boundary node
+        itself before checking whether to recurse further, that check
+        false-positived on exactly this natural-termination case.
+        """
+        root = make_architecture_element(workspace, title="Boundary root")
+        current = root
+        for level in range(1, MAX_DEPTH + 1):  # exactly MAX_DEPTH hops: L1..L20
+            nxt = make_architecture_element(workspace, title=f"Boundary L{level}")
+            make_allocated_to_link(source=nxt, target=current)
+            current = nxt
+        # `current` is now L20 (depth == MAX_DEPTH), with no further children
+        # and no Requirement anywhere near the boundary.
+        req_shallow = make_requirement(workspace, title="Shallow, unrelated")
+        make_allocated_to_link(source=req_shallow, target=root)
+
+        svc = RequirementBundleQueryService()
+        result = svc.get_bundle(auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None)
+
+        assert {i.requirement_id for i in result.items} == {req_shallow.id}
+        assert result.truncated_at_depth is False
