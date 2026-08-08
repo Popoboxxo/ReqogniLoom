@@ -302,6 +302,7 @@ def resolve_scope_item_ids(
     workspace_id: uuid.UUID,
     tenant_id: uuid.UUID,
     artifact_id: Optional[uuid.UUID] = None,
+    exclude_diagram_shadow_artifacts: bool = True,
 ) -> list[str]:
     """Return the full ordered list of artifact ids contained in *scope*.
 
@@ -326,6 +327,20 @@ def resolve_scope_item_ids(
         tenant_id: Active tenant UUID (required for row-level isolation).
         artifact_id: Required when ``scope == "document"``; the root artifact
             whose subtree is being resolved.
+        exclude_diagram_shadow_artifacts: When ``True`` (default), a Diagram's
+            shadow Artifact (``artifact_type='Diagram'``, created lazily by
+            ``diagram.traceability_connector._resolve_artifact_id``) is
+            excluded from project/global scope, mirroring what actually gets
+            snapshotted by :class:`baseline.delta_index_builder.ScopeResolver`
+            (M3, Codeberg #353 final review). :func:`preview_scope_items`
+            relies on this default so the preview matches the real snapshot.
+            ``AuditContext.scope_item_ids`` (SE-Auditor) passes ``False``: the
+            shadow Artifact is a real endpoint of ``documents``/``diagram-ref``
+            TraceLinks, and excluding it here — while it stays a valid link
+            endpoint — made TRACE-P7 misfire a BLOCKER on every diagram-sourced
+            trace link (Codeberg #353 regression fix). Ignored for
+            ``scope == "document"`` (descendant resolution never included
+            Diagram shadow Artifacts to begin with).
 
     Returns:
         Ordered list of artifact id strings. Empty list when ``tenant_id`` is
@@ -356,23 +371,29 @@ def resolve_scope_item_ids(
     # ._resolve_artifact_id) exists purely to give the TraceabilityEngine a
     # source row for DIAGRAM_REF/documents links — it is not a real domain
     # artifact and must never appear as a synthetic, mostly-empty item in a
-    # project/global-scope baseline. Excluded from both scope queries below.
+    # project/global-scope baseline preview. Excluded from both scope queries
+    # below, but ONLY when the caller asked for it (default): the SE-Auditor
+    # (AuditContext.scope_item_ids) passes exclude_diagram_shadow_artifacts=
+    # False, because excluding it here left the shadow Artifact's TraceLinks
+    # (still real, still present) with exactly one endpoint "in scope",
+    # tripping a false TRACE-P7 BLOCKER (Codeberg #353 regression fix).
+    diagram_filter_sql = " AND a.artifact_type != 'Diagram'" if exclude_diagram_shadow_artifacts else ""
     if scope == "project":
-        sql_ids = """
+        sql_ids = f"""
             SELECT a.id::text
             FROM pl_artifact a
             WHERE a.workspace_id = %s
               AND a.tenant_id = %s
-              AND a.artifact_type != 'Diagram'
+              {diagram_filter_sql}
             ORDER BY a.id
         """
         id_params: list = [str(workspace_id), str(tenant_id)]
     elif scope == "global":
-        sql_ids = """
+        sql_ids = f"""
             SELECT a.id::text
             FROM pl_artifact a
             WHERE a.tenant_id = %s
-              AND a.artifact_type != 'Diagram'
+              {diagram_filter_sql}
             ORDER BY a.id
         """
         id_params = [str(tenant_id)]

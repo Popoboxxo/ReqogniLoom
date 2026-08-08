@@ -131,11 +131,21 @@ class AuditContext:
         # load time would couple the audit package to the baseline app.
         from baseline.services import resolve_scope_item_ids
 
+        # exclude_diagram_shadow_artifacts=False (Codeberg #353 regression
+        # fix): resolve_scope_item_ids defaults to excluding a Diagram's
+        # shadow Artifact so it matches what actually gets snapshotted into a
+        # baseline. The audit's TRACE-P7 rule needs the opposite: it checks
+        # whether trace-link endpoints are inside the *conceptual* scope, and
+        # a Diagram shadow Artifact is a real, valid endpoint of
+        # documents/diagram-ref links. Excluding it here (but not from the
+        # link data itself) made every such link look like it had exactly one
+        # endpoint in scope, firing a false BLOCKER.
         ids = resolve_scope_item_ids(
             scope=self.scope,
             workspace_id=self.workspace_id,
             tenant_id=self.tenant_id,
             artifact_id=self.scope_artifact_id,
+            exclude_diagram_shadow_artifacts=False,
         )
         self._scope_item_ids = frozenset(ids)
         return self._scope_item_ids
