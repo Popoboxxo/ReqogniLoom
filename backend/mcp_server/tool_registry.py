@@ -214,6 +214,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # duplicated here.
         "goal.list_versions",
         "main_goal.list_versions",
+        # Requirement Bundle Export, Plan 1 Task 6: both tools are read-only
+        # exports/discovery, no persistence — same class as artifact.search.
+        "requirement_bundle.export",
+        "requirement_bundle.attribute_schema",
     }
 )
 
@@ -432,6 +436,7 @@ class ToolRegistry:
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.baseline import BaselineToolGroup
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
+        from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -476,6 +481,9 @@ class ToolRegistry:
             # Task 7 of feat/ziele-hauptziel-design: Goal/MainGoal MCP tools.
             "goal": GoalToolGroup(),
             "main_goal": MainGoalToolGroup(),
+            # Requirement Bundle Export, Plan 1 Task 6: raw (non-AI) bundle
+            # export + attribute discovery, both read-only.
+            "requirement_bundle": RequirementBundleToolGroup(),
         })
 
     def list_tools(
