@@ -39,6 +39,7 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
+from rest_framework.renderers import BaseRenderer, BrowsableAPIRenderer, JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -69,8 +70,18 @@ from application.services import (
     PgVectorUnavailableError,
     ChangeRequestService,
 )
+from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from application.requirement_bundle_formatters import (
+    format_bundle_csv,
+    format_bundle_json,
+    format_bundle_markdown,
+)
+from application.requirement_bundle_service import (
+    BundleDepthExceededError,
+    RequirementBundleQueryService,
+)
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
@@ -1288,6 +1299,41 @@ class ArtifactViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+class _MarkdownRenderer(BaseRenderer):
+    """Declares the 'markdown' format for DRF content negotiation.
+
+    Requirement Bundle Export (Plan 1 Task 5): the ``requirement_bundle``
+    action reads its own ``?format=markdown|csv|json`` query param and
+    returns a raw ``HttpResponse`` directly (bypassing DRF's renderer
+    ``.render()`` pipeline), so this class's ``render()`` is never actually
+    invoked. It exists only so DRF's ``DefaultContentNegotiation`` (which
+    also reads the ``format`` query param via ``URL_FORMAT_OVERRIDE``, see
+    ``rest_framework.negotiation.BaseContentNegotiation.filter_renderers``)
+    recognises 'markdown' as a valid format instead of raising ``Http404``
+    before the action method ever runs, since the default renderer set only
+    declares 'json'/'api'.
+    """
+
+    media_type = "text/markdown"
+    format = "markdown"
+    charset = "utf-8"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
+class _CsvRenderer(BaseRenderer):
+    """Declares the 'csv' format for DRF content negotiation — see
+    ``_MarkdownRenderer`` docstring."""
+
+    media_type = "text/csv"
+    format = "csv"
+    charset = "utf-8"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
 class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for ArchitectureElement CRUD operations (REQ-L2-RA-001).
 
@@ -1527,6 +1573,84 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="requirement-bundle",
+        # fix: the default renderer set (JSONRenderer/BrowsableAPIRenderer,
+        # formats 'json'/'api') doesn't recognise 'markdown'/'csv' — DRF's
+        # content negotiation raises Http404 for an unrecognised ?format=
+        # value *before* this method runs (see _MarkdownRenderer docstring).
+        renderer_classes=[JSONRenderer, BrowsableAPIRenderer, _MarkdownRenderer, _CsvRenderer],
+    )
+    def requirement_bundle(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture/{pk}/requirement-bundle/
+            ?depth=<int>&filter_mode=<all|visible|custom>&fields=<comma-list>
+            &format=<json|markdown|csv>
+
+        Requirement Bundle Export, Plan 1 Task 5. Raw (non-AI) bundle of every
+        Requirement ALLOCATED_TO this element or its ALLOCATED_TO
+        sub-elements, up to `depth` levels.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            element = self._svc().get_architecture_element(UUID(pk), ctx)
+            workspace_id = element.artifact.workspace_id
+
+            depth_param = request.query_params.get("depth")
+            depth = int(depth_param) if depth_param is not None else None
+
+            filter_mode = request.query_params.get("filter_mode", "all")
+            fields_param = request.query_params.get("fields")
+            fields = fields_param.split(",") if fields_param else None
+
+            output_format = request.query_params.get("format", "json")
+            if output_format not in ("json", "markdown", "csv"):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message=f"Invalid format {output_format!r}; expected json, markdown, or csv",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            result = RequirementBundleQueryService().get_bundle(
+                ctx,
+                root_id=UUID(pk),
+                workspace_id=workspace_id,
+                depth=depth,
+                filter_mode=filter_mode,
+                fields=fields,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except BundleDepthExceededError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        if output_format == "json":
+            return Response(format_bundle_json(result))
+        if output_format == "markdown":
+            return HttpResponse(
+                format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
+            )
+        return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -6113,6 +6237,31 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+
+class AttributeSchemaView(APIView):
+    """GET /api/v1/attribute-schema/?entity_type=<optional>
+
+    Requirement Bundle Export, Plan 1 Task 5 / Task 4. Lists the known
+    attribute names per entity type (currently Requirement only), with each
+    attribute's current tenant-level visibility, so callers can discover
+    valid field names before making a filter_mode='custom' bundle-export
+    request.
+    """
+
+    def get(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            entity_type = request.query_params.get("entity_type")
+            schema = AttributeVisibilityConfigService().describe_schema(
+                ctx, entity_type=entity_type
+            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(schema)
 
 
 class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
