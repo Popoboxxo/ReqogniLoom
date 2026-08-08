@@ -2,7 +2,20 @@
 # ARCH-L1: All backend systems
 
 # Core Framework
-Django>=4.2,<5.0
+# Django 5.2 LTS. 4.2 LTS reached end of life, so upstream no longer backports
+# security fixes to the 4.2.x series — every newly disclosed Django CVE stays
+# permanently unfixed there and the CI `pip-audit --desc` gate fails forever.
+# The 4.2 pin was already blocking on six advisories at once:
+#   CVE-2026-48587, CVE-2026-6873,  CVE-2026-8404  (fixed in 5.2.15)
+#   CVE-2026-48588, CVE-2026-53877, CVE-2026-53878 (fixed in 5.2.16)
+# 5.2 is the next LTS in Django's 2-year cadence (2.2 → 3.2 → 4.2 → 5.2) and is
+# supported until April 2028. Floor set to the newest 5.2.x patch so all six
+# advisories are covered; capped below 5.3 to stay on the LTS series.
+# Requires Python >=3.10 (backend/Dockerfile runs 3.12) and PostgreSQL >=14
+# (docker-compose runs pgvector/pgvector:pg16).
+Django>=5.2.17,<5.3
+# 3.17.2+ declares Django 5.2 support; the existing range already resolves
+# there, so no floor change is required.
 djangorestframework>=3.15,<4.0
 drf-spectacular>=0.30.0,<1.0
 
@@ -28,15 +41,16 @@ pytest>=9.0.3,<10.0
 # pytest-django 4.12.0 is the first release whose own test matrix runs against
 # pytest>=9; earlier 4.x releases predate pytest 9 entirely. Its install
 # requirement is only `pytest>=7`, so the floor has to be pinned here.
-# CAPPED at <4.12.1: pytest-django 4.12.1 drops support for Django 4.2, which
-# this file still pins above (see the `django` pin near the top of this file).
-# 4.13.0 resolving in here broke every @pytest.mark.django_db test with
-# `AttributeError: type object 'PytestDjangoTestCase' has no attribute
-# '_pre_setup_ran_eagerly'` (that internal hook only exists on pytest-django
-# builds targeting Django>=5.0). The real fix is upgrading Django (4.2 is past
-# end of life) — this cap is the safe stopgap until that migration happens,
-# not a long-term pin. Remove this cap in the same change that upgrades Django.
-pytest-django>=4.12.0,<4.12.1
+# The former <4.12.1 cap existed only because pytest-django 4.12.1+ drops
+# Django 4.2 support, and 4.13.0 against Django 4.2 blew up every
+# @pytest.mark.django_db test with `AttributeError: type object
+# 'PytestDjangoTestCase' has no attribute '_pre_setup_ran_eagerly'` — an
+# internal hook that only exists on pytest-django builds targeting
+# Django>=5.0. That cap was explicitly documented as a stopgap to be removed
+# in the same change that upgrades Django; the Django 5.2 bump above is that
+# change, so the cap is gone and the floor is raised to the first release that
+# declares Django 5.2 support.
+pytest-django>=4.13.0,<5.0
 pypdf>=6.14.2,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
