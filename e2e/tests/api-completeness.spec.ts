@@ -1,7 +1,7 @@
 // REQ-L0-012 — REST API Completeness: full CRUD for all core entities
 // Pure API tests — no browser required
 import { test, expect } from '@playwright/test';
-import { getAuthToken, setWorkspacePreset, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { getAuthToken, setWorkspacePreset, createIsolatedWorkspace, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -149,11 +149,17 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
   test('[REQ-L0-012] POST /api/v1/architecture/ creates an element', async ({ request }) => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
+    // [I5] A workspace tree may have exactly one root ArchitectureElement.
+    // seed_demo now pre-seeds a root for SEEDED_WORKSPACE_ID, so a plain
+    // (no parent_id) create against it always 400s here. Use a fresh,
+    // element-free workspace instead, matching the pattern already used by
+    // architecture.spec.ts / architecture-editor.spec.ts.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     const response = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers,
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         title: 'API Completeness E2E — Architecture Element',
         element_type: 'component',
       },
@@ -170,11 +176,13 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
   test('[REQ-L0-012] DELETE /api/v1/architecture/{id}/ removes element', async ({ request }) => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
+    // [I5] see the POST test above — needs its own root-free workspace.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     const createResp = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers,
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         title: 'DELETE Target Arch Element',
         element_type: 'module',
       },

@@ -5,6 +5,7 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
@@ -18,6 +19,17 @@ async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Eleme
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
   await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+}
+
+// [I5] A workspace tree may have exactly one root ArchitectureElement, and
+// seed_demo pre-seeds one for SEEDED_WORKSPACE_ID — so any "+ New" (root,
+// no parent_id) creation against it 400s. Re-point the page at a fresh,
+// element-free workspace right before navigating to /architecture, matching
+// the pattern already used by architecture.spec.ts / architecture-editor.spec.ts.
+async function useIsolatedArchWorkspace(page: Page): Promise<void> {
+  const token = await getAuthToken();
+  const workspaceId = await createIsolatedWorkspace(token);
+  await setWorkspaceId(page, workspaceId);
 }
 
 test.describe('[COMP-RF-006] TraceLink Creation', () => {
@@ -133,6 +145,7 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // REQ-L2-RF-006 — Architecture TraceLink panel is visible in arch editor (Bug A2)
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-006] architecture editor shows arch-tracelink-panel (Bug A2)', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -147,6 +160,7 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // REQ-L2-RF-005 — Architecture editor shows element_type selector with 5 options (Bug A3)
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-005] architecture editor has element_type selector with correct testid and 5 options', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 

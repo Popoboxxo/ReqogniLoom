@@ -5,6 +5,7 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
@@ -26,6 +27,20 @@ async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Eleme
   await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 }
 
+// [I5] A workspace tree may have exactly one root ArchitectureElement, and
+// seed_demo pre-seeds one for SEEDED_WORKSPACE_ID — so any "+ New" (root,
+// no parent_id) creation against it 400s. Re-point the page at a fresh,
+// element-free workspace right before navigating to /architecture, matching
+// the pattern already used by architecture.spec.ts / architecture-editor.spec.ts.
+// setWorkspaceId only registers an init script (applied on next navigation),
+// so calling it again here — after the describe-level beforeEach already set
+// SEEDED_WORKSPACE_ID — correctly overrides it for the page.goto() that follows.
+async function useIsolatedArchWorkspace(page: Page): Promise<void> {
+  const token = await getAuthToken();
+  const workspaceId = await createIsolatedWorkspace(token);
+  await setWorkspaceId(page, workspaceId);
+}
+
 test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test.beforeEach(async ({ page }) => {
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
@@ -36,6 +51,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   // REQ-L0-002 — Architecture editor has element_type selector with correct options
   // -------------------------------------------------------------------------
   test('[REQ-L0-002] architecture editor element_type selector has correct testid and 5 options', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -110,6 +126,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   // REQ-L2-RF-005 — Architecture editor shows element_type and tracelink panel
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-005] architecture editor shows element_type selector', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -123,6 +140,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   });
 
   test('[REQ-L2-RF-005] architecture editor shows tracelink panel (Bug A2)', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -138,6 +156,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   });
 
   test('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
