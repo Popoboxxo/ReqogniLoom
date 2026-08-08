@@ -81,7 +81,8 @@ REQUIREMENT_ALL_FIELDS = (
 
 
 class RequirementBundleQueryService(ServiceBase):
-    """Raw (non-AI) requirement bundle query — Task 1: unfiltered field set."""
+    """Raw (non-AI) requirement bundle query with attribute filtering
+    (Task 1: allocation walk + unfiltered field set; Task 2: filter_mode)."""
 
     def get_bundle(
         self,
@@ -89,9 +90,13 @@ class RequirementBundleQueryService(ServiceBase):
         root_id: UUID,
         workspace_id: UUID,
         depth: "int | None" = None,
+        *,
+        filter_mode: str = "all",
+        fields: "List[str] | None" = None,
     ) -> BundleResult:
         """Return every Requirement allocated (ALLOCATED_TO) to *root_id* or
-        its ALLOCATED_TO sub-elements, up to *depth* levels.
+        its ALLOCATED_TO sub-elements, up to *depth* levels, with fields
+        limited per *filter_mode*.
 
         Args:
             ctx: Resolved AuthContext (tenant scoping).
@@ -102,13 +107,38 @@ class RequirementBundleQueryService(ServiceBase):
             depth: 0 = only requirements directly allocated to the root.
                 N = also walk N levels of ALLOCATED_TO Arch->Arch
                 sub-elements. None = unbounded, capped at MAX_DEPTH.
+            filter_mode: "all" (every field in REQUIREMENT_ALL_FIELDS),
+                "visible" (only fields marked visible for Requirement in
+                AttributeVisibilityConfig for the active tenant — a field
+                with no config row is visible by default, see
+                _resolve_field_set), or "custom" (only the fields named in
+                *fields*).
+            fields: Required (non-empty) when filter_mode="custom". Every
+                name must be a member of REQUIREMENT_ALL_FIELDS.
 
         Raises:
             NotFoundError: root_id does not resolve to an ArchitectureElement
                 in workspace_id.
             BundleDepthExceededError: depth > MAX_DEPTH.
+            ValidationError: filter_mode is invalid, or filter_mode="custom"
+                with a missing/empty or unknown field name.
         """
         self._set_tenant_context(ctx)
+
+        if filter_mode not in ("all", "visible", "custom"):
+            raise ValidationError(
+                f"Invalid filter_mode {filter_mode!r}; expected 'all', 'visible', or 'custom'"
+            )
+        if filter_mode == "custom":
+            if not fields:
+                raise ValidationError(
+                    "filter_mode='custom' requires a non-empty 'fields' list"
+                )
+            unknown = sorted(set(fields) - set(REQUIREMENT_ALL_FIELDS))
+            if unknown:
+                raise ValidationError(
+                    f"Unknown field(s) for filter_mode='custom': {', '.join(unknown)}"
+                )
 
         if depth is not None and depth > MAX_DEPTH:
             raise BundleDepthExceededError(
@@ -252,11 +282,18 @@ class RequirementBundleQueryService(ServiceBase):
             r[0]: (r[1], r[2]) for r in rows
         }
 
+        selected_fields = self._resolve_field_set(ctx, filter_mode, fields)
+
         from persistence.models import Requirement
 
+        # "id" and "artifact_id" are always fetched (needed to build
+        # requirement_id / the found_under_by_req lookup) regardless of
+        # filter_mode, then stripped from the output fields dict below
+        # unless the caller actually selected them.
+        query_fields = tuple(set(selected_fields) | {"id", "artifact_id"})
         req_rows = Requirement.unscoped.filter(
             artifact_id__in=req_artifact_ids, tenant_id=ctx.tenant_id
-        ).values(*REQUIREMENT_ALL_FIELDS, "artifact_id")
+        ).values(*query_fields)
 
         items: List[BundleItem] = []
         for row in req_rows:
@@ -267,11 +304,42 @@ class RequirementBundleQueryService(ServiceBase):
                     requirement_id=row["id"],
                     found_under_element_id=found_under_artifact_id,
                     depth=found_depth,
-                    fields={k: v for k, v in row.items()},
+                    fields={k: v for k, v in row.items() if k in selected_fields},
                 )
             )
 
         return BundleResult(items=items, truncated_at_depth=truncated)
+
+    def _resolve_field_set(
+        self, ctx: AuthContext, filter_mode: str, fields: "List[str] | None"
+    ) -> "set[str]":
+        """Return the concrete Requirement field-name set for *filter_mode*.
+
+        "visible" mode default-visibility convention: AttributeVisibilityConfig
+        rows are an explicit hide toggle, not an allow-list — the model field
+        itself defaults to ``is_visible=True`` (persistence/models.py) and no
+        codepath in this codebase treats a missing config row as hidden (see
+        AttributeVisibilityConfigService.list_configs, which returns only the
+        rows that exist; application/tests/test_service_boundaries_req066.py
+        has no "missing row implies hidden" test). A field with no config row
+        at all is therefore visible by default; only a row with
+        ``is_visible=False`` removes a field from the "visible" set.
+        """
+        if filter_mode == "all":
+            return set(REQUIREMENT_ALL_FIELDS)
+        if filter_mode == "custom":
+            return set(fields or [])
+
+        # "visible"
+        from application.attribute_visibility_service import (
+            AttributeVisibilityConfigService,
+        )
+
+        configs = AttributeVisibilityConfigService().list_configs(ctx).filter(
+            entity_type="Requirement"
+        )
+        hidden_names = {c.attribute_name for c in configs if not c.is_visible}
+        return set(REQUIREMENT_ALL_FIELDS) - hidden_names
 
 
 __all__ = [

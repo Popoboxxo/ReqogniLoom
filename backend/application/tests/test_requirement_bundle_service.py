@@ -7,6 +7,7 @@ from typing import Iterator
 
 import pytest
 
+from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.base import NotFoundError
 from application.requirement_bundle_service import (
     MAX_DEPTH,
@@ -131,6 +132,24 @@ def make_allocated_to_link(tenant: Tenant):
                 target=target.artifact,
                 link_type=LinkType.ALLOCATED_TO.value,
             )
+
+    return _make
+
+
+@pytest.fixture
+def make_attribute_visibility_config(auth_ctx: AuthContext):
+    """Create an AttributeVisibilityConfig row via the service (which sets
+    tenant context itself — see AttributeVisibilityConfigService.create_config),
+    mirroring application/tests/test_service_boundaries_req066.py's pattern.
+    """
+
+    def _make(entity_type: str, attribute_name: str, is_visible: bool):
+        return AttributeVisibilityConfigService().create_config(
+            auth_ctx,
+            entity_type=entity_type,
+            attribute_name=attribute_name,
+            is_visible=is_visible,
+        )
 
     return _make
 
@@ -308,3 +327,80 @@ class TestGetBundleTruncationAndDedup:
 
         assert {i.requirement_id for i in result.items} == {req_shallow.id}
         assert result.truncated_at_depth is False
+
+
+@pytest.mark.django_db
+class TestGetBundleFiltering:
+    def test_filter_mode_all_returns_every_field(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="R1")
+        make_allocated_to_link(source=req, target=root)
+
+        svc = RequirementBundleQueryService()
+        result = svc.get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=0, filter_mode="all"
+        )
+        from application.requirement_bundle_service import REQUIREMENT_ALL_FIELDS
+        assert set(result.items[0].fields.keys()) == set(REQUIREMENT_ALL_FIELDS)
+
+    def test_filter_mode_custom_returns_only_requested_fields(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="R1")
+        make_allocated_to_link(source=req, target=root)
+
+        svc = RequirementBundleQueryService()
+        result = svc.get_bundle(
+            auth_ctx,
+            root_id=root.id,
+            workspace_id=workspace.id,
+            depth=0,
+            filter_mode="custom",
+            fields=["title", "status"],
+        )
+        assert set(result.items[0].fields.keys()) == {"title", "status"}
+
+    def test_filter_mode_custom_with_unknown_field_raises(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        from application.base import ValidationError
+
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="R1")
+        make_allocated_to_link(source=req, target=root)
+
+        svc = RequirementBundleQueryService()
+        with pytest.raises(ValidationError, match="not_a_real_field"):
+            svc.get_bundle(
+                auth_ctx,
+                root_id=root.id,
+                workspace_id=workspace.id,
+                depth=0,
+                filter_mode="custom",
+                fields=["title", "not_a_real_field"],
+            )
+
+    def test_filter_mode_visible_uses_attribute_visibility_config(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link, make_attribute_visibility_config,
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="R1")
+        make_allocated_to_link(source=req, target=root)
+        make_attribute_visibility_config(
+            entity_type="Requirement", attribute_name="title", is_visible=True
+        )
+        make_attribute_visibility_config(
+            entity_type="Requirement", attribute_name="description", is_visible=False
+        )
+
+        svc = RequirementBundleQueryService()
+        result = svc.get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=0, filter_mode="visible"
+        )
+        fields = result.items[0].fields
+        assert "title" in fields
+        assert "description" not in fields
