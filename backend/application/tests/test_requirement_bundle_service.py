@@ -209,3 +209,69 @@ class TestGetBundleRecursiveDepth:
         svc = RequirementBundleQueryService()
         with pytest.raises(NotFoundError):
             svc.get_bundle(auth_ctx, root_id=uuid.uuid4(), workspace_id=workspace.id, depth=0)
+
+
+@pytest.mark.django_db
+class TestGetBundleTruncationAndDedup:
+    """Regression tests added after code review round 1 (CHANGES_REQUESTED)."""
+
+    def test_truncation_flag_reflects_full_walk_not_just_rows_with_requirements(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        """truncated_at_depth must be derived from the full arch_tree walk,
+        not from the subset of elements that happen to have a
+        directly-allocated Requirement (the plan's Global Constraint "never
+        silently flattened").
+
+        Builds an ALLOCATED_TO chain deeper than MAX_DEPTH (20) with no
+        Requirement allocated anywhere within the visited depth range
+        (0..20) — only at the unreachable tail (depth 24). Pre-fix, the flag
+        was computed as ``any(r[2] >= MAX_DEPTH for r in rows)`` over the
+        post-JOIN `rows`, which are empty here (no Requirement in range), so
+        it silently reported False even though req_deep exists but is
+        missing from the result because its element sits beyond the depth
+        cap.
+        """
+        root = make_architecture_element(workspace, title="Chain root")
+        current = root
+        for level in range(1, 25):
+            nxt = make_architecture_element(workspace, title=f"Chain L{level}")
+            make_allocated_to_link(source=nxt, target=current)
+            current = nxt
+        # `current` is now the deepest element (depth 24), well past MAX_DEPTH=20.
+        req_deep = make_requirement(workspace, title="Unreachably deep")
+        make_allocated_to_link(source=req_deep, target=current)
+
+        svc = RequirementBundleQueryService()
+        result = svc.get_bundle(auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None)
+
+        assert result.items == []  # req_deep exists but its element is unreachable
+        assert result.truncated_at_depth is True
+
+    def test_diamond_allocation_dedups_to_shallowest_path(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        """Regression test for ``DISTINCT ON (req_link.source_id) ... ORDER
+        BY req_link.source_id, arch_tree.depth ASC``: when a Requirement's
+        element is reachable from the root via two different ALLOCATED_TO
+        paths at two different depths, the shallower path must win and the
+        Requirement must appear exactly once (not once per path).
+        """
+        root = make_architecture_element(workspace, title="Root")
+        # Path A: E allocated directly to root -> E at depth 1.
+        # Path B: E also allocated to F, and F allocated to root -> E also
+        # reachable at depth 2 via F. The shallower path (depth 1) must win.
+        f = make_architecture_element(workspace, title="F")
+        make_allocated_to_link(source=f, target=root)
+        e = make_architecture_element(workspace, title="E (diamond)")
+        make_allocated_to_link(source=e, target=root)
+        make_allocated_to_link(source=e, target=f)
+        req = make_requirement(workspace, title="On diamond element")
+        make_allocated_to_link(source=req, target=e)
+
+        svc = RequirementBundleQueryService()
+        result = svc.get_bundle(auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None)
+
+        assert len(result.items) == 1
+        assert result.items[0].requirement_id == req.id
+        assert result.items[0].depth == 1

@@ -142,12 +142,16 @@ class RequirementBundleQueryService(ServiceBase):
         # the root *down* into elements allocated onto it. The recursive
         # term below therefore matches on ``tl.target_id`` (current node is
         # the allocation target) and yields ``tl.source_id`` (the
-        # sub-element allocated onto it) — verified against
-        # application/tests/test_allocation.py's create_allocated_to_tracelink
-        # convention (link.source = the allocated thing, link.target = what
-        # it's allocated to) and confirmed by running
+        # sub-element allocated onto it) — the Requirement->ArchitectureElement
+        # edge direction (source=allocated thing, target=allocation target)
+        # is directly proven by application/tests/test_allocation.py's
+        # create_allocated_to_tracelink; the same direction for
+        # ArchitectureElement->ArchitectureElement edges is inferred by
+        # symmetry (same TraceLink table/link_type, no separate codepath) and
+        # confirmed empirically by running
         # TestGetBundleRecursiveDepth::test_depth_one_includes_direct_child_requirements,
-        # which failed (empty result) against the brief's original direction.
+        # which failed (empty result) against the brief's original direction
+        # and passes with this one.
         sql = """
             WITH RECURSIVE arch_tree AS (
                 SELECT %s::uuid AS element_artifact_id, 0 AS depth
@@ -177,7 +181,44 @@ class RequirementBundleQueryService(ServiceBase):
             )
             rows = cursor.fetchall()
 
-        truncated = depth is None and any(r[2] >= MAX_DEPTH for r in rows)
+        # Fix (code review, round 1): truncated_at_depth must reflect the
+        # full arch_tree walk, not just the post-JOIN `rows` (elements that
+        # happen to have a directly-allocated Requirement). Computing it from
+        # `rows` alone is a false-negative trap: an ALLOCATED_TO sub-element
+        # hierarchy that extends past MAX_DEPTH, with no Requirement
+        # allocated at exactly the deepest *visited* level, would silently
+        # report truncated_at_depth=False even though Requirements attached
+        # to unvisited (depth>MAX_DEPTH) descendants are missing from the
+        # result entirely — violating the plan's Global Constraint "never
+        # silently flattened." Only meaningful for an unbounded request
+        # (depth=None -> effective_cap=MAX_DEPTH); an explicit depth is a
+        # deliberately scoped query, not a truncation of an unbounded one.
+        # Re-runs the (cheap, index-backed) recursive walk on its own to
+        # check whether any arch_tree row actually reached the cap — i.e.
+        # the recursion was cut off, not that it naturally terminated
+        # earlier — independent of whether a Requirement was found there.
+        truncated = False
+        if depth is None:
+            truncation_sql = """
+                WITH RECURSIVE arch_tree AS (
+                    SELECT %s::uuid AS element_artifact_id, 0 AS depth
+
+                    UNION ALL
+
+                    SELECT tl.source_id AS element_artifact_id, t.depth + 1
+                    FROM pl_tracelink tl
+                    INNER JOIN arch_tree t ON tl.target_id = t.element_artifact_id
+                    WHERE tl.link_type = %s
+                      AND t.depth < %s
+                )
+                SELECT EXISTS (SELECT 1 FROM arch_tree WHERE depth >= %s);
+            """
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    truncation_sql,
+                    [str(root_artifact_id), allocated_to, effective_cap, effective_cap],
+                )
+                truncated = bool(cursor.fetchone()[0])
 
         if not rows:
             return BundleResult(items=[], truncated_at_depth=truncated)
