@@ -34,7 +34,21 @@ class BundleDepthExceededError(ValidationError):
 
 @dataclass
 class BundleItem:
-    """One Requirement found during the ALLOCATED_TO walk, with its origin."""
+    """One Requirement found during the ALLOCATED_TO walk, with its origin.
+
+    .. warning:: ``requirement_id`` and ``found_under_element_id`` live in
+       **different id spaces**. ``requirement_id`` is ``Requirement.id`` (the
+       business id, directly usable against ``/api/v1/requirements/{id}/``),
+       while ``found_under_element_id`` is the element's backing
+       ``Artifact`` id (``ArchitectureElement.artifact_id``) — *not*
+       ``ArchitectureElement.id``, which is what ``root_id`` takes on the way
+       in. Resolving one back to the other goes through the Artifact layer,
+       e.g. ``ArchitectureElement.objects.get(artifact_id=...)`` server-side
+       or ``TraceLinkService._resolve_artifact_id`` in the other direction.
+       This is a deliberate, documented design choice (the walk operates on
+       artifact ids throughout); changing the returned value would be a
+       breaking contract change.
+    """
 
     requirement_id: UUID
     found_under_element_id: UUID
@@ -48,19 +62,27 @@ class BundleResult:
     truncated_at_depth: bool = False
 
 
-# Requirement's own fields exposed by RequirementSerializer
-# (backend/rest_api/serializers.py:459), used as the "all" field set — never
-# internal-only columns (tenant_id, embedding, raw *_by_id FKs).
+# The Requirement model's own concrete columns, excluding tenant/embedding/
+# artifact/raw-FK columns and DTO-only fields not backed by a real column.
+# This is the "all" field set for filter_mode="all" and the schema advertised
+# by AttributeVisibilityConfigService.describe_schema.
 #
-# Deviation from the plan brief: the brief's draft included "parent_id" here
-# (mirroring RequirementSerializer's parent_id field), but Requirement has no
-# such column — the serializer derives it dynamically from the backing
-# Artifact's parent chain (see persistence/models.py Artifact docstring: only
-# Artifact.parent stores requirement hierarchy, RequirementService writes it
-# on create/decompose). A plain .values("parent_id") against Requirement
-# raises django.core.exceptions.FieldError. Reproducing that derivation is
-# out of scope for Task 1 (a straight field-passthrough); left for a later
-# task if the design spec calls for it.
+# It is deliberately NOT identical to RequirementSerializer's field list, in
+# both directions:
+#   * the serializer additionally exposes parent_id, custom_fields and
+#     change_reason — none of which is a Requirement column. parent_id in
+#     particular is derived dynamically from the backing Artifact's parent
+#     chain (see persistence/models.py Artifact docstring: only
+#     Artifact.parent stores requirement hierarchy, RequirementService writes
+#     it on create/decompose), so a plain .values("parent_id") against
+#     Requirement raises django.core.exceptions.FieldError. Reproducing that
+#     derivation is out of scope for a straight field passthrough; left for a
+#     later task if the design spec calls for it.
+#   * this set additionally includes level, suspect and lifecycle_status,
+#     which are real columns the serializer happens not to publish — they are
+#     legitimate export fields here.
+# created_at/modified_at are ordinary user-visible audit columns (the
+# serializer publishes them as created_at/updated_at) and are exported too.
 REQUIREMENT_ALL_FIELDS = (
     "id",
     "workspace_id",
@@ -77,7 +99,64 @@ REQUIREMENT_ALL_FIELDS = (
     "suspect",
     "lifecycle_status",
     "version",
+    "created_at",
+    "modified_at",
 )
+
+# Shared recursive CTE walking ALLOCATED_TO ArchitectureElement->
+# ArchitectureElement edges down from a root element. Used verbatim by both
+# get_bundle's main query and its truncation probe — they MUST agree on the
+# reachable node set, so the text lives here once rather than being inlined
+# twice.
+#
+# Placeholders, in order:
+#   1. root artifact id (uuid)
+#   2. link type ('allocated-to')
+#   3. tenant id (uuid)
+#   4. depth cap (int)
+#
+# Design notes:
+#   * Direction: ALLOCATED_TO points child -> parent (source = the allocated
+#     thing, target = the allocation target), so walking *down* from the root
+#     matches on tl.target_id and yields tl.source_id.
+#   * The artifact_type join is load-bearing, not cosmetic: SE_LINK_SEMANTICS
+#     (traceability/types.py) only constrains ALLOCATED_TO endpoints to
+#     {(Requirement, ArchitectureElement), (ArchitectureElement,
+#     ArchitectureElement)} when the workspace has se_mode configured —
+#     TraceLinkService._check_se_semantics returns early otherwise. Without
+#     the join, a Requirement --allocated-to--> Requirement edge in an
+#     ordinary dev-mode workspace would enter arch_tree as if it were an
+#     architecture element and corrupt found_under_element_id.
+#   * UNION (not UNION ALL) is the cycle/diamond guard: nothing enforces a
+#     single parent for Arch->Arch edges (TraceLinkService.create_trace_link
+#     only dedupes previous links for Requirement sources), so a diamond
+#     allocation multiplies rows per path with UNION ALL, up to MAX_DEPTH
+#     levels deep — on a query now reachable from an authenticated external
+#     REST/MCP endpoint. UNION dedupes (element_artifact_id, depth) pairs,
+#     bounding the walk at roughly nodes x (cap + 1) rows.
+#   * tenant_id is filtered explicitly even though pl_tracelink/pl_artifact
+#     both carry FORCE ROW LEVEL SECURITY (persistence/migrations/
+#     0003_rls_policies.py). Every other query path in this codebase has two
+#     layers of tenant scoping (RLS + the ORM's thread-local tenant filter);
+#     this raw-SQL path would otherwise have one, which matters for future
+#     non-request contexts (e.g. Celery) where no middleware runs.
+_ARCH_TREE_CTE = """
+    WITH RECURSIVE arch_tree AS (
+        SELECT %s::uuid AS element_artifact_id, 0 AS depth
+
+        UNION
+
+        SELECT tl.source_id AS element_artifact_id, t.depth + 1
+        FROM pl_tracelink tl
+        INNER JOIN arch_tree t ON tl.target_id = t.element_artifact_id
+        INNER JOIN pl_artifact a
+            ON a.id = tl.source_id
+           AND a.artifact_type = 'ArchitectureElement'
+        WHERE tl.link_type = %s
+          AND tl.tenant_id = %s::uuid
+          AND t.depth < %s
+    )
+"""
 
 
 class RequirementBundleQueryService(ServiceBase):
@@ -158,10 +237,11 @@ class RequirementBundleQueryService(ServiceBase):
             )
 
         # Recursive CTE over pl_tracelink, filtered to ALLOCATED_TO, walking
-        # ArchitectureElement->ArchitectureElement edges from the root, then
-        # collecting every Requirement->ArchitectureElement edge landing on
-        # any element found in that walk. Mirrors ArtifactService.get_tree's
-        # raw-SQL CTE shape (backend/application/artifact_service.py:492).
+        # ArchitectureElement->ArchitectureElement edges from the root (see
+        # _ARCH_TREE_CTE), then collecting every Requirement->ArchitectureElement
+        # edge landing on any element found in that walk. Mirrors
+        # ArtifactService.get_tree's raw-SQL CTE shape
+        # (backend/application/artifact_service.py:492).
         #
         # Deviation from the plan brief: the brief's recursive term joined
         # ``tl.source_id = t.element_artifact_id`` and selected
@@ -170,30 +250,17 @@ class RequirementBundleQueryService(ServiceBase):
         # ALLOCATED_TO edges point child -> parent (source=child,
         # target=container), and the walk must go the opposite way: from
         # the root *down* into elements allocated onto it. The recursive
-        # term below therefore matches on ``tl.target_id`` (current node is
-        # the allocation target) and yields ``tl.source_id`` (the
-        # sub-element allocated onto it) — the Requirement->ArchitectureElement
-        # edge direction (source=allocated thing, target=allocation target)
-        # is directly proven by application/tests/test_allocation.py's
-        # create_allocated_to_tracelink; the same direction for
-        # ArchitectureElement->ArchitectureElement edges is inferred by
-        # symmetry (same TraceLink table/link_type, no separate codepath) and
-        # confirmed empirically by running
-        # TestGetBundleRecursiveDepth::test_depth_one_includes_direct_child_requirements,
-        # which failed (empty result) against the brief's original direction
-        # and passes with this one.
-        sql = """
-            WITH RECURSIVE arch_tree AS (
-                SELECT %s::uuid AS element_artifact_id, 0 AS depth
-
-                UNION ALL
-
-                SELECT tl.source_id AS element_artifact_id, t.depth + 1
-                FROM pl_tracelink tl
-                INNER JOIN arch_tree t ON tl.target_id = t.element_artifact_id
-                WHERE tl.link_type = %s
-                  AND t.depth < %s
-            )
+        # term therefore matches on ``tl.target_id`` (current node is the
+        # allocation target) and yields ``tl.source_id`` (the sub-element
+        # allocated onto it). Both endpoint pairs are declared explicitly in
+        # ``traceability/types.py:119``
+        # (``LinkType.ALLOCATED_TO.value: {(Requirement, ArchitectureElement),
+        # (ArchitectureElement, ArchitectureElement)}``, ordered
+        # source -> target), so the Arch->Arch direction is proven from that
+        # table rather than inferred from the Requirement->Arch case; the
+        # Requirement->Arch direction is additionally exercised by
+        # application/tests/test_allocation.py's create_allocated_to_tracelink.
+        sql = _ARCH_TREE_CTE + """
             SELECT DISTINCT ON (req_link.source_id)
                 req_link.source_id AS requirement_artifact_id,
                 arch_tree.element_artifact_id AS found_under_artifact_id,
@@ -202,12 +269,22 @@ class RequirementBundleQueryService(ServiceBase):
             INNER JOIN pl_tracelink req_link
                 ON req_link.target_id = arch_tree.element_artifact_id
                 AND req_link.link_type = %s
+                AND req_link.tenant_id = %s::uuid
             ORDER BY req_link.source_id, arch_tree.depth ASC;
         """
         allocated_to = LinkType.ALLOCATED_TO.value
+        tenant_id = str(ctx.tenant_id)
         with connection.cursor() as cursor:
             cursor.execute(
-                sql, [str(root_artifact_id), allocated_to, effective_cap, allocated_to]
+                sql,
+                [
+                    str(root_artifact_id),
+                    allocated_to,
+                    tenant_id,
+                    effective_cap,
+                    allocated_to,
+                    tenant_id,
+                ],
             )
             rows = cursor.fetchall()
 
@@ -241,24 +318,24 @@ class RequirementBundleQueryService(ServiceBase):
         # idx_tracelink_graph index; a known, deliberate tradeoff over
         # threading a "did we cut something off" flag through the main
         # query, which would need the same recursion structure anyway).
+        #
+        # The EXISTS probe applies the same ArchitectureElement type filter as
+        # the walk itself: only an *element* beyond the cap is something the
+        # recursion cut off. A Requirement allocated to the boundary element
+        # is already present in the result, so counting it as truncation
+        # would be a false positive.
         truncated = False
         if depth is None:
-            truncation_sql = """
-                WITH RECURSIVE arch_tree AS (
-                    SELECT %s::uuid AS element_artifact_id, 0 AS depth
-
-                    UNION ALL
-
-                    SELECT tl.source_id AS element_artifact_id, t.depth + 1
-                    FROM pl_tracelink tl
-                    INNER JOIN arch_tree t ON tl.target_id = t.element_artifact_id
-                    WHERE tl.link_type = %s
-                      AND t.depth < %s
-                )
+            truncation_sql = _ARCH_TREE_CTE + """
                 SELECT EXISTS (
                     SELECT 1 FROM pl_tracelink tl
                     JOIN arch_tree t ON tl.target_id = t.element_artifact_id
-                    WHERE tl.link_type = %s AND t.depth = %s
+                    INNER JOIN pl_artifact a
+                        ON a.id = tl.source_id
+                       AND a.artifact_type = 'ArchitectureElement'
+                    WHERE tl.link_type = %s
+                      AND tl.tenant_id = %s::uuid
+                      AND t.depth = %s
                 );
             """
             with connection.cursor() as cursor:
@@ -267,8 +344,10 @@ class RequirementBundleQueryService(ServiceBase):
                     [
                         str(root_artifact_id),
                         allocated_to,
+                        tenant_id,
                         effective_cap,
                         allocated_to,
+                        tenant_id,
                         effective_cap,
                     ],
                 )

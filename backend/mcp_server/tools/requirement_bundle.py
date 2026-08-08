@@ -56,7 +56,18 @@ class RequirementBundleToolGroup(BaseToolGroup):
             "description": (
                 "Export every Requirement ALLOCATED_TO the given "
                 "ArchitectureElement or its ALLOCATED_TO sub-elements, up to "
-                "a configurable depth."
+                "a configurable depth. Id spaces differ between the request "
+                "and the response: 'root_id' takes an ArchitectureElement id, "
+                "but each item's 'found_under_element_id' is that element's "
+                "backing Artifact id (ArchitectureElement.artifact_id), NOT "
+                "an ArchitectureElement id - they are different UUIDs, so "
+                "'found_under_element_id' cannot be passed back to "
+                "architecture.get or GET /api/v1/architecture/{id}/ and does "
+                "not correlate directly with the 'root_id' you queried. "
+                "Resolve it through the Artifact layer first (e.g. "
+                "artifact.get_tree / the artifact id carried by "
+                "architecture.get). 'requirement_id' by contrast is a real "
+                "Requirement id and is directly usable with requirement.get."
             ),
             "inputSchema": {
                 "type": "object",
@@ -80,7 +91,14 @@ class RequirementBundleToolGroup(BaseToolGroup):
                     "format": {
                         "type": "string",
                         "enum": list(_OUTPUT_FORMATS),
-                        "description": "Output format. Defaults to 'json'.",
+                        "description": (
+                            "Output format. Defaults to 'json'. An "
+                            "unsupported value returns VALIDATION_ERROR. Note "
+                            "the equivalent REST endpoint spells this "
+                            "parameter '?output_format=' instead, because "
+                            "'format' is reserved by DRF content "
+                            "negotiation there."
+                        ),
                     },
                 },
                 "required": ["root_id", "workspace_id"],
@@ -95,7 +113,13 @@ class RequirementBundleToolGroup(BaseToolGroup):
                 "AttributeSchemaView endpoint, which returns the same "
                 "attribute list as a bare top-level JSON array (no "
                 "wrapping object); ToolResult requires a dict, so the MCP "
-                "and REST payload shapes are not interchangeable."
+                "and REST payload shapes are not interchangeable. The names "
+                "listed here are exactly the values accepted by "
+                "requirement_bundle.export's 'fields' parameter and the keys "
+                "returned in its items[].fields; the item-level "
+                "'found_under_element_id' is not among them - it is the "
+                "element's backing Artifact id, not an ArchitectureElement "
+                "id (see requirement_bundle.export)."
             ),
             "inputSchema": {
                 "type": "object",

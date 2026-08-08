@@ -10,10 +10,55 @@ Three formats, matching the design spec's §5 raw-mode decision:
 from __future__ import annotations
 
 import csv
+import datetime
+import decimal
 import io
+import uuid
 from typing import Any, Dict
 
 from application.requirement_bundle_service import BundleItem, BundleResult
+
+#: Leading characters a spreadsheet application (Excel, LibreOffice Calc,
+#: Google Sheets) interprets as the start of a formula rather than literal
+#: text. A cell beginning with any of these is prefixed with a single quote
+#: on export — the OWASP-documented CSV-injection mitigation.
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce a raw ORM column value into something ``json.dumps`` accepts.
+
+    ``BundleItem.fields`` comes straight out of ``QuerySet.values()``, so it
+    carries native Python types: ``uuid.UUID`` for ``id``/``workspace_id`` and
+    ``datetime`` for ``created_at``/``modified_at``. DRF's JSONRenderer
+    encodes those, but the MCP transport does not — ``protocol_handler`` calls
+    stdlib ``json.dumps(result.data)`` directly, which raises ``TypeError:
+    Object of type UUID is not JSON serializable`` and surfaces as an
+    unhandled 500 on the tool's *default* invocation. Normalising here (rather
+    than at either transport) keeps both surfaces on one representation.
+    """
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    return value
+
+
+def _csv_safe(value: Any) -> Any:
+    """Neutralise a spreadsheet formula in a CSV cell (CSV injection).
+
+    Any *string* cell starting with ``=``, ``+``, ``-``, ``@``, TAB or CR is
+    prefixed with a single quote so Excel/LibreOffice treat it as literal
+    text. Requirement titles/descriptions are free text written by any
+    editor-role tenant user and this bundle is served over an authenticated
+    ``text/csv`` REST endpoint, so an unescaped ``=cmd|'/c calc'!A1`` title
+    would execute on whoever opens the export.
+    """
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_TRIGGERS):
+        return "'" + value
+    return value
 
 
 def _item_to_dict(item: BundleItem) -> Dict[str, Any]:
@@ -21,12 +66,17 @@ def _item_to_dict(item: BundleItem) -> Dict[str, Any]:
         "requirement_id": str(item.requirement_id),
         "found_under_element_id": str(item.found_under_element_id),
         "depth": item.depth,
-        "fields": dict(item.fields),
+        "fields": {k: _json_safe(v) for k, v in item.fields.items()},
     }
 
 
 def format_bundle_json(result: BundleResult) -> Dict[str, Any]:
-    """Return a JSON-ready dict: {"items": [...], "truncated_at_depth": bool}."""
+    """Return a JSON-ready dict: {"items": [...], "truncated_at_depth": bool}.
+
+    Every value in the payload is guaranteed ``json.dumps``-serialisable (see
+    :func:`_json_safe`) — the MCP transport serialises with the stdlib
+    encoder, not DRF's.
+    """
     return {
         "items": [_item_to_dict(item) for item in result.items],
         "truncated_at_depth": result.truncated_at_depth,
@@ -47,12 +97,12 @@ def format_bundle_markdown(result: BundleResult) -> str:
         if group_key != current_group:
             lines.append(f"\n## Element {group_key} (depth {item.depth})")
             current_group = group_key
-        title = item.fields.get("title", str(item.requirement_id))
+        title = _json_safe(item.fields.get("title", str(item.requirement_id)))
         lines.append(f"\n### {title}")
         for field_name, value in item.fields.items():
             if field_name == "title":
                 continue
-            lines.append(f"- **{field_name}**: {value}")
+            lines.append(f"- **{field_name}**: {_json_safe(value)}")
     return "\n".join(lines) + "\n"
 
 
@@ -60,10 +110,14 @@ def format_bundle_csv(result: BundleResult) -> str:
     """Render the bundle as flat CSV: one row per requirement.
 
     Column order: requirement_id, found_under_element_id, depth, then every
-    field key present across all items (union, stable-sorted), so a bundle
-    whose items carry heterogeneous field sets (filter_mode='custom' with a
-    field only some requirement types have) still produces one consistent
-    header row.
+    field key present across all items (union, sorted alphabetically), so a
+    bundle whose items carry heterogeneous field sets (filter_mode='custom'
+    with a field only some requirement types have) still produces one
+    consistent header row.
+
+    String cells are formula-neutralised before writing (see
+    :func:`_csv_safe`) — the output is served directly as ``text/csv`` and
+    opened in spreadsheet applications.
     """
     buffer = io.StringIO()
     field_names: "list[str]" = []
@@ -83,7 +137,9 @@ def format_bundle_csv(result: BundleResult) -> str:
             "found_under_element_id": str(item.found_under_element_id),
             "depth": item.depth,
         }
-        row.update({k: item.fields.get(k, "") for k in field_names})
+        row.update(
+            {k: _csv_safe(_json_safe(item.fields.get(k, ""))) for k in field_names}
+        )
         writer.writerow(row)
     return buffer.getvalue()
 

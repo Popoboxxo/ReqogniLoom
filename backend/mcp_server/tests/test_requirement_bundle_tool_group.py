@@ -10,6 +10,7 @@ attribute-schema discovery. No network access.
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -69,7 +70,11 @@ def _make_requirement(tenant, workspace, title):
         workspace=workspace, artifact_type="Requirement", tenant_id=tenant.id
     )
     return Requirement.objects.create(
-        artifact=artifact, tenant_id=tenant.id, title=title
+        # ``workspace`` is Requirement's denormalized copy of
+        # artifact.workspace_id (#133), which RequirementService populates on
+        # every real create. Set it here too so exported rows carry the same
+        # shape as production data — bundle export publishes workspace_id.
+        artifact=artifact, tenant_id=tenant.id, title=title, workspace=workspace
     )
 
 
@@ -111,6 +116,69 @@ class TestRequirementBundleExportTool:
         assert len(result.data["items"]) == 1
         assert result.data["items"][0]["requirement_id"] == str(req.id)
         assert result.data["truncated_at_depth"] is False
+
+    @pytest.mark.parametrize("filter_mode", [None, "all", "visible"])
+    def test_export_payload_survives_stdlib_json_dumps(self, rb_ctx, filter_mode):
+        """The MCP transport serialises with the *stdlib* encoder.
+
+        ``protocol_handler`` calls ``json.dumps(result.data, ...)`` directly,
+        so any non-primitive left in the payload raises ``TypeError`` and
+        propagates as an unhandled 500 — which is exactly what the default
+        invocation (no ``format``, no ``filter_mode``) did: ``filter_mode``
+        defaults to ``"all"``, whose field set carries raw ``uuid.UUID``
+        (``id``, ``workspace_id``) and ``datetime`` (``created_at``,
+        ``modified_at``) objects straight out of ``QuerySet.values()``. Every
+        pre-existing test asserted on ``result.data`` in-process and never
+        serialised it, so nothing caught it. Runs against a real Requirement
+        row, not a mock, because the offending values come from the DB
+        driver.
+        """
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+        req = _make_requirement(tenant, workspace, "Req A")
+        _allocate(tenant, req.artifact, root.artifact)
+
+        params = {"root_id": str(root.id), "workspace_id": str(workspace.id)}
+        if filter_mode is not None:
+            params["filter_mode"] = filter_mode
+
+        result = _exec(
+            RequirementBundleToolGroup(), "requirement_bundle.export", params, ctx
+        )
+
+        assert result.success is True
+        encoded = json.dumps(result.data)  # must not raise
+        decoded = json.loads(encoded)
+        fields = decoded["items"][0]["fields"]
+        assert fields["id"] == str(req.id)
+        assert fields["workspace_id"] == str(workspace.id)
+        assert isinstance(fields["created_at"], str)
+        assert isinstance(fields["modified_at"], str)
+
+    @pytest.mark.parametrize("output_format", ["markdown", "csv"])
+    def test_export_non_json_payload_survives_stdlib_json_dumps(
+        self, rb_ctx, output_format
+    ):
+        """Same guard for the markdown/CSV branches, whose payloads wrap a
+        plain string but are serialised by the same transport."""
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+        req = _make_requirement(tenant, workspace, "Req A")
+        _allocate(tenant, req.artifact, root.artifact)
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.export",
+            {
+                "root_id": str(root.id),
+                "workspace_id": str(workspace.id),
+                "format": output_format,
+            },
+            ctx,
+        )
+
+        assert result.success is True
+        json.dumps(result.data)  # must not raise
 
     def test_export_depth_param_scopes_to_direct_children(self, rb_ctx):
         tenant, ctx, workspace = rb_ctx

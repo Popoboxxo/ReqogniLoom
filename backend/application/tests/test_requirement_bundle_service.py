@@ -330,6 +330,118 @@ class TestGetBundleTruncationAndDedup:
 
 
 @pytest.mark.django_db
+class TestArchTreeWalkConstraints:
+    """Regression tests for the recursive CTE's two under-constraints
+    (final whole-branch review, Fix 4)."""
+
+    def test_requirement_to_requirement_edge_is_not_walked_as_an_element(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        """A Requirement --allocated-to--> Requirement edge must never put a
+        Requirement artifact into arch_tree.
+
+        SE_LINK_SEMANTICS constrains ALLOCATED_TO endpoints to
+        {(Requirement, ArchitectureElement), (ArchitectureElement,
+        ArchitectureElement)}, but TraceLinkService._check_se_semantics
+        returns early unless the workspace has se_mode configured — so in an
+        ordinary dev-mode workspace this edge is creatable. Without the
+        artifact_type join on the recursive term, req_a's artifact would be
+        walked as if it were an architecture element and req_b would surface
+        with found_under_element_id pointing at a Requirement.
+        """
+        root = make_architecture_element(workspace, title="Root")
+        req_a = make_requirement(workspace, title="Allocated to root")
+        make_allocated_to_link(source=req_a, target=root)
+        req_b = make_requirement(workspace, title="Allocated to a Requirement")
+        make_allocated_to_link(source=req_b, target=req_a)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
+        )
+
+        assert {i.requirement_id for i in result.items} == {req_a.id}
+        assert all(
+            i.found_under_element_id != req_a.artifact_id for i in result.items
+        )
+
+    def test_diamond_allocation_at_equal_depth_returns_one_row(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        """Two parents both allocating to the same child (a diamond) must not
+        multiply the child's requirements."""
+        root = make_architecture_element(workspace, title="Root")
+        p1 = make_architecture_element(workspace, title="P1")
+        p2 = make_architecture_element(workspace, title="P2")
+        make_allocated_to_link(source=p1, target=root)
+        make_allocated_to_link(source=p2, target=root)
+        shared = make_architecture_element(workspace, title="Shared child")
+        make_allocated_to_link(source=shared, target=p1)
+        make_allocated_to_link(source=shared, target=p2)
+        req = make_requirement(workspace, title="Under the shared child")
+        make_allocated_to_link(source=req, target=shared)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
+        )
+
+        assert len(result.items) == 1
+        assert result.items[0].requirement_id == req.id
+        assert result.items[0].depth == 2
+
+    def test_shared_cte_dedups_diamond_paths(
+        self, auth_ctx, workspace, make_architecture_element, make_allocated_to_link
+    ):
+        """White-box guard on the shared CTE itself.
+
+        The outer ``DISTINCT ON (req_link.source_id)`` would mask row
+        multiplication inside ``arch_tree`` from the public result, so assert
+        the CTE directly: with ``UNION ALL`` the shared child appears once per
+        path (2 rows at depth 2); with ``UNION`` it appears once. Guarding
+        here is what keeps the walk bounded at nodes x (cap + 1) rows instead
+        of paths x (cap + 1).
+        """
+        from django.db import connection
+
+        from application.requirement_bundle_service import (
+            MAX_DEPTH,
+            _ARCH_TREE_CTE,
+        )
+
+        root = make_architecture_element(workspace, title="Root")
+        p1 = make_architecture_element(workspace, title="P1")
+        p2 = make_architecture_element(workspace, title="P2")
+        make_allocated_to_link(source=p1, target=root)
+        make_allocated_to_link(source=p2, target=root)
+        shared = make_architecture_element(workspace, title="Shared child")
+        make_allocated_to_link(source=shared, target=p1)
+        make_allocated_to_link(source=shared, target=p2)
+
+        svc = RequirementBundleQueryService()
+        svc._set_tenant_context(auth_ctx)  # RLS GUC + thread-local tenant
+        with connection.cursor() as cursor:
+            cursor.execute(
+                _ARCH_TREE_CTE + " SELECT element_artifact_id, depth FROM arch_tree;",
+                [
+                    str(root.artifact_id),
+                    LinkType.ALLOCATED_TO.value,
+                    str(auth_ctx.tenant_id),
+                    MAX_DEPTH,
+                ],
+            )
+            rows = cursor.fetchall()
+
+        assert sorted(rows, key=lambda r: (r[1], str(r[0]))) == sorted(
+            [
+                (root.artifact_id, 0),
+                (p1.artifact_id, 1),
+                (p2.artifact_id, 1),
+                (shared.artifact_id, 2),
+            ],
+            key=lambda r: (r[1], str(r[0])),
+        )
+
+
+@pytest.mark.django_db
 class TestGetBundleFiltering:
     def test_filter_mode_all_returns_every_field(
         self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
@@ -382,6 +494,51 @@ class TestGetBundleFiltering:
                 filter_mode="custom",
                 fields=["title", "not_a_real_field"],
             )
+
+    def test_invalid_filter_mode_raises_validation_error(
+        self, auth_ctx, workspace, make_architecture_element
+    ):
+        """An unrecognised filter_mode is rejected before any query runs."""
+        from application.base import ValidationError
+
+        root = make_architecture_element(workspace, title="Root")
+        with pytest.raises(ValidationError, match="bogus"):
+            RequirementBundleQueryService().get_bundle(
+                auth_ctx,
+                root_id=root.id,
+                workspace_id=workspace.id,
+                depth=0,
+                filter_mode="bogus",
+            )
+
+    def test_all_fields_includes_audit_timestamps(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
+    ):
+        """created_at/modified_at are ordinary user-visible Requirement
+        columns (RequirementSerializer publishes them as
+        created_at/updated_at) and must be part of the "all" field set —
+        they were previously missing, so filter_mode='all' never returned
+        them and filter_mode='custom' rejected them as unknown fields.
+        """
+        from application.requirement_bundle_service import REQUIREMENT_ALL_FIELDS
+
+        assert "created_at" in REQUIREMENT_ALL_FIELDS
+        assert "modified_at" in REQUIREMENT_ALL_FIELDS
+
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="R1")
+        make_allocated_to_link(source=req, target=root)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx,
+            root_id=root.id,
+            workspace_id=workspace.id,
+            depth=0,
+            filter_mode="custom",
+            fields=["created_at", "modified_at"],
+        )
+        assert set(result.items[0].fields.keys()) == {"created_at", "modified_at"}
+        assert result.items[0].fields["created_at"] is not None
 
     def test_filter_mode_visible_uses_attribute_visibility_config(
         self, auth_ctx, workspace, make_architecture_element, make_requirement,

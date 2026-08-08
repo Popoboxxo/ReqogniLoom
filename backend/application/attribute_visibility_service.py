@@ -24,17 +24,28 @@ from auth_tenancy.context import AuthContext
 from persistence.models import AttributeVisibilityConfig
 
 from application.base import NotFoundError, ServiceBase
-from application.requirement_bundle_service import REQUIREMENT_ALL_FIELDS
 
 
 class AttributeVisibilityConfigService(ServiceBase):
     """Tenant-scoped CRUD for AttributeVisibilityConfig (REQ-066)."""
 
-    # Known entity types and their full field sets, for schema discovery
-    # (Requirement Bundle Export Plan 1, Task 4). Extend this dict when a new
-    # entity type is wired into bundle export or any other consumer of
-    # describe_schema.
-    _KNOWN_SCHEMAS: dict[str, tuple[str, ...]] = {"Requirement": REQUIREMENT_ALL_FIELDS}
+    @staticmethod
+    def _known_schemas() -> dict[str, tuple[str, ...]]:
+        """Known entity types and their full field sets, for schema discovery
+        (Requirement Bundle Export Plan 1, Task 4). Extend this mapping when a
+        new entity type is wired into bundle export or any other consumer of
+        :meth:`describe_schema`.
+
+        The field-set import is deliberately **lazy** (inside the method, not
+        at module scope): this service is a generic, cross-cutting one used
+        well beyond bundle export, and it should not carry a module-level
+        dependency on a single feature module. No circular import exists
+        today — ``requirement_bundle_service`` imports this service lazily too
+        — but the layering concern stands independently of that.
+        """
+        from application.requirement_bundle_service import REQUIREMENT_ALL_FIELDS
+
+        return {"Requirement": REQUIREMENT_ALL_FIELDS}
 
     # ---- Read -------------------------------------------------------------
 
@@ -72,7 +83,7 @@ class AttributeVisibilityConfigService(ServiceBase):
         a filter_mode='custom' bundle-export request.
         """
         self._set_tenant_context(ctx)
-        schemas = self._KNOWN_SCHEMAS
+        schemas = self._known_schemas()
         if entity_type is not None:
             if entity_type not in schemas:
                 raise NotFoundError(f"Unknown entity_type {entity_type!r}")

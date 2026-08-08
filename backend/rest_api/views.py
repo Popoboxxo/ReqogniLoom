@@ -39,7 +39,8 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
-from rest_framework.renderers import BaseRenderer, BrowsableAPIRenderer, JSONRenderer
+from rest_framework.negotiation import BaseContentNegotiation
+from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -1299,39 +1300,31 @@ class ArtifactViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class _MarkdownRenderer(BaseRenderer):
-    """Declares the 'markdown' format for DRF content negotiation.
+class _JsonOnlyContentNegotiation(BaseContentNegotiation):
+    """Content negotiation that always resolves to the first declared renderer.
 
-    Requirement Bundle Export (Plan 1 Task 5): the ``requirement_bundle``
-    action reads its own ``?format=markdown|csv|json`` query param and
-    returns a raw ``HttpResponse`` directly (bypassing DRF's renderer
-    ``.render()`` pipeline), so this class's ``render()`` is never actually
-    invoked. It exists only so DRF's ``DefaultContentNegotiation`` (which
-    also reads the ``format`` query param via ``URL_FORMAT_OVERRIDE``, see
-    ``rest_framework.negotiation.BaseContentNegotiation.filter_renderers``)
-    recognises 'markdown' as a valid format instead of raising ``Http404``
-    before the action method ever runs, since the default renderer set only
-    declares 'json'/'api'.
+    Requirement Bundle Export: the ``requirement_bundle`` action selects its
+    own output format from an app-level ``?output_format=`` query param and
+    emits markdown/CSV as a raw ``HttpResponse``, bypassing DRF's renderer
+    pipeline entirely. DRF's rendering therefore only ever matters for the
+    JSON branch — but ``DefaultContentNegotiation`` still runs *before* the
+    action body and can hijack the request from the ``Accept`` header or the
+    reserved ``?format=`` override, which previously produced a ``200`` with a
+    corrupted body (a stub renderer returning the dict unchanged, which
+    ``HttpResponse`` then iterated into its concatenated key names), a
+    spurious ``406``, or a bare ``404`` that pre-empted the action's own
+    ``400 VALIDATION_ERROR``.
+
+    Pinning negotiation to JSON removes that whole channel: whatever the
+    client sends in ``Accept``/``?format=``, DRF resolves to
+    ``JSONRenderer``, and the action alone decides the real output format.
     """
 
-    media_type = "text/markdown"
-    format = "markdown"
-    charset = "utf-8"
+    def select_parser(self, request, parsers):
+        return parsers[0]
 
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        return data
-
-
-class _CsvRenderer(BaseRenderer):
-    """Declares the 'csv' format for DRF content negotiation — see
-    ``_MarkdownRenderer`` docstring."""
-
-    media_type = "text/csv"
-    format = "csv"
-    charset = "utf-8"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        return data
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
 
 
 class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
@@ -1578,20 +1571,43 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         detail=True,
         methods=["get"],
         url_path="requirement-bundle",
-        # fix: the default renderer set (JSONRenderer/BrowsableAPIRenderer,
-        # formats 'json'/'api') doesn't recognise 'markdown'/'csv' — DRF's
-        # content negotiation raises Http404 for an unrecognised ?format=
-        # value *before* this method runs (see _MarkdownRenderer docstring).
-        renderer_classes=[JSONRenderer, BrowsableAPIRenderer, _MarkdownRenderer, _CsvRenderer],
+        # The output format is an app-level concern here, not a DRF rendering
+        # one: markdown/CSV leave as a raw HttpResponse. Pinning renderer +
+        # negotiation to JSON keeps DRF's Accept/?format= machinery from
+        # intercepting the request before this method runs — see
+        # _JsonOnlyContentNegotiation.
+        renderer_classes=[JSONRenderer],
+        content_negotiation_class=_JsonOnlyContentNegotiation,
     )
     def requirement_bundle(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/architecture/{pk}/requirement-bundle/
             ?depth=<int>&filter_mode=<all|visible|custom>&fields=<comma-list>
-            &format=<json|markdown|csv>
+            &output_format=<json|markdown|csv>
 
         Requirement Bundle Export, Plan 1 Task 5. Raw (non-AI) bundle of every
         Requirement ALLOCATED_TO this element or its ALLOCATED_TO
         sub-elements, up to `depth` levels.
+
+        The output format is selected with ``?output_format=`` — deliberately
+        *not* ``?format=``, which is DRF's reserved URL_FORMAT_OVERRIDE and
+        collides with content negotiation. ``Accept`` and ``?format=`` are
+        ignored by this action; an unknown ``output_format`` value returns
+        ``400 VALIDATION_ERROR``.
+
+        **Id spaces in the response.** ``items[].requirement_id`` is
+        ``Requirement.id`` and resolves directly against
+        ``/api/v1/requirements/{id}/``. ``items[].found_under_element_id`` is
+        NOT an ``ArchitectureElement.id`` — it is the element's backing
+        **Artifact** id (``ArchitectureElement.artifact_id``), while the
+        ``{pk}`` this endpoint takes IS an ``ArchitectureElement.id``. The two
+        are different UUIDs, so ``GET /api/v1/architecture/{found_under_element_id}/``
+        will 404. Correlating a returned value back to a specific element
+        requires resolving through the Artifact layer: look the element up by
+        its ``artifact_id`` (the inverse mapping, element id -> artifact id,
+        is ``TraceLinkService._resolve_artifact_id``). This is a deliberate
+        design choice — the allocation walk operates on artifact ids end to
+        end — and is documented rather than changed, since the returned
+        values are part of the published contract.
         """
         lang = detect_lang(request)
         try:
@@ -1606,12 +1622,15 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             fields_param = request.query_params.get("fields")
             fields = fields_param.split(",") if fields_param else None
 
-            output_format = request.query_params.get("format", "json")
+            output_format = request.query_params.get("output_format", "json")
             if output_format not in ("json", "markdown", "csv"):
                 return Response(
                     build_error_response(
                         "VALIDATION_ERROR", lang,
-                        message=f"Invalid format {output_format!r}; expected json, markdown, or csv",
+                        message=(
+                            f"Invalid output_format {output_format!r}; "
+                            "expected json, markdown, or csv"
+                        ),
                     ),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
