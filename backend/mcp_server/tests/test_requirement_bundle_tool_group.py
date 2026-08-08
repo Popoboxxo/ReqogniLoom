@@ -180,6 +180,44 @@ class TestRequirementBundleExportTool:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
+    def test_export_depth_over_max_returns_validation_error(self, rb_ctx):
+        """Parity with rest_api's test_depth_over_max_returns_400 (Task 5):
+        depth beyond RequirementBundleQueryService.MAX_DEPTH (20) is rejected
+        by BundleDepthExceededError, a ValidationError subclass."""
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.export",
+            {"root_id": str(root.id), "workspace_id": str(workspace.id), "depth": 99},
+            ctx,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_export_custom_filter_mode_unknown_field_returns_validation_error(self, rb_ctx):
+        """filter_mode='custom' with a field name not in REQUIREMENT_ALL_FIELDS
+        must fail loudly (typo protection), not silently drop it."""
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.export",
+            {
+                "root_id": str(root.id),
+                "workspace_id": str(workspace.id),
+                "filter_mode": "custom",
+                "fields": ["not_a_real_field"],
+            },
+            ctx,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
     def test_export_markdown_format(self, rb_ctx):
         tenant, ctx, workspace = rb_ctx
         root = _make_element(tenant, workspace, "Root")

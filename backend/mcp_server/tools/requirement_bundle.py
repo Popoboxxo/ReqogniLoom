@@ -88,7 +88,15 @@ class RequirementBundleToolGroup(BaseToolGroup):
         },
         {
             "name": "requirement_bundle.attribute_schema",
-            "description": "List available attributes for an entity type, with current visibility.",
+            "description": (
+                "List available attributes for an entity type, with current "
+                "visibility. Response shape: {\"attributes\": [...], "
+                "\"count\": N} - note this differs from the REST "
+                "AttributeSchemaView endpoint, which returns the same "
+                "attribute list as a bare top-level JSON array (no "
+                "wrapping object); ToolResult requires a dict, so the MCP "
+                "and REST payload shapes are not interchangeable."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
