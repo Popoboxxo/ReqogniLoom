@@ -797,6 +797,190 @@ class TestScopeMismatchMessage:
 
 
 # ---------------------------------------------------------------------------
+# M3 (Codeberg #353 final review): ScopeResolver — Diagram shadow-Artifact
+# exclusion for the ACTUAL baseline snapshot path (DeltaIndexBuilder), not
+# just the preview (see also test_scope_preview.py's preview-level coverage
+# of the same fix in baseline/services.py::resolve_scope_item_ids).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestScopeResolverExcludesDiagramShadowArtifacts:
+    """A Diagram's shadow Artifact (artifact_type='Diagram') is an internal
+    implementation detail of the TraceabilityEngine link
+    (diagram.traceability_connector._resolve_artifact_id), not a real domain
+    artifact — it must not be snapshotted into a project/global baseline."""
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="BL-Diag-Tenant", slug=f"bl-diag-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.unscoped.create(tenant=tenant, name="BL-Diag-WS")
+        return tenant, workspace
+
+    def test_resolve_project_excludes_diagram_artifact_type(self):
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            items = ScopeResolver().resolve(
+                scope="project", workspace_id=workspace.id, tenant_id=tenant.id
+            )
+            item_ids = {item.item_id for item in items}
+
+            assert str(real.id) in item_ids
+            assert len(item_ids) == 1
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_resolve_global_excludes_diagram_artifact_type(self):
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            items = ScopeResolver().resolve(
+                scope="global", workspace_id=workspace.id, tenant_id=tenant.id
+            )
+            item_ids = {item.item_id for item in items}
+
+            assert str(real.id) in item_ids
+            assert len(item_ids) == 1
+        finally:
+            TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Regression (Codeberg #353 follow-up): resolve_scope_item_ids's Diagram
+# shadow-Artifact exclusion must be opt-out-able for the SE-Auditor, since
+# it is shared with AuditContext.scope_item_ids (see traceability/audit/
+# types.py and traceability/tests/test_trace_p7.py for the audit-side
+# regression test).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestResolveScopeItemIdsDiagramShadowArtifactFlag:
+    """resolve_scope_item_ids(exclude_diagram_shadow_artifacts=...) must
+    default to excluding Diagram shadow Artifacts (preview/baseline
+    correctness, M3) while allowing callers such as the SE-Auditor to opt
+    out (Codeberg #353 regression fix) — both behaviours from the same
+    function, selectable via the flag."""
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="BL-DiagFlag-Tenant", slug=f"bl-diagflag-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.unscoped.create(tenant=tenant, name="BL-DiagFlag-WS")
+        return tenant, workspace
+
+    def test_default_excludes_diagram_shadow_artifact_from_project_scope(self):
+        """Default (True): matches the actual baseline snapshot — a Diagram
+        shadow Artifact must not appear as a spurious scope item."""
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            diagram = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="project", workspace_id=workspace.id, tenant_id=tenant.id
+            )
+
+            assert str(real.id) in item_ids
+            assert str(diagram.id) not in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_exclude_diagram_shadow_artifacts_false_includes_it_in_project_scope(self):
+        """exclude_diagram_shadow_artifacts=False (SE-Auditor path): the
+        Diagram shadow Artifact must be included, so a TraceLink between it
+        and a real artifact has both endpoints in scope — no TRACE-P7
+        false-BLOCKER (Codeberg #353 regression fix)."""
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            diagram = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="project",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                exclude_diagram_shadow_artifacts=False,
+            )
+
+            assert str(real.id) in item_ids
+            assert str(diagram.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_exclude_diagram_shadow_artifacts_false_includes_it_in_global_scope(self):
+        """Same flag semantics for global scope."""
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            diagram = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="global",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                exclude_diagram_shadow_artifacts=False,
+            )
+
+            assert str(real.id) in item_ids
+            assert str(diagram.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
 # REQ-L2-RA-008: Baseline CRUD round-trip with extended preset
 # ---------------------------------------------------------------------------
 

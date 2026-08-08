@@ -54,6 +54,9 @@ class LinkType(str, Enum):
     # (formerly read from Workspace.decomposition_link_type). Not a rename of
     # PARENT_CHILD: existing parent-child TraceLinks/baselines are untouched.
     DECOMPOSES = "decomposes"
+    # Codeberg #353 Task 3: Reconciler-owned only (Codeberg #353) — never
+    # hand-authored, never touched by manual trace-link CRUD.
+    DIAGRAM_REF = "diagram-ref"
 
     @classmethod
     def values(cls) -> frozenset[str]:
@@ -62,6 +65,18 @@ class LinkType(str, Enum):
 
 
 VALID_LINK_TYPES: frozenset[str] = LinkType.values()
+
+#: Codeberg #353 final review (I1): every link type EXCEPT the
+#: reconciler-owned DIAGRAM_REF, which must never be created/updated through
+#: manual TraceLink CRUD (REST ``trace-links`` endpoints, MCP
+#: ``traceability.create_link`` / ``architecture.link``). Manual creation of a
+#: ``diagram-ref`` link would silently be deleted on the next node_graph save
+#: (``diagram.traceability_connector.sync_node_links``'s ``current - desired``
+#: reconciliation), which looks like unexplained data loss to the caller who
+#: just created it. Single source of truth for both the manual-CRUD rejection
+#: (application.trace_link_service.TraceLinkService.create_trace_link) and the
+#: MCP tool schemas' published ``link_type`` enum.
+MANUAL_LINK_TYPES: frozenset[str] = VALID_LINK_TYPES - {LinkType.DIAGRAM_REF.value}
 
 # ---------------------------------------------------------------------------
 # SE endpoint semantics (SE-mode rigor, see docs/se/workspace_modes_er_model.md)
@@ -315,6 +330,7 @@ class VCRMMatrix:
 __all__ = [
     "LinkType",
     "VALID_LINK_TYPES",
+    "MANUAL_LINK_TYPES",
     "SE_LINK_SEMANTICS",
     "SE_CORE_ARTIFACT_TYPES",
     "SAME_TYPE",

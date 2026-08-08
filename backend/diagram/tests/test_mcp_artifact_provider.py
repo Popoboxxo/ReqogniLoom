@@ -151,3 +151,94 @@ class TestGetArtifact:
         response = provider.get_artifact(str(diagram_id))
 
         assert str(diagram_id) in response["error"]["message"]
+
+    def test_node_graph_format_renders_as_summary_table(self) -> None:
+        """node_graph format is rendered as node/edge summary tables, not raw JSON."""
+        diagram_id = uuid.uuid4()
+        node_graph_content = """{
+            "schema_version": 1,
+            "nodes": [
+                {
+                    "id": "node1",
+                    "type": "box",
+                    "label": "Node A",
+                    "position": {"x": 0, "y": 0}
+                },
+                {
+                    "id": "node2",
+                    "type": "rounded",
+                    "label": "Node B",
+                    "position": {"x": 100, "y": 100}
+                }
+            ],
+            "edges": [
+                {
+                    "id": "edge1",
+                    "source": "node1",
+                    "target": "node2",
+                    "type": "flow",
+                    "label": "connects to"
+                }
+            ],
+            "viewport": {"x": 0, "y": 0, "zoom": 1}
+        }"""
+        manager = _make_mock_manager(
+            diagram_id,
+            payload_format="node_graph",
+            content=node_graph_content,
+            render_hint="react-flow",
+        )
+        provider = McpArtifactProvider(diagram_manager=manager)
+
+        response = provider.get_artifact(str(diagram_id))
+
+        assert response["type"] == "artifact"
+        assert response["error"] is None
+        markdown = response["payload"]["markdown"]
+
+        # Should contain node/edge tables instead of raw JSON
+        assert "## Nodes" in markdown or "| ID | Type | Label |" in markdown
+        assert "## Edges" in markdown or "| Source → Target |" in markdown
+        # Should NOT contain raw JSON code block for node_graph
+        assert "```json" not in markdown or node_graph_content not in markdown
+        # Should contain node and edge data
+        assert "node1" in markdown
+        assert "node2" in markdown
+        assert "edge1" in markdown
+        assert "Node A" in markdown
+        assert "Node B" in markdown
+
+    def test_node_graph_with_artifact_refs(self) -> None:
+        """node_graph nodes with artifact_ref are rendered in the summary table."""
+        diagram_id = uuid.uuid4()
+        requirement_id = uuid.uuid4()
+        node_graph_content = f"""{{
+            "schema_version": 1,
+            "nodes": [
+                {{
+                    "id": "req_node",
+                    "type": "box",
+                    "label": "REQ-001",
+                    "position": {{"x": 0, "y": 0}},
+                    "artifact_ref": {{
+                        "entity_type": "Requirement",
+                        "id": "{requirement_id}"
+                    }}
+                }}
+            ],
+            "edges": [],
+            "viewport": {{"x": 0, "y": 0, "zoom": 1}}
+        }}"""
+        manager = _make_mock_manager(
+            diagram_id,
+            payload_format="node_graph",
+            content=node_graph_content,
+        )
+        provider = McpArtifactProvider(diagram_manager=manager)
+
+        response = provider.get_artifact(str(diagram_id))
+
+        markdown = response["payload"]["markdown"]
+        # Should contain artifact reference
+        assert "Requirement" in markdown
+        assert str(requirement_id) in markdown

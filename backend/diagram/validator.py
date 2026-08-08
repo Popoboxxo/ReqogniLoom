@@ -15,7 +15,13 @@ Validates the raw payload string/dict of a diagram against type-specific syntax
 rules before it is persisted.  Raises DiagramValidationError on any violation.
 
 Supported types  : block, flow, context, canvas, mermaid  (DiagramType — REQ-L2-DS-002)
-Supported formats: mermaid, plantuml, json, canvas_stroke
+Supported formats: mermaid, plantuml, json, canvas_stroke, node_graph
+
+GH-353: node_graph is a strictly-typed node/edge diagram format (Task 1),
+  fully independent of canvas_stroke. Validated by diagram.node_graph
+  (imported locally in validate_payload() to avoid a module-level circular
+  import — diagram.node_graph itself imports ValidationResult from this
+  module).
 
 COMP-DS-006 CanvasEditor uses validate_canvas_strokes() for JSON stroke data.
 COMP-DS-007 MermaidLiveRenderer uses validate_mermaid_source() for the 5 Mermaid
@@ -272,6 +278,27 @@ class DiagramValidator:
             if not result.is_valid:
                 raise DiagramValidationError(
                     f"Canvas stroke validation failed: {result.error_msg}"
+                )
+        elif payload_format == PayloadFormat.NODE_GRAPH:
+            # GH-353 (Task 1): strictly-typed node/edge diagram format.
+            if not content or not content.strip():
+                raise DiagramValidationError("Node graph payload must not be empty.")
+            try:
+                graph_data = json.loads(content) if isinstance(content, str) else content
+            except json.JSONDecodeError as exc:
+                raise DiagramValidationError(
+                    f"Node graph payload is not valid JSON: {exc.msg} at line {exc.lineno}."
+                ) from exc
+            # Local import (not module-level): diagram.node_graph imports
+            # ValidationResult from this module, so a top-level import here
+            # would be circular. This is an intra-app import (diagram ->
+            # diagram), not the rest_api exception documented above.
+            from diagram.node_graph import validate_node_graph
+
+            result = validate_node_graph(graph_data)
+            if not result.is_valid:
+                raise DiagramValidationError(
+                    f"Node graph validation failed: {result.error_msg}"
                 )
 
     # ------------------------------------------------------------------

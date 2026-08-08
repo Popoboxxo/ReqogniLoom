@@ -131,11 +131,22 @@ export function DiagramCreateForm({
             }}
             style={formInputStyle}
           >
-            {PAYLOAD_FORMATS.map((fmt) => (
-              <option key={fmt} value={fmt}>
-                {fmt}
-              </option>
-            ))}
+            {/* GH-353 Task 9: Filter to offer node_graph (structured) instead of json,
+                keep canvas_stroke (freehand sketch) and mermaid/plantuml text formats. */}
+            {PAYLOAD_FORMATS.filter((fmt) => fmt !== "json").map((fmt) => {
+              const labels: Record<PayloadFormat, string> = {
+                node_graph: t("diagrams.formatLabels.nodeGraph", "Structured Graph"),
+                mermaid: t("diagrams.formatLabels.mermaid", "Mermaid Diagram"),
+                plantuml: t("diagrams.formatLabels.plantuml", "PlantUML"),
+                canvas_stroke: t("diagrams.formatLabels.canvasStroke", "Freehand Sketch"),
+                json: "JSON", // filtered out but kept for type safety
+              };
+              return (
+                <option key={fmt} value={fmt}>
+                  {labels[fmt]}
+                </option>
+              );
+            })}
           </select>
         </label>
 

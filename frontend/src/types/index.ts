@@ -429,7 +429,106 @@ export interface Issue {
 
 export type DiagramType = "block" | "flow" | "context" | "canvas" | "mermaid";
 
-export type PayloadFormat = "mermaid" | "plantuml" | "json" | "canvas_stroke";
+export type PayloadFormat =
+  | "mermaid"
+  | "plantuml"
+  | "json"
+  | "canvas_stroke"
+  | "node_graph";
+
+// ---------------------------------------------------------------------------
+// Node Graph payload (payload_format=node_graph, GH-353 Task 1/8) — mirrors
+// backend/diagram/node_graph.py exactly (field names, enum values). Any drift
+// here is a silent contract break with the backend validator.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "box" | "rounded" | "ellipse" | "diamond" | "note" | "group";
+
+export type GraphEdgeType = "flow" | "association" | "dependency" | "containment";
+
+export type GraphStyleAccent =
+  | "default"
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "muted";
+
+export type GraphEdgeLineStyle = "solid" | "dashed";
+
+export type GraphHandlePosition = "top" | "right" | "bottom" | "left";
+
+/** Mirrors diagram.node_graph.KNOWN_ARTIFACT_ENTITY_TYPES. */
+export type GraphArtifactEntityType =
+  | "Requirement"
+  | "StakeholderNeed"
+  | "ArchitectureElement"
+  | "TestCase"
+  | "Adr"
+  | "Risk"
+  | "Issue"
+  | "GlossaryTerm"
+  | "Goal"
+  | "MainGoal";
+
+export interface GraphArtifactRef {
+  entity_type: GraphArtifactEntityType;
+  id: UUID;
+}
+
+export interface GraphNodePosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNodeSize {
+  width: number;
+  height: number;
+}
+
+export interface GraphNodeStyle {
+  accent?: GraphStyleAccent;
+}
+
+export interface GraphEdgeStyle {
+  line?: GraphEdgeLineStyle;
+}
+
+export interface GraphNode {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  position: GraphNodePosition;
+  size?: GraphNodeSize;
+  style?: GraphNodeStyle;
+  artifact_ref?: GraphArtifactRef;
+  parent_id?: string | null;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: GraphEdgeType;
+  label?: string;
+  source_handle?: GraphHandlePosition | null;
+  target_handle?: GraphHandlePosition | null;
+  style?: GraphEdgeStyle;
+}
+
+export interface GraphViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+/** Envelope for payload_format=node_graph (transported as a JSON string in `content`). */
+export interface NodeGraphPayload {
+  schema_version: 1;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  viewport?: GraphViewport;
+}
 
 export interface Diagram {
   id: UUID;

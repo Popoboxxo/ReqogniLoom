@@ -19,6 +19,7 @@ DiagramVersion history is never modified after creation.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Optional
@@ -28,8 +29,89 @@ from persistence.transactions import atomic_transaction
 
 from diagram.models import Diagram, DiagramVersion, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderableDiagram
-from diagram.traceability_connector import TraceabilityConnector
+from diagram.traceability_connector import TraceabilityConnector, sync_node_links
 from diagram.validator import DiagramValidator, DiagramValidationError  # noqa: F401 re-export
+
+
+# ---------------------------------------------------------------------------
+# Canonical serialization (GH-353 Task 1)
+# ---------------------------------------------------------------------------
+
+def _canonicalize_payload(payload_format: str, content: str) -> str:
+    """Canonicalize a ``node_graph`` payload for stable, diffable storage.
+
+    Every write path that can persist ``payload_format=node_graph`` (REST
+    ``POST``/``PATCH /api/v1/diagrams/`` and the MCP ``diagram.*`` tools)
+    funnels through :meth:`DiagramManager.create_diagram` /
+    :meth:`DiagramManager.update_diagram` — this is the single shared choke
+    point, so canonicalization lives here rather than being duplicated in
+    each transport layer.
+
+    Re-serializes with ``sort_keys=True`` and stable indentation so that two
+    semantically-identical payloads with differently-ordered keys persist as
+    byte-identical text, keeping ``GET /diagrams/<id>/diff/`` empty between
+    otherwise-unchanged saves.
+
+    MUST run AFTER :meth:`DiagramValidator.validate_payload` has already
+    succeeded for *content* — canonicalizing invalid JSON is undefined.
+    No-op for every other ``payload_format`` (Mermaid/PlantUML/JSON/
+    canvas_stroke keep their existing raw-string persistence behaviour).
+
+    Args:
+        payload_format: One of PayloadFormat values.
+        content:        The already-validated raw payload string.
+
+    Returns:
+        The canonicalized payload string for ``node_graph``; *content*
+        unchanged for every other format.
+    """
+    if payload_format != PayloadFormat.NODE_GRAPH:
+        return content
+    return json.dumps(json.loads(content), ensure_ascii=False, sort_keys=True, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Per-node artifact_ref trace-link reconciliation (GH-353 Task 4)
+# ---------------------------------------------------------------------------
+
+def _sync_node_graph_links(
+    diagram: Diagram,
+    payload_format: str,
+    content: str,
+    created_by_id: Optional[uuid.UUID],
+) -> None:
+    """Reconcile ``LinkType.DIAGRAM_REF`` TraceLinks for a node_graph save.
+
+    Runs in the same write path Task 1 wired canonicalization into (this is
+    the single choke point both create_diagram and update_diagram share for
+    ``payload_format=node_graph``), so canonicalization and reconciliation
+    always run together on every node_graph create/update. No-op for every
+    other ``payload_format`` — mirrors :func:`_canonicalize_payload`.
+
+    MUST run AFTER the Diagram/DiagramVersion rows for this write have been
+    persisted (``sync_node_links`` needs ``diagram.tenant_id`` and, for
+    Diagrams that already have refs, the shadow Artifact) and inside the same
+    ``@atomic_transaction`` as the rest of the write, so an aborted
+    reconciliation rolls back the whole save.
+
+    Args:
+        diagram:        The just-created/updated Diagram (current call's
+                         tenant/workspace already set).
+        payload_format: One of PayloadFormat values.
+        content:        The already-canonicalized payload string.
+        created_by_id:  Optional actor UUID for audit metadata on new links.
+
+    Raises:
+        DiagramValidationError: An artifact_ref does not resolve — see
+            diagram.traceability_connector.sync_node_links.
+    """
+    if payload_format != PayloadFormat.NODE_GRAPH:
+        return
+    sync_node_links(
+        diagram=diagram,
+        node_graph_payload=json.loads(content),
+        created_by_id=created_by_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +205,10 @@ class DiagramManager:
         # IF-DS-INT-001: validate before any persistence
         self._validator.validate_payload(diagram_type, payload_format, content)
 
+        # GH-353 (Task 1): canonicalize node_graph payloads post-validation,
+        # pre-persistence — no-op for every other payload_format.
+        content = _canonicalize_payload(payload_format, content)
+
         # IF-L1-035: persist Diagram header (current_version set after version exists)
         diagram = Diagram.objects.create(
             name=name,
@@ -158,6 +244,15 @@ class DiagramManager:
             entity_type="Diagram",
             entity_id=diagram.id,
             version=version.version_number,
+        )
+
+        # GH-353 Task 4: reconcile per-node DIAGRAM_REF TraceLinks — no-op
+        # for every payload_format other than node_graph.
+        _sync_node_graph_links(
+            diagram=diagram,
+            payload_format=payload_format,
+            content=content,
+            created_by_id=created_by.id if created_by else None,
         )
 
         # IF-DS-INT-003 / IF-L1-034: optional TraceLink creation
@@ -212,6 +307,10 @@ class DiagramManager:
         # IF-DS-INT-001: validate new payload before persistence
         self._validator.validate_payload(diagram.diagram_type, payload_format, content)
 
+        # GH-353 (Task 1): canonicalize node_graph payloads post-validation,
+        # pre-persistence — no-op for every other payload_format.
+        content = _canonicalize_payload(payload_format, content)
+
         # Determine next version number — find current max
         last_version = (
             DiagramVersion.unscoped
@@ -246,6 +345,15 @@ class DiagramManager:
             entity_type="Diagram",
             entity_id=diagram.id,
             version=new_version.version_number,
+        )
+
+        # GH-353 Task 4: reconcile per-node DIAGRAM_REF TraceLinks — no-op
+        # for every payload_format other than node_graph.
+        _sync_node_graph_links(
+            diagram=diagram,
+            payload_format=payload_format,
+            content=content,
+            created_by_id=modified_by.id if modified_by else None,
         )
 
         # IF-DS-INT-003 / IF-L1-034: optional additional TraceLink

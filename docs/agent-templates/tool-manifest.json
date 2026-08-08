@@ -1264,7 +1264,14 @@
           },
           "payload_format": {
             "type": "string",
-            "description": "One of 'mermaid' | 'plantuml' | 'json' | 'canvas_stroke'."
+            "enum": [
+              "mermaid",
+              "plantuml",
+              "json",
+              "canvas_stroke",
+              "node_graph"
+            ],
+            "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'."
           },
           "content": {
             "type": "string",
@@ -1302,6 +1309,13 @@
           "version_number": {
             "type": "integer",
             "description": "Optional specific version. Defaults to current."
+          },
+          "export_format": {
+            "type": "string",
+            "enum": [
+              "svg"
+            ],
+            "description": "Optional export format. Omit for the default behaviour (returns the canonical JSON payload). 'svg' renders the diagram to an SVG string — currently only supported for 'node_graph' diagrams; requesting it for any other payload_format returns a VALIDATION_ERROR."
           }
         },
         "required": [
@@ -1385,7 +1399,14 @@
           },
           "payload_format": {
             "type": "string",
-            "description": "New payload format."
+            "enum": [
+              "mermaid",
+              "plantuml",
+              "json",
+              "canvas_stroke",
+              "node_graph"
+            ],
+            "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'."
           },
           "content": {
             "type": "string",

@@ -509,8 +509,12 @@ class TestArchitectureToolGroup:
     def test_architecture_link_schema_documents_valid_link_types(self):
         """#33: architecture.link's published schema must enumerate the
         valid link_type values so callers (including LLM/MCP clients) can
-        discover them without a failed round-trip first."""
-        from traceability.types import VALID_LINK_TYPES
+        discover them without a failed round-trip first.
+
+        Codeberg #353 final review (I1): the enum is MANUAL_LINK_TYPES, not
+        the full VALID_LINK_TYPES — 'diagram-ref' is reconciler-owned and
+        must never be offered as a manually-createable link type."""
+        from traceability.types import MANUAL_LINK_TYPES, LinkType
 
         schema = next(
             s
@@ -519,7 +523,8 @@ class TestArchitectureToolGroup:
         )
         link_type_prop = schema["inputSchema"]["properties"]["link_type"]
         assert "enum" in link_type_prop
-        assert set(link_type_prop["enum"]) == set(VALID_LINK_TYPES)
+        assert set(link_type_prop["enum"]) == set(MANUAL_LINK_TYPES)
+        assert LinkType.DIAGRAM_REF.value not in link_type_prop["enum"]
 
     def test_architecture_get_not_found(self):
         group, svc, _ = self._group()

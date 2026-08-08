@@ -74,6 +74,11 @@ const CanvasEditor = lazy(() =>
   import("../canvas/CanvasEditor").then((m) => ({ default: m.CanvasEditor }))
 );
 const MermaidEditor = lazy(() => import("../mermaid/MermaidEditor"));
+const DiagramGraphEditorPage = lazy(() =>
+  import("../DiagramGraphEditor/DiagramGraphEditorPage").then((m) => ({
+    default: m.DiagramGraphEditorPage,
+  }))
+);
 const MetricsDashboard = lazy(
   () => import("../MetricsDashboard/MetricsDashboard")
 );
@@ -142,6 +147,7 @@ function AppShell(): JSX.Element {
               <Route path="/diagrams/:id" element={<DiagramView />} />
               <Route path="/diagrams/:id/canvas" element={<CanvasEditorWrapper />} />
               <Route path="/diagrams/:id/mermaid" element={<MermaidEditorWrapper />} />
+              <Route path="/diagrams/:id/graph" element={<DiagramGraphEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/audit" element={<AuditDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
@@ -181,6 +187,15 @@ function MermaidEditorWrapper(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   if (!id) return <Navigate to="/diagrams" replace />;
   return <MermaidEditor diagramId={id} />;
+}
+
+function DiagramGraphEditorWrapper(): JSX.Element {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/diagrams" replace />;
+  // DiagramGraphEditorPage reads `:id` from the route itself (it is only
+  // ever mounted at this path) — the wrapper's job is just the missing-id
+  // guard, mirroring CanvasEditorWrapper/MermaidEditorWrapper above.
+  return <DiagramGraphEditorPage />;
 }
 
 // ---------------------------------------------------------------------------

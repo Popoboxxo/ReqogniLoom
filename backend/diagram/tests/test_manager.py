@@ -377,3 +377,208 @@ class TestTenantIsolation:
             # tenant_a cannot even see tenant_b's diagram
             with pytest.raises(Diagram.DoesNotExist):
                 manager.list_versions(diagram_b.id)
+
+
+# ---------------------------------------------------------------------------
+# GH-353 (Task 1): payload_format=node_graph — write-path integration
+# REQ-L2-DS-002, canonical serialization (diff-stability)
+# ---------------------------------------------------------------------------
+
+_NODE_GRAPH_CONTENT_A = (
+    '{"nodes": [{"artifact_ref": null, "id": "n-1", "label": "A", '
+    '"parent_id": null, "position": {"x": 0, "y": 0}, "type": "box"}], '
+    '"edges": [], "schema_version": 1, "viewport": {"x": 0, "y": 0, "zoom": 1}}'
+)
+
+# Semantically identical to _NODE_GRAPH_CONTENT_A, but with every object's
+# keys in a completely different order — canonicalization must make the two
+# persist as byte-identical text.
+_NODE_GRAPH_CONTENT_A_REORDERED = (
+    '{"viewport": {"zoom": 1, "y": 0, "x": 0}, "schema_version": 1, '
+    '"edges": [], "nodes": [{"type": "box", "position": {"y": 0, "x": 0}, '
+    '"parent_id": null, "label": "A", "id": "n-1", "artifact_ref": null}]}'
+)
+
+_NODE_GRAPH_CONTENT_DANGLING_EDGE = (
+    '{"schema_version": 1, "nodes": [{"id": "n-1", "type": "box", '
+    '"label": "A", "position": {"x": 0, "y": 0}}], '
+    '"edges": [{"id": "e-1", "source": "n-1", "target": "ghost", "type": "flow"}]}'
+)
+
+_NODE_GRAPH_CONTENT_BAD_NODE_TYPE = (
+    '{"schema_version": 1, "nodes": [{"id": "n-1", "type": "hexagon", '
+    '"label": "A", "position": {"x": 0, "y": 0}}], "edges": []}'
+)
+
+
+def _over_cap_node_graph_content() -> str:
+    import json as _json
+
+    nodes = [
+        {
+            "id": f"n-{i}",
+            "type": "box",
+            "label": "",
+            "position": {"x": i, "y": i},
+        }
+        for i in range(501)
+    ]
+    return _json.dumps({"schema_version": 1, "nodes": nodes, "edges": []})
+
+
+class TestNodeGraphWritePath:
+    """GH-353 Task 1: create/update round-trip for payload_format=node_graph."""
+
+    def test_create_valid_node_graph_succeeds(self, manager, tenant_a, workspace_a):
+        with active_tenant(tenant_a):
+            diagram = manager.create_diagram(
+                name="Node Graph Diagram",
+                diagram_type="block",
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A,
+                tenant=tenant_a,
+            )
+
+        assert diagram.current_version is not None
+        assert diagram.current_version.payload_format == "node_graph"
+
+    def test_create_rejects_dangling_edge_endpoint(self, manager, tenant_a, workspace_a):
+        with active_tenant(tenant_a):
+            with pytest.raises(DiagramValidationError, match="dangling"):
+                manager.create_diagram(
+                    name="Bad Graph",
+                    diagram_type="block",
+                    payload_format="node_graph",
+                    content=_NODE_GRAPH_CONTENT_DANGLING_EDGE,
+                    tenant=tenant_a,
+                )
+
+    def test_create_rejects_unknown_node_type(self, manager, tenant_a, workspace_a):
+        with active_tenant(tenant_a):
+            with pytest.raises(DiagramValidationError):
+                manager.create_diagram(
+                    name="Bad Graph",
+                    diagram_type="block",
+                    payload_format="node_graph",
+                    content=_NODE_GRAPH_CONTENT_BAD_NODE_TYPE,
+                    tenant=tenant_a,
+                )
+
+    def test_create_rejects_over_cap_payload(self, manager, tenant_a, workspace_a):
+        with active_tenant(tenant_a):
+            with pytest.raises(DiagramValidationError, match="500"):
+                manager.create_diagram(
+                    name="Bad Graph",
+                    diagram_type="block",
+                    payload_format="node_graph",
+                    content=_over_cap_node_graph_content(),
+                    tenant=tenant_a,
+                )
+
+    def test_create_canonicalizes_stored_payload(self, manager, tenant_a, workspace_a):
+        """Stored payload must be the canonical (sorted-key, indented) form,
+        not the raw as-submitted string — GH-353 Task 1 canonicalization.
+        """
+        import json as _json
+
+        with active_tenant(tenant_a):
+            diagram = manager.create_diagram(
+                name="Canonical Diagram",
+                diagram_type="block",
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A,
+                tenant=tenant_a,
+            )
+
+        expected = _json.dumps(
+            _json.loads(_NODE_GRAPH_CONTENT_A),
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        assert diagram.current_version.payload == expected
+        # Raw (non-canonical) input must NOT be what got persisted.
+        assert diagram.current_version.payload != _NODE_GRAPH_CONTENT_A
+
+    def test_two_reordered_but_identical_saves_are_byte_identical(
+        self, manager, tenant_a, workspace_a
+    ):
+        """Canonical-serialization acceptance test (Task 1 brief):
+        two semantically-identical, differently-key-ordered payloads produce
+        byte-identical stored ``payload`` across create + update.
+        """
+        with active_tenant(tenant_a):
+            diagram = manager.create_diagram(
+                name="Reorder Diagram",
+                diagram_type="block",
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A,
+                tenant=tenant_a,
+            )
+            v2 = manager.update_diagram(
+                diagram_id=diagram.id,
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A_REORDERED,
+            )
+
+        v1 = DiagramVersion.unscoped.get(diagram_id=diagram.id, version_number=1)
+        assert v1.payload == v2.payload
+
+    def test_update_rejects_invalid_node_graph(self, manager, tenant_a, workspace_a):
+        with active_tenant(tenant_a):
+            diagram = manager.create_diagram(
+                name="Node Graph Diagram",
+                diagram_type="block",
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A,
+                tenant=tenant_a,
+            )
+            with pytest.raises(DiagramValidationError):
+                manager.update_diagram(
+                    diagram_id=diagram.id,
+                    payload_format="node_graph",
+                    content=_NODE_GRAPH_CONTENT_DANGLING_EDGE,
+                )
+
+    def test_consecutive_identical_saves_produce_empty_diff(
+        self, manager, tenant_a, workspace_a
+    ):
+        """Done-when criterion: two consecutive identical-content saves
+        produce an empty diff via ArtifactDiffService (the same engine
+        backing GET /diagrams/<id>/diff/).
+        """
+        from auth_tenancy.context import AuthContext, AuthMethod
+        from application.artifact_diff_service import ArtifactDiffService
+
+        with active_tenant(tenant_a):
+            diagram = manager.create_diagram(
+                name="Diff Stability Diagram",
+                diagram_type="block",
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A,
+                tenant=tenant_a,
+            )
+            manager.update_diagram(
+                diagram_id=diagram.id,
+                payload_format="node_graph",
+                content=_NODE_GRAPH_CONTENT_A_REORDERED,
+            )
+
+            ctx = AuthContext(
+                user_id=uuid.uuid4(),
+                tenant_id=tenant_a.id,
+                active_roles=("admin",),
+                auth_method=AuthMethod.BEARER_TOKEN,
+            )
+            result = ArtifactDiffService().diff_for_diagram(
+                diagram_id=diagram.id,
+                from_version=1,
+                to_version=2,
+                ctx=ctx,
+            )
+
+        # "Empty diff" = every compared field reports status='unchanged'
+        # (ArtifactDiffService always emits one entry per tracked field,
+        # even when nothing changed — an empty *list* is not the contract).
+        assert result["fields"], "expected at least one compared field"
+        assert all(f["status"] == "unchanged" for f in result["fields"])

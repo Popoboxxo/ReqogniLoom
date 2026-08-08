@@ -164,6 +164,79 @@ class TestServiceFacadeDelete:
             with pytest.raises(Diagram.DoesNotExist):
                 delete_diagram(diagram.id, tenant_b.id, ctx=ctx)
 
+    def test_delete_diagram_removes_diagram_ref_tracelinks(
+        self, tenant_a, workspace_a
+    ):
+        """I5 (Codeberg #353 final review): soft-deleting a diagram must not
+        leave its DIAGRAM_REF TraceLinks dangling forever — nothing else
+        prunes them, since the reconciler otherwise only runs on
+        create/update. Deleting must reconcile against an empty node_graph
+        so every existing DIAGRAM_REF link is removed."""
+        import json
+
+        from diagram.models import Diagram
+        from persistence.models import Requirement, TraceLink
+        from traceability.types import LinkType
+        from diagram.tests.conftest import make_artifact
+        from workflow.services import create_default_workflow
+
+        with active_tenant(tenant_a):
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="diagram_default",
+                item_type="Diagram",
+                tenant_id=tenant_a.id,
+            )
+            req_artifact = make_artifact(tenant_a, workspace_a, artifact_type="Requirement")
+            req = Requirement.objects.create(
+                tenant=tenant_a, artifact=req_artifact, title="Referenced Req"
+            )
+
+            content = json.dumps({
+                "schema_version": 1,
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "type": "box",
+                        "label": "n1",
+                        "position": {"x": 0, "y": 0},
+                        "artifact_ref": {
+                            "entity_type": "Requirement",
+                            "id": str(req.id),
+                        },
+                    }
+                ],
+                "edges": [],
+            })
+            diagram = create_diagram(
+                name="Delete-With-Refs Target",
+                diagram_type="block",
+                payload_format="node_graph",
+                content=content,
+                tenant=tenant_a,
+                workspace_id=workspace_a.id,
+            )
+            diagram.refresh_from_db()
+            assert diagram.artifact_id is not None
+
+            assert TraceLink.objects.filter(
+                source_id=diagram.artifact_id,
+                target_id=req.artifact_id,
+                link_type=LinkType.DIAGRAM_REF,
+            ).exists()
+
+            ctx = _make_auth_ctx(tenant_id=tenant_a.id)
+            delete_diagram(diagram.id, tenant_a.id, ctx=ctx)
+
+            assert not TraceLink.objects.filter(
+                source_id=diagram.artifact_id,
+                target_id=req.artifact_id,
+                link_type=LinkType.DIAGRAM_REF,
+            ).exists()
+            # Regression guard: the diagram is still only soft-deleted, not
+            # hard-deleted, by this reconciliation call.
+            assert Diagram.unscoped.filter(id=diagram.id).exists()
+
     def test_get_diagram_after_delete_raises_does_not_exist(
         self, tenant_a, workspace_a
     ):

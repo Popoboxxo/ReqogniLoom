@@ -319,7 +319,6 @@ export function ImpactView(): JSX.Element {
     } catch {
       // Malformed/absent preset — fall back to the normal search flow.
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const runSearch = async (): Promise<void> => {

@@ -38,6 +38,8 @@ from diagram.manager import DiagramManager, DiagramResult, DiagramValidationErro
 from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  # noqa: F401
 from diagram.models import Diagram, DiagramVersion  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
+from diagram.traceability_connector import sync_node_links
+from persistence.transactions import atomic_transaction
 
 if TYPE_CHECKING:
     from auth_tenancy.context import AuthContext
@@ -192,6 +194,7 @@ def get_diagram_header(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> Diagram:
     return Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
 
 
+@atomic_transaction
 def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContext") -> None:
     """Soft-delete a tenant-scoped Diagram via the workflow engine's outdate()
     (REQ-066, REQ-006/Phase 0).
@@ -202,6 +205,17 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContex
     "outdated" in ``WorkflowItemState`` (Diagram is not registered in
     ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so no denormalized
     field on Diagram itself is written).
+
+    I5 (Codeberg #353 final review): a soft-deleted diagram must not leave
+    its ``DIAGRAM_REF`` TraceLinks dangling forever — nothing else prunes
+    them, since the reconciler (``diagram.traceability_connector.
+    sync_node_links``) otherwise only runs on create/update. After the
+    ``outdate()`` transition, the reconciler is called with an empty
+    node_graph so every existing ``DIAGRAM_REF`` link for this diagram's
+    shadow Artifact is deleted (the reconciler's own guard makes this a
+    no-op when the diagram never had a shadow Artifact / never carried any
+    refs — see ``sync_node_links`` docstring). ``@atomic_transaction`` wraps
+    the whole function so both steps commit or roll back together.
 
     Args:
         diagram_id: UUID of the Diagram to delete.
@@ -225,6 +239,7 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContex
         ctx=ctx,
         reason="deleted via diagram delete",
     )
+    sync_node_links(diagram, {"nodes": [], "edges": []}, created_by_id=ctx.user_id)
 
 
 def list_diagrams(

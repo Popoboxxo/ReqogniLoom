@@ -20,7 +20,7 @@ import pytest
 from persistence.models import Artifact
 from traceability.audit import AuditScope, RuleEngine
 from traceability.audit.registry import TRACE_P7
-from traceability.tests.conftest import active_tenant, make_trace_link
+from traceability.tests.conftest import active_tenant, make_artifact, make_trace_link
 
 pytestmark = pytest.mark.django_db
 
@@ -118,6 +118,35 @@ class TestTraceP7:
             )
 
         assert result.findings == []
+
+    def test_diagram_shadow_artifact_link_does_not_falsely_leak_at_project_scope(
+        self, tenant_a, workspace_a
+    ):
+        """Regression (Codeberg #353 follow-up fix).
+
+        M3 excluded a Diagram's shadow Artifact (artifact_type='Diagram') from
+        baseline.services.resolve_scope_item_ids's project/global scope so it
+        would not appear as a spurious item in a baseline snapshot/preview.
+        That exclusion is also used by AuditContext.scope_item_ids, which
+        made every documents/diagram-ref TraceLink between a Diagram shadow
+        Artifact and a real artifact look like a one-endpoint-in-scope leak
+        (both endpoints are inside project scope conceptually — only the
+        Diagram shadow Artifact was excluded from the *snapshot preview*, not
+        from the domain). TRACE-P7 must NOT flag such a link as a BLOCKER.
+        """
+        with active_tenant(tenant_a):
+            requirement = make_artifact(tenant_a, workspace_a, artifact_type="requirement")
+            diagram_shadow = make_artifact(tenant_a, workspace_a, artifact_type="Diagram")
+            make_trace_link(diagram_shadow, requirement, tenant_a, "documents")
+
+            result = RuleEngine().run(
+                tier="extended",
+                workspace_id=str(workspace_a.id),
+                tenant_id=str(tenant_a.id),
+                scopes=[AuditScope("project")],
+            )
+
+        assert _p7_findings(result) == []
 
     def test_standard_preset_does_not_run_p7(self, tenant_a, workspace_a):
         """TRACE-P7 is Extended-only; Standard must not emit it."""

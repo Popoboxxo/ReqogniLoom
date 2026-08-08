@@ -569,6 +569,314 @@ class TestSVGAttributeInjection:
 
 
 # ---------------------------------------------------------------------------
+# Task-2 bugfix: SVG preview built from canvas_json (full fidelity), not the
+# lossy `strokes` array.
+#
+# Root cause: frontend's extractStrokeData maps every Fabric object to
+# {type: "pen", ...} and only populates `points` for genuine freehand
+# fabric.Path objects — rects/ellipses/textboxes/connectors all became
+# {type: "pen", points: []} placeholders in `strokes`, which rendered as an
+# empty <path d=""/>. `canvas_json` (Fabric's own toJSON(["data"]) output)
+# tags every shape/text/connector with a `data.type` discriminator and is
+# now the primary source for the preview SVG (see _generate_svg / the
+# CanvasEditor.get_canvas() docstring).
+# ---------------------------------------------------------------------------
+
+# A close approximation of real Fabric.js toJSON(["data"]) output: a rect and
+# a textbox connected by a line, plus the triangle arrowhead Fabric adds as
+# its own object (createConnector in CanvasEditor.tsx) — which must NOT be
+# rendered a second time on top of the connector's own SVG <marker> arrowhead.
+FULL_FIDELITY_CANVAS_JSON = {
+    "version": "5.3.0",
+    "objects": [
+        {
+            "type": "rect",
+            "left": 50,
+            "top": 60,
+            "width": 120,
+            "height": 80,
+            "fill": "#eeeeee",
+            "stroke": "#333333",
+            "strokeWidth": 2,
+            "scaleX": 1,
+            "scaleY": 1,
+            "opacity": 1,
+            "data": {"id": "shape-1", "type": "rect"},
+        },
+        {
+            "type": "textbox",
+            "left": 300,
+            "top": 60,
+            "width": 160,
+            "height": 20,
+            "text": "Hello Shapes",
+            "fontSize": 14,
+            "fill": "#111111",
+            "scaleX": 1,
+            "scaleY": 1,
+            "opacity": 1,
+            "data": {"id": "text-1", "type": "text"},
+        },
+        {
+            "type": "line",
+            "x1": 170,
+            "y1": 100,
+            "x2": 300,
+            "y2": 70,
+            "stroke": "#4f6ef7",
+            "strokeWidth": 2,
+            "opacity": 1,
+            "data": {
+                "type": "connector",
+                "id": "conn-1",
+                "fromId": "shape-1",
+                "toId": "text-1",
+            },
+        },
+        {
+            "type": "triangle",
+            "left": 300,
+            "top": 70,
+            "width": 11,
+            "height": 13,
+            "fill": "#4f6ef7",
+            "angle": 45,
+            "data": {"type": "arrowHead", "connectorId": "conn-1"},
+        },
+    ],
+    "background": "",
+}
+
+
+class TestGenerateSvgFromCanvasJson:
+    """`_generate_svg(stroke_data, canvas_json=...)` full-fidelity path."""
+
+    def test_rect_textbox_connector_all_render(self) -> None:
+        svg = _generate_svg(
+            {"strokes": [], "width": 800, "height": 600},
+            canvas_json=FULL_FIDELITY_CANVAS_JSON,
+        )
+        root = ET.fromstring(svg)
+        tags = {node.tag.rsplit("}", 1)[-1] for node in root.iter()}
+        assert "rect" in tags
+        assert "text" in tags
+        assert "line" in tags
+        assert "Hello Shapes" in svg
+        # Not the historical bug: an empty stub with no drawable geometry.
+        assert "<rect" in svg
+        assert 'width="0"' not in svg
+
+    def test_arrowhead_object_not_rendered_twice(self) -> None:
+        """The triangle arrowHead object is redundant with the connector's
+        own SVG <marker> arrowhead (marker-end) and must be skipped, not
+        drawn as a second, unlabelled shape."""
+        svg = _generate_svg({"strokes": []}, canvas_json=FULL_FIDELITY_CANVAS_JSON)
+        root = ET.fromstring(svg)
+        lines = [n for n in root.iter() if n.tag.rsplit("}", 1)[-1] == "line"]
+        polygons_outside_defs = [
+            n
+            for n in root.iter()
+            if n.tag.rsplit("}", 1)[-1] == "polygon"
+        ]
+        assert len(lines) == 1
+        # Only the <marker><polygon> in <defs> — no second arrowhead shape.
+        assert len(polygons_outside_defs) == 1
+        assert "marker-end" in svg
+
+    def test_canvas_json_none_falls_back_to_strokes(self) -> None:
+        """Pre-existing rows with canvas_json=None keep rendering from the
+        legacy `strokes` array unchanged."""
+        svg = _generate_svg(VALID_CANVAS_STROKES, canvas_json=None)
+        assert "<rect" in svg
+        assert "Hello Canvas" in svg
+
+    def test_ellipse_renders(self) -> None:
+        canvas_json = {
+            "objects": [
+                {
+                    "type": "ellipse",
+                    "left": 10,
+                    "top": 10,
+                    "rx": 40,
+                    "ry": 20,
+                    "fill": "#ffffff",
+                    "stroke": "#000000",
+                    "data": {"id": "e1", "type": "ellipse"},
+                }
+            ]
+        }
+        svg = _generate_svg({"strokes": []}, canvas_json=canvas_json)
+        assert "<ellipse" in svg
+
+    def test_unrecognized_object_gets_explicit_fallback_not_silent(self) -> None:
+        """Done-when criterion: never a silently empty shape."""
+        canvas_json = {
+            "objects": [
+                {
+                    "type": "group",
+                    "left": 5,
+                    "top": 5,
+                    "data": {"id": "g1", "type": "future-fabric-object-kind"},
+                }
+            ]
+        }
+        svg = _generate_svg({"strokes": []}, canvas_json=canvas_json)
+        assert "preview unavailable" in svg
+
+    def test_freehand_pen_still_renders_alongside_shapes(self) -> None:
+        """Genuine freehand strokes (the one case `strokes` was never lossy
+        for) keep rendering when canvas_json also carries shapes."""
+        stroke_data = {
+            "strokes": [
+                {
+                    "id": "pen-1",
+                    "type": "pen",
+                    "points": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+                    "color": "#000000",
+                },
+                # Lossy placeholder for the rect below — must not duplicate it.
+                {"id": "shape-1", "type": "pen", "points": []},
+            ],
+            "width": 800,
+            "height": 600,
+        }
+        svg = _generate_svg(stroke_data, canvas_json=FULL_FIDELITY_CANVAS_JSON)
+        assert "<path" in svg
+        assert "<rect" in svg
+
+    def test_connector_preview_object_skipped(self) -> None:
+        """Transient drag-to-connect preview lines must never be persisted,
+        but skip them defensively if one ever is."""
+        canvas_json = {
+            "objects": [
+                {
+                    "type": "line",
+                    "x1": 0,
+                    "y1": 0,
+                    "x2": 10,
+                    "y2": 10,
+                    "data": {"type": "connectorPreview"},
+                }
+            ]
+        }
+        svg = _generate_svg({"strokes": []}, canvas_json=canvas_json)
+        root = ET.fromstring(svg)
+        lines = [n for n in root.iter() if n.tag.rsplit("}", 1)[-1] == "line"]
+        assert len(lines) == 0
+
+
+class TestGetCanvasUsesCanvasJson:
+    """CanvasEditor.get_canvas() end-to-end: full fidelity via canvas_json."""
+
+    def test_get_canvas_renders_shapes_from_canvas_json(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        stroke_data = {
+            "strokes": [],
+            "width": 800,
+            "height": 600,
+            "canvas_json": FULL_FIDELITY_CANVAS_JSON,
+        }
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=stroke_data,
+                tenant=tenant_a,
+            )
+            result = canvas_editor.get_canvas(diagram.id)
+
+        assert "<rect" in result.svg
+        assert "Hello Shapes" in result.svg
+        assert "<line" in result.svg
+
+    def test_get_canvas_legacy_row_without_canvas_json_uses_strokes(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """Pre-existing rows (canvas_json=None) keep the legacy rendering."""
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=VALID_CANVAS_STROKES,
+                tenant=tenant_a,
+            )
+            result = canvas_editor.get_canvas(diagram.id)
+
+        assert result.canvas_json is None
+        assert "<rect" in result.svg
+        assert "Hello Canvas" in result.svg
+
+
+# ---------------------------------------------------------------------------
+# Security: canvas_json code path — same XSS regression guard as PR #351
+# (TestSVGAttributeInjection above), now exercised against the new source.
+# Every value in _canvas_json_object_to_element flows through the same
+# _num_attr/_escape_xml_attr primitives via _element_to_svg — this asserts
+# that guarantee holds for canvas_json-originated elements too.
+# ---------------------------------------------------------------------------
+
+_CANVAS_JSON_NUMERIC_CASES: list[dict] = [
+    {"type": "rect", "left": XSS_ATTR_PAYLOAD, "top": 0, "width": XSS_ATTR_PAYLOAD,
+     "height": 10, "data": {"type": "rect"}},
+    {"type": "rect", "left": 0, "top": 0, "width": 10, "height": 10,
+     "scaleX": XSS_ATTR_PAYLOAD, "scaleY": XSS_ATTR_PAYLOAD, "data": {"type": "rect"}},
+    {"type": "ellipse", "left": XSS_ATTR_PAYLOAD, "top": XSS_ATTR_PAYLOAD,
+     "rx": XSS_ATTR_PAYLOAD, "ry": XSS_ATTR_PAYLOAD, "data": {"type": "ellipse"}},
+    {"type": "textbox", "left": XSS_ATTR_PAYLOAD, "top": XSS_ATTR_PAYLOAD,
+     "fontSize": XSS_ATTR_PAYLOAD, "text": "hi", "data": {"type": "text"}},
+    {"type": "line", "x1": XSS_ATTR_PAYLOAD, "y1": XSS_ATTR_PAYLOAD,
+     "x2": XSS_ATTR_PAYLOAD, "y2": XSS_ATTR_PAYLOAD,
+     "strokeWidth": XSS_ATTR_PAYLOAD, "data": {"type": "connector"}},
+    {"type": "rect", "left": 0, "top": 0, "width": 1, "height": 1,
+     "opacity": XSS_ATTR_PAYLOAD, "data": {"type": "rect"}},
+    # Non-string, non-numeric JSON types must not crash or leak either.
+    {"type": "rect", "left": None, "top": [1, 2], "width": {"a": 1},
+     "height": True, "data": {"type": "rect"}},
+]
+
+
+class TestCanvasJsonAttributeInjection:
+    @pytest.mark.parametrize("obj", _CANVAS_JSON_NUMERIC_CASES)
+    def test_numeric_fields_reject_attribute_injection(self, obj: dict) -> None:
+        svg = _generate_svg(
+            {"strokes": [], "width": 800, "height": 600},
+            canvas_json={"objects": [obj]},
+        )
+        _assert_no_attribute_breakout(svg)
+        assert "onload" not in svg.lower()
+
+    def test_text_content_stays_escaped(self) -> None:
+        obj = {
+            "type": "textbox",
+            "left": 1,
+            "top": 2,
+            "text": "</text><script>alert(1)</script>",
+            "fill": XSS_ATTR_PAYLOAD,
+            "data": {"type": "text"},
+        }
+        svg = _generate_svg({"strokes": []}, canvas_json={"objects": [obj]})
+        _assert_no_attribute_breakout(svg)
+
+    def test_malformed_canvas_json_objects_are_ignored(self) -> None:
+        svg = _generate_svg(
+            {"strokes": []}, canvas_json={"objects": ["not-a-dict", None, 42]}
+        )
+        _assert_no_attribute_breakout(svg)
+
+    def test_fallback_placeholder_stays_escaped(self) -> None:
+        """Even the "preview unavailable" fallback attributes (built from
+        attacker-controlled left/top) must go through the same coercion."""
+        obj = {
+            "type": "mystery",
+            "left": XSS_ATTR_PAYLOAD,
+            "top": XSS_ATTR_PAYLOAD,
+            "data": {"type": "mystery"},
+        }
+        svg = _generate_svg({"strokes": []}, canvas_json={"objects": [obj]})
+        _assert_no_attribute_breakout(svg)
+        assert "preview unavailable" in svg
+
+
+# ---------------------------------------------------------------------------
 # IF-DS-INT-006: TraceLink creation
 # ---------------------------------------------------------------------------
 

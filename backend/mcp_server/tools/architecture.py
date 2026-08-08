@@ -24,7 +24,8 @@ Architecture:
 
 ADR-L3-MC004-01: TraceLink via separate create_trace_link call.
 ADR-L3-MC004-02: Dedicated handler method per tool.
-ADR-L3-MC004-03: link_type validated against VALID_LINK_TYPES before service call.
+ADR-L3-MC004-03: link_type validated against MANUAL_LINK_TYPES before service call
+                  (excludes the reconciler-owned 'diagram-ref' type, I1).
 """
 from __future__ import annotations
 
@@ -41,7 +42,7 @@ from application.services import (
     PermissionDeniedError,
     TraceLinkService,
     ValidationError,
-    VALID_LINK_TYPES,
+    MANUAL_LINK_TYPES,
 )
 
 from mcp_server.protocol_handler import ToolResult
@@ -178,7 +179,10 @@ class ArchitectureToolGroup(BaseToolGroup):
                     "target_id": {"type": "string", "description": "UUID of the link target."},
                     "link_type": {
                         "type": "string",
-                        "enum": sorted(VALID_LINK_TYPES),
+                        # I1 (Codeberg #353 final review): 'diagram-ref' is
+                        # reconciler-owned and excluded here — it can never be
+                        # created via this manual tool (see MANUAL_LINK_TYPES).
+                        "enum": sorted(MANUAL_LINK_TYPES),
                         "description": (
                             "TraceLink type. Must be one of the enum values "
                             "(#33: previously undocumented in this schema)."
@@ -435,17 +439,21 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         ADR-L3-MC004-01: TraceLink is created via TraceLinkService, not as
         an update to ArchitectureElement itself.
-        ADR-L3-MC004-03: link_type validated against VALID_LINK_TYPES.
+        ADR-L3-MC004-03: link_type validated against MANUAL_LINK_TYPES.
         """
         arch_id = require_uuid(params, "arch_id")
         target_id = require_uuid(params, "target_id")
         link_type = require_param(params, "link_type")
 
-        # Validate link_type (ADR-L3-MC004-03)
-        if link_type not in VALID_LINK_TYPES:
+        # Validate link_type (ADR-L3-MC004-03). MANUAL_LINK_TYPES excludes
+        # 'diagram-ref' (I1, Codeberg #353 final review): that link type is
+        # reconciler-owned and rejected again downstream in
+        # TraceLinkService.create_trace_link, but checking it here too gives
+        # a clearer, immediate error instead of a round-trip.
+        if link_type not in MANUAL_LINK_TYPES:
             return ToolResult.error(
                 "VALIDATION_ERROR",
-                f"Invalid link_type '{link_type}'. Valid types: {sorted(VALID_LINK_TYPES)}",
+                f"Invalid link_type '{link_type}'. Valid types: {sorted(MANUAL_LINK_TYPES)}",
             )
 
         try:

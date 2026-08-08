@@ -26,6 +26,8 @@ from typing import Any, Dict, Optional
 from auth_tenancy.context import AuthContext
 
 from diagram.models import Diagram
+from diagram.node_graph_renderer import NodeGraphRenderError
+from diagram.renderer import DiagramRenderer
 from diagram.services import (
     DiagramResult,
     DiagramValidationError,
@@ -50,6 +52,10 @@ from mcp_server.tools.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# GH-353 (Task 6): module-level singleton, mirrors diagram/services.py's
+# pattern of stateless, lazily-shared renderer/manager instances.
+_diagram_renderer = DiagramRenderer()
 
 
 def _assert_write_permission(auth_context: AuthContext) -> None:
@@ -121,7 +127,8 @@ class DiagramToolGroup(BaseToolGroup):
                     },
                     "payload_format": {
                         "type": "string",
-                        "description": "One of 'mermaid' | 'plantuml' | 'json' | 'canvas_stroke'.",
+                        "enum": ["mermaid", "plantuml", "json", "canvas_stroke", "node_graph"],
+                        "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'.",
                     },
                     "content": {"type": "string", "description": "Raw diagram payload string."},
                     "description": {"type": "string", "description": "Optional free-text description."},
@@ -144,6 +151,17 @@ class DiagramToolGroup(BaseToolGroup):
                         "type": "integer",
                         "description": "Optional specific version. Defaults to current.",
                     },
+                    "export_format": {
+                        "type": "string",
+                        "enum": ["svg"],
+                        "description": (
+                            "Optional export format. Omit for the default behaviour "
+                            "(returns the canonical JSON payload). 'svg' renders the "
+                            "diagram to an SVG string — currently only supported for "
+                            "'node_graph' diagrams; requesting it for any other "
+                            "payload_format returns a VALIDATION_ERROR."
+                        ),
+                    },
                 },
                 "required": ["id"],
             },
@@ -155,7 +173,11 @@ class DiagramToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the diagram."},
-                    "payload_format": {"type": "string", "description": "New payload format."},
+                    "payload_format": {
+                        "type": "string",
+                        "enum": ["mermaid", "plantuml", "json", "canvas_stroke", "node_graph"],
+                        "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'.",
+                    },
                     "content": {"type": "string", "description": "New raw payload string."},
                     "target_id": {
                         "type": "string",
@@ -282,9 +304,17 @@ class DiagramToolGroup(BaseToolGroup):
     def _handle_get(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """diagram.get — fetch a diagram (current or a specific version)."""
+        """diagram.get — fetch a diagram (current or a specific version).
+
+        GH-353 (Task 6): optional ``export_format="svg"`` renders the
+        diagram to SVG instead of returning the canonical JSON payload —
+        only implemented for ``node_graph`` diagrams (see
+        ``diagram.renderer.DiagramRenderer.export_svg``); any other
+        ``payload_format`` returns ``VALIDATION_ERROR``, not a 500.
+        """
         diagram_id = require_uuid(params, "id")
         version_number = params.get("version_number")
+        export_format = params.get("export_format")
 
         try:
             result: DiagramResult = get_diagram(
@@ -295,6 +325,40 @@ class DiagramToolGroup(BaseToolGroup):
 
         diagram = result.diagram
         version = result.version
+
+        if export_format is not None:
+            if export_format != "svg":
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Unsupported export_format {export_format!r}; only 'svg' is supported.",
+                )
+            if version is None or result.renderable is None:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Diagram {diagram_id} has no version to export.",
+                )
+            try:
+                svg = _diagram_renderer.export_svg(result.renderable)
+            except NotImplementedError:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"export_format='svg' is not supported for payload_format "
+                    f"{version.payload_format!r}; only 'node_graph' diagrams can "
+                    "be exported to SVG.",
+                )
+            except NodeGraphRenderError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+            return ToolResult.ok(
+                {
+                    "diagram": {
+                        "id": str(diagram_id),
+                        "export_format": "svg",
+                        "svg": svg,
+                    }
+                }
+            )
+
         payload = _diagram_header_to_dict(diagram)
         payload.update(
             {

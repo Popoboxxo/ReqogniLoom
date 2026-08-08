@@ -282,6 +282,11 @@ class TestUpdateTestCase:
                     )
                 ),
             ),
+            # #269 finding 5 / REQ-L3-PL001-002 added an atomic version bump
+            # via TestCase.objects.filter(...).update(...) — a second, real
+            # query path that select_related() above does not cover. Mirrors
+            # the equivalent patch in test_requirement_service.py.
+            patch("application.test_service.TestCase.objects.filter"),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
