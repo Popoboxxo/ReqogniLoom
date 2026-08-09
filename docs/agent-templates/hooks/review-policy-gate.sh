@@ -11,7 +11,7 @@ decision="allow"
 
 if [[ -n "$role" ]]; then
   case "$role" in
-    requirements-architect)
+    requirements-architecture-manager)
       case "$tool_name" in
         needs.create|needs.update|requirement.create|requirement.update|requirement.decompose)
           decision="ask" ;;

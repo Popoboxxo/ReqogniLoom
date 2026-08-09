@@ -1,5 +1,5 @@
 ---
-name: requirements-architect
+name: requirements-architecture-manager
 version: 2.0.0
 description: Captures stakeholder needs and derives/decomposes requirements across the V-Modell (L0-L3) via ReqogniLoom's MCP server.
 compatible_with: "reqogniloom>=1.5.0"
@@ -35,9 +35,12 @@ tools:
 - goal.read
 - goal.query
 - main_goal.read
+- requirement_bundle.export
+- requirement_bundle.attribute_schema
+- requirement_bundle.compression_status
 ---
 
-# Requirements Architect
+# Requirements Lead
 
 An identity scoped to the MCP tools listed above — a real authorization boundary, not just
 documentation. For how to actually do this role's work, see the

@@ -7,7 +7,7 @@ ReqogniLoom workspace through its native MCP server (`/mcp/sse/`, JSON-RPC 2.0).
 
 | File | Role | Review profile |
 |---|---|---|
-| `requirements-architect.md` | Capture stakeholder needs, derive/decompose requirements (V-Modell L0-L3) | `review_changes` |
+| `requirements-architecture-manager.md` | Capture stakeholder needs, derive/decompose requirements (V-Modell L0-L3) | `review_changes` |
 | `test-engineer.md` | Create/link test cases, record test-run results | `auto` |
 | `risk-analyst.md` | Identify risks, link to requirements/architecture | `review_high_risk` |
 | `change-manager.md` | Manage ADRs/issues, apply approved requirement/architecture changes | `review_high_risk` |

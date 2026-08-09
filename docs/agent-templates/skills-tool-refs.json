@@ -10,7 +10,9 @@
     "traceability.query", "traceability.suggest_links",
     "glossary.read", "artifact.search", "artifact.get_tree",
     "prompt_template.list", "prompt_template.get",
-    "needs.read", "needs.get_traces", "requirement.get", "requirement.query", "requirement.update"
+    "needs.read", "needs.get_traces", "requirement.get", "requirement.query", "requirement.update",
+    "requirement_bundle.export", "requirement_bundle.attribute_schema",
+    "requirement_bundle.compression_status"
   ],
   "test-lifecycle": [
     "workspace.get_context", "custom_field.get", "custom_field.query",

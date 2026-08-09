@@ -31,7 +31,7 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     assert "reqlo_" not in json.dumps(mcp_json)  # no real key leaked into template
 
     architect_md = (
-        tmp_path / "reqogniloom" / "agents" / "requirements-architect.md"
+        tmp_path / "reqogniloom" / "agents" / "requirements-architecture-manager.md"
     ).read_text()
     assert "mcp__reqogniloom__requirement.create" in architect_md
     assert "mcp__reqogniloom__goal.read" in architect_md  # Task 3 addition survives packaging
