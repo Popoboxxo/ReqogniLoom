@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0-beta.1] — 2026-08-09
+
+### Security
+- Fixed 3 security findings in BundleCompressionService: token budget bypass vulnerability, cross-tenant data leak in caching layer, cache poisoning on LLM provider switching (#436)
+
+### Added
+- BundleCompressionService: compressed and asynchronous artifact export via REST API and MCP (#436)
+- Async requirement bundle export pipeline with token-aware compression (#436)
+
 ## [1.5.0] — 2026-08-05
 
 > Note: a `v1.4.0` git tag exists in this repo's history (on commit `faafc354`,
