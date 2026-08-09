@@ -11,7 +11,7 @@ TEMPLATES_DIR = Path(__file__).resolve().parent
 MANIFEST_PATH = TEMPLATES_DIR / "tool-manifest.json"
 
 EXPECTED_TOOLS_BY_ROLE = {
-    "requirements-lead": {
+    "requirements-architecture-manager": {
         "needs.read", "needs.create", "needs.update", "needs.get_traces",
         "needs.derive_requirements", "requirement.get", "requirement.query",
         "requirement.create", "requirement.update", "requirement.decompose",
@@ -65,7 +65,7 @@ EXPECTED_TOOLS_BY_ROLE = {
 }
 
 ROLE_TO_SKILL = {
-    "requirements-lead": "vmodell-decomposition",
+    "requirements-architecture-manager": "vmodell-decomposition",
     "test-engineer": "test-lifecycle",
     "risk-analyst": "risk-derivation",
     "change-manager": "ccb-approval-and-baseline",

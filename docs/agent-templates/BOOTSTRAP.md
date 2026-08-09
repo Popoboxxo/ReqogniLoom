@@ -13,7 +13,7 @@ This project talks to a ReqogniLoom workspace via its native MCP server:
 Five agent roles are available under `docs/agent-templates/` (or wherever you copied them to in
 this project):
 
-- **requirements-lead** — capture stakeholder needs, derive and decompose requirements
+- **requirements-architecture-manager** — capture stakeholder needs, derive and decompose requirements
   (V-Modell L0-L3).
 - **test-engineer** — create/link test cases, record test-run results.
 - **risk-analyst** — identify risks, link them to requirements/architecture.

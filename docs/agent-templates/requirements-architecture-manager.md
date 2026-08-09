@@ -1,5 +1,5 @@
 ---
-name: requirements-lead
+name: requirements-architecture-manager
 version: 2.0.0
 description: Captures stakeholder needs and derives/decomposes requirements across the V-Modell (L0-L3) via ReqogniLoom's MCP server.
 compatible_with: "reqogniloom>=1.5.0"

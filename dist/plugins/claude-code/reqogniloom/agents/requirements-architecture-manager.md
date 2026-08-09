@@ -1,5 +1,5 @@
 ---
-name: requirements-lead
+name: requirements-architecture-manager
 description: Captures stakeholder needs and derives/decomposes requirements across
   the V-Modell (L0-L3) via ReqogniLoom's MCP server.
 tools:
