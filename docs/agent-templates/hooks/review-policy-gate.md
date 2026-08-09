@@ -31,7 +31,7 @@ Add to the downstream project's Claude Code settings (e.g. `.claude/settings.jso
 
 ```json
 {
-  "env": { "REQFLOW_AGENT_ROLE": "requirements-architect" },
+  "env": { "REQFLOW_AGENT_ROLE": "requirements-lead" },
   "hooks": {
     "PreToolUse": [
       { "matcher": "*", "hooks": [{ "type": "command", "command": "bash docs/agent-templates/hooks/review-policy-gate.sh" }] }

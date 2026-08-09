@@ -21,7 +21,7 @@
    ```
 4. Verify: `/plugin` inside Claude Code should list `reqogniloom` as
    installed with 5 agents and 1 MCP server (`reqogniloom`, SSE).
-5. Invoke a role: `@requirements-architect` and ask it to call
+5. Invoke a role: `@requirements-lead` and ask it to call
    `workspace.get_context` — a successful response confirms the MCP
    connection, auth, and RBAC all resolved correctly end to end. Then try
    `@change-manager` and ask it to call `review.list_pending` — this

@@ -25,7 +25,7 @@ SKILLS_SRC = REPO_ROOT / "dist" / "agent-skills"
 SERVER_NAME = "reqogniloom"
 
 ROLE_FILES = [
-    "requirements-architect.md",
+    "requirements-lead.md",
     "test-engineer.md",
     "risk-analyst.md",
     "change-manager.md",

@@ -45,3 +45,9 @@ presets referenced below.
 8. `prompt_template.list` shows which named templates exist; `prompt_template.get` inspects one —
    useful when a derivation result looks off and you want to understand why (never edit a
    template from here; that's an administrative action, out of scope for this skill).
+9. To hand off a completed decomposition, `requirement_bundle.export` gathers every requirement
+   `ALLOCATED_TO` an architecture element into one JSON/Markdown/CSV bundle; check
+   `requirement_bundle.attribute_schema` first to see which attribute names are valid for that
+   bundle's `fields` filter. Large exports (or an explicit `async` request) run in the background —
+   poll `requirement_bundle.compression_status` with the returned `task_id` until it reports
+   `done`.
