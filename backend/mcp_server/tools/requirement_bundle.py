@@ -25,10 +25,21 @@ Interface contracts implemented:
     (RequirementBundleQueryService, AttributeVisibilityConfigService,
     BundleCompressionService)
 
-All three tools are read-only (no persistence, no audit entry) — mirrors
-architecture.get/query, not architecture.create/update. Registered in
-``mcp_server/tool_registry.py``'s ``_READ_ONLY_TOOL_NAMES`` so they stay
-outside the WRITE RBAC gate.
+All three tools are read-only from an RBAC standpoint (no domain-model
+persistence, so Viewer role suffices) — mirrors architecture.get/query, not
+architecture.create/update. Registered in ``mcp_server/tool_registry.py``'s
+``_READ_ONLY_TOOL_NAMES`` so they stay outside the WRITE RBAC gate.
+
+This is NOT the same as "free"/side-effect-less, though: ``export``'s
+``mode=compressed`` deliberately routes through BundleCompressionService,
+which invokes the configured LLM provider and therefore writes an
+``LlmAuditLog`` entry and a ``TokenUsageRecord`` per call (and, for large/
+async bundles, dispatches a Celery task) — the same cost/audit trail every
+other free-form LLM derive flow in this codebase produces. Keeping this
+Viewer-callable is an intentional product decision, not an oversight:
+``traceability.suggest_links`` and ``audit.ai_review`` are the established
+precedent for Viewer-allowed tools that call the LLM and write audit/token
+records.
 """
 from __future__ import annotations
 

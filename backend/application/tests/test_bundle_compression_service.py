@@ -241,6 +241,53 @@ class TestCompressCacheMiss:
         assert second.cache_hit is False  # must not serve the depth-0 cache entry
 
 
+class TestCompressCacheKeyIncludesProvider:
+    """Code review round 2 finding: the cache key must fold in provider_name
+    (and the rendered prompt), or switching the configured LLM provider
+    (e.g. mock -> anthropic) would silently serve a stale cached response
+    from a *different* provider for up to BUNDLE_COMPRESSION_CACHE_TTL_SECONDS,
+    with is_mock_fallback still reporting False. Mirrors
+    AiDerivationService._derivation_cache_key's provider-in-key rule.
+    """
+
+    def test_different_configured_provider_is_a_cache_miss(
+        self, auth_ctx, workspace, requirement, architecture_element,
+        monkeypatch, settings,
+    ):
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "stub completion text"
+        # Force get_provider() to always resolve successfully regardless of
+        # the LLM_PROVIDER value below -- isolates the cache-key behavior
+        # under test from real provider-registry resolution.
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        kwargs = dict(
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+
+        settings.LLM_PROVIDER = "mock"
+        first = svc.compress(auth_ctx, result, **kwargs)
+        assert first.cache_hit is False
+        assert first.is_mock_fallback is False
+
+        settings.LLM_PROVIDER = "anthropic"
+        second = svc.compress(auth_ctx, result, **kwargs)
+        # Load-bearing: identical bundle/params but a different configured
+        # provider must NOT be served from the first call's cache entry --
+        # this is exactly the bug being regressed here.
+        assert second.cache_hit is False
+        assert second.is_mock_fallback is False
+
+
 class TestCompressMockFallbackNeverCached:
     def test_mock_fallback_result_is_never_cached(
         self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,

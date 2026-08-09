@@ -81,6 +81,8 @@ def _bundle_cache_key(
     fields: "list[str] | None",
     format: str,
     bundle_result: "BundleResult",
+    provider_name: str,
+    prompt: str,
 ) -> str:
     """Build the shared-cache key for a compressed bundle.
 
@@ -102,8 +104,21 @@ def _bundle_cache_key(
     were found at a different depth (e.g. the ALLOCATED_TO graph was
     rearranged elsewhere in the tree) must not hash identically to a stale
     cache entry from before that change (code review round 1 finding).
+
+    *provider_name* and *prompt* (the fully-rendered prompt, i.e. after the
+    ``bundle_compression`` PromptTemplate has been resolved and filled in)
+    are also folded in, mirroring ``AiDerivationService._derivation_cache_key``
+    (code review round 2 finding): without them, switching the configured LLM
+    provider (e.g. mock -> anthropic) or editing the workspace/tenant
+    ``bundle_compression`` PromptTemplate would keep serving a stale cached
+    response from a different provider/prompt for up to
+    ``BUNDLE_COMPRESSION_CACHE_TTL_SECONDS``.
     """
-    scope_material = f"{root_id}:{depth}:{filter_mode}:{sorted(fields or [])}:{format}"
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    scope_material = (
+        f"{root_id}:{depth}:{filter_mode}:{sorted(fields or [])}:{format}:"
+        f"{provider_name}:{prompt_hash}"
+    )
 
     item_material = sorted(
         f"{item.requirement_id}:{item.found_under_element_id}:{item.depth}:"
@@ -137,16 +152,16 @@ class BundleCompressionService(ServiceBase):
         """Return a compressed text representation of *bundle_result*.
 
         Caches genuine provider responses; never caches a mock-fallback
-        response (mirrors AiDerivationService's REQ-105 rule).
+        response (mirrors AiDerivationService's REQ-105 rule). The cache key
+        is built from the rendered prompt and the configured provider name
+        (code review round 2 finding), so a provider switch or a
+        PromptTemplate edit is never masked by a stale cache hit -- this
+        means the prompt must be built BEFORE the cache lookup, unlike a
+        naive scope-only key.
         """
         self._set_tenant_context(ctx)
 
-        cache_key = _bundle_cache_key(
-            root_id, depth, filter_mode, fields, format, bundle_result
-        )
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return CompressionResult(text=cached, cache_hit=True, is_mock_fallback=False)
+        from django.conf import settings as django_settings
 
         from application.ai_derivation_service import AiDerivationService
 
@@ -155,6 +170,15 @@ class BundleCompressionService(ServiceBase):
             ctx, PROMPT_TEMPLATE_NAME, workspace_id
         )
         prompt = AiDerivationService._render(template, bundle_markdown=raw_markdown)
+        provider_name = getattr(django_settings, "LLM_PROVIDER", "unknown")
+
+        cache_key = _bundle_cache_key(
+            root_id, depth, filter_mode, fields, format, bundle_result,
+            provider_name, prompt,
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return CompressionResult(text=cached, cache_hit=True, is_mock_fallback=False)
 
         text, is_mock_fallback = self._call_provider(ctx, prompt, root_id=root_id)
 
