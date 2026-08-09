@@ -17,6 +17,7 @@ from persistence.models import (
     Artifact,
     Requirement,
     Tenant,
+    TokenUsageRecord,
     User,
     Workspace,
 )
@@ -330,3 +331,77 @@ class TestCompressAsync:
         )
         assert isinstance(response, dict)
         assert response["error"]["code"] == "BROKER_NOT_CONFIGURED"
+
+
+class TestCompressAsyncTokenLimit:
+    """REQ-106: compress_async must reimplement the daily-budget guardrail
+    _call_provider enforces for compress() -- both bypass CapabilityRouter,
+    the only other place this is normally enforced (code review finding).
+    """
+
+    def test_over_daily_limit_raises_and_never_dispatches(
+        self, auth_ctx, workspace, requirement, architecture_element, tenant,
+        monkeypatch, settings,
+    ):
+        from application.ai_derivation_service import LlmResponseError
+
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 100
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock",
+                capability="bundle_compression",
+                input_tokens=150,  # already over the 100 limit
+                output_tokens=0,
+            )
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+
+        from llm_adapter import tasks
+
+        with patch.object(tasks.run_capability, "apply_async") as mock_apply:
+            with pytest.raises(LlmResponseError):
+                svc.compress_async(
+                    auth_ctx, result,
+                    root_id=architecture_element.id, depth=0, filter_mode="all",
+                    fields=None, format="markdown", workspace_id=workspace.id,
+                )
+        # The genuinely load-bearing assertion: dispatch never happened --
+        # proving the check runs BEFORE spending the async budget, not just
+        # that an exception was raised somewhere.
+        mock_apply.assert_not_called()
+
+    def test_under_daily_limit_dispatches_normally(
+        self, auth_ctx, workspace, requirement, architecture_element, tenant,
+        monkeypatch, settings,
+    ):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 1000
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock",
+                capability="bundle_compression",
+                input_tokens=10,  # well under the 1000 limit
+                output_tokens=0,
+            )
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+
+        from llm_adapter import tasks
+
+        fake_task_id = "fake-task-id"
+        mock_async_result = MagicMock()
+        mock_async_result.id = fake_task_id
+
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ) as mock_apply:
+            task_id = svc.compress_async(
+                auth_ctx, result,
+                root_id=architecture_element.id, depth=0, filter_mode="all",
+                fields=None, format="markdown", workspace_id=workspace.id,
+            )
+        assert task_id == fake_task_id
+        mock_apply.assert_called_once()

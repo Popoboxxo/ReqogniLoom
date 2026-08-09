@@ -177,11 +177,41 @@ class BundleCompressionService(ServiceBase):
         plausible and cheap to check; compress_async is for genuinely new
         work. (Revisit if this becomes a real cost concern -- out of scope
         for this task.)
+
+        Raises:
+            LlmResponseError: When the tenant's daily LLM token budget
+                (REQ-106) is already exceeded -- checked and enforced here,
+                synchronously, BEFORE dispatch, so an over-budget tenant
+                cannot spend further budget by queueing async work that a
+                worker would only refuse later. Mirrors compress()'s
+                _call_provider, which reimplements this same guardrail for
+                the same reason: this method bypasses CapabilityRouter (the
+                only other place REQ-106 is normally enforced) by calling
+                AsyncTaskDispatcher directly, exactly as compress() bypasses
+                it by calling the provider directly.
         """
         self._set_tenant_context(ctx)
 
-        from application.ai_derivation_service import AiDerivationService
+        from django.conf import settings as django_settings
+
+        from application.ai_derivation_service import AiDerivationService, LlmResponseError
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.dispatcher import AsyncTaskDispatcher
+        from llm_adapter.token_tracking import is_over_daily_limit
+
+        if is_over_daily_limit():
+            LlmAuditLogger().log_llm_call(
+                provider=getattr(django_settings, "LLM_PROVIDER", "unknown"),
+                capability=PROMPT_TEMPLATE_NAME,
+                artifact_id=str(root_id),
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
 
         raw_markdown = format_bundle_markdown(bundle_result)
         template = AiDerivationService._get_template_content(
