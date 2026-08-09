@@ -76,7 +76,7 @@ def _mock_requirement(id_val=None, title="Test Req", description="", category=""
     return req
 
 
-def _mock_arch_element(id_val=None, title="Arch El", element_type="component"):
+def _mock_arch_element(id_val=None, title="Arch El", element_type="component", artifact_id=None):
     el = MagicMock()
     el.id = id_val or UUID("00000000-0000-0000-0000-000000000030")
     el.title = title
@@ -86,6 +86,9 @@ def _mock_arch_element(id_val=None, title="Arch El", element_type="component"):
     el.parent_id = None
     el.artifact = MagicMock()
     el.artifact.workspace_id = WORKSPACE_UUID
+    # Backing Artifact FK id (ArchitectureElement.artifact_id) — distinct from
+    # el.id, mirrors the real Django OneToOneField auto-attribute.
+    el.artifact_id = artifact_id or UUID("00000000-0000-0000-0000-000000000031")
     return el
 
 
@@ -380,6 +383,30 @@ class TestArchitectureToolGroup:
         )
         assert result.success is True
         svc.get_architecture_element.assert_called_once_with(el.id, EDITOR_CTX)
+
+    def test_architecture_get_includes_artifact_id(self):
+        """Follow-up fix: _arch_el_to_dict must expose 'artifact_id' (the
+        ArchitectureElement's backing Artifact id) so MCP callers can resolve
+        requirement_bundle.export's item-level 'found_under_element_id',
+        which is documented as being that same artifact_id, not an
+        ArchitectureElement id. Restores parity with
+        ArchitectureElementSerializer (rest_api/serializers.py), which
+        already exposes this field."""
+        group, svc, _ = self._group()
+        artifact_id = UUID("00000000-0000-0000-0000-0000000000aa")
+        el = _mock_arch_element(artifact_id=artifact_id)
+        svc.get_architecture_element.return_value = el
+
+        result = group.execute_tool(
+            tool_name="architecture.get",
+            params={"id": str(el.id)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert result.data["architecture_element"]["artifact_id"] == str(artifact_id)
+        # It must be the Artifact id, not the ArchitectureElement id itself.
+        assert result.data["architecture_element"]["artifact_id"] != str(el.id)
 
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_create_calls_service_and_audits(self, mock_audit):

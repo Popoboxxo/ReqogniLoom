@@ -64,9 +64,9 @@ class RequirementBundleToolGroup(BaseToolGroup):
                 "'found_under_element_id' cannot be passed back to "
                 "architecture.get or GET /api/v1/architecture/{id}/ and does "
                 "not correlate directly with the 'root_id' you queried. "
-                "Resolve it through the Artifact layer first (e.g. "
-                "artifact.get_tree / the artifact id carried by "
-                "architecture.get). 'requirement_id' by contrast is a real "
+                "Resolve it by matching it against the 'artifact_id' field "
+                "returned by architecture.get / architecture.query for the "
+                "element in question. 'requirement_id' by contrast is a real "
                 "Requirement id and is directly usable with requirement.get."
             ),
             "inputSchema": {
