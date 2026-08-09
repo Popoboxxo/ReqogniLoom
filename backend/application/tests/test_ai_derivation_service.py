@@ -151,7 +151,11 @@ def test_get_template_content_falls_back_workspace_then_global_then_factory(
 
 
 def test_get_template_content_covers_all_eight_names():
-    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 8 template names."""
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 9 template names.
+
+    Extended to 9 by Requirement Bundle Export, Plan 2 Task 1
+    (``bundle_compression`` — see application/bundle_compression_service.py).
+    """
     from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
 
     assert set(PROMPT_TEMPLATE_DEFAULTS.keys()) == {
@@ -163,6 +167,7 @@ def test_get_template_content_covers_all_eight_names():
         "workspace_to_glossary",
         "decision_to_adr",
         "goal_aggregate",
+        "bundle_compression",
     }
 
 
