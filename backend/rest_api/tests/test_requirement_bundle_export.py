@@ -180,3 +180,43 @@ class TestAttributeSchemaEndpoint:
         assert resp.status_code == 200
         entity_types = {row["entity_type"] for row in resp.json()}
         assert "Requirement" in entity_types
+
+
+@pytest.mark.django_db
+class TestRequirementBundleCompressedMode:
+    """Requirement Bundle Export, Plan 2 Task 4: `?mode=compressed` branch of
+    the shared `requirement_bundle` action, plus the new async polling
+    endpoint."""
+
+    def test_mode_compressed_sync_returns_text(self, authed_client, architecture_element, requirement_allocated_to):
+        root = architecture_element
+        requirement_allocated_to(root)
+        resp = authed_client.get(
+            f"/api/v1/architecture/{root.id}/requirement-bundle/?mode=compressed"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "text" in body
+        assert "cache_hit" in body
+
+    def test_mode_compressed_async_returns_task_id(self, authed_client, architecture_element, requirement_allocated_to, monkeypatch):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        root = architecture_element
+        requirement_allocated_to(root)
+        resp = authed_client.get(
+            f"/api/v1/architecture/{root.id}/requirement-bundle/?mode=compressed&async=true"
+        )
+        assert resp.status_code == 202
+        assert "task_id" in resp.json()
+
+    def test_bundle_compression_status_endpoint(self, authed_client):
+        resp = authed_client.get("/api/v1/bundle-compression-status/nonexistent-task-id/")
+        assert resp.status_code == 200
+        assert resp.json()["status"] in ("pending", "not_found")
+
+    def test_invalid_mode_returns_400(self, authed_client, architecture_element):
+        resp = authed_client.get(
+            f"/api/v1/architecture/{architecture_element.id}/requirement-bundle/?mode=bogus"
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
