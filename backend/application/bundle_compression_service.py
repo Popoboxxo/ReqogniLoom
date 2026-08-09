@@ -84,11 +84,21 @@ def _bundle_cache_key(
     query that produced this BundleResult) stands in for a version number:
     two calls produce the same hash if and only if the underlying rows were
     identical at query time.
+
+    Also includes each item's own `depth` (the per-item found-depth from the
+    ALLOCATED_TO walk, distinct from the *scope-level* `depth` query param
+    already folded into `scope_material`) -- `format_bundle_markdown` renders
+    it verbatim (`## Element {found_under_element_id} (depth {item.depth})`),
+    so a bundle whose requirement/field content is unchanged but whose items
+    were found at a different depth (e.g. the ALLOCATED_TO graph was
+    rearranged elsewhere in the tree) must not hash identically to a stale
+    cache entry from before that change (code review round 1 finding).
     """
     scope_material = f"{root_id}:{depth}:{filter_mode}:{sorted(fields or [])}:{format}"
 
     item_material = sorted(
-        f"{item.requirement_id}:{item.found_under_element_id}:{sorted(item.fields.items())}"
+        f"{item.requirement_id}:{item.found_under_element_id}:{item.depth}:"
+        f"{sorted(item.fields.items())}"
         for item in bundle_result.items
     )
     content_hash = hashlib.sha256(
@@ -118,7 +128,7 @@ class BundleCompressionService(ServiceBase):
         """Return a compressed text representation of *bundle_result*.
 
         Caches genuine provider responses; never caches a mock-fallback
-        response (mirrors AiDerivationService's REQ-078 rule).
+        response (mirrors AiDerivationService's REQ-105 rule).
         """
         self._set_tenant_context(ctx)
 
@@ -137,7 +147,7 @@ class BundleCompressionService(ServiceBase):
         )
         prompt = AiDerivationService._render(template, bundle_markdown=raw_markdown)
 
-        text, is_mock_fallback = self._call_provider(ctx, prompt)
+        text, is_mock_fallback = self._call_provider(ctx, prompt, root_id=root_id)
 
         if not is_mock_fallback:
             cache.set(cache_key, text, BUNDLE_COMPRESSION_CACHE_TTL_SECONDS)
@@ -145,14 +155,39 @@ class BundleCompressionService(ServiceBase):
         return CompressionResult(text=text, cache_hit=False, is_mock_fallback=is_mock_fallback)
 
     @staticmethod
-    def _call_provider(ctx: AuthContext, prompt: str) -> "tuple[str, bool]":
+    def _call_provider(
+        ctx: AuthContext, prompt: str, *, root_id: UUID
+    ) -> "tuple[str, bool]":
         """Call the configured LLM provider's free-form completion.
 
         Returns (text, is_mock_fallback). Mirrors AiDerivationService._complete's
         provider-resolution/fallback behavior (same graceful-degradation
         contract, ADR-02) but does not reuse that method directly since its
         cache-key shape is single-artifact and doesn't fit a bundle.
+
+        Also mirrors _complete's cost-control/audit guarantees for the real
+        (non-mock) call path, applied here rather than inherited from
+        _complete (code review round 1 finding): the per-tenant daily token
+        budget (REQ-106, via ``is_over_daily_limit``) is checked before
+        invoking a real provider, and every real-provider outcome (success,
+        mid-call fallback, or hard failure) is recorded via
+        ``LlmAuditLogger.log_llm_call`` (REQ-L3-LA004-001) — the same trail
+        every other free-form derive flow in this codebase produces. A bundle
+        compression has no single source artifact the way e.g.
+        ``derive_testcase_from_requirement`` does; *root_id* (the bundle's
+        scope-defining ArchitectureElement) is used as the audit entity id in
+        its place, the same role ``workspace.id`` plays for
+        ``derive_glossary_from_workspace``/``derive_adr_from_decision``.
+        Getting no provider configured at all (the very first
+        ``get_provider()`` call below) is deliberately NOT audited, matching
+        _complete's own behavior for that branch exactly (verified by
+        reading it: only a warning log, no audit_logger call) -- there is no
+        "call" to record yet at that point.
         """
+        from django.conf import settings as django_settings
+
+        from application.ai_derivation_service import LlmResponseError
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
@@ -160,6 +195,11 @@ class BundleCompressionService(ServiceBase):
             get_provider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import is_over_daily_limit
+
+        provider_name = getattr(django_settings, "LLM_PROVIDER", "unknown")
+        audit_logger = LlmAuditLogger()
+        entity_id = str(root_id)
 
         try:
             provider = get_provider()
@@ -171,6 +211,24 @@ class BundleCompressionService(ServiceBase):
             result = MockLlmProvider().complete(prompt, purpose=PROMPT_TEMPLATE_NAME)
             return result, True
 
+        # REQ-106: per-tenant daily token budget, checked here because this
+        # free-form flow (like the 8 AiDerivationService flows) bypasses
+        # CapabilityRouter. Fail-open by design (is_over_daily_limit never
+        # raises) -- only a real limit hit blocks the call.
+        if is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=PROMPT_TEMPLATE_NAME,
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
         timeout = resolve_timeout_seconds(PROMPT_TEMPLATE_NAME)
         try:
             result = provider.complete(
@@ -181,16 +239,40 @@ class BundleCompressionService(ServiceBase):
                 "LLM provider failed mid-call for bundle_compression, falling back to mock. Error: %s",
                 error,
             )
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=PROMPT_TEMPLATE_NAME,
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
             result = MockLlmProvider().complete(prompt, purpose=PROMPT_TEMPLATE_NAME)
             return result, True
         except Exception as error:  # noqa: BLE001 -- same rationale as AiDerivationService._complete
-            from application.ai_derivation_service import LlmResponseError
-
             logger.warning("LLM provider call failed for bundle_compression: %s", error)
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=PROMPT_TEMPLATE_NAME,
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
             raise LlmResponseError(
                 f"Bundle compression LLM call failed: {error}"
             ) from error
 
+        # provider.complete() only returns text (no token counts), same
+        # limitation _complete documents for its own real-provider path.
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability=PROMPT_TEMPLATE_NAME,
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
         return result, False
 
 

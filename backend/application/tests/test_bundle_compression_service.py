@@ -191,3 +191,97 @@ class TestCompressCacheMiss:
         )
         second = svc.compress(auth_ctx, result_v2, **kwargs)
         assert second.cache_hit is False  # different content hash, not the stale cached entry
+
+    def test_item_depth_change_alone_invalidates_cache(
+        self, auth_ctx, workspace, requirement, architecture_element,
+    ):
+        """A BundleItem found at a different depth is a cache miss even when
+        every field (title, status, ...) is byte-identical (code review round
+        1 finding: format_bundle_markdown renders item.depth verbatim into
+        the '## Element ... (depth N)' heading, so the cache key must depend
+        on it too, not just requirement_id/found_under_element_id/fields).
+        """
+        svc = BundleCompressionService()
+        kwargs = dict(
+            root_id=architecture_element.id,
+            depth=None,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+        result_depth_0 = BundleResult(
+            items=[
+                BundleItem(
+                    requirement_id=requirement.id,
+                    found_under_element_id=architecture_element.artifact_id,
+                    depth=0,
+                    fields={"title": "Sample requirement", "status": "draft"},
+                )
+            ],
+            truncated_at_depth=False,
+        )
+        first = svc.compress(auth_ctx, result_depth_0, **kwargs)
+        assert first.cache_hit is False
+
+        result_depth_1 = BundleResult(
+            items=[
+                BundleItem(
+                    requirement_id=requirement.id,
+                    found_under_element_id=architecture_element.artifact_id,
+                    depth=1,  # only this changed
+                    fields={"title": "Sample requirement", "status": "draft"},
+                )
+            ],
+            truncated_at_depth=False,
+        )
+        second = svc.compress(auth_ctx, result_depth_1, **kwargs)
+        assert second.cache_hit is False  # must not serve the depth-0 cache entry
+
+
+class TestCompressMockFallbackNeverCached:
+    def test_mock_fallback_result_is_never_cached(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        """When the real provider is unavailable, compress() must genuinely
+        recompute (never serve a cached mock-fallback response) — Global
+        Constraint, mirrors AiDerivationService's REQ-105 rule and
+        application/tests/test_derivation_cache.py::test_mock_fallback_result_is_not_cached's
+        established pattern for forcing the fallback branch (monkeypatch
+        llm_adapter.providers.get_provider to raise LlmNotConfiguredError).
+
+        All 3 tests in TestCompressCacheMiss run with LLM_PROVIDER=mock
+        configured directly, so get_provider() succeeds via the normal
+        (non-fallback) branch and is_mock_fallback is always False there —
+        this test is the only one that genuinely exercises the fallback
+        branch and asserts on it.
+        """
+        from llm_adapter.providers import LlmNotConfiguredError
+
+        def _raise(*args, **kwargs):
+            raise LlmNotConfiguredError("no provider")
+
+        monkeypatch.setattr("llm_adapter.providers.get_provider", _raise)
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        kwargs = dict(
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+
+        first = svc.compress(auth_ctx, result, **kwargs)
+        assert first.is_mock_fallback is True
+        assert first.cache_hit is False
+
+        second = svc.compress(auth_ctx, result, **kwargs)
+        assert second.is_mock_fallback is True
+        # The genuinely load-bearing assertion: a second, identical call is
+        # STILL a cache miss -- proving the mock-fallback result from the
+        # first call was never written to the cache at all, not just that
+        # the is_mock_fallback flag was set correctly on it.
+        assert second.cache_hit is False
