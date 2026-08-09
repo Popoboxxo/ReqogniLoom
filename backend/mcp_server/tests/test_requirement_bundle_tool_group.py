@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -392,3 +393,196 @@ class TestToolSchemas:
         group = RequirementBundleToolGroup()
         schema_names = {schema["name"] for schema in group.get_tool_schemas()}
         assert schema_names == set(group._TOOL_MAP.keys())
+
+
+@pytest.fixture
+def rb_other_ctx(db):
+    """A second, unrelated tenant + AuthContext (ADR-03 test fixture,
+    mirrors rest_api's ``other_tenant_authed_client``) -- used to prove a
+    task_id dispatched by one tenant cannot be polled by another via
+    ``requirement_bundle.compression_status``."""
+    tenant = Tenant.objects.create(
+        name="MCP RB Other", slug=f"mcp-rb-other-{uuid.uuid4().hex[:8]}", is_active=True
+    )
+    user = User.objects.create(
+        username=f"mcprbother{uuid.uuid4().hex[:8]}", email="mcprbother@t.test", tenant=tenant
+    )
+    ctx = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=None,
+    )
+    return tenant, ctx
+
+
+@pytest.mark.django_db
+class TestCompressedExport:
+    """Requirement Bundle Export, Plan 2 Task 5: `mode='compressed'` branch
+    of `requirement_bundle.export`, mirroring the REST `?mode=compressed`
+    action (Plan 2 Task 4) exactly."""
+
+    def test_export_mode_compressed_sync_returns_text(self, rb_ctx):
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+        req = _make_requirement(tenant, workspace, "Req A")
+        _allocate(tenant, req.artifact, root.artifact)
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.export",
+            {"root_id": str(root.id), "workspace_id": str(workspace.id), "mode": "compressed"},
+            ctx,
+        )
+
+        assert result.success is True
+        assert "text" in result.data
+        assert "cache_hit" in result.data
+        assert "is_mock_fallback" in result.data
+
+    def test_export_mode_compressed_async_returns_task_id(self, rb_ctx, monkeypatch):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+        req = _make_requirement(tenant, workspace, "Req A")
+        _allocate(tenant, req.artifact, root.artifact)
+
+        from llm_adapter import tasks
+
+        mock_async_result = MagicMock()
+        mock_async_result.id = "fake-task-id"
+
+        with patch.object(tasks.run_capability, "apply_async", return_value=mock_async_result):
+            result = _exec(
+                RequirementBundleToolGroup(),
+                "requirement_bundle.export",
+                {
+                    "root_id": str(root.id),
+                    "workspace_id": str(workspace.id),
+                    "mode": "compressed",
+                    "async": True,
+                },
+                ctx,
+            )
+
+        assert result.success is True
+        assert result.data["task_id"] == "fake-task-id"
+
+    def test_export_invalid_mode_returns_validation_error(self, rb_ctx):
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.export",
+            {"root_id": str(root.id), "workspace_id": str(workspace.id), "mode": "bogus"},
+            ctx,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+class TestCompressionStatusTool:
+    def test_compression_status_unknown_task_returns_not_found(self, rb_ctx):
+        _tenant, ctx, _workspace = rb_ctx
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.compression_status",
+            {"task_id": "nonexistent"},
+            ctx,
+        )
+
+        assert result.success is True
+        assert result.data["status"] == "not_found"
+        assert result.data["task_id"] == "nonexistent"
+
+    def test_compression_status_missing_task_id_returns_validation_error(self, rb_ctx):
+        _tenant, ctx, _workspace = rb_ctx
+
+        result = _exec(
+            RequirementBundleToolGroup(), "requirement_bundle.compression_status", {}, ctx
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+class TestCompressionStatusTenantOwnership:
+    """ADR-03, mirrors rest_api's TestBundleCompressionStatusTenantOwnership
+    exactly: requirement_bundle.compression_status must not let one tenant
+    poll another tenant's task_id, and must pass the MCP caller's own
+    AuthContext into get_compression_status(ctx, task_id) to enforce it."""
+
+    def _dispatch_task_id(self, rb_ctx, monkeypatch):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        tenant, ctx, workspace = rb_ctx
+        root = _make_element(tenant, workspace, "Root")
+        req = _make_requirement(tenant, workspace, "Req A")
+        _allocate(tenant, req.artifact, root.artifact)
+
+        from llm_adapter import tasks
+
+        mock_async_result = MagicMock()
+        mock_async_result.id = "fake-task-id-mcp"
+
+        with patch.object(tasks.run_capability, "apply_async", return_value=mock_async_result):
+            result = _exec(
+                RequirementBundleToolGroup(),
+                "requirement_bundle.export",
+                {
+                    "root_id": str(root.id),
+                    "workspace_id": str(workspace.id),
+                    "mode": "compressed",
+                    "async": True,
+                },
+                ctx,
+            )
+        assert result.success is True
+        return result.data["task_id"]
+
+    def test_cross_tenant_poll_returns_not_found(self, rb_ctx, rb_other_ctx, monkeypatch):
+        task_id = self._dispatch_task_id(rb_ctx, monkeypatch)
+        _other_tenant, other_ctx = rb_other_ctx
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        with patch.object(AsyncTaskDispatcher, "get_task_status") as mock_get_status:
+            result = _exec(
+                RequirementBundleToolGroup(),
+                "requirement_bundle.compression_status",
+                {"task_id": task_id},
+                other_ctx,
+            )
+
+        assert result.success is True
+        # Load-bearing: identical to a genuinely-unknown task_id's response
+        # -- a cross-tenant probe must not be able to distinguish "exists,
+        # not yours" from "doesn't exist".
+        assert result.data["status"] == "not_found"
+        assert result.data["task_id"] == task_id
+        mock_get_status.assert_not_called()
+
+    def test_same_tenant_poll_reaches_the_real_status(self, rb_ctx, monkeypatch):
+        task_id = self._dispatch_task_id(rb_ctx, monkeypatch)
+        _tenant, ctx, _workspace = rb_ctx
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(task_id=task_id, status="pending"),
+        ):
+            result = _exec(
+                RequirementBundleToolGroup(),
+                "requirement_bundle.compression_status",
+                {"task_id": task_id},
+                ctx,
+            )
+
+        assert result.success is True
+        assert result.data["status"] == "pending"

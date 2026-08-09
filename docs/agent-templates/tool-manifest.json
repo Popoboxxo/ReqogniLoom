@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.5.0",
-  "tool_count": 145,
+  "tool_count": 146,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2850,6 +2850,24 @@
       }
     },
     {
+      "name": "requirement_bundle.compression_status",
+      "prefix": "requirement_bundle",
+      "is_write": false,
+      "description": "Poll the status of a task_id returned by requirement_bundle.export's mode='compressed' async branch (dispatched because 'async'=true was passed, or the bundle exceeded 50 items). Response shape: {\"task_id\": str, \"status\": \"pending\"|\"running\"|\"done\"|\"failed\"|\"not_found\", \"result\": dict|null, \"error\": str|null}. A task_id dispatched by a different tenant is deliberately indistinguishable from an unknown one — both report status='not_found'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "task_id returned by requirement_bundle.export's async compressed branch."
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
       "name": "requirement_bundle.export",
       "prefix": "requirement_bundle",
       "is_write": false,
@@ -2892,7 +2910,19 @@
               "markdown",
               "csv"
             ],
-            "description": "Output format. Defaults to 'json'. An unsupported value returns VALIDATION_ERROR. Note the equivalent REST endpoint spells this parameter '?output_format=' instead, because 'format' is reserved by DRF content negotiation there."
+            "description": "Output format. Defaults to 'json'. An unsupported value returns VALIDATION_ERROR. Note the equivalent REST endpoint spells this parameter '?output_format=' instead, because 'format' is reserved by DRF content negotiation there. Ignored when mode='compressed' (compressed output is always a single markdown-derived text blob)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "raw",
+              "compressed"
+            ],
+            "description": "Export mode. 'raw' (default) returns the bundle formatted per 'format' above. 'compressed' routes the same bundle through an LLM (BundleCompressionService) for an AI-compressed text representation instead. Bundles over 50 items (or 'async'=true) are dispatched to a background worker and return a 'task_id' to poll via 'requirement_bundle.compression_status' rather than blocking on the LLM call."
+          },
+          "async": {
+            "type": "boolean",
+            "description": "Force asynchronous compression even when the bundle is at or under 50 items. Only applies when mode='compressed'."
           }
         },
         "required": [

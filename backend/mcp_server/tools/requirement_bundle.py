@@ -1,19 +1,31 @@
 """
 RequirementBundleToolGroup — requirement_bundle.* MCP tools (Requirement
-Bundle Export, Plan 1 Task 6).
+Bundle Export, Plan 1 Task 6; compressed mode + status polling added in
+Plan 2 Task 5).
 
 Tools implemented:
-  requirement_bundle.export            — grouped requirement export by
-                                          architecture element (ALLOCATED_TO)
-  requirement_bundle.attribute_schema  — list available/visible attributes
+  requirement_bundle.export              — grouped requirement export by
+                                            architecture element
+                                            (ALLOCATED_TO); ``mode=raw``
+                                            (default) returns the formatted
+                                            bundle, ``mode=compressed``
+                                            routes it through
+                                            BundleCompressionService for an
+                                            LLM-compressed text
+                                            representation instead
+  requirement_bundle.attribute_schema    — list available/visible attributes
+  requirement_bundle.compression_status  — poll a task_id dispatched by
+                                            ``requirement_bundle.export``'s
+                                            ``mode=compressed`` async branch
 
 Interface contracts implemented:
   IF-MC-INT-003     — inbound: execute_tool(tool_name, params, auth_context,
                        api_key) -> ToolResult
   IF-MC-EXT-OUT-003 — outbound: ApplicationService
-    (RequirementBundleQueryService, AttributeVisibilityConfigService)
+    (RequirementBundleQueryService, AttributeVisibilityConfigService,
+    BundleCompressionService)
 
-Both tools are read-only (no persistence, no audit entry) — mirrors
+All three tools are read-only (no persistence, no audit entry) — mirrors
 architecture.get/query, not architecture.create/update. Registered in
 ``mcp_server/tool_registry.py``'s ``_READ_ONLY_TOOL_NAMES`` so they stay
 outside the WRITE RBAC gate.
@@ -25,8 +37,13 @@ from typing import Any, Dict
 
 from auth_tenancy.context import AuthContext
 
+from application.ai_derivation_service import LlmResponseError
 from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.bundle_compression_service import (
+    BundleCompressionService,
+    SYNC_ITEM_COUNT_THRESHOLD,
+)
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
     format_bundle_json,
@@ -35,19 +52,21 @@ from application.requirement_bundle_formatters import (
 from application.requirement_bundle_service import RequirementBundleQueryService
 
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, require_uuid
+from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 
 logger = logging.getLogger(__name__)
 
 _OUTPUT_FORMATS = ("json", "markdown", "csv")
+_EXPORT_MODES = ("raw", "compressed")
 
 
 class RequirementBundleToolGroup(BaseToolGroup):
-    """requirement_bundle tool group (2 tools)."""
+    """requirement_bundle tool group (3 tools)."""
 
     _TOOL_MAP = {
         "requirement_bundle.export": "_handle_export",
         "requirement_bundle.attribute_schema": "_handle_attribute_schema",
+        "requirement_bundle.compression_status": "_handle_compression_status",
     }
 
     _TOOL_SCHEMAS = [
@@ -97,7 +116,33 @@ class RequirementBundleToolGroup(BaseToolGroup):
                             "the equivalent REST endpoint spells this "
                             "parameter '?output_format=' instead, because "
                             "'format' is reserved by DRF content "
-                            "negotiation there."
+                            "negotiation there. Ignored when mode='compressed' "
+                            "(compressed output is always a single markdown-"
+                            "derived text blob)."
+                        ),
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": list(_EXPORT_MODES),
+                        "description": (
+                            "Export mode. 'raw' (default) returns the bundle "
+                            "formatted per 'format' above. 'compressed' "
+                            "routes the same bundle through an LLM "
+                            "(BundleCompressionService) for an AI-compressed "
+                            "text representation instead. Bundles over "
+                            f"{SYNC_ITEM_COUNT_THRESHOLD} items (or "
+                            "'async'=true) are dispatched to a background "
+                            "worker and return a 'task_id' to poll via "
+                            "'requirement_bundle.compression_status' rather "
+                            "than blocking on the LLM call."
+                        ),
+                    },
+                    "async": {
+                        "type": "boolean",
+                        "description": (
+                            "Force asynchronous compression even when the "
+                            f"bundle is at or under {SYNC_ITEM_COUNT_THRESHOLD} "
+                            "items. Only applies when mode='compressed'."
                         ),
                     },
                 },
@@ -132,6 +177,31 @@ class RequirementBundleToolGroup(BaseToolGroup):
                 "required": [],
             },
         },
+        {
+            "name": "requirement_bundle.compression_status",
+            "description": (
+                "Poll the status of a task_id returned by "
+                "requirement_bundle.export's mode='compressed' async branch "
+                "(dispatched because 'async'=true was passed, or the bundle "
+                f"exceeded {SYNC_ITEM_COUNT_THRESHOLD} items). Response "
+                "shape: {\"task_id\": str, \"status\": "
+                "\"pending\"|\"running\"|\"done\"|\"failed\"|\"not_found\", "
+                "\"result\": dict|null, \"error\": str|null}. A task_id "
+                "dispatched by a different tenant is deliberately "
+                "indistinguishable from an unknown one — both report "
+                "status='not_found'."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "task_id returned by requirement_bundle.export's async compressed branch.",
+                    },
+                },
+                "required": ["task_id"],
+            },
+        },
     ]
 
     # ------------------------------------------------------------------
@@ -141,7 +211,7 @@ class RequirementBundleToolGroup(BaseToolGroup):
     def _handle_export(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """requirement_bundle.export — raw (non-AI) requirement bundle export."""
+        """requirement_bundle.export — raw or AI-compressed requirement bundle export."""
         root_id = require_uuid(params, "root_id")
         workspace_id = require_uuid(params, "workspace_id")
 
@@ -166,6 +236,13 @@ class RequirementBundleToolGroup(BaseToolGroup):
                 f"Invalid format {output_format!r}; expected one of {_OUTPUT_FORMATS}",
             )
 
+        mode = params.get("mode", "raw")
+        if mode not in _EXPORT_MODES:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Invalid mode {mode!r}; expected one of {_EXPORT_MODES}",
+            )
+
         try:
             result = RequirementBundleQueryService().get_bundle(
                 auth_context,
@@ -183,13 +260,64 @@ class RequirementBundleToolGroup(BaseToolGroup):
             # Covers BundleDepthExceededError too (subclass of ValidationError).
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
-        if output_format == "json":
-            return ToolResult.ok(format_bundle_json(result))
-        if output_format == "markdown":
-            return ToolResult.ok(
-                {"format": "markdown", "content": format_bundle_markdown(result)}
+        if mode == "raw":
+            if output_format == "json":
+                return ToolResult.ok(format_bundle_json(result))
+            if output_format == "markdown":
+                return ToolResult.ok(
+                    {"format": "markdown", "content": format_bundle_markdown(result)}
+                )
+            return ToolResult.ok({"format": "csv", "content": format_bundle_csv(result)})
+
+        # mode == "compressed" — route the same bundle through
+        # BundleCompressionService (Plan 2 Task 1/2/4) instead of the raw
+        # formatters above. 'format'/'output_format' does not apply here.
+        async_param = params.get("async", False)
+        if isinstance(async_param, str):
+            force_async = async_param.strip().lower() == "true"
+        else:
+            force_async = bool(async_param)
+        use_async = force_async or len(result.items) > SYNC_ITEM_COUNT_THRESHOLD
+
+        compression_svc = BundleCompressionService()
+        try:
+            if use_async:
+                dispatch = compression_svc.compress_async(
+                    auth_context,
+                    result,
+                    root_id=root_id,
+                    depth=depth,
+                    filter_mode=filter_mode,
+                    fields=fields,
+                    format="markdown",
+                    workspace_id=workspace_id,
+                )
+                if isinstance(dispatch, dict):  # BROKER_NOT_CONFIGURED
+                    error = dispatch.get("error", {})
+                    return ToolResult.error(
+                        error.get("code", "INTERNAL_ERROR"),
+                        error.get("message", "Broker not configured."),
+                    )
+                return ToolResult.ok({"task_id": dispatch})
+
+            compression = compression_svc.compress(
+                auth_context,
+                result,
+                root_id=root_id,
+                depth=depth,
+                filter_mode=filter_mode,
+                fields=fields,
+                format="markdown",
+                workspace_id=workspace_id,
             )
-        return ToolResult.ok({"format": "csv", "content": format_bundle_csv(result)})
+        except LlmResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        return ToolResult.ok({
+            "text": compression.text,
+            "cache_hit": compression.cache_hit,
+            "is_mock_fallback": compression.is_mock_fallback,
+        })
 
     # ------------------------------------------------------------------
     # requirement_bundle.attribute_schema
@@ -207,6 +335,27 @@ class RequirementBundleToolGroup(BaseToolGroup):
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok({"attributes": schema, "count": len(schema)})
+
+    # ------------------------------------------------------------------
+    # requirement_bundle.compression_status
+    # ------------------------------------------------------------------
+
+    def _handle_compression_status(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement_bundle.compression_status — poll an async compression task.
+
+        Mirrors ``BundleCompressionStatusView`` (REST, Plan 2 Task 4) exactly:
+        passes the MCP caller's own *auth_context* into
+        ``get_compression_status(ctx, task_id)`` so the tenant-ownership
+        check enforced there (ADR-03) applies here too — a task_id dispatched
+        by a different tenant must be indistinguishable from an unknown one.
+        """
+        import dataclasses
+
+        task_id = require_param(params, "task_id")
+        result = BundleCompressionService().get_compression_status(auth_context, task_id)
+        return ToolResult.ok(dataclasses.asdict(result))
 
 
 __all__ = ["RequirementBundleToolGroup"]
