@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework.test import APIClient
@@ -180,3 +181,154 @@ class TestAttributeSchemaEndpoint:
         assert resp.status_code == 200
         entity_types = {row["entity_type"] for row in resp.json()}
         assert "Requirement" in entity_types
+
+
+@pytest.mark.django_db
+class TestRequirementBundleCompressedMode:
+    """Requirement Bundle Export, Plan 2 Task 4: `?mode=compressed` branch of
+    the shared `requirement_bundle` action, plus the new async polling
+    endpoint."""
+
+    def test_mode_compressed_sync_returns_text(self, authed_client, architecture_element, requirement_allocated_to):
+        root = architecture_element
+        requirement_allocated_to(root)
+        resp = authed_client.get(
+            f"/api/v1/architecture/{root.id}/requirement-bundle/?mode=compressed"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "text" in body
+        assert "cache_hit" in body
+
+    def test_mode_compressed_async_returns_task_id(self, authed_client, architecture_element, requirement_allocated_to, monkeypatch):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        root = architecture_element
+        requirement_allocated_to(root)
+        resp = authed_client.get(
+            f"/api/v1/architecture/{root.id}/requirement-bundle/?mode=compressed&async=true"
+        )
+        assert resp.status_code == 202
+        assert "task_id" in resp.json()
+
+    def test_bundle_compression_status_endpoint(self, authed_client):
+        resp = authed_client.get("/api/v1/bundle-compression-status/nonexistent-task-id/")
+        assert resp.status_code == 200
+        assert resp.json()["status"] in ("pending", "not_found")
+
+    def test_invalid_mode_returns_400(self, authed_client, architecture_element):
+        resp = authed_client.get(
+            f"/api/v1/architecture/{architecture_element.id}/requirement-bundle/?mode=bogus"
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.fixture
+def other_tenant_authed_client() -> APIClient:
+    """A second, unrelated tenant's authenticated APIClient (code review
+    round 1 finding, ADR-03): used to prove a task_id dispatched by one
+    tenant cannot be polled by another via
+    GET /api/v1/bundle-compression-status/{task_id}/, since Celery's result
+    backend has no concept of tenant on its own."""
+    from auth_tenancy.models import ROLE_ADMIN, UserRole
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.models import Tenant, User, Workspace
+
+    other_tenant = Tenant.objects.create(
+        name="Other Bundle Tenant",
+        slug=f"other-bundle-tenant-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    set_request_tenant(other_tenant.id)
+    try:
+        other_workspace = Workspace.objects.create(
+            tenant=other_tenant, name="Other Bundle WS", preset={"name": "extended"}
+        )
+        user = User.objects.create(
+            username="otherbundleadmin", email="otherbundleadmin@t.test", tenant=other_tenant
+        )
+        user.set_password("hunter2pass")
+        user.save(update_fields=["password"])
+        UserRole.objects.create(
+            tenant=other_tenant, user=user, workspace=other_workspace, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    login = client.post(
+        "/api/v1/auth/login/",
+        {"username": "otherbundleadmin", "password": "hunter2pass"},
+        format="json",
+    )
+    assert login.status_code == 200, login.content
+    token = login.json()["token"]
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return authed
+
+
+@pytest.mark.django_db
+class TestBundleCompressionStatusTenantOwnership:
+    """ADR-03, code review round 1 finding: BundleCompressionStatusView must
+    not let one tenant poll another tenant's task_id."""
+
+    def _dispatch_task_id(self, authed_client, architecture_element, requirement_allocated_to, monkeypatch):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        root = architecture_element
+        requirement_allocated_to(root)
+
+        from llm_adapter import tasks
+
+        fake_task_id = "fake-task-id"
+        mock_async_result = MagicMock()
+        mock_async_result.id = fake_task_id
+
+        with patch.object(tasks.run_capability, "apply_async", return_value=mock_async_result):
+            resp = authed_client.get(
+                f"/api/v1/architecture/{root.id}/requirement-bundle/?mode=compressed&async=true"
+            )
+        assert resp.status_code == 202
+        return resp.json()["task_id"]
+
+    def test_cross_tenant_poll_returns_not_found(
+        self, authed_client, other_tenant_authed_client, architecture_element,
+        requirement_allocated_to, monkeypatch,
+    ):
+        task_id = self._dispatch_task_id(
+            authed_client, architecture_element, requirement_allocated_to, monkeypatch
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        with patch.object(AsyncTaskDispatcher, "get_task_status") as mock_get_status:
+            resp = other_tenant_authed_client.get(
+                f"/api/v1/bundle-compression-status/{task_id}/"
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        # Load-bearing: identical to a genuinely-unknown task_id's response
+        # -- a cross-tenant probe must not be able to distinguish "exists,
+        # not yours" from "doesn't exist".
+        assert body["status"] == "not_found"
+        assert body["task_id"] == task_id
+        mock_get_status.assert_not_called()
+
+    def test_same_tenant_poll_reaches_the_real_status(
+        self, authed_client, architecture_element, requirement_allocated_to, monkeypatch,
+    ):
+        task_id = self._dispatch_task_id(
+            authed_client, architecture_element, requirement_allocated_to, monkeypatch
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(task_id=task_id, status="pending"),
+        ):
+            resp = authed_client.get(f"/api/v1/bundle-compression-status/{task_id}/")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"

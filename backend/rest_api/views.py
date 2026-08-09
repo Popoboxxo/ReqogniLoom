@@ -1582,11 +1582,21 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def requirement_bundle(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/architecture/{pk}/requirement-bundle/
             ?depth=<int>&filter_mode=<all|visible|custom>&fields=<comma-list>
-            &output_format=<json|markdown|csv>
+            &output_format=<json|markdown|csv>&mode=<raw|compressed>&async=<true|false>
 
         Requirement Bundle Export, Plan 1 Task 5. Raw (non-AI) bundle of every
         Requirement ALLOCATED_TO this element or its ALLOCATED_TO
         sub-elements, up to `depth` levels.
+
+        Requirement Bundle Export, Plan 2 Task 4: ``?mode=compressed`` routes
+        the same bundle through ``BundleCompressionService`` instead of the
+        raw json/markdown/csv formatters below. ``?output_format=`` is
+        ignored in that branch (compressed output is always a single text
+        blob). ``&async=true`` (or a bundle over
+        ``SYNC_ITEM_COUNT_THRESHOLD`` items) dispatches the compression to a
+        Celery worker and returns ``202`` with a ``task_id`` to poll via
+        ``GET /api/v1/bundle-compression-status/{task_id}/`` instead of
+        blocking the request thread on an LLM call.
 
         The output format is selected with ``?output_format=`` — deliberately
         *not* ``?format=``, which is DRF's reserved URL_FORMAT_OVERRIDE and
@@ -1635,6 +1645,16 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            mode = request.query_params.get("mode", "raw")
+            if mode not in ("raw", "compressed"):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message=f"Invalid mode {mode!r}; expected raw or compressed",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             result = RequirementBundleQueryService().get_bundle(
                 ctx,
                 root_id=UUID(pk),
@@ -1663,13 +1683,86 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
-        if output_format == "json":
-            return Response(format_bundle_json(result))
-        if output_format == "markdown":
-            return HttpResponse(
-                format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
+        if mode == "raw":
+            if output_format == "json":
+                return Response(format_bundle_json(result))
+            if output_format == "markdown":
+                return HttpResponse(
+                    format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
+                )
+            return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
+
+        # mode == "compressed" — route the same bundle through
+        # BundleCompressionService (Plan 2 Task 1/2) instead of the raw
+        # formatters above. ?output_format= is not applicable here.
+        try:
+            from application.bundle_compression_service import (
+                BundleCompressionService,
+                SYNC_ITEM_COUNT_THRESHOLD,
             )
-        return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
+
+            force_async = request.query_params.get("async", "").lower() == "true"
+            use_async = force_async or len(result.items) > SYNC_ITEM_COUNT_THRESHOLD
+
+            compression_svc = BundleCompressionService()
+            if use_async:
+                dispatch = compression_svc.compress_async(
+                    ctx,
+                    result,
+                    root_id=UUID(pk),
+                    depth=depth,
+                    filter_mode=filter_mode,
+                    fields=fields,
+                    format="markdown",
+                    workspace_id=workspace_id,
+                )
+                if isinstance(dispatch, dict):  # BROKER_NOT_CONFIGURED
+                    return Response(dispatch, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                return Response({"task_id": dispatch}, status=status.HTTP_202_ACCEPTED)
+
+            compression = compression_svc.compress(
+                ctx,
+                result,
+                root_id=UUID(pk),
+                depth=depth,
+                filter_mode=filter_mode,
+                fields=fields,
+                format="markdown",
+                workspace_id=workspace_id,
+            )
+            return Response({
+                "text": compression.text,
+                "cache_hit": compression.cache_hit,
+                "is_mock_fallback": compression.is_mock_fallback,
+            })
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+
+class BundleCompressionStatusView(APIView):
+    """GET /api/v1/bundle-compression-status/{task_id}/
+
+    Requirement Bundle Export, Plan 2 Task 4: polls the Celery task
+    dispatched by ``requirement_bundle``'s ``?mode=compressed&async=true``
+    branch. Follows ``AttributeSchemaView``'s bare-``APIView`` pattern
+    (Plan 1 Task 5) since this is not a CRUD resource.
+    """
+
+    def get(self, request: Request, task_id: str, **kwargs: Any) -> Response:
+        import dataclasses
+
+        from application.bundle_compression_service import BundleCompressionService
+
+        ctx = get_auth_context(request)
+        result = BundleCompressionService().get_compression_status(ctx, task_id)
+        return Response(dataclasses.asdict(result))
 
 
 # ---------------------------------------------------------------------------

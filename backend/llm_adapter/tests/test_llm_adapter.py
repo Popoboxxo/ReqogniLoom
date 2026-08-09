@@ -892,11 +892,70 @@ class TestRunCapabilityTask:
             run_capability.run("os.system", {})
 
     def test_rejects_non_whitelisted_provider_method(self):
-        # 'complete' exists on the provider but must not be dispatchable.
+        # '_simulate' exists on the provider but must not be dispatchable.
         from llm_adapter.tasks import run_capability
 
         with pytest.raises(ValueError, match="Unknown capability"):
-            run_capability.run("complete", {})
+            run_capability.run("_simulate", {})
+
+    def test_dispatches_complete_and_wraps_str_result(self):
+        # 'complete' is whitelisted (Requirement Bundle Export Plan 2) and its
+        # plain str return value is wrapped as {"result": text} by _serialise.
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.complete.return_value = "compressed bundle text"
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider):
+            result = tasks.run_capability.run(
+                "complete", {"prompt": "p", "purpose": "bundle_compression"}
+            )
+
+        assert result == {"result": "compressed bundle text"}
+
+    def test_complete_records_approximate_token_usage(self):
+        # 'complete' returns a plain str with no real .token_usage figure
+        # (unlike the dataclass results of the other 4 capabilities), so
+        # record_token_usage must receive an approximated, non-zero count
+        # rather than silently always 0 (code review finding).
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.PROVIDER_NAME = "mock"
+        provider.complete.return_value = "0123456789"  # 10 chars
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider), patch(
+            "llm_adapter.token_tracking.record_token_usage"
+        ) as mock_record:
+            tasks.run_capability.run(
+                "complete", {"prompt": "abcdefgh", "purpose": "bundle_compression"}  # 8 chars
+            )
+
+        mock_record.assert_called_once()
+        _, call_kwargs = mock_record.call_args
+        assert call_kwargs["capability"] == "complete"
+        # (8 + 10) chars // 4 chars-per-token == 4 -- approximate, but not 0.
+        assert call_kwargs["input_tokens"] == 4
+
+    def test_dataclass_result_token_usage_is_unaffected_by_complete_approximation(self):
+        # The approximation branch must only fire for 'complete' -- other
+        # capabilities keep using the real .token_usage off their dataclass.
+        from llm_adapter.interface import LlmResult
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.PROVIDER_NAME = "mock"
+        provider.validate_artifact.return_value = LlmResult(
+            score=0.9, suggestions=[], provider="mock", model="m", token_usage=5
+        )
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider), patch(
+            "llm_adapter.token_tracking.record_token_usage"
+        ) as mock_record:
+            tasks.run_capability.run("validate_artifact", {"artifact_id": "a1"})
+
+        _, call_kwargs = mock_record.call_args
+        assert call_kwargs["input_tokens"] == 5
 
     def test_serialises_dataclass_result(self):
         from llm_adapter.interface import LlmResult

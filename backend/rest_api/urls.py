@@ -96,6 +96,7 @@ from rest_api.views import (
     AttributeSchemaView,
     AttributeVisibilityConfigViewSet,
     BaselineViewSet,
+    BundleCompressionStatusView,
     ChangeRequestViewSet,
     CustomFieldDefinitionViewSet,
     CsvExportView,
@@ -450,6 +451,14 @@ urlpatterns = [
         "attribute-schema/",
         AttributeSchemaView.as_view(),
         name="api-v1-attribute-schema",
+    ),
+    # Bundle compression async polling (Requirement Bundle Export, Plan 2
+    # Task 4) — status of a requirement-bundle/?mode=compressed&async=true
+    # Celery dispatch.
+    path(
+        "bundle-compression-status/<str:task_id>/",
+        BundleCompressionStatusView.as_view(),
+        name="api-v1-bundle-compression-status",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

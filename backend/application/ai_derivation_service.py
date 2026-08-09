@@ -133,6 +133,32 @@ WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE = (
     "domain-specific (not generic English words)."
 )
 
+# Requirement Bundle Export, Plan 2 Task 1 (application.bundle_compression_service
+# .PROMPT_TEMPLATE_NAME) prompt. Hardcoded for the same reason as
+# ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above. Registered here (rather than in
+# bundle_compression_service.py itself) because PROMPT_TEMPLATE_DEFAULTS is
+# this module's single canonical registry (see the module-level comment
+# above PROMPT_TEMPLATE_DEFAULTS) -- BundleCompressionService only reads it
+# via AiDerivationService._get_template_content, it never owns a copy.
+BUNDLE_COMPRESSION_PROMPT_TEMPLATE = """\
+You are compressing a structured export of software requirements for \
+consumption by another AI system. Your ONLY job is token-efficient \
+compression -- you must NOT summarize away, omit, reinterpret, or add any \
+factual content. Every requirement's title, status, and core content must \
+remain fully and accurately represented; you may remove purely \
+presentational Markdown formatting (redundant headers, decorative \
+separators) and compress verbose phrasing into denser prose, but the set \
+of facts a reader could extract must be identical before and after \
+compression. If you are not certain a piece of content is purely \
+presentational, keep it. Do not add any commentary, headers, or content \
+that was not present in the source.
+
+Source bundle (Markdown):
+{bundle_markdown}
+
+Return only the compressed bundle content, nothing else.
+"""
+
 # Phase 3 (Decision -> ADR derive pair, Task 5) prompt. Hardcoded for the same
 # reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above.
 DECISION_TO_ADR_PROMPT_TEMPLATE = (
@@ -168,6 +194,7 @@ PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
     "architecture_to_risk": ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE,
     "workspace_to_glossary": WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE,
     "decision_to_adr": DECISION_TO_ADR_PROMPT_TEMPLATE,
+    "bundle_compression": BUNDLE_COMPRESSION_PROMPT_TEMPLATE,
 }
 
 # ---------------------------------------------------------------------------
@@ -1619,5 +1646,6 @@ __all__ = [
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
     "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
     "DECISION_TO_ADR_PROMPT_TEMPLATE",
+    "BUNDLE_COMPRESSION_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]

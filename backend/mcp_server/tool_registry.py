@@ -218,6 +218,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # exports/discovery, no persistence — same class as artifact.search.
         "requirement_bundle.export",
         "requirement_bundle.attribute_schema",
+        # Requirement Bundle Export, Plan 2 Task 5: status polling only reads
+        # a Celery task result (via the tenant-ownership cache mapping) —
+        # mirrors BundleCompressionStatusView (REST), which is a plain GET
+        # with no write-role requirement. Same class as admin.backup_list.
+        "requirement_bundle.compression_status",
     }
 )
 

@@ -29,6 +29,7 @@ ALLOWED_CAPABILITIES = frozenset(
         "decompose_requirement",
         "check_consistency",
         "derive_requirements",
+        "complete",  # generic free-form completion (Requirement Bundle Export Plan 2)
     }
 )
 
@@ -46,6 +47,35 @@ def _serialise(result: object) -> dict:
     if isinstance(result, dict):
         return result
     return {"result": result}
+
+
+# Rough characters-per-token ratio for English text, used only as a fallback
+# when no real token count is available (see _approximate_completion_tokens).
+_APPROX_CHARS_PER_TOKEN = 4
+
+
+def _approximate_completion_tokens(prompt: str, result_text: str) -> int:
+    """Approximate a token count for a "complete" capability call.
+
+    ``complete()`` (``llm_adapter.providers``) returns a plain ``str`` with
+    no token-usage figure attached, unlike the 4 original capabilities whose
+    results are dataclasses carrying a real ``.token_usage``. Real HTTP
+    providers *do* compute a token count internally (see ``_invoke_chat``)
+    but discard it before returning -- surfacing it would mean changing
+    ``complete()``'s return type, which ripples through every one of its
+    ~10 existing call sites (AiDerivationService, ArchitectureDecomposeService,
+    AiReviewService, BundleCompressionService, TraceabilitySuggestService,
+    MCP cross_cutting tools) and is out of scope for wiring up the
+    "complete" capability here.
+
+    This uses the common ~4-characters-per-token heuristic for English text
+    instead, so REQ-106 daily-budget accounting for "complete" calls is a
+    reasonable order-of-magnitude estimate rather than silently always 0.
+    NOT a substitute for a real count -- revisit if precise accounting for
+    "complete" calls becomes a real requirement.
+    """
+    combined_length = len(prompt or "") + len(result_text or "")
+    return max(1, combined_length // _APPROX_CHARS_PER_TOKEN) if combined_length else 0
 
 
 @shared_task(bind=True, name="llm_adapter.run_capability")
@@ -107,10 +137,16 @@ def run_capability(
         # never fails the task). Runs while the tenant context is still active.
         from llm_adapter.token_tracking import record_token_usage  # noqa: PLC0415
 
+        token_usage = getattr(result, "token_usage", None)
+        if token_usage is None and capability == "complete" and isinstance(result, str):
+            # No real count on a plain-str "complete" result -- approximate
+            # rather than silently recording 0 (see _approximate_completion_tokens).
+            token_usage = _approximate_completion_tokens(kwargs.get("prompt", ""), result)
+
         record_token_usage(
             provider=getattr(provider, "PROVIDER_NAME", config.provider_name or "unknown"),
             capability=capability,
-            input_tokens=getattr(result, "token_usage", None) or 0,
+            input_tokens=token_usage or 0,
             output_tokens=0,
             workspace_id=kwargs.get("workspace_id"),
         )
