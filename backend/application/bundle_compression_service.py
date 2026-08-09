@@ -154,6 +154,60 @@ class BundleCompressionService(ServiceBase):
 
         return CompressionResult(text=text, cache_hit=False, is_mock_fallback=is_mock_fallback)
 
+    def compress_async(
+        self,
+        ctx: AuthContext,
+        bundle_result: "BundleResult",
+        *,
+        root_id: UUID,
+        depth: "int | None",
+        filter_mode: str,
+        fields: "list[str] | None",
+        format: str,
+        workspace_id: UUID,
+    ) -> "str | dict":
+        """Dispatch bundle compression to a Celery worker.
+
+        Returns a task_id (str) on success, or the structured
+        {"error": {"code": "BROKER_NOT_CONFIGURED", ...}} dict
+        AsyncTaskDispatcher itself returns when no broker is configured.
+
+        Does NOT check the cache first -- callers (REST/MCP, Task 4/5)
+        should call compress() synchronously first if a cache hit is
+        plausible and cheap to check; compress_async is for genuinely new
+        work. (Revisit if this becomes a real cost concern -- out of scope
+        for this task.)
+        """
+        self._set_tenant_context(ctx)
+
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        raw_markdown = format_bundle_markdown(bundle_result)
+        template = AiDerivationService._get_template_content(
+            ctx, PROMPT_TEMPLATE_NAME, workspace_id
+        )
+        prompt = AiDerivationService._render(template, bundle_markdown=raw_markdown)
+
+        return AsyncTaskDispatcher().dispatch_async(
+            "complete",
+            {"prompt": prompt, "purpose": PROMPT_TEMPLATE_NAME},
+        )
+
+    @staticmethod
+    def get_compression_status(task_id: str):
+        """Poll the status of a previously dispatched compress_async call.
+
+        Returns a TaskStatusResult (llm_adapter.dispatcher). Callers (REST/
+        MCP) are responsible for extracting the completion text from
+        `.result` once status == "done" -- the Celery task's return value is
+        the provider's raw completion text wrapped per run_capability's
+        _serialise() convention (a plain str result becomes {"result": text}).
+        """
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        return AsyncTaskDispatcher().get_task_status(task_id)
+
     @staticmethod
     def _call_provider(
         ctx: AuthContext, prompt: str, *, root_id: UUID

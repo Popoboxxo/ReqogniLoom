@@ -29,6 +29,7 @@ ALLOWED_CAPABILITIES = frozenset(
         "decompose_requirement",
         "check_consistency",
         "derive_requirements",
+        "complete",  # generic free-form completion (Requirement Bundle Export Plan 2)
     }
 )
 

@@ -1,8 +1,9 @@
-"""Tests for BundleCompressionService (Requirement Bundle Export, Plan 2 Task 1)."""
+"""Tests for BundleCompressionService (Requirement Bundle Export, Plan 2 Task 1/2)."""
 from __future__ import annotations
 
 import contextlib
 from typing import Iterator
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.cache import cache
@@ -285,3 +286,47 @@ class TestCompressMockFallbackNeverCached:
         # first call was never written to the cache at all, not just that
         # the is_mock_fallback flag was set correctly on it.
         assert second.cache_hit is False
+
+
+class TestCompressAsync:
+    def test_compress_async_returns_task_id_when_broker_configured(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+
+        # Patch the actual Celery dispatch so this test doesn't need a live
+        # worker -- mock at the same seam AsyncTaskDispatcher itself uses
+        # (llm_adapter.tasks.run_capability.apply_async), matching
+        # llm_adapter/tests/test_llm_adapter.py's TestAsyncTaskDispatcher class.
+        from llm_adapter import tasks
+
+        fake_task_id = "fake-task-id"
+        mock_async_result = MagicMock()
+        mock_async_result.id = fake_task_id
+
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ):
+            task_id = svc.compress_async(
+                auth_ctx, result,
+                root_id=architecture_element.id, depth=0, filter_mode="all",
+                fields=None, format="markdown", workspace_id=workspace.id,
+            )
+        assert isinstance(task_id, str)
+        assert task_id == fake_task_id
+
+    def test_compress_async_without_broker_returns_structured_error(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        response = svc.compress_async(
+            auth_ctx, result,
+            root_id=architecture_element.id, depth=0, filter_mode="all",
+            fields=None, format="markdown", workspace_id=workspace.id,
+        )
+        assert isinstance(response, dict)
+        assert response["error"]["code"] == "BROKER_NOT_CONFIGURED"

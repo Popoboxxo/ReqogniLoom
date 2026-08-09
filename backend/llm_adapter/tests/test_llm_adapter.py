@@ -892,11 +892,26 @@ class TestRunCapabilityTask:
             run_capability.run("os.system", {})
 
     def test_rejects_non_whitelisted_provider_method(self):
-        # 'complete' exists on the provider but must not be dispatchable.
+        # '_simulate' exists on the provider but must not be dispatchable.
         from llm_adapter.tasks import run_capability
 
         with pytest.raises(ValueError, match="Unknown capability"):
-            run_capability.run("complete", {})
+            run_capability.run("_simulate", {})
+
+    def test_dispatches_complete_and_wraps_str_result(self):
+        # 'complete' is whitelisted (Requirement Bundle Export Plan 2) and its
+        # plain str return value is wrapped as {"result": text} by _serialise.
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.complete.return_value = "compressed bundle text"
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider):
+            result = tasks.run_capability.run(
+                "complete", {"prompt": "p", "purpose": "bundle_compression"}
+            )
+
+        assert result == {"result": "compressed bundle text"}
 
     def test_serialises_dataclass_result(self):
         from llm_adapter.interface import LlmResult
