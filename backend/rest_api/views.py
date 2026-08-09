@@ -39,6 +39,8 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
+from rest_framework.negotiation import BaseContentNegotiation
+from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -69,8 +71,18 @@ from application.services import (
     PgVectorUnavailableError,
     ChangeRequestService,
 )
+from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from application.requirement_bundle_formatters import (
+    format_bundle_csv,
+    format_bundle_json,
+    format_bundle_markdown,
+)
+from application.requirement_bundle_service import (
+    BundleDepthExceededError,
+    RequirementBundleQueryService,
+)
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
@@ -1288,6 +1300,33 @@ class ArtifactViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+class _JsonOnlyContentNegotiation(BaseContentNegotiation):
+    """Content negotiation that always resolves to the first declared renderer.
+
+    Requirement Bundle Export: the ``requirement_bundle`` action selects its
+    own output format from an app-level ``?output_format=`` query param and
+    emits markdown/CSV as a raw ``HttpResponse``, bypassing DRF's renderer
+    pipeline entirely. DRF's rendering therefore only ever matters for the
+    JSON branch — but ``DefaultContentNegotiation`` still runs *before* the
+    action body and can hijack the request from the ``Accept`` header or the
+    reserved ``?format=`` override, which previously produced a ``200`` with a
+    corrupted body (a stub renderer returning the dict unchanged, which
+    ``HttpResponse`` then iterated into its concatenated key names), a
+    spurious ``406``, or a bare ``404`` that pre-empted the action's own
+    ``400 VALIDATION_ERROR``.
+
+    Pinning negotiation to JSON removes that whole channel: whatever the
+    client sends in ``Accept``/``?format=``, DRF resolves to
+    ``JSONRenderer``, and the action alone decides the real output format.
+    """
+
+    def select_parser(self, request, parsers):
+        return parsers[0]
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
+
+
 class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for ArchitectureElement CRUD operations (REQ-L2-RA-001).
 
@@ -1527,6 +1566,110 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="requirement-bundle",
+        # The output format is an app-level concern here, not a DRF rendering
+        # one: markdown/CSV leave as a raw HttpResponse. Pinning renderer +
+        # negotiation to JSON keeps DRF's Accept/?format= machinery from
+        # intercepting the request before this method runs — see
+        # _JsonOnlyContentNegotiation.
+        renderer_classes=[JSONRenderer],
+        content_negotiation_class=_JsonOnlyContentNegotiation,
+    )
+    def requirement_bundle(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture/{pk}/requirement-bundle/
+            ?depth=<int>&filter_mode=<all|visible|custom>&fields=<comma-list>
+            &output_format=<json|markdown|csv>
+
+        Requirement Bundle Export, Plan 1 Task 5. Raw (non-AI) bundle of every
+        Requirement ALLOCATED_TO this element or its ALLOCATED_TO
+        sub-elements, up to `depth` levels.
+
+        The output format is selected with ``?output_format=`` — deliberately
+        *not* ``?format=``, which is DRF's reserved URL_FORMAT_OVERRIDE and
+        collides with content negotiation. ``Accept`` and ``?format=`` are
+        ignored by this action; an unknown ``output_format`` value returns
+        ``400 VALIDATION_ERROR``.
+
+        **Id spaces in the response.** ``items[].requirement_id`` is
+        ``Requirement.id`` and resolves directly against
+        ``/api/v1/requirements/{id}/``. ``items[].found_under_element_id`` is
+        NOT an ``ArchitectureElement.id`` — it is the element's backing
+        **Artifact** id (``ArchitectureElement.artifact_id``), while the
+        ``{pk}`` this endpoint takes IS an ``ArchitectureElement.id``. The two
+        are different UUIDs, so ``GET /api/v1/architecture/{found_under_element_id}/``
+        will 404. Correlating a returned value back to a specific element
+        requires resolving through the Artifact layer: look the element up by
+        its ``artifact_id`` (the inverse mapping, element id -> artifact id,
+        is ``TraceLinkService._resolve_artifact_id``). This is a deliberate
+        design choice — the allocation walk operates on artifact ids end to
+        end — and is documented rather than changed, since the returned
+        values are part of the published contract.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            element = self._svc().get_architecture_element(UUID(pk), ctx)
+            workspace_id = element.artifact.workspace_id
+
+            depth_param = request.query_params.get("depth")
+            depth = int(depth_param) if depth_param is not None else None
+
+            filter_mode = request.query_params.get("filter_mode", "all")
+            fields_param = request.query_params.get("fields")
+            fields = fields_param.split(",") if fields_param else None
+
+            output_format = request.query_params.get("output_format", "json")
+            if output_format not in ("json", "markdown", "csv"):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message=(
+                            f"Invalid output_format {output_format!r}; "
+                            "expected json, markdown, or csv"
+                        ),
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            result = RequirementBundleQueryService().get_bundle(
+                ctx,
+                root_id=UUID(pk),
+                workspace_id=workspace_id,
+                depth=depth,
+                filter_mode=filter_mode,
+                fields=fields,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except BundleDepthExceededError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        if output_format == "json":
+            return Response(format_bundle_json(result))
+        if output_format == "markdown":
+            return HttpResponse(
+                format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
+            )
+        return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -6142,6 +6285,31 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+
+class AttributeSchemaView(APIView):
+    """GET /api/v1/attribute-schema/?entity_type=<optional>
+
+    Requirement Bundle Export, Plan 1 Task 5 / Task 4. Lists the known
+    attribute names per entity type (currently Requirement only), with each
+    attribute's current tenant-level visibility, so callers can discover
+    valid field names before making a filter_mode='custom' bundle-export
+    request.
+    """
+
+    def get(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            entity_type = request.query_params.get("entity_type")
+            schema = AttributeVisibilityConfigService().describe_schema(
+                ctx, entity_type=entity_type
+            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(schema)
 
 
 class AttributeVisibilityConfigViewSet(BaseEntityViewSet):

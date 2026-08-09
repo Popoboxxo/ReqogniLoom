@@ -93,6 +93,7 @@ from rest_api.views import (
     ArchitectureElementViewSet,
     ArtifactCustomFieldValuesView,
     ArtifactViewSet,
+    AttributeSchemaView,
     AttributeVisibilityConfigViewSet,
     BaselineViewSet,
     ChangeRequestViewSet,
@@ -442,6 +443,13 @@ urlpatterns = [
         "diagrams/<uuid:pk>/mermaid-preview/",
         MermaidPreviewView.as_view(),
         name="diagram-mermaid-preview",
+    ),
+    # Attribute schema discovery (Requirement Bundle Export, Plan 1 Task 5) —
+    # lists known attribute names + visibility per entity type.
+    path(
+        "attribute-schema/",
+        AttributeSchemaView.as_view(),
+        name="api-v1-attribute-schema",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

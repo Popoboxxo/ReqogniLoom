@@ -70,6 +70,13 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
     }
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
+        # Expose the backing Artifact id so callers can resolve
+        # requirement_bundle.export's item-level 'found_under_element_id'
+        # (which is this same artifact_id, not an ArchitectureElement id).
+        # Restores parity with ArchitectureElementSerializer
+        # (rest_api/serializers.py), which already exposes artifact_id via a
+        # read-only UUIDField.
+        result["artifact_id"] = str(el.artifact_id)
     return result
 
 

@@ -29,6 +29,24 @@ from application.base import NotFoundError, ServiceBase
 class AttributeVisibilityConfigService(ServiceBase):
     """Tenant-scoped CRUD for AttributeVisibilityConfig (REQ-066)."""
 
+    @staticmethod
+    def _known_schemas() -> dict[str, tuple[str, ...]]:
+        """Known entity types and their full field sets, for schema discovery
+        (Requirement Bundle Export Plan 1, Task 4). Extend this mapping when a
+        new entity type is wired into bundle export or any other consumer of
+        :meth:`describe_schema`.
+
+        The field-set import is deliberately **lazy** (inside the method, not
+        at module scope): this service is a generic, cross-cutting one used
+        well beyond bundle export, and it should not carry a module-level
+        dependency on a single feature module. No circular import exists
+        today — ``requirement_bundle_service`` imports this service lazily too
+        — but the layering concern stands independently of that.
+        """
+        from application.requirement_bundle_service import REQUIREMENT_ALL_FIELDS
+
+        return {"Requirement": REQUIREMENT_ALL_FIELDS}
+
     # ---- Read -------------------------------------------------------------
 
     def list_configs(self, ctx: AuthContext) -> QuerySet:
@@ -53,6 +71,43 @@ class AttributeVisibilityConfigService(ServiceBase):
         if obj is None:
             raise NotFoundError(f"Config {config_id} not found")
         return obj
+
+    def describe_schema(
+        self, ctx: AuthContext, entity_type: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the available attributes for *entity_type* (or every known
+        entity type when omitted), with each attribute's current
+        workspace/tenant visibility (Requirement Bundle Export, Plan 1).
+
+        Used by REST/MCP callers to discover valid field names before making
+        a filter_mode='custom' bundle-export request.
+        """
+        self._set_tenant_context(ctx)
+        schemas = self._known_schemas()
+        if entity_type is not None:
+            if entity_type not in schemas:
+                raise NotFoundError(f"Unknown entity_type {entity_type!r}")
+            schemas = {entity_type: schemas[entity_type]}
+
+        hidden_by_type: dict[str, set[str]] = {}
+        for et in schemas:
+            configs = AttributeVisibilityConfig.objects.filter(
+                tenant_id=ctx.tenant_id, entity_type=et, is_visible=False
+            )
+            hidden_by_type[et] = {c.attribute_name for c in configs}
+
+        result: list[dict[str, Any]] = []
+        for et, field_names in schemas.items():
+            hidden = hidden_by_type.get(et, set())
+            for name in field_names:
+                result.append(
+                    {
+                        "entity_type": et,
+                        "attribute_name": name,
+                        "is_visible": name not in hidden,
+                    }
+                )
+        return result
 
     # ---- Write ------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.5.0",
-  "tool_count": 143,
+  "tool_count": 145,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2830,6 +2830,74 @@
         },
         "required": [
           "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "requirement_bundle.attribute_schema",
+      "prefix": "requirement_bundle",
+      "is_write": false,
+      "description": "List available attributes for an entity type, with current visibility. Response shape: {\"attributes\": [...], \"count\": N} - note this differs from the REST AttributeSchemaView endpoint, which returns the same attribute list as a bare top-level JSON array (no wrapping object); ToolResult requires a dict, so the MCP and REST payload shapes are not interchangeable. The names listed here are exactly the values accepted by requirement_bundle.export's 'fields' parameter and the keys returned in its items[].fields; the item-level 'found_under_element_id' is not among them - it is the element's backing Artifact id, not an ArchitectureElement id (see requirement_bundle.export).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "description": "Optional entity type filter, e.g. 'Requirement'. Omit for all known types."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "requirement_bundle.export",
+      "prefix": "requirement_bundle",
+      "is_write": false,
+      "description": "Export every Requirement ALLOCATED_TO the given ArchitectureElement or its ALLOCATED_TO sub-elements, up to a configurable depth. Id spaces differ between the request and the response: 'root_id' takes an ArchitectureElement id, but each item's 'found_under_element_id' is that element's backing Artifact id (ArchitectureElement.artifact_id), NOT an ArchitectureElement id - they are different UUIDs, so 'found_under_element_id' cannot be passed back to architecture.get or GET /api/v1/architecture/{id}/ and does not correlate directly with the 'root_id' you queried. Resolve it by matching it against the 'artifact_id' field returned by architecture.get / architecture.query for the element in question. 'requirement_id' by contrast is a real Requirement id and is directly usable with requirement.get.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string",
+            "description": "UUID of the root ArchitectureElement."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "depth": {
+            "type": "integer",
+            "description": "0 = only requirements directly allocated to root; omit for full hierarchy."
+          },
+          "filter_mode": {
+            "type": "string",
+            "enum": [
+              "all",
+              "visible",
+              "custom"
+            ],
+            "description": "Attribute selection mode. Defaults to 'all'."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Field names to include; required when filter_mode='custom'."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown",
+              "csv"
+            ],
+            "description": "Output format. Defaults to 'json'. An unsupported value returns VALIDATION_ERROR. Note the equivalent REST endpoint spells this parameter '?output_format=' instead, because 'format' is reserved by DRF content negotiation there."
+          }
+        },
+        "required": [
+          "root_id",
+          "workspace_id"
         ]
       }
     },
