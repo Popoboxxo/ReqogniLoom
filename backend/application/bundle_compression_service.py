@@ -57,6 +57,15 @@ PROMPT_TEMPLATE_NAME = "bundle_compression"
 # thread. Exposed as a constant so REST/MCP share one value.
 SYNC_ITEM_COUNT_THRESHOLD = 50
 
+_TASK_TENANT_CACHE_PREFIX = "bundle_compression_task_tenant"
+
+# TTL for the task_id -> tenant_id ownership mapping (code review finding,
+# ADR-03): must match or exceed Celery's own result-expiry window (this
+# project does not override `result_expires`, so Celery's built-in default
+# of 1 day applies) -- if the tenant mapping expired first, a still-pollable
+# task would incorrectly look "not_found" to its own dispatching tenant.
+BUNDLE_COMPRESSION_TASK_TENANT_TTL_SECONDS = 86400
+
 
 @dataclass
 class CompressionResult:
@@ -219,13 +228,29 @@ class BundleCompressionService(ServiceBase):
         )
         prompt = AiDerivationService._render(template, bundle_markdown=raw_markdown)
 
-        return AsyncTaskDispatcher().dispatch_async(
+        dispatch = AsyncTaskDispatcher().dispatch_async(
             "complete",
             {"prompt": prompt, "purpose": PROMPT_TEMPLATE_NAME},
         )
 
-    @staticmethod
-    def get_compression_status(task_id: str):
+        # ADR-03 (row-level tenant isolation): Celery's result backend
+        # (Redis, via AsyncResult) has no concept of tenant at all, so a
+        # task_id alone would let any authenticated user in any tenant poll
+        # another tenant's compressed bundle text just by knowing/guessing
+        # the (high-entropy, but that's not a substitute for real scoping)
+        # UUID. Record which tenant dispatched this task_id so
+        # get_compression_status can enforce ownership on every poll (code
+        # review round 1 finding).
+        if isinstance(dispatch, str):
+            cache.set(
+                f"{_TASK_TENANT_CACHE_PREFIX}:{dispatch}",
+                str(ctx.tenant_id),
+                BUNDLE_COMPRESSION_TASK_TENANT_TTL_SECONDS,
+            )
+
+        return dispatch
+
+    def get_compression_status(self, ctx: AuthContext, task_id: str):
         """Poll the status of a previously dispatched compress_async call.
 
         Returns a TaskStatusResult (llm_adapter.dispatcher). Callers (REST/
@@ -233,8 +258,20 @@ class BundleCompressionService(ServiceBase):
         `.result` once status == "done" -- the Celery task's return value is
         the provider's raw completion text wrapped per run_capability's
         _serialise() convention (a plain str result becomes {"result": text}).
+
+        ADR-03: enforces that *task_id* was dispatched by *ctx*'s own tenant
+        before ever touching the (tenant-blind) Celery result backend. An
+        unknown/expired task_id and a foreign tenant's task_id are
+        deliberately indistinguishable to the caller -- both return the same
+        "not_found" TaskStatusResult AsyncTaskDispatcher.get_task_status
+        already returns for a genuinely unknown task_id, so a cross-tenant
+        probe cannot even learn "this task_id exists but isn't mine".
         """
-        from llm_adapter.dispatcher import AsyncTaskDispatcher
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        owning_tenant_id = cache.get(f"{_TASK_TENANT_CACHE_PREFIX}:{task_id}")
+        if owning_tenant_id is None or owning_tenant_id != str(ctx.tenant_id):
+            return TaskStatusResult(task_id=task_id, status="not_found")
 
         return AsyncTaskDispatcher().get_task_status(task_id)
 

@@ -405,3 +405,99 @@ class TestCompressAsyncTokenLimit:
             )
         assert task_id == fake_task_id
         mock_apply.assert_called_once()
+
+
+class TestGetCompressionStatusTenantOwnership:
+    """ADR-03 (row-level tenant isolation), code review round 1 finding:
+    Celery's result backend (Redis, via AsyncResult) has no concept of
+    tenant at all, so get_compression_status must enforce task_id ownership
+    itself before ever touching it -- otherwise any authenticated user in
+    any tenant who obtains/guesses another tenant's task_id could poll that
+    tenant's compressed bundle text.
+    """
+
+    def _dispatch_as(self, ctx, workspace, requirement, architecture_element, monkeypatch):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+
+        from llm_adapter import tasks
+
+        fake_task_id = "fake-task-id"
+        mock_async_result = MagicMock()
+        mock_async_result.id = fake_task_id
+
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ):
+            task_id = svc.compress_async(
+                ctx, result,
+                root_id=architecture_element.id, depth=0, filter_mode="all",
+                fields=None, format="markdown", workspace_id=workspace.id,
+            )
+        return svc, task_id
+
+    def test_cross_tenant_poll_returns_not_found(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        svc, task_id = self._dispatch_as(
+            auth_ctx, workspace, requirement, architecture_element, monkeypatch
+        )
+
+        other_tenant = Tenant.objects.create(name="Other Tenant", slug="bundle-compression-other-tenant")
+        other_user = User.objects.create(
+            username="bundle-compression-other-user",
+            email="bundle-compression-other@example.com",
+            tenant=other_tenant,
+        )
+        other_ctx = AuthContext(
+            user_id=other_user.id,
+            tenant_id=other_tenant.id,
+            active_roles=("editor",),
+            auth_method="test",
+            api_key_id=None,
+            tenant_name="Other Tenant",
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        with patch.object(AsyncTaskDispatcher, "get_task_status") as mock_get_status:
+            status_result = svc.get_compression_status(other_ctx, task_id)
+
+        # Load-bearing: a cross-tenant probe gets the exact same "not_found"
+        # a genuinely-unknown task_id would get -- it must not be able to
+        # learn "this task_id exists but isn't mine" via a different response.
+        assert status_result.status == "not_found"
+        assert status_result.task_id == task_id
+        # Load-bearing: the ownership check short-circuits BEFORE ever
+        # touching the tenant-blind Celery result backend.
+        mock_get_status.assert_not_called()
+
+    def test_same_tenant_poll_reaches_the_real_status(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        svc, task_id = self._dispatch_as(
+            auth_ctx, workspace, requirement, architecture_element, monkeypatch
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(task_id=task_id, status="pending"),
+        ) as mock_get_status:
+            status_result = svc.get_compression_status(auth_ctx, task_id)
+
+        assert status_result.status == "pending"
+        mock_get_status.assert_called_once_with(task_id)
+
+    def test_unknown_task_id_returns_not_found_without_touching_backend(self, auth_ctx):
+        svc = BundleCompressionService()
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        with patch.object(AsyncTaskDispatcher, "get_task_status") as mock_get_status:
+            status_result = svc.get_compression_status(auth_ctx, "never-dispatched-task-id")
+
+        assert status_result.status == "not_found"
+        mock_get_status.assert_not_called()

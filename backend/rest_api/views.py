@@ -1760,7 +1760,8 @@ class BundleCompressionStatusView(APIView):
 
         from application.bundle_compression_service import BundleCompressionService
 
-        result = BundleCompressionService.get_compression_status(task_id)
+        ctx = get_auth_context(request)
+        result = BundleCompressionService().get_compression_status(ctx, task_id)
         return Response(dataclasses.asdict(result))
 
 
