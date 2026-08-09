@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0-beta.2] — 2026-08-09
+
+### Added
+- Regenerated MCP plugin distributions (Claude Code, OpenCode, Antigravity) with the Requirement Bundle Export/Compression tools (#457)
+- Renamed `requirements-architect` role to `requirements-architecture-manager` with new bundle-export tool access (#457)
+- Renamed internal `reqflow` operator agent to `reqogniloom-operator` (#457)
+
+### Known Issues
+- #455: SSE transport (/mcp/sse/) returns HTTP 500 under local dev server — HTTP transport works as a workaround
+- #456: Claude Code plugin build writes marketplace.json to the wrong path
+
 ## [1.6.0-beta.1] — 2026-08-09
 
 ### Security
