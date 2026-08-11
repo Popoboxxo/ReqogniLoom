@@ -54,7 +54,11 @@ class AttributeVisibilityConfigService(ServiceBase):
 
         Returns a lazy ``QuerySet`` so the caller may paginate without
         materialising the full result set.
+
+        Raises:
+            PermissionDeniedError: Caller lacks the ``admin`` role.
         """
+        ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         return AttributeVisibilityConfig.objects.filter(
             tenant_id=ctx.tenant_id
@@ -63,7 +67,12 @@ class AttributeVisibilityConfigService(ServiceBase):
     def get_config(
         self, ctx: AuthContext, config_id: UUID
     ) -> AttributeVisibilityConfig:
-        """Return a single config or raise :class:`NotFoundError`."""
+        """Return a single config or raise :class:`NotFoundError`.
+
+        Raises:
+            PermissionDeniedError: Caller lacks the ``admin`` role.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         obj = AttributeVisibilityConfig.objects.filter(
             id=config_id, tenant_id=ctx.tenant_id
@@ -120,7 +129,12 @@ class AttributeVisibilityConfigService(ServiceBase):
         is_visible: bool = True,
         is_required: bool = False,
     ) -> AttributeVisibilityConfig:
-        """Create a new visibility config for the active tenant."""
+        """Create a new visibility config for the active tenant.
+
+        Raises:
+            PermissionDeniedError: Caller lacks the ``admin`` role.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         return AttributeVisibilityConfig.objects.create(
             tenant_id=ctx.tenant_id,
@@ -163,7 +177,11 @@ class AttributeVisibilityConfigService(ServiceBase):
         Each item is keyed by ``(entity_type, attribute_name)`` within the active
         tenant. Existing rows have their visibility flags updated and version
         bumped; new rows are created with ``created_by`` set.
+
+        Raises:
+            PermissionDeniedError: Caller lacks the ``admin`` role.
         """
+        ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         results: list[AttributeVisibilityConfig] = []
         with transaction.atomic():

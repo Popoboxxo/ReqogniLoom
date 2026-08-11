@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from application.attribute_visibility_service import AttributeVisibilityConfigService
-from application.base import NotFoundError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.custom_field_service import CustomFieldService
 from application.settings_service import SettingsService
 from application.workspace_service import WorkspaceService
@@ -155,6 +155,39 @@ class TestAttributeVisibilityConfigService:
         assert second[0].id == first[0].id
         assert second[0].is_visible is False
         assert second[0].version == 2
+
+    def test_non_admin_denied_every_method(self):
+        """Code review regression: none of the five CRUD methods checked the
+        caller's role at all -- any authenticated user (viewer, editor, ...)
+        could create/list/update/delete/bulk-upsert tenant-wide attribute
+        visibility config, despite the class's own docstring claiming
+        "tenant admins only". describe_schema is intentionally excluded
+        (read-only discovery endpoint, documented as broader-than-admin)."""
+        tenant, user = _tenant_user("avc")
+        admin_ctx = _make_ctx(tenant_id=tenant.id, user_id=user.id, roles=("admin",))
+        editor_ctx = _make_ctx(tenant_id=tenant.id, user_id=user.id, roles=("editor",))
+        svc = AttributeVisibilityConfigService()
+
+        with pytest.raises(PermissionDeniedError):
+            svc.create_config(editor_ctx, entity_type="Requirement", attribute_name="x")
+
+        with pytest.raises(PermissionDeniedError):
+            svc.list_configs(editor_ctx)
+
+        with pytest.raises(PermissionDeniedError):
+            svc.bulk_upsert(
+                editor_ctx,
+                [{"entity_type": "Requirement", "attribute_name": "x", "is_visible": True}],
+            )
+
+        cfg = svc.create_config(admin_ctx, entity_type="Requirement", attribute_name="y")
+
+        with pytest.raises(PermissionDeniedError):
+            svc.get_config(editor_ctx, cfg.id)
+        with pytest.raises(PermissionDeniedError):
+            svc.update_config(editor_ctx, cfg.id, is_visible=False)
+        with pytest.raises(PermissionDeniedError):
+            svc.delete_config(editor_ctx, cfg.id)
 
 
 class TestDescribeSchema:
