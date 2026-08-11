@@ -518,7 +518,7 @@ class TestIcdVersionImmutability:
                 r1 = create_icd(dto)
 
             update = IcdUpdateDTO(postconditions=["200", "audit_logged"])
-            r2 = update_icd(icd_id=r1.icd.id, payload=update)
+            r2 = update_icd(icd_id=r1.icd.id, payload=update, tenant_id=tenant_a.id)
 
         assert r2.current_version.version_number == 2
         assert r2.current_version.id != r1.current_version.id
@@ -532,7 +532,7 @@ class TestIcdVersionImmutability:
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 r1 = create_icd(dto)
             update = IcdUpdateDTO(postconditions=["200", "extra"])
-            r2 = update_icd(icd_id=r1.icd.id, payload=update)
+            r2 = update_icd(icd_id=r1.icd.id, payload=update, tenant_id=tenant_a.id)
 
         # Both versions exist in the DB
         versions = list(
@@ -554,7 +554,7 @@ class TestIcdVersionImmutability:
                 r1 = create_icd(dto)
             original_id = r1.current_version.id
             update = IcdUpdateDTO(postconditions=["200", "extra"])
-            update_icd(icd_id=r1.icd.id, payload=update)
+            update_icd(icd_id=r1.icd.id, payload=update, tenant_id=tenant_a.id)
 
         # Reload the original version row directly
         original = IcdVersion.unscoped.get(pk=original_id)
@@ -632,6 +632,7 @@ class TestBreakingChangeDetection:
 
             result = validate_compatibility(
                 icd_id=r1.icd.id,
+                tenant_id=tenant_a.id,
                 new_payload={
                     "direction": "unidirectional",
                     "interface_type": "REST",
@@ -837,10 +838,10 @@ class TestGetIcdHistory:
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 r1 = create_icd(dto)
-            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v2"))
-            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v3"))
+            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v2"), tenant_a.id)
+            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v3"), tenant_a.id)
 
-            history = get_icd_history(r1.icd.id)
+            history = get_icd_history(r1.icd.id, tenant_a.id)
 
         assert len(history) == 3
         assert [v.version_number for v in history] == [1, 2, 3]
@@ -888,6 +889,66 @@ class TestTenantIsolation:
         with active_tenant(tenant_a):
             result = get_icd_versions(other_ws)
         assert result == []
+
+    def test_update_icd_rejects_foreign_tenant_id(
+        self, tenant_a, tenant_b, workspace_id, src_id, tgt_id
+    ):
+        """Security regression: update_icd() must not let tenant_b mutate
+        (or even find) an ICD that belongs to tenant_a, just by supplying its
+        UUID and tenant_b's own tenant_id. Previously used `.unscoped` with
+        no tenant filter at all."""
+        from icd.models import Icd
+        from icd.services import create_icd, update_icd, IcdUpdateDTO
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r = create_icd(dto)
+
+        update = IcdUpdateDTO(semantic_description="mutated by tenant_b")
+        with active_tenant(tenant_b):
+            with pytest.raises(Icd.DoesNotExist):
+                update_icd(icd_id=r.icd.id, payload=update, tenant_id=tenant_b.id)
+
+    def test_get_icd_history_rejects_foreign_tenant_id(
+        self, tenant_a, tenant_b, workspace_id, src_id, tgt_id
+    ):
+        from icd.services import create_icd, get_icd_history
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r = create_icd(dto)
+
+        with active_tenant(tenant_b):
+            history = get_icd_history(icd_id=r.icd.id, tenant_id=tenant_b.id)
+        assert history == []
+
+    def test_validate_compatibility_rejects_foreign_tenant_id(
+        self, tenant_a, tenant_b, workspace_id, src_id, tgt_id
+    ):
+        from icd.models import Icd
+        from icd.services import create_icd, validate_compatibility
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r = create_icd(dto)
+
+        with active_tenant(tenant_b):
+            with pytest.raises(Icd.DoesNotExist):
+                validate_compatibility(
+                    icd_id=r.icd.id,
+                    tenant_id=tenant_b.id,
+                    new_payload={
+                        "direction": "unidirectional",
+                        "interface_type": "REST",
+                        "semantic_description": "x",
+                        "preconditions": [],
+                        "postconditions": [],
+                        "invariants": [],
+                    },
+                )
 
 
 @pytest.mark.django_db

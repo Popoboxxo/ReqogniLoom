@@ -141,7 +141,9 @@ def create_icd(payload: IcdCreateDTO) -> IcdResult:
     return get_manager().create_icd(payload)
 
 
-def update_icd(icd_id: uuid.UUID, payload: IcdUpdateDTO) -> IcdResult:
+def update_icd(
+    icd_id: uuid.UUID, payload: IcdUpdateDTO, tenant_id: uuid.UUID
+) -> IcdResult:
     """Append a new immutable IcdVersion with breaking-change detection.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
@@ -153,23 +155,25 @@ def update_icd(icd_id: uuid.UUID, payload: IcdUpdateDTO) -> IcdResult:
     Args:
         icd_id:  UUID of the Icd to update.
         payload: IcdUpdateDTO with fields to change (None = keep current).
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         IcdResult with the new IcdVersion and validation_result populated.
 
     Raises:
-        Icd.DoesNotExist: When no ICD with the given id is found.
+        Icd.DoesNotExist: When no ICD with the given id is found for this tenant.
         ValueError: Syntax validation failure on the merged payload.
 
     req_id: REQ-L2-ICD-001, REQ-L2-ICD-003, REQ-L2-ICD-006
     leaf_id: COMP-ICD-001
     """
-    return get_manager().update_icd(icd_id=icd_id, payload=payload)
+    return get_manager().update_icd(icd_id=icd_id, payload=payload, tenant_id=tenant_id)
 
 
 def validate_compatibility(
     icd_id: uuid.UUID,
     new_payload: dict[str, Any],
+    tenant_id: uuid.UUID,
 ) -> ValidationResult:
     """Dry-run compatibility check for a proposed ICD update.
 
@@ -178,6 +182,7 @@ def validate_compatibility(
     Args:
         icd_id:      UUID of the target Icd.
         new_payload: Dict with proposed contract fields.
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         ValidationResult with is_breaking and breaking_changes populated.
@@ -185,16 +190,19 @@ def validate_compatibility(
     req_id: REQ-L2-ICD-003
     leaf_id: COMP-ICD-001
     """
-    return get_manager().validate_compatibility(icd_id=icd_id, new_payload=new_payload)
+    return get_manager().validate_compatibility(
+        icd_id=icd_id, new_payload=new_payload, tenant_id=tenant_id
+    )
 
 
-def get_icd_history(icd_id: uuid.UUID) -> list[IcdVersion]:
+def get_icd_history(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> list[IcdVersion]:
     """Return all IcdVersions for the given ICD, oldest-first.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 
     Args:
         icd_id: UUID of the target Icd.
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         List of IcdVersion objects ordered by version_number ascending.
@@ -202,7 +210,7 @@ def get_icd_history(icd_id: uuid.UUID) -> list[IcdVersion]:
     req_id: REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    return get_manager().get_icd_history(icd_id=icd_id)
+    return get_manager().get_icd_history(icd_id=icd_id, tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
