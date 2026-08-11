@@ -460,7 +460,7 @@ class TestTestRunBaselineIntegration:
             )
 
             store = BaselineStore()
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
 
             entity_types = {e.entity_type for e in detail.entries}
             assert "test_run" in entity_types, (
@@ -522,7 +522,7 @@ class TestTestRunBaselineIntegration:
             )
 
             store = BaselineStore()
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
 
             entity_types = {e.entity_type for e in detail.entries}
             assert "test_run_result" in entity_types, (
@@ -641,7 +641,7 @@ class TestTestRunBaselineIntegration:
             )
 
             store = BaselineStore()
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
 
             test_run_entries = [
                 e for e in detail.entries if e.entity_type == "test_run"

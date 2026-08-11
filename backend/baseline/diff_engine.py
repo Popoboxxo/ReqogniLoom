@@ -74,6 +74,7 @@ class DiffEngine:
         self,
         baseline_a_id: uuid.UUID,
         baseline_b_id: uuid.UUID,
+        tenant_id: uuid.UUID,
     ) -> DiffResult:
         """Compute the diff between two Baselines.
 
@@ -82,20 +83,24 @@ class DiffEngine:
         Args:
             baseline_a_id: UUID of the reference baseline (older / from).
             baseline_b_id: UUID of the target baseline (newer / to).
+            tenant_id: Active tenant UUID (row-level isolation) — either
+                baseline belonging to a different tenant is treated as not
+                found.
 
         Returns:
             DiffResult with added, removed, and changed lists.
 
         Raises:
-            BaselineNotFoundError: If either baseline_id does not exist.
+            BaselineNotFoundError: If either baseline_id does not exist for
+                this tenant.
             ScopeMismatchError: If the two baselines have different scopes.
         """
         # Step 1: Scope validation before index loading (ADR-L3-BL002-02)
-        self._validate_scopes(baseline_a_id, baseline_b_id)
+        self._validate_scopes(baseline_a_id, baseline_b_id, tenant_id)
 
         # Step 2: Load delta indices via IF-BL-INT-002
-        raw_a = self._store.load_delta_index(baseline_a_id)
-        raw_b = self._store.load_delta_index(baseline_b_id)
+        raw_a = self._store.load_delta_index(baseline_a_id, tenant_id)
+        raw_b = self._store.load_delta_index(baseline_b_id, tenant_id)
 
         # Step 3: Build {item_id: version} dicts (O(n) construction)
         index_a: dict[str, int] = {row[0]: row[1] for row in raw_a}
@@ -105,8 +110,8 @@ class DiffEngine:
         # (one batched query each). They are the authority for "changed"
         # (issue #398), so they must be available for every common item — not
         # only for items a version counter already flagged.
-        states_a = self._load_states(baseline_a_id)
-        states_b = self._load_states(baseline_b_id)
+        states_a = self._load_states(baseline_a_id, tenant_id)
+        states_b = self._load_states(baseline_b_id, tenant_id)
 
         # Step 4: Set-union iteration (O(n))
         added: list[str] = []
@@ -153,7 +158,9 @@ class DiffEngine:
 
         return DiffResult(added=added, removed=removed, changed=changed)
 
-    def _load_states(self, baseline_id: uuid.UUID) -> dict[str, Optional[dict]]:
+    def _load_states(
+        self, baseline_id: uuid.UUID, tenant_id: uuid.UUID
+    ) -> dict[str, Optional[dict]]:
         """Load all stored states of a baseline, tolerating older stores.
 
         Falls back to an empty mapping if the store predates ``load_states``
@@ -164,7 +171,7 @@ class DiffEngine:
         if loader is None:
             return {}
         try:
-            states = loader(baseline_id)
+            states = loader(baseline_id, tenant_id)
         except Exception:  # pragma: no cover - defensive
             return {}
         return states if isinstance(states, dict) else {}
@@ -177,21 +184,34 @@ class DiffEngine:
         self,
         baseline_a_id: uuid.UUID,
         baseline_b_id: uuid.UUID,
+        tenant_id: uuid.UUID,
     ) -> None:
-        """Assert both baselines exist and share the same scope.
+        """Assert both baselines exist (for this tenant) and share the same scope.
+
+        Args:
+            baseline_a_id: Reference baseline UUID.
+            baseline_b_id: Target baseline UUID.
+            tenant_id: Active tenant UUID (row-level isolation — security fix:
+                this previously used ``.unscoped.get(id=...)`` with no tenant
+                filter, letting any tenant probe/read another tenant's
+                baseline scope by UUID and use it to pass the scope-match gate).
 
         Raises:
-            BaselineNotFoundError: If either baseline does not exist.
+            BaselineNotFoundError: If either baseline does not exist for this tenant.
             ScopeMismatchError: If scopes differ.
         """
         # BaselineSnapshot is imported at module level to allow test mocking
         try:
-            a = BaselineSnapshot.unscoped.only("scope").get(id=baseline_a_id)
+            a = BaselineSnapshot.unscoped.only("scope").get(
+                id=baseline_a_id, tenant_id=tenant_id
+            )
         except BaselineSnapshot.DoesNotExist:
             raise BaselineNotFoundError()
 
         try:
-            b = BaselineSnapshot.unscoped.only("scope").get(id=baseline_b_id)
+            b = BaselineSnapshot.unscoped.only("scope").get(
+                id=baseline_b_id, tenant_id=tenant_id
+            )
         except BaselineSnapshot.DoesNotExist:
             raise BaselineNotFoundError()
 
