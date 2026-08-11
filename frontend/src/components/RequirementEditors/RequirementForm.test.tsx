@@ -153,6 +153,103 @@ describe("RequirementForm — unified workflow editor (REQ-161)", () => {
 });
 
 /**
+ * Code review regression — the form never resynced local state when a
+ * different `requirement` prop arrived (unlike every sibling editor:
+ * AdrForm/RiskForm/IssueForm all reset on their entity prop). Selecting a
+ * different requirement in the list, while this component instance stayed
+ * mounted, kept showing (and would silently overwrite on Save) the
+ * previously-selected requirement's stale field values.
+ */
+describe("RequirementForm — resyncs local state when the requirement prop changes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const otherReq = {
+    ...baseReq,
+    id: "req-2",
+    artifact_id: "art-2",
+    title: "A different requirement",
+    description: "other desc",
+    change_reason: "",
+  } as unknown as Requirement;
+
+  it("resets the title/description fields to the newly-selected requirement", () => {
+    const { rerender } = render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("req-title")).toHaveValue("A requirement");
+
+    rerender(
+      <RequirementForm
+        requirement={otherReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("req-title")).toHaveValue("A different requirement");
+  });
+
+  it("discards an in-progress unsaved edit instead of saving it onto the new requirement", async () => {
+    const { rerender } = render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+    fireEvent.change(screen.getByTestId("req-title"), {
+      target: { value: "Unsaved edit to req-1" },
+    });
+    expect(screen.getByTestId("req-title")).toHaveValue("Unsaved edit to req-1");
+
+    // User navigates to a different requirement without saving.
+    rerender(
+      <RequirementForm
+        requirement={otherReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("req-title")).toHaveValue("A different requirement");
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    const [savedId, savedPayload] = (requirementsApi.update as ReturnType<typeof vi.fn>)
+      .mock.calls[0];
+    // Must save req-2 with req-2's own (unedited) title, never the stale
+    // req-1 draft the user typed before switching away.
+    expect(savedId).toBe("req-2");
+    expect(savedPayload.title).toBe("A different requirement");
+  });
+});
+
+/**
  * Issue #344 — "Save persists nothing, silently".
  *
  * Two independent defects, one per half of this block:

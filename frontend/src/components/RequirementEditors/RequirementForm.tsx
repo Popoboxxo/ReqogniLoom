@@ -119,6 +119,26 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveErrorRef = useRef<HTMLParagraphElement | null>(null);
 
+  // Code review regression: unlike every sibling editor (AdrForm, RiskForm,
+  // IssueForm, TestCaseForm all have this reset effect keyed on their
+  // entity prop), this form never resynced its local state when a
+  // different `requirement` was selected — its fields were only ever
+  // initialised from the initial `useState(requirement.X)` call, so
+  // switching the selected requirement in the list left the form showing
+  // (and, on Save, silently overwriting the new requirement with) the
+  // previously-selected one's stale field values.
+  useEffect(() => {
+    setTitle(requirement.title);
+    setDescription(requirement.description);
+    setCategory(requirement.category);
+    setChangeReason(requirement.change_reason || '');
+    setType(requirement.type || 'SyReq');
+    setComplexityFibonacci(requirement.complexity_fibonacci || 1);
+    setVerificationMethod(requirement.verification_method || '');
+    setCustomFields(requirement.custom_fields || {});
+    setSaveError(null);
+  }, [requirement]);
+
   // #344: bring a freshly raised save error into view. `scrollIntoView` is
   // absent in jsdom, hence the optional call.
   useEffect(() => {
