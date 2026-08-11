@@ -195,8 +195,37 @@ class McpHttpTransportView(CorsMixin, View):
             else:
                 http_status = 400
 
+        try:
+            body = json.dumps(response_frame)
+        except TypeError:
+            # Issue #441: a tool handler's result contained a value
+            # json.dumps() cannot encode (e.g. a raw UUID that slipped through
+            # a service-layer dict instead of being stringified). Without this
+            # guard the TypeError propagated out of this view entirely — past
+            # the try/except around handle_http_request() above, which only
+            # covers *that* call — so Django rendered its HTML debug page
+            # instead of a JSON-RPC error envelope. Callers of a JSON-RPC API
+            # must always get JSON back, even on an encoding failure that is
+            # itself a server bug.
+            logger.exception(
+                "Unencodable JSON-RPC response frame in McpHttpTransportView"
+            )
+            error_body = {
+                "jsonrpc": "2.0",
+                "id": response_frame.get("id") if isinstance(response_frame, dict) else None,
+                "error": {
+                    "error_code": "INTERNAL_ERROR",
+                    "message": "Internal server error.",
+                },
+            }
+            return HttpResponse(
+                json.dumps(error_body),
+                content_type="application/json",
+                status=500,
+            )
+
         return HttpResponse(
-            json.dumps(response_frame),
+            body,
             content_type="application/json",
             status=http_status,
         )

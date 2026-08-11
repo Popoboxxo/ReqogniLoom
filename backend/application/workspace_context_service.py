@@ -211,7 +211,10 @@ def entity_lists(
     req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
     if not include_outdated:
         req_qs = req_qs.exclude(status="outdated")
-    requirements = list(req_qs.values("id", "title", "status", "level"))
+    requirements = [
+        {**row, "id": str(row["id"])}
+        for row in req_qs.values("id", "title", "status", "level")
+    ]
 
     arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
     arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
@@ -219,7 +222,11 @@ def entity_lists(
         arch_qs = arch_qs.exclude(id__in=arch_outdated_ids)
     architecture = [
         {
-            "id": item["id"],
+            # Issue #441: `item["id"]` is a UUID object here, not JSON
+            # serializable. `arch_outdated_ids` membership must still be
+            # checked against the raw UUID (before stringifying) — it is a
+            # queryset of UUIDs, not strings.
+            "id": str(item["id"]),
             "name": item["name"],
             "type": item["type"],
             "status": "outdated" if item["id"] in arch_outdated_ids else "active",
@@ -243,11 +250,16 @@ def entity_lists(
     test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
     if not include_outdated:
         test_qs = test_qs.exclude(status="outdated")
-    tests = list(
-        test_qs.annotate(linked_req_id=linked_req_subquery).values(
+    tests = [
+        {
+            **row,
+            "id": str(row["id"]),
+            "linked_req_id": str(row["linked_req_id"]) if row["linked_req_id"] else None,
+        }
+        for row in test_qs.annotate(linked_req_id=linked_req_subquery).values(
             "id", "title", "status", "linked_req_id"
         )
-    )
+    ]
 
     return {
         "requirements_list": requirements,

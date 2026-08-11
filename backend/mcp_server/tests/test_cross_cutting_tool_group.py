@@ -283,7 +283,8 @@ def test_get_context_normal_depth_resolves_linked_req_id_via_verifies_tracelink(
     by_id = {str(item["id"]): item for item in tests_list}
 
     assert str(linked_test_id) in by_id
-    assert by_id[str(linked_test_id)]["linked_req_id"] == requirement_id
+    # Issue #441: linked_req_id must be a JSON-serializable str, not a raw UUID.
+    assert by_id[str(linked_test_id)]["linked_req_id"] == str(requirement_id)
 
     assert str(unlinked_test_id) in by_id
     assert by_id[str(unlinked_test_id)]["linked_req_id"] is None
