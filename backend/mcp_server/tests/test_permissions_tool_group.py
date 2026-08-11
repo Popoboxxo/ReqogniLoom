@@ -317,7 +317,7 @@ class TestPermissionsRevoke:
 
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -330,6 +330,24 @@ class TestPermissionsRevoke:
         audit_kwargs = mock_audit.call_args.kwargs
         assert audit_kwargs["tool_name"] == "permissions.revoke"
         assert audit_kwargs["entity_id"] == PERMISSION_ID
+        # Security regression: the lookup must be scoped to the caller's own
+        # tenant AND the workspace_id param, not a bare filter(id=...) that
+        # could match another tenant's/workspace's row (code review finding).
+        mock_unscoped.filter.assert_called_once_with(
+            id=PERMISSION_ID, tenant_id=ADMIN_CTX.tenant_id, workspace_id=WORKSPACE_ID
+        )
+
+    def test_revoke_missing_workspace_id_returns_validation_error(self):
+        group, svc = _group()
+        result = group.execute_tool(
+            tool_name="permissions.revoke",
+            params={"permission_id": str(PERMISSION_ID)},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.revoke_permission.assert_not_called()
 
     def test_revoke_unknown_id_returns_not_found(self):
         with patch(
@@ -342,7 +360,7 @@ class TestPermissionsRevoke:
             group, svc = _group()
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -377,7 +395,7 @@ class TestPermissionsRevoke:
             )
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=EDITOR_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -397,7 +415,7 @@ class TestPermissionsRevoke:
             svc.revoke_permission.return_value = False
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )

@@ -73,6 +73,7 @@ VIEWER_CTX = AuthContext(
 
 VALID_API_KEY = "reqlo_admin_audit_key"
 EVENT_UUID = UUID("00000000-0000-0000-0000-0000000000aa")
+WORKSPACE_ID = UUID("00000000-0000-0000-0000-0000000000bb")
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-0000000000bb")
 ENTITY_UUID = UUID("00000000-0000-0000-0000-0000000000cc")
 
@@ -213,7 +214,7 @@ class TestAuditToolGroup:
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=EDITOR_CTX,
             api_key=VALID_API_KEY,
         )
@@ -446,7 +447,7 @@ class TestAuditToolGroup:
 
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={},
+            params={"workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -456,7 +457,7 @@ class TestAuditToolGroup:
         assert len(result.data["events"]) == 2
         assert result.data["events"][0]["event_id"] == str(r1.event_id)
         dlq.list_dlq.assert_called_once_with(
-            ADMIN_CTX, event_type=None, limit=100
+            ADMIN_CTX, workspace_id=WORKSPACE_ID, event_type=None, limit=100
         )
 
     def test_dlq_list_with_event_type_filter(self):
@@ -465,21 +466,37 @@ class TestAuditToolGroup:
 
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"event_type": "RequirementDeleted", "limit": 25},
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "event_type": "RequirementDeleted",
+                "limit": 25,
+            },
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
 
         assert result.success is True
         dlq.list_dlq.assert_called_once_with(
-            ADMIN_CTX, event_type="RequirementDeleted", limit=25
+            ADMIN_CTX, workspace_id=WORKSPACE_ID, event_type="RequirementDeleted", limit=25
         )
+
+    def test_dlq_list_missing_workspace_id_returns_validation_error(self):
+        group, dlq = self._group()
+        result = group.execute_tool(
+            tool_name="events.dlq_list",
+            params={},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        dlq.list_dlq.assert_not_called()
 
     def test_dlq_list_invalid_limit_returns_validation_error(self):
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"limit": 5000},
+            params={"workspace_id": str(WORKSPACE_ID), "limit": 5000},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -491,7 +508,7 @@ class TestAuditToolGroup:
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"limit": "abc"},
+            params={"workspace_id": str(WORKSPACE_ID), "limit": "abc"},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -503,7 +520,7 @@ class TestAuditToolGroup:
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"event_type": 42},
+            params={"workspace_id": str(WORKSPACE_ID), "event_type": 42},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -516,7 +533,7 @@ class TestAuditToolGroup:
         dlq.list_dlq.side_effect = PermissionDeniedError("admin required")
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={},
+            params={"workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -529,7 +546,7 @@ class TestAuditToolGroup:
         with patch("mcp_server.tools.audit.write_mcp_audit") as mock_audit:
             result = group.execute_tool(
                 tool_name="events.dlq_list",
-                params={},
+                params={"workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -547,7 +564,7 @@ class TestAuditToolGroup:
 
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -557,7 +574,7 @@ class TestAuditToolGroup:
         assert result.data["event"]["event_id"] == str(EVENT_UUID)
         assert result.data["event"]["retry_count"] == 5
         dlq.replay_dlq_event.assert_called_once_with(
-            ADMIN_CTX, event_id=EVENT_UUID
+            ADMIN_CTX, event_id=EVENT_UUID, workspace_id=WORKSPACE_ID
         )
         mock_audit.assert_called_once()
         audit_kwargs = mock_audit.call_args.kwargs
@@ -599,7 +616,7 @@ class TestAuditToolGroup:
         )
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -611,7 +628,7 @@ class TestAuditToolGroup:
         dlq.replay_dlq_event.side_effect = PermissionDeniedError("admin required")
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -624,7 +641,7 @@ class TestAuditToolGroup:
         dlq.replay_dlq_event.side_effect = NotFoundError("not found")
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
