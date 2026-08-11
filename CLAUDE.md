@@ -20,6 +20,22 @@
 
 Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
 
+### Testumfang: wann volle E2E-Suite, wann nicht
+
+Die volle Playwright-E2E-Suite (`make test-e2e` bzw. `cd e2e && npx playwright test`,
+111 Tests) ist **nicht** bei jeder Änderung Pflicht — sie ist teuer (Zeit, ggf.
+Docker/Browser-Installation) und für kleine, isolierte Changes unverhältnismäßig.
+
+- **Kleinere Änderungen** (Ein-Datei-Bugfixes, isolierte Backend-Service-Fixes,
+  einzelne Komponenten-Fixes ohne Cross-Cutting-Wirkung): Unit-/Integrationstests
+  (`pytest` gezielt auf die betroffenen Testdateien, `vitest run`) reichen aus.
+  Reviewer/CI decken die volle E2E-Suite später ab.
+- **Größere Änderungen** (neue Features mit UI-Anteil, Änderungen an
+  Kern-Flows wie Auth/Routing/Navigation, breite Refactorings über mehrere
+  Layer): volle E2E-Suite vor Merge erforderlich.
+- Im Zweifel: den betroffenen Playwright-Spec gezielt laufen lassen
+  (`npx playwright test <spec>.spec.ts`) statt der vollen Suite.
+
 ---
 
 ## Projekt
