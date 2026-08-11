@@ -286,13 +286,23 @@ class AuditToolGroup(BaseToolGroup):
         },
         {
             "name": "events.dlq_list",
-            "description": "List Domain-Event dead-letter-queue entries (admin-only, read).",
+            "description": "List Domain-Event dead-letter-queue entries for one workspace (admin-only, read).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace to list DLQ entries for. "
+                            "Required — DomainEventDLQ has no tenant scoping of "
+                            "its own, and narrows the admin-role check to this "
+                            "workspace specifically."
+                        ),
+                    },
                     "event_type": {"type": "string", "description": "Optional event_type filter."},
                     "limit": {"type": "integer", "description": "Page size (1..1000, default 100)."},
                 },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -305,8 +315,15 @@ class AuditToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the original DomainEventDLQ.event_id.",
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace the event belongs to. "
+                            "Required — see events.dlq_list's description."
+                        ),
+                    },
                 },
-                "required": ["event_id"],
+                "required": ["event_id", "workspace_id"],
             },
         },
     ]
@@ -529,8 +546,10 @@ class AuditToolGroup(BaseToolGroup):
     def _handle_dlq_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """events.dlq_list — list DLQ entries (admin-only).
+        """events.dlq_list — list DLQ entries for one workspace (admin-only).
 
+        Required params:
+            workspace_id : UUID of the target workspace.
         Optional params:
             event_type : filter on ``DomainEventDLQ.event_type``.
             limit      : 1..1000, default 100.
@@ -538,6 +557,8 @@ class AuditToolGroup(BaseToolGroup):
         denied = self._check_admin(auth_context)
         if denied is not None:
             return denied
+
+        workspace_id = require_uuid(params, "workspace_id")
 
         event_type = params.get("event_type")
         if event_type is not None and event_type != "":
@@ -566,7 +587,7 @@ class AuditToolGroup(BaseToolGroup):
 
         try:
             rows = self._dlq_service.list_dlq(
-                auth_context, event_type=event_type, limit=limit
+                auth_context, workspace_id=workspace_id, event_type=event_type, limit=limit
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -592,7 +613,8 @@ class AuditToolGroup(BaseToolGroup):
         """events.dlq_replay — replay a single DLQ event (admin-only, write).
 
         Required params:
-            event_id : UUID of the original ``DomainEventDLQ.event_id``.
+            event_id     : UUID of the original ``DomainEventDLQ.event_id``.
+            workspace_id : UUID of the workspace the event belongs to.
 
         The event is re-inserted into the outbox with a fresh retry
         budget. The MCP wrapper writes an additional audit entry so the
@@ -604,6 +626,7 @@ class AuditToolGroup(BaseToolGroup):
             return denied
 
         event_id = require_uuid(params, "event_id")
+        workspace_id = require_uuid(params, "workspace_id")
 
         try:
             # Codeberg #313: suppress replay_dlq_event's single internal
@@ -611,7 +634,7 @@ class AuditToolGroup(BaseToolGroup):
             # the sole entry.
             with mcp_audit_handoff():
                 snapshot = self._dlq_service.replay_dlq_event(
-                    auth_context, event_id=event_id
+                    auth_context, event_id=event_id, workspace_id=workspace_id
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

@@ -145,8 +145,20 @@ class PermissionsToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the permission row to delete.",
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace the permission row belongs to. "
+                            "Required so the admin-role check is narrowed to this "
+                            "workspace specifically (ToolRegistry resolves "
+                            "workspace-scoped roles from this param) — without it "
+                            "the check falls back to a tenant-wide role aggregate, "
+                            "letting an admin of any one workspace revoke rules in "
+                            "any other workspace of the same tenant."
+                        ),
+                    },
                 },
-                "required": ["permission_id"],
+                "required": ["permission_id", "workspace_id"],
             },
         },
         {
@@ -288,17 +300,30 @@ class PermissionsToolGroup(BaseToolGroup):
 
         Required params:
             permission_id: UUID of the row to delete.
+            workspace_id: UUID of the workspace the row belongs to — also
+                narrows the admin-role check to that workspace (see the
+                schema's own description for why this is security-relevant,
+                not just a filter convenience).
 
         Note: like the REST adapter, the service signature uses a
         (user, workspace, artifact) triple. We look up the row here by id
-        (under the unscoped manager) and forward the triple, so the
-        service signature stays RBAC-clean.
+        (under the unscoped manager, explicitly filtered by tenant AND the
+        caller-supplied workspace_id — code review finding: previously
+        neither filter was applied, so this lookup could return another
+        tenant's row entirely, in addition to the workspace-scoping gap
+        described above) and forward the triple, so the service signature
+        stays RBAC-clean.
         """
         permission_id = require_uuid(params, "permission_id")
+        workspace_id = require_uuid(params, "workspace_id")
 
         perm = (
             ItemPermission.unscoped
-            .filter(id=permission_id)
+            .filter(
+                id=permission_id,
+                tenant_id=auth_context.tenant_id,
+                workspace_id=workspace_id,
+            )
             .first()
         )
         if perm is None:
