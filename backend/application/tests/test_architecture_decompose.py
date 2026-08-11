@@ -177,6 +177,41 @@ class TestGenerateDraft:
             for node in draft.nodes:
                 assert node.requirement.title
 
+    def test_generate_over_daily_token_limit_raises_and_never_calls_provider(
+        self, tenant, workspace, ctx, monkeypatch, settings
+    ):
+        """Code review regression: architecture.decompose (N1) bypassed
+        REQ-106 entirely -- no is_over_daily_limit() check existed at all
+        before this fix, unlike every other free-form LLM flow."""
+        from application.ai_derivation_service import LlmResponseError
+        from persistence.models import TokenUsageRecord
+
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 100
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock", capability="arch_decompose_tree",
+                input_tokens=150, output_tokens=0,
+            )
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+
+        from unittest.mock import MagicMock
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            with pytest.raises(LlmResponseError):
+                ArchitectureDecomposeService().generate_draft(
+                    ctx, root.id, breadth=2, depth=1
+                )
+        # Load-bearing: the budget check runs BEFORE the provider is ever
+        # called, not just that some exception was eventually raised.
+        stub_provider.complete.assert_not_called()
+
     def test_generate_requires_anchor_requirement(self, tenant, workspace, ctx):
         with _active(tenant):
             switch_preset(str(workspace.id), "extended")

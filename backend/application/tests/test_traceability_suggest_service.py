@@ -188,6 +188,47 @@ class TestSuggestLinksReferentialIntegrity:
         ]
         assert str(need_a.artifact_id) in top_candidate_ids
 
+    def test_over_daily_token_limit_raises_and_never_calls_provider(
+        self, tenant, workspace, ctx, monkeypatch, settings
+    ):
+        """Code review regression: traceability.suggest_links (N3) bypassed
+        REQ-106 entirely -- no is_over_daily_limit() check existed at all
+        before this fix, unlike every other free-form LLM flow."""
+        from unittest.mock import MagicMock
+
+        from application.ai_derivation_service import LlmResponseError
+        from persistence.models import TokenUsageRecord
+
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 100
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock", capability="traceability_suggest_links",
+                input_tokens=150, output_tokens=0,
+            )
+            _need(
+                tenant, workspace, "Login authentication need",
+                "Users must authenticate securely.",
+            )
+            _requirement(
+                tenant, workspace, "Login authentication requirement",
+                "The system shall authenticate users securely.",
+            )
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            with pytest.raises(LlmResponseError):
+                TraceabilitySuggestService().suggest_links(
+                    workspace.id, ctx, tier="standard"
+                )
+        # Load-bearing: the budget check runs BEFORE the provider is ever
+        # called, not just that some exception was eventually raised.
+        stub_provider.complete.assert_not_called()
+
     def test_no_missing_link_findings_yields_no_suggestions_without_llm_call(
         self, tenant, workspace, ctx, monkeypatch
     ):
