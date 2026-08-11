@@ -76,4 +76,28 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     const panelText = await panel.innerText();
     expect(panelText.length).toBeGreaterThan(0);
   });
+
+  test('bundle export panel does not fetch on view load, only on activation', async ({ page }) => {
+    const bundleRequests: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/requirement-bundle/')) bundleRequests.push(req.url());
+    });
+
+    await page.goto(`${FRONTEND_URL}/architecture`);
+    await createArchElementViaQuickForm(page);
+
+    // View is open, element selected — no bundle request yet.
+    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
+    await expect(page.locator('[data-testid="arch-bundle-export-overflow-btn"]')).toBeVisible();
+    expect(bundleRequests).toHaveLength(0);
+
+    await page.locator('[data-testid="arch-bundle-export-overflow-btn"]').click();
+    await expect(page.locator('[data-testid="arch-bundle-export-dialog"]')).toBeVisible();
+    // Dialog open, but still no fetch until the user submits.
+    expect(bundleRequests).toHaveLength(0);
+
+    await page.locator('[data-testid="arch-bundle-export-submit"]').click();
+    await expect(page.locator('[data-testid="arch-bundle-export-result"]')).toBeVisible({ timeout: 15000 });
+    expect(bundleRequests.length).toBeGreaterThan(0);
+  });
 });

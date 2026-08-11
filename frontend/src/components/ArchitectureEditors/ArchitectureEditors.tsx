@@ -31,6 +31,7 @@ import { Dialog } from "../shared/Dialog";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
+import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { RightSidebar } from "../shared/ArtifactInspector";
@@ -106,6 +107,9 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // AI Decompose panel state
   const [showDecomposePanel, setShowDecomposePanel] = useState(false);
+
+  // Requirement Bundle Export panel state
+  const [showBundleExportPanel, setShowBundleExportPanel] = useState(false);
 
   // Legend (help) dialog. Requested after a live test: the page shows five
   // badge families and nothing said which of them carries the colour.
@@ -585,6 +589,21 @@ export default function ArchitectureEditors(): JSX.Element {
         </Dialog>
       )}
 
+      {showBundleExportPanel && element && activeWorkspace && (
+        <Dialog
+          title={t("bundleExport.title")}
+          description={element.title}
+          onClose={() => setShowBundleExportPanel(false)}
+          size="lg"
+          testId="arch-bundle-export-dialog"
+        >
+          <RequirementBundleExportPanel
+            elementId={element.id}
+            elementTitle={element.title}
+          />
+        </Dialog>
+      )}
+
       {/* UI concept ch. 12.1: exactly one <h1> per route, always-visible
           summary, one primary action top right, everything rare in the
           overflow menu. Replaces the <h3> + "+ New" pair that used to sit
@@ -610,6 +629,12 @@ export default function ArchitectureEditors(): JSX.Element {
               onClick: () => setShowDecomposePanel(true),
               disabled: !element || !activeWorkspace,
               testId: "arch-decompose-overflow-btn",
+            },
+            {
+              label: t("bundleExport.trigger", "Requirement-Bundle exportieren"),
+              onClick: () => setShowBundleExportPanel(true),
+              disabled: !element || !activeWorkspace,
+              testId: "arch-bundle-export-overflow-btn",
             },
             {
               // ch. 12.8: the dialog title repeats this label verbatim.
