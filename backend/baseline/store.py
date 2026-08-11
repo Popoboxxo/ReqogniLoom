@@ -132,7 +132,7 @@ class BaselineStore:
     # ------------------------------------------------------------------
 
     def load_delta_index(
-        self, baseline_id: uuid.UUID
+        self, baseline_id: uuid.UUID, tenant_id: uuid.UUID
     ) -> list[tuple[str, int, str]]:
         """Load all delta entries for a baseline as (item_id, version, type) tuples.
 
@@ -140,23 +140,35 @@ class BaselineStore:
 
         Args:
             baseline_id: UUID of the target BaselineSnapshot.
+            tenant_id: Active tenant UUID (row-level isolation — a baseline
+                belonging to a different tenant is treated as not found,
+                security fix: this lookup previously used the ``.unscoped``
+                manager with no tenant filter at all).
 
         Returns:
             List of (item_id, version, entity_type) tuples.
 
         Raises:
-            BaselineNotFoundError: If baseline_id does not exist.
+            BaselineNotFoundError: If baseline_id does not exist for this tenant.
         """
-        if not BaselineSnapshot.unscoped.filter(id=baseline_id).exists():
+        if not BaselineSnapshot.unscoped.filter(
+            id=baseline_id, tenant_id=tenant_id
+        ).exists():
             raise BaselineNotFoundError()
 
+        # BaselineDeltaIndexEntry is a plain (non-tenant-scoped) model — the
+        # snapshot existence check above, now tenant-filtered, is what makes
+        # this safe: a foreign-tenant baseline_id never reaches this query.
         entries = BaselineDeltaIndexEntry.objects.filter(
             baseline_id=baseline_id
         ).values_list("item_id", "version", "entity_type")
         return list(entries)
 
     def load_states(
-        self, baseline_id: uuid.UUID, item_ids: Optional[list[str]] = None
+        self,
+        baseline_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        item_ids: Optional[list[str]] = None,
     ) -> dict[str, Optional[dict]]:
         """Return ``{item_id: state}`` for a baseline (REQ-L2-BL-012).
 
@@ -167,11 +179,20 @@ class BaselineStore:
 
         Args:
             baseline_id: UUID of the target baseline.
+            tenant_id: Active tenant UUID (row-level isolation, see
+                ``load_delta_index``'s docstring — this method previously did
+                not even check baseline existence, let alone tenant, before
+                querying entries).
             item_ids: Optional subset of item ids to restrict the query.
 
         Returns:
             Mapping from item_id to its stored state dict (or ``None``).
         """
+        if not BaselineSnapshot.unscoped.filter(
+            id=baseline_id, tenant_id=tenant_id
+        ).exists():
+            raise BaselineNotFoundError()
+
         qs = BaselineDeltaIndexEntry.objects.filter(baseline_id=baseline_id)
         if item_ids is not None:
             if not item_ids:
@@ -184,7 +205,7 @@ class BaselineStore:
     # ------------------------------------------------------------------
 
     def lookup_item_version(
-        self, baseline_id: uuid.UUID, item_id: str
+        self, baseline_id: uuid.UUID, item_id: str, tenant_id: uuid.UUID
     ) -> int:
         """Return the version number of item_id as recorded in the baseline.
 
@@ -193,15 +214,22 @@ class BaselineStore:
         Args:
             baseline_id: UUID of the baseline to query.
             item_id: String identifier of the item.
+            tenant_id: Active tenant UUID (row-level isolation, see
+                ``load_delta_index``'s docstring). Also gates
+                VersionReconstructor's own subsequent ``.unscoped`` entity
+                lookups, which trust that item_id only reaches them after
+                being proven to belong to the caller's own tenant's baseline.
 
         Returns:
             Recorded version integer.
 
         Raises:
-            BaselineNotFoundError: If baseline_id does not exist.
+            BaselineNotFoundError: If baseline_id does not exist for this tenant.
             ItemNotInBaselineError: If item_id is not part of this baseline.
         """
-        if not BaselineSnapshot.unscoped.filter(id=baseline_id).exists():
+        if not BaselineSnapshot.unscoped.filter(
+            id=baseline_id, tenant_id=tenant_id
+        ).exists():
             raise BaselineNotFoundError()
 
         try:
@@ -216,22 +244,28 @@ class BaselineStore:
     # IF-BL-EXT-IN-001: get / list
     # ------------------------------------------------------------------
 
-    def get(self, baseline_id: uuid.UUID) -> BaselineDetail:
+    def get(self, baseline_id: uuid.UUID, tenant_id: uuid.UUID) -> BaselineDetail:
         """Return the full Baseline record including all delta entries.
 
         REQ-L2-BL-006: get(baseline_id) → full snapshot.
 
         Args:
             baseline_id: UUID of the target baseline.
+            tenant_id: Active tenant UUID (row-level isolation, see
+                ``load_delta_index``'s docstring — security fix: this
+                previously used ``.unscoped.get(id=baseline_id)`` with no
+                tenant filter, so any authenticated user of any tenant could
+                read another tenant's baseline metadata and full delta index/
+                captured field state just by supplying its UUID).
 
         Returns:
             BaselineDetail with all DeltaIndexTuple entries populated.
 
         Raises:
-            BaselineNotFoundError: If baseline_id does not exist.
+            BaselineNotFoundError: If baseline_id does not exist for this tenant.
         """
         try:
-            snapshot = BaselineSnapshot.unscoped.get(id=baseline_id)
+            snapshot = BaselineSnapshot.unscoped.get(id=baseline_id, tenant_id=tenant_id)
         except BaselineSnapshot.DoesNotExist:
             raise BaselineNotFoundError()
 

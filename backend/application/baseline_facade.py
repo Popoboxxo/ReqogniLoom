@@ -238,6 +238,7 @@ class BaselineFacade(ServiceBase):
             return baseline_diff(
                 baseline_a_id=UUID(str(baseline_a_id)),
                 baseline_b_id=UUID(str(baseline_b_id)),
+                tenant_id=ctx.tenant_id,
             )
         except Exception as exc:
             _remap_baseline_exc(exc)
@@ -257,7 +258,7 @@ class BaselineFacade(ServiceBase):
         from baseline.services import get as baseline_get
 
         try:
-            return baseline_get(baseline_id=UUID(str(baseline_id)))
+            return baseline_get(baseline_id=UUID(str(baseline_id)), tenant_id=ctx.tenant_id)
         except Exception as exc:
             _remap_baseline_exc(exc)
 
@@ -308,7 +309,11 @@ class BaselineFacade(ServiceBase):
         from baseline.services import get_item_at_baseline as baseline_item
 
         try:
-            return baseline_item(baseline_id=UUID(str(baseline_id)), item_id=item_id)
+            return baseline_item(
+                baseline_id=UUID(str(baseline_id)),
+                item_id=item_id,
+                tenant_id=ctx.tenant_id,
+            )
         except Exception as exc:
             _remap_baseline_exc(exc)
 

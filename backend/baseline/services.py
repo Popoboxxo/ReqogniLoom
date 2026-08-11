@@ -117,6 +117,7 @@ def build(
 def diff(
     baseline_a_id: uuid.UUID,
     baseline_b_id: uuid.UUID,
+    tenant_id: uuid.UUID,
 ) -> DiffResult:
     """Compute the structural diff between two Baselines of the same scope.
 
@@ -125,6 +126,8 @@ def diff(
     Args:
         baseline_a_id: Reference baseline (from / older).
         baseline_b_id: Target baseline (to / newer).
+        tenant_id: Active tenant UUID (row-level isolation) — either baseline
+            belonging to a different tenant is treated as not found.
 
     Returns:
         DiffResult with:
@@ -133,7 +136,7 @@ def diff(
           changed: items in both with different versions
 
     Raises:
-        BaselineNotFoundError: Either baseline does not exist.
+        BaselineNotFoundError: Either baseline does not exist for this tenant.
         ScopeMismatchError: Baselines have different scopes.
 
     REQ-L2-BL-003
@@ -141,6 +144,7 @@ def diff(
     return get_engine().diff(
         baseline_a_id=baseline_a_id,
         baseline_b_id=baseline_b_id,
+        tenant_id=tenant_id,
     )
 
 
@@ -149,23 +153,24 @@ def diff(
 # ---------------------------------------------------------------------------
 
 
-def get(baseline_id: uuid.UUID) -> BaselineDetail:
+def get(baseline_id: uuid.UUID, tenant_id: uuid.UUID) -> BaselineDetail:
     """Return the full Baseline record including all delta entries.
 
     IF-BL-EXT-IN-001 (ApplicationService → BaselineStore).
 
     Args:
         baseline_id: UUID of the target baseline.
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         BaselineDetail with all DeltaIndexTuple entries.
 
     Raises:
-        BaselineNotFoundError: If the baseline does not exist.
+        BaselineNotFoundError: If the baseline does not exist for this tenant.
 
     REQ-L2-BL-006
     """
-    return get_store().get(baseline_id=baseline_id)
+    return get_store().get(baseline_id=baseline_id, tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +210,7 @@ def list_baselines(
 
 
 def get_item_at_baseline(
-    baseline_id: uuid.UUID, item_id: str
+    baseline_id: uuid.UUID, item_id: str, tenant_id: uuid.UUID
 ) -> ItemPayload:
     """Reconstruct the historical payload of an item at baseline time.
 
@@ -214,12 +219,13 @@ def get_item_at_baseline(
     Args:
         baseline_id: UUID of the target baseline.
         item_id: String UUID of the item (Artifact/Requirement).
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         ItemPayload with title, description, content at the recorded version.
 
     Raises:
-        BaselineNotFoundError: Baseline does not exist.
+        BaselineNotFoundError: Baseline does not exist for this tenant.
         ItemNotInBaselineError: item_id is not part of this baseline.
         VersionNotFoundError: Version not found in version history.
 
@@ -228,6 +234,7 @@ def get_item_at_baseline(
     return get_reconstructor().get_item_at_baseline(
         baseline_id=baseline_id,
         item_id=item_id,
+        tenant_id=tenant_id,
     )
 
 

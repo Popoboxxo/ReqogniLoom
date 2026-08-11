@@ -104,7 +104,7 @@ class VersionReconstructor:
         self._cache = cache if cache is not None else LruPayloadCache()
 
     def get_item_at_baseline(
-        self, baseline_id: uuid.UUID, item_id: str
+        self, baseline_id: uuid.UUID, item_id: str, tenant_id: uuid.UUID
     ) -> ItemPayload:
         """Return the item payload as it was at baseline creation time.
 
@@ -113,18 +113,26 @@ class VersionReconstructor:
         Args:
             baseline_id: UUID of the target baseline.
             item_id: String UUID of the item (Artifact/Requirement).
+            tenant_id: Active tenant UUID (row-level isolation). Gates not
+                just the baseline lookup itself but also this method's own
+                subsequent ``.unscoped`` entity/audit-log lookups below
+                (_try_live_entity/_load_from_audit_log) — those trust that
+                item_id only reaches them after being proven, via a
+                tenant-scoped lookup_item_version, to belong to a baseline
+                owned by this tenant.
 
         Returns:
             ItemPayload with title, description, content at the recorded version.
 
         Raises:
-            BaselineNotFoundError: (from BaselineStore) baseline does not exist.
+            BaselineNotFoundError: (from BaselineStore) baseline does not
+                exist for this tenant.
             ItemNotInBaselineError: item_id is not part of this baseline.
             VersionNotFoundError: version not found in the audit history.
         """
         # Step 1: Get recorded version from BaselineStore (IF-BL-INT-004)
         # Propagates ItemNotInBaselineError / BaselineNotFoundError directly.
-        version = self._store.lookup_item_version(baseline_id, item_id)
+        version = self._store.lookup_item_version(baseline_id, item_id, tenant_id)
 
         # Step 2: LRU cache check (REQ-L3-BL004-003)
         cached = self._cache.get(item_id, version)

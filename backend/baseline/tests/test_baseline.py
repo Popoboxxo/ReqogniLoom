@@ -138,7 +138,7 @@ class TestBaselineStorePersistence:
             meta = _make_metadata()
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
 
-            detail: BaselineDetail = store.get(bl_id)
+            detail: BaselineDetail = store.get(bl_id, tenant.id)
             assert len(detail.entries) == 3
             stored_ids = {e.item_id for e in detail.entries}
             expected_ids = {t.item_id for t in tuples}
@@ -162,7 +162,7 @@ class TestBaselineStorePersistence:
             tuples = _make_delta_tuples(1)
             meta = _make_metadata()
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
             entry = detail.entries[0]
             assert not hasattr(entry, "title"), "DeltaIndexTuple must not carry payload"
         finally:
@@ -230,7 +230,7 @@ class TestBaselineStorePersistence:
         """REQ-L2-BL-006: get(nonexistent_id) → BaselineNotFoundError."""
         store = BaselineStore()
         with pytest.raises(BaselineNotFoundError):
-            store.get(uuid.uuid4())
+            store.get(uuid.uuid4(), uuid.uuid4())
 
     def test_list_sorted_desc(self):
         """REQ-L2-BL-006: list() returns baselines sorted by created_at DESC."""
@@ -290,7 +290,7 @@ class TestBaselineStorePersistence:
             tuples = [DeltaIndexTuple(item_id=item_id, version=7)]
             meta = _make_metadata()
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
-            assert store.lookup_item_version(bl_id, item_id) == 7
+            assert store.lookup_item_version(bl_id, item_id, tenant.id) == 7
         finally:
             TenantContext.clear_tenant()
 
@@ -305,7 +305,7 @@ class TestBaselineStorePersistence:
             meta = _make_metadata()
             bl_id = store.persist_delta_index([], meta, tenant_id=tenant.id)
             with pytest.raises(ItemNotInBaselineError):
-                store.lookup_item_version(bl_id, str(uuid.uuid4()))
+                store.lookup_item_version(bl_id, str(uuid.uuid4()), tenant.id)
         finally:
             TenantContext.clear_tenant()
 
@@ -328,7 +328,7 @@ class TestDiffEngine:
         from baseline.models import BaselineSnapshot
 
         mock = MagicMock(spec=BaselineStore)
-        mock.load_delta_index.side_effect = lambda bid: (
+        mock.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a or [] if bid == self._id_a else entries_b or []
         )
         return mock
@@ -345,7 +345,7 @@ class TestDiffEngine:
         entries_b: list | None = None,
     ) -> DiffEngine:
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a or [] if bid == self._id_a else entries_b or []
         )
         engine = DiffEngine(store=store)
@@ -356,7 +356,7 @@ class TestDiffEngine:
             b_snap = MagicMock()
             b_snap.scope = scope_b
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: a_snap if id == self._id_a else b_snap
+                lambda id=None, tenant_id=None: a_snap if id == self._id_a else b_snap
             )
             engine._mock_snap = mock_snap
             engine._a_snap = a_snap
@@ -371,7 +371,7 @@ class TestDiffEngine:
         entries_b = [(new_item, 1, "item")]
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -382,9 +382,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert new_item in result.added
         assert result.removed == []
@@ -397,7 +397,7 @@ class TestDiffEngine:
         entries_b: list[tuple[str, int, str]] = []
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -408,9 +408,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert old_item in result.removed
         assert result.added == []
@@ -423,7 +423,7 @@ class TestDiffEngine:
         entries_b = [(item, 2, "item")]
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -434,9 +434,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert len(result.changed) == 1
         assert result.changed[0].id == item
@@ -450,7 +450,7 @@ class TestDiffEngine:
         entries_b = [(item, 5, "item")]
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -461,9 +461,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert result.added == []
         assert result.removed == []
@@ -480,10 +480,10 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "global"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
             with pytest.raises(ScopeMismatchError) as exc_info:
-                engine.diff(self._id_a, self._id_b)
+                engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert "different scopes" in str(exc_info.value)
 
@@ -497,7 +497,7 @@ class TestDiffEngine:
             snap = MagicMock()
             snap.scope = "project"
             mock_snap.unscoped.only.return_value.get.return_value = snap
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         d = result.to_dict()
         assert "added" in d
@@ -528,7 +528,7 @@ class TestVersionReconstructor:
         store.lookup_item_version.side_effect = ItemNotInBaselineError()
         reconstructor = VersionReconstructor(store=store)
         with pytest.raises(ItemNotInBaselineError) as exc_info:
-            reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert "not part of this baseline" in str(exc_info.value)
 
     def test_version_not_in_history_raises(self):
@@ -538,7 +538,7 @@ class TestVersionReconstructor:
         with patch.object(reconstructor, "_try_live_entity", return_value=None), \
              patch.object(reconstructor, "_load_from_audit_log", return_value=None):
             with pytest.raises(VersionNotFoundError) as exc_info:
-                reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+                reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert "Version not found" in str(exc_info.value)
 
     def test_returns_old_version_from_audit(self):
@@ -549,7 +549,7 @@ class TestVersionReconstructor:
         )
         with patch.object(reconstructor, "_try_live_entity", return_value=None), \
              patch.object(reconstructor, "_load_from_audit_log", return_value=old_payload):
-            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert result.title == "Old Title"
         assert result.version == 2
 
@@ -560,7 +560,7 @@ class TestVersionReconstructor:
             item_id=self._item_id, version=5, title="Current Title"
         )
         with patch.object(reconstructor, "_try_live_entity", return_value=live_payload):
-            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert result.title == "Current Title"
 
     def test_lru_cache_hit_avoids_db(self):
@@ -572,7 +572,7 @@ class TestVersionReconstructor:
         # — if cache hit works, neither should be called
         with patch.object(reconstructor, "_try_live_entity") as mock_live, \
              patch.object(reconstructor, "_load_from_audit_log") as mock_audit:
-            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         mock_live.assert_not_called()
         mock_audit.assert_not_called()
         assert result.title == "Cached"
@@ -751,7 +751,7 @@ class TestBaselineNotFoundError:
     def test_error_message(self):
         store = BaselineStore()
         with pytest.raises(BaselineNotFoundError) as exc_info:
-            store.get(uuid.uuid4())
+            store.get(uuid.uuid4(), uuid.uuid4())
         assert "Baseline not found" in str(exc_info.value)
 
 
@@ -1032,7 +1032,7 @@ class TestBaselineBuiltinWithExtendedPreset:
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
 
             # Round-trip: get the baseline back
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
             assert detail.baseline_id == bl_id
             assert detail.scope == "project"
             assert detail.name == "Ext-Preset-BL"
