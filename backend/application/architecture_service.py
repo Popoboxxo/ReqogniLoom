@@ -303,10 +303,29 @@ class ArchitectureService(ServiceBase):
         # Atomic version increment + field persistence — guarded by
         # expected_version when provided.  Changed fields are written in the
         # same UPDATE (fix: they were previously assigned in memory only).
+        #
+        # Code review finding: this compare-and-swap UPDATE's row count was
+        # previously discarded. When another request modified (and thus
+        # version-bumped) this row between our read above and this UPDATE,
+        # filter(id=..., version=current_version) legitimately matches zero
+        # rows — Django's .update() returns 0 and raises nothing on its own.
+        # Silently continuing meant changed_fields were dropped with no
+        # error, and the caller's own edits (already merged onto the
+        # in-memory arch_el above) were reported back as if persisted,
+        # while refresh_from_db(["version"]) only reloaded the *other*
+        # request's version number. This is exactly the class of bug
+        # optimistic locking exists to prevent, on the REST API's normal
+        # (expected_version-omitted) path specifically.
         current_version = expected_version if expected_version is not None else arch_el.version
-        ArchitectureElement.objects.filter(id=arch_el_id, version=current_version).update(
-            version=F("version") + 1, **changed_fields
-        )
+        updated_count = ArchitectureElement.objects.filter(
+            id=arch_el_id, version=current_version
+        ).update(version=F("version") + 1, **changed_fields)
+        if updated_count == 0:
+            raise OptimisticLockError(
+                f"Concurrent modification detected: ArchitectureElement "
+                f"{arch_el_id} was changed by another request between read "
+                f"and write (expected version {current_version})."
+            )
         arch_el.refresh_from_db(fields=["version"])
 
         self._audit(ctx=ctx, operation="update", entity_type="ArchitectureElement", entity_id=arch_el_id)
