@@ -370,6 +370,59 @@ class TestUpdateArchitectureElement:
                     arch_el_id=ARCH_EL_ID, ctx=ctx, expected_version=1
                 )
 
+    def test_concurrent_modification_between_read_and_write_raises(self):
+        """Code review regression: the compare-and-swap UPDATE's row count was
+        previously discarded. If another request modifies (and version-bumps)
+        the row between this method's own initial read and its final
+        filter(id=..., version=current_version).update(...), that UPDATE
+        legitimately matches zero rows -- Django's .update() returns 0 and
+        raises nothing on its own. This must now surface as
+        OptimisticLockError, not a silent no-op that reports the caller's
+        edits as if they were persisted."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1)
+
+        # Simulate the race: the guarded UPDATE affects 0 rows, exactly as
+        # Django's QuerySet.update() does when the WHERE clause (id AND
+        # version=current_version) matches nothing because a concurrent
+        # writer already bumped the version.
+        mock_filter_qs = MagicMock()
+        mock_filter_qs.update = MagicMock(return_value=0)
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_el))
+                    )
+                ),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit") as mock_audit,
+            patch.object(svc, "_emit_event") as mock_emit,
+        ):
+            with pytest.raises(OptimisticLockError, match="Concurrent modification"):
+                svc.update_architecture_element(
+                    arch_el_id=ARCH_EL_ID,
+                    ctx=ctx,
+                    title="Would silently overwrite the concurrent edit",
+                )
+
+        # Nothing downstream of the failed UPDATE must run — @atomic_transaction
+        # rolls the whole method back, but a defensive assertion here also
+        # catches a regression that reorders these calls before the guard.
+        mock_audit.assert_not_called()
+        mock_emit.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # delete_architecture_element

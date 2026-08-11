@@ -951,6 +951,34 @@ class TestArchitectureElementViewSetRouting:
         assert response.status_code == 200
         assert "uid" not in svc_mock.update_architecture_element.call_args.kwargs
 
+    def test_partial_update_optimistic_lock_error_returns_409(self) -> None:
+        """Regression: OptimisticLockError (both the pre-existing expected_version
+        mismatch path and the newly-guarded concurrent-write-between-read-and-
+        write path) must surface as 409 CONFLICT, not a generic 500 — it was
+        missing from _EXC_TO_HTTP/_EXC_TO_CODE entirely, so partial_update's
+        blanket `except Exception` handler mapped it to
+        INTERNAL_SERVER_ERROR/500, hiding the actionable "retry" signal from
+        the client."""
+        from application.base import OptimisticLockError
+
+        pk = uuid.uuid4()
+        data = {"title": "Updated", "expected_version": 1}
+        factory = APIRequestFactory()
+        req = factory.patch(f"/api/v1/architecture/{pk}/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = ArchitectureElementViewSet.as_view({"patch": "partial_update"})
+        svc_mock = self._svc_mock()
+        svc_mock.update_architecture_element.side_effect = OptimisticLockError(
+            "Concurrent modification detected"
+        )
+        with patch(
+            "rest_api.views.ArchitectureElementViewSet._svc",
+            return_value=svc_mock,
+        ):
+            response = view(req, pk=str(pk))
+        assert response.status_code == 409
+        assert response.data["error"]["code"] == "CONFLICT"
+
 
 # ---------------------------------------------------------------------------
 # RequirementHistoryView — audit-trail endpoint (REQ-L0-011)

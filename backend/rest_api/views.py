@@ -50,6 +50,7 @@ from application.services import (
     ArtifactDiffService,
     BaselineFacade,
     NotFoundError,
+    OptimisticLockError,
     PermissionDeniedError,
     RequirementService,
     ArchitectureService,
@@ -131,12 +132,14 @@ _EXC_TO_HTTP: dict[type, int] = {
     ValidationError: status.HTTP_400_BAD_REQUEST,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
+    OptimisticLockError: status.HTTP_409_CONFLICT,
 }
 
 _EXC_TO_CODE: dict[type, str] = {
     ValidationError: "VALIDATION_ERROR",
     PermissionDeniedError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
+    OptimisticLockError: "CONFLICT",
 }
 
 
