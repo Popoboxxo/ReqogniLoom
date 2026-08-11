@@ -364,7 +364,10 @@ class ArchitectureDecomposeService(ServiceBase):
         depth = max(1, min(int(depth), _MAX_DEPTH))
 
         raw_tree, provider_name, degraded = self._complete_tree(
-            element_title=element.title, breadth=breadth, depth=depth
+            element_title=element.title,
+            breadth=breadth,
+            depth=depth,
+            artifact_id=str(element.artifact_id),
         )
         nodes = self._flatten_tree(raw_tree)
         if not nodes:
@@ -649,22 +652,40 @@ class ArchitectureDecomposeService(ServiceBase):
         )
 
     def _complete_tree(
-        self, *, element_title: str, breadth: int, depth: int
+        self, *, element_title: str, breadth: int, depth: int, artifact_id: str
     ) -> Tuple[list, str, bool]:
         """Call the LLM provider for a decomposition tree (graceful degradation).
 
         Returns ``(parsed_tree, provider_name, degraded)``. On any provider
         error it degrades to the credential-free deterministic mock so the draft
         flow never crashes (§4 Phase 4a: "mit mock ... kein Crash").
+
+        Code review finding: this call bypassed REQ-106 (per-tenant daily LLM
+        token budget) and the LlmAuditLog trail entirely -- it called
+        provider.complete() directly with neither an is_over_daily_limit()
+        check beforehand nor a LlmAuditLogger.log_llm_call()/
+        record_token_usage() call after, unlike every other free-form LLM
+        flow in this codebase (AiDerivationService._complete,
+        BundleCompressionService._call_provider). Both are now applied here,
+        mirroring those call sites' pattern exactly.
+
+        Raises:
+            LlmResponseError: The tenant's daily LLM token budget is already
+                exceeded (checked before the real-provider call only -- the
+                mock-fallback path is exempt, matching every other flow's
+                graceful-degradation contract, ADR-02).
         """
         from django.conf import settings
 
+        from application.ai_derivation_service import LlmResponseError
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
         prompt = ARCH_DECOMPOSE_PROMPT_TEMPLATE.format(
             element_title=element_title, breadth=breadth, depth=depth
@@ -675,6 +696,7 @@ class ArchitectureDecomposeService(ServiceBase):
             "depth": depth,
         }
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
+        audit_logger = LlmAuditLogger()
         degraded = False
         try:
             provider = get_provider()
@@ -688,9 +710,56 @@ class ArchitectureDecomposeService(ServiceBase):
             provider_name = "mock"
             degraded = True
 
-        raw = provider.complete(
-            prompt, purpose="arch_decompose_tree", context=context
-        )
+        if not degraded and is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                artifact_id=artifact_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
+        try:
+            raw = provider.complete(
+                prompt, purpose="arch_decompose_tree", context=context
+            )
+        except Exception as error:
+            if degraded:
+                raise
+            logger.warning(
+                "architecture.decompose: provider %s call failed: %s",
+                provider_name,
+                error,
+            )
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                artifact_id=artifact_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            raise LlmResponseError(
+                f"architecture.decompose LLM call failed: {error}"
+            ) from error
+
+        if not degraded:
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                artifact_id=artifact_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            record_token_usage(
+                provider=provider_name, capability="arch_decompose_tree", input_tokens=0
+            )
         return self._parse_tree(raw), provider_name, degraded
 
     @staticmethod

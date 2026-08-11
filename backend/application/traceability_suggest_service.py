@@ -302,7 +302,7 @@ class TraceabilitySuggestService(ServiceBase):
                 eligible_findings=0,
             )
 
-        raw, provider_name, degraded = self._complete(finding_payloads)
+        raw, provider_name, degraded = self._complete(finding_payloads, workspace_id=ws_id)
         proposed = self._parse_suggestions(raw)
 
         by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
@@ -538,7 +538,7 @@ class TraceabilitySuggestService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _complete(
-        self, finding_payloads: List[Dict[str, Any]]
+        self, finding_payloads: List[Dict[str, Any]], *, workspace_id: str
     ) -> Tuple[str, str, bool]:
         """Call the LLM provider for a candidate ranking (graceful degradation).
 
@@ -554,11 +554,24 @@ class TraceabilitySuggestService(ServiceBase):
         circuit breaker) are mapped to :class:`SuggestLinksResponseError`
         rather than escaping as an unhandled ``LlmTransportError``.
 
+        Code review finding: this call bypassed REQ-106 (per-tenant daily LLM
+        token budget) and the LlmAuditLog trail entirely -- neither an
+        is_over_daily_limit() check beforehand nor a
+        LlmAuditLogger.log_llm_call()/record_token_usage() call afterward,
+        unlike every other free-form LLM flow in this codebase. Both are now
+        applied here, mirroring AiDerivationService._complete /
+        BundleCompressionService._call_provider.
+
         Raises:
             SuggestLinksResponseError: The provider call failed outright.
+            LlmResponseError: The tenant's daily LLM token budget is already
+                exceeded (checked before the real-provider call only; the
+                mock-fallback path is exempt, ADR-02).
         """
         from django.conf import settings
 
+        from application.ai_derivation_service import LlmResponseError
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
@@ -566,12 +579,14 @@ class TraceabilitySuggestService(ServiceBase):
             get_provider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
         prompt = SUGGEST_LINKS_PROMPT_TEMPLATE.format(
             findings_json=json.dumps(finding_payloads)
         )
         context = {"findings": finding_payloads}
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
+        audit_logger = LlmAuditLogger()
         degraded = False
         try:
             provider = get_provider()
@@ -584,6 +599,20 @@ class TraceabilitySuggestService(ServiceBase):
             provider = MockLlmProvider()
             provider_name = "mock"
             degraded = True
+
+        if not degraded and is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=_SUGGEST_LINKS_PURPOSE,
+                artifact_id=workspace_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
 
         timeout = resolve_timeout_seconds(_SUGGEST_LINKS_PURPOSE)
         try:
@@ -601,12 +630,34 @@ class TraceabilitySuggestService(ServiceBase):
                 timeout,
                 error,
             )
+            if not degraded:
+                audit_logger.log_llm_call(
+                    provider=provider_name,
+                    capability=_SUGGEST_LINKS_PURPOSE,
+                    artifact_id=workspace_id,
+                    token_usage=None,
+                    success=False,
+                    error=str(error),
+                )
             raise SuggestLinksResponseError(
                 f"The LLM provider '{provider_name}' did not answer the "
                 f"suggest_links request within {timeout:.0f}s ({error}). "
                 "Narrow the request (scope=document) or raise "
                 "LLM_LONG_RUNNING_TIMEOUT."
             ) from error
+
+        if not degraded:
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=_SUGGEST_LINKS_PURPOSE,
+                artifact_id=workspace_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            record_token_usage(
+                provider=provider_name, capability=_SUGGEST_LINKS_PURPOSE, input_tokens=0
+            )
         return raw, provider_name, degraded
 
     @staticmethod

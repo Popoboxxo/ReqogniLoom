@@ -134,6 +134,38 @@ class TestReviewReferentialIntegrity:
             assert ref["artifact_ids"] == list(real.finding.artifact_ids)
             assert ref["scope_artifact_id"] == real.finding.scope_artifact_id
 
+    def test_over_daily_token_limit_raises_and_never_calls_provider(
+        self, tenant, workspace, ctx, monkeypatch, settings
+    ):
+        """Code review regression: audit.ai_review (N8) bypassed REQ-106
+        entirely -- no is_over_daily_limit() check existed at all before
+        this fix, unlike every other free-form LLM flow."""
+        from unittest.mock import MagicMock
+
+        from application.ai_derivation_service import LlmResponseError
+        from persistence.models import TokenUsageRecord
+
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 100
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock", capability="audit_ai_review",
+                input_tokens=150, output_tokens=0,
+            )
+            _requirement(tenant, workspace, "Root")
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            with pytest.raises(LlmResponseError):
+                AiReviewService().review(workspace.id, ctx, tier="extended")
+        # Load-bearing: the budget check runs BEFORE the provider is ever
+        # called, not just that some exception was eventually raised.
+        stub_provider.complete.assert_not_called()
+
     def test_no_findings_yields_no_packages_without_llm_call(
         self, tenant, workspace, ctx, monkeypatch
     ):
