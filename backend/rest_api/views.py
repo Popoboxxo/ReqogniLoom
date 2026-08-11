@@ -6414,7 +6414,13 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
     Admin CRUD for field visibility configuration per entity type and workspace.
     Endpoint: /api/v1/attribute-visibility-config/
 
-    Permissions: tenant admins only (enforced by BaseEntityViewSet gate).
+    Permissions: tenant admins only, enforced by
+    AttributeVisibilityConfigService itself (ServiceBase._assert_permission,
+    "admin") on every method — NOT by BaseEntityViewSet, which provides no
+    role gate of its own (code review finding: this docstring's previous
+    claim was inaccurate, and every service method was in fact unguarded;
+    any authenticated user of any role could create/update/delete/bulk-
+    upsert tenant-wide visibility config).
     """
 
     serializer_class = AttributeVisibilityConfigSerializer
