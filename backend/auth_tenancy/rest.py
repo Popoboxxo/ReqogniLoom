@@ -235,6 +235,31 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         """
         enforce_csrf(request)
 
+    def authenticate_header(self, request: Any) -> str:
+        """Return the ``WWW-Authenticate`` challenge for 401 responses (GitHub #458).
+
+        DRF's ``APIView.handle_exception`` silently downgrades a raised
+        ``NotAuthenticated``/``AuthenticationFailed`` from 401 to 403 whenever
+        *no* authenticator on the request implements this method (see
+        ``rest_framework.views.APIView.handle_exception``: it calls
+        ``get_authenticate_header()``, which only consults ``authenticators[0]``
+        — this class, first in ``DEFAULT_AUTHENTICATION_CLASSES`` — and coerces
+        to 403 if that returns a falsy value). Without this override, a request
+        with NO credential at all (``RbacPermission.has_permission`` denies
+        before any :class:`AuthError` is raised, so ``authenticate()`` above
+        never runs) answered 403 instead of the expected 401. Returning a
+        truthy challenge here keeps the status at 401 and adds a standard
+        ``WWW-Authenticate: Bearer`` header.
+
+        A present-but-invalid credential is unaffected either way: it raises
+        ``_StandardAuthError`` (a plain ``APIException``, not a subclass of
+        ``NotAuthenticated``/``AuthenticationFailed``), so DRF's coercion never
+        triggers for that path, and permission denials for an *authenticated*
+        caller raise ``exceptions.PermissionDenied`` directly (not affected by
+        this method either) and correctly stay 403.
+        """
+        return "Bearer"
+
 
 def enforce_csrf(request: Any) -> None:
     """Run Django's CSRF check for a cookie-driven, unsafe-method request.
