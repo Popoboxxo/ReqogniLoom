@@ -340,7 +340,7 @@ class BundleCompressionService(ServiceBase):
             get_provider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit
+        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
         provider_name = getattr(django_settings, "LLM_PROVIDER", "unknown")
         audit_logger = LlmAuditLogger()
@@ -417,6 +417,15 @@ class BundleCompressionService(ServiceBase):
             token_usage=None,
             success=True,
             error=None,
+        )
+        # REQ-106: best-effort usage record, mirroring _complete's success
+        # path exactly (code review finding: without this, bundle
+        # compression's own spend was invisible to the is_over_daily_limit()
+        # check above, since that check aggregates TokenUsageRecord rows).
+        record_token_usage(
+            provider=provider_name,
+            capability=PROMPT_TEMPLATE_NAME,
+            input_tokens=0,
         )
         return result, False
 
