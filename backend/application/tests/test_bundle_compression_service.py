@@ -336,6 +336,81 @@ class TestCompressMockFallbackNeverCached:
         assert second.cache_hit is False
 
 
+class TestCompressRecordsTokenUsage:
+    """Code review finding (Task 5 closeout): a successful real-provider
+    compress() call must write a TokenUsageRecord, not just an LlmAuditLog
+    entry — mirrors AiDerivationService._complete's success path exactly.
+    Without this, bundle compression's own spend is invisible to the
+    REQ-106 is_over_daily_limit() check it performs before every real call,
+    since that check aggregates TokenUsageRecord rows.
+    """
+
+    def test_successful_compress_writes_token_usage_record(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch, settings,
+    ):
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "stub completion text"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+        settings.LLM_PROVIDER = "mock"
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        with _active(requirement.tenant):
+            before = TokenUsageRecord.objects.filter(tenant=requirement.tenant).count()
+
+        compression = svc.compress(
+            auth_ctx,
+            result,
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+        assert compression.is_mock_fallback is False
+
+        with _active(requirement.tenant):
+            after = TokenUsageRecord.objects.filter(tenant=requirement.tenant).count()
+        assert after == before + 1
+
+    def test_mock_fallback_compress_does_not_write_token_usage_record(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        """The no-provider-configured fallback path must NOT record spend
+        that never happened — mirrors it never writing an LlmAuditLog entry
+        either for this branch (see TestCompressMockFallbackNeverCached)."""
+        from llm_adapter.providers import LlmNotConfiguredError
+
+        def _raise(*args, **kwargs):
+            raise LlmNotConfiguredError("no provider")
+
+        monkeypatch.setattr("llm_adapter.providers.get_provider", _raise)
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        with _active(requirement.tenant):
+            before = TokenUsageRecord.objects.filter(tenant=requirement.tenant).count()
+
+        compression = svc.compress(
+            auth_ctx,
+            result,
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+        assert compression.is_mock_fallback is True
+
+        with _active(requirement.tenant):
+            after = TokenUsageRecord.objects.filter(tenant=requirement.tenant).count()
+        assert after == before
+
+
 class TestCompressAsync:
     def test_compress_async_returns_task_id_when_broker_configured(
         self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
