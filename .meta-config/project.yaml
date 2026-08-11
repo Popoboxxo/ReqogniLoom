@@ -1,4 +1,4 @@
-agent-meta-version: 0.91.3
+agent-meta-version: 0.95.0
 test-repo:
   enabled: false
   path: ''
@@ -22,7 +22,6 @@ roles:
 - meta-feedback
 - ideation
 - agent-meta-manager
-- feature
 - agent-meta-scout
 - se-requirements
 - se-architect
@@ -511,9 +510,6 @@ orchestrator:
   strict: true
   handoff:
     protocol: a2a-v1
-    token-budget: {}
-    protocol_routing: dynamic
-    validate-before-delegate: true
   delegation:
     max_depth: 10
   direct-dispatch-enabled: true

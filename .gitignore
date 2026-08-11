@@ -37,6 +37,7 @@ graphify-out/
 .meta-config/env.unset.sh
 .opencode/agents/
 .opencode/commands/
+.opencode/mcp.local.json
 .opencode/pending-tasks.md
 .opencode/settings.local.json
 AGENTS.md
