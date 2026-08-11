@@ -285,6 +285,7 @@ class IcdManager:
         self,
         icd_id: uuid.UUID,
         payload: IcdUpdateDTO,
+        tenant_id: uuid.UUID,
     ) -> IcdResult:
         """Append a new IcdVersion and run breaking-change detection.
 
@@ -300,20 +301,26 @@ class IcdManager:
         Args:
             icd_id:  UUID of the Icd to update.
             payload: IcdUpdateDTO with fields to change (None = keep current value).
+            tenant_id: Active tenant UUID (row-level isolation — security fix:
+                this previously used `.unscoped.select_for_update().get(pk=icd_id)`
+                with no tenant filter at all, so any authenticated user of any
+                tenant could not just READ but MUTATE another tenant's ICD by
+                supplying its UUID; the REST PATCH action had no tenant-
+                ownership check of its own either, unlike its sibling actions).
 
         Returns:
             IcdResult with the updated Icd and new IcdVersion.
             validation_result is populated with the breaking-change assessment.
 
         Raises:
-            Icd.DoesNotExist: When the ICD is not found.
+            Icd.DoesNotExist: When the ICD is not found for this tenant.
             Any DB or audit error propagates for rollback.
 
         req_id: REQ-L2-ICD-001, REQ-L2-ICD-003, REQ-L2-ICD-006
         IF:     IF-L1-037, IF-ICD-INT-001, IF-ICD-INT-003, IF-L1-040
         """
         with transaction.atomic():
-            icd: Icd = Icd.unscoped.select_for_update().get(pk=icd_id)
+            icd: Icd = Icd.unscoped.select_for_update().get(pk=icd_id, tenant_id=tenant_id)
             old_version: IcdVersion = icd.current_version  # type: ignore[assignment]
 
             # Merge payload onto current state (None fields keep old value)
@@ -390,6 +397,7 @@ class IcdManager:
         self,
         icd_id: uuid.UUID,
         new_payload: dict[str, Any],
+        tenant_id: uuid.UUID,
     ) -> ValidationResult:
         """Check proposed contract data against the current IcdVersion without persisting.
 
@@ -398,6 +406,7 @@ class IcdManager:
         Args:
             icd_id:      UUID of the target Icd.
             new_payload: Dict with proposed contract fields (same structure as IcdUpdateDTO).
+            tenant_id: Active tenant UUID (row-level isolation).
 
         Returns:
             ValidationResult with syntax and semantic breaking-change assessment.
@@ -405,7 +414,7 @@ class IcdManager:
         req_id: REQ-L2-ICD-003
         IF:     IF-L1-037
         """
-        icd: Icd = Icd.unscoped.get(pk=icd_id)
+        icd: Icd = Icd.unscoped.get(pk=icd_id, tenant_id=tenant_id)
         old: IcdVersion = icd.current_version  # type: ignore[assignment]
 
         syntax_check = self._validator.validate_syntax(new_payload)
@@ -425,11 +434,18 @@ class IcdManager:
     # get_icd_history — IF-L1-037 (history read)
     # ------------------------------------------------------------------
 
-    def get_icd_history(self, icd_id: uuid.UUID) -> list[IcdVersion]:
+    def get_icd_history(
+        self, icd_id: uuid.UUID, tenant_id: uuid.UUID
+    ) -> list[IcdVersion]:
         """Return all IcdVersions for the given ICD, ordered oldest-first.
 
         Args:
             icd_id: UUID of the Icd.
+            tenant_id: Active tenant UUID (row-level isolation). Every current
+                call site already re-validates icd_id's tenant ownership via
+                get_icd() before calling this, but requiring it here too closes
+                the gap defensively for any future caller that forgets to
+                (exactly what happened to the REST PATCH/update_icd path).
 
         Returns:
             List of IcdVersion objects ordered by version_number ascending.
@@ -438,7 +454,8 @@ class IcdManager:
         IF:     IF-L1-037
         """
         return list(
-            IcdVersion.unscoped.filter(icd_id=icd_id).order_by("version_number")
+            IcdVersion.unscoped.filter(icd_id=icd_id, tenant_id=tenant_id)
+            .order_by("version_number")
         )
 
     # ------------------------------------------------------------------

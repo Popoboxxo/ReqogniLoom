@@ -134,7 +134,7 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 raise IcdVersion.DoesNotExist(f"ICD {icd.id} has no current version")
             return icd.current_version
         target_number = int(version_param)
-        version_list = get_icd_history(icd_id=icd.id)
+        version_list = get_icd_history(icd_id=icd.id, tenant_id=icd.tenant_id)
         match = next(
             (v for v in version_list if v.version_number == target_number), None
         )
@@ -259,7 +259,7 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
             # Get version info
-            versions = get_icd_history(icd_id=UUID(pk))
+            versions = get_icd_history(icd_id=UUID(pk), tenant_id=ctx.tenant_id)
             current_version = versions[-1] if versions else None
             return Response({
                 "id": str(icd.id),
@@ -305,7 +305,7 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 invariants=request.data.get("invariants"),
                 modified_by_id=str(user.id) if user else None,
             )
-            result = update_icd(icd_id=UUID(pk), payload=dto)
+            result = update_icd(icd_id=UUID(pk), payload=dto, tenant_id=ctx.tenant_id)
             return Response({
                 "id": str(result.icd.id),
                 "name": result.icd.name,
@@ -363,7 +363,7 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         try:
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
-            version_list = get_icd_history(icd_id=icd.id)
+            version_list = get_icd_history(icd_id=icd.id, tenant_id=ctx.tenant_id)
             result = [creation_baseline_entry()]
             for v in version_list:
                 result.append({
@@ -403,7 +403,7 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             current_ver = icd.current_version.version_number if icd.current_version else 1
             to_version = int(request.query_params.get("to_version", str(current_ver)))
 
-            version_list = get_icd_history(icd_id=icd.id)
+            version_list = get_icd_history(icd_id=icd.id, tenant_id=ctx.tenant_id)
             from_v = next((v for v in version_list if v.version_number == from_version), None)
             to_v = next((v for v in version_list if v.version_number == to_version), None)
 
