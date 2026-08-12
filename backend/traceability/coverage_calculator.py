@@ -35,7 +35,7 @@ from django.db import connection
 from persistence.models import Requirement, TraceLink
 from persistence.tenancy import TenantContext
 
-from traceability.exceptions import InvalidFilterError
+from traceability.exceptions import BaselineCoverageNotSupportedError, InvalidFilterError
 from traceability.types import (
     CoverageData,
     CoverageReport,
@@ -158,13 +158,24 @@ class CoverageCalculator:
         """Return per-requirement test-case assignments for VCRM generation.
 
         IF-TE-INT-004: consumed by COMP-TE-004 VCRMReportGenerator.
-        ADR-L3-TE3-03: baseline_id triggers reading from Baseline snapshot
-        (currently uses live data; baseline snapshot integration is a
-        future extension — the parameter is accepted and forwarded).
+        ADR-L3-TE3-03 (GH-397): ``baseline_id`` is intentionally rejected
+        rather than silently ignored. It used to be accepted and forwarded
+        but never actually applied — this method always computed against
+        live data while the caller was led to believe it got a baseline
+        snapshot comparison. See :class:`BaselineCoverageNotSupportedError`
+        for why a partial implementation was rejected in favour of an
+        explicit error: the Baseline delta index does not capture the
+        TraceLink/TestRunResult data needed for this consistently across
+        baseline scopes (``baseline.delta_index_builder.ScopeResolver`` only
+        captures ``trace_link`` entries for ``scope="document"`` and
+        ``test_run``/``test_run_result`` entries for
+        ``scope="project"``/``"global"`` — never both for the same baseline).
 
         Args:
             workspace_id: The workspace to compute coverage data for.
-            baseline_id: Reserved for future baseline-snapshot reads.
+            baseline_id: Not supported yet — must be ``None``. Passing a
+                value raises :class:`BaselineCoverageNotSupportedError`
+                (GH-397) instead of silently falling back to live data.
             include_outdated: When False (default), outdated Requirements are
                 excluded from ``entries`` entirely, and outdated verifying
                 TestCases are excluded from each remaining entry's
@@ -174,7 +185,13 @@ class CoverageCalculator:
 
         Returns:
             CoverageData with per-requirement test-case lists.
+
+        Raises:
+            BaselineCoverageNotSupportedError: ``baseline_id`` is not None.
         """
+        if baseline_id is not None:
+            raise BaselineCoverageNotSupportedError(baseline_id)
+
         tenant_id = TenantContext.get_tenant()
 
         # Load requirements in workspace

@@ -172,8 +172,22 @@ class BaselineFacade(ServiceBase):
         the same scope the build is about to walk. Making the gate async would
         mean the build could not consume its verdict.
 
+        Fail-closed on auditor malfunction (GH-400): this is a governance
+        gate, not a best-effort convenience check. An internal error while
+        *evaluating* the gate (a bug in a rule, a DB hiccup, an unexpected
+        AuditService exception) means the gate's verdict is unknown — and an
+        unknown verdict must not be treated as "no BLOCKERs". The previous
+        behaviour caught every non-``ValidationError`` exception, logged it,
+        and returned as if the audit had come back clean, i.e. an internal
+        fault in the gate *itself* silently opened the gate it was supposed
+        to guard. Fail-closed here means: surface a clear, catchable
+        ``ValidationError`` to the caller (blocking the baseline build) and
+        log the original exception via ``logger.exception`` for operators —
+        never a silent pass-through.
+
         Raises:
-            ValidationError: One or more BLOCKER findings, listing each.
+            ValidationError: One or more BLOCKER findings, listing each, OR
+                the SE-Auditor gate itself failed to evaluate (fail-closed).
         """
         from application.audit_service import AuditService
         from traceability.audit import AuditScope
@@ -188,16 +202,22 @@ class BaselineFacade(ServiceBase):
             )
         except ValidationError:
             raise
-        except Exception:  # noqa: BLE001
-            # Fail open on an auditor malfunction: an internal error in the
-            # gate must not make baselining impossible workspace-wide.
+        except Exception as exc:  # noqa: BLE001
+            # Fail CLOSED on an auditor malfunction (GH-400): a governance
+            # gate that cannot be evaluated must block, not silently pass.
             logger.exception(
                 "BaselineFacade: SE-Auditor gate failed for ws=%s scope=%s; "
-                "allowing the baseline build",
+                "blocking the baseline build (fail-closed)",
                 workspace_id,
                 scope,
             )
-            return
+            raise ValidationError(
+                "Baseline cannot be created: the SE-Auditor gate could not be "
+                "evaluated due to an internal error "
+                f"({type(exc).__name__}: {exc}). Baseline creation is blocked "
+                "until the SE-Auditor is operational again — this is a "
+                "fail-closed governance gate, not a best-effort check."
+            ) from exc
 
         if not findings:
             return
