@@ -2853,13 +2853,13 @@
       "name": "requirement_bundle.compression_status",
       "prefix": "requirement_bundle",
       "is_write": false,
-      "description": "Poll the status of a task_id returned by requirement_bundle.export's mode='compressed' async branch (dispatched because 'async'=true was passed, or the bundle exceeded 50 items). Response shape: {\"task_id\": str, \"status\": \"pending\"|\"running\"|\"done\"|\"failed\"|\"not_found\", \"result\": dict|null, \"error\": str|null}. A task_id dispatched by a different tenant is deliberately indistinguishable from an unknown one — both report status='not_found'.",
+      "description": "Poll the status of a task_id returned by requirement_bundle.export's mode='compressed' async branch (dispatched because 'async'=true was passed, or the bundle exceeded 50 items). Response shape: {\"task_id\": str, \"status\": str, \"text\": str|null, \"is_mock_fallback\": bool, \"provider\": str|null, \"error\": str|null, \"result\": dict|null}. 'status' is one of exactly: 'pending' (queued, not started), 'running' (worker started, may retry), 'done' (finished successfully - read 'text'), 'failed' (worker raised - read 'error'), 'not_found' (unknown, expired, or another tenant's task_id). 'text' carries the compressed bundle as a single-level field matching requirement_bundle.export's synchronous 'text', and is null unless status='done'. 'result' is the DEPRECATED raw Celery envelope ({\"result\": \"<text>\"}) that predates 'text'; it is still populated for backward compatibility but new clients must read 'text'. 'is_mock_fallback'=true means no real LLM ran and 'text' is a '[MOCK FALLBACK] '-prefixed placeholder. A task_id dispatched by a different tenant is deliberately indistinguishable from an unknown one — both report status='not_found'.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "task_id": {
             "type": "string",
-            "description": "task_id returned by requirement_bundle.export's async compressed branch."
+            "description": "task_id returned by requirement_bundle.export's async compressed branch. Poll until 'status' leaves 'pending'/'running'."
           }
         },
         "required": [
@@ -2918,7 +2918,7 @@
               "raw",
               "compressed"
             ],
-            "description": "Export mode. 'raw' (default) returns the bundle formatted per 'format' above. 'compressed' routes the same bundle through an LLM (BundleCompressionService) for an AI-compressed text representation instead. Bundles over 50 items (or 'async'=true) are dispatched to a background worker and return a 'task_id' to poll via 'requirement_bundle.compression_status' rather than blocking on the LLM call."
+            "description": "Export mode. 'raw' (default) returns the bundle formatted per 'format' above. 'compressed' routes the same bundle through an LLM (BundleCompressionService) for an AI-compressed text representation instead. Synchronous response shape: {\"text\": str, \"cache_hit\": bool, \"is_mock_fallback\": bool, \"provider\": str}. IMPORTANT: when no real LLM provider is configured (this project's default is LLM_PROVIDER=mock) no compression happens at all - 'provider' reports 'mock', 'is_mock_fallback' is true and 'text' is a placeholder prefixed with '[MOCK FALLBACK] '. Treat that as 'no compression available', not as a compressed bundle. Compression is also not guaranteed to shrink a bundle whose content is already dense attribute data, and the LLM's wording is not reproducible across cache misses. Bundles over 50 items (or 'async'=true) are dispatched to a background worker and return a 'task_id' to poll via 'requirement_bundle.compression_status' rather than blocking on the LLM call."
           },
           "async": {
             "type": "boolean",

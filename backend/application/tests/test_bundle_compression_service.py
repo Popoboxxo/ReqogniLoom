@@ -9,6 +9,7 @@ import pytest
 from django.core.cache import cache
 from django.test import override_settings
 
+from application.ai_derivation_service import MOCK_FALLBACK_MARKER
 from application.bundle_compression_service import BundleCompressionService
 from application.requirement_bundle_service import BundleItem, BundleResult
 from auth_tenancy.context import AuthContext
@@ -128,9 +129,44 @@ def _sample_bundle_result(req_id, elem_artifact_id, title="Sample requirement"):
     )
 
 
+class _FakeProvider:
+    """Stand-in for a *real* (non-mock) provider.
+
+    Issue #442: a completion produced by ``MockLlmProvider`` is now reported
+    as ``is_mock_fallback=True`` and deliberately never cached — whether the
+    mock was fallen back to or configured on purpose. Every caching assertion
+    below would therefore be vacuous if it ran against the mock, so these
+    tests stub ``get_provider`` with this double instead.
+    """
+
+    def __init__(
+        self, name: str = "anthropic", text: str = "compressed bundle text"
+    ) -> None:
+        self.PROVIDER_NAME = name
+        self._text = text
+        self.calls = 0
+
+    def complete(
+        self, prompt: str, *, purpose: str = "", context=None, timeout=None
+    ) -> str:
+        self.calls += 1
+        return self._text
+
+
+@pytest.fixture
+def genuine_provider(monkeypatch) -> _FakeProvider:
+    """Route ``get_provider()`` to a real-looking (non-mock) provider double."""
+    provider = _FakeProvider()
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider
+    )
+    return provider
+
+
 class TestCompressCacheMiss:
     def test_cache_miss_calls_provider_and_caches(
         self, auth_ctx, workspace, requirement, architecture_element,
+        genuine_provider,
     ):
         result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
 
@@ -147,10 +183,13 @@ class TestCompressCacheMiss:
         )
         assert compression.cache_hit is False
         assert compression.text != ""
-        assert compression.is_mock_fallback in (True, False)  # mock provider in tests -> True
+        assert compression.is_mock_fallback is False
+        assert compression.provider == "anthropic"
+        assert genuine_provider.calls == 1
 
     def test_second_call_with_identical_bundle_is_a_cache_hit(
         self, auth_ctx, workspace, requirement, architecture_element,
+        genuine_provider,
     ):
         result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
         svc = BundleCompressionService()
@@ -167,9 +206,11 @@ class TestCompressCacheMiss:
         assert first.cache_hit is False
         assert second.cache_hit is True
         assert second.text == first.text
+        assert genuine_provider.calls == 1  # the cache spared the second call
 
     def test_bumping_requirement_version_invalidates_cache(
         self, auth_ctx, workspace, requirement, architecture_element,
+        genuine_provider,
     ):
         svc = BundleCompressionService()
         kwargs = dict(
@@ -196,6 +237,7 @@ class TestCompressCacheMiss:
 
     def test_item_depth_change_alone_invalidates_cache(
         self, auth_ctx, workspace, requirement, architecture_element,
+        genuine_provider,
     ):
         """A BundleItem found at a different depth is a cache miss even when
         every field (title, status, ...) is byte-identical (code review round
@@ -243,24 +285,30 @@ class TestCompressCacheMiss:
 
 class TestCompressCacheKeyIncludesProvider:
     """Code review round 2 finding: the cache key must fold in provider_name
-    (and the rendered prompt), or switching the configured LLM provider
-    (e.g. mock -> anthropic) would silently serve a stale cached response
-    from a *different* provider for up to BUNDLE_COMPRESSION_CACHE_TTL_SECONDS,
-    with is_mock_fallback still reporting False. Mirrors
+    (and the rendered prompt), or switching the LLM provider would silently
+    serve a stale cached response from a *different* provider for up to
+    BUNDLE_COMPRESSION_CACHE_TTL_SECONDS. Mirrors
     AiDerivationService._derivation_cache_key's provider-in-key rule.
+
+    Issue #445 sharpened this: the name folded into the key must be the
+    provider ``get_provider()`` *effectively* resolved, not the static
+    ``settings.LLM_PROVIDER``. ``providers._apply_db_settings`` lets a
+    persisted per-tenant ``LlmSettings`` row override the environment, so a
+    tenant-level provider switch left the env-keyed cache entirely blind --
+    exactly the case this key was introduced to cover. Same fix as
+    ``AiDerivationService._complete``'s ``effective_provider_name`` (#122).
     """
 
-    def test_different_configured_provider_is_a_cache_miss(
-        self, auth_ctx, workspace, requirement, architecture_element,
-        monkeypatch, settings,
+    def test_different_effective_provider_is_a_cache_miss(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
     ):
-        stub_provider = MagicMock()
-        stub_provider.complete.return_value = "stub completion text"
-        # Force get_provider() to always resolve successfully regardless of
-        # the LLM_PROVIDER value below -- isolates the cache-key behavior
-        # under test from real provider-registry resolution.
+        # get_provider() resolves whichever provider is "configured" right
+        # now -- the double stands in for the LlmSettings/env resolution the
+        # real registry performs, so this test exercises the cache key alone.
+        configured = {"provider": _FakeProvider("openai", "openai completion")}
         monkeypatch.setattr(
-            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+            "llm_adapter.providers.get_provider",
+            lambda *a, **k: configured["provider"],
         )
 
         result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
@@ -274,18 +322,60 @@ class TestCompressCacheKeyIncludesProvider:
             workspace_id=workspace.id,
         )
 
-        settings.LLM_PROVIDER = "mock"
         first = svc.compress(auth_ctx, result, **kwargs)
         assert first.cache_hit is False
         assert first.is_mock_fallback is False
+        assert first.provider == "openai"
 
-        settings.LLM_PROVIDER = "anthropic"
+        configured["provider"] = _FakeProvider("anthropic", "anthropic completion")
         second = svc.compress(auth_ctx, result, **kwargs)
-        # Load-bearing: identical bundle/params but a different configured
+        # Load-bearing: identical bundle/params but a different effective
         # provider must NOT be served from the first call's cache entry --
         # this is exactly the bug being regressed here.
         assert second.cache_hit is False
-        assert second.is_mock_fallback is False
+        assert second.provider == "anthropic"
+        assert second.text == "anthropic completion"
+
+    def test_switching_to_mock_does_not_serve_the_real_providers_cached_text(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        """Issue #442 + #445 together: after a real provider populated the
+        cache, falling back/switching to the mock must neither serve nor
+        overwrite that entry — the caller has to be told the text is a
+        placeholder."""
+        configured = {"provider": _FakeProvider("anthropic", "real completion")}
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider",
+            lambda *a, **k: configured["provider"],
+        )
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        kwargs = dict(
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+        real = svc.compress(auth_ctx, result, **kwargs)
+        assert real.text == "real completion"
+
+        from llm_adapter.providers import MockLlmProvider
+
+        configured["provider"] = MockLlmProvider()
+        mocked = svc.compress(auth_ctx, result, **kwargs)
+        assert mocked.cache_hit is False
+        assert mocked.is_mock_fallback is True
+        assert mocked.provider == "mock"
+        assert mocked.text != "real completion"
+
+        # And the real provider's entry survived the mock detour untouched.
+        configured["provider"] = _FakeProvider("anthropic", "different completion")
+        again = svc.compress(auth_ctx, result, **kwargs)
+        assert again.cache_hit is True
+        assert again.text == "real completion"
 
 
 class TestCompressMockFallbackNeverCached:
@@ -299,11 +389,9 @@ class TestCompressMockFallbackNeverCached:
         established pattern for forcing the fallback branch (monkeypatch
         llm_adapter.providers.get_provider to raise LlmNotConfiguredError).
 
-        All 3 tests in TestCompressCacheMiss run with LLM_PROVIDER=mock
-        configured directly, so get_provider() succeeds via the normal
-        (non-fallback) branch and is_mock_fallback is always False there —
-        this test is the only one that genuinely exercises the fallback
-        branch and asserts on it.
+        This covers the *resolution-failure* fallback specifically. The
+        deliberately-configured-mock case (issue #442, same never-cache rule)
+        is covered by TestConfiguredMockIsFlaggedAsPlaceholder below.
         """
         from llm_adapter.providers import LlmNotConfiguredError
 
@@ -336,6 +424,82 @@ class TestCompressMockFallbackNeverCached:
         assert second.cache_hit is False
 
 
+class TestConfiguredMockIsFlaggedAsPlaceholder:
+    """Issue #442: ``mode='compressed'`` promised an AI compression but, on
+    this project's default configuration (``LLM_PROVIDER=mock``), returned
+    ``MockLlmProvider``'s generic no-branch completion — the two-character
+    string ``"[]"`` — as ``is_mock_fallback: false``, i.e. as a genuine
+    compression, and cached it for an hour.
+
+    ``get_provider()`` resolves the mock *successfully*, so the pre-existing
+    "did resolution raise?" test could not see it. The fix is to classify the
+    mock by identity rather than by how it was reached.
+    """
+
+    def test_configured_mock_is_reported_as_fallback_and_never_cached(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        from llm_adapter.providers import MockLlmProvider
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: MockLlmProvider()
+        )
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+        kwargs = dict(
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+
+        first = svc.compress(auth_ctx, result, **kwargs)
+        assert first.is_mock_fallback is True
+        assert first.provider == "mock"
+        # Unmissable even for a client that ignores the flags — same marker
+        # every other free-form LLM flow in this codebase emits.
+        assert first.text.startswith(MOCK_FALLBACK_MARKER)
+
+        second = svc.compress(auth_ctx, result, **kwargs)
+        # Load-bearing: the placeholder was never written to the cache, so a
+        # deployment that later configures a real provider is not stuck
+        # serving "[]" for up to an hour.
+        assert second.cache_hit is False
+
+    def test_mock_placeholder_does_not_record_token_spend(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        """No real call happened, so no REQ-106 spend may be recorded —
+        mirrors the resolution-failure fallback branch."""
+        from llm_adapter.providers import MockLlmProvider
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: MockLlmProvider()
+        )
+
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        with _active(requirement.tenant):
+            before = TokenUsageRecord.objects.filter(tenant=requirement.tenant).count()
+
+        BundleCompressionService().compress(
+            auth_ctx,
+            result,
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+
+        with _active(requirement.tenant):
+            after = TokenUsageRecord.objects.filter(tenant=requirement.tenant).count()
+        assert after == before
+
+
 class TestCompressRecordsTokenUsage:
     """Code review finding (Task 5 closeout): a successful real-provider
     compress() call must write a TokenUsageRecord, not just an LlmAuditLog
@@ -346,15 +510,9 @@ class TestCompressRecordsTokenUsage:
     """
 
     def test_successful_compress_writes_token_usage_record(
-        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch, settings,
+        self, auth_ctx, workspace, requirement, architecture_element,
+        genuine_provider,
     ):
-        stub_provider = MagicMock()
-        stub_provider.complete.return_value = "stub completion text"
-        monkeypatch.setattr(
-            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
-        )
-        settings.LLM_PROVIDER = "mock"
-
         result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
         svc = BundleCompressionService()
         with _active(requirement.tenant):
@@ -453,6 +611,190 @@ class TestCompressAsync:
         )
         assert isinstance(response, dict)
         assert response["error"]["code"] == "BROKER_NOT_CONFIGURED"
+
+
+class TestAsyncResultSharesTheSyncCache:
+    """Issue #445: the synchronous and asynchronous branches must not run on
+    disjoint caches.
+
+    ``compress()`` read *and* wrote the shared bundle cache; ``compress_async``
+    did neither, so a finished worker result was discarded. An identical
+    request that arrived afterwards synchronously paid for a second LLM call
+    and — because LLM output is not reproducible — got a materially different
+    text back for the same bundle. Non-determinism of the model itself cannot
+    be fixed; serving one consistent answer per bundle can.
+    """
+
+    @staticmethod
+    def _dispatch(svc, auth_ctx, workspace, requirement, architecture_element):
+        from llm_adapter import tasks
+
+        mock_async_result = MagicMock()
+        mock_async_result.id = "write-back-task-id"
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ):
+            return svc.compress_async(
+                auth_ctx,
+                _sample_bundle_result(
+                    requirement.id, architecture_element.artifact_id
+                ),
+                root_id=architecture_element.id, depth=0, filter_mode="all",
+                fields=None, format="markdown", workspace_id=workspace.id,
+            )
+
+    def test_completed_async_result_is_served_to_a_later_sync_call(
+        self, auth_ctx, workspace, requirement, architecture_element,
+        monkeypatch, genuine_provider,
+    ):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        svc = BundleCompressionService()
+        task_id = self._dispatch(
+            svc, auth_ctx, workspace, requirement, architecture_element
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(
+                task_id=task_id,
+                status="done",
+                result={"result": "worker completion text"},
+            ),
+        ):
+            status = svc.get_compression_status(auth_ctx, task_id)
+
+        assert status.status == "done"
+        assert status.text == "worker completion text"
+
+        # Load-bearing: the *same* bundle requested synchronously now returns
+        # the worker's text from cache instead of invoking the provider again
+        # and producing a third, differently-worded answer.
+        sync = svc.compress(
+            auth_ctx,
+            _sample_bundle_result(requirement.id, architecture_element.artifact_id),
+            root_id=architecture_element.id, depth=0, filter_mode="all",
+            fields=None, format="markdown", workspace_id=workspace.id,
+        )
+        assert sync.cache_hit is True
+        assert sync.text == "worker completion text"
+        assert genuine_provider.calls == 0
+
+    def test_mock_async_result_is_flagged_and_not_written_back(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        """Issue #442 on the async branch: a worker that ran against the mock
+        must not seed the shared cache with a placeholder."""
+        from llm_adapter.providers import MockLlmProvider
+
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: MockLlmProvider()
+        )
+        svc = BundleCompressionService()
+        task_id = self._dispatch(
+            svc, auth_ctx, workspace, requirement, architecture_element
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(
+                task_id=task_id, status="done", result={"result": "[]"}
+            ),
+        ):
+            status = svc.get_compression_status(auth_ctx, task_id)
+
+        assert status.is_mock_fallback is True
+        assert status.provider == "mock"
+        assert status.text == f"{MOCK_FALLBACK_MARKER}[]"
+
+        sync = svc.compress(
+            auth_ctx,
+            _sample_bundle_result(requirement.id, architecture_element.artifact_id),
+            root_id=architecture_element.id, depth=0, filter_mode="all",
+            fields=None, format="markdown", workspace_id=workspace.id,
+        )
+        assert sync.cache_hit is False
+
+
+class TestCompressionStatusShape:
+    """Issue #448: the status envelope nested the completion one level deeper
+    than the synchronous branch (``result.result`` vs ``text``), so no client
+    could consume both branches with a single code path. ``text`` was added;
+    ``result`` stays populated so existing clients keep working.
+    """
+
+    def test_done_status_exposes_text_and_keeps_the_legacy_envelope(
+        self, auth_ctx, workspace, requirement, architecture_element,
+        monkeypatch, genuine_provider,
+    ):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        svc = BundleCompressionService()
+        task_id = TestAsyncResultSharesTheSyncCache._dispatch(
+            svc, auth_ctx, workspace, requirement, architecture_element
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(
+                task_id=task_id, status="done", result={"result": "compressed"}
+            ),
+        ):
+            status = svc.get_compression_status(auth_ctx, task_id)
+
+        assert status.text == "compressed"
+        # Backward compatibility: the deprecated envelope is still there.
+        assert status.result == {"result": "compressed"}
+
+    def test_pending_status_has_no_text(
+        self, auth_ctx, workspace, requirement, architecture_element,
+        monkeypatch, genuine_provider,
+    ):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        svc = BundleCompressionService()
+        task_id = TestAsyncResultSharesTheSyncCache._dispatch(
+            svc, auth_ctx, workspace, requirement, architecture_element
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(task_id=task_id, status="pending"),
+        ):
+            status = svc.get_compression_status(auth_ctx, task_id)
+
+        assert status.status == "pending"
+        assert status.text is None
+
+    def test_failed_status_reports_error_without_text(
+        self, auth_ctx, workspace, requirement, architecture_element,
+        monkeypatch, genuine_provider,
+    ):
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        svc = BundleCompressionService()
+        task_id = TestAsyncResultSharesTheSyncCache._dispatch(
+            svc, auth_ctx, workspace, requirement, architecture_element
+        )
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher, TaskStatusResult
+
+        with patch.object(
+            AsyncTaskDispatcher, "get_task_status",
+            return_value=TaskStatusResult(
+                task_id=task_id, status="failed", error="provider exploded"
+            ),
+        ):
+            status = svc.get_compression_status(auth_ctx, task_id)
+
+        assert status.status == "failed"
+        assert status.error == "provider exploded"
+        assert status.text is None
 
 
 class TestCompressAsyncTokenLimit:

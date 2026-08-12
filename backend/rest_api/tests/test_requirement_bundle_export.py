@@ -199,6 +199,12 @@ class TestRequirementBundleCompressedMode:
         body = resp.json()
         assert "text" in body
         assert "cache_hit" in body
+        # Issue #442: tests run on LLM_PROVIDER=mock, which cannot compress
+        # anything — the response must say so instead of passing the
+        # placeholder off as an AI compression.
+        assert body["provider"] == "mock"
+        assert body["is_mock_fallback"] is True
+        assert body["text"].startswith("[MOCK FALLBACK] ")
 
     def test_mode_compressed_async_returns_task_id(self, authed_client, architecture_element, requirement_allocated_to, monkeypatch):
         monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
@@ -214,6 +220,17 @@ class TestRequirementBundleCompressedMode:
         resp = authed_client.get("/api/v1/bundle-compression-status/nonexistent-task-id/")
         assert resp.status_code == 200
         assert resp.json()["status"] in ("pending", "not_found")
+
+    def test_bundle_compression_status_exposes_flat_text_field(self, authed_client):
+        """Issue #448: the async status payload must carry the completion on
+        the same single-level ``text`` field ``?mode=compressed`` returns,
+        while keeping the deprecated ``result`` envelope for old clients."""
+        resp = authed_client.get("/api/v1/bundle-compression-status/nonexistent-task-id/")
+        assert resp.status_code == 200
+        assert set(resp.json()) == {
+            "task_id", "status", "result", "error",
+            "text", "is_mock_fallback", "provider",
+        }
 
     def test_invalid_mode_returns_400(self, authed_client, architecture_element):
         resp = authed_client.get(

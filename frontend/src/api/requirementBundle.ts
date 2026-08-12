@@ -41,6 +41,13 @@ export interface CompressedResult {
   text: string;
   cache_hit: boolean;
   is_mock_fallback: boolean;
+  /**
+   * Provider that actually produced `text` (issue #442). `"mock"` means no
+   * real LLM ran and `text` is a `"[MOCK FALLBACK] "`-prefixed placeholder,
+   * not a compression. Optional because a backend older than that fix does
+   * not send it.
+   */
+  provider?: string;
 }
 export interface CompressionDispatch {
   task_id: string;
@@ -48,8 +55,16 @@ export interface CompressionDispatch {
 export interface CompressionStatus {
   task_id: string;
   status: "pending" | "running" | "done" | "failed" | "not_found";
+  /**
+   * @deprecated Doubly nested legacy envelope (issue #448). Read `text`
+   * instead; this field is still sent for backward compatibility.
+   */
   result: { result: string } | null;
   error: string | null;
+  /** Completion text once `status === "done"`; mirrors `CompressedResult.text`. */
+  text?: string | null;
+  is_mock_fallback?: boolean;
+  provider?: string | null;
 }
 
 export interface RawExportOptions {

@@ -51,6 +51,38 @@ describe("useBundleCompressionStatus", () => {
     expect(requirementBundleApi.getCompressionStatus).toHaveBeenCalledTimes(3);
   });
 
+  it("prefers the flat `text` field over the deprecated result envelope", async () => {
+    // Issue #448: the status payload now carries the completion on a
+    // single-level `text` field matching the synchronous response shape.
+    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+      task_id: "t1",
+      status: "done",
+      text: "flat text",
+      result: { result: "legacy envelope text" },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useBundleCompressionStatus("t1", 1000));
+    await act(async () => {});
+
+    expect(result.current.result).toBe("flat text");
+  });
+
+  it("falls back to the legacy envelope when `text` is absent", async () => {
+    // Backward compatibility with a backend predating issue #448.
+    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+      task_id: "t1",
+      status: "done",
+      result: { result: "legacy envelope text" },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useBundleCompressionStatus("t1", 1000));
+    await act(async () => {});
+
+    expect(result.current.result).toBe("legacy envelope text");
+  });
+
   it("stops polling and clears the interval on unmount", async () => {
     (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
       task_id: "t1", status: "pending", result: null, error: null,
