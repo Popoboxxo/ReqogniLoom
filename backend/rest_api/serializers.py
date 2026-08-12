@@ -511,6 +511,20 @@ class RequirementSerializer(
         allow_null=True,
         help_text="Verification method (visible only for SyReq)",
     )
+    # Issue #409: V-model hierarchy level. Model field existed since the
+    # RequirementLevel migration but was never exposed by the REST/MCP
+    # boundaries — a client could never set it despite it being a real,
+    # queryable column used by the traceability audit rules.
+    level = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=4,
+        help_text=(
+            "V-model hierarchy level (0=System, 1=Subsystem, 2=Component, "
+            "3=Part, 4=Material). NULL until assigned explicitly."
+        ),
+    )
     uid = serializers.CharField(
         max_length=64,
         read_only=True,

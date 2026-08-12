@@ -57,13 +57,26 @@ logger = logging.getLogger(__name__)
 
 
 def _requirement_to_dict(req: Any) -> Dict[str, Any]:
-    """Serialise a Requirement ORM object to a dict for MCP response."""
+    """Serialise a Requirement ORM object to a dict for MCP response.
+
+    Issue #409: SE mask fields (acceptance_criteria, type,
+    complexity_fibonacci, verification_method, level) used to be missing
+    here — an agent creating/updating a requirement with these fields could
+    not tell from the HTTP-200 response whether they were actually stored,
+    the same response-fidelity gap fixed for the REST boundary in #344
+    (see rest_api/views.py::_dto_from_orm).
+    """
     result: Dict[str, Any] = {
         "id": str(req.id),
         "title": req.title,
         "description": req.description,
+        "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
         "category": req.category,
         "status": req.status,
+        "type": getattr(req, "type", None) or "SyReq",
+        "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
+        "verification_method": getattr(req, "verification_method", None) or None,
+        "level": getattr(req, "level", None),
         "version": req.version,
     }
     if hasattr(req, "artifact") and req.artifact:
@@ -131,9 +144,45 @@ class RequirementsToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
                     "title": {"type": "string"},
                     "description": {"type": "string"},
-                    "category": {"type": "string"}
+                    "category": {"type": "string"},
+                    "parent_id": {
+                        "type": "string",
+                        "description": "UUID of the parent Artifact, if any.",
+                    },
+                    "acceptance_criteria": {
+                        "type": "string",
+                        "description": "Criteria describing when the requirement is fulfilled.",
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["SyReq", "UseCase", "FeatureReq"],
+                        "description": "Requirement classification per REQ-L3-RF003-005. Defaults to 'SyReq'.",
+                    },
+                    "complexity_fibonacci": {
+                        "type": "integer",
+                        "description": "Complexity via Fibonacci scale (only meaningful for type='SyReq').",
+                    },
+                    "verification_method": {
+                        "type": "string",
+                        "enum": ["Test", "Review", "Analysis", "Inspection", "Demonstration"],
+                        "description": "Verification method (only meaningful for type='SyReq').",
+                    },
+                    "level": {
+                        "type": "integer",
+                        "enum": [0, 1, 2, 3, 4],
+                        "description": (
+                            "V-model hierarchy level (0=System, 1=Subsystem, "
+                            "2=Component, 3=Part, 4=Material)."
+                        ),
+                    },
                 },
-                "required": ["workspace_id", "title"]
+                "required": ["workspace_id", "title"],
+                # Issue #409: without this, unknown fields in a create payload
+                # (e.g. a typo'd field name) were silently dropped by MCP
+                # clients that validate against inputSchema client-side,
+                # returning HTTP 200 with the field simply missing instead of
+                # surfacing a validation error.
+                "additionalProperties": False,
             }
         },
         {
@@ -311,6 +360,15 @@ class RequirementsToolGroup(BaseToolGroup):
         description: str = params.get("description", "")
         category: str = params.get("category", "")
         parent_id = optional_uuid(params, "parent_id")
+        # Issue #409: these SE mask fields (REQ-L3-RF003-005) were accepted by
+        # RequirementService.create_requirement() and by the REST endpoint but
+        # silently ignored here — a client sending them via MCP got HTTP 200
+        # with the fields simply dropped, no error.
+        acceptance_criteria: str = params.get("acceptance_criteria", "")
+        req_type: str = params.get("type", "SyReq")
+        complexity_fibonacci = params.get("complexity_fibonacci")
+        verification_method = params.get("verification_method")
+        level = params.get("level")
 
         try:
             # Codeberg #313: create_requirement's single internal _audit()
@@ -322,8 +380,13 @@ class RequirementsToolGroup(BaseToolGroup):
                     title=str(title),
                     ctx=auth_context,
                     description=description,
+                    acceptance_criteria=acceptance_criteria,
                     category=category,
                     parent_id=parent_id,
+                    type=req_type,
+                    complexity_fibonacci=complexity_fibonacci,
+                    verification_method=verification_method,
+                    level=level,
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

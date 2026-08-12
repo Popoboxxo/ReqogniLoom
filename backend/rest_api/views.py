@@ -725,6 +725,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 type=data.get("type", "SyReq"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
                 verification_method=data.get("verification_method"),
+                level=data.get("level"),
                 uid=data.get("uid"),
                 custom_fields=data.get("custom_fields"),
             )
@@ -764,9 +765,27 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         # REQ-L2-AS-037: only forward custom_fields when the client actually
         # sent it, so an unrelated PATCH does not wipe existing custom_fields.
+        #
+        # Issue #409: complexity_fibonacci/verification_method/level are
+        # nullable SE fields whose absence from a partial PATCH payload must
+        # mean "leave unchanged", not "clear to NULL". update_requirement()
+        # already distinguishes the two cases via the ``_UNSET`` sentinel
+        # (default), but this view used to always pass ``data.get(...)`` —
+        # which is None both when the client omitted the field AND when the
+        # client explicitly sent null — collapsing "unchanged" into "clear"
+        # and silently wiping the stored value on every unrelated PATCH.
+        # Forward these fields only when actually present in the payload, the
+        # same way custom_fields already is, so the sentinel default takes
+        # over ("leave unchanged") whenever the client didn't send them.
         extra_kwargs: dict[str, Any] = {}
         if "custom_fields" in data:
             extra_kwargs["custom_fields"] = data["custom_fields"]
+        if "complexity_fibonacci" in data:
+            extra_kwargs["complexity_fibonacci"] = data["complexity_fibonacci"]
+        if "verification_method" in data:
+            extra_kwargs["verification_method"] = data["verification_method"]
+        if "level" in data:
+            extra_kwargs["level"] = data["level"]
         try:
             ctx = get_auth_context(request)
             # REQ-143: `status` is intentionally NOT forwarded. The serializer
@@ -781,8 +800,6 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category"),
                 change_reason=data.get("change_reason"),
                 type=data.get("type"),
-                complexity_fibonacci=data.get("complexity_fibonacci"),
-                verification_method=data.get("verification_method"),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **extra_kwargs,
@@ -3440,6 +3457,7 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "type": getattr(req, "type", None) or "SyReq",
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
+        "level": getattr(req, "level", None),
         "custom_fields": _artifact_custom_fields(req),
         "version": req.version,
         "created_at": req.created_at,

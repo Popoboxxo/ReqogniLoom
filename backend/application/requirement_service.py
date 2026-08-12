@@ -174,6 +174,7 @@ class RequirementService(ServiceBase):
         type: str = "SyReq",
         complexity_fibonacci: Optional[int] = None,
         verification_method: Optional[str] = None,
+        level: Optional[int] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
     ) -> Requirement:
@@ -181,7 +182,7 @@ class RequirementService(ServiceBase):
 
         REQ-L2-AS-003: creates Requirement + initialises WorkflowState.
         REQ-L3-RF003-005: Accepts SE mask fields (type,
-        complexity_fibonacci, verification_method).
+        complexity_fibonacci, verification_method, level).
         Note: moscow_priority lives on StakeholderNeed (migration 0020).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
@@ -222,6 +223,7 @@ class RequirementService(ServiceBase):
             type=type,
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
+            level=level,
             uid=uid,
         )
 
@@ -307,6 +309,7 @@ class RequirementService(ServiceBase):
         type: Optional[str] = None,
         complexity_fibonacci: object = _UNSET,
         verification_method: object = _UNSET,
+        level: object = _UNSET,
         uid: object = _UNSET,
         suspect: Optional[bool] = None,
         custom_fields: object = _UNSET,
@@ -316,7 +319,7 @@ class RequirementService(ServiceBase):
         REQ-L2-AS-003: change_reason required in Extended preset.
         ADR-L3-AS002-02: delegates policy check to PresetPolicyService.
         REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
-        complexity_fibonacci, verification_method).
+        complexity_fibonacci, verification_method, level).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
 
         REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror. The REST
@@ -362,6 +365,8 @@ class RequirementService(ServiceBase):
             requirement.complexity_fibonacci = complexity_fibonacci
         if verification_method is not _UNSET:
             requirement.verification_method = verification_method
+        if level is not _UNSET:
+            requirement.level = level
         if uid is not _UNSET:
             self._assert_uid_unique_in_workspace(
                 workspace_id, uid, exclude_id=requirement.id

@@ -196,6 +196,80 @@ def test_demonstration_verification_method_round_trips(fidelity_env):
     assert fresh["verification_method"] == "Demonstration"
 
 
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_unrelated_patch_does_not_clear_verification_method(fidelity_env):
+    """Issue #409: an unrelated PATCH must not silently NULL out SE fields.
+
+    A partial PATCH that omits ``verification_method``/``complexity_fibonacci``/
+    ``level`` must leave the previously stored values untouched — omission from
+    the payload means "unchanged", not "clear to NULL". The view used to
+    forward ``data.get(...)`` unconditionally, which is ``None`` both when the
+    field is genuinely absent and when the field was explicitly nulled,
+    collapsing the two cases and wiping the stored value on every unrelated
+    edit (e.g. a title-only PATCH).
+    """
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+
+    setup = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {
+            "complexity_fibonacci": 5,
+            "verification_method": "Test",
+            "level": 1,
+        },
+        format="json",
+    )
+    assert setup.status_code == 200, setup.content
+    assert setup.json()["complexity_fibonacci"] == 5
+    assert setup.json()["verification_method"] == "Test"
+    assert setup.json()["level"] == 1
+
+    # Unrelated edit — does not mention the SE fields at all.
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"title": "Renamed, unrelated to SE fields"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["title"] == "Renamed, unrelated to SE fields"
+    assert body["complexity_fibonacci"] == 5
+    assert body["verification_method"] == "Test"
+    assert body["level"] == 1
+
+    fresh = client.get(f"/api/v1/requirements/{requirement['id']}/").json()
+    assert fresh["complexity_fibonacci"] == 5
+    assert fresh["verification_method"] == "Test"
+    assert fresh["level"] == 1
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_explicit_null_still_clears_verification_method(fidelity_env):
+    """An explicit ``null`` must still clear the field (unlike omission)."""
+    client = _client(fidelity_env)
+    requirement = _create_requirement(client, fidelity_env["workspace"].id)
+    client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"verification_method": "Test", "complexity_fibonacci": 3},
+        format="json",
+    )
+
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {"verification_method": None, "complexity_fibonacci": None},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body.get("verification_method") is None
+    assert body.get("complexity_fibonacci") is None
+
+
 def test_serializer_choices_match_the_model():
     """Guard the seam itself: no choice list may drift from the model again."""
     from persistence.models import VerificationMethod

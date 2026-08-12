@@ -1,5 +1,5 @@
 {
-  "generated_from": "reqogniloom==1.6.0-beta.1",
+  "generated_from": "reqogniloom==1.6.0-beta.2",
   "tool_count": 146,
   "tools": [
     {
@@ -1428,10 +1428,14 @@
       "name": "events.dlq_list",
       "prefix": "events",
       "is_write": false,
-      "description": "List Domain-Event dead-letter-queue entries (admin-only, read).",
+      "description": "List Domain-Event dead-letter-queue entries for one workspace (admin-only, read).",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to list DLQ entries for. Required — DomainEventDLQ has no tenant scoping of its own, and narrows the admin-role check to this workspace specifically."
+          },
           "event_type": {
             "type": "string",
             "description": "Optional event_type filter."
@@ -1440,7 +1444,10 @@
             "type": "integer",
             "description": "Page size (1..1000, default 100)."
           }
-        }
+        },
+        "required": [
+          "workspace_id"
+        ]
       }
     },
     {
@@ -1454,10 +1461,15 @@
           "event_id": {
             "type": "string",
             "description": "UUID of the original DomainEventDLQ.event_id."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace the event belongs to. Required — see events.dlq_list's description."
           }
         },
         "required": [
-          "event_id"
+          "event_id",
+          "workspace_id"
         ]
       }
     },
@@ -2470,10 +2482,15 @@
           "permission_id": {
             "type": "string",
             "description": "UUID of the permission row to delete."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace the permission row belongs to. Required so the admin-role check is narrowed to this workspace specifically (ToolRegistry resolves workspace-scoped roles from this param) — without it the check falls back to a tenant-wide role aggregate, letting an admin of any one workspace revoke rules in any other workspace of the same tenant."
           }
         },
         "required": [
-          "permission_id"
+          "permission_id",
+          "workspace_id"
         ]
       }
     },
@@ -2643,12 +2660,56 @@
           },
           "category": {
             "type": "string"
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "UUID of the parent Artifact, if any."
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "description": "Criteria describing when the requirement is fulfilled."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "SyReq",
+              "UseCase",
+              "FeatureReq"
+            ],
+            "description": "Requirement classification per REQ-L3-RF003-005. Defaults to 'SyReq'."
+          },
+          "complexity_fibonacci": {
+            "type": "integer",
+            "description": "Complexity via Fibonacci scale (only meaningful for type='SyReq')."
+          },
+          "verification_method": {
+            "type": "string",
+            "enum": [
+              "Test",
+              "Review",
+              "Analysis",
+              "Inspection",
+              "Demonstration"
+            ],
+            "description": "Verification method (only meaningful for type='SyReq')."
+          },
+          "level": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "V-model hierarchy level (0=System, 1=Subsystem, 2=Component, 3=Part, 4=Material)."
           }
         },
         "required": [
           "workspace_id",
           "title"
-        ]
+        ],
+        "additionalProperties": false
       }
     },
     {
