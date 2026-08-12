@@ -91,21 +91,46 @@ class TestTraceP1:
         assert len(findings) == 1
         assert str(req_art.id) in findings[0].artifact_ids
 
-    def test_derives_from_wrong_target_type_still_flagged(self, tenant_a, workspace_a):
-        """A root Requirement deriving from another Requirement (not a Need)
-        satisfies the general orphan check (P1b) but not the P1 need-link."""
+    def test_need_anchor_is_required_only_at_the_top_of_a_chain(
+        self, tenant_a, workspace_a
+    ):
+        """A Requirement derived from another Requirement is a child, not a root.
+
+        Behaviour change, issue #395. This case used to be asserted the other
+        way round ("a root Requirement deriving from another Requirement is
+        still flagged"), which was the bug: ``derives-from`` is a hierarchy
+        edge, so in ``child --derives-from--> parent --derives-from--> need``
+        the *parent* is the root and the only Requirement TRACE-P1 may demand
+        a Need link from. The chain is anchored at its top; flagging the child
+        as an unanchored root made every real, correctly derived hierarchy
+        unbaselineable (the issue's live workspace reported 3343 such
+        blockers).
+        """
         with active_tenant(tenant_a):
             need_art, _ = _need(tenant_a, workspace_a)
-            other_art, _ = _requirement(tenant_a, workspace_a, title="Other")
-            make_trace_link(other_art, need_art, tenant_a, "derives-from")
-            root_art, _ = _requirement(tenant_a, workspace_a, title="Root")
-            make_trace_link(root_art, other_art, tenant_a, "derives-from")
+            parent_art, _ = _requirement(tenant_a, workspace_a, title="Parent")
+            make_trace_link(parent_art, need_art, tenant_a, "derives-from")
+            child_art, _ = _requirement(tenant_a, workspace_a, title="Child")
+            make_trace_link(child_art, parent_art, tenant_a, "derives-from")
+
+            result = _run("standard", workspace_a, tenant_a)
+
+        # The chain is anchored at parent_art, so nothing is flagged.
+        assert _findings(result, TRACE_P1) == []
+
+    def test_unanchored_chain_flags_its_root_only(self, tenant_a, workspace_a):
+        """Remove the Need link and the *top* of the chain is flagged — once."""
+        with active_tenant(tenant_a):
+            _need(tenant_a, workspace_a)
+            parent_art, _ = _requirement(tenant_a, workspace_a, title="Parent")
+            child_art, _ = _requirement(tenant_a, workspace_a, title="Child")
+            make_trace_link(child_art, parent_art, tenant_a, "derives-from")
 
             result = _run("standard", workspace_a, tenant_a)
 
         findings = _findings(result, TRACE_P1)
         assert len(findings) == 1
-        assert str(root_art.id) in findings[0].artifact_ids
+        assert str(parent_art.id) in findings[0].artifact_ids
 
 
 # ---------------------------------------------------------------------------

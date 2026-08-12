@@ -14,11 +14,15 @@ Follows the same convention established in ``trace_derivation_allocation.py``
 is ``NULL`` for practically every Requirement created via
 ``RequirementService.decompose()``, so "leaf" cannot be read off that field
 for the regular case. This module instead uses the *dynamic
-decomposition-graph depth*: a Requirement is a "leaf" when it is not the
-*source* of any ``decomposes``/``parent-child`` link to another Requirement
-in scope, i.e. no other Requirement was decomposed from it. This is the
-mirror image of ``trace_derivation_allocation._root_requirement_ids``
-(which looks for "not a *target*").
+decomposition-graph depth*: a Requirement is a "leaf" when no other
+Requirement in scope hangs below it in the hierarchy, i.e. nothing was
+decomposed/derived from it. Both spellings of a hierarchy edge count —
+``parent --decomposes/parent-child--> child`` and the inverse
+``child --derives-from--> parent`` (issue #395); see
+:mod:`traceability.audit.hierarchy`, which holds the shared definition used
+by both this module and ``trace_derivation_allocation``'s mirror-image root
+classification (and only those two — that module's docstring lists the other
+hierarchy representations it must *not* be unified with).
 
 L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
 of §2.2): a Requirement with an *explicitly assigned*
@@ -74,6 +78,7 @@ from persistence.models import (
     RequirementLevel,
     TestCase,
 )
+from traceability.audit.hierarchy import leaf_requirement_ids as _leaf_requirement_ids
 from traceability.audit.registry import (
     CONS_P9,
     CONS_P10,
@@ -90,10 +95,6 @@ from workflow.services import outdated_item_ids
 # "TRACE-P6 / VERIF-P8 'supersedes' note" section of the module docstring —
 # out of scope for the CONS-P9/CONS-P10 deferral in this module.
 _SUPERCEDES = "supersedes"
-
-_DECOMPOSITION_LINK_TYPES: FrozenSet[str] = frozenset(
-    {LinkType.DECOMPOSES.value, LinkType.PARENT_CHILD.value}
-)
 
 # ---------------------------------------------------------------------------
 # Shared, read-only data access helpers (audit infrastructure — mirrors the
@@ -182,25 +183,6 @@ def _superseded_artifact_ids(context: AuditContext) -> FrozenSet[str]:
         for link in context.iter_trace_links()
         if link["link_type"] == _SUPERCEDES
     )
-
-
-def _leaf_requirement_ids(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> FrozenSet[str]:
-    """Return the subset of *requirement_ids* with no decomposition child.
-
-    A Requirement is a "leaf" (dynamic-graph stand-in for "L3/L4", see module
-    docstring) when it is not the *source* of any ``decomposes``/
-    ``parent-child`` link to another Requirement in *requirement_ids* — i.e.
-    nothing was decomposed from it.
-    """
-    parent_ids: Set[str] = set()
-    for link in context.iter_trace_links():
-        if link["link_type"] not in _DECOMPOSITION_LINK_TYPES:
-            continue
-        if link["source_id"] in requirement_ids and link["target_id"] in requirement_ids:
-            parent_ids.add(link["source_id"])
-    return requirement_ids - frozenset(parent_ids)
 
 
 # ---------------------------------------------------------------------------

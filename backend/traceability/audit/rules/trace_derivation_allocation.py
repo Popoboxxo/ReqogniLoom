@@ -19,12 +19,16 @@ names as the alternative:
 
 - **L0** = :class:`~persistence.models.StakeholderNeed` — a distinct model,
   never a ``Requirement`` row. No Requirement is ever "L0".
-- **L1 ("root" / "SystemRequirement")** = a ``Requirement`` with no incoming
-  ``decomposes`` (or legacy ``parent-child``) link from another Requirement —
-  i.e. the root of a decomposition subgraph. This is a graph property,
-  computed per audit run, not a stored field.
-- **L2+ ("child Requirement")** = any Requirement that *is* the target of
-  such a link.
+- **L1 ("root" / "SystemRequirement")** = a ``Requirement`` with no
+  hierarchy parent among the other Requirements — i.e. the root of a
+  decomposition subgraph. This is a graph property, computed per audit run,
+  not a stored field. "Hierarchy parent" spans both spellings of the same
+  fact, ``parent --decomposes/parent-child--> child`` *and* the inverse
+  ``child --derives-from--> parent`` (issue #395: real workspaces express the
+  hierarchy predominantly through ``derives-from``); see
+  :mod:`traceability.audit.hierarchy` for the direction table.
+- **L2+ ("child Requirement")** = any Requirement that *does* have such a
+  hierarchy parent.
 - **L4 (Presentation)** is explicitly out of scope for every rule in this
   module (§2.2, "L4 (Presentation)"). There is no dynamic-graph signal for
   it (it has no architectural representation per §1.2), so the only
@@ -39,6 +43,25 @@ Endpoint-type legality (may ``Requirement`` link to ``StakeholderNeed`` via
 ``SE_LINK_SEMANTICS`` / ``check_se_link_semantics`` territory (§2.1),
 enforced synchronously at link-creation time. These rules only check
 *existence* of the required link, never re-validate its endpoint types.
+
+--------------------------------------------------------------------------
+BEHAVIOUR CHANGE — TRACE-P3 accepts an incoming ``allocated-to`` (issue #395)
+--------------------------------------------------------------------------
+This is a deliberate widening of a **BLOCKER** rule's semantics, decided as
+part of issue #395 but *independent* of that issue's root/leaf
+classification migration — it is called out here so it is reviewed on its
+own merits rather than read as a side effect of the classification change.
+
+TRACE-P3 used to accept only an outgoing ``satisfies``/``implements`` link
+from the ArchitectureElement. It now also accepts an incoming
+``Requirement --allocated-to--> element`` link. Rationale, trade-off and the
+rejected alternative (auto-writing a reciprocal ``satisfies`` link on every
+allocation) are documented on
+:class:`ArchitectureElementSatisfiesRequirementRule` itself.
+
+Net effect on existing workspaces: TRACE-P3 fires strictly less often than
+before. No workspace that passed the rule can start failing it; workspaces
+whose architecture was justified purely by allocation stop being blocked.
 
 Soft-deleted artifacts are excluded from every check in this module — a
 deleted Requirement/ArchitectureElement/StakeholderNeed cannot meaningfully be
@@ -61,6 +84,7 @@ from persistence.models import (
     RequirementLevel,
     StakeholderNeed,
 )
+from traceability.audit.hierarchy import root_requirement_ids as _root_requirement_ids
 from traceability.audit.registry import (
     TRACE_P1,
     TRACE_P1B,
@@ -79,10 +103,6 @@ from workflow.services import outdated_item_ids
 # ``AuditContext.iter_trace_links()``: tenant is supplied explicitly by the
 # engine, so these bypass the thread-local ``objects`` manager deliberately).
 # ---------------------------------------------------------------------------
-
-_DECOMPOSITION_LINK_TYPES: FrozenSet[str] = frozenset(
-    {LinkType.DECOMPOSES.value, LinkType.PARENT_CHILD.value}
-)
 
 
 def _active_requirements(context: AuditContext) -> Dict[str, str]:
@@ -137,26 +157,6 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
     }
 
 
-def _root_requirement_ids(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> FrozenSet[str]:
-    """Return the subset of *requirement_ids* with no decomposition parent.
-
-    A Requirement is a "child" (not root) when some other Requirement in
-    *requirement_ids* points at it via a ``decomposes`` (or legacy
-    ``parent-child``) link. Everything else is a decomposition root — the
-    dynamic-graph stand-in for "L1 / SystemRequirement" (see module
-    docstring).
-    """
-    child_ids = set()
-    for link in context.iter_trace_links():
-        if link["link_type"] not in _DECOMPOSITION_LINK_TYPES:
-            continue
-        if link["source_id"] in requirement_ids and link["target_id"] in requirement_ids:
-            child_ids.add(link["target_id"])
-    return requirement_ids - frozenset(child_ids)
-
-
 def _sources_by_link_type(
     context: AuditContext, link_types: FrozenSet[str]
 ) -> Dict[str, set]:
@@ -166,6 +166,23 @@ def _sources_by_link_type(
         if link["link_type"] not in link_types:
             continue
         result.setdefault(link["source_id"], set()).add(link["target_id"])
+    return result
+
+
+def _targets_by_link_type(
+    context: AuditContext, link_types: FrozenSet[str]
+) -> Dict[str, set]:
+    """Return ``{target_id: {source_id, ...}}`` for links of *link_types*.
+
+    The reverse index of :func:`_sources_by_link_type`, for rules that have to
+    read an edge from its target side (TRACE-P3 and the incoming
+    ``allocated-to`` link).
+    """
+    result: Dict[str, set] = {}
+    for link in context.iter_trace_links():
+        if link["link_type"] not in link_types:
+            continue
+        result.setdefault(link["target_id"], set()).add(link["source_id"])
     return result
 
 
@@ -320,7 +337,42 @@ class RequirementAllocatedToArchitectureRule(Rule):
 
 @register_rule
 class ArchitectureElementSatisfiesRequirementRule(Rule):
-    """TRACE-P3: every ArchitectureElement satisfies/implements a Requirement."""
+    """TRACE-P3: every ArchitectureElement satisfies/implements a Requirement.
+
+    BEHAVIOUR CHANGE (issue #395) — see the module docstring. An incoming
+    ``Requirement --allocated-to--> element`` link now counts as
+    justification too.
+
+    Allocation and satisfaction are the two directions of one fact. In
+    ``SE_LINK_SEMANTICS`` the Requirement/ArchitectureElement pair of
+    ``allocated-to`` (``(Requirement, ArchitectureElement)``) is exactly the
+    reverse of the Requirement/ArchitectureElement pair of ``satisfies``
+    (``(ArchitectureElement, Requirement)``). Neither entry is limited to
+    that pair — ``satisfies`` also permits ``(Requirement,
+    StakeholderNeed)`` and ``allocated-to`` also permits
+    ``(ArchitectureElement, ArchitectureElement)`` — but those other pairs
+    cannot reach this rule, which only ever intersects against the active
+    Requirement set.
+
+    Allocation is also the *only* one of the two directions the product ever
+    writes (``TraceLinkService.allocate``, the guided "Ableiten" flow, the AI
+    decomposition commit); no code path produces a ``satisfies`` link. Without
+    this, an element carrying the whole requirement allocation of a system
+    level was still reported as architecture without justification — the
+    fault this rule exists to catch, inverted.
+
+    Rejected alternative: auto-writing a reciprocal ``satisfies`` link on
+    every allocation. That doubles every allocation edge in coverage
+    aggregation, VCRM reports, diagrams and baselines, and
+    ``TraceLinkService.allocate`` deletes a Requirement's previous allocation
+    — so it would have to delete the paired ``satisfies`` too, which cannot
+    be told apart from a hand-authored one. It also asserts something the
+    user never stated.
+
+    The rule keeps its teeth: an element with neither an outgoing
+    satisfies/implements nor an incoming allocation is untraced architecture
+    and still blocks.
+    """
 
     rule_id = TRACE_P3
 
@@ -334,11 +386,17 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
             context,
             frozenset({LinkType.SATISFIES.value, LinkType.IMPLEMENTS.value}),
         )
+        allocated_from = _targets_by_link_type(
+            context, frozenset({LinkType.ALLOCATED_TO.value})
+        )
 
         findings: List[Finding] = []
         for ae_id, title in sorted(elements.items()):
-            targets = satisfies_or_implements.get(ae_id, set())
-            if targets & requirement_ids:
+            justifying = (
+                satisfies_or_implements.get(ae_id, set())
+                | allocated_from.get(ae_id, set())
+            )
+            if justifying & requirement_ids:
                 continue
             findings.append(
                 Finding(
@@ -346,7 +404,8 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
                     severity=Severity.BLOCKER,
                     message=(
                         f"[TRACE-P3] ArchitectureElement '{title}' ({ae_id}) "
-                        f"does not satisfy/implement any Requirement."
+                        f"does not satisfy/implement any Requirement and has "
+                        f"no Requirement allocated to it."
                     ),
                     artifact_ids=(ae_id,),
                 )
