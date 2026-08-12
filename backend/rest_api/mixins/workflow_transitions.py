@@ -4,6 +4,7 @@ Adds the two workflow endpoints that every workflow-backed entity ViewSet needs:
 
     GET  /api/v1/<entity>/{pk}/transitions/       → current state + allowed moves
     POST /api/v1/<entity>/{pk}/transitions/       → perform a gated transition
+    POST /api/v1/<entity>/{pk}/reactivate/        → undo a soft-delete (GH-443)
     GET  /api/v1/<entity>/{pk}/workflow-history/   → append-only audit trail
 
 The WorkflowEngine (via ``WorkflowFacade``) is the single authority for the
@@ -196,6 +197,57 @@ class WorkflowTransitionsMixin:
                 change_reason=change_reason,
                 ctx=ctx,
                 credential=credential,
+                item_type=self.workflow_item_type,
+                workspace_id=workspace_id,
+            )
+        except Exception as exc:
+            return self._error(exc, lang)
+
+        body: dict[str, Any] = {
+            "id": pk,
+            "previous_state": result.previous_state,
+            "new_state": result.new_state,
+        }
+        embedded = self._serialize_after_transition(item_id, ctx)
+        if embedded is not None:
+            body.update(embedded)
+        return Response(body)
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST ``reactivate/`` — undo a soft-delete (GH-443).
+
+        DELETE on these entities is a soft-delete: the row survives with
+        ``status="outdated"``. This restores it to the state it held
+        immediately before the delete, and is the only way back — "outdated"
+        is a system state outside every preset's state list, so
+        ``POST .../transitions/`` cannot leave it.
+
+        Responses:
+            200 ``{id, previous_state, new_state}`` (plus the refreshed entity
+                when the ViewSet embeds one, exactly as ``transitions/`` does),
+            400 when the item is not currently outdated,
+            403 without the write role,
+            404 when the item does not exist.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item_id, workspace_id = self._resolve_workflow_target(pk, ctx)
+        except NotFoundError as exc:
+            return self._error(exc, lang)
+        except PermissionDeniedError as exc:
+            return self._error(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            result = WorkflowFacade().reactivate(
+                item_id=item_id,
+                ctx=ctx,
                 item_type=self.workflow_item_type,
                 workspace_id=workspace_id,
             )

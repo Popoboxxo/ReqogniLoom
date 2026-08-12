@@ -68,6 +68,8 @@ class CoverageCalculator:
         workspace_id: uuid.UUID,
         artifact_type: Optional[str] = None,
         link_type: Optional[str] = None,
+        *,
+        include_outdated: bool = False,
     ) -> CoverageReport:
         """Compute test coverage for Requirements in a workspace.
 
@@ -78,6 +80,14 @@ class CoverageCalculator:
             workspace_id: The workspace to compute coverage for.
             artifact_type: Optional artifact type filter.
             link_type: Optional link type filter (default: "verifies").
+            include_outdated: GH-443. When False (default), soft-deleted
+                (``status="outdated"``) Requirements are excluded from both
+                ``total`` and ``uncovered`` — deleting a requirement must not
+                keep dragging the coverage KPI down, and it must not reappear
+                in the uncovered list. This mirrors the long-standing default
+                of the sibling :meth:`get_coverage_data`; ``coverage()`` simply
+                never got the same treatment when Requirement DELETE became a
+                soft-delete.
 
         Returns:
             CoverageReport with total, covered, uncovered, percentage.
@@ -91,11 +101,10 @@ class CoverageCalculator:
         effective_link_type = link_type or "verifies"
 
         # Load all Requirements in the workspace (tenant-scoped via manager)
-        requirements = list(
-            Requirement.objects.filter(
-                artifact__workspace_id=workspace_id
-            ).values("id", "artifact_id")
-        )
+        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        if not include_outdated:
+            req_qs = req_qs.exclude(status="outdated")
+        requirements = list(req_qs.values("id", "artifact_id"))
 
         total = len(requirements)
         if total == 0:

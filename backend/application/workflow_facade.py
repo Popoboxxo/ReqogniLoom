@@ -156,6 +156,93 @@ class WorkflowFacade(ServiceBase):
 
         return result
 
+    def reactivate(
+        self,
+        item_id: UUID | str,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+    ):
+        """Undo a soft-delete: restore an "outdated" item to its previous state.
+
+        GH-443. The counterpart to the ``outdate()`` escape hatch that every
+        ``*Service.delete_*`` method routes through: without it a soft-delete
+        would be a one-way street through the REST API, since "outdated" is not
+        part of any preset's state list and therefore cannot be left through
+        the regular ``POST .../transitions/`` gate.
+
+        Like :meth:`transition` this is a *write*: it checks the RBAC write gate
+        (the workflow engine's ``force_transition`` deliberately performs no
+        preset-role validation), runs atomically and writes an audit entry plus
+        a ``WorkflowTransitioned`` domain event, so a restore is as traceable as
+        the delete that preceded it.
+
+        Args:
+            item_id:      UUID of the outdated item.
+            ctx:          Fully resolved AuthContext.
+            item_type:    Entity type (e.g. "Requirement").
+            workspace_id: Workspace UUID.
+
+        Returns:
+            workflow.services.TransitionResult — ``new_state`` is the state the
+            item held immediately before it was outdated.
+
+        Raises:
+            PermissionDeniedError: caller lacks the write role.
+            ValidationError: the item is not currently "outdated".
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        item_uuid = UUID(str(item_id))
+        ws_uuid = UUID(str(workspace_id))
+
+        with transaction.atomic():
+            from workflow.services import reactivate as wf_reactivate
+
+            try:
+                result = wf_reactivate(
+                    item_id=item_uuid,
+                    item_type=item_type,
+                    workspace_id=ws_uuid,
+                    ctx=ctx,
+                )
+            except ValueError as exc:
+                # workflow.services.reactivate() signals "not outdated" with a
+                # bare ValueError; surface it as a 400, not a 500.
+                raise ValidationError(str(exc)) from exc
+            except Exception as exc:
+                _remap_workflow_exc(exc)
+
+            self._audit(
+                ctx=ctx,
+                operation="transition",
+                entity_type=item_type,
+                entity_id=item_uuid,
+                change_reason="reactivated",
+                details={
+                    "previous_state": result.previous_state,
+                    "new_state": result.new_state,
+                    "workspace_id": str(ws_uuid),
+                },
+            )
+
+            self._emit_event(
+                self._make_event(
+                    event_type="WorkflowTransitioned",
+                    entity_id=item_uuid,
+                    workspace_id=ws_uuid,
+                    payload={
+                        "item_type": item_type,
+                        "previous_state": result.previous_state,
+                        "new_state": result.new_state,
+                    },
+                )
+            )
+
+        return result
+
     def initialize_workflow_states(
         self,
         item_ids: List[UUID | str],

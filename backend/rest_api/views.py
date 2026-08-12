@@ -90,7 +90,11 @@ from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
 
 logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
-from rest_api.query_params import parse_workspace_id, require_non_empty_param
+from rest_api.query_params import (
+    parse_include_deleted,
+    parse_workspace_id,
+    require_non_empty_param,
+)
 from rest_api.serializers import (
     AdrSerializer,
     ArtifactSerializer,
@@ -123,6 +127,14 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+
+# GH-443: every soft-deleting ``destroy()`` below repeats the same paragraph
+# verbatim. That is deliberate duplication, not an oversight: drf-spectacular
+# builds each endpoint's OpenAPI ``description`` from the method's ``__doc__``,
+# so a shared constant would never reach the published schema — and the
+# published schema is exactly where the contract was unreadable before. Where an
+# entity genuinely deviates (ArchitectureElement's 404, the TraceLink cascade on
+# TestCase/Issue/Risk) the deviation is spelled out in that entity's docstring.
 
 # ---------------------------------------------------------------------------
 # Exception → HTTP status mapper (REQ-L3-RA001-002)
@@ -361,7 +373,10 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 return error
             search = request.query_params.get("search") or None
             items = self.service.list_by_workspace(
-                get_auth_context(request), workspace_id, search=search
+                get_auth_context(request),
+                workspace_id,
+                include_deleted=parse_include_deleted(request.query_params),
+                search=search,
             )
             return self._paginate(
                 request,
@@ -475,7 +490,18 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """DELETE /api/v1/needs/<id>/ — delete need."""
+        """DELETE /api/v1/needs/<id>/ — soft-delete a stakeholder need. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` to see
+        them, and ``POST .../reactivate/`` to restore one.
+
+        TraceLinks pointing at the record survive the delete, and traceability
+        coverage ignores outdated records.
+        """
         lang = detect_lang(request)
         change_reason = request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
         try:
@@ -651,6 +677,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         Issue #267: optional ``?search=<term>`` case-insensitively filters on
         title/description/uid — previously read but never forwarded to the
         service, so the parameter had no effect.
+        GH-443: soft-deleted requirements (``status="outdated"``, the state
+        DELETE puts them in) are hidden by default; pass
+        ``?include_deleted=true`` to include them, or ``?status=outdated`` to
+        list only those.
         """
         lang = detect_lang(request)
         try:
@@ -664,7 +694,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             status_filter = request.query_params.get("status") or None
             search = request.query_params.get("search") or None
             items = self._svc().list_requirements(
-                workspace_id=workspace_id, ctx=ctx, status=status_filter, search=search
+                workspace_id=workspace_id,
+                ctx=ctx,
+                include_deleted=parse_include_deleted(request.query_params),
+                status=status_filter,
+                search=search,
             )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -794,7 +828,17 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(RequirementSerializer(_dto_from_orm(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/requirements/{pk}/ — delete a requirement. Returns 204."""
+        """DELETE /api/v1/requirements/{pk}/ — soft-delete a requirement. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` (or
+        ``?status=outdated``) to see them, and ``POST .../reactivate/`` to
+        restore one. TraceLinks pointing at the record survive, and
+        traceability coverage ignores outdated records.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -1346,7 +1390,16 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return ArchitectureService()
 
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
-        item = self._svc().get_architecture_element(UUID(pk), ctx)
+        # GH-443: ``include_deleted=True`` so the workflow actions stay usable
+        # on a soft-deleted element — without it ``POST .../reactivate/`` could
+        # never reach the one item it exists for. Unlike the other entity types
+        # ArchitectureElement has no denormalized status mirror (see
+        # workflow.lifecycle_manager._STATUS_MIRROR_MODELS), so ``retrieve()``
+        # keeps hiding outdated elements: a 200 there could not carry the
+        # "outdated" marker and would be indistinguishable from a live element.
+        item = self._svc().get_architecture_element(
+            UUID(pk), ctx, include_deleted=True
+        )
         # ArchitectureElement is scoped via its artifact (no local workspace_id).
         return item.id, item.artifact.workspace_id
 
@@ -1374,7 +1427,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if error is not None:
                 return error
             # REQ-006: include_deleted=true exposes soft-deleted elements (admin use)
-            include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            include_deleted = parse_include_deleted(request.query_params)
             search = request.query_params.get("search") or None
             items = self._svc().list_architecture_elements(
                 workspace_id=workspace_id,
@@ -1484,6 +1537,24 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/architecture/{pk}/ — soft-delete an element. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated". List endpoints hide outdated elements by
+        default; pass ``?include_deleted=true`` to see them, and
+        ``POST .../reactivate/`` to restore one. TraceLinks pointing at the
+        element survive the delete, and traceability coverage ignores outdated
+        elements.
+
+        ArchitectureElement is the one deliberate exception to the "GET after
+        DELETE still answers 200 with ``status='outdated'``" rule that the
+        other soft-deleting entities follow: it has no denormalized status
+        mirror (``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``), so a 200
+        here could not carry the "outdated" marker and would be
+        indistinguishable from a live element. This URL therefore keeps
+        answering 404 after the delete; the soft-delete state stays observable
+        via ``GET .../workflow-history/`` and ``?include_deleted=true``.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -1832,7 +1903,10 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 return error
             search = request.query_params.get("search") or None
             items = self._svc().list_test_cases(
-                workspace_id=workspace_id, ctx=ctx, search=search
+                workspace_id=workspace_id,
+                ctx=ctx,
+                include_deleted=parse_include_deleted(request.query_params),
+                search=search,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -1936,6 +2010,19 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(TestCaseSerializer(_test_to_dict(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/testcases/{pk}/ — soft-delete a test case. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` to see
+        them, and ``POST .../reactivate/`` to restore one.
+
+        Caveat, unchanged by GH-443: unlike the other soft-deleting entities,
+        this one still hard-deletes every TraceLink touching the record, so a
+        later reactivate brings the record back without its links.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -4256,7 +4343,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if error is not None:
                 return error
             # REQ-006: include_deleted=true exposes soft-deleted ADRs (admin use)
-            include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            include_deleted = parse_include_deleted(request.query_params)
             items = self._svc().list_adrs(workspace_id=workspace_id, ctx=ctx, include_deleted=include_deleted)
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -4359,7 +4446,18 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(AdrSerializer(_adr_to_dict(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/adrs/{pk}/ — delete an ADR. Returns 204."""
+        """DELETE /api/v1/adrs/{pk}/ — soft-delete an ADR. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` to see
+        them, and ``POST .../reactivate/`` to restore one.
+
+        TraceLinks pointing at the record survive the delete, and traceability
+        coverage ignores outdated records.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -4464,7 +4562,11 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             if error is not None:
                 return error
-            items = self._svc().list_risks(workspace_id=workspace_id, ctx=ctx)
+            items = self._svc().list_risks(
+                workspace_id=workspace_id,
+                ctx=ctx,
+                include_deleted=parse_include_deleted(request.query_params),
+            )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
@@ -4574,7 +4676,19 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(RiskSerializer(_risk_to_dict(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/risks/{pk}/ — delete a Risk. Returns 204."""
+        """DELETE /api/v1/risks/{pk}/ — soft-delete a Risk. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` to see
+        them, and ``POST .../reactivate/`` to restore one.
+
+        Caveat, unchanged by GH-443: unlike the other soft-deleting entities,
+        this one still hard-deletes every TraceLink touching the record, so a
+        later reactivate brings the record back without its links.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -5151,7 +5265,11 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             if error is not None:
                 return error
-            items = self._svc().list_issues(workspace_id=workspace_id, ctx=ctx)
+            items = self._svc().list_issues(
+                workspace_id=workspace_id,
+                ctx=ctx,
+                include_deleted=parse_include_deleted(request.query_params),
+            )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
@@ -5310,7 +5428,19 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(result)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/issues/{pk}/ — delete an Issue. Returns 204."""
+        """DELETE /api/v1/issues/{pk}/ — soft-delete an Issue. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` to see
+        them, and ``POST .../reactivate/`` to restore one.
+
+        Caveat, unchanged by GH-443: unlike the other soft-deleting entities,
+        this one still hard-deletes every TraceLink touching the record, so a
+        later reactivate brings the record back without its links.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -5375,7 +5505,10 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 return error
             status_filter = request.query_params.get("status")
             items = self._svc().list_change_requests(
-                workspace_id=workspace_id, ctx=ctx, status_filter=status_filter
+                workspace_id=workspace_id,
+                ctx=ctx,
+                status_filter=status_filter,
+                include_deleted=parse_include_deleted(request.query_params),
             )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(
@@ -5481,7 +5614,18 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/change-requests/{pk}/ — delete a CR. Returns 204."""
+        """DELETE /api/v1/change-requests/{pk}/ — soft-delete a CR. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
+        record, and there never was one in this tenant". List endpoints hide
+        outdated records by default; pass ``?include_deleted=true`` to see
+        them, and ``POST .../reactivate/`` to restore one.
+
+        TraceLinks pointing at the record survive the delete, and traceability
+        coverage ignores outdated records.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -6276,7 +6420,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         try:
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
-            include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            include_deleted = parse_include_deleted(request.query_params)
             terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
             return self._paginate(request, terms, lambda t: t.__dict__)
         except Exception as e:
@@ -6348,6 +6492,20 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(e, lang)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/glossary/{pk}/ — soft-delete a glossary term. Returns 204.
+
+        Soft-delete: returns 204, but the record is NOT removed. Its workflow
+        state moves to "outdated" and a subsequent GET on this URL still
+        answers 200 — 404 keeps meaning "no such record, and there never was
+        one in this tenant". List endpoints hide outdated records by default;
+        pass ``?include_deleted=true`` to see them, and
+        ``POST .../reactivate/`` to restore one.
+
+        Note the field name: GlossaryTerm has no mirrored ``status`` column
+        (``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``), so the detail
+        response reports the soft-delete as ``lifecycle_status="outdated"``
+        where the other entities use ``status="outdated"`` (issue #440).
+        """
         ctx = get_auth_context(request)
         lang = detect_lang(request)
         try:

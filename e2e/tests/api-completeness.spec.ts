@@ -104,7 +104,12 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, { headers });
   });
 
-  test('[REQ-L0-012] DELETE /api/v1/requirements/{id}/ removes requirement', async ({ request }) => {
+  test('[REQ-L0-012] DELETE /api/v1/requirements/{id}/ soft-deletes requirement', async ({ request }) => {
+    // GH-443: DELETE is a soft-delete for every workflow-backed entity. This
+    // test used to assert 404/403 on the follow-up GET, which described the
+    // *symptom* of RequirementService hiding outdated rows, not the contract:
+    // the row was never actually removed. The requirement now stays
+    // retrievable with status="outdated" and disappears from the default list.
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -124,11 +129,21 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     });
     expect([200, 204]).toContain(deleteResp.status());
 
-    // Verify it is gone
+    // Still retrievable, and it says so: status === "outdated".
     const getResp = await request.get(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
       headers,
     });
-    expect([404, 403]).toContain(getResp.status());
+    expect(getResp.status()).toBe(200);
+    expect((await getResp.json()).status).toBe('outdated');
+
+    // ...but gone from the default list.
+    const listResp = await request.get(
+      `${BACKEND_URL}/api/v1/requirements/?workspace_id=${SEEDED_WORKSPACE_ID}&page_size=100`,
+      { headers },
+    );
+    expect(listResp.status()).toBe(200);
+    const listed = (await listResp.json()).results as Array<{ id: string }>;
+    expect(listed.some((r) => r.id === created.id)).toBe(false);
   });
 
   // -------------------------------------------------------------------------

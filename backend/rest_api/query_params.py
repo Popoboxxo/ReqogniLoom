@@ -40,6 +40,7 @@ from rest_api.serializers import build_error_response
 __all__ = [
     "MISSING_TEMPLATE",
     "INVALID_UUID_TEMPLATE",
+    "parse_include_deleted",
     "parse_uuid_param",
     "parse_workspace_id",
     "require_non_empty_param",
@@ -104,6 +105,29 @@ def parse_workspace_id(
     everywhere.
     """
     return parse_uuid_param(raw, lang, name="workspace_id")
+
+
+def parse_include_deleted(query_params: Any) -> bool:
+    """Read the ``?include_deleted=`` flag of a list endpoint (GH-443).
+
+    DELETE is a soft-delete for every workflow-backed entity, so each list
+    endpoint needs the same opt-in to surface the records it hides by default.
+    Three endpoints (architecture, adrs, glossary) already hand-rolled the exact
+    same expression; naming it once keeps the remaining ones from drifting to a
+    different spelling of "true".
+
+    Accepts ``true``/``1``/``yes`` in any casing — a bare ``?include_deleted``
+    (no value) is *not* enough, matching the pre-existing behaviour rather than
+    widening it.
+
+    Args:
+        query_params: ``request.query_params`` (any ``.get``-capable mapping).
+
+    Returns:
+        ``True`` when soft-deleted records should be included.
+    """
+    raw = query_params.get("include_deleted", "")
+    return str(raw).strip().lower() in {"true", "1", "yes"}
 
 
 def require_non_empty_param(

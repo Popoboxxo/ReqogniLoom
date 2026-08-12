@@ -62,14 +62,30 @@ export interface WorkflowHistoryEntry {
   sealed: boolean;
 }
 
+/**
+ * GH-443: opt-in to soft-deleted requirements. DELETE is a soft-delete — the
+ * requirement survives with `status === "outdated"` — and the list endpoint
+ * hides those by default, so without this flag a deleted requirement is
+ * unreachable from the UI and the status filter can never offer "outdated".
+ */
+export interface RequirementListOptions {
+  includeDeleted?: boolean;
+}
+
 export const requirementsApi = {
   /**
    * REQ-144: optional `status` filters the list by the WorkflowEngine
    * lifecycle mirror (e.g. "in_review" for the review queue).
+   * GH-443: `status: "outdated"` implies `includeDeleted` server-side.
    */
-  list(workspaceId: UUID, status?: string): Promise<PaginatedResponse<Requirement>> {
+  list(
+    workspaceId: UUID,
+    status?: string,
+    options?: RequirementListOptions,
+  ): Promise<PaginatedResponse<Requirement>> {
     const params: Record<string, string> = { workspace_id: workspaceId };
     if (status) params.status = status;
+    if (options?.includeDeleted) params.include_deleted = "true";
     return getList<Requirement>("/requirements/", params);
   },
 
@@ -77,13 +93,18 @@ export const requirementsApi = {
    * Fetch all requirements for a workspace, following pagination links until
    * exhaustion. Use this when the full list is needed (e.g. dropdowns).
    */
-  async listAll(workspaceId: UUID): Promise<Requirement[]> {
+  async listAll(
+    workspaceId: UUID,
+    options?: RequirementListOptions,
+  ): Promise<Requirement[]> {
     const seen = new Set<UUID>();
     const all: Requirement[] = [];
-    let resp = await getList<Requirement>("/requirements/", {
+    const firstPageParams: Record<string, string> = {
       workspace_id: workspaceId,
       page_size: "100",
-    });
+    };
+    if (options?.includeDeleted) firstPageParams.include_deleted = "true";
+    let resp = await getList<Requirement>("/requirements/", firstPageParams);
     for (const r of resp.results) {
       if (!seen.has(r.id)) {
         seen.add(r.id);
@@ -172,8 +193,21 @@ export const requirementsApi = {
     );
   },
 
+  /**
+   * GH-443: soft-delete. The requirement is NOT removed — it moves to
+   * `status === "outdated"`, disappears from the default list, and stays
+   * retrievable via `get(id)` and restorable via {@link reactivate}.
+   */
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/requirements/${id}/`);
+  },
+
+  /** GH-443: undo a soft-delete — restores the pre-delete workflow state. */
+  reactivate(id: UUID): Promise<RequirementTransitionResult> {
+    return apiClient.post<RequirementTransitionResult>(
+      `/requirements/${id}/reactivate/`,
+      {},
+    );
   },
 
   diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {

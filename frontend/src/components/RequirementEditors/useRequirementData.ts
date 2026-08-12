@@ -32,12 +32,24 @@ export interface RequirementData {
   refresh: () => void;
 }
 
-export function useRequirementData(selectedId?: string): RequirementData {
+export interface UseRequirementDataOptions {
+  /**
+   * GH-443: include soft-deleted (`status === "outdated"`) requirements in the
+   * list. Off by default — DELETE is a soft-delete, so without the opt-in the
+   * list would keep showing records the user just deleted.
+   */
+  includeDeleted?: boolean;
+}
+
+export function useRequirementData(
+  selectedId?: string,
+  options?: UseRequirementDataOptions,
+): RequirementData {
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
-  const listQuery = useRequirementsList(workspaceId);
+  const listQuery = useRequirementsList(workspaceId, options?.includeDeleted ?? false);
   const detailQuery = useRequirementDetail(workspaceId, selectedId);
 
   const refresh = (): void => {

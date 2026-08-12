@@ -1,0 +1,15 @@
+/* RequirementEditors — list-panel controls above <RequirementList>. */
+
+/*
+ * GH-443: "show deleted" opt-in. DELETE is a soft-delete, so without this the
+ * outdated requirements are neither listed nor offered by the status filter.
+ */
+.includeDeletedToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}

@@ -47,6 +47,7 @@ import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import type { RequirementType } from '../../types';
+import styles from './RequirementEditors.module.css';
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -56,6 +57,8 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // GH-443: opt-in to soft-deleted requirements (status="outdated").
+  const [includeDeleted, setIncludeDeleted] = useState(false);
   const {
     requirements,
     requirement,
@@ -66,7 +69,7 @@ export default function RequirementEditors(): JSX.Element {
     isLoading,
     error,
     refresh,
-  } = useRequirementData(selectedId);
+  } = useRequirementData(selectedId, { includeDeleted });
 
   const createRequirement = useCreateRequirement();
   const deleteRequirement = useDeleteRequirement();
@@ -381,6 +384,26 @@ export default function RequirementEditors(): JSX.Element {
           </div>
         </form>
       )}
+
+      {/*
+        GH-443: DELETE is a soft-delete — the requirement survives with
+        status="outdated" and the list endpoint hides it by default. Without
+        this opt-in a deleted requirement would be unreachable from the UI and
+        the list's status filter could never offer "outdated" at all, since its
+        options are derived from the loaded items.
+      */}
+      <label
+        data-testid="req-list-include-deleted-label"
+        className={styles.includeDeletedToggle}
+      >
+        <input
+          type="checkbox"
+          data-testid="req-list-include-deleted"
+          checked={includeDeleted}
+          onChange={(e) => setIncludeDeleted(e.target.checked)}
+        />
+        {t('editor.showDeleted', 'Show deleted')}
+      </label>
 
       {/* Requirement list */}
       <RequirementList

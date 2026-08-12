@@ -1102,15 +1102,15 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         # ADR-01 (#124): resolved via RequirementService, which sets the tenant
         # context and select_related("artifact") just like the previous inline
-        # query. ``include_deleted=True`` is REQUIRED to keep behaviour
-        # identical: the old query had no status filter, so coverage_gaps could
-        # always be asked about an outdated Requirement. The service's default
-        # (exclude status="outdated") would silently turn those into NOT_FOUND.
+        # query. Outdated requirements resolve here on purpose — the old inline
+        # query had no status filter either, so coverage_gaps could always be
+        # asked about a soft-deleted Requirement. Since GH-443
+        # ``get_requirement`` no longer hides them, so no extra flag is needed.
         from application.requirement_service import RequirementService
 
         try:
             requirement = RequirementService().get_requirement(
-                UUID(str(req_id_str)), auth_context, include_deleted=True
+                UUID(str(req_id_str)), auth_context
             )
         except (NotFoundError, ValueError):
             return ToolResult.error("NOT_FOUND", f"Requirement {req_id_str} not found")
