@@ -26,10 +26,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from auth_tenancy.context import AuthMethod
 from persistence.tenancy import TenantContext
 from se_metrics.aggregator import (
     MetricsAggregator,
     DEFAULT_TIMEFRAME,
+    _fetch_risks,
     _parse_timeframe_days,
     _resolve_requirement_titles,
 )
@@ -69,6 +71,68 @@ class FakeRisk:
     status: str
     severity: str
     risk_score: int
+
+
+class TestFetchRisksAuthContext:
+    """Issue #406 — _fetch_risks must not swallow a construction bug as '0 risks'.
+
+    Regression coverage: ``AuthContext`` is a frozen dataclass with a
+    *required* ``auth_method`` field (auth_tenancy/context.py). The original
+    call site omitted it, so every single invocation of ``_fetch_risks``
+    raised a ``TypeError`` inside the ``try`` block, which the broad
+    ``except Exception: return []`` turned into an indistinguishable-from-
+    real-data "zero risks" result — the dashboard rendered green even when
+    real, unfetched risks existed.
+
+    This test exercises the *real* ``AuthContext(...)`` construction inside
+    ``_fetch_risks`` (only ``RiskService.list_risks`` is faked out), so it
+    would fail with an empty list — not raise — if the constructor call
+    regresses to missing a required field again.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _tenant_context(self):
+        TenantContext.set_tenant(uuid.uuid4())
+        try:
+            yield
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_fetch_risks_constructs_valid_auth_context(self, db):
+        from application.services import RiskService
+
+        tenant_id = uuid.uuid4()
+        sentinel_risks = [FakeRisk(status="Identified", severity="critical", risk_score=90)]
+        captured: dict = {}
+
+        def _fake_list_risks(self, workspace_id, ctx):
+            captured["ctx"] = ctx
+            return sentinel_risks
+
+        with patch.object(RiskService, "list_risks", _fake_list_risks):
+            result = _fetch_risks(workspace_id=str(uuid.uuid4()), tenant_id=tenant_id)
+
+        assert result == sentinel_risks, (
+            "_fetch_risks returned an empty/fallback result — AuthContext "
+            "construction likely raised and was swallowed by the broad "
+            "except (issue #406)"
+        )
+        assert "ctx" in captured, "RiskService.list_risks was never reached"
+        assert captured["ctx"].tenant_id == tenant_id
+        assert captured["ctx"].auth_method == AuthMethod.BEARER_TOKEN
+
+    def test_fetch_risks_returns_empty_list_on_genuine_service_failure(self, db):
+        """Sanity check: the safe-empty-result contract (REQ-L2-SM-008) still
+        holds for *real* failures (not the AuthContext construction bug)."""
+        from application.services import RiskService
+
+        def _raise(self, workspace_id, ctx):
+            raise RuntimeError("simulated downstream failure")
+
+        with patch.object(RiskService, "list_risks", _raise):
+            result = _fetch_risks(workspace_id=str(uuid.uuid4()), tenant_id=uuid.uuid4())
+
+        assert result == []
 
 
 class TestParseTimeframeDays:

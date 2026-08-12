@@ -55,6 +55,7 @@ from se_metrics.types import (
     VolatilityResult,
     WorkflowGapResult,
 )
+from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,19 @@ def _parse_timeframe_days(timeframe: str) -> int:
 # ---------------------------------------------------------------------------
 # External source adapters
 # (each is called in its own thread — errors produce safe empty results)
+#
+# fix #405: each worker below runs on its own OS thread, which means it
+# also gets its own DB connection (Django connections are thread-local).
+# ``TenantContext.set_tenant`` alone only sets the Python-side thread-local
+# used by TenantManager (COMP-PL-002) — it does NOT set the PostgreSQL
+# session variable ``app.current_tenant`` that the RLS policies match on
+# (COMP-PL-006). That variable is normally set once per *request* thread by
+# ``persistence.middleware.set_request_tenant`` (called from the request
+# middleware); worker threads spawned here never go through that middleware,
+# so their connection had no RLS context and every tenant-scoped query
+# silently returned zero rows (coverage always computed 0/0). Calling the
+# same helper here — and clearing it in a ``finally`` — replicates the
+# middleware's pairing on the worker's own connection.
 # ---------------------------------------------------------------------------
 
 
@@ -93,9 +107,11 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> 
     """IF-L1-044: Query AuditLog for Requirement change events.
 
     Returns list of AuditEntry objects (or empty list on error).
-    Tenant isolation is automatic via TenantContext (managed by caller).
+    Tenant isolation (app-layer thread-local + Postgres RLS session
+    variable, fix #405) is established for this worker thread's own
+    connection via ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         days = _parse_timeframe_days(timeframe)
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
@@ -122,14 +138,18 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> 
             exc_info=True,
         )
         return []
+    finally:
+        clear_request_tenant()
 
 
 def _fetch_coverage(workspace_id: str, tenant_id: UUID) -> Any:
     """IF-L1-045: Query TraceabilityEngine for traceability coverage.
 
-    Returns CoverageReport or None on error.
+    Returns CoverageReport or None on error. Tenant isolation (fix #405) is
+    established for this worker thread's own connection via
+    ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         return traceability_coverage(workspace_id=UUID(str(workspace_id)))
     except Exception:
@@ -139,6 +159,8 @@ def _fetch_coverage(workspace_id: str, tenant_id: UUID) -> Any:
             exc_info=True,
         )
         return None
+    finally:
+        clear_request_tenant()
 
 
 def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[IncompleteState]:
@@ -152,8 +174,10 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
     Items that have never had a history entry for a mandatory state are gaps.
 
     Returns list of IncompleteState or empty list on error/no definition.
+    Tenant isolation (fix #405) is established for this worker thread's own
+    connection via ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         from workflow.models import WorkflowEngineDefinition, WorkflowHistoryEntry, WorkflowItemState
 
@@ -224,6 +248,8 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
             exc_info=True,
         )
         return []
+    finally:
+        clear_request_tenant()
 
 
 def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
@@ -237,22 +263,35 @@ def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
     time. We use list_risks() instead to get all risks in one call, which
     is more efficient for the aggregation use case.
 
-    Returns list of Risk ORM objects or empty list on error.
+    Returns list of Risk ORM objects or empty list on error. Tenant
+    isolation (fix #405) is established for this worker thread's own
+    connection via ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         from application.services import RiskService
 
-        # Create a minimal AuthContext-like object for read-only access.
-        # SeMetrics is a read-only system; it reads risks without modifying them.
-        # The RiskService._set_tenant_context() will be called internally.
-        # We construct a minimal context that satisfies the interface.
-        from auth_tenancy.context import AuthContext
+        # Create a minimal AuthContext for read-only access. SeMetrics is a
+        # read-only system; it reads risks without modifying them. The
+        # RiskService._set_tenant_context() will be called internally. We
+        # construct a minimal context that satisfies the interface.
+        #
+        # fix #406: AuthContext is a frozen dataclass with a *required*
+        # ``auth_method`` field (see auth_tenancy/context.py) — omitting it
+        # raised a TypeError on every call. That TypeError was swallowed by
+        # the broad `except Exception` below, so `_fetch_risks` silently
+        # returned `[]` on every single invocation, and the dashboard
+        # rendered "0 open risks / green" regardless of the real risk data.
+        # BEARER_TOKEN mirrors the pattern used by other internal/system
+        # callers that construct a synthetic AuthContext outside an actual
+        # HTTP request (see migrate_se_docs.py).
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=UUID("00000000-0000-0000-0000-000000000000"),
             tenant_id=tenant_id,
-            active_roles=["viewer"],
+            active_roles=("viewer",),
+            auth_method=AuthMethod.BEARER_TOKEN,
         )
 
         svc = RiskService()
@@ -265,6 +304,8 @@ def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
             exc_info=True,
         )
         return []
+    finally:
+        clear_request_tenant()
 
 
 def _resolve_requirement_titles(
