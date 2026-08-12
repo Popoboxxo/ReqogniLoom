@@ -2660,12 +2660,56 @@
           },
           "category": {
             "type": "string"
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "UUID of the parent Artifact, if any."
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "description": "Criteria describing when the requirement is fulfilled."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "SyReq",
+              "UseCase",
+              "FeatureReq"
+            ],
+            "description": "Requirement classification per REQ-L3-RF003-005. Defaults to 'SyReq'."
+          },
+          "complexity_fibonacci": {
+            "type": "integer",
+            "description": "Complexity via Fibonacci scale (only meaningful for type='SyReq')."
+          },
+          "verification_method": {
+            "type": "string",
+            "enum": [
+              "Test",
+              "Review",
+              "Analysis",
+              "Inspection",
+              "Demonstration"
+            ],
+            "description": "Verification method (only meaningful for type='SyReq')."
+          },
+          "level": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "V-model hierarchy level (0=System, 1=Subsystem, 2=Component, 3=Part, 4=Material)."
           }
         },
         "required": [
           "workspace_id",
           "title"
-        ]
+        ],
+        "additionalProperties": false
       }
     },
     {
