@@ -12,7 +12,10 @@ Tools implemented:
                                             routes it through
                                             BundleCompressionService for an
                                             LLM-compressed text
-                                            representation instead
+                                            representation instead (a
+                                            flagged mock placeholder when
+                                            no real LLM provider is
+                                            configured -- see issue #442)
   requirement_bundle.attribute_schema    — list available/visible attributes
   requirement_bundle.compression_status  — poll a task_id dispatched by
                                             ``requirement_bundle.export``'s
@@ -140,7 +143,21 @@ class RequirementBundleToolGroup(BaseToolGroup):
                             "formatted per 'format' above. 'compressed' "
                             "routes the same bundle through an LLM "
                             "(BundleCompressionService) for an AI-compressed "
-                            "text representation instead. Bundles over "
+                            "text representation instead. Synchronous "
+                            "response shape: {\"text\": str, \"cache_hit\": "
+                            "bool, \"is_mock_fallback\": bool, \"provider\": "
+                            "str}. IMPORTANT: when no real LLM provider is "
+                            "configured (this project's default is "
+                            "LLM_PROVIDER=mock) no compression happens at "
+                            "all - 'provider' reports 'mock', "
+                            "'is_mock_fallback' is true and 'text' is a "
+                            "placeholder prefixed with '[MOCK FALLBACK] '. "
+                            "Treat that as 'no compression available', not "
+                            "as a compressed bundle. Compression is also "
+                            "not guaranteed to shrink a bundle whose content "
+                            "is already dense attribute data, and the LLM's "
+                            "wording is not reproducible across cache "
+                            "misses. Bundles over "
                             f"{SYNC_ITEM_COUNT_THRESHOLD} items (or "
                             "'async'=true) are dispatched to a background "
                             "worker and return a 'task_id' to poll via "
@@ -195,19 +212,35 @@ class RequirementBundleToolGroup(BaseToolGroup):
                 "requirement_bundle.export's mode='compressed' async branch "
                 "(dispatched because 'async'=true was passed, or the bundle "
                 f"exceeded {SYNC_ITEM_COUNT_THRESHOLD} items). Response "
-                "shape: {\"task_id\": str, \"status\": "
-                "\"pending\"|\"running\"|\"done\"|\"failed\"|\"not_found\", "
-                "\"result\": dict|null, \"error\": str|null}. A task_id "
-                "dispatched by a different tenant is deliberately "
-                "indistinguishable from an unknown one — both report "
-                "status='not_found'."
+                "shape: {\"task_id\": str, \"status\": str, \"text\": "
+                "str|null, \"is_mock_fallback\": bool, \"provider\": "
+                "str|null, \"error\": str|null, \"result\": dict|null}. "
+                "'status' is one of exactly: 'pending' (queued, not started), "
+                "'running' (worker started, may retry), 'done' (finished "
+                "successfully - read 'text'), 'failed' (worker raised - read "
+                "'error'), 'not_found' (unknown, expired, or another "
+                "tenant's task_id). 'text' carries the compressed bundle as "
+                "a single-level field matching "
+                "requirement_bundle.export's synchronous 'text', and is null "
+                "unless status='done'. 'result' is the DEPRECATED raw Celery "
+                "envelope ({\"result\": \"<text>\"}) that predates 'text'; it "
+                "is still populated for backward compatibility but new "
+                "clients must read 'text'. 'is_mock_fallback'=true means no "
+                "real LLM ran and 'text' is a '[MOCK FALLBACK] '-prefixed "
+                "placeholder. A task_id dispatched by a different tenant is "
+                "deliberately indistinguishable from an unknown one — both "
+                "report status='not_found'."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "task_id returned by requirement_bundle.export's async compressed branch.",
+                        "description": (
+                            "task_id returned by requirement_bundle.export's "
+                            "async compressed branch. Poll until 'status' "
+                            "leaves 'pending'/'running'."
+                        ),
                     },
                 },
                 "required": ["task_id"],
@@ -328,6 +361,10 @@ class RequirementBundleToolGroup(BaseToolGroup):
             "text": compression.text,
             "cache_hit": compression.cache_hit,
             "is_mock_fallback": compression.is_mock_fallback,
+            # Issue #442: name the provider that actually produced the text so
+            # a caller can tell an AI compression from a mock placeholder
+            # without parsing the text.
+            "provider": compression.provider,
         })
 
     # ------------------------------------------------------------------
@@ -361,6 +398,10 @@ class RequirementBundleToolGroup(BaseToolGroup):
         ``get_compression_status(ctx, task_id)`` so the tenant-ownership
         check enforced there (ADR-03) applies here too — a task_id dispatched
         by a different tenant must be indistinguishable from an unknown one.
+
+        Serialises a ``CompressionStatusResult``, which carries the completion
+        on a single-level ``text`` field alongside the deprecated, doubly
+        nested ``result`` envelope (issue #448).
         """
         import dataclasses
 

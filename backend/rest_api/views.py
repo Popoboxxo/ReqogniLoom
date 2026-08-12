@@ -1740,6 +1740,10 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "text": compression.text,
                 "cache_hit": compression.cache_hit,
                 "is_mock_fallback": compression.is_mock_fallback,
+                # Issue #442: name the provider that actually produced the
+                # text, so a client can distinguish a real AI compression
+                # from a mock placeholder without parsing the text.
+                "provider": compression.provider,
             })
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -1759,6 +1763,20 @@ class BundleCompressionStatusView(APIView):
     dispatched by ``requirement_bundle``'s ``?mode=compressed&async=true``
     branch. Follows ``AttributeSchemaView``'s bare-``APIView`` pattern
     (Plan 1 Task 5) since this is not a CRUD resource.
+
+    Response shape (issue #448)::
+
+        {"task_id": str,
+         "status": "pending"|"running"|"done"|"failed"|"not_found",
+         "text": str|null,           # completion, mirrors ?mode=compressed
+         "is_mock_fallback": bool,
+         "provider": str|null,
+         "error": str|null,
+         "result": dict|null}        # DEPRECATED raw Celery envelope
+
+    ``result`` is the pre-existing, doubly nested ``{"result": "<text>"}``
+    envelope; it is retained so existing clients keep working, but new
+    clients must read ``text``.
     """
 
     def get(self, request: Request, task_id: str, **kwargs: Any) -> Response:

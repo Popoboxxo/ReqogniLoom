@@ -50,8 +50,12 @@ export function useBundleCompressionStatus(
         const next = await requirementBundleApi.getCompressionStatus(taskId);
         if (cancelled) return;
         setState({
+          // Issue #448: `text` is the single-level field that matches the
+          // synchronous `?mode=compressed` response. `result.result` is the
+          // deprecated doubly nested envelope, kept as a fallback so this
+          // hook still works against a backend predating that change.
           status: next.status,
-          result: next.result?.result ?? null,
+          result: next.text ?? next.result?.result ?? null,
           error: next.error,
           isPolling: !TERMINAL_STATUSES.has(next.status),
         });

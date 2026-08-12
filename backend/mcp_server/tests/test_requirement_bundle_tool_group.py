@@ -440,6 +440,12 @@ class TestCompressedExport:
         assert "text" in result.data
         assert "cache_hit" in result.data
         assert "is_mock_fallback" in result.data
+        # Issue #442: the response must name the provider that produced the
+        # text. Tests run on LLM_PROVIDER=mock, which cannot compress
+        # anything, so the placeholder has to be flagged as such.
+        assert result.data["provider"] == "mock"
+        assert result.data["is_mock_fallback"] is True
+        assert result.data["text"].startswith("[MOCK FALLBACK] ")
 
     def test_export_mode_compressed_async_returns_task_id(self, rb_ctx, monkeypatch):
         monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
@@ -499,6 +505,28 @@ class TestCompressionStatusTool:
         assert result.success is True
         assert result.data["status"] == "not_found"
         assert result.data["task_id"] == "nonexistent"
+
+    def test_compression_status_payload_carries_the_documented_keys(self, rb_ctx):
+        """Issue #448: the tool description promises a fixed key set, and the
+        MCP transport serialises `result.data` with the stdlib json encoder —
+        so every key must be present and JSON-encodable even on the
+        not_found path."""
+        import json
+
+        _tenant, ctx, _workspace = rb_ctx
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.compression_status",
+            {"task_id": "nonexistent"},
+            ctx,
+        )
+
+        assert set(result.data) == {
+            "task_id", "status", "result", "error",
+            "text", "is_mock_fallback", "provider",
+        }
+        json.dumps(result.data)
 
     def test_compression_status_missing_task_id_returns_validation_error(self, rb_ctx):
         _tenant, ctx, _workspace = rb_ctx
