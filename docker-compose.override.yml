@@ -13,7 +13,21 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-reqogniloom}  # Weak password OK for dev
 
   backend:
-    # Development: Use dev server and hot-reload
+    # Development: ASGI dev server with hot-reload.
+    #
+    # NOT `manage.py runserver` (issue #455): runserver is a WSGI server, and
+    # the MCP SSE transport (`GET /mcp/sse/`) is an async streaming view.
+    # Django can only serve an async iterator over WSGI by buffering it whole
+    # (`StreamingHttpResponse must consume asynchronous iterators in order to
+    # serve them synchronously`), which for an endless SSE stream means the
+    # request never returns a single byte and the worker thread is pinned
+    # forever. Every distributed plugin config under dist/plugins/ connects
+    # with `"type": "sse"`, so on runserver the whole MCP integration was
+    # unusable in development.
+    #
+    # uvicorn matches the production entry point (see backend/Dockerfile:
+    # gunicorn -k uvicorn.workers.UvicornWorker) and `--reload` (WatchFiles)
+    # preserves the hot-reload that runserver provided.
     environment:
       # DJANGO_ENV=development lets the settings hardening honour DEBUG=True here;
       # in production (no override) DJANGO_ENV defaults to "production" and DEBUG
@@ -30,7 +44,7 @@ services:
       - ./docs:/app/docs:ro
     command: >
       sh -c "python manage.py migrate --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
+             uvicorn reqogniloom.asgi:application --host 0.0.0.0 --port 8000 --reload"
 
   migrate:
     # Development: run current source so the REQ-188 post_migrate self-init

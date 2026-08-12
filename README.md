@@ -818,9 +818,50 @@ ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the RES
 | Endpoint | Method | Transport | Authentication |
 |----------|--------|-----------|----------------|
 | `/mcp/` | POST | HTTP/JSON-RPC 2.0 | `X-API-Key: reqlo_<key>` header OR `params.api_key` in body |
-| `/mcp/sse/` | POST | SSE (single event) | `X-API-Key: reqlo_<key>` header |
+| `/mcp/sse/` | GET | SSE — opens the event stream | `X-API-Key: reqlo_<key>` header |
+| `/mcp/messages/?session_id=<id>` | POST | SSE — sends JSON-RPC into an open stream | Session-bound; the key is **not** accepted in this URL |
 | `/mcp/` | GET | — | Server info / health check (no auth required) |
 | (stdio) | — | stdio (local pipe) | `params.api_key` argument |
+
+**SSE requires an ASGI server.** The SSE view streams asynchronously; a WSGI
+server (including `manage.py runserver`) cannot serve it — Django buffers the
+whole async iterator, so the request never returns. Both the production image
+(`gunicorn -k uvicorn.workers.UvicornWorker`) and the dev stack
+(`uvicorn --reload`, see `docker-compose.override.yml`) run ASGI.
+
+### SSE Sessions and Reconnecting
+
+The SSE handshake (`GET /mcp/sse/`) mints a `session_id`, binds your API key to
+it server-side, and delivers the message endpoint in the first `endpoint` event.
+That binding lives in Redis with a bounded TTL (8 h, `SESSION_TTL_SECONDS`) and
+also disappears if Redis restarts or evicts the key.
+
+Once the binding is gone, `POST /mcp/messages/` answers **HTTP 401** with a
+`SESSION_EXPIRED` error envelope — deliberately distinct from `AUTH_FAILED`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "error": {
+    "error_code": "SESSION_EXPIRED",
+    "message": "MCP SSE session '…' is unknown or has expired. This is NOT an authentication failure — …",
+    "data": {
+      "reconnect_endpoint": "/mcp/sse/",
+      "session_ttl_seconds": 28800,
+      "retryable": true
+    }
+  }
+}
+```
+
+**Expected client behaviour:** on `SESSION_EXPIRED`, re-open `GET /mcp/sse/`,
+take the fresh `session_id` from the new `endpoint` event and retry the call.
+Do **not** rotate or re-issue the API key — it is still valid. Clients that do
+not reconnect automatically need a manual reconnect (in Claude Code:
+`/mcp reconnect`). Passing the previous `session_id` as a `?session_id=` query
+parameter on the handshake resumes the same replay buffer when the binding is
+still alive; an expired one simply yields a new session.
 
 ### Authentication
 

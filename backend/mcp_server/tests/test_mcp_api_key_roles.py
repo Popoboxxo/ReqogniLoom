@@ -360,15 +360,21 @@ class TestMcpApiKeyRolePropagation:
         )
         assert len(tools) >= 40, f"Expected 40+ tools, got {len(tools)}"
 
-    def test_mcp_capability_declaration_no_sse(self) -> None:
-        """[REQ-131] GET /mcp/ must not declare SSE as a transport."""
+    def test_mcp_capability_declaration_matches_routed_transports(self) -> None:
+        """[REQ-131] GET /mcp/ declares exactly the implemented transports.
+
+        SSE was excluded here while ``GET /mcp/sse/`` returned 500 on every
+        request (issue #455 — a hop-by-hop ``Connection`` response header).
+        With that fixed, SSE is implemented *and* is the transport every
+        distributed plugin config uses, so it must be declared.
+        """
         status, data = _http_request(MCP_URL)
         assert status == 200, f"MCP GET failed: {status}"
         transports: list[str] = data.get("transports", [])
-        assert "sse" not in transports, (
-            f"[REQ-131] SSE declared as transport but not implemented: {transports}"
-        )
         assert "http" in transports, f"Expected http in transports: {transports}"
+        assert "sse" in transports, (
+            f"[REQ-131] SSE is routed and functional but not declared: {transports}"
+        )
 
     def test_api_key_authentication_uses_x_api_key_header(
         self, admin_api_key: str, seeded_workspace_id: str
