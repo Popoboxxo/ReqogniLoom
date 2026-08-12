@@ -92,7 +92,7 @@ variables:
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
     Artefakt-Zerlegung, REST API + nativem MCP Server (11 Tool-Gruppen, 40+ Tools),
     LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation,
-    8 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended)
+    15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended)
     und i18n (DE/EN).
   PROJECT_GOAL: Anforderungen und Tests in Artefakten verwalten — von leichtgewichtigen
     Backlogs (Minimal-Rigor) bis zu formalen Systems-Engineering-Workflows (Extended-Rigor)
@@ -137,7 +137,7 @@ variables:
     drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0, Transports:
     HTTP, SSE, stdio; 11 Tool-Gruppen mit 40+ Tools; API-Key `reqlo_*`). Fähigkeiten:
     Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management,
-    8 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level),
+    15 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level),
     History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import,
     API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets (Minimal/Standard/Extended),
     Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security.
@@ -209,8 +209,9 @@ variables:
     Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security
     (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended)
     mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface
-    mit graceful degradation - 8 Trace-Link-Typen (TRACE_TO, DERIVED_FROM, IMPLEMENTS,
-    TESTS, VERIFIES, RELATED_TO, CONFLICTS_WITH, SUPERCEDES) - 3 Baseline-Scopes (Document,
+    mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies,
+    verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to,
+    uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document,
     Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro
     Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf
     Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req →

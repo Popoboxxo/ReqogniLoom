@@ -22,9 +22,12 @@ audits; findings route to whichever role/skill owns the fix.
    directly by ID. `diagram.get`/`diagram.query` check whether architecture elements have current
    diagram documentation.
 3. For each element of interest, call `traceability.query` to inspect its link graph and compare
-   against what the rigor preset expects — a requirement with no `IMPLEMENTS`/`DERIVED_FROM`
-   successor, or a test case with no `TESTS` link, is a coverage gap; a `CONFLICTS_WITH` link found
-   during audit is itself a finding, not something to resolve here.
+   against what the rigor preset expects — a requirement with no `implements`/`derives-from`
+   successor, or a test case with no `verifies` link, is a coverage gap. ReqogniLoom has no
+   dedicated `conflicts-with` link type (the `CONS-P9` audit rule that would check for one is
+   registered but permanently `deferred` for that exact reason) — an artifact whose description,
+   or an open Risk/Issue against it, signals an unresolved conflict with another element is itself
+   a finding worth reporting, not something to resolve here.
 4. Cross-check ADRs, risks, and issues with `adr.read`, `risk.read`, `issue.read` — an open issue
    or unmitigated risk against a requirement is a quality signal worth including even though it
    isn't a traceability gap per se.

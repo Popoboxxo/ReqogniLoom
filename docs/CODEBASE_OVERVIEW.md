@@ -64,7 +64,7 @@ Baseline(workspace, name, scope, created_at, created_by)
 BaselineItem(baseline, artifact, artifact_version)
 
 # Traceability
-TraceLink(source_artifact, target_artifact, link_type)  # 8 Typen: TRACE_TO, DERIVED_FROM, etc.
+TraceLink(source_artifact, target_artifact, link_type)  # 15 Typen: parent-child, derives-from, etc. (backend/traceability/types.py LinkType)
 
 # Audit
 AuditLogEntry(tenant, entity_type, entity_id, operation, old_value, new_value, ...)
@@ -200,8 +200,12 @@ from traceability.services import (
 )
 ```
 
-**Link-Typen (8):**
-- TRACE_TO, DERIVED_FROM, IMPLEMENTS, TESTS, VERIFIES, RELATED_TO, CONFLICTS_WITH, SUPERCEDES
+**Link-Typen (15, siehe `backend/traceability/types.py:LinkType`):**
+- parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes,
+  traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref
+- Kein dedizierter `conflicts-with`/`supersedes`-Typ (siehe `traceability/audit/rules/coverage_consistency.py`:
+  die Regeln `CONS-P9`/`CONS-P10`, die das prüfen würden, sind deshalb bewusst als `deferred`
+  markiert, nicht implementiert)
 
 **Komponenten:**
 - `TraceLink` Model (in persistence)

@@ -20,7 +20,7 @@ presets referenced below.
    an already-decomposed need from one still waiting. `custom_field.get`/`custom_field.query` show
    workspace-specific fields to fill in beyond the core schema.
 3. Derive the first requirement level either by hand (`requirement.create` + an explicit
-   `DERIVED_FROM` link via `traceability.create_link`) or by asking the LLM adapter via
+   `derives-from` link via `traceability.create_link`) or by asking the LLM adapter via
    `ai_derivation.derive_requirements_from_need` / `needs.derive_requirements` — both call the
    same backend derivation service, the first is the raw AI-derivation tool, the second is the
    needs-scoped convenience wrapper. `requirement.derive` is the generic single-requirement
@@ -46,7 +46,7 @@ presets referenced below.
    useful when a derivation result looks off and you want to understand why (never edit a
    template from here; that's an administrative action, out of scope for this skill).
 9. To hand off a completed decomposition, `requirement_bundle.export` gathers every requirement
-   `ALLOCATED_TO` an architecture element into one JSON/Markdown/CSV bundle; check
+   `allocated-to` an architecture element into one JSON/Markdown/CSV bundle; check
    `requirement_bundle.attribute_schema` first to see which attribute names are valid for that
    bundle's `fields` filter. Large exports (or an explicit `async` request) run in the background —
    poll `requirement_bundle.compression_status` with the returned `task_id` until it reports
