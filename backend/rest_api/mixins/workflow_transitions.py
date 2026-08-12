@@ -69,10 +69,14 @@ def _same_status(candidate: Any, current: str) -> bool:
     """Compare a client-supplied status against the stored one, leniently.
 
     Status labels are mirrored across the WorkflowEngine and the entity's own
-    column and differ in casing between entity types (``'draft'`` vs
-    ``'Draft'``). Comparing case-insensitively keeps a harmless echo of the
-    value the client just read via GET from being treated as a status *change*,
-    which under #263 cost the user the rest of their edit.
+    column and still differ in casing between entity types (``'draft'`` for the
+    persistence-app entities vs ``'Draft'`` for ``Adr``; TestCase joined the
+    lowercase group in GH-453). Comparing case-insensitively keeps a harmless
+    echo of the value the client just read via GET from being treated as a
+    status *change*, which under #263 cost the user the rest of their edit.
+
+    It also absorbs the GH-453 rename for clients that cached the old
+    Title-Case TestCase status and echo it back on the next PATCH.
     """
     return str(candidate).strip().casefold() == str(current).strip().casefold()
 

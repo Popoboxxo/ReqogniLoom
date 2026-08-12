@@ -3371,7 +3371,7 @@
       "name": "test.get",
       "prefix": "test",
       "is_write": false,
-      "description": "Fetch a single TestCase by ID.",
+      "description": "Fetch a single TestCase by ID. The returned 'status' is the lifecycle state: draft|ready|approved|deprecated, or 'outdated' for a soft-deleted test case. Change it via review/workflow transitions, not test.update.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3434,7 +3434,7 @@
       "name": "test.query",
       "prefix": "test",
       "is_write": false,
-      "description": "List TestCases in a workspace.",
+      "description": "List TestCases in a workspace. Each entry carries 'status', the lifecycle state: draft|ready|approved|deprecated, or 'outdated' for a soft-deleted test case. These values are lowercase, matching requirement and stakeholder-need status values, so one case-sensitive comparison works across entity types.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3570,7 +3570,7 @@
       "name": "test.update",
       "prefix": "test",
       "is_write": true,
-      "description": "Update TestCase fields including execution_status (write, audited).",
+      "description": "Update TestCase fields including execution_status (write, audited). NOTE: the 'status' key here is the EXECUTION status (Passed|Failed|Not Run) — not the lifecycle status returned by test.get/test.query (draft|ready|approved|deprecated). Prefer the explicit 'execution_status' key; move the lifecycle state with the review/workflow transition tools instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3580,7 +3580,7 @@
           },
           "data": {
             "type": "object",
-            "description": "Fields to update (title, description, steps, status)."
+            "description": "Fields to update (title, description, steps, execution_status). 'status' is accepted as a legacy alias for execution_status."
           }
         },
         "required": [

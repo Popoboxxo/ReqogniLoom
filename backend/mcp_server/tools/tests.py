@@ -74,6 +74,7 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
+from persistence.models import TestCase
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
@@ -81,13 +82,37 @@ logger = logging.getLogger(__name__)
 _VALID_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 _VALID_RUN_RESULT_STATUSES = frozenset({"passed", "failed", "blocked", "not_run"})
 
+#: TestCase *lifecycle* states — a different axis from the execution statuses
+#: above. Derived from the model so it cannot drift from
+#: ``testcase_default``'s preset states; ``"outdated"`` is the soft-delete
+#: state written by ``workflow.services.outdate`` outside that list. Used only
+#: to produce a better error message when a caller confuses the two (GH-453).
+_LIFECYCLE_STATES = frozenset(
+    {choice.value for choice in TestCase.Status} | {"outdated"}
+)
+
 
 def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
-    """Serialise a TestCase ORM object to a dict."""
+    """Serialise a TestCase ORM object to a dict.
+
+    GH-453: ``status`` and ``version`` are included, matching
+    ``_requirement_to_dict`` (mcp_server/tools/requirements.py) and
+    ``_need_to_dict`` (mcp_server/tools/needs.py). TestCase was the only
+    workflow-backed entity whose MCP payload omitted the lifecycle state
+    entirely, so an agent asking "list every draft item" could not evaluate
+    test cases at all — the case mismatch this issue is about was only the
+    second half of the problem. Additive: existing keys are unchanged.
+
+    The value is the raw lowercase state (``"draft"``/``"ready"``/
+    ``"approved"``/``"deprecated"``, or ``"outdated"`` for soft-deleted rows),
+    i.e. the same vocabulary the REST ``TestCaseSerializer`` returns.
+    """
     result: Dict[str, Any] = {
         "id": str(tc.id),
         "title": tc.title,
         "description": tc.description,
+        "status": tc.status,
+        "version": tc.version,
         "steps": tc.steps if hasattr(tc, "steps") else [],
     }
     if hasattr(tc, "artifact") and tc.artifact:
@@ -120,7 +145,12 @@ class McpTestToolGroup(BaseToolGroup):
     _TOOL_SCHEMAS = [
         {
             "name": "test.get",
-            "description": "Fetch a single TestCase by ID.",
+            "description": (
+                "Fetch a single TestCase by ID. The returned 'status' is the "
+                "lifecycle state: draft|ready|approved|deprecated, or "
+                "'outdated' for a soft-deleted test case. Change it via "
+                "review/workflow transitions, not test.update."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -131,7 +161,14 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.query",
-            "description": "List TestCases in a workspace.",
+            "description": (
+                "List TestCases in a workspace. Each entry carries 'status', "
+                "the lifecycle state: draft|ready|approved|deprecated, or "
+                "'outdated' for a soft-deleted test case. These values are "
+                "lowercase, matching requirement and stakeholder-need status "
+                "values, so one case-sensitive comparison works across "
+                "entity types."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -164,14 +201,26 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.update",
-            "description": "Update TestCase fields including execution_status (write, audited).",
+            "description": (
+                "Update TestCase fields including execution_status (write, "
+                "audited). NOTE: the 'status' key here is the EXECUTION "
+                "status (Passed|Failed|Not Run) — not the lifecycle status "
+                "returned by test.get/test.query "
+                "(draft|ready|approved|deprecated). Prefer the explicit "
+                "'execution_status' key; move the lifecycle state with the "
+                "review/workflow transition tools instead."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the test case."},
                     "data": {
                         "type": "object",
-                        "description": "Fields to update (title, description, steps, status).",
+                        "description": (
+                            "Fields to update (title, description, steps, "
+                            "execution_status). 'status' is accepted as a "
+                            "legacy alias for execution_status."
+                        ),
                     },
                 },
                 "required": ["id"],
@@ -449,9 +498,23 @@ class McpTestToolGroup(BaseToolGroup):
         status = data.get("status") or data.get("execution_status")
         if status:
             if status not in _VALID_STATUSES:
+                # GH-453: test.get/test.query now return the *lifecycle*
+                # status, so "read a test case, send it back" lands here with
+                # a lifecycle value. Say so explicitly instead of only listing
+                # the execution statuses, which reads like the caller invented
+                # the value.
+                hint = ""
+                if status in _LIFECYCLE_STATES:
+                    hint = (
+                        f" '{status}' is the lifecycle status returned by "
+                        "test.get/test.query, which test.update cannot "
+                        "change — use the review/workflow transition tools "
+                        "for that."
+                    )
                 return ToolResult.error(
                     "VALIDATION_ERROR",
-                    f"Invalid status '{status}'. Valid: {sorted(_VALID_STATUSES)}",
+                    f"Invalid status '{status}'. Valid: {sorted(_VALID_STATUSES)}."
+                    f"{hint}",
                 )
             try:
                 # Codeberg #313: suppress update_test_status's single

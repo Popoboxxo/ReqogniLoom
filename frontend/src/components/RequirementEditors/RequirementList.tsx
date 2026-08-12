@@ -26,7 +26,12 @@ import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
 import { Requirement, RequirementType, UUID } from '../../types';
-import { REQ_CATEGORIES, WORKFLOW_STATES } from '../../types';
+import { REQ_CATEGORIES } from '../../types';
+import {
+  buildStatusFilterOptions,
+  compareWorkflowStatus,
+  getWorkflowStatusLabel,
+} from '../../utils/workflowStatus';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,13 +84,9 @@ function sortRequirements(list: Requirement[], sortKey: ReqSortKey): Requirement
       sorted.sort((a, b) => a.title.localeCompare(b.title));
       break;
     case 'status':
-      sorted.sort((a, b) => {
-        const ai = WORKFLOW_STATES.indexOf(a.status);
-        const bi = WORKFLOW_STATES.indexOf(b.status);
-        const av = ai === -1 ? WORKFLOW_STATES.length : ai;
-        const bv = bi === -1 ? WORKFLOW_STATES.length : bi;
-        return av - bv || a.title.localeCompare(b.title);
-      });
+      sorted.sort(
+        (a, b) => compareWorkflowStatus(a.status, b.status) || a.title.localeCompare(b.title),
+      );
       break;
     case 'updated':
       sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -158,6 +159,15 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     return map;
   }, [visibleRequirements]);
 
+  // GH-453: options are derived from the loaded items, so their values are
+  // exactly what `req.status !== statusFilter` compares against. Requirement
+  // states additionally vary per rigor preset (minimal/standard/extended),
+  // which no single hardcoded list could ever cover.
+  const statusOptions = useMemo(
+    () => buildStatusFilterOptions(requirements, statusFilter),
+    [requirements, statusFilter],
+  );
+
   const hasActiveListControls = Boolean(listSearch || categoryFilter || statusFilter);
 
   const resetFilters = (): void => {
@@ -185,7 +195,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
             id: 'status',
             allLabel: t('editor.allStatuses'),
             value: statusFilter,
-            options: WORKFLOW_STATES.map((state) => ({ value: state, label: state })),
+            options: statusOptions,
             onChange: setStatusFilter,
           },
         ]}
@@ -299,6 +309,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                 levelTitle={req.type ? t(`reqType.${req.type}`) : undefined}
                 title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
                 status={req.status}
+                statusLabel={getWorkflowStatusLabel(req.status)}
                 version={req.version}
                 selected={isSelected}
                 testId={`req-row-${req.id}`}

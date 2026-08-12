@@ -5,6 +5,7 @@ import type { Risk, RiskSeverity, RiskProbability, RiskImpact, RiskCategory } fr
 import { risksApi } from '../../api/risks';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
 import { ArtifactId } from '../shared/ArtifactId';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
@@ -173,7 +174,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <StatusBadge status={risk.status} />
+            <StatusBadge status={risk.status} label={getWorkflowStatusLabel(risk.status)} />
             {risk.version && <VersionBadge version={risk.version} />}
             <ArtifactId value={risk.uid} fallback={risk.id.slice(0, 8)} testId="risk-id" />
           </div>

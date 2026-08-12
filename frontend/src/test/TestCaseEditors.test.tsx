@@ -60,7 +60,7 @@ const { TEST_CASE } = vi.hoisted(() => ({
     workspace_id: "ws-001",
     title: "Login succeeds with valid credentials",
     description: "Verifies the happy-path login flow.",
-    status: "Draft" as const,
+    status: "draft" as const,
     version: 1,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
@@ -108,6 +108,7 @@ vi.mock("../context/WorkspaceContext", () => ({
 // Must import AFTER vi.mock
 import TestCaseEditors from "../components/TestCaseEditors/TestCaseEditors";
 import { testcasesApi } from "../api/testcases";
+import { getWorkflowStatusLabel } from "../utils/workflowStatus";
 
 function renderEditor(initialPath = `/testcases/${TEST_CASE.id}`): ReturnType<typeof render> {
   const queryClient = new QueryClient({
@@ -164,7 +165,11 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     });
     const row = screen.getByTestId(`tc-row-${TEST_CASE.id}`);
     expect(row).toHaveTextContent(TEST_CASE.title);
-    expect(screen.getByTestId(`tc-row-${TEST_CASE.id}-status`)).toHaveTextContent(TEST_CASE.status);
+    // GH-453: the API value is lowercase ("draft"); the badge renders the
+    // human-readable label ("Draft"). See utils/workflowStatus.
+    expect(screen.getByTestId(`tc-row-${TEST_CASE.id}-status`)).toHaveTextContent(
+      getWorkflowStatusLabel(TEST_CASE.status),
+    );
   });
 
   it("shows the empty variant with a create action when there are no test cases at all", async () => {

@@ -901,17 +901,13 @@ export interface MermaidPreviewResponse {
 // ---------------------------------------------------------------------------
 // Requirement Editor Constants (COMP-RF-003)
 // ---------------------------------------------------------------------------
-
-export const WORKFLOW_STATES = [
-  'Draft',
-  'Review',
-  'Approved',
-  'In Progress',
-  'Implemented',
-  'Verified',
-  'Rejected',
-  'Deprecated',
-];
+//
+// GH-453: `WORKFLOW_STATES` used to live here — one Title-Case array that all
+// six artifact lists used to build their status filter. It matched no entity's
+// actual vocabulary (see backend/workflow/definition_store.py PRESET_SCHEMAS),
+// so picking an option produced an empty list. Filter options are now derived
+// from the loaded items via `utils/workflowStatus.buildStatusFilterOptions`,
+// and display text comes from `getWorkflowStatusLabel`.
 
 // ---------------------------------------------------------------------------
 // Glossary

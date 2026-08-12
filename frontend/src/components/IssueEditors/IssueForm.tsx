@@ -4,6 +4,7 @@ import type { Issue, IssueSeverity, IssueCategory } from '../../types';
 import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
 import { ArtifactId } from '../shared/ArtifactId';
 import { TagInput } from '../shared/tag-input';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
@@ -125,7 +126,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <StatusBadge status={issue.status} />
+            <StatusBadge status={issue.status} label={getWorkflowStatusLabel(issue.status)} />
             {issue.version && <VersionBadge version={issue.version} />}
             <ArtifactId value={issue.uid} fallback={issue.id.slice(0, 8)} testId="issue-id" />
           </div>
