@@ -1046,6 +1046,7 @@
     "adopting": "Adopting...",
     "adoptSuccess": "Resolved — the correction was applied.",
     "modify": "Modify",
+    "modifyReasonPrefix": "Not auto-fixable",
     "pageSummary": "Automated rule checks for requirements and architecture, grouped by rule with blocker/warning severity."
   },
   "archDecompose": {

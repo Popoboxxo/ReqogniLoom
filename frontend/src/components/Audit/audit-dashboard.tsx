@@ -8,10 +8,18 @@
  * scope selector (project/document/global — document scope additionally
  * needs a root-artifact pick). Each finding offers either an "Adopt" button
  * (POST .../audit/remediate/, when the finding has an unambiguous automatic
- * fix) or a "Modify" hint (manual correction required, reason in the
- * tooltip). Adopt success removes the finding from the list; a 422 response
- * (not automatically fixable) flips the finding into the "Modify" state
- * in-place instead of leaving a dead button.
+ * fix) or a disabled "Modify" hint — there is no backend endpoint to edit a
+ * finding directly, so a disabled control with a visible reason (not just a
+ * hover title — most findings have no registered automatic remediation, so
+ * this is the common state, not an edge case; GitHub #451) is the correct
+ * read-only affordance rather than a dead, always-enabled button. Adopt
+ * success removes the finding from the list; a 422 response (not
+ * automatically fixable) flips the finding into the "Modify" state in-place
+ * instead of leaving a dead button.
+ *
+ * The scope selector and severity filter stay interactive during a refresh
+ * (mirrors ListToolbar's list pages, GitHub #450) — only the Refresh button
+ * itself disables while its own request is in flight.
  *
  * The rigor tier (minimal/standard/extended) is resolved server-side from
  * the workspace's active preset — this dashboard only displays it.
@@ -258,7 +266,6 @@ export function AuditDashboard(): JSX.Element {
               setScope(e.target.value as AuditScopeKind);
               setScopeArtifactId("");
             }}
-            disabled={isLoading}
             style={selectStyle}
           >
             {SCOPES.map((s) => (
@@ -276,7 +283,7 @@ export function AuditDashboard(): JSX.Element {
               data-testid="audit-scope-artifact-select"
               value={scopeArtifactId}
               onChange={(e) => setScopeArtifactId(e.target.value)}
-              disabled={isLoading || artifacts.length === 0}
+              disabled={artifacts.length === 0}
               style={selectStyle}
             >
               {artifacts.length === 0 ? (
@@ -511,15 +518,28 @@ function FindingRow({ finding, action, onAdopt }: FindingRowProps): JSX.Element 
             {isPending ? t("audit.adopting", "Adopting...") : t("audit.adopt", "Adopt")}
           </button>
         ) : (
-          <button
-            type="button"
-            data-testid={`audit-modify-${finding.index}`}
-            disabled
-            title={finding.remediation.reason}
-            style={modifyButtonStyle}
-          >
-            {t("audit.modify", "Modify")}
-          </button>
+          <>
+            <button
+              type="button"
+              data-testid={`audit-modify-${finding.index}`}
+              disabled
+              title={finding.remediation.reason}
+              style={modifyButtonStyle}
+            >
+              {t("audit.modify", "Modify")}
+            </button>
+            {/* The disabled reason is also shown as visible text, not only as a
+                hover `title` — a hover-only tooltip is not discoverable via
+                keyboard/touch/screen reader, and most findings (all without a
+                registered automatic remediation) land in this disabled state,
+                so it is the common case here, not an edge case (GitHub #451). */}
+            <span
+              data-testid={`audit-modify-reason-${finding.index}`}
+              style={modifyReasonStyle}
+            >
+              {t("audit.modifyReasonPrefix", "Not auto-fixable")}: {finding.remediation.reason}
+            </span>
+          </>
         )}
         {action.status === "error" && (
           <span data-testid={`audit-finding-error-${finding.index}`} role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-xs)" }}>
@@ -607,6 +627,12 @@ const modifyButtonStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
   fontFamily: "inherit",
+};
+
+const modifyReasonStyle: CSSProperties = {
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-xs)",
+  fontStyle: "italic",
 };
 
 const toastStyle: CSSProperties = {

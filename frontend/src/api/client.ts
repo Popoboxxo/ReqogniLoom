@@ -129,9 +129,78 @@ const BASE_URL = "/api/v1";
 // 401s are simply "wrong credentials", not an expired session.
 const _NO_REFRESH_PATHS = ["/auth/refresh/", "/auth/login/"];
 
+// A hung `fetch()` (dropped connection, unresponsive proxy, a slow endpoint
+// that never answers) previously left the returned Promise pending forever —
+// any caller `await`-ing it inside a `try { } finally { setIsLoading(false) }`
+// block (e.g. MetricsDashboard, AuditDashboard) would then show a permanently
+// disabled "Refreshing..."/"Loading..." control, since `finally` only runs
+// once the awaited Promise *settles* (GitHub #450). Aborting after a bounded
+// timeout guarantees every request eventually rejects, so `finally` always
+// fires — regardless of how long the network/backend actually hangs.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+// Some endpoints route to a real LLM provider call and can legitimately run
+// far longer than a normal CRUD request — GitHub #445 measured 16.6s–71.4s
+// for the synchronous compressed bundle export, and 110s–130s for the async
+// variant's underlying generation. REQUEST_TIMEOUT_MS would abort those
+// mid-response, trading the #450 stuck-loading bug for a worse regression
+// (killing a successful, slow LLM answer and showing the user a spurious
+// timeout error instead of the result).
+const LONG_RUNNING_REQUEST_TIMEOUT_MS = 180_000;
+
+// Matched against the request `path` (not the full URL) via `.includes()`,
+// because every one of these carries a dynamic resource id
+// (e.g. `/requirements/<uuid>/derive-testcase/`) — a full-path allowlist like
+// `_NO_REFRESH_PATHS` can't express that, so this is a substring match
+// instead. Chosen over adding a `timeoutMs` override at each call site
+// because it touches exactly one place (here) instead of five-plus
+// `src/api/*.ts` wrappers, and automatically covers any *new* caller of the
+// same backend action without another edit.
+//
+// NOT included: `/requirements/<id>/derive/` (frontend `requirements.ts`
+// `derive()`) — despite the similar name, `RequirementViewSet.derive`
+// (backend/rest_api/views.py) calls `RequirementService.derive_requirement`,
+// a plain manual persist with no LLM involved (verified against
+// backend/application/requirement_service.py:259) — it does not need, and
+// should not get, a 180s grace period.
+const _LONG_RUNNING_PATH_SEGMENTS = [
+  "/decompose-next-level/", // requirements.ts aiDecomposeNextLevel (AiDerivationService)
+  "/derive-testcase/", // requirements.ts aiDeriveTestcase (AiDerivationService)
+  "/derive-requirements/", // stakeholder-need.ts deriveRequirements (AiDerivationService)
+  "/architecture/decompose/", // architectureDecompose.ts generate()/commit() (LLM + commit)
+  "/requirement-bundle/", // requirementBundle.ts exportCompressed (mode=compressed, GitHub #445)
+  "/main-goals/generate/", // main-goal.ts generate() (LLM aggregation)
+];
+
+function defaultTimeoutMsFor(path: string): number {
+  return _LONG_RUNNING_PATH_SEGMENTS.some((segment) => path.includes(segment))
+    ? LONG_RUNNING_REQUEST_TIMEOUT_MS
+    : REQUEST_TIMEOUT_MS;
+}
+
+/** Thrown when a request is aborted after exceeding its resolved timeout. */
+export class RequestTimeoutError extends Error {
+  constructor(path: string, timeoutMs: number) {
+    super(`Request to ${path} timed out after ${timeoutMs}ms.`);
+    this.name = "RequestTimeoutError";
+  }
+}
+
+/**
+ * `RequestInit` plus an optional per-call timeout override. Every
+ * `apiClient` method accepts this as its last argument — most callers never
+ * need it (the default/long-running-path resolution in
+ * {@link defaultTimeoutMsFor} covers the known slow LLM endpoints), but it
+ * stays available for a future one-off (or for tests).
+ */
+export interface ApiFetchOptions extends RequestInit {
+  /** Overrides both the default 30s and the long-running-path 180s. */
+  timeoutMs?: number;
+}
+
 async function apiFetch<T>(
   path: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
   _isRetryAfterRefresh = false
 ): Promise<T> {
   const headers: Record<string, string> = {
@@ -168,12 +237,37 @@ async function apiFetch<T>(
   const lang = document.documentElement.lang || "en";
   headers["Accept-Language"] = lang;
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    // Send the httpOnly access cookie on same-origin requests (REQ-052).
-    credentials: "same-origin",
-    headers,
-  });
+  // Bound the request so a hung connection always settles (see
+  // REQUEST_TIMEOUT_MS / LONG_RUNNING_REQUEST_TIMEOUT_MS above). Only
+  // installs our own abort — callers don't pass a `signal` today, but if one
+  // is ever added it takes precedence.
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMsFor(path);
+  const timeoutController = options.signal ? null : new AbortController();
+  const timeoutId = timeoutController
+    ? setTimeout(() => timeoutController.abort(), timeoutMs)
+    : null;
+
+  // `timeoutMs` is our own option, not a `RequestInit` field — strip it
+  // before spreading into fetch()'s init object.
+  const { timeoutMs: _timeoutMsOverride, ...fetchOptions } = options;
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...fetchOptions,
+      // Send the httpOnly access cookie on same-origin requests (REQ-052).
+      credentials: "same-origin",
+      headers,
+      signal: options.signal ?? timeoutController?.signal,
+    });
+  } catch (err) {
+    if (timeoutController?.signal.aborted) {
+      throw new RequestTimeoutError(path, timeoutMs);
+    }
+    throw err;
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
 
   // 401 → not authenticated. Before giving up, try a silent single-flight
   // refresh and retry the original request once (GitHub #135) — this is what
@@ -281,33 +375,40 @@ async function apiFetch<T>(
 // ---------------------------------------------------------------------------
 
 export const apiClient = {
-  get<T>(path: string): Promise<T> {
-    return apiFetch<T>(path);
+  // `timeoutMs` is an optional last argument on every method — overrides
+  // both the 30s default and the 180s long-running-path default (see
+  // `defaultTimeoutMsFor` above). Most callers never need it; it exists for
+  // the rare one-off call that doesn't fit the path-based resolution.
+  get<T>(path: string, timeoutMs?: number): Promise<T> {
+    return apiFetch<T>(path, { timeoutMs });
   },
 
-  post<T>(path: string, body: unknown): Promise<T> {
+  post<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
     return apiFetch<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
+      timeoutMs,
     });
   },
 
-  put<T>(path: string, body: unknown): Promise<T> {
+  put<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
     return apiFetch<T>(path, {
       method: "PUT",
       body: JSON.stringify(body),
+      timeoutMs,
     });
   },
 
-  patch<T>(path: string, body: unknown): Promise<T> {
+  patch<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
     return apiFetch<T>(path, {
       method: "PATCH",
       body: JSON.stringify(body),
+      timeoutMs,
     });
   },
 
-  delete<T = void>(path: string, body?: unknown): Promise<T> {
-    const options: RequestInit = { method: "DELETE" };
+  delete<T = void>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+    const options: ApiFetchOptions = { method: "DELETE", timeoutMs };
     if (body !== undefined) {
       options.body = JSON.stringify(body);
     }
