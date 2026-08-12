@@ -35,6 +35,12 @@ export type MetricType =
 export interface VolatileRequirement {
   requirement_id: string;
   change_count: number;
+  /**
+   * Requirement title, resolved server-side (backend.se_metrics.aggregator).
+   * Falls back to the first 8 characters of requirement_id when the
+   * requirement no longer exists or has no title — never empty.
+   */
+  title: string;
 }
 
 export interface VolatilityMetric {

@@ -29,6 +29,7 @@ from se_metrics.types import (
     RiskResult,
     ThresholdConfig,
     ThresholdWarning,
+    VolatileRequirement,
     VolatilityResult,
     WorkflowGapResult,
 )
@@ -86,6 +87,49 @@ class TestMetricsCacheManagerDeserialization:
         mgr = MetricsCacheManager()
         result = mgr._deserialize({"bad": "data"})
         assert result is None
+
+    def test_roundtrip_preserves_volatile_requirement_title(self):
+        """Issue #454: title must survive a cache write/read roundtrip —
+        otherwise a cache hit would silently drop it even though the live
+        MetricsAggregator resolves it correctly."""
+        mgr = MetricsCacheManager()
+        original = _make_metrics_result()
+        original.volatility.top10_volatile = [
+            VolatileRequirement(
+                requirement_id="11111111-1111-1111-1111-111111111111",
+                change_count=5,
+                title="Login must support 2FA",
+            )
+        ]
+        result_json = original.to_dict()
+        restored = mgr._deserialize(result_json)
+
+        assert restored is not None
+        assert len(restored.volatility.top10_volatile) == 1
+        assert restored.volatility.top10_volatile[0].title == "Login must support 2FA"
+        assert (
+            restored.volatility.top10_volatile[0].requirement_id
+            == "11111111-1111-1111-1111-111111111111"
+        )
+
+    def test_deserialize_old_cache_entry_without_title_loads_cleanly(self):
+        """Issue #454 fix rollout: cache entries written before the "title"
+        field existed must still load without crashing on a warm cache
+        (deploy-time compatibility) — title defaults to ""."""
+        mgr = MetricsCacheManager()
+        original = _make_metrics_result()
+        result_json = original.to_dict()
+        # Simulate a pre-existing cache entry: no "title" key at all.
+        result_json["volatility"]["top10_volatile"] = [
+            {"requirement_id": "22222222-2222-2222-2222-222222222222", "change_count": 2}
+        ]
+
+        restored = mgr._deserialize(result_json)
+
+        assert restored is not None
+        assert len(restored.volatility.top10_volatile) == 1
+        assert restored.volatility.top10_volatile[0].title == ""
+        assert restored.volatility.top10_volatile[0].change_count == 2
 
     def test_roundtrip_with_warnings(self):
         """Warnings survive serialization roundtrip."""
