@@ -1010,6 +1010,128 @@ class TestDecompose:
 
 
 # ---------------------------------------------------------------------------
+# derive_requirement — description inheritance (Issue #459, finding 2)
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveRequirementDescriptionInheritance:
+    """Issue #459 finding 2: derive_requirement must not create the child with
+    an empty description — it should inherit the parent's description unless
+    the caller explicitly supplies one (MCP ``requirement.derive`` / REST
+    ``/requirements/{id}/derive/`` both delegate here)."""
+
+    def test_derive_requirement_inherits_parent_description_when_omitted(self):
+        """No description passed → child inherits the parent's description."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement(description="Parent description text")
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_parent)),
+            ) as mock_plain_filter,
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_parent))
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req) as mock_create,
+            patch("application.requirement_service.Workspace.objects.filter"),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    first=MagicMock(
+                        return_value=MagicMock(artifact=MagicMock(workspace_id=WS_ID))
+                    )
+                ),
+            ),
+            patch.object(
+                svc._trace_link_service, "create_trace_link", return_value=MagicMock(id=uuid.uuid4())
+            ),
+            patch.object(
+                svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
+            ),
+        ):
+            svc.derive_requirement(
+                parent_requirement_id=REQ_ID,
+                architecture_element_id=arch_el_id,
+                title="Child",
+                ctx=ctx,
+            )
+
+        mock_plain_filter.assert_called_once_with(id=REQ_ID)
+        assert mock_create.call_args.kwargs["description"] == "Parent description text"
+
+    def test_derive_requirement_keeps_explicit_description(self):
+        """An explicitly passed description must not be overridden by the parent's."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement(description="Parent description text")
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.filter"
+            ) as mock_plain_filter,
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_parent))
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req) as mock_create,
+            patch("application.requirement_service.Workspace.objects.filter"),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    first=MagicMock(
+                        return_value=MagicMock(artifact=MagicMock(workspace_id=WS_ID))
+                    )
+                ),
+            ),
+            patch.object(
+                svc._trace_link_service, "create_trace_link", return_value=MagicMock(id=uuid.uuid4())
+            ),
+            patch.object(
+                svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
+            ),
+        ):
+            svc.derive_requirement(
+                parent_requirement_id=REQ_ID,
+                architecture_element_id=arch_el_id,
+                title="Child",
+                ctx=ctx,
+                description="Explicit child description",
+            )
+
+        # Explicit description present → the parent-description fallback lookup
+        # must be skipped entirely.
+        mock_plain_filter.assert_not_called()
+        assert mock_create.call_args.kwargs["description"] == "Explicit child description"
+
+
+# ---------------------------------------------------------------------------
 # RequirementDTO
 # ---------------------------------------------------------------------------
 

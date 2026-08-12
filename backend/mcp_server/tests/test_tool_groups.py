@@ -357,6 +357,75 @@ class TestRequirementsToolGroup:
         assert result.success is False
         assert result.error_code == "UNKNOWN_TOOL"
 
+    # -----------------------------------------------------------------
+    # requirement.derive (Issue #459 finding 2: the MCP handler forwards
+    # description as-is — the inherit-from-parent-if-omitted fallback lives
+    # in RequirementService.derive_requirement, covered by
+    # application/tests/test_requirement_service.py
+    # TestDeriveRequirementDescriptionInheritance)
+    # -----------------------------------------------------------------
+
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_derive_without_description_forwards_empty_string(self, mock_audit):
+        group, svc = self._group()
+        child = _mock_requirement(
+            id_val=UUID("00000000-0000-0000-0000-000000000021"),
+            title="Child",
+            description="Inherited parent description",
+        )
+        derive_result = MagicMock()
+        derive_result.children = [child]
+        derive_result.parent_id = UUID("00000000-0000-0000-0000-000000000020")
+        derive_result.trace_link_ids = [UUID("00000000-0000-0000-0000-000000000050")]
+        svc.derive_requirement.return_value = derive_result
+
+        result = group.execute_tool(
+            tool_name="requirement.derive",
+            params={
+                "parent_requirement_id": "00000000-0000-0000-0000-000000000020",
+                "architecture_element_id": "00000000-0000-0000-0000-000000000030",
+                "title": "Child",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        # No description passed by the caller → MCP layer forwards "" and
+        # relies on RequirementService.derive_requirement to inherit the
+        # parent's description (it must NOT invent one itself here).
+        assert svc.derive_requirement.call_args.kwargs["description"] == ""
+        # The response reflects whatever the service actually persisted.
+        assert result.data["requirement"]["description"] == "Inherited parent description"
+        mock_audit.assert_called_once()
+
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_derive_with_explicit_description_forwards_it(self, mock_audit):
+        group, svc = self._group()
+        child = _mock_requirement(
+            id_val=UUID("00000000-0000-0000-0000-000000000021"),
+            title="Child",
+            description="Explicit description",
+        )
+        derive_result = MagicMock()
+        derive_result.children = [child]
+        derive_result.parent_id = UUID("00000000-0000-0000-0000-000000000020")
+        derive_result.trace_link_ids = []
+        svc.derive_requirement.return_value = derive_result
+
+        result = group.execute_tool(
+            tool_name="requirement.derive",
+            params={
+                "parent_requirement_id": "00000000-0000-0000-0000-000000000020",
+                "architecture_element_id": "00000000-0000-0000-0000-000000000030",
+                "title": "Child",
+                "description": "Explicit description",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert svc.derive_requirement.call_args.kwargs["description"] == "Explicit description"
+
 
 # ---------------------------------------------------------------------------
 # ArchitectureToolGroup tests
@@ -702,6 +771,94 @@ class TestTestToolGroup:
         )
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
+
+    # -----------------------------------------------------------------
+    # test.run_create (Issue #459 finding 1: unknown params must be rejected,
+    # not silently ignored)
+    # -----------------------------------------------------------------
+
+    @patch("mcp_server.tools.tests.write_mcp_audit")
+    def test_run_create_with_correct_test_case_ids_succeeds(self, mock_audit):
+        # test.run_create uses a dedicated `run_service` (TestRunService),
+        # not the `service` (TestService) constructed by self._group() —
+        # must be mocked explicitly here.
+        run_service = MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+        tr = MagicMock()
+        tr.id = UUID("00000000-0000-0000-0000-000000000099")
+        tr.workspace_id = WORKSPACE_UUID
+        run_service.create_test_run.return_value = tr
+
+        tc_id = "00000000-0000-0000-0000-000000000042"
+        result = group.execute_tool(
+            tool_name="test.run_create",
+            params={
+                "workspace_id": str(WORKSPACE_UUID),
+                "name": "Run 1",
+                "test_case_ids": [tc_id],
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        run_service.create_test_run.assert_called_once()
+        assert run_service.create_test_run.call_args.kwargs["test_case_ids"] == [UUID(tc_id)]
+
+    def test_run_create_rejects_unknown_singular_test_case_id_param(self):
+        """A caller sending 'test_case_id' (singular, the wrong/undocumented
+        name) instead of 'test_case_ids' must get a VALIDATION_ERROR naming
+        the unknown parameter, instead of the run silently being created
+        without any test cases attached."""
+        run_service = MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+
+        result = group.execute_tool(
+            tool_name="test.run_create",
+            params={
+                "workspace_id": str(WORKSPACE_UUID),
+                "name": "Run 1",
+                "test_case_id": "00000000-0000-0000-0000-000000000042",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "test_case_id" in result.message
+        assert "test_case_ids" in result.message
+        run_service.create_test_run.assert_not_called()
+
+    def test_run_create_with_title_instead_of_name_names_unknown_param(self):
+        """A caller sending 'title' instead of the documented 'name' must be
+        told which parameter is unknown, not just that 'name' is missing."""
+        run_service = MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+
+        result = group.execute_tool(
+            tool_name="test.run_create",
+            params={"workspace_id": str(WORKSPACE_UUID), "title": "Run 1"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "title" in result.message
+        run_service.create_test_run.assert_not_called()
 
     # -----------------------------------------------------------------
     # test.derive_from_requirement (SysEng 2.0 N5)

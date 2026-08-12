@@ -272,7 +272,20 @@ class RequirementService(ServiceBase):
         action (UI, REST, MCP) stays consistent with AI-driven decomposition. The
         architecture target is mandatory here: derivation must always state which
         system element the derived requirement belongs to.
+
+        Issue #459 (finding 2): if no *description* is given, the child inherits
+        the parent's description instead of being created with an empty one — an
+        empty description otherwise leads a subsequent AI derivation on the child
+        to reason about the allocated ArchitectureElement instead of the actual
+        requirement content. An explicitly passed (non-empty) *description* is
+        never overridden.
         """
+        if not description:
+            self._set_tenant_context(ctx)
+            parent_req = Requirement.objects.filter(id=parent_requirement_id).first()
+            if parent_req is not None:
+                description = parent_req.description or ""
+
         return self.decompose(
             requirement_id=parent_requirement_id,
             ctx=ctx,
