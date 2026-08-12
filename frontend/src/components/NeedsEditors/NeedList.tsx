@@ -16,7 +16,11 @@ import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { StakeholderNeed } from '../../types';
-import { WORKFLOW_STATES } from '../../types';
+import {
+  buildStatusFilterOptions,
+  compareWorkflowStatus,
+  getWorkflowStatusLabel,
+} from '../../utils/workflowStatus';
 
 interface NeedListProps {
   needs: StakeholderNeed[];
@@ -42,13 +46,9 @@ function sortNeeds(
       sorted.sort((a, b) => a.title.localeCompare(b.title));
       break;
     case 'status':
-      sorted.sort((a, b) => {
-        const ai = WORKFLOW_STATES.indexOf(a.status);
-        const bi = WORKFLOW_STATES.indexOf(b.status);
-        const av = ai === -1 ? WORKFLOW_STATES.length : ai;
-        const bv = bi === -1 ? WORKFLOW_STATES.length : bi;
-        return av - bv || a.title.localeCompare(b.title);
-      });
+      sorted.sort(
+        (a, b) => compareWorkflowStatus(a.status, b.status) || a.title.localeCompare(b.title),
+      );
       break;
     case 'updated':
       sorted.sort((a, b) => {
@@ -71,7 +71,7 @@ function needToNode(need: StakeholderNeed): WorkspaceTreeNode {
     name: need.title || 'Untitled',
     parentId: null,
     badge: {
-      text: need.status,
+      text: getWorkflowStatusLabel(need.status),
       bg: style.background as string,
       color: style.color as string,
     },
@@ -116,6 +116,14 @@ export function NeedList({
     [visibleNeeds],
   );
 
+  // GH-453: options are derived from the loaded items, so their values are
+  // exactly what `need.status !== statusFilter` compares against — the shared
+  // hardcoded list never matched StakeholderNeed's lowercase vocabulary.
+  const statusOptions = useMemo(
+    () => buildStatusFilterOptions(needs, statusFilter),
+    [needs, statusFilter],
+  );
+
   const hasActiveListControls = Boolean(listSearch || statusFilter);
 
   return (
@@ -130,7 +138,7 @@ export function NeedList({
             id: 'status',
             allLabel: t('editor.allStatuses', 'All Statuses'),
             value: statusFilter,
-            options: WORKFLOW_STATES.map((state) => ({ value: state, label: state })),
+            options: statusOptions,
             onChange: setStatusFilter,
           },
         ]}

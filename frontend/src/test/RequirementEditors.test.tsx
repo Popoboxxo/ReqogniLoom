@@ -139,6 +139,7 @@ import { testcasesApi } from "../api/testcases";
 import { extractErrorMessage } from "../api/client";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
+import { getWorkflowStatusLabel } from "../utils/workflowStatus";
 
 // ---------------------------------------------------------------------------
 // Mock data
@@ -339,8 +340,11 @@ describe("RequirementEditors Task 3.1 (ArtifactRow / EmptyState)", () => {
     });
     const row = screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`);
     expect(row).toHaveTextContent(MOCK_REQUIREMENT.title);
+    // GH-453: the badge renders the human-readable *label*, not the raw API
+    // value — `status="approved"` shows as "Approved". The raw value stays the
+    // filter/compare key (see utils/workflowStatus).
     expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}-status`)).toHaveTextContent(
-      MOCK_REQUIREMENT.status
+      getWorkflowStatusLabel(MOCK_REQUIREMENT.status)
     );
   });
 

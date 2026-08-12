@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { testcasesApi, type TestCase } from '../../api/testcases';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
 import { ArtifactId } from '../shared/ArtifactId';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
@@ -119,7 +120,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <StatusBadge status={testCase.status} />
+            <StatusBadge status={testCase.status} label={getWorkflowStatusLabel(testCase.status)} />
             {testCase.version && <VersionBadge version={testCase.version} />}
             <ArtifactId value={testCase.uid} fallback={testCase.id.slice(0, 8)} testId="tc-id" />
           </div>

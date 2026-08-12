@@ -15,6 +15,7 @@ import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { VersionBadge } from '../shared/VersionBadge';
 import { ArtifactId } from '../shared/ArtifactId';
 import { StatusBadge } from '../shared/StatusBadge';
+import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
@@ -274,7 +275,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
               fallback={need.id.slice(0, 8)}
               copyValue={need.uid || need.id}
             />
-            {need.status && <StatusBadge status={need.status} testId="need-status-badge" />}
+            {need.status && <StatusBadge status={need.status} testId="need-status-badge" label={getWorkflowStatusLabel(need.status)} />}
             {need.version && <VersionBadge version={need.version} />}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>

@@ -1298,12 +1298,19 @@ class TestCase(TenantScopedModel):
         by StateLifecycleManager._sync_status_mirror inside a transition. The
         value strings MUST stay byte-identical to the ``testcase_default``
         preset states in ``workflow.definition_store.PRESET_SCHEMAS``.
+
+        GH-453: the *values* are lowercase, matching every other persistence-app
+        entity (Requirement, StakeholderNeed, ArchitectureElement). TestCase
+        used to be the sole Title-Case outlier, so a case-sensitive
+        cross-entity query such as ``status="draft"`` silently skipped every
+        test case. The Title-Case spelling is preserved as the human-readable
+        *label* — API consumers get the lowercase value, UIs render the label.
         """
 
-        DRAFT = "Draft", "Draft"
-        READY = "Ready", "Ready"
-        APPROVED = "Approved", "Approved"
-        DEPRECATED = "Deprecated", "Deprecated"
+        DRAFT = "draft", "Draft"
+        READY = "ready", "Ready"
+        APPROVED = "approved", "Approved"
+        DEPRECATED = "deprecated", "Deprecated"
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="test_case"

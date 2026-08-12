@@ -15,7 +15,11 @@ import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
 import type { Risk } from '../../types';
-import { WORKFLOW_STATES } from '../../types';
+import {
+  buildStatusFilterOptions,
+  compareWorkflowStatus,
+  getWorkflowStatusLabel,
+} from '../../utils/workflowStatus';
 import styles from './RiskList.module.css';
 
 interface RiskListProps {
@@ -32,11 +36,9 @@ function sortItems(list: Risk[], sortKey: SortKey): Risk[] {
   switch (sortKey) {
     case 'title': sorted.sort((a, b) => a.title.localeCompare(b.title)); break;
     case 'status': {
-      sorted.sort((a, b) => {
-        const ai = WORKFLOW_STATES.indexOf(a.status);
-        const bi = WORKFLOW_STATES.indexOf(b.status);
-        return (ai === -1 ? WORKFLOW_STATES.length : ai) - (bi === -1 ? WORKFLOW_STATES.length : bi) || a.title.localeCompare(b.title);
-      });
+      sorted.sort(
+        (a, b) => compareWorkflowStatus(a.status, b.status) || a.title.localeCompare(b.title),
+      );
       break;
     }
     case 'updated': sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
@@ -60,6 +62,14 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
     return sortItems(filtered, sortKey);
   }, [items, listSearch, statusFilter, sortKey]);
 
+  // GH-453: options are derived from the loaded items, so their values are
+  // exactly what `it.status !== statusFilter` compares against — the shared
+  // hardcoded list never matched Risk's vocabulary.
+  const statusOptions = useMemo(
+    () => buildStatusFilterOptions(items, statusFilter),
+    [items, statusFilter],
+  );
+
   const hasActiveListControls = Boolean(listSearch || statusFilter);
 
   const resetFilters = (): void => {
@@ -76,7 +86,7 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
         searchPlaceholder={t('editor.searchPlaceholder', 'Search...')}
         filters={[{
           id: 'status', allLabel: t('editor.allStatuses', 'All Statuses'), value: statusFilter,
-          options: WORKFLOW_STATES.map((s) => ({ value: s, label: s })), onChange: setStatusFilter,
+          options: statusOptions, onChange: setStatusFilter,
         }]}
         sortValue={sortKey}
         sortOptions={[
@@ -116,6 +126,7 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
               idFallback={risk.id.slice(0, 8)}
               title={risk.title || t('risks.untitled', 'Untitled')}
               status={risk.status}
+              statusLabel={getWorkflowStatusLabel(risk.status)}
               version={risk.version}
               selected={risk.id === selectedId}
               onClick={() => onSelect(risk.id)}

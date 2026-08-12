@@ -186,10 +186,12 @@ _REQUIREMENT_KNOWN_ATTRS = frozenset(
     }
 )
 
-# Status normalisation — verbatim copy of
+# Status normalisation — copy of
 # workflow/migrations/0003_reconcile_status_mirror.py's constants so the
-# import-time mapping stays byte-identical to what the reconcile migration
-# (and therefore the rest of the system) considers a "known" status.
+# import-time mapping stays aligned with what the reconcile migration (and
+# therefore the rest of the system) considers a "known" status. The frozen
+# migration copy is intentionally NOT updated in lockstep; see the GH-453 note
+# on _map_status for the one behavioural divergence.
 _GLOBAL_KNOWN_STATES = frozenset(
     {"draft", "in_review", "approved", "deprecated", "done"}
 )
@@ -199,16 +201,29 @@ _FALLBACK_STATE = "draft"
 def _map_status(current: str, valid_states: Optional[List[str]]) -> str:
     """Map a free-text status onto a valid workflow state.
 
-    Verbatim port of ``0003_reconcile_status_mirror._map_status`` — see that
+    Ported from ``0003_reconcile_status_mirror._map_status`` — see that
     migration for the authoritative rationale. Duplicated here (rather than
     imported) because Django migration modules are not a stable import
     surface; the module docstring above documents the coupling so the two
     copies are kept in sync deliberately.
+
+    GH-453 divergence from the frozen migration copy: an exact miss now retries
+    case-insensitively before falling back to the initial state. Without it, a
+    CSV/ReqIF file exported *before* TestCase states were lowercased carries
+    "Approved", finds no exact match in the workspace's now-lowercase
+    ``["draft", "ready", "approved", "deprecated"]`` and silently lands on
+    ``valid_states[0]`` — i.e. every approved test case would come back in as a
+    draft. The retry only runs where the previous behaviour was outright data
+    loss, so it can never downgrade an existing exact match.
     """
     if valid_states is None:
         return current if current in _GLOBAL_KNOWN_STATES else _FALLBACK_STATE
     if current in valid_states:
         return current
+    folded = (current or "").strip().casefold()
+    for state in valid_states:
+        if state.casefold() == folded:
+            return state
     return valid_states[0] if valid_states else _FALLBACK_STATE
 
 

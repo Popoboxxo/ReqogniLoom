@@ -529,32 +529,39 @@ def _issue_transitions() -> list[dict[str, Any]]:
 
 
 def _testcase_transitions() -> list[dict[str, Any]]:
-    # State values match persistence.models.TestCase.Status.
+    # State values match persistence.models.TestCase.Status VALUE strings.
+    #
+    # GH-453: lowercased (was "Draft"/"Ready"/"Approved"/"Deprecated"). TestCase
+    # was the only persistence-app entity spelling its states in Title Case,
+    # which broke case-sensitive cross-entity queries ("give me every draft
+    # item"). Existing rows are rewritten by
+    # workflow/migrations/0014_testcase_status_lowercase.py — that migration and
+    # this list must stay in sync.
     return [
         {
-            "from_state": "Draft",
-            "to_state": "Ready",
+            "from_state": "draft",
+            "to_state": "ready",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "Ready",
-            "to_state": "Approved",
+            "from_state": "ready",
+            "to_state": "approved",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": True,
             "signature_gate": False,
         },
         {
-            "from_state": "Ready",
-            "to_state": "Draft",
+            "from_state": "ready",
+            "to_state": "draft",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "Approved",
-            "to_state": "Deprecated",
+            "from_state": "approved",
+            "to_state": "deprecated",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
@@ -689,10 +696,14 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
             "Resolved": {"auto_approve_target": True},
         },
     },
+    # GH-453: lowercase state values (was Title Case) so "draft"/"approved"
+    # mean the same string here as for Requirement/StakeholderNeed/Need/
+    # Architecture. The human-readable spelling lives in TestCase.Status's
+    # *label* and in the frontend label map, not in the value.
     "testcase_default": {
-        "states": ["Draft", "Ready", "Approved", "Deprecated"],
+        "states": ["draft", "ready", "approved", "deprecated"],
         "transitions": _testcase_transitions(),
-        "state_meta": {"Deprecated": {"is_outdated_equivalent": True}},
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     # REQ-171: ArchitectureElement default workflow (no status mirror; state
     # lives in WorkflowItemState only). "draft" is the initial_state.

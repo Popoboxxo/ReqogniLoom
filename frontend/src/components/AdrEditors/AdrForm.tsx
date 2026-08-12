@@ -5,6 +5,7 @@ import type { Adr } from '../../types';
 import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
 import { ArtifactId } from '../shared/ArtifactId';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
@@ -121,7 +122,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <StatusBadge status={adr.status} />
+            <StatusBadge status={adr.status} label={getWorkflowStatusLabel(adr.status)} />
             {adr.version && <VersionBadge version={adr.version} />}
             <ArtifactId value={adr.uid} fallback={adr.id.slice(0, 8)} testId="adr-id" />
           </div>

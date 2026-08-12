@@ -71,8 +71,10 @@ EC_VERIFICATION_EVIDENCE_MISSING = "VERIFICATION_EVIDENCE_MISSING"
 #: Target states that mean "this artifact is now considered baseline-ready".
 #: Compared case-insensitively because the per-entity schemas in
 #: ``definition_store.PRESET_SCHEMAS`` use both spellings ("approved" for
-#: Requirement/StakeholderNeed/ArchitectureElement/Icd/Diagram/GlossaryTerm,
-#: "Approved" for Adr/TestCase).
+#: Requirement/StakeholderNeed/ArchitectureElement/Icd/Diagram/GlossaryTerm/
+#: TestCase, "Approved" for Adr). TestCase moved to the lowercase spelling in
+#: GH-453; Adr keeps Title Case, so the case-insensitive compare stays load-
+#: bearing.
 _APPROVAL_TARGET_STATES = frozenset({"approved"})
 
 #: Target state that means "verification is claimed" (V&V strategy §3).
