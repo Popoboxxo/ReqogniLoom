@@ -437,7 +437,10 @@ class RequirementsToolGroup(BaseToolGroup):
         req_id = require_uuid(params, "id")
 
         try:
-            req = self._service.get_requirement(req_id, auth_context, include_deleted=True)
+            # GH-443: get_requirement() resolves soft-deleted requirements too,
+            # which is exactly what reactivate needs (the item is "outdated" by
+            # definition at this point).
+            req = self._service.get_requirement(req_id, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

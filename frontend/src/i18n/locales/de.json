@@ -207,6 +207,7 @@
     "searchPlaceholder": "Nach Titel oder ID suchen...",
     "allCategories": "Alle Kategorien",
     "allStatuses": "Alle Status",
+    "showDeleted": "Gelöschte anzeigen",
     "sortLabel": "Sortieren nach",
     "sortDefault": "Standardreihenfolge",
     "sortTitleAsc": "Titel (A–Z)",

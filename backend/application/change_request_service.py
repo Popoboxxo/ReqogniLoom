@@ -445,7 +445,11 @@ class ChangeRequestService(ServiceBase):
         )
         if status_filter:
             qs = qs.filter(status=status_filter)
-        if not include_deleted:
+        if not include_deleted and status_filter != "outdated":
+            # GH-443: an explicit ``status="outdated"`` implies include_deleted.
+            # Without the guard the two filters contradicted each other and the
+            # query could only ever return an empty result set, so there was no
+            # way to list soft-deleted CRs through the status filter.
             qs = qs.exclude(status="outdated")
         return qs.order_by("created_at")
 

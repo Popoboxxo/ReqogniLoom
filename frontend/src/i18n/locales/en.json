@@ -207,6 +207,7 @@
     "searchPlaceholder": "Search by title or ID...",
     "allCategories": "All categories",
     "allStatuses": "All statuses",
+    "showDeleted": "Show deleted",
     "sortLabel": "Sort by",
     "sortDefault": "Default order",
     "sortTitleAsc": "Title (A–Z)",

@@ -643,8 +643,13 @@ class TestGetRequirement:
             with pytest.raises(NotFoundError):
                 svc.get_requirement(REQ_ID, ctx)
 
-    def test_get_raises_not_found_when_outdated(self):
-        """REQ-006: get_requirement treats soft-deleted (status="outdated") requirements as not found."""
+    def test_get_returns_outdated_requirement(self):
+        """GH-443: get_requirement resolves soft-deleted requirements instead of 404ing.
+
+        Inverted from the previous expectation: hiding the row made DELETE
+        indistinguishable from a hard delete over the API, and disagreed with
+        every sibling service (get_test_case/get_adr/get_issue/get_risk).
+        """
         svc = RequirementService()
         ctx = _make_ctx()
         mock_req = _make_requirement(status="outdated")
@@ -662,8 +667,10 @@ class TestGetRequirement:
                 ),
             ),
         ):
-            with pytest.raises(NotFoundError):
-                svc.get_requirement(REQ_ID, ctx)
+            result = svc.get_requirement(REQ_ID, ctx)
+
+        assert result is mock_req
+        assert result.status == "outdated"
 
     def test_list_requirements_returns_list(self):
         """list_requirements returns a list of ORM instances, excluding soft-deleted (REQ-006)."""

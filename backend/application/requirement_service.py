@@ -471,22 +471,29 @@ class RequirementService(ServiceBase):
             )
         )
 
-    def get_requirement(
-        self, requirement_id: UUID, ctx: AuthContext, *, include_deleted: bool = False
-    ) -> Requirement:
+    def get_requirement(self, requirement_id: UUID, ctx: AuthContext) -> Requirement:
         """Fetch a single Requirement (tenant-scoped).
 
-        REQ-006: soft-deleted requirements (status="outdated", written by
-        delete_requirement() via workflow.services.outdate()) are treated as
-        not found by default, matching list_requirements()'s default
-        exclusion. Pass include_deleted=True for flows that legitimately
-        need to see an outdated item (e.g. requirement.reactivate).
+        GH-443: a soft-deleted requirement (``status == "outdated"``, written
+        by :meth:`delete_requirement` via ``workflow.services.outdate()``) is
+        returned normally, carrying that status. It used to be reported as
+        *not found*, which made DELETE look like a hard delete from the
+        outside — the row was still there, but no caller could observe it, and
+        the behaviour disagreed with every sibling service
+        (``get_test_case`` / ``get_adr`` / ``get_issue`` / ``get_risk``, none
+        of which filter on the soft-delete state either).
+
+        Detail reads therefore stay reachable after a delete, so a client can
+        tell "gone" (404) apart from "soft-deleted" (200 +
+        ``status="outdated"``) and can restore the item via
+        ``POST /api/v1/requirements/{id}/reactivate/``. *List* reads still hide
+        outdated requirements by default — see :meth:`list_requirements`.
         """
         self._set_tenant_context(ctx)
         req = Requirement.objects.select_related("artifact").filter(
             id=requirement_id
         ).first()
-        if req is None or (not include_deleted and req.status == "outdated"):
+        if req is None:
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return req
 
@@ -509,6 +516,11 @@ class RequirementService(ServiceBase):
         affect the workflow engine and does not accept the client to *write*
         status (see ``update_requirement``).
 
+        GH-443: ``status="outdated"`` implies ``include_deleted``. Without
+        that, the default soft-delete exclusion ran first and the explicit
+        filter could only ever return an empty page — so the UI's status
+        filter had no way to surface soft-deleted requirements at all.
+
         Issue #267 regression fix: ``search`` case-insensitively filters on
         title/description/uid via ``icontains`` (bound query parameters — not
         raw SQL, so search terms are always treated as literal text, never
@@ -524,7 +536,7 @@ class RequirementService(ServiceBase):
         qs = Requirement.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
-        if not include_deleted:
+        if not include_deleted and status != "outdated":
             # Phase 0: delete_requirement() routes through workflow.services.outdate(),
             # which mirrors the new state into Requirement.status (not
             # lifecycle_status) via _STATUS_MIRROR_MODELS. Filter on the field

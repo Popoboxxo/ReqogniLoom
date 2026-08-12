@@ -23,10 +23,22 @@ export const requirementKeys = {
   detail: (id: UUID) => [...requirementKeys.details(), id] as const,
 };
 
-export function useRequirementsList(workspaceId: UUID | undefined) {
+/**
+ * GH-443: `includeDeleted` opts into soft-deleted (`status === "outdated"`)
+ * requirements. It is part of the query key — the two variants are different
+ * result sets and must not share a cache entry — but appended *after*
+ * `requirementKeys.list(workspaceId)`, so the existing
+ * `invalidateQueries({ queryKey: requirementKeys.list(ws) })` calls still match
+ * both by prefix.
+ */
+export function useRequirementsList(
+  workspaceId: UUID | undefined,
+  includeDeleted = false,
+) {
   return useQuery({
-    queryKey: requirementKeys.list(workspaceId ?? ""),
-    queryFn: () => requirementsApi.listAll(workspaceId as UUID),
+    queryKey: [...requirementKeys.list(workspaceId ?? ""), { includeDeleted }],
+    queryFn: () =>
+      requirementsApi.listAll(workspaceId as UUID, { includeDeleted }),
     enabled: !!workspaceId,
   });
 }
@@ -121,7 +133,27 @@ export function useDeleteRequirement() {
       void queryClient.invalidateQueries({
         queryKey: requirementKeys.list(variables.workspaceId),
       });
+      // GH-443: the detail cache entry is *removed*, not invalidated. The
+      // requirement still resolves after the soft-delete, so an invalidate
+      // would refetch it and leave a deleted item rendered in the detail pane.
       queryClient.removeQueries({ queryKey: requirementKeys.detail(variables.id) });
+    },
+  });
+}
+
+/** GH-443: undo a soft-delete and refresh both list variants + the detail. */
+export function useReactivateRequirement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: UUID; workspaceId: UUID }) =>
+      requirementsApi.reactivate(id),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: requirementKeys.list(variables.workspaceId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: requirementKeys.detail(variables.id),
+      });
     },
   });
 }
