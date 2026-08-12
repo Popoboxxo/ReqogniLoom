@@ -3,9 +3,14 @@ REQ-L2-RV-001 — ReviewPolicy REST endpoint tests.
 
 Covers:
 - GET/PUT /api/v1/workspaces/{workspace_id}/review-policy/ (admin-only).
-- Default response (no row yet) is mode="auto", min_confidence=0.7.
+- Default response (no row yet) is mode="auto", min_confidence=0.7 -- except
+  for the "extended" preset tier, where the effective mode is floored to
+  "review_all" (GitHub #452: an "extended" workspace must never resolve to
+  an ungated auto-approve policy).
 - Non-admin roles are rejected with 403.
 - Invalid mode / out-of-range min_confidence are rejected with 400.
+- "auto"/"review_changes" are rejected for "extended"-tier workspaces
+  (GitHub #452).
 
 Uses the same JWT + APIClient pattern as test_llm_settings.py.
 """
@@ -80,10 +85,14 @@ def test_admin_can_get_and_update_review_policy(review_policy_tenant):
     client = APIClient()
     _auth(client, _login(client, "rvadmin"))
 
+    # GitHub #452: this fixture's workspace is on the "extended" preset
+    # tier (preset={"name": "extended"}), so the hardcoded fallback default
+    # ("auto", 0.7) must be floored to "review_all" -- an "extended"
+    # workspace must never resolve to an ungated auto-approve policy.
     resp = client.get(f"/api/v1/workspaces/{workspace.id}/review-policy/")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["mode"] == "auto"
+    assert body["mode"] == "review_all"
     assert body["min_confidence"] == 0.7
 
     resp = client.put(
@@ -146,6 +155,27 @@ def test_update_review_policy_rejects_out_of_range_confidence(review_policy_tena
     resp = client.put(
         f"/api/v1/workspaces/{workspace.id}/review-policy/",
         {"mode": "auto", "min_confidence": 1.5},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_update_review_policy_rejects_auto_mode_for_extended_workspace(
+    review_policy_tenant,
+):
+    """GitHub #452: the fixture workspace is on the "extended" preset tier,
+    so setting mode="auto" (an ungated approve-without-human-gate policy)
+    must be rejected with 400, not silently stored.
+    """
+    _tenant, workspace = review_policy_tenant
+    client = APIClient()
+    _auth(client, _login(client, "rvadmin"))
+
+    resp = client.put(
+        f"/api/v1/workspaces/{workspace.id}/review-policy/",
+        {"mode": "auto", "min_confidence": 0.7},
         format="json",
     )
     assert resp.status_code == 400

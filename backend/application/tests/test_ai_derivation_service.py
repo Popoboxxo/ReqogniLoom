@@ -79,6 +79,24 @@ def workspace(tenant):
         TenantContext.clear_tenant()
 
 
+@pytest.fixture
+def extended_workspace(tenant):
+    """Same as ``workspace`` but on the "extended" preset tier (GitHub #452).
+
+    ``Workspace.preset`` is the JSONField ``presets.gate`` reads to resolve
+    the active rigor tier (``presets.services.get_preset()``) -- distinct
+    from the unrelated ``create_default_workflow(preset=...)`` argument used
+    elsewhere in this file to pick a *workflow definition* template.
+    """
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return PersistenceWorkspace.objects.create(
+            tenant=tenant, name="ai-ws-extended", preset={"name": "extended"}
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
 class _CaptureProvider:
     """Fake provider recording the prompt and returning a canned response."""
 
@@ -1113,6 +1131,55 @@ def test_auto_approve_unchanged_under_auto_policy_default(
     )
 
     assert final_state == "Approved"
+
+
+def test_auto_approve_blocks_gate_for_extended_tier_under_default_auto_policy(
+    ai_derivation_service, extended_workspace, review_admin_ctx
+):
+    """GitHub #452 regression.
+
+    Same setup as ``test_auto_approve_unchanged_under_auto_policy_default``
+    (no explicit ReviewPolicy row -> resolver falls back to its hardcoded
+    default of mode="auto", min_confidence=0.7) but on an "extended"-tier
+    workspace instead of "minimal". Before the fix, ``_auto_approve`` would
+    still cross the ADR "In Review -> Approved" approval gate unsupervised,
+    because "auto" mode crosses any gate leading to an explicit
+    ``auto_approve_target`` regardless of ``min_confidence`` (that threshold
+    is only ever consulted for "review_high_risk") -- this is the actual
+    mechanism behind the issue's "auto-approve ab 0.7 Konfidenz" report.
+    After the fix, ``SettingsService.get_effective_review_policy`` floors
+    "auto" to "review_all" for the "extended" tier, so the walk must stop at
+    "In Review" instead of reaching "Approved".
+    """
+    from application.adr_service import AdrService
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(review_admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=extended_workspace.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=review_admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    adr = AdrService().create_adr(
+        workspace_id=extended_workspace.id,
+        title="Derived ADR (extended tier, default policy)",
+        description="from decision",
+        ctx=review_admin_ctx,
+        context="ctx",
+        consequences="consequences",
+    )
+
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr.id, extended_workspace.id, review_admin_ctx
+    )
+
+    assert final_state == "In Review"
+    assert final_state != "Approved"
 
 
 # ---------------------------------------------------------------------------
