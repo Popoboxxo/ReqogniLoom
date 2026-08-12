@@ -49,6 +49,7 @@ from diagram.services import (
 from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
+from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import StandardPagination, build_error_response, detect_lang
 from traceability.exceptions import TraceLinkError
 
@@ -129,12 +130,12 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id = request.query_params.get("workspace_id")
-            if not workspace_id:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             # Tenant-scoped query filtered by workspace_id
             diagrams = Diagram.objects.filter(
                 workspace_id=workspace_id,

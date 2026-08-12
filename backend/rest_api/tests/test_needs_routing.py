@@ -12,16 +12,35 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from django.urls import Resolver404, resolve
-from rest_framework.test import APIRequestFactory
+from django.urls import resolve
+from rest_framework.test import APIClient, APIRequestFactory
 
+from rest_api.not_found import api_not_found
 from rest_api.views import StakeholderNeedViewSet
 
 
-def test_non_uuid_detail_segment_does_not_resolve() -> None:
-    """A non-UUID segment must not match the needs detail route (REQ-128)."""
-    with pytest.raises(Resolver404):
-        resolve("/api/v1/needs/derive-requirements/")
+def test_non_uuid_detail_segment_does_not_reach_the_viewset() -> None:
+    """A non-UUID segment must not match the needs detail route (REQ-128).
+
+    This used to assert ``Resolver404``. Issue #460 finding 1 added a
+    catch-all ``^api/v1/`` pattern that answers unmatched API paths with the
+    JSON error envelope instead of Django's HTML 404 page, so *every*
+    ``/api/v1/`` path resolves now — to the fallback view. The REQ-128
+    contract is unchanged and is what is asserted here: the segment must not
+    be handed to ``StakeholderNeedViewSet`` as a pk.
+    """
+    match = resolve("/api/v1/needs/derive-requirements/")
+
+    assert match.func is api_not_found
+    assert not hasattr(match.func, "cls")
+
+
+def test_non_uuid_detail_segment_returns_404() -> None:
+    """The externally visible half of the same contract: still a 404, never a
+    500 from parsing "derive-requirements" as a UUID (REQ-128)."""
+    response = APIClient().get("/api/v1/needs/derive-requirements/")
+
+    assert response.status_code == 404
 
 
 def test_uuid_detail_segment_resolves_to_viewset() -> None:

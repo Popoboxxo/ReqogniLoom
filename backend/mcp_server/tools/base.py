@@ -63,6 +63,31 @@ def require_uuid(params: Dict[str, Any], name: str) -> UUID:
         raise ParameterError(f"Parameter '{name}' is not a valid UUID: '{val}'")
 
 
+def reject_unknown_params(
+    params: Dict[str, Any], allowed: List[str], tool_name: str
+) -> None:
+    """Raise ParameterError if *params* contains a key not in *allowed*.
+
+    Issue #459 (finding 1): opt-in, per-tool guard against unrecognised
+    parameters that would otherwise be silently ignored (e.g. a client
+    sending ``test_case_id`` instead of the documented ``test_case_ids``
+    array — the run is created but the typo'd parameter has no effect).
+
+    Deliberately NOT wired into ``BaseToolGroup.execute_tool`` as a global
+    dispatcher-level check: across 40+ tools, a blanket "reject unknown
+    params" rule risks breaking existing clients that rely on extra keys
+    being tolerated/ignored, without a coordinated audit of every tool's
+    ``inputSchema``. Call this explicitly from handlers that want strict
+    validation instead.
+    """
+    unknown = sorted(k for k in params if k not in allowed)
+    if unknown:
+        raise ParameterError(
+            f"Unknown parameter(s) for tool '{tool_name}': {', '.join(unknown)}. "
+            f"Allowed parameters: {', '.join(sorted(allowed))}."
+        )
+
+
 # ---------------------------------------------------------------------------
 # MCP Audit helper (REQ-L2-MC-012)
 # ---------------------------------------------------------------------------
@@ -152,6 +177,25 @@ class BaseToolGroup(ABC):
             for name in self._TOOL_MAP.keys()
         ]
 
+    def schema_param_names(self, tool_name: str) -> List[str]:
+        """Return the declared ``inputSchema`` property names of *tool_name*.
+
+        Single source of truth for handlers that call
+        :func:`reject_unknown_params`: deriving the allow-list from the
+        published schema keeps the two from drifting apart, so adding a
+        property to the schema cannot turn a documented call into a
+        validation error.
+
+        Returns an empty list for an unknown tool name or a group that has no
+        explicit ``_TOOL_SCHEMAS`` — callers should treat that as "no strict
+        validation possible" rather than "nothing is allowed".
+        """
+        for schema in self.get_tool_schemas():
+            if schema.get("name") == tool_name:
+                properties = schema.get("inputSchema", {}).get("properties", {})
+                return list(properties.keys())
+        return []
+
     def execute_tool(
         self,
         tool_name: str,
@@ -197,6 +241,7 @@ __all__ = [
     "require_param",
     "optional_uuid",
     "require_uuid",
+    "reject_unknown_params",
     "write_mcp_audit",
     "mcp_audit_handoff",
 ]

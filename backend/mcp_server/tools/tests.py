@@ -69,6 +69,7 @@ from mcp_server.tools.base import (
     BaseToolGroup,
     mcp_audit_handoff,
     optional_uuid,
+    reject_unknown_params,
     require_param,
     require_uuid,
     write_mcp_audit,
@@ -572,6 +573,19 @@ class McpTestToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_create — create a TestRun."""
+        # Issue #459 (finding 1): a client-supplied but unrecognised parameter
+        # (e.g. a singular "test_case_id" typo for the documented array
+        # "test_case_ids") used to be silently dropped — the run was still
+        # created, just without the intended test cases attached. Reject it
+        # explicitly instead, naming the allowed parameters.
+        # The allow-list is derived from the published inputSchema rather than
+        # duplicated here, so a new schema property can never turn a
+        # documented call into a VALIDATION_ERROR.
+        reject_unknown_params(
+            params,
+            allowed=self.schema_param_names("test.run_create"),
+            tool_name="test.run_create",
+        )
         workspace_id = require_uuid(params, "workspace_id")
         name = require_param(params, "name")
         ci_job_id: str = params.get("ci_job_id", "")
