@@ -90,6 +90,7 @@ from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
 
 logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
+from rest_api.query_params import parse_workspace_id, require_non_empty_param
 from rest_api.serializers import (
     AdrSerializer,
     ArtifactSerializer,
@@ -325,7 +326,7 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     # "derive-requirements" as a pk, so GET /api/v1/needs/derive-requirements/
     # reached retrieve() and 500ed on UUID parsing. With a UUID-only regex the
     # segment no longer matches the detail route and routing 404s correctly.
-    lookup_value_regex = r"[0-9a-f-]{36}"
+    lookup_value_regex = r"[0-9a-fA-F-]{36}"
 
     @property
     def service(self):
@@ -352,12 +353,12 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """
         lang = detect_lang(request)
         try:
-            workspace_id = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
-            if not workspace_id:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            workspace_id, error = parse_workspace_id(
+                kwargs.get("workspace_pk") or request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             search = request.query_params.get("search") or None
             items = self.service.list_by_workspace(
                 get_auth_context(request), workspace_id, search=search
@@ -654,13 +655,12 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             status_filter = request.query_params.get("status") or None
             search = request.query_params.get("search") or None
             items = self._svc().list_requirements(
@@ -1198,16 +1198,16 @@ class ArtifactViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             # REQ-034: hand the QuerySet directly to the paginator so it slices
             # lazily (LIMIT/OFFSET) instead of loading every row via list().
             # REQ-066: the ORM access lives in ArtifactService.
-            qs = self._svc().list_child_summaries(ctx, UUID(workspace_id_str))
+            qs = self._svc().list_child_summaries(ctx, workspace_id)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1367,14 +1367,17 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             # REQ-006: include_deleted=true exposes soft-deleted elements (admin use)
             include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
             search = request.query_params.get("search") or None
             items = self._svc().list_architecture_elements(
-                workspace_id=UUID(workspace_id_str),
+                workspace_id=workspace_id,
                 ctx=ctx,
                 include_deleted=include_deleted,
                 search=search,
@@ -1803,12 +1806,15 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             search = request.query_params.get("search") or None
             items = self._svc().list_test_cases(
-                workspace_id=UUID(workspace_id_str), ctx=ctx, search=search
+                workspace_id=workspace_id, ctx=ctx, search=search
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -2007,12 +2013,12 @@ class TraceLinkViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
 
             artifact_id_str = request.query_params.get("artifact_id")
             svc = self._svc()
@@ -2020,7 +2026,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
             if not artifact_id_str:
                 links = svc.list_links_for_workspace(
-                    workspace_id=UUID(workspace_id_str), ctx=ctx
+                    workspace_id=workspace_id, ctx=ctx
                 )
                 titles = _resolve_artifact_titles(
                     [tl.source_id for tl in links] + [tl.target_id for tl in links]
@@ -2317,18 +2323,18 @@ class TraceLinkViewSet(BaseEntityViewSet):
         from traceability.service import detect_cycles
 
         lang = detect_lang(request)
-        workspace_id_str = request.query_params.get("workspace_id")
-        if not workspace_id_str:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
         try:
             ctx = get_auth_context(request)
             svc = self._svc()
             svc._set_tenant_context(ctx)
             cycles = detect_cycles(
-                workspace_id=UUID(workspace_id_str),
+                workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -2498,18 +2504,18 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
         from traceability.service import detect_cycles
 
         lang = detect_lang(request)
-        workspace_id_str = request.query_params.get("workspace_id")
-        if not workspace_id_str:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
         try:
             ctx = get_auth_context(request)
             svc = self._svc()
             svc._set_tenant_context(ctx)
             cycles = detect_cycles(
-                workspace_id=UUID(workspace_id_str),
+                workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -2642,13 +2648,18 @@ class BaselineViewSet(BaseEntityViewSet):
         backward compatibility (frontend/MCP callers use ?workspace_id=).
         """
         workspace_id_str = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
+        # The preset gate deliberately still runs on the raw value and before
+        # validation: it decides whether this endpoint exists for the caller's
+        # workspace at all, and reordering it would change which of two
+        # simultaneous errors a caller is shown.
         self._check_preset(request, workspace_id=workspace_id_str)
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            if not workspace_id_str:
-                return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
-            items = self._svc().list_baselines(workspace_id=str(workspace_id_str), ctx=ctx)
+            workspace_id, error = parse_workspace_id(workspace_id_str, lang)
+            if error is not None:
+                return error
+            items = self._svc().list_baselines(workspace_id=str(workspace_id), ctx=ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -2912,7 +2923,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         except (ValueError, TypeError):
             return Response(
                 build_error_response(
-                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -3021,7 +3032,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         except (ValueError, TypeError):
             return Response(
                 build_error_response(
-                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -4220,13 +4231,12 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             # REQ-006: include_deleted=true exposes soft-deleted ADRs (admin use)
             include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
             items = self._svc().list_adrs(workspace_id=workspace_id, ctx=ctx, include_deleted=include_deleted)
@@ -4430,13 +4440,12 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             items = self._svc().list_risks(workspace_id=workspace_id, ctx=ctx)
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -4710,6 +4719,17 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = GoalSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Goal"
+    # Issue #460 finding 4: the DRF router's default pk pattern ([^/.]+) also
+    # matched non-id segments, so GET /api/v1/goals/main/ resolved to
+    # retrieve(pk="main") and answered 400 "'pk' must be a well-formed UUID"
+    # for what is simply a route that does not exist (the aggregated goal
+    # lives at /api/v1/main-goals/current/). Pinning the detail lookup to a
+    # UUID shape makes routing decline the segment, yielding a plain 404 —
+    # same treatment StakeholderNeedViewSet already applies for REQ-128.
+    # Issue #271's "malformed pk -> 400" contract is unaffected for anything
+    # UUID-shaped: this regex only rejects segments that cannot be an id at
+    # all, and BaseEntityViewSet's guard still 400s near-miss UUIDs.
+    lookup_value_regex = r"[0-9a-fA-F-]{36}"
 
     def _svc(self) -> GoalService:
         return GoalService()
@@ -4723,13 +4743,12 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             items = self._svc().list_current(workspace_id, ctx)
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -4882,13 +4901,12 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             items = self._svc().list_all(workspace_id, ctx)
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -4977,13 +4995,13 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.data.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            result = self._svc().generate_ai(workspace_id=UUID(str(workspace_id_str)), ctx=ctx)
+            workspace_id, error = parse_workspace_id(
+                request.data.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
+            result = self._svc().generate_ai(workspace_id=workspace_id, ctx=ctx)
             item = self._svc().get(UUID(result["id"]), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5019,13 +5037,13 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            main_goal = self._svc().get_current(UUID(workspace_id_str), ctx)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
+            main_goal = self._svc().get_current(workspace_id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -5109,13 +5127,12 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             items = self._svc().list_issues(workspace_id=workspace_id, ctx=ctx)
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -5332,15 +5349,12 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang, message="workspace_id is required"
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            workspace_id = UUID(workspace_id_str)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
             status_filter = request.query_params.get("status")
             items = self._svc().list_change_requests(
                 workspace_id=workspace_id, ctx=ctx, status_filter=status_filter
@@ -5534,13 +5548,13 @@ class TestRunViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id_str = request.query_params.get("workspace_id")
-            if not workspace_id_str:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            items = self._svc().list_test_runs(workspace_id=UUID(workspace_id_str), ctx=ctx)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
+            items = self._svc().list_test_runs(workspace_id=workspace_id, ctx=ctx)
         except (ValidationError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -5562,17 +5576,24 @@ class TestRunViewSet(BaseEntityViewSet):
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/test-runs/ — create a test run. Returns 201."""
         lang = detect_lang(request)
-        workspace_id = request.data.get("workspace_id")
+        # Issue #460 finding 2: this was the last site where a malformed
+        # workspace_id reached ``UUID()`` inside a ``try`` whose ``except
+        # Exception`` mapped the resulting ValueError onto HTTP 500. Splitting
+        # the two checks also stops a missing workspace_id from being reported
+        # under the combined "workspace_id and name are required" wording.
+        workspace_id, error = parse_workspace_id(request.data.get("workspace_id"), lang)
+        if error is not None:
+            return error
         name = request.data.get("name")
-        if not workspace_id or not name:
+        if not name:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="workspace_id and name are required"),
+                build_error_response("VALIDATION_ERROR", lang, message="name is required"),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
             ctx = get_auth_context(request)
             item = self._svc().create_test_run(
-                workspace_id=UUID(str(workspace_id)),
+                workspace_id=workspace_id,
                 name=str(name),
                 ctx=ctx,
                 ci_job_id=str(request.data.get("ci_job_id", "")),
@@ -5748,38 +5769,30 @@ class SearchViewSet(viewsets.ViewSet):
           limit         — page size (default 20, max 100)
         """
         lang = detect_lang(request)
-        query = request.query_params.get("q", "").strip()
-        workspace_id_str = request.query_params.get("workspace_id")
 
-        if not workspace_id_str:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="workspace_id is required"
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"), lang
+        )
+        if error is not None:
+            return error
 
-        # Empty query → return empty result without error (workspace_id already validated)
-        if not query:
-            return Response(
-                {
-                    "results": [],
-                    "total_count": 0,
-                    "page": 1,
-                    "limit": 20,
-                    "query": query,
-                }
-            )
-
-        try:
-            workspace_id = UUID(workspace_id_str)
-        except ValueError:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Issue #460 finding 3: a missing/blank ``q`` used to answer 200 with
+        # an empty result set. That silently swallowed the common client bug
+        # of sending the wrong parameter name (``?search=`` instead of ``?q=``,
+        # as the sibling list endpoints use) — the caller saw "no matches"
+        # for a query the server never ran. ``q`` is documented as required,
+        # so the honest answer is 400.
+        #
+        # BREAKING for any caller that relied on the empty-200; the two
+        # in-repo callers (frontend/src/api/search.ts via SidebarNavigation
+        # and ImpactView) both guard on ``query.trim()`` and never send one.
+        # Deliberately scoped to ``q`` alone: rejecting *every* unknown query
+        # parameter API-wide would break far more callers than it helps.
+        query, error = require_non_empty_param(
+            request.query_params.get("q"), lang, name="q"
+        )
+        if error is not None:
+            return error
 
         # Parse type filter (may be repeated)
         type_filter = request.query_params.getlist("type") or None
@@ -6236,14 +6249,12 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """
         ctx = get_auth_context(request)
         lang = detect_lang(request)
-        workspace_id_str = request.query_params.get("workspace_id")
-        if not workspace_id_str:
-            return Response(build_error_response("VALIDATION_ERROR", lang, message="Missing workspace_id"), status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            workspace_id = UUID(workspace_id_str)
-        except ValueError:
-            return Response(build_error_response("VALIDATION_ERROR", lang, message="Invalid workspace_id"), status=status.HTTP_400_BAD_REQUEST)
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
 
         try:
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
@@ -6270,14 +6281,15 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             term_str = request.data.get("term", "")
             definition = request.data.get("definition", "")
-            workspace_id_str = request.data.get("workspace_id")
             synonyms = request.data.get("synonyms", [])
             abbreviation = request.data.get("abbreviation", "")
 
-            if not workspace_id_str:
-                return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id required"), status=status.HTTP_400_BAD_REQUEST)
+            workspace_id, error = parse_workspace_id(
+                request.data.get("workspace_id"), lang
+            )
+            if error is not None:
+                return error
 
-            workspace_id = UUID(workspace_id_str)
             term = self._svc().create(ctx, workspace_id, term_str, definition, synonyms, abbreviation)
             return Response(term.__dict__, status=status.HTTP_201_CREATED)
         except Exception as e:

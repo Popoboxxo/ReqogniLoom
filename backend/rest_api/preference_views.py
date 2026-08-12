@@ -17,7 +17,6 @@ Permissions:    Any authenticated user (RBAC READ/WRITE via RbacPermission).
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
 
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -26,6 +25,7 @@ from rest_framework.views import APIView
 
 from auth_tenancy.services import PreferenceService
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import build_error_response, detect_lang
 
 
@@ -83,23 +83,12 @@ class UserPreferenceView(APIView):
 
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
-        workspace_id_str = request.query_params.get("workspace_id")
-        if not workspace_id_str:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="workspace_id is required"
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            workspace_id = UUID(workspace_id_str)
-        except (ValueError, TypeError):
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="Invalid workspace_id"
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
 
         # REQ-137: use get_or_create so first access returns 200 with empty defaults
         # instead of 404, consistent with PATCH which already uses get_or_create.
