@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from audit.services import AuditQueryFilters, query as audit_query
@@ -51,6 +51,7 @@ from se_metrics.types import (
     MetricsResult,
     RiskResult,
     ThresholdConfig,
+    VolatileRequirement,
     VolatilityResult,
     WorkflowGapResult,
 )
@@ -266,6 +267,70 @@ def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
         return []
 
 
+def _resolve_requirement_titles(
+    volatile_requirements: List[VolatileRequirement], tenant_id: UUID
+) -> None:
+    """Resolve human-readable titles for VolatilityCalculator's top10 entries.
+
+    Runs after VolatilityCalculator (COMP-SM-003), which deliberately stays
+    audit-log-only (no DB access, easy to unit-test in isolation). Title
+    resolution needs a Requirement lookup, so it belongs in MetricsAggregator
+    (COMP-SM-002) alongside the other DB-touching source adapters in this
+    module, not in the calculator.
+
+    Bulk-loads all titles in a single query for up to 10 ids (no N+1) via
+    the tenant-scoped ``Requirement.objects`` manager, so RLS
+    (REQ-L3-PL002-002) applies — a requirement id belonging to another
+    tenant can never leak its title here, it just falls through to the
+    fallback below like any other unresolved id.
+
+    Mutates ``volatile_requirements`` in place (dataclass instances),
+    filling in ``.title``. Falls back to the first 8 characters of
+    ``requirement_id`` when a requirement no longer exists (AuditLog
+    entries outlive hard-deletes), has an empty title, or title resolution
+    fails outright — so the caller never renders an empty row.
+
+    Args:
+        volatile_requirements: top10_volatile entries from VolatilityResult.
+        tenant_id: Active tenant, used to scope the Requirement lookup.
+    """
+    if not volatile_requirements:
+        return
+
+    TenantContext.set_tenant(tenant_id)
+
+    id_by_uuid: Dict[UUID, VolatileRequirement] = {}
+    for vr in volatile_requirements:
+        try:
+            id_by_uuid[UUID(str(vr.requirement_id))] = vr
+        except (ValueError, TypeError):
+            # Not a parseable UUID (e.g. legacy/test data) — fallback applies.
+            vr.title = vr.requirement_id[:8]
+
+    if not id_by_uuid:
+        return
+
+    try:
+        from persistence.models import Requirement  # lazy import
+
+        titles: Dict[UUID, str] = dict(
+            Requirement.objects.filter(id__in=id_by_uuid.keys()).values_list(
+                "id", "title"
+            )
+        )
+    except Exception:
+        logger.warning(
+            "MetricsAggregator: requirement title resolution failed, "
+            "falling back to short ids",
+            exc_info=True,
+        )
+        titles = {}
+
+    for req_uuid, vr in id_by_uuid.items():
+        title = titles.get(req_uuid)
+        vr.title = title if title else vr.requirement_id[:8]
+
+
 # ---------------------------------------------------------------------------
 # MetricsAggregator — COMP-SM-002
 # ---------------------------------------------------------------------------
@@ -350,6 +415,7 @@ class MetricsAggregator:
             audit_entries=audit_entries,
             timeframe=effective_timeframe,
         )
+        _resolve_requirement_titles(volatility.top10_volatile, tenant_id)
 
         coverage: CoverageResult = self._coverage_calc.calculate(
             coverage_data=coverage_data,

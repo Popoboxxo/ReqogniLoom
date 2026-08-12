@@ -34,10 +34,17 @@ class VolatileRequirement:
 
     leaf_id: COMP-SM-003
     req_id: REQ-L2-SM-003
+
+    ``title`` is resolved by MetricsAggregator (COMP-SM-002) in a single bulk
+    query after VolatilityCalculator has produced ``requirement_id``s — the
+    calculator itself stays audit-log-only (no DB access). Defaults to ""
+    so existing callers/tests that only care about id/count keep working;
+    the aggregator always fills it in before returning a result to callers.
     """
 
     requirement_id: str
     change_count: int
+    title: str = ""
 
 
 @dataclass
@@ -236,6 +243,7 @@ class MetricsResult:
                     {
                         "requirement_id": r.requirement_id,
                         "change_count": r.change_count,
+                        "title": r.title,
                     }
                     for r in self.volatility.top10_volatile
                 ],

@@ -27,10 +27,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from persistence.tenancy import TenantContext
-from se_metrics.aggregator import MetricsAggregator, DEFAULT_TIMEFRAME, _parse_timeframe_days
+from se_metrics.aggregator import (
+    MetricsAggregator,
+    DEFAULT_TIMEFRAME,
+    _parse_timeframe_days,
+    _resolve_requirement_titles,
+)
 from se_metrics.types import (
     MetricsResult,
     ThresholdConfig,
+    VolatileRequirement,
     VolatilityResult,
     CoverageResult,
     WorkflowGapResult,
@@ -299,3 +305,186 @@ class TestMetricsAggregator:
         agg = self._make_aggregator()
         result = agg.compute(workspace_id="ws-1", timeframe="P30D", threshold_config=None)
         assert result.warnings == []
+
+
+# ---------------------------------------------------------------------------
+# _resolve_requirement_titles — Issue #454 regression tests
+#
+# volatility.top10_volatile only carried requirement_id + change_count; the
+# reporter saw empty "title" rows because the field never existed. These
+# tests cover: title resolution, the "gone/blank" fallback (first 8 chars
+# of the id), bulk-query (no N+1), and tenant isolation.
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRequirementTitles:
+    """Tests for MetricsAggregator._resolve_requirement_titles (COMP-SM-002)."""
+
+    @pytest.fixture
+    def tenant(self, db):
+        from persistence.models import Tenant
+
+        return Tenant.objects.create(
+            name="Volatility Tenant", slug=f"vol-tenant-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+
+    @pytest.fixture
+    def other_tenant(self, db):
+        from persistence.models import Tenant
+
+        return Tenant.objects.create(
+            name="Other Tenant", slug=f"other-tenant-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+
+    def _make_requirement(self, tenant, title: str):
+        """Create a persisted Requirement for *tenant* (sets TenantContext)."""
+        from persistence.models import Artifact, Requirement, Workspace
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace, _ = Workspace.objects.get_or_create(
+                tenant=tenant,
+                name="Volatility WS",
+                defaults={"preset": {"name": "extended"}},
+            )
+            art = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            return Requirement.objects.create(
+                tenant=tenant, artifact=art, title=title, status="draft"
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_resolves_title_for_existing_requirement(self, db, tenant):
+        """Happy path: existing requirement → real title, not empty."""
+        req = self._make_requirement(tenant, title="Login must support 2FA")
+        entries = [VolatileRequirement(requirement_id=str(req.id), change_count=3)]
+
+        _resolve_requirement_titles(entries, tenant.id)
+
+        assert entries[0].title == "Login must support 2FA"
+
+    def test_fallback_to_short_id_when_requirement_deleted(self, db, tenant):
+        """AuditLog entries outlive hard-deletes: no matching Requirement row
+        → fallback to the first 8 chars of the id, never an empty string
+        (the reporter's original complaint: "leere Zeilen")."""
+        ghost_id = str(uuid.uuid4())
+        entries = [VolatileRequirement(requirement_id=ghost_id, change_count=1)]
+
+        _resolve_requirement_titles(entries, tenant.id)
+
+        assert entries[0].title == ghost_id[:8]
+        assert entries[0].title != ""
+
+    def test_fallback_to_short_id_when_title_blank(self, db, tenant):
+        """Requirement exists but has an empty title → fallback, not ''."""
+        req = self._make_requirement(tenant, title="")
+        entries = [VolatileRequirement(requirement_id=str(req.id), change_count=1)]
+
+        _resolve_requirement_titles(entries, tenant.id)
+
+        assert entries[0].title == str(req.id)[:8]
+
+    def test_cross_tenant_requirement_never_leaks_title(self, db, tenant, other_tenant):
+        """A requirement id that exists but belongs to a different tenant must
+        not leak its title — RLS/TenantManager scoping (REQ-L3-PL002-002)."""
+        foreign_req = self._make_requirement(other_tenant, title="Foreign Secret Title")
+        entries = [VolatileRequirement(requirement_id=str(foreign_req.id), change_count=1)]
+
+        _resolve_requirement_titles(entries, tenant.id)
+
+        assert entries[0].title != "Foreign Secret Title"
+        assert entries[0].title == str(foreign_req.id)[:8]
+
+    def test_bulk_query_no_n_plus_1(self, db, tenant, django_assert_num_queries):
+        """All ids are resolved with exactly one query, regardless of count."""
+        reqs = [self._make_requirement(tenant, title=f"Req {i}") for i in range(5)]
+        entries = [
+            VolatileRequirement(requirement_id=str(r.id), change_count=i)
+            for i, r in enumerate(reqs)
+        ]
+
+        with django_assert_num_queries(1):
+            _resolve_requirement_titles(entries, tenant.id)
+
+        titles = {e.title for e in entries}
+        assert titles == {f"Req {i}" for i in range(5)}
+
+    def test_empty_list_is_noop(self, db, tenant):
+        """No entries → function returns without querying (guard clause)."""
+        _resolve_requirement_titles([], tenant.id)  # must not raise
+
+    def test_non_uuid_requirement_id_falls_back_directly(self, db, tenant):
+        """Legacy/malformed requirement_id that is not a UUID never crashes;
+        falls back to its own first 8 chars."""
+        entries = [VolatileRequirement(requirement_id="not-a-uuid", change_count=1)]
+
+        _resolve_requirement_titles(entries, tenant.id)
+
+        assert entries[0].title == "not-a-uuid"[:8]
+
+
+class TestComputeIncludesResolvedTitles:
+    """Integration: MetricsAggregator.compute() end-to-end resolves titles."""
+
+    @pytest.fixture
+    def tenant(self, db):
+        from persistence.models import Tenant
+
+        return Tenant.objects.create(
+            name="Compute Tenant", slug=f"compute-tenant-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+
+    def _make_requirement(self, tenant, title: str):
+        from persistence.models import Artifact, Requirement, Workspace
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Compute WS", preset={"name": "extended"}
+            )
+            art = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            return Requirement.objects.create(
+                tenant=tenant, artifact=art, title=title, status="draft"
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+    @patch("se_metrics.aggregator._fetch_risks")
+    @patch("se_metrics.aggregator._fetch_incomplete_states")
+    @patch("se_metrics.aggregator._fetch_coverage")
+    @patch("se_metrics.aggregator._fetch_audit_entries")
+    def test_compute_top10_volatile_carries_real_titles(
+        self, mock_audit, mock_coverage, mock_gaps, mock_risks, db, tenant
+    ):
+        """REQ-L2-SM-012-adjacent (issue #454): compute() must not return
+        empty titles for volatile requirements that still exist."""
+        req = self._make_requirement(tenant, title="Payment must be PCI-DSS compliant")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            mock_audit.return_value = [
+                FakeAuditEntry(entity_type="Requirement", op="update", entity_id=str(req.id))
+                for _ in range(3)
+            ]
+            mock_coverage.return_value = None
+            mock_gaps.return_value = []
+            mock_risks.return_value = []
+
+            agg = MetricsAggregator()
+            result = agg.compute(workspace_id="ws-1", timeframe="P30D")
+
+            assert len(result.volatility.top10_volatile) == 1
+            entry = result.volatility.top10_volatile[0]
+            assert entry.requirement_id == str(req.id)
+            assert entry.title == "Payment must be PCI-DSS compliant"
+            assert entry.change_count == 3
+
+            d = result.to_dict()
+            assert d["volatility"]["top10_volatile"][0]["title"] == (
+                "Payment must be PCI-DSS compliant"
+            )
+        finally:
+            TenantContext.clear_tenant()

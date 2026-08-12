@@ -395,6 +395,10 @@ class MetricsCacheManager:
                     VolatileRequirement(
                         requirement_id=r["requirement_id"],
                         change_count=r["change_count"],
+                        # .get() with fallback: cache entries written before
+                        # the "title" field was introduced must still load
+                        # cleanly on a warm cache (no crash on first deploy).
+                        title=r.get("title", ""),
                     )
                     for r in vol_raw.get("top10_volatile", [])
                 ],
