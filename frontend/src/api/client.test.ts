@@ -6,7 +6,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiClient, resetUnauthorizedGuard, setUnauthorizedHandler } from "./client";
+import {
+  apiClient,
+  resetUnauthorizedGuard,
+  setUnauthorizedHandler,
+  RequestTimeoutError,
+} from "./client";
 import { ForbiddenError } from "./errors";
 
 function mockResponse(status: number, body: unknown = {}): Response {
@@ -226,5 +231,117 @@ describe("apiClient — silent token refresh on 401 (GitHub #135)", () => {
 
     await expect(apiClient.get("/requirements")).rejects.toBeDefined();
     expect(unauthorizedHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("apiClient — request timeout (GitHub #450)", () => {
+  // A hung fetch() must eventually reject instead of leaving the caller's
+  // Promise pending forever — otherwise a `try { } finally { setIsLoading(false) }`
+  // caller (MetricsDashboard, AuditDashboard) never resets its loading flag,
+  // leaving the Refresh button/filter controls stuck disabled indefinitely.
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("aborts and rejects with RequestTimeoutError once the request hangs past the timeout", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          // Mirror real fetch()'s abort behaviour: never settle on its own,
+          // only reject once the AbortSignal fires.
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        })
+    );
+
+    const pending = apiClient.get("/metrics/");
+    const assertion = expect(pending).rejects.toBeInstanceOf(RequestTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await assertion;
+  });
+
+  it("does not touch fetch's own AbortSignal wiring for a request that resolves before the timeout", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse(200, { ok: true }));
+
+    await expect(apiClient.get("/metrics/")).resolves.toEqual({ ok: true });
+  });
+
+  // GitHub #445: real LLM calls (compressed bundle export, AI decomposition,
+  // ...) legitimately take far longer than 30s. Requests to these paths must
+  // survive the normal 30s window instead of being killed mid-response.
+  it("does not abort a known long-running LLM path at the normal 30s timeout", async () => {
+    let aborted = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init?: RequestInit) =>
+        new Promise((resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+          // Resolves well past 30s but comfortably inside the 180s grace
+          // period for long-running paths.
+          setTimeout(() => resolve(mockResponse(200, { drafts: [] })), 90_000);
+        })
+    );
+
+    const pending = apiClient.post(
+      "/requirements/11111111-1111-1111-1111-111111111111/decompose-next-level/",
+      {}
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(pending).resolves.toEqual({ drafts: [] });
+    expect(aborted).toBe(false);
+  });
+
+  it("aborts a known long-running LLM path once it exceeds the 180s grace period", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        })
+    );
+
+    const pending = apiClient.get(
+      "/architecture/22222222-2222-2222-2222-222222222222/requirement-bundle/?mode=compressed"
+    );
+    const assertion = expect(pending).rejects.toBeInstanceOf(RequestTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(180_000);
+
+    await assertion;
+  });
+
+  it("an explicit timeoutMs overrides both the 30s default and the long-running-path default", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        })
+    );
+
+    // A plain CRUD path, but called with a short explicit override — must
+    // abort well before the 30s default.
+    const pending = apiClient.get("/requirements/1", 5_000);
+    const assertion = expect(pending).rejects.toBeInstanceOf(RequestTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await assertion;
   });
 });

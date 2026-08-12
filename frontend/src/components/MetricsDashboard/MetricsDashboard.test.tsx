@@ -4,7 +4,7 @@
  * Covers: Help mode toggle, help text visibility, component rendering.
  */
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { ReactNode } from "react";
 import MetricsDashboard from "./MetricsDashboard";
@@ -189,6 +189,43 @@ describe("MetricsDashboard", () => {
 
       expect(filterSelect).toBeInTheDocument();
       expect(refreshBtn).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // GitHub #450: filter dropdown must not be disabled (mirrors ListToolbar's
+  // list pages, which never gate filters on a loading flag), and the Refresh
+  // button must re-enable ("Refresh", not stuck on "Refreshing...") once its
+  // own request settles.
+  // ---------------------------------------------------------------------
+  describe("Filter/Refresh availability (GitHub #450)", () => {
+    it("never disables the filter select, even while a request is in flight", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      const filterSelect = await screen.findByTestId("metrics-filter-select");
+      expect(filterSelect).not.toBeDisabled();
+
+      fireEvent.click(screen.getByTestId("metrics-refresh-btn"));
+      // Still not disabled while the refresh request is in flight.
+      expect(filterSelect).not.toBeDisabled();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("metrics-refresh-btn")).not.toBeDisabled()
+      );
+      expect(filterSelect).not.toBeDisabled();
+    });
+
+    it("re-enables the Refresh button and restores its label after a refresh completes", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      const refreshBtn = await screen.findByTestId("metrics-refresh-btn");
+      await waitFor(() => expect(refreshBtn).not.toBeDisabled());
+      expect(refreshBtn.textContent).toBe("Refresh");
+
+      fireEvent.click(refreshBtn);
+
+      await waitFor(() => expect(refreshBtn).not.toBeDisabled());
+      expect(refreshBtn.textContent).toBe("Refresh");
     });
   });
 });

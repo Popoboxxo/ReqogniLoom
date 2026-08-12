@@ -157,6 +157,40 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     );
   });
 
+  // GitHub #451: a disabled Modify button's explanation must also be visible
+  // as text, not only as a hover `title` — most findings have no registered
+  // automatic remediation (this is the common case, not an edge case), and a
+  // hover-only tooltip is not discoverable via keyboard/touch/screen reader.
+  it("shows the disabled reason as visible text next to a disabled Modify button", async () => {
+    render(<AuditDashboard />);
+
+    const reason = await screen.findByTestId("audit-modify-reason-1");
+    expect(reason.textContent).toContain(
+      "A dangling parent cannot be invented automatically."
+    );
+    // No enabled Modify button anywhere — there is no backend endpoint to
+    // apply a manual edit, so an always-enabled button would be a dead click.
+    expect(screen.queryByTestId("audit-modify-1")).toBeDisabled();
+  });
+
+  // GitHub #450: the scope selector must stay interactive (mirrors the
+  // severity selector on the same page, and ListToolbar's list pages), not
+  // gated on the in-flight audit run.
+  it("never disables the scope select, even while a request is in flight", async () => {
+    render(<AuditDashboard />);
+
+    const scopeSelect = await screen.findByTestId("audit-scope-select");
+    expect(scopeSelect).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId("audit-refresh-btn"));
+    expect(scopeSelect).not.toBeDisabled();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("audit-refresh-btn")).not.toBeDisabled()
+    );
+    expect(scopeSelect).not.toBeDisabled();
+  });
+
   // ---- Adopt: success ----
 
   it("removes the finding and shows a success toast when Adopt succeeds", async () => {

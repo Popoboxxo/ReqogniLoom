@@ -453,7 +453,6 @@ export default function MetricsDashboard(): JSX.Element {
             data-testid="metrics-filter-select"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            disabled={isLoading}
             style={{
               padding: "var(--space-1) var(--space-2)",
               borderRadius: "var(--radius-md)",

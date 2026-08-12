@@ -1046,6 +1046,7 @@
     "adopting": "Wird übernommen...",
     "adoptSuccess": "Behoben — die Korrektur wurde angewendet.",
     "modify": "Anpassen",
+    "modifyReasonPrefix": "Nicht automatisch korrigierbar",
     "pageSummary": "Automatisierte Regelprüfung für Requirements und Architektur, gruppiert nach Regel mit Blocker-/Warnungs-Einstufung."
   },
   "archDecompose": {
