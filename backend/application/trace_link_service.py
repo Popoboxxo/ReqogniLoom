@@ -99,7 +99,9 @@ class TraceLinkService(ServiceBase):
              as Goal — fix #237).
           7. If it matches a TestCase, return TestCase.artifact_id (fix #264).
           8. If it matches a StakeholderNeed, return its artifact_id (#264).
-          9. Otherwise raise NotFoundError.
+          9. If it matches a Risk, return Risk.artifact_id (fix #407).
+          10. If it matches an Issue, return Issue.artifact_id (fix #407).
+          11. Otherwise raise NotFoundError.
 
         Fix #264: TestCase and StakeholderNeed were missing from this chain
         even though both are plain ``OneToOneField(Artifact)`` entities like
@@ -109,6 +111,14 @@ class TraceLinkService(ServiceBase):
         for ``verifies`` (Requirement -> TestCase) and ``derives-from``
         (Requirement -> StakeholderNeed), i.e. exactly the pairs the SE
         endpoint matrix in ``traceability.types`` advertises as legal.
+
+        Fix #407: Risk and Issue have the same ``OneToOneField(Artifact)``
+        shape (see ``application.models.Risk``/``Issue``) but were never
+        added here, so a Risk<->Requirement trace link (needed for
+        trade-study support) raised NotFoundError on the Risk/Issue side
+        even though both are already linkable *targets* once resolved (the
+        gap was purely in resolving their business-entity id to an
+        Artifact id).
 
         They are appended at the end rather than next to Requirement so the
         earlier steps keep their established probe order; the id spaces are
@@ -167,6 +177,20 @@ class TraceLinkService(ServiceBase):
         if need is not None:
             return UUID(str(need.artifact_id))
 
+        # 9./10. Risk / Issue -> Artifact (fix #407). Imported locally, same
+        # rationale as Adr/Goal/MainGoal above: application.models imports
+        # trace_link_service transitively (risk_service/issue_service ->
+        # application.services), so a module-level import would cycle.
+        from application.models import Issue, Risk
+
+        risk = Risk.objects.filter(id=entity_id).first()
+        if risk is not None and risk.artifact_id is not None:
+            return UUID(str(risk.artifact_id))
+
+        issue = Issue.objects.filter(id=entity_id).first()
+        if issue is not None and issue.artifact_id is not None:
+            return UUID(str(issue.artifact_id))
+
         raise NotFoundError(f"Entity {entity_id} not found")
 
     def resolve_entity_to_artifact_id(
@@ -180,7 +204,7 @@ class TraceLinkService(ServiceBase):
 
         Args:
             entity_id: Artifact, Requirement, ArchitectureElement, ADR, Goal,
-                MainGoal, TestCase or StakeholderNeed UUID.
+                MainGoal, TestCase, StakeholderNeed, Risk or Issue UUID.
             ctx: AuthContext; when given, the tenant context is set first.
 
         Returns:

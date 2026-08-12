@@ -191,6 +191,8 @@
   "editor": {
     "title": "Titel",
     "description": "Beschreibung",
+    "acceptanceCriteria": "Abnahmekriterien",
+    "acceptanceCriteriaPlaceholder": "Wann gilt diese Anforderung als erfüllt?",
     "category": "Kategorie",
     "categoryPlaceholder": "Kategorie wählen",
     "workflowState": "Workflow-Status",
@@ -644,7 +646,8 @@
   "req": {
     "changeReason": "Änderungsgrund",
     "changeReasonPlaceholder": "Warum wird diese Anforderung geändert?",
-    "changeReasonRequired": "Änderungsgrund ist erforderlich."
+    "changeReasonRequired": "Änderungsgrund ist erforderlich.",
+    "acceptanceCriteriaRequired": "Abnahmekriterien sind für dieses Rigor-Preset erforderlich."
   },
   "reqType": {
     "StReq": "Stakeholder-Anforderung (StReq)",

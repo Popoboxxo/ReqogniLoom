@@ -291,6 +291,7 @@ describe("RequirementForm — save persistence and failure surfacing (#344)", ()
     expect(payload).not.toHaveProperty("change_reason");
     expect(Object.keys(payload as object).sort()).toEqual(
       [
+        "acceptance_criteria",
         "category",
         "complexity_fibonacci",
         "custom_fields",
