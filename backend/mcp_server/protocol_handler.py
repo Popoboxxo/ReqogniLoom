@@ -59,6 +59,14 @@ ERROR_CODES = {
     "INTERNAL_ERROR": "An internal server error occurred.",
     "PARSE_ERROR": "Failed to parse JSON-RPC request.",
     "INVALID_REQUEST": "Malformed JSON-RPC request frame.",
+    # Distinct from AUTH_FAILED on purpose (issue #427): the credentials may be
+    # perfectly valid while the SSE session they were bound to has expired or
+    # been evicted. Collapsing both into AUTH_FAILED sent users hunting for a
+    # token problem when the only fix is to re-open the SSE stream.
+    "SESSION_EXPIRED": (
+        "The MCP SSE session is unknown or has expired. This is not an "
+        "authentication failure — reconnect to obtain a fresh session_id."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -91,6 +99,7 @@ ERROR_CODE_MAP = {
     "FEATURE_NOT_ENABLED": -32002,   # Server-defined: Feature
     "LLM_NOT_CONFIGURED": -32003,    # Server-defined: LLM config
     "NOT_FOUND": -32004,             # Server-defined: Not found
+    "SESSION_EXPIRED": -32005,       # Server-defined: SSE session gone (#427)
 }
 
 

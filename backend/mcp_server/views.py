@@ -36,13 +36,13 @@ from django.utils.decorators import method_decorator
 
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services.authentication import AuthenticationService
-from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
+from mcp_server.protocol_handler import ERROR_CODE_MAP, ERROR_CODES, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 # ErrorFormatter.format_error emits a numeric JSON-RPC "code" field, not a
-# string "error_code" (REQ-090). Reverse the map to recover the string name
+# string "error_code" (REQ-047). Reverse the map to recover the string name
 # for HTTP-status mapping below.
 _NUMERIC_TO_ERROR_CODE: dict[int, str] = {v: k for k, v in ERROR_CODE_MAP.items()}
 
@@ -182,7 +182,11 @@ class McpHttpTransportView(CorsMixin, View):
         if "error" in response_frame:
             numeric_code = response_frame["error"].get("code")
             error_code = _NUMERIC_TO_ERROR_CODE.get(numeric_code, "")
-            if error_code in ("AUTH_FAILED", "PARSE_ERROR", "INVALID_REQUEST"):
+            if error_code in (
+                "AUTH_FAILED",
+                "PARSE_ERROR",
+                "INVALID_REQUEST",
+            ):
                 http_status = 401
             elif error_code == "PERMISSION_DENIED":
                 http_status = 403
@@ -236,9 +240,24 @@ class McpHttpTransportView(CorsMixin, View):
             json.dumps({
                 "server": "ReqogniLoom MCP Server",
                 "protocol": "JSON-RPC 2.0",
-                # REQ-131: advertise only implemented transports. SSE is not
-                # a functional transport, so declaring it here misleads clients.
-                "transports": ["http", "stdio"],
+                # REQ-131: advertise only implemented transports. SSE was
+                # dropped from this list while `GET /mcp/sse/` answered 500 on
+                # every request (issue #455 — a hop-by-hop `Connection` header
+                # tripped wsgiref's PEP-3333 assertion under `runserver`).
+                # Removing that header only fixed the 500; it did not make
+                # `runserver` (WSGI) capable of streaming SSE — a WSGI server
+                # can only serve an async iterator by buffering it in full,
+                # which never terminates for an endless event stream. SSE only
+                # works because the server now runs ASGI unconditionally, both
+                # in production (`gunicorn -k uvicorn.workers.UvicornWorker`)
+                # and in dev (`uvicorn --reload`, see
+                # docker-compose.override.yml / reqogniloom/asgi.py). It is
+                # the transport every distributed plugin config ships with
+                # (`"type": "sse"` in dist/plugins/*), so it belongs here
+                # again. Keep this list in sync with mcp_server/urls.py —
+                # omitting a working transport misleads clients just as badly
+                # as advertising a broken one.
+                "transports": ["http", "sse", "stdio"],
                 "version": "1.0.0",
             }),
             content_type="application/json",
@@ -253,19 +272,119 @@ class McpMessagesView(CorsMixin, View):
     Accepts JSON-RPC POST requests, returns 202 Accepted, and pushes the
     result to the SSE stream via Redis.
     """
+    #: Path of the SSE handshake a client must re-open to obtain a fresh
+    #: session. Surfaced in the SESSION_EXPIRED payload so the error itself
+    #: tells the operator what to do (issue #427).
+    _RECONNECT_ENDPOINT = "/mcp/sse/"
+
+    @staticmethod
+    def _request_id(body: bytes) -> object | None:
+        """Return the JSON-RPC ``id`` of a request body, or None.
+
+        Echoing the id back lets a client correlate a transport-level rejection
+        with the call it made. A body that is absent, unparseable or not an
+        object simply yields ``None`` — recovering the id must never be able to
+        turn an error response into a second error.
+        """
+        try:
+            frame = json.loads(body)
+        except (ValueError, TypeError):
+            return None
+        return frame.get("id") if isinstance(frame, dict) else None
+
+    @staticmethod
+    def _error_response(
+        *,
+        status: int,
+        error_code: str,
+        message: str,
+        request_id: object | None = None,
+        data: dict | None = None,
+    ) -> HttpResponse:
+        """Build a JSON-RPC error envelope for a transport-level rejection.
+
+        Mirrors the envelope shape used by :class:`McpHttpTransportView`
+        (string ``error_code`` per REQ-047) so a client can branch on one
+        machine-readable field regardless of which MCP endpoint rejected it —
+        previously this view answered with a bare ``text/plain`` sentence that
+        nothing could parse.
+        """
+        error: dict[str, object] = {"error_code": error_code, "message": message}
+        if data:
+            error["data"] = data
+        return HttpResponse(
+            json.dumps({"jsonrpc": "2.0", "id": request_id, "error": error}),
+            content_type="application/json",
+            status=status,
+        )
+
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        """Accept a JSON-RPC message for an established SSE session."""
+        # Read the body once: `request.body` is cached by Django, but the
+        # background closure below must not touch the request after this
+        # handler returns.
+        body = request.body
+        request_id = self._request_id(body)
+
         session_id = request.GET.get("session_id")
         if not session_id:
-            return HttpResponse("Missing session_id", status=400)
+            return self._error_response(
+                status=400,
+                error_code="INVALID_REQUEST",
+                message=(
+                    "Missing required query parameter 'session_id'. POST to the "
+                    "endpoint URL delivered by the SSE 'endpoint' event."
+                ),
+                request_id=request_id,
+            )
 
-        from mcp_server.sse_pubsub import get_session_api_key, publish_mcp_message
+        # Imported lazily (as elsewhere in this module) so that importing the
+        # URLConf never drags in the redis/cryptography stack.
+        from mcp_server.sse_pubsub import (
+            SESSION_TTL_SECONDS,
+            get_session_api_key,
+            publish_mcp_message,
+        )
 
         # Authorise by session: the API key was bound to this session at the
         # SSE handshake and is NEVER accepted from the URL here. An unknown
         # or expired session is rejected (REQ-018 / SYSTEM_AUDIT P-02).
         session_api_key = get_session_api_key(session_id)
         if not session_api_key:
-            return HttpResponse("Invalid or expired session", status=401)
+            # Issue #427: this is deliberately NOT reported as AUTH_FAILED.
+            # The binding lives in Redis with a bounded TTL
+            # (sse_pubsub.SESSION_TTL_SECONDS) and also disappears when Redis
+            # is restarted or evicts the key, so a client whose API key is
+            # entirely valid still lands here once its stream has outlived the
+            # binding. The old bare `401 Invalid or expired session` surfaced in
+            # clients as a generic auth error and sent operators looking for a
+            # token problem; the actionable fix is always to re-open the SSE
+            # stream. The HTTP status stays 401 (unchanged for clients that
+            # branch on it) while the body now carries a distinct error_code
+            # plus the endpoint to reconnect to.
+            return self._error_response(
+                status=401,
+                error_code="SESSION_EXPIRED",
+                # Built on top of the canonical SESSION_EXPIRED message
+                # (protocol_handler.ERROR_CODES) rather than a second,
+                # independently worded sentence — that message is the single
+                # source of truth for what this error code means. Here it is
+                # only extended with the request-specific reconnect detail
+                # (session id, endpoint, retry hint).
+                message=(
+                    f"{ERROR_CODES['SESSION_EXPIRED']} Session "
+                    f"'{session_id}' — re-open the SSE stream at "
+                    f"{self._RECONNECT_ENDPOINT} to obtain a fresh session_id "
+                    "and retry (in Claude Code: /mcp reconnect)."
+                ),
+                request_id=request_id,
+                data={
+                    "session_id": session_id,
+                    "reconnect_endpoint": self._RECONNECT_ENDPOINT,
+                    "session_ttl_seconds": SESSION_TTL_SECONDS,
+                    "retryable": True,
+                },
+            )
 
         handler = _get_handler()
         headers = _extract_django_headers(request)
@@ -274,9 +393,9 @@ class McpMessagesView(CorsMixin, View):
         headers["X-API-Key"] = session_api_key
         headers["HTTP_AUTHORIZATION"] = f"Bearer {session_api_key}"
 
-        # Capture the request body now: the executor runs the closure after
-        # this view has returned, at which point the request may be closed.
-        body = request.body
+        # `body` was captured at the top of this handler: the executor runs the
+        # closure after this view has returned, at which point the request may
+        # already be closed.
 
         # In a production system, this should be a Celery task. To avoid a
         # Celery dependency here we offload to a bounded thread pool
@@ -439,7 +558,15 @@ class McpSseTransportView(View):
         )
         _apply_cors_headers(request, response, methods=self._CORS_METHODS)
         response["Cache-Control"] = "no-cache"
-        response["Connection"] = "keep-alive"
+        # NOTE (issue #455): do NOT set `Connection: keep-alive` here.
+        # `Connection` is a hop-by-hop header (RFC 9110 §7.6.1) and belongs to
+        # the server/proxy, not to the application. PEP 3333 forbids a WSGI
+        # application from emitting one, and wsgiref enforces that with a bare
+        # `assert not is_hop_by_hop(name)` in
+        # `wsgiref.handlers.BaseHandler.start_response` — which turned every
+        # `GET /mcp/sse/` under `manage.py runserver` into a 500. Persistent
+        # connections are the HTTP/1.1 default anyway, so the header bought
+        # nothing even on the ASGI stack that tolerated it.
         return response
 
 __all__ = [

@@ -9,20 +9,37 @@ from django.core.management.base import BaseCommand
 
 from mcp_server.tool_registry import ToolRegistry
 
-# Find the repo root by looking for VERSION file, trying multiple parent levels
-# Local dev: backend/mcp_server/management/commands/export_tool_manifest.py → parents[4]
-# Docker dev: /app/mcp_server/management/commands/export_tool_manifest.py → parents[3]
+#: Location of the manifest relative to whichever ancestor directory holds it.
+_MANIFEST_SUFFIX = Path("docs") / "agent-templates" / "tool-manifest.json"
+
+
 def _find_repo_root() -> Path:
+    """Return the directory that holds ``VERSION`` / ``docs/agent-templates``.
+
+    Two layouts have to work with the same code:
+
+    * host — ``<repo>/backend/mcp_server/management/commands/`` (root =
+      ``parents[4]``), where both ``VERSION`` and ``docs/`` sit at the repo root;
+    * container — ``/app/mcp_server/management/commands/`` (root =
+      ``parents[3]``), where ``backend/`` *is* ``/app``, there is no ``VERSION``
+      file, and ``docs/`` is bind-mounted at ``/app/docs``.
+
+    Probing for the manifest directory as well as ``VERSION`` keeps
+    ``DEFAULT_OUT`` pointing at a writable, correct path inside Docker, where
+    the old VERSION-only probe fell through to ``parents[4] == "/"`` and made
+    the documented ``manage.py export_tool_manifest`` fix unrunnable there
+    (issue #434).
+    """
     current = Path(__file__).resolve()
-    for i in range(5):
-        candidate = current.parents[i] / "VERSION"
-        if candidate.exists():
-            return current.parents[i]
-    # Fallback to parents[4] for local, parents[3] for Docker
+    for ancestor in current.parents:
+        if (ancestor / _MANIFEST_SUFFIX).is_file() or (ancestor / "VERSION").is_file():
+            return ancestor
+    # Last resort: the host layout.
     return current.parents[4]
 
+
 REPO_ROOT = _find_repo_root()
-DEFAULT_OUT = REPO_ROOT / "docs" / "agent-templates" / "tool-manifest.json"
+DEFAULT_OUT = REPO_ROOT / _MANIFEST_SUFFIX
 
 
 def build_manifest() -> Dict[str, Any]:
