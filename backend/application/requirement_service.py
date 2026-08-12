@@ -684,6 +684,14 @@ class RequirementService(ServiceBase):
         REQ-L1-043: optional allocation of children to ArchitectureElements
         ADR-L3-AS002-01 (single atomic TX).
 
+        Links emitted per child (issue #395 — the full SE decomposition set,
+        identical to ``ArchitectureDecomposeService._link_node``):
+
+        * ``decomposes``   : parent Requirement -> child Requirement
+        * ``derives-from`` : child Requirement -> parent Requirement
+        * ``allocated-to`` : child Requirement -> ArchitectureElement
+          (only when *target_architecture_elements* is given)
+
         Args:
             requirement_id: UUID of parent requirement to decompose.
             ctx: AuthContext for tenant scoping and audit.
@@ -762,7 +770,14 @@ class RequirementService(ServiceBase):
                 )
                 result.children.append(RequirementDTO.from_orm(child_req))
 
-                # IF-AS-INT-002: create TraceLink using configured type
+                # IF-AS-INT-002: create TraceLink using configured type.
+                #
+                # Best-effort, historically: a missing 'decomposes' link no
+                # longer hides the hierarchy from the SE-Auditor since issue
+                # #395 made root/leaf classification read the reciprocal
+                # 'derives-from' edge too, so a failure here degrades the
+                # graph without breaking it. Logged at warning (not debug):
+                # it is still a defect worth seeing in production logs.
                 try:
                     tl = self._trace_link_service.create_trace_link(
                         source_id=UUID(str(parent_req.artifact_id)),
@@ -773,10 +788,55 @@ class RequirementService(ServiceBase):
                     if hasattr(tl, "id"):
                         result.trace_link_ids.append(tl.id)
                 except Exception:
-                    logger.debug(
-                        "RequirementService.decompose: TraceLink creation failed "
-                        "(may not exist in traceability engine yet)"
+                    logger.warning(
+                        "RequirementService.decompose: '%s' TraceLink %s -> %s "
+                        "could not be created; the derivation hierarchy will "
+                        "rest on the 'derives-from' link alone.",
+                        decomposition_link_type,
+                        parent_req.artifact_id,
+                        child_req.artifact_id,
+                        exc_info=True,
                     )
+
+                # Issue #395: the reciprocal 'derives-from' link (child ->
+                # parent). TRACE-P5 explicitly requires the pair — "a
+                # Requirement decomposed via 'decomposes' must carry a
+                # matching 'derives-from' back to that parent" — and
+                # TRACE-P1b requires every Requirement to have an outgoing
+                # 'derives-from'. Emitting only 'decomposes' meant the tool's
+                # own guided "Ableiten" flow produced two blocking
+                # SE-Auditor findings per derived Requirement and made
+                # baseline creation impossible without manual repair. This
+                # mirrors ArchitectureDecomposeService._link_node, which has
+                # always emitted all three links (allocated-to, decomposes,
+                # derives-from) for the AI decomposition path.
+                #
+                # Deliberately NOT wrapped in the best-effort try above (F2 of
+                # the #395 review): sharing that scope would let a failure
+                # here commit the 'decomposes' half of the pair on its own —
+                # precisely the state TRACE-P5 reports as a BLOCKER, produced
+                # silently by the very code meant to prevent it. The
+                # back-link is a correctness precondition of this method, so
+                # it propagates and the surrounding TransactionContextManager
+                # rolls the whole decomposition back. Same reasoning as the
+                # allocation block below.
+                #
+                # No backfill ships with this change (F6 of the #395 review):
+                # Requirements derived before it still carry 'decomposes'
+                # without the back-link and keep reporting TRACE-P5. That is
+                # intentional — TRACE-P5 has a deterministic, automatic
+                # remediation (RequirementDecompositionDerivationRemediation,
+                # "Anpassen" in the audit dashboard) that creates exactly this
+                # link from the finding's own endpoints, so existing data is
+                # repairable per finding without a migration.
+                derives = self._trace_link_service.create_trace_link(
+                    source_id=UUID(str(child_req.artifact_id)),
+                    target_id=UUID(str(parent_req.artifact_id)),
+                    link_type=LinkType.DERIVES_FROM.value,
+                    ctx=ctx,
+                )
+                if hasattr(derives, "id"):
+                    result.trace_link_ids.append(derives.id)
 
                 # REQ-L1-043: Allocation to ArchitectureElements. Not caught: a
                 # caller that explicitly passes target_architecture_elements

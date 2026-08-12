@@ -749,7 +749,122 @@ class TestDecompose:
         assert result.children[0].title == "Child"
         # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: decompose() always creates
         # LinkType.DECOMPOSES links — Workspace is no longer consulted.
-        assert mock_create_trace_link.call_args.kwargs["link_type"] == LinkType.DECOMPOSES.value
+        # Issue #395: plus the reciprocal 'derives-from' back-link.
+        link_types = [
+            call.kwargs["link_type"] for call in mock_create_trace_link.call_args_list
+        ]
+        assert link_types == [
+            LinkType.DECOMPOSES.value,
+            LinkType.DERIVES_FROM.value,
+        ]
+
+    def test_decompose_propagates_a_failed_derives_from_back_link(self):
+        """A failing back-link must abort, not commit half of the pair.
+
+        Issue #395 (review finding F2): the 'decomposes' link is best-effort,
+        but its reciprocal 'derives-from' is a correctness precondition — a
+        swallowed failure would silently produce exactly the graph TRACE-P5
+        reports as a BLOCKER. The exception has to escape so the surrounding
+        TransactionContextManager rolls the decomposition back.
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+
+        def _fail_on_derives_from(**kwargs):
+            if kwargs["link_type"] == LinkType.DERIVES_FROM.value:
+                raise RuntimeError("traceability engine unavailable")
+            return MagicMock(id=uuid.uuid4())
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch.object(
+                svc._trace_link_service,
+                "create_trace_link",
+                side_effect=_fail_on_derives_from,
+            ),
+            pytest.raises(RuntimeError, match="traceability engine unavailable"),
+        ):
+            svc.decompose(
+                requirement_id=REQ_ID,
+                ctx=ctx,
+                children=[{"title": "Child", "description": "desc"}],
+            )
+
+    def test_decompose_survives_a_failed_decomposes_link(self):
+        """The 'decomposes' half stays best-effort and only warns.
+
+        Since #395 the auditor reads the hierarchy off the 'derives-from'
+        edge as well, so a missing 'decomposes' link degrades the graph
+        without breaking its classification.
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+
+        def _fail_on_decomposes(**kwargs):
+            if kwargs["link_type"] == LinkType.DECOMPOSES.value:
+                raise RuntimeError("boom")
+            return MagicMock(id=uuid.uuid4())
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch.object(
+                svc._trace_link_service,
+                "create_trace_link",
+                side_effect=_fail_on_decomposes,
+            ) as mock_create_trace_link,
+        ):
+            result = svc.decompose(
+                requirement_id=REQ_ID,
+                ctx=ctx,
+                children=[{"title": "Child", "description": "desc"}],
+            )
+
+        assert len(result.children) == 1
+        # Both were attempted; only the back-link produced an id.
+        link_types = [
+            call.kwargs["link_type"] for call in mock_create_trace_link.call_args_list
+        ]
+        assert link_types == [
+            LinkType.DECOMPOSES.value,
+            LinkType.DERIVES_FROM.value,
+        ]
+        assert len(result.trace_link_ids) == 1
 
     def test_decompose_ignores_workspace_decomposition_link_type(self):
         """decompose creates LinkType.DECOMPOSES even if the workspace is configured
@@ -799,7 +914,10 @@ class TestDecompose:
                 children=[{"title": "Child", "description": "desc"}],
             )
 
-        assert mock_create_trace_link.call_args.kwargs["link_type"] == LinkType.DECOMPOSES.value
+        assert (
+            mock_create_trace_link.call_args_list[0].kwargs["link_type"]
+            == LinkType.DECOMPOSES.value
+        )
 
     def test_decompose_llm_not_configured_raises(self):
         """_decompose_via_llm raises LlmNotConfiguredError when LLM absent."""
@@ -893,8 +1011,16 @@ class TestDecompose:
                     )
                 ),
             ),
+            # Stubbed out because this test is about the allocation
+            # (REQ-L1-043), not about the hierarchy links. It used to raise
+            # Exception("no-op") as a shortcut, which only worked while
+            # decompose() swallowed every TraceLink error; the reciprocal
+            # 'derives-from' now propagates by design (issue #395 review F2),
+            # so the stub has to be an actual no-op.
             patch.object(
-                svc._trace_link_service, "create_trace_link", side_effect=Exception("no-op")
+                svc._trace_link_service,
+                "create_trace_link",
+                return_value=MagicMock(id=uuid.uuid4()),
             ),
             patch.object(
                 svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
