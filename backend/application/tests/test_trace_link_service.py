@@ -718,6 +718,15 @@ class TestResolveArtifactId:
                 "persistence.models.StakeholderNeed.objects.filter",
                 return_value=MagicMock(first=MagicMock(return_value=None)),
             ),
+            # fix #407: Risk/Issue joined the resolution chain.
+            patch(
+                "application.models.Risk.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Issue.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
         ):
             with pytest.raises(NotFoundError, match="Entity"):
                 svc._resolve_artifact_id(unknown_id)

@@ -13,3 +13,20 @@
   color: var(--color-text-muted);
   cursor: pointer;
 }
+
+/*
+ * #412: preset-driven "required" marker / hint for a field that has no
+ * dedicated <AttributeVisibilityConfig> row (e.g. acceptance_criteria),
+ * kept as classes (not inline style={{ ) to stay under the UI-concept
+ * inline-style ratchet (src/test/ui-ratchet.test.ts).
+ */
+.requiredMarker {
+  color: var(--color-danger);
+}
+
+.fieldHint {
+  margin-top: calc(-1 * var(--space-3));
+  margin-bottom: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

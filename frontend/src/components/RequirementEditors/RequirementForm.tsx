@@ -40,6 +40,7 @@ import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from './MarkdownPreview';
 import { VersionBadge } from '../shared/VersionBadge';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
+import styles from './RequirementEditors.module.css';
 
 /**
  * #344: the save error banner lives directly under the header action row, i.e.
@@ -92,10 +93,23 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const { isFieldVisible, isFieldRequired } = useEntityType();
   const { activeWorkspace } = useWorkspace();
   const isExtendedPreset = activeWorkspace?.preset === 'extended';
+  // #412: `acceptance_criteria` is part of `mandatory_fields` for BOTH the
+  // 'standard' and 'extended' presets (backend/presets/registry.py), and is
+  // enforced server-side by workflow.precondition_rules.check_mandatory_fields
+  // on the approval transition (draft->approved for standard, in_review->approved
+  // for extended — see precondition_rules.py module docstring). Unlike
+  // change_reason (extended-only), gating this field's visibility on
+  // isExtendedPreset alone would still leave 'standard' workspace users
+  // stuck with an un-fixable approval-transition error.
+  const isAcceptanceCriteriaRequiredPreset =
+    activeWorkspace?.preset === 'standard' || isExtendedPreset;
 
   // Form state
   const [title, setTitle] = useState(requirement.title);
   const [description, setDescription] = useState(requirement.description);
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState(
+    requirement.acceptance_criteria || ''
+  );
   const [category, setCategory] = useState(requirement.category);
   // REQ-143/REQ-161: the lifecycle state is owned by the WorkflowEngine and is
   // now edited through the shared <WorkflowStatusEditor/>, which fetches the
@@ -130,6 +144,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   useEffect(() => {
     setTitle(requirement.title);
     setDescription(requirement.description);
+    setAcceptanceCriteria(requirement.acceptance_criteria || '');
     setCategory(requirement.category);
     setChangeReason(requirement.change_reason || '');
     setType(requirement.type || 'SyReq');
@@ -167,6 +182,16 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       return t('req.changeReasonRequired');
     }
 
+    // #412: unlike change_reason, acceptance_criteria is NOT enforced on
+    // every write — it is only checked by
+    // workflow.precondition_rules.check_mandatory_fields at the
+    // approval-transition (draft->approved for 'standard', in_review->approved
+    // for 'extended'). Blocking every Save here would forbid legitimate
+    // incomplete drafts, so this form deliberately does not hard-block Save;
+    // it only renders the field (see isAcceptanceCriteriaRequiredPreset
+    // below) so users have a way to fill it in before attempting approval —
+    // the actual gate error still surfaces from the transition endpoint.
+
     // Type-specific validations
     if (type === 'SyReq') {
       if (isFieldVisible('verification_method') && isFieldRequired('verification_method') && !verificationMethod) {
@@ -194,6 +219,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       const updateData: Record<string, unknown> = {
         title,
         description,
+        acceptance_criteria: acceptanceCriteria,
         category,
         type,
       };
@@ -233,6 +259,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     requirement.id,
     title,
     description,
+    acceptanceCriteria,
     category,
     changeReason,
     type,
@@ -399,6 +426,36 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             {t('editor.description')}
           </label>
           <MarkdownPreview value={description} onChange={setDescription} />
+
+          {/* #412: acceptance_criteria has a persistence.models field and is
+              part of `mandatory_fields` for the 'standard'/'extended' presets
+              (backend/presets/registry.py), enforced at the approval
+              transition (workflow/precondition_rules.py). It previously had
+              no editor field at all, so a user hitting that gate had no way
+              to satisfy it. Rendered unconditionally (like `description`
+              above) so a 'minimal' workspace upgrading its preset later does
+              not lose any criteria a user already entered; the asterisk only
+              signals the preset-driven requirement. */}
+          <label htmlFor="req-acceptance-criteria" style={labelStyle}>
+            {t('editor.acceptanceCriteria')}{' '}
+            {isAcceptanceCriteriaRequiredPreset && (
+              <span className={styles.requiredMarker}>*</span>
+            )}
+          </label>
+          <textarea
+            id="req-acceptance-criteria"
+            data-testid="req-acceptance-criteria"
+            value={acceptanceCriteria}
+            onChange={(e) => setAcceptanceCriteria(e.target.value)}
+            rows={4}
+            style={inputStyle}
+            placeholder={t('editor.acceptanceCriteriaPlaceholder')}
+          />
+          {isAcceptanceCriteriaRequiredPreset && !acceptanceCriteria.trim() && (
+            <p data-testid="req-acceptance-criteria-hint" className={styles.fieldHint}>
+              {t('req.acceptanceCriteriaRequired')}
+            </p>
+          )}
         </div>
 
         {/* SECTION: Classification & Properties */}

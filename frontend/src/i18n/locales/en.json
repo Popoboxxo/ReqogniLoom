@@ -191,6 +191,8 @@
   "editor": {
     "title": "Title",
     "description": "Description",
+    "acceptanceCriteria": "Acceptance Criteria",
+    "acceptanceCriteriaPlaceholder": "When is this requirement considered fulfilled?",
     "category": "Category",
     "categoryPlaceholder": "Select category",
     "workflowState": "Workflow State",
@@ -644,7 +646,8 @@
   "req": {
     "changeReason": "Change Reason",
     "changeReasonPlaceholder": "Why is this requirement being changed?",
-    "changeReasonRequired": "Change reason is required."
+    "changeReasonRequired": "Change reason is required.",
+    "acceptanceCriteriaRequired": "Acceptance criteria are required for this rigor preset."
   },
   "reqType": {
     "StReq": "Stakeholder Requirement (StReq)",
