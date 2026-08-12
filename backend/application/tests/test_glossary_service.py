@@ -310,6 +310,54 @@ class TestGlossaryServiceCreateDeleteWorkflowIntegration:
         finally:
             TenantContext.clear_tenant()
 
+    def test_get_reflects_outdated_status_after_delete(
+        self, glossary_real_ctx, glossary_workspace
+    ):
+        """Issue #440: get() must reflect the workflow-tracked 'outdated'
+        state after delete() — previously the detail view kept reporting
+        lifecycle_status='active' forever (the model column is never written
+        by outdate() for GlossaryTerm), so a soft-deleted term stayed fully
+        visible (200, status 'active') via GET even though it had already
+        disappeared from the list.
+        """
+        from persistence.tenancy import TenantContext
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(glossary_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=glossary_workspace.id,
+                preset="glossary_term_default",
+                item_type="GlossaryTerm",
+                tenant_id=glossary_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        TenantContext.set_tenant(glossary_workspace.tenant_id)
+        try:
+            svc = GlossaryService()
+            term = svc.create(
+                ctx=glossary_real_ctx,
+                workspace_id=glossary_workspace.id,
+                term="Requirement",
+                definition="A stated need.",
+            )
+
+            # Before delete: detail GET reports 'active'.
+            before = svc.get(glossary_real_ctx, term.id)
+            assert before.lifecycle_status == "active"
+
+            svc.delete(glossary_real_ctx, term.id)
+
+            # After delete: still retrievable (no 404), but status must be
+            # 'outdated' — consistent with TestCase/Issue/ADR/Risk/Need,
+            # which report status='outdated' via their mirrored column.
+            after = svc.get(glossary_real_ctx, term.id)
+            assert after.lifecycle_status == "outdated"
+        finally:
+            TenantContext.clear_tenant()
+
     def test_deleted_term_excluded_from_default_list(
         self, glossary_real_ctx, glossary_workspace
     ):

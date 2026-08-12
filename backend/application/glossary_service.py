@@ -47,10 +47,31 @@ class GlossaryService(ServiceBase):
     """Handles CRUD and versioning for GlossaryTerm."""
 
     def get(self, ctx: AuthContext, term_id: UUID) -> GlossaryTermDTO:
+        """Fetch a single GlossaryTerm (detail view).
+
+        Issue #440: GlossaryTerm has no mirrored ``status`` column (it is
+        NOT wired into ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``,
+        see ``list_by_workspace``), so ``delete()`` (which routes through
+        ``workflow.services.outdate()``) never touches the model's
+        ``lifecycle_status`` field — it stays ``"active"`` forever. Without
+        this check, a soft-deleted term was still returned with
+        ``lifecycle_status="active"`` via GET, even though it had already
+        disappeared from the (WorkflowItemState-filtered) list. Overlay the
+        real workflow state onto the DTO here so the detail view is
+        consistent with the list view and with the other soft-deletable
+        entities (TestCase, Issue, ADR, Risk, StakeholderNeed), which report
+        ``status="outdated"`` on GET after delete via their mirrored column.
+        """
         term = GlossaryTerm.objects.filter(id=term_id).first()
         if not term:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
-        return GlossaryTermDTO.from_orm(term)
+        dto = GlossaryTermDTO.from_orm(term)
+
+        from workflow.services import outdated_item_ids
+
+        if term.id in outdated_item_ids("GlossaryTerm"):
+            dto.lifecycle_status = "outdated"
+        return dto
 
     def list_by_workspace(
         self, ctx: AuthContext, workspace_id: UUID, include_deleted: bool = False

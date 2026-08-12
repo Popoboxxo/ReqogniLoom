@@ -236,6 +236,71 @@ class TestEntityLists:
         assert set(entry) == {"id", "title", "status", "level"}
 
 
+class TestEntityListsJsonSerializable:
+    """Issue #441: ``entity_lists()`` feeds ``workspace.get_context`` at
+    ``depth in ("normal", "full")``, which is JSON-encoded verbatim by the
+    MCP HTTP transport. ``.values("id", ...)`` returns raw ``UUID`` objects,
+    which ``json.dumps`` cannot encode without a custom default — the
+    resulting ``TypeError`` crashed the endpoint with an HTTP 500 for those
+    two depths (``depth="summary"`` never calls ``entity_lists()`` and was
+    unaffected). Every id-shaped field in the response must be a plain
+    ``str``.
+    """
+
+    def test_requirement_id_is_a_string(self, workspace_with_requirements):
+        tenant, workspace, _ctx, _doomed = workspace_with_requirements
+
+        lists = workspace_context_service.entity_lists(
+            workspace_id=workspace.id, tenant_id=tenant.id, include_outdated=False
+        )
+
+        entry = lists["requirements_list"][0]
+        assert isinstance(entry["id"], str)
+
+    def test_architecture_id_is_a_string(self, workspace_ctx):
+        from application.architecture_service import ArchitectureService
+
+        tenant, workspace, ctx = workspace_ctx
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="ArchitectureElement",
+                tenant_id=tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        ArchitectureService().create_architecture_element(
+            workspace_id=workspace.id,
+            title="Some Element",
+            element_type="component",
+            ctx=ctx,
+        )
+
+        lists = workspace_context_service.entity_lists(
+            workspace_id=workspace.id, tenant_id=tenant.id, include_outdated=False
+        )
+
+        assert len(lists["architecture_list"]) == 1
+        entry = lists["architecture_list"][0]
+        assert isinstance(entry["id"], str)
+
+    def test_full_payload_is_json_dumpable(self, workspace_with_requirements):
+        """Direct regression for the reported TypeError."""
+        import json
+
+        tenant, workspace, _ctx, _doomed = workspace_with_requirements
+
+        lists = workspace_context_service.entity_lists(
+            workspace_id=workspace.id, tenant_id=tenant.id, include_outdated=True
+        )
+
+        # Must not raise TypeError: Object of type UUID is not JSON serializable
+        json.dumps(lists)
+
+
 class TestRecentChanges:
     def test_empty_workspace_returns_empty_list(self, workspace_ctx):
         tenant, workspace, _ctx = workspace_ctx
