@@ -122,7 +122,13 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
         dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(skills_src / skill_name / "SKILL.md", dst / "SKILL.md")
 
-    (out_dir / "marketplace.json").write_text(
+    # marketplace.json must live in .claude-plugin/ at the marketplace root
+    # (out_dir), not directly in out_dir, because `claude plugin marketplace
+    # add <out_dir>` looks for it at <out_dir>/.claude-plugin/marketplace.json
+    # (see docs/agent-templates/INSTALL.md).
+    marketplace_meta_dir = out_dir / ".claude-plugin"
+    marketplace_meta_dir.mkdir(parents=True, exist_ok=True)
+    (marketplace_meta_dir / "marketplace.json").write_text(
         json.dumps(
             {
                 "name": f"{SERVER_NAME}-marketplace",

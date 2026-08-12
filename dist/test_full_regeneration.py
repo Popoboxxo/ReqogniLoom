@@ -71,8 +71,9 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
         REPO_ROOT / "dist" / "plugins" / "claude-code" / "reqogniloom",
         "dist/plugins/claude-code/build_claude_plugin.py",
     )
-    assert (claude_out / "marketplace.json").read_text() == (
-        REPO_ROOT / "dist" / "plugins" / "claude-code" / "marketplace.json"
+    assert (claude_out / ".claude-plugin" / "marketplace.json").read_text() == (
+        REPO_ROOT / "dist" / "plugins" / "claude-code" / ".claude-plugin"
+        / "marketplace.json"
     ).read_text(), (
         "dist/plugins/claude-code/marketplace.json is stale — re-run "
         "dist/plugins/claude-code/build_claude_plugin.py and commit the result."

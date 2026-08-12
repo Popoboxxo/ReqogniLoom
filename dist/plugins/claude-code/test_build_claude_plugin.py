@@ -42,7 +42,14 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     assert "mcp__reqogniloom__change_request.create" in change_manager_md
     assert "mcp__reqogniloom__review.approve" in change_manager_md
 
-    marketplace = json.loads((tmp_path / "marketplace.json").read_text())
+    # marketplace.json must live under .claude-plugin/ at the marketplace
+    # root so `claude plugin marketplace add <out_dir>` finds it.
+    assert not (tmp_path / "marketplace.json").exists(), (
+        "marketplace.json must not be written directly into out_dir root"
+    )
+    marketplace = json.loads(
+        (tmp_path / ".claude-plugin" / "marketplace.json").read_text()
+    )
     assert marketplace["plugins"][0]["name"] == "reqogniloom"
     assert marketplace["plugins"][0]["source"] == "./reqogniloom"
 
