@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0-beta.3] — 2026-08-13
+
+### Security
+- Fixed cross-tenant baseline data leak (ADR-03 Row-Level-Security isolation) (#464)
+- Fixed cross-tenant ICD read/mutate leak in architecture element access control (#466)
+- Enforce admin role validation on AttributeVisibilityConfigService CRUD operations (#470)
+- Fixed authentication error handling: missing credentials now return 401 instead of 403 (#476)
+
+### Breaking Changes
+- TestCase status field now lowercase to match other entity naming conventions (#481)
+- Deleted requirements are now readable via standard entity endpoints, reversing previous silent-remove behavior (#482)
+
+### Added
+- Requirement Bundle Export UI panel for streaming/downloading compressed artifact bundles (#463)
+- Hermes IDE Plugin Connector MVP: lean connector with workspace selection, requirements list/detail, and auth flow (#507)
+- Volatility metric now resolves requirement titles for improved reporting (#480)
+
+### Fixed
+- **SE Methodology & Data Integrity:** Multiple audit-driven fixes from security bughunt campaign
+  - Prevent silent SE field loss on PATCH/MCP requirement operations (#486)
+  - SE-metrics dashboard no longer reports false-safe zeros for uninitialized metrics (#487)
+  - Make Risk/Issue trace-linkable and add acceptance_criteria field support (#488)
+  - Correct trace-hierarchy classification for derives-from links (#489)
+  - SE-auditor gate now fail-closed; reject baselines with unverified BLOCKER findings (#490)
+  - Enforce human review gate for extended-tier workspace baselines (#491)
+  - Correct trace-link type documentation to match 15-type enum (#493)
+  - Display requirement level (V-model L0–L4) in UI artifact headers (#494)
+- **MCP & API Transport:** Enable SSE transport via ASGI; REST API bundle/schema consistency aligned (#485, #477, #462)
+- **Plugin Marketplace:** Write Claude Code plugin marketplace.json to correct path (#492)
+- **Permission & Auth:** Workspace-scope admin checks for permissions.revoke and events.dlq_* operations (#467); enforce REQ-106 token budget and audit trail for 3 LLM copilot flows (#471)
+- **UI State Management:** RequirementForm now resyncs state on requirement selection change (#472, #473); CustomFieldsEditor no longer updates parent state during render (#475); dashboard controls no longer stuck disabled on unbounded requests (#479)
+- **Other Fixes:** Glossary soft-delete visibility and MCP get_context UUID crash (#474); ArchitectureElement update conflict handling (#469); TransitionValidator cache invalidation on workflow edits (#465); bundle compression no longer misreports mock output (#478); ICD/PDF-export E2E regressions fixed (#503); stale plugin distributions regenerated (#502); Hermes plugin auth error handling (#507)
+
+### Known Issues
+- None new in this release
+- Resolved from beta.2: #455 (SSE transport 500, fixed via #485), #456 (plugin marketplace.json path, fixed via #492)
+
 ## [1.6.0-beta.2] — 2026-08-09
 
 ### Added
