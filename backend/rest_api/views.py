@@ -126,6 +126,7 @@ from rest_api.serializers import (
     ChangeRequestSerializer,
     build_error_response,
     detect_lang,
+    extract_preset_tier,
 )
 
 # GH-443: every soft-deleting ``destroy()`` below repeats the same paragraph
@@ -4013,6 +4014,11 @@ class WorkspaceViewSet(BaseEntityViewSet):
         """POST /api/v1/workspaces/ — create a new workspace + preset config.
 
         Body: {name, preset?, terminology_profile?, language?}
+        ``preset`` accepts either a bare tier string (``"standard"``) or an
+        object carrying it (``{"tier": "standard"}``) — GH-411: the GET
+        response always returns the resolved object shape
+        (``normalize_preset_blob``), so a client that round-trips it back on
+        write must not be rejected.
         Returns: 201 Created with the serialized Workspace.
         """
         lang = detect_lang(request)
@@ -4024,7 +4030,19 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        preset = request.data.get("preset", "standard")
+        preset = extract_preset_tier(request.data.get("preset", "standard"))
+        if preset is None:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        "preset must be a tier string (e.g. 'standard') or "
+                        "an object carrying one (e.g. {'tier': 'standard'})."
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         terminology_profile = request.data.get("terminology_profile", "se_mode")
         language = request.data.get("language", "de")
         try:
@@ -4032,7 +4050,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             item = self._svc().create_workspace(
                 ctx=ctx,
                 name=str(name),
-                preset=str(preset),
+                preset=preset,
                 terminology_profile=str(terminology_profile),
                 language=str(language),
             )
@@ -4129,14 +4147,28 @@ class WorkspaceViewSet(BaseEntityViewSet):
     def set_preset(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """PATCH /api/v1/workspaces/{pk}/preset/ — switch active preset tier.
 
-        Body: {preset: "minimal" | "standard" | "extended"}
+        Body: {preset: "minimal" | "standard" | "extended"} — GH-411: also
+        accepts the resolved object shape ``{"tier": "minimal"}`` the GET
+        response returns, not just the bare string.
         REQ-L2-RF-007 / REQ-L2-RF-012: Preset switch from Workspace Settings UI.
         """
         lang = detect_lang(request)
-        target_tier = request.data.get("preset")
+        target_tier = extract_preset_tier(request.data.get("preset"))
+        if target_tier is None:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        "preset must be a tier string (e.g. 'standard') or "
+                        "an object carrying one (e.g. {'tier': 'standard'})."
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
-            self._svc().switch_preset_tier(ctx, UUID(pk), str(target_tier))
+            self._svc().switch_preset_tier(ctx, UUID(pk), target_tier)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -5706,6 +5738,7 @@ class TestRunViewSet(BaseEntityViewSet):
       GET    /api/v1/test-runs/{id}/
       PATCH  /api/v1/test-runs/{id}/
       POST   /api/v1/test-runs/{id}/close/
+      POST   /api/v1/test-runs/{id}/complete/             (GH-403, alias of close/)
       GET    /api/v1/test-runs/{id}/results/             (A.6, REQ-L1-035)
       POST   /api/v1/test-runs/{id}/results/
       POST   /api/v1/test-runs/{id}/results/bulk/
@@ -5807,6 +5840,25 @@ class TestRunViewSet(BaseEntityViewSet):
     @action(detail=True, methods=["post"])
     def close(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/test-runs/{id}/close/ — close test run, recalc aggregate."""
+        return self._close_or_complete(request, pk)
+
+    @action(detail=True, methods=["post"])
+    def complete(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/test-runs/{id}/complete/ — alias for ``close`` (GH-403).
+
+        The 4-phase lifecycle documented for TestRuns (``created ->
+        in_progress -> completed/failed -> archived``) has no ``completed``/
+        ``archived`` status on the model itself (``TestRun.status`` choices
+        are ``in_progress/passed/failed/partial/closed`` — see
+        ``TestRunService._compute_aggregate_status``); ``close`` already
+        performs the described "finalize the run" transition. This route
+        exists so callers reaching for the advertised lifecycle verb
+        (``/complete/``) do not 404 — it delegates to the exact same
+        ``close_test_run`` call as ``/close/``, no separate logic to drift.
+        """
+        return self._close_or_complete(request, pk)
+
+    def _close_or_complete(self, request: Request, pk: str) -> Response:
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)

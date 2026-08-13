@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.6.0-beta.2",
-  "tool_count": 146,
+  "tool_count": 147,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -3624,6 +3624,24 @@
         "required": [
           "run_id",
           "results"
+        ]
+      }
+    },
+    {
+      "name": "test.run_complete",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Finalize a TestRun (write, audited): recomputes the aggregate status from its recorded results (passed if all results passed, failed if any failed, partial if any is blocked/not_run, closed if it has no results at all) and sets finished_at. GH-403: closes the gap where the advertised created -> in_progress -> completed/failed lifecycle had no MCP tool to leave in_progress.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "UUID of the test run."
+          }
+        },
+        "required": [
+          "run_id"
         ]
       }
     },

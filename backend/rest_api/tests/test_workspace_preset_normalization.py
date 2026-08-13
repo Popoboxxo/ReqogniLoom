@@ -25,7 +25,11 @@ from rest_framework.test import APIRequestFactory
 
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
-from rest_api.serializers import WorkspaceSerializer, normalize_preset_blob
+from rest_api.serializers import (
+    WorkspaceSerializer,
+    extract_preset_tier,
+    normalize_preset_blob,
+)
 from rest_api.views import WorkspaceViewSet
 
 pytestmark = pytest.mark.django_db
@@ -199,3 +203,127 @@ def test_list_normalises_every_row():
     for row in results:
         if row["preset"]:
             assert "tier" in row["preset"] and "name" in row["preset"]
+
+
+# ---------------------------------------------------------------------------
+# GH-411: the write side must accept both shapes — a bare tier string and
+# the resolved object shape (``{"tier": ...}``) the GET response returns.
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPresetTier:
+    """extract_preset_tier() — the shared write-side parsing helper."""
+
+    def test_bare_string_passes_through(self):
+        assert extract_preset_tier("standard") == "standard"
+
+    def test_object_with_tier_key(self):
+        assert extract_preset_tier({"tier": "standard"}) == "standard"
+
+    def test_object_with_name_key_only(self):
+        assert extract_preset_tier({"name": "extended"}) == "extended"
+
+    def test_object_with_both_keys_prefers_tier(self):
+        assert extract_preset_tier({"tier": "extended", "name": "standard"}) == "extended"
+
+    def test_object_without_usable_key_returns_none(self):
+        assert extract_preset_tier({"foo": "bar"}) is None
+
+    def test_non_string_non_dict_returns_none(self):
+        assert extract_preset_tier(["standard"]) is None
+        assert extract_preset_tier(42) is None
+        assert extract_preset_tier(None) is None
+
+
+def _create_workspace(preset, *, name="New WS"):
+    """POST /api/v1/workspaces/ against a real Tenant + User (create_workspace
+    looks the tenant up by id — a bare random UUID 404s — and audits the
+    call with ``assigned_by``/actor pointing at a real ``pl_user`` row)."""
+    from auth_tenancy.context import AuthContext, AuthMethod
+    from persistence.models import User
+    from persistence.tenancy import TenantContext
+
+    tenant = Tenant.objects.create(name=f"gh411-tenant-{uuid.uuid4().hex[:8]}")
+    TenantContext.set_tenant(tenant.id)
+    try:
+        user = User.objects.create(
+            tenant=tenant,
+            username=f"gh411-{uuid.uuid4().hex[:8]}",
+            email="gh411@example.com",
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    req = APIRequestFactory().post(
+        "/api/v1/workspaces/",
+        data={"name": name, "preset": preset},
+        format="json",
+    )
+    req.auth_context = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+    return WorkspaceViewSet.as_view({"post": "create"})(req)
+
+
+class TestCreateWorkspaceAcceptsBothPresetShapes:
+    """POST /api/v1/workspaces/ — GH-411."""
+
+    def test_bare_tier_string_still_accepted(self):
+        response = _create_workspace("standard")
+        assert response.status_code == 201, response.data
+        assert response.data["preset"]["tier"] == "standard"
+
+    def test_object_with_tier_key_accepted(self):
+        """This exact payload used to 400 with 'Invalid preset {'tier':
+        'standard'}' before GH-411 — the str() of a Python dict, not a real
+        validation message."""
+        response = _create_workspace({"tier": "standard"})
+        assert response.status_code == 201, response.data
+        assert response.data["preset"]["tier"] == "standard"
+
+    def test_unusable_preset_object_returns_clear_400(self):
+        response = _create_workspace({"foo": "bar"})
+        assert response.status_code == 400
+        assert "preset" in str(response.data).lower()
+
+    def test_invalid_tier_value_still_rejected_with_clear_message(self):
+        """A syntactically valid string that names no real tier is still
+        rejected — just no longer as an unreadable str(dict)."""
+        response = _create_workspace("bogus-tier")
+        assert response.status_code == 400
+        assert "bogus-tier" in str(response.data)
+
+
+class TestSetPresetActionAcceptsBothShapes:
+    """PATCH /api/v1/workspaces/{pk}/preset/ — GH-411."""
+
+    def _set_preset(self, workspace, tenant, preset):
+        req = APIRequestFactory().patch(
+            f"/api/v1/workspaces/{workspace.id}/preset/",
+            data={"preset": preset},
+            format="json",
+        )
+        req.auth_context = _make_auth_context(tenant_id=tenant.id)
+        return WorkspaceViewSet.as_view({"patch": "set_preset"})(
+            req, pk=str(workspace.id)
+        )
+
+    def test_bare_tier_string_still_accepted(self):
+        tenant, workspace = _legacy_workspace()
+        response = self._set_preset(workspace, tenant, "minimal")
+        assert response.status_code == 200, response.data
+        assert response.data["preset"] == "minimal"
+
+    def test_object_with_tier_key_accepted(self):
+        tenant, workspace = _legacy_workspace()
+        response = self._set_preset(workspace, tenant, {"tier": "minimal"})
+        assert response.status_code == 200, response.data
+        assert response.data["preset"] == "minimal"
+
+    def test_unusable_preset_object_returns_clear_400(self):
+        tenant, workspace = _legacy_workspace()
+        response = self._set_preset(workspace, tenant, {"foo": "bar"})
+        assert response.status_code == 400
