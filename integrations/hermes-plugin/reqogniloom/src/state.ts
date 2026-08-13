@@ -107,7 +107,14 @@ export async function connectWithCredentials(baseUrl: string, apiKey: string): P
 
 export async function chooseWorkspace(workspace: Workspace): Promise<void> {
   if (!state.pendingCredentials) return;
-  await finalizeConnection({ ...state.pendingCredentials, workspaceId: workspace.id }, workspace.name);
+  try {
+    await finalizeConnection({ ...state.pendingCredentials, workspaceId: workspace.id }, workspace.name);
+  } catch (err) {
+    setState({
+      connecting: false,
+      connectError: err instanceof ReqogniLoomApiError ? err.message : "Connection failed.",
+    });
+  }
 }
 
 async function finalizeConnection(connection: Connection, workspaceName: string): Promise<void> {

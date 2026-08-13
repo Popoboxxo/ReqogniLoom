@@ -32,7 +32,7 @@ export function ConnectScreen({ state }: { state: AppState }) {
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         <p style={{ color: "var(--text-2)", fontSize: "var(--text-xs)" }}>Choose a workspace:</p>
         {state.pendingWorkspaces.map((w) => (
-          <button key={w.id} style={{ ...buttonStyle, textAlign: "left" }} onClick={() => chooseWorkspace(w)}>
+          <button key={w.id} style={{ ...buttonStyle, textAlign: "left" }} onClick={() => void chooseWorkspace(w)}>
             {w.name}
           </button>
         ))}

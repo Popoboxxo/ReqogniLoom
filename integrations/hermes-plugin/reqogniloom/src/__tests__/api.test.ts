@@ -124,4 +124,28 @@ describe("listWorkspaces", () => {
       status: 401,
     });
   });
+
+  it("propagates the top-level message from a FLAT auth-failure error body (invalid API key)", async () => {
+    // AuthTenancyAuthentication (backend/auth_tenancy/errors.py::build_error_body)
+    // returns a body where "error" is a plain string code, not a nested object,
+    // and the exception handler's "already normalised" bypass lets it through
+    // unchanged: {"error": "<code>", "message": "...", "doc_url": "..."}.
+    const errorBody = JSON.stringify({
+      error: "invalid_api_key",
+      message: "Invalid or expired API key.",
+      doc_url: "https://docs.reqogniloom.dev/errors/invalid_api_key",
+    });
+    const fakeResponse = {
+      status: 401,
+      text: async () => errorBody,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse);
+
+    await expect(
+      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_bad" })
+    ).rejects.toMatchObject({
+      message: "Invalid or expired API key.",
+      status: 401,
+    });
+  });
 });

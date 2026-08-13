@@ -20,12 +20,37 @@ interface WorkspaceListResponse {
   results: Workspace[];
 }
 
-export interface ErrorEnvelope {
+// Most backend errors go through rest_api/error_envelope.py and arrive nested:
+// {"error": {"code", "message", "details"}}. Auth failures are the one common
+// exception: AuthTenancyAuthentication builds its body via
+// auth_tenancy/errors.py::build_error_body(), where "error" is already a plain
+// string (the error code) rather than an object — and the exception handler's
+// "already normalised" bypass (`if isinstance(data, dict) and "error" in data`)
+// lets that flat shape through unchanged. So a bad/expired API key arrives as
+// {"error": "invalid_api_key", "message": "...", "doc_url": "..."}. Both
+// shapes must be handled when extracting a human-readable message.
+export interface NestedErrorEnvelope {
   error: {
     code: string;
     message: string;
     details: { field: string; errors: string[] }[];
   };
+}
+
+export interface FlatErrorEnvelope {
+  error: string;
+  message: string;
+  doc_url?: string;
+}
+
+export type ErrorEnvelope = NestedErrorEnvelope | FlatErrorEnvelope;
+
+function isNestedErrorEnvelope(envelope: ErrorEnvelope): envelope is NestedErrorEnvelope {
+  return typeof envelope.error === "object" && envelope.error !== null;
+}
+
+function extractErrorMessage(envelope: ErrorEnvelope): string {
+  return isNestedErrorEnvelope(envelope) ? envelope.error.message : envelope.message;
 }
 
 export class ReqogniLoomApiError extends Error {
@@ -96,7 +121,7 @@ async function reqloFetch(
       body && typeof body === "object" && "error" in (body as Record<string, unknown>)
         ? (body as ErrorEnvelope)
         : null;
-    throw new ReqogniLoomApiError(status, envelope, envelope?.error.message ?? `HTTP ${status}`);
+    throw new ReqogniLoomApiError(status, envelope, envelope ? extractErrorMessage(envelope) : `HTTP ${status}`);
   }
   return body;
 }

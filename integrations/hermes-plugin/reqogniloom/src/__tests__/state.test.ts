@@ -186,6 +186,25 @@ describe("chooseWorkspace", () => {
     expect(state.pendingWorkspaces).toEqual([]);
     expect(state.pendingCredentials).toBeNull();
   });
+
+  it("sets connectError instead of an unhandled rejection when finalizing fails", async () => {
+    const api = createMockApi();
+    await initState(api);
+    listWorkspacesMock.mockResolvedValue([workspaceA, workspaceB]);
+    await connectWithCredentials("https://example.com", "reqlo_abc");
+    expect(getState().view).toBe("connect");
+
+    vi.mocked(api.storage.set).mockRejectedValueOnce(new ReqogniLoomApiError(500, null, "Storage write failed"));
+
+    await expect(chooseWorkspace(workspaceB)).resolves.not.toThrow();
+
+    const state = getState();
+    expect(state.view).toBe("connect");
+    expect(state.connectError).toBe("Storage write failed");
+    expect(state.connecting).toBe(false);
+    // still stuck picking, but now with visible feedback instead of silence
+    expect(state.pendingWorkspaces).toEqual([workspaceA, workspaceB]);
+  });
 });
 
 describe("disconnect", () => {
