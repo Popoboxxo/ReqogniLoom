@@ -82,7 +82,13 @@ export function IcdList({ items, selectedId, onSelect, onCreateNew }: IcdListPro
       {items.length === 0 ? (
         <EmptyState
           variant="empty"
-          testId="icd-list-empty"
+          // Pairs with the populated container's `icds-list` below. Both names
+          // are the ICD view's public E2E contract (icd-ui.spec.ts,
+          // waterkettle-fullblown.spec.ts); the EmptyState refactor (#323)
+          // renamed only this half to "icd-list-empty", which left every
+          // "list or empty placeholder is on the page" assertion failing on an
+          // empty workspace.
+          testId="icds-empty"
           title={t("icds.emptyTitle", "No ICDs yet")}
           description={t(
             "icds.emptyDescription",

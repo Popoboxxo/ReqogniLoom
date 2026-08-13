@@ -138,7 +138,22 @@ export function DeriveRequirementForm({
         </p>
       )}
 
-      <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+      {/* `flexWrap` is what keeps this row inside the form when the column is
+          narrow. Without it the row is `nowrap` + `justify-content: flex-end`,
+          so once the buttons no longer fit they overflow past the *start*
+          edge, land outside the form's box and are covered by whatever sits
+          to the left of it (on the requirement route: the SplitView divider),
+          making the submit button unclickable. Same reasoning as the actions
+          group in PageHeader.tsx (issue #314). */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 'var(--space-2)',
+          justifyContent: 'flex-end',
+          minWidth: 0,
+        }}
+      >
         <button type="button" className="btn-ghost" onClick={onCancel} disabled={isSubmitting}>
           {t('actions.cancel')}
         </button>

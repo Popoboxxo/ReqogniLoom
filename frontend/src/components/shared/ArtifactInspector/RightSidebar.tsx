@@ -60,6 +60,12 @@ const DEFAULT_WIDTH_PX = 360;
 const MIN_WIDTH_PX = 280;
 const MAX_WIDTH_PX = 520;
 const COLLAPSED_WIDTH_PX = 40;
+/**
+ * Upper bound on the share of the surrounding detail pane the expanded
+ * inspector may occupy (see `asideStyle`). Keeps the editor column itself
+ * usable on narrow viewports, where the pane is only about half the window.
+ */
+const MAX_WIDTH_SHARE_PERCENT = 45;
 
 const COLLAPSE_KEY = (kind: ArtifactKind): string => `reqflow_inspector_collapsed_${kind}`;
 const PIN_KEY = (kind: ArtifactKind): string => `reqflow_inspector_pinned_${kind}`;
@@ -220,6 +226,21 @@ export function RightSidebar({
   const asideStyle: CSSProperties = {
     width: `${effectiveWidth}px`,
     flex: `0 0 ${effectiveWidth}px`,
+    // The inspector is nested *inside* the detail pane of a SplitView, so the
+    // width it may claim is not the viewport's but whatever the split leaves
+    // over — roughly half of it. `flex: 0 0 <w>px` alone is rigid: on a 1280px
+    // viewport the 360px default ate the entire ~440px detail pane and left
+    // the editor column ~69px wide, at which point the forms inside it
+    // overflow their container to the left (they are `justify-content:
+    // flex-end`) and end up underneath the SplitView divider, which then
+    // swallows every click on them.
+    //
+    // Clamping to a share of the *available* width caps the sidebar without
+    // touching the user's stored preference: the flex base size is clamped by
+    // max-width, so the used width is min(storedWidth, 45% of the pane). Wide
+    // viewports leave the pane well above 800px and therefore keep the full
+    // preferred width — nothing changes there.
+    maxWidth: collapsed ? undefined : `${MAX_WIDTH_SHARE_PERCENT}%`,
   };
 
   // -------------------------------------------------------------------------
