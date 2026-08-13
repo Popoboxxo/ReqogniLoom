@@ -95,8 +95,11 @@ class CoverageCalculator:
                   ran; now that the cascade is gone (TraceLinks survive
                   ``reactivate()``), this method filters them out explicitly
                   instead, using the same criterion as
-                  :meth:`_exclude_outdated_testcase_ids` (used by the sibling
-                  :meth:`get_coverage_data`) for consistency.
+                  :meth:`_filter_to_testcase_ids` (used by the sibling
+                  :meth:`get_coverage_data`) for consistency. Independently
+                  of this flag, a ``verifies`` link whose SOURCE is not a
+                  TestCase at all (e.g. an ADR) never counts as coverage
+                  (GH-396).
 
         Returns:
             CoverageReport with total, covered, uncovered, percentage.
@@ -229,10 +232,15 @@ class CoverageCalculator:
         }
         result_by_testcase = self._latest_testrun_status(testcase_artifact_ids)
 
-        if not include_outdated:
-            testcase_artifact_ids = self._exclude_outdated_testcase_ids(
-                testcase_artifact_ids
-            )
+        # GH-396: a `verifies` link's SOURCE must actually be a TestCase for
+        # it to count as verification coverage — some other artifact type
+        # (e.g. an ADR) can technically create a `verifies` link pointing at
+        # a Requirement, and such a link must never show up as a covering
+        # TestCase in the VCRM. Restrict unconditionally (not just when
+        # excluding outdated ones).
+        testcase_artifact_ids = self._filter_to_testcase_ids(
+            testcase_artifact_ids, include_outdated=include_outdated
+        )
 
         # Build per-requirement test-case map. The Requirement is the link
         # TARGET and the TestCase is the SOURCE (SE `verifies` convention).
@@ -316,16 +324,40 @@ class CoverageCalculator:
         filter is therefore the cheapest correct point to apply this, no
         ``outdated_item_ids()`` join needed (that helper is for entity types
         without a status mirror, e.g. ArchitectureElement).
+
+        Thin wrapper around :meth:`_filter_to_testcase_ids` kept for backward
+        compatibility — it is also called directly from
+        ``workflow.precondition_rules``.
         """
-        if not testcase_artifact_ids:
+        return self._filter_to_testcase_ids(
+            testcase_artifact_ids, include_outdated=False
+        )
+
+    def _filter_to_testcase_ids(
+        self, source_ids: set[str], *, include_outdated: bool = False
+    ) -> set[str]:
+        """Restrict *source_ids* to artifact ids that are real TestCase rows.
+
+        GH-396: the SQL behind ``coverage()``/``get_coverage_data()`` only
+        matches ``link_type``/``target_id`` — it does not check what kind of
+        artifact the link SOURCE is. Some other artifact type (e.g. an ADR)
+        can technically create a ``verifies`` link pointing at a Requirement;
+        such a link must never be counted as verification coverage
+        (ADR-L3-TE3-01: only TestCase-sourced ``verifies`` links count).
+        Querying the ``TestCase`` table for *source_ids* is both the type
+        check (non-TestCase ids simply have no matching row) and, when
+        *include_outdated* is False, the soft-delete exclusion (GH-484) in
+        one pass.
+        """
+        if not source_ids:
             return set()
 
         from persistence.models import TestCase
 
-        active_ids = TestCase.objects.filter(
-            artifact_id__in=testcase_artifact_ids
-        ).exclude(status="outdated").values_list("artifact_id", flat=True)
-        return {str(tc_id) for tc_id in active_ids}
+        qs = TestCase.objects.filter(artifact_id__in=source_ids)
+        if not include_outdated:
+            qs = qs.exclude(status="outdated")
+        return {str(tc_id) for tc_id in qs.values_list("artifact_id", flat=True)}
 
     def _get_covered_artifact_ids(
         self,
@@ -339,15 +371,23 @@ class CoverageCalculator:
 
         Uses raw SQL for performance with large sets (REQ-L2-TE-012).
 
-        GH-484: when *link_type* is ``"verifies"`` (the default; per
-        ADR-L3-TE3-01 the only link type that counts for test coverage) and
-        *include_outdated* is False, links whose SOURCE TestCase is itself
-        outdated/soft-deleted are excluded from the result. TestCase
-        soft-delete no longer hard-cascade-deletes its TraceLinks, so a
-        stale link must not keep inflating the coverage percentage. Reuses
-        :meth:`_exclude_outdated_testcase_ids` — the same filter criterion
-        the sibling :meth:`get_coverage_data` already applies — for
-        consistency.
+        GH-396: when *link_type* is ``"verifies"`` (the default; per
+        ADR-L3-TE3-01 the only link type that counts for test coverage), the
+        raw SQL above only matches on ``link_type``/``target_id`` — it does
+        not check what kind of artifact the link SOURCE actually is. Some
+        other artifact type (e.g. an ADR) can technically create a
+        ``verifies`` link pointing at a Requirement; such a link must never
+        count as verification coverage. The result is therefore always
+        additionally restricted to links whose source is a real TestCase
+        (:meth:`_filter_to_testcase_ids`), regardless of *include_outdated*.
+
+        GH-484: when *include_outdated* is False, links whose SOURCE
+        TestCase is itself outdated/soft-deleted are also excluded from the
+        result. TestCase soft-delete no longer hard-cascade-deletes its
+        TraceLinks, so a stale link must not keep inflating the coverage
+        percentage. Reuses :meth:`_filter_to_testcase_ids` — the same filter
+        criterion the sibling :meth:`get_coverage_data` already applies —
+        for consistency.
         """
         if not req_artifact_ids:
             return set()
@@ -371,11 +411,13 @@ class CoverageCalculator:
             cur.execute(sql, params)
             rows = cur.fetchall()
 
-        if link_type == "verifies" and not include_outdated:
+        if link_type == "verifies":
             source_ids = {str(row[0]) for row in rows}
-            active_source_ids = self._exclude_outdated_testcase_ids(source_ids)
+            valid_source_ids = self._filter_to_testcase_ids(
+                source_ids, include_outdated=include_outdated
+            )
             return {
-                str(row[1]) for row in rows if str(row[0]) in active_source_ids
+                str(row[1]) for row in rows if str(row[0]) in valid_source_ids
             }
 
         return {str(row[1]) for row in rows}

@@ -116,6 +116,41 @@ class TestCoverageCalculation:
 
         assert report.percentage == 33.3
 
+    def test_non_testcase_source_does_not_count_as_coverage(
+        self, calc, tenant_a, workspace_a
+    ):
+        """GH-396: a `verifies` link whose SOURCE is not a TestCase (e.g. an
+        ADR) must not be counted as verification coverage, even though the
+        raw TraceLink row matches on link_type/target_id alone."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-A")
+            art_adr = make_artifact(tenant_a, workspace_a, "adr")
+            # An ADR incorrectly linked as `verifies` -> Requirement.
+            make_trace_link(art_adr, art_req, tenant_a, "verifies")
+
+            report = calc.coverage(workspace_a.id)
+
+        assert report.total == 1
+        assert report.covered == 0
+        assert report.uncovered == [str(req.id)]
+        assert report.percentage == 0.0
+
+    def test_non_testcase_source_excluded_even_with_include_outdated(
+        self, calc, tenant_a, workspace_a
+    ):
+        """GH-396: the TestCase-source-type restriction applies regardless
+        of the include_outdated flag (unlike the GH-484 outdated-exclusion,
+        which is conditional)."""
+        with active_tenant(tenant_a):
+            art_req, _ = make_requirement(tenant_a, workspace_a, "R-A")
+            art_adr = make_artifact(tenant_a, workspace_a, "adr")
+            make_trace_link(art_adr, art_req, tenant_a, "verifies")
+
+            report = calc.coverage(workspace_a.id, include_outdated=True)
+
+        assert report.covered == 0
+        assert report.percentage == 0.0
+
     def test_to_dict_serializable(self, calc, tenant_a, workspace_a):
         """CoverageReport.to_dict() returns correct structure."""
         with active_tenant(tenant_a):
@@ -230,6 +265,31 @@ class TestGetCoverageData:
             data = calc.get_coverage_data(workspace_a.id)
 
         assert data.entries == []
+
+    def test_non_testcase_source_not_listed_as_test_case(
+        self, calc, tenant_a, workspace_a
+    ):
+        """GH-396: a `verifies` link whose SOURCE is not a TestCase (e.g. an
+        ADR) must not show up in the VCRM's test_cases list either — this
+        was already the intended behaviour of the VCRM path, this test just
+        pins it down explicitly."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            art_adr = make_artifact(tenant_a, workspace_a, "adr")
+            make_trace_link(art_adr, art_req, tenant_a, "verifies")
+
+            data = calc.get_coverage_data(workspace_a.id)
+            data_incl_outdated = calc.get_coverage_data(
+                workspace_a.id, include_outdated=True
+            )
+
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert entry.test_cases == []
+
+        entry_incl = next(
+            e for e in data_incl_outdated.entries if e.requirement_id == str(req.id)
+        )
+        assert entry_incl.test_cases == []
 
     def test_test_case_without_run_defaults_to_not_run(
         self, calc, tenant_a, workspace_a

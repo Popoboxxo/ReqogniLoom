@@ -254,8 +254,8 @@ class TestAddResult:
                 return_value=MagicMock(first=MagicMock(return_value=mock_tc)),
             ),
             patch(
-                "application.test_run_service.TestRunResult.objects.create",
-                return_value=mock_result,
+                "application.test_run_service.TestRunResult.objects.update_or_create",
+                return_value=(mock_result, True),
             ),
             patch.object(svc, "_audit"),
         ):
@@ -307,8 +307,8 @@ class TestAddResultsBulk:
                 )),
             ),
             patch(
-                "application.test_run_service.TestRunResult.objects.create",
-                return_value=MagicMock(status="passed"),
+                "application.test_run_service.TestRunResult.objects.update_or_create",
+                return_value=(MagicMock(status="passed"), True),
             ),
             patch.object(svc, "_audit"),
         ):
@@ -618,3 +618,132 @@ class TestTenantIsolation:
             svc.get_test_run(RUN_ID, ctx)
 
         mock_stc.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# GH-403: add_result / add_results_bulk upsert per (test_run, test_case)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestAddResultUpsertRealDb:
+    """Real-DB regression: reporting the same TestCase twice must update the
+    existing TestRunResult row, not create a second one — otherwise
+    result_summary.total (rest_api.views._result_summary) overcounts."""
+
+    @pytest.fixture()
+    def fx(self):
+        from persistence.models import Artifact, Tenant, TestCase, TestRun, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            id=uuid.uuid4(),
+            name="issue403-svc-tenant",
+            slug=f"issue403-svc-{uuid.uuid4().hex[:8]}",
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                name=f"issue403-svc-ws-{uuid.uuid4().hex[:6]}",
+                preset={"name": "standard"},
+            )
+            tc_artifact = Artifact.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="testcase",
+            )
+            test_case = TestCase.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                artifact=tc_artifact,
+                title="TC-403-svc",
+            )
+            test_run = TestRun.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                workspace=workspace,
+                name="issue403-svc-run",
+                status="in_progress",
+            )
+            ctx = _make_ctx(tenant_id=tenant.id)
+            yield {
+                "ctx": ctx,
+                "test_run": test_run,
+                "test_case": test_case,
+            }
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_add_result_called_twice_upserts_single_row(self, fx):
+        from persistence.models import TestRunResult
+
+        svc = TestRunService()
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="failed",
+            ctx=fx["ctx"],
+            message="first",
+        )
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="passed",
+            ctx=fx["ctx"],
+            message="second",
+        )
+
+        rows = TestRunResult.objects.filter(
+            test_run=fx["test_run"], test_case=fx["test_case"]
+        )
+        assert rows.count() == 1
+        assert rows.first().status == "passed"
+        assert rows.first().message == "second"
+
+    def test_add_results_bulk_called_twice_upserts_single_row(self, fx):
+        from persistence.models import TestRunResult
+
+        svc = TestRunService()
+        svc.add_results_bulk(
+            test_run_id=fx["test_run"].id,
+            results=[{"test_case_id": fx["test_case"].id, "status": "not_run"}],
+            ctx=fx["ctx"],
+        )
+        svc.add_results_bulk(
+            test_run_id=fx["test_run"].id,
+            results=[{"test_case_id": fx["test_case"].id, "status": "passed"}],
+            ctx=fx["ctx"],
+        )
+
+        rows = TestRunResult.objects.filter(
+            test_run=fx["test_run"], test_case=fx["test_case"]
+        )
+        assert rows.count() == 1
+        assert rows.first().status == "passed"
+
+    def test_close_after_upsert_reflects_true_test_case_count(self, fx):
+        """End-to-end: result_summary.total (via close) must equal the
+        number of distinct TestCases reported, not the number of report
+        calls (GH-403's concrete symptom)."""
+        svc = TestRunService()
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="failed",
+            ctx=fx["ctx"],
+        )
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="passed",
+            ctx=fx["ctx"],
+        )
+
+        closed = svc.close_test_run(test_run_id=fx["test_run"].id, ctx=fx["ctx"])
+
+        assert closed.results.count() == 1
+        assert closed.status == "passed"
+        assert closed.finished_at is not None

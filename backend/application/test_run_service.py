@@ -181,6 +181,12 @@ class TestRunService(ServiceBase):
         """Record a single TestCase execution result in a TestRun.
 
         REQ-L2-AS-030: status ∈ {passed, failed, blocked, not_run}.
+
+        GH-403: upserted per (test_run, test_case) — reporting a result for a
+        TestCase that already has one in this run updates that row instead of
+        appending a second one, so ``result_summary.total`` (rest_api.views.
+        _result_summary) always matches the number of distinct TestCases
+        actually reported, not the number of report calls.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -198,15 +204,17 @@ class TestRunService(ServiceBase):
         if tc is None:
             raise NotFoundError(f"TestCase {test_case_id} not found")
 
-        result = TestRunResult.objects.create(
+        result, _created = TestRunResult.objects.update_or_create(
             tenant_id=ctx.tenant_id,
             test_run=test_run,
             test_case=tc,
-            test_case_title=tc.title,
-            status=status,
-            message=message,
-            duration_ms=duration_ms,
-            executed_at=executed_at or datetime.now(timezone.utc),
+            defaults={
+                "test_case_title": tc.title,
+                "status": status,
+                "message": message,
+                "duration_ms": duration_ms,
+                "executed_at": executed_at or datetime.now(timezone.utc),
+            },
         )
 
         self._audit(
@@ -231,6 +239,12 @@ class TestRunService(ServiceBase):
     ) -> List[TestRunResult]:
         """Record multiple TestCase results in a single call (REQ-L2-AS-031).
 
+        GH-403: each entry is upserted per (test_run, test_case) — see
+        :meth:`add_result` for why. A batch that reports the same
+        ``test_case_id`` twice (or reports a TestCase already reported by an
+        earlier call) updates the existing row instead of creating a
+        duplicate.
+
         Args:
             test_run_id: Target TestRun.
             results: List of dicts with keys: test_case_id, status,
@@ -238,7 +252,7 @@ class TestRunService(ServiceBase):
             ctx: Auth context.
 
         Returns:
-            List of created TestRunResult objects.
+            List of the upserted TestRunResult objects (one per entry).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -265,15 +279,17 @@ class TestRunService(ServiceBase):
             if tc is None:
                 raise NotFoundError(f"TestCase {tc_id} not found")
 
-            result = TestRunResult.objects.create(
+            result, _created = TestRunResult.objects.update_or_create(
                 tenant_id=ctx.tenant_id,
                 test_run=test_run,
                 test_case=tc,
-                test_case_title=tc.title,
-                status=status,
-                message=entry.get("message", ""),
-                duration_ms=entry.get("duration_ms"),
-                executed_at=now,
+                defaults={
+                    "test_case_title": tc.title,
+                    "status": status,
+                    "message": entry.get("message", ""),
+                    "duration_ms": entry.get("duration_ms"),
+                    "executed_at": now,
+                },
             )
             created.append(result)
 

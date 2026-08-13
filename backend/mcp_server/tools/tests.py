@@ -125,7 +125,7 @@ def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
 
 
 class McpTestToolGroup(BaseToolGroup):
-    """COMP-MC-005 — Test tool group (8 tools)."""
+    """COMP-MC-005 — Test tool group (12 tools)."""
     __test__ = False
 
     _TOOL_MAP = {
@@ -137,6 +137,7 @@ class McpTestToolGroup(BaseToolGroup):
         "test.run_create": "_handle_run_create",
         "test.run_get": "_handle_run_get",
         "test.run_report_results": "_handle_run_report_results",
+        "test.run_complete": "_handle_run_complete",
         "test.derive_from_requirement": "_handle_derive_from_requirement",
         "test.outdate": "_handle_outdate",
         "test.reactivate": "_handle_reactivate",
@@ -296,6 +297,25 @@ class McpTestToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["run_id", "results"],
+            },
+        },
+        {
+            "name": "test.run_complete",
+            "description": (
+                "Finalize a TestRun (write, audited): recomputes the "
+                "aggregate status from its recorded results (passed if all "
+                "results passed, failed if any failed, partial if any is "
+                "blocked/not_run, closed if it has no results at all) and "
+                "sets finished_at. GH-403: closes the gap where the "
+                "advertised created -> in_progress -> completed/failed "
+                "lifecycle had no MCP tool to leave in_progress."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string", "description": "UUID of the test run."},
+                },
+                "required": ["run_id"],
             },
         },
         {
@@ -827,6 +847,53 @@ class McpTestToolGroup(BaseToolGroup):
                 }
                 for r in created
             ],
+        })
+
+    # ------------------------------------------------------------------
+    # test.run_complete
+    # ------------------------------------------------------------------
+
+    def _handle_run_complete(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.run_complete — finalize a TestRun (GH-403).
+
+        Delegates to the same ``TestRunService.close_test_run`` the REST
+        ``POST /api/v1/test-runs/{id}/close/`` (and ``/complete/`` alias)
+        endpoints already use, so MCP and REST callers observe identical
+        aggregate-status semantics.
+        """
+        run_id = require_uuid(params, "run_id")
+        try:
+            with mcp_audit_handoff():
+                tr = self._run_service.close_test_run(
+                    test_run_id=run_id, ctx=auth_context
+                )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="TestRun",
+            entity_id=tr.id,
+            tool_name="test.run_complete",
+            api_key=api_key,
+            details={"status": tr.status},
+        )
+
+        return ToolResult.ok({
+            "test_run": {
+                "id": str(tr.id),
+                "workspace_id": str(tr.workspace_id),
+                "name": tr.name,
+                "status": tr.status,
+                "ci_job_id": tr.ci_job_id,
+                "started_at": tr.started_at.isoformat() if tr.started_at else None,
+                "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
+            }
         })
 
     # ------------------------------------------------------------------

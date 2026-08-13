@@ -1005,6 +1005,54 @@ class TestTestToolGroup:
         assert result.error_code == "VALIDATION_ERROR"
         run_svc.add_results_bulk.assert_not_called()
 
+    # ------------------------------------------------------------------
+    # test.run_complete (GH-403: lifecycle had no way to leave in_progress)
+    # ------------------------------------------------------------------
+
+    @patch("mcp_server.tools.tests.write_mcp_audit")
+    def test_run_complete_calls_close_test_run(self, mock_audit):
+        group, run_svc = self._group_with_run_service()
+        run_id = UUID("00000000-0000-0000-0000-000000000070")
+        tr = MagicMock()
+        tr.id = run_id
+        tr.workspace_id = WORKSPACE_UUID
+        tr.name = "Run 1"
+        tr.status = "passed"
+        tr.ci_job_id = ""
+        tr.started_at = None
+        tr.finished_at = None
+        run_svc.close_test_run.return_value = tr
+
+        result = group.execute_tool(
+            tool_name="test.run_complete",
+            params={"run_id": str(run_id)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        run_svc.close_test_run.assert_called_once_with(
+            test_run_id=run_id, ctx=EDITOR_CTX
+        )
+        assert result.data["test_run"]["status"] == "passed"
+        mock_audit.assert_called_once()
+
+    def test_run_complete_not_found_returns_error(self):
+        from application.base import NotFoundError
+
+        group, run_svc = self._group_with_run_service()
+        run_svc.close_test_run.side_effect = NotFoundError("TestRun not found")
+
+        result = group.execute_tool(
+            tool_name="test.run_complete",
+            params={"run_id": "00000000-0000-0000-0000-000000000070"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
 
 # ---------------------------------------------------------------------------
 # CrossCuttingToolGroup tests (basic routing, no DB)
