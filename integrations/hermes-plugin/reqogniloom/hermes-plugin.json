@@ -2,7 +2,7 @@
   "id": "reqogniloom.reqogniloom",
   "name": "ReqogniLoom",
   "version": "0.1.0",
-  "description": "Connect Hermes IDE to your ReqogniLoom workspace",
+  "description": "Browse, search, and manage ReqogniLoom requirements from Hermes IDE",
   "author": "ReqogniLoom",
   "main": "dist/index.js",
   "activationEvents": [

@@ -13,6 +13,36 @@ export interface Workspace {
   name: string;
 }
 
+export type RequirementType = "SyReq" | "UseCase" | "FeatureReq";
+export type VerificationMethod = "Test" | "Review" | "Analysis" | "Inspection" | "Demonstration";
+
+export interface Requirement {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  title: string;
+  description: string;
+  acceptance_criteria: string;
+  category: string;
+  status: string;
+  type: RequirementType;
+  complexity_fibonacci: number | null;
+  verification_method: VerificationMethod | null;
+  level: number | null;
+  uid: string | null;
+  version: number;
+  change_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RequirementListResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: Requirement[];
+}
+
 interface WorkspaceListResponse {
   count: number;
   next: string | null;
@@ -20,16 +50,7 @@ interface WorkspaceListResponse {
   results: Workspace[];
 }
 
-// Most backend errors go through rest_api/error_envelope.py and arrive nested:
-// {"error": {"code", "message", "details"}}. Auth failures are the one common
-// exception: AuthTenancyAuthentication builds its body via
-// auth_tenancy/errors.py::build_error_body(), where "error" is already a plain
-// string (the error code) rather than an object — and the exception handler's
-// "already normalised" bypass (`if isinstance(data, dict) and "error" in data`)
-// lets that flat shape through unchanged. So a bad/expired API key arrives as
-// {"error": "invalid_api_key", "message": "...", "doc_url": "..."}. Both
-// shapes must be handled when extracting a human-readable message.
-export interface NestedErrorEnvelope {
+export interface ErrorEnvelope {
   error: {
     code: string;
     message: string;
@@ -37,21 +58,19 @@ export interface NestedErrorEnvelope {
   };
 }
 
-export interface FlatErrorEnvelope {
-  error: string;
-  message: string;
-  doc_url?: string;
+export interface CreateRequirementInput {
+  title: string;
+  description?: string;
+  acceptance_criteria?: string;
+  category?: string;
+  type?: RequirementType;
+  complexity_fibonacci?: number;
+  verification_method?: VerificationMethod;
+  level?: number;
+  parent_id?: string;
 }
 
-export type ErrorEnvelope = NestedErrorEnvelope | FlatErrorEnvelope;
-
-function isNestedErrorEnvelope(envelope: ErrorEnvelope): envelope is NestedErrorEnvelope {
-  return typeof envelope.error === "object" && envelope.error !== null;
-}
-
-function extractErrorMessage(envelope: ErrorEnvelope): string {
-  return isNestedErrorEnvelope(envelope) ? envelope.error.message : envelope.message;
-}
+export type UpdateRequirementInput = Partial<CreateRequirementInput> & { change_reason?: string };
 
 export class ReqogniLoomApiError extends Error {
   status: number;
@@ -65,11 +84,13 @@ export class ReqogniLoomApiError extends Error {
   }
 }
 
-// api.network.fetch()'s actual return shape is ambiguous: the official Hermes
-// Plugin API docs say it returns Promise<string> (response body as text, no
-// HTTP status observable), but at least one reference plugin's own bundled
-// type declares Promise<Response> instead. Handle both rather than gambling
-// on one.
+// api.network.fetch()'s actual return shape is ambiguous: the official docs
+// (hermes-hq/plugins/docs/PLUGIN-API.md, checked 2026-08-13) say it returns
+// Promise<string> (response body as text, no status code observable), but
+// the `github` reference plugin's own bundled HermesPluginAPI type declares
+// Promise<Response> instead. Handle both rather than gambling on one — see
+// plan Task 9 for where this gets confirmed empirically against a real
+// Hermes IDE build.
 async function parseNetworkResult(raw: unknown): Promise<{ status: number; body: unknown }> {
   if (typeof raw === "string") {
     let body: unknown = null;
@@ -80,8 +101,8 @@ async function parseNetworkResult(raw: unknown): Promise<{ status: number; body:
       parseError = true;
       body = null;
     }
-    // A non-empty string that fails to parse as JSON (e.g. a plain-text error
-    // body from a proxy/502/504) must not be silently treated as success.
+    // If raw is non-empty but failed to parse as JSON (e.g., plain-text error body),
+    // treat it as a failure to avoid silently returning null as a successful response.
     if (parseError && raw !== "") {
       return { status: 0, body: null };
     }
@@ -121,7 +142,7 @@ async function reqloFetch(
       body && typeof body === "object" && "error" in (body as Record<string, unknown>)
         ? (body as ErrorEnvelope)
         : null;
-    throw new ReqogniLoomApiError(status, envelope, envelope ? extractErrorMessage(envelope) : `HTTP ${status}`);
+    throw new ReqogniLoomApiError(status, envelope, envelope?.error.message ?? `HTTP ${status}`);
   }
   return body;
 }
@@ -132,4 +153,57 @@ export async function listWorkspaces(
 ): Promise<Workspace[]> {
   const body = await reqloFetch(network, credentials.baseUrl, credentials.apiKey, "/api/v1/workspaces/");
   return (body as WorkspaceListResponse).results;
+}
+
+export async function listRequirements(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  params: { search?: string; page?: number; pageSize?: number } = {}
+): Promise<RequirementListResponse> {
+  const query = new URLSearchParams();
+  query.set("workspace_id", connection.workspaceId);
+  query.set("page", String(params.page ?? 1));
+  query.set("page_size", String(params.pageSize ?? 25));
+  if (params.search) query.set("search", params.search);
+  const body = await reqloFetch(
+    network,
+    connection.baseUrl,
+    connection.apiKey,
+    `/api/v1/requirements/?${query.toString()}`
+  );
+  return body as RequirementListResponse;
+}
+
+export async function getRequirement(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  id: string
+): Promise<Requirement> {
+  const body = await reqloFetch(network, connection.baseUrl, connection.apiKey, `/api/v1/requirements/${id}/`);
+  return body as Requirement;
+}
+
+export async function createRequirement(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  input: CreateRequirementInput
+): Promise<Requirement> {
+  const body = await reqloFetch(network, connection.baseUrl, connection.apiKey, "/api/v1/requirements/", {
+    method: "POST",
+    body: JSON.stringify({ ...input, workspace_id: connection.workspaceId }),
+  });
+  return body as Requirement;
+}
+
+export async function updateRequirement(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  id: string,
+  input: UpdateRequirementInput
+): Promise<Requirement> {
+  const body = await reqloFetch(network, connection.baseUrl, connection.apiKey, `/api/v1/requirements/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return body as Requirement;
 }

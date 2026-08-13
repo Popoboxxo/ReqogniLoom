@@ -1,0 +1,28 @@
+# .github/workflows/hermes-plugin.yml
+name: Hermes Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "integrations/hermes-plugin/**"
+      - ".github/workflows/hermes-plugin.yml"
+  pull_request:
+    paths:
+      - "integrations/hermes-plugin/**"
+      - ".github/workflows/hermes-plugin.yml"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/hermes-plugin/reqogniloom
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm test
+      - run: npm run build

@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import type { PluginPanelProps } from "./hermes-api-types";
 import { getState, subscribe } from "./state";
 import { ConnectScreen } from "./ConnectScreen";
-import { ConnectedView } from "./ConnectedView";
+import { RequirementsList } from "./RequirementsList";
+import { RequirementDetail } from "./RequirementDetail";
+import { RequirementForm } from "./RequirementForm";
 
 export function ReqogniLoomPanel(_props: PluginPanelProps) {
   const [, forceRender] = useState(0);
@@ -45,7 +47,9 @@ export function ReqogniLoomPanel(_props: PluginPanelProps) {
       </h3>
 
       {state.view === "connect" && <ConnectScreen state={state} />}
-      {state.view === "connected" && <ConnectedView state={state} />}
+      {state.view === "list" && <RequirementsList state={state} />}
+      {state.view === "detail" && <RequirementDetail state={state} />}
+      {state.view === "form" && <RequirementForm state={state} />}
     </div>
   );
 }

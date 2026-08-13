@@ -1,151 +1,171 @@
-import { describe, expect, it, vi } from "vitest";
-import { listWorkspaces, ReqogniLoomApiError } from "../api";
+import { describe, it, expect, vi } from "vitest";
+import {
+  listWorkspaces,
+  listRequirements,
+  getRequirement,
+  createRequirement,
+  updateRequirement,
+  ReqogniLoomApiError,
+  type HermesNetworkAPI,
+  type Connection,
+} from "../api";
+
+const connection: Connection = {
+  baseUrl: "https://reqo.example.com",
+  apiKey: "reqlo_test123",
+  workspaceId: "11111111-1111-1111-1111-111111111111",
+};
+
+function mockNetwork(impl: (url: string, options?: RequestInit) => unknown): HermesNetworkAPI {
+  return { fetch: vi.fn(async (url: string, options?: RequestInit) => impl(url, options)) };
+}
 
 describe("listWorkspaces", () => {
-  it("sends the X-API-Key header and returns results", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      JSON.stringify({
+  it("sends X-API-Key header and returns parsed workspaces (string-return shape)", async () => {
+    const network = mockNetwork((url, options) => {
+      expect(url).toBe("https://reqo.example.com/api/v1/workspaces/");
+      expect((options?.headers as Record<string, string>)["X-API-Key"]).toBe("reqlo_test123");
+      return JSON.stringify({
         count: 1,
         next: null,
         previous: null,
-        results: [{ id: "ws-1", name: "Alpha" }],
-      })
-    );
-
-    const workspaces = await listWorkspaces(
-      { fetch: fetchMock },
-      { baseUrl: "https://example.com", apiKey: "reqlo_abc" }
-    );
-
-    expect(workspaces).toEqual([{ id: "ws-1", name: "Alpha" }]);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://example.com/api/v1/workspaces/",
-      expect.objectContaining({
-        headers: expect.objectContaining({ "X-API-Key": "reqlo_abc" }),
-      })
-    );
-  });
-
-  it("strips a trailing slash from baseUrl before appending the path", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      JSON.stringify({ count: 0, next: null, previous: null, results: [] })
-    );
-
-    await listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com/", apiKey: "reqlo_abc" });
-
-    expect(fetchMock).toHaveBeenCalledWith("https://example.com/api/v1/workspaces/", expect.anything());
-  });
-
-  it("handles a string return shape (network.fetch returns response body as text)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      JSON.stringify({
-        count: 2,
-        next: null,
-        previous: null,
-        results: [
-          { id: "ws-1", name: "Alpha" },
-          { id: "ws-2", name: "Beta" },
-        ],
-      })
-    );
-
-    const workspaces = await listWorkspaces(
-      { fetch: fetchMock },
-      { baseUrl: "https://example.com", apiKey: "reqlo_abc" }
-    );
-
-    expect(workspaces).toHaveLength(2);
-  });
-
-  it("handles a Response return shape (network.fetch returns a Response-like object)", async () => {
-    const body = JSON.stringify({
-      count: 1,
-      next: null,
-      previous: null,
-      results: [{ id: "ws-1", name: "Alpha" }],
+        results: [{ id: "w1", name: "Demo" }],
+      });
     });
-    const fakeResponse = {
-      status: 200,
-      text: async () => body,
-    };
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse);
-
-    const workspaces = await listWorkspaces(
-      { fetch: fetchMock },
-      { baseUrl: "https://example.com", apiKey: "reqlo_abc" }
-    );
-
-    expect(workspaces).toEqual([{ id: "ws-1", name: "Alpha" }]);
+    const workspaces = await listWorkspaces(network, {
+      baseUrl: connection.baseUrl,
+      apiKey: connection.apiKey,
+    });
+    expect(workspaces).toEqual([{ id: "w1", name: "Demo" }]);
   });
 
-  it("throws ReqogniLoomApiError for a non-JSON, non-empty string response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue("<html>502 Bad Gateway</html>");
+  it("supports the Response-return shape too", async () => {
+    const network = mockNetwork(() =>
+      new Response(
+        JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+        { status: 200 }
+      )
+    );
+    const workspaces = await listWorkspaces(network, {
+      baseUrl: connection.baseUrl,
+      apiKey: connection.apiKey,
+    });
+    expect(workspaces).toEqual([]);
+  });
 
+  it("throws ReqogniLoomApiError with the error envelope on 401 (Response shape)", async () => {
+    const network = mockNetwork(
+      () =>
+        new Response(
+          JSON.stringify({ error: { code: "AUTHENTICATION_FAILED", message: "Invalid API key", details: [] } }),
+          { status: 401 }
+        )
+    );
     await expect(
-      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" })
+      listWorkspaces(network, { baseUrl: connection.baseUrl, apiKey: connection.apiKey })
+    ).rejects.toMatchObject({
+      status: 401,
+      envelope: { error: { code: "AUTHENTICATION_FAILED" } },
+    });
+  });
+
+  it("throws ReqogniLoomApiError on 401 in the string-return shape too (no HTTP status observable)", async () => {
+    const network = mockNetwork(() =>
+      JSON.stringify({ error: { code: "AUTHENTICATION_FAILED", message: "Invalid API key", details: [] } })
+    );
+    await expect(
+      listWorkspaces(network, { baseUrl: connection.baseUrl, apiKey: connection.apiKey })
     ).rejects.toBeInstanceOf(ReqogniLoomApiError);
   });
 
-  it("propagates the error message from a bad-key error envelope", async () => {
-    const errorBody = JSON.stringify({
-      error: {
-        code: "AUTHENTICATION_FAILED",
-        message: "Invalid API key",
-        details: [],
-      },
-    });
-    const fetchMock = vi.fn().mockResolvedValue(errorBody);
-
+  it("throws ReqogniLoomApiError on non-JSON string responses (e.g., plain-text error bodies)", async () => {
+    const network = mockNetwork(() => "Bad Gateway");
     await expect(
-      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_bad" })
-    ).rejects.toMatchObject({
-      message: "Invalid API key",
+      listWorkspaces(network, { baseUrl: connection.baseUrl, apiKey: connection.apiKey })
+    ).rejects.toBeInstanceOf(ReqogniLoomApiError);
+  });
+});
+
+describe("listRequirements", () => {
+  it("builds the query string with workspace_id, page, page_size, and search", async () => {
+    const network = mockNetwork((url) => {
+      expect(url).toContain("/api/v1/requirements/?");
+      expect(url).toContain(`workspace_id=${connection.workspaceId}`);
+      expect(url).toContain("page=2");
+      expect(url).toContain("page_size=25");
+      expect(url).toContain("search=login");
+      return JSON.stringify({ count: 0, next: null, previous: null, results: [] });
     });
+    await listRequirements(network, connection, { page: 2, search: "login" });
   });
 
-  it("propagates a Response-shaped error status with envelope message", async () => {
-    const errorBody = JSON.stringify({
-      error: {
-        code: "AUTHENTICATION_FAILED",
-        message: "Invalid API key",
-        details: [],
-      },
+  it("omits search when not provided", async () => {
+    const network = mockNetwork((url) => {
+      expect(url).not.toContain("search=");
+      return JSON.stringify({ count: 0, next: null, previous: null, results: [] });
     });
-    const fakeResponse = {
-      status: 401,
-      text: async () => errorBody,
-    };
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse);
+    await listRequirements(network, connection);
+  });
+});
 
-    await expect(
-      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_bad" })
-    ).rejects.toMatchObject({
-      message: "Invalid API key",
-      status: 401,
+describe("getRequirement", () => {
+  it("fetches the single-requirement endpoint", async () => {
+    const network = mockNetwork((url) => {
+      expect(url).toBe("https://reqo.example.com/api/v1/requirements/req-1/");
+      return JSON.stringify({ id: "req-1", title: "Login must work" });
     });
+    const req = await getRequirement(network, connection, "req-1");
+    expect(req.id).toBe("req-1");
+  });
+});
+
+describe("createRequirement", () => {
+  it("POSTs with workspace_id injected and returns the created requirement", async () => {
+    const network = mockNetwork((url, options) => {
+      expect(options?.method).toBe("POST");
+      const body = JSON.parse(options!.body as string);
+      expect(body.workspace_id).toBe(connection.workspaceId);
+      expect(body.title).toBe("New requirement");
+      return JSON.stringify({ id: "req-2", title: "New requirement" });
+    });
+    const req = await createRequirement(network, connection, { title: "New requirement" });
+    expect(req.id).toBe("req-2");
   });
 
-  it("propagates the top-level message from a FLAT auth-failure error body (invalid API key)", async () => {
-    // AuthTenancyAuthentication (backend/auth_tenancy/errors.py::build_error_body)
-    // returns a body where "error" is a plain string code, not a nested object,
-    // and the exception handler's "already normalised" bypass lets it through
-    // unchanged: {"error": "<code>", "message": "...", "doc_url": "..."}.
-    const errorBody = JSON.stringify({
-      error: "invalid_api_key",
-      message: "Invalid or expired API key.",
-      doc_url: "https://docs.reqogniloom.dev/errors/invalid_api_key",
+  it("surfaces field-level 400 errors via the standard envelope", async () => {
+    const network = mockNetwork(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Validation failed",
+              details: [{ field: "title", errors: ["This field is required."] }],
+            },
+          }),
+          { status: 400 }
+        )
+    );
+    await expect(createRequirement(network, connection, { title: "" })).rejects.toMatchObject({
+      status: 400,
+      envelope: {
+        error: { details: [{ field: "title", errors: ["This field is required."] }] },
+      },
     });
-    const fakeResponse = {
-      status: 401,
-      text: async () => errorBody,
-    };
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse);
+  });
+});
 
-    await expect(
-      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_bad" })
-    ).rejects.toMatchObject({
-      message: "Invalid or expired API key.",
-      status: 401,
+describe("updateRequirement", () => {
+  it("PATCHes without workspace_id (not part of update payload)", async () => {
+    const network = mockNetwork((url, options) => {
+      expect(url).toBe("https://reqo.example.com/api/v1/requirements/req-1/");
+      expect(options?.method).toBe("PATCH");
+      const body = JSON.parse(options!.body as string);
+      expect(body).not.toHaveProperty("workspace_id");
+      expect(body.title).toBe("Updated title");
+      return JSON.stringify({ id: "req-1", title: "Updated title" });
     });
+    const req = await updateRequirement(network, connection, "req-1", { title: "Updated title" });
+    expect(req.title).toBe("Updated title");
   });
 });

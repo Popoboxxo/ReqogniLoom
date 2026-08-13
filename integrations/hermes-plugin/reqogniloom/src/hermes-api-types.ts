@@ -1,3 +1,8 @@
+// Local declaration of the subset of HermesPluginAPI this plugin uses.
+// The host app injects the real implementation at runtime; there is no
+// npm package to import these from (see hermes-hq/plugins' own reference
+// plugins, which all declare this interface locally rather than depending
+// on a shared types package).
 export interface Disposable {
   dispose(): void;
 }
@@ -27,9 +32,6 @@ export interface HermesPluginAPI {
   };
   network: {
     fetch(url: string, options?: RequestInit): Promise<unknown>;
-  };
-  shell: {
-    openExternal(url: string): Promise<void>;
   };
   subscriptions: Disposable[];
 }

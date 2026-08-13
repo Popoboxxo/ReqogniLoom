@@ -1,3 +1,4 @@
+// integrations/hermes-plugin/reqogniloom/src/ConnectScreen.tsx
 import * as React from "react";
 import { useState } from "react";
 import type { AppState } from "./state";
@@ -32,7 +33,7 @@ export function ConnectScreen({ state }: { state: AppState }) {
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         <p style={{ color: "var(--text-2)", fontSize: "var(--text-xs)" }}>Choose a workspace:</p>
         {state.pendingWorkspaces.map((w) => (
-          <button key={w.id} style={{ ...buttonStyle, textAlign: "left" }} onClick={() => void chooseWorkspace(w)}>
+          <button key={w.id} style={{ ...buttonStyle, textAlign: "left" }} onClick={() => chooseWorkspace(w)}>
             {w.name}
           </button>
         ))}
