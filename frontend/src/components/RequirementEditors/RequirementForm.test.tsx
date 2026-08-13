@@ -296,6 +296,7 @@ describe("RequirementForm — save persistence and failure surfacing (#344)", ()
         "complexity_fibonacci",
         "custom_fields",
         "description",
+        "level",
         "title",
         "type",
         "verification_method",

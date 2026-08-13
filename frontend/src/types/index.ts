@@ -89,6 +89,16 @@ export type RequirementType = 'SyReq' | 'UseCase' | 'FeatureReq';
 export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
 export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 
+/**
+ * Issue #394: V-model hierarchy level (`persistence.models.RequirementLevel`).
+ * `null`/`undefined` means the level has not been assigned yet — mirrors the
+ * backend field, which is nullable and not backfilled for existing rows.
+ */
+export type RequirementLevel = 0 | 1 | 2 | 3 | 4;
+
+/** Ordered L0-L4 levels for select inputs; mirrors the backend enum order. */
+export const REQUIREMENT_LEVELS: RequirementLevel[] = [0, 1, 2, 3, 4];
+
 export interface StakeholderNeed {
   id: UUID;
   workspace_id: UUID;
@@ -125,6 +135,9 @@ export interface Requirement {
   moscow_priority?: MoscowPriority;
   complexity_fibonacci?: number;
   verification_method?: VerificationMethod;
+  // Issue #394: V-model hierarchy level (0=System ... 4=Material). NULL until
+  // assigned explicitly.
+  level?: RequirementLevel | null;
   suspect?: boolean;
   change_reason?: string;
   custom_fields?: CustomFields;
