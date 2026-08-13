@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from baseline.diff_engine import DiffEngine, _effective_version, _field_diff
+from baseline.exceptions import BaselineNotFoundError
 from baseline.services import build as baseline_build
 from baseline.services import diff as baseline_diff
 from baseline.state_capture import capture_states
@@ -43,10 +44,10 @@ class _StubStore:
         self._index = index
         self._states = states
 
-    def load_delta_index(self, baseline_id):
+    def load_delta_index(self, baseline_id, tenant_id=None):
         return self._index[baseline_id]
 
-    def load_states(self, baseline_id, item_ids=None):
+    def load_states(self, baseline_id, tenant_id=None, item_ids=None):
         states = self._states[baseline_id]
         if item_ids is None:
             return dict(states)
@@ -71,6 +72,7 @@ class TestValueBasedClassification:
         self.a = uuid.uuid4()
         self.b = uuid.uuid4()
         self.item = str(uuid.uuid4())
+        self.tenant_id = uuid.uuid4()
 
     def test_content_drift_with_identical_versions_is_reported(self):
         """THE bug: same recorded version on both sides, different content.
@@ -87,7 +89,7 @@ class TestValueBasedClassification:
         }
         engine, patcher = _engine(index, states)
         try:
-            result = engine.diff(self.a, self.b)
+            result = engine.diff(self.a, self.b, self.tenant_id)
         finally:
             patcher.stop()
 
@@ -111,7 +113,7 @@ class TestValueBasedClassification:
         states = {self.a: {self.item: dict(payload)}, self.b: {self.item: dict(payload)}}
         engine, patcher = _engine(index, states)
         try:
-            result = engine.diff(self.a, self.b)
+            result = engine.diff(self.a, self.b, self.tenant_id)
         finally:
             patcher.stop()
 
@@ -131,7 +133,7 @@ class TestValueBasedClassification:
         }
         engine, patcher = _engine(index, states)
         try:
-            result = engine.diff(self.a, self.b)
+            result = engine.diff(self.a, self.b, self.tenant_id)
         finally:
             patcher.stop()
 
@@ -146,7 +148,7 @@ class TestValueBasedClassification:
         states = {self.a: {self.item: None}, self.b: {self.item: None}}
         engine, patcher = _engine(index, states)
         try:
-            result = engine.diff(self.a, self.b)
+            result = engine.diff(self.a, self.b, self.tenant_id)
         finally:
             patcher.stop()
 
@@ -162,7 +164,7 @@ class TestValueBasedClassification:
         states = {self.a: {self.item: None}, self.b: {}}
         engine, patcher = _engine(index, states)
         try:
-            result = engine.diff(self.a, self.b)
+            result = engine.diff(self.a, self.b, self.tenant_id)
         finally:
             patcher.stop()
 
@@ -175,7 +177,7 @@ class TestValueBasedClassification:
         states = {self.a: {only_a: {"title": "x"}}, self.b: {only_b: {"title": "y"}}}
         engine, patcher = _engine(index, states)
         try:
-            result = engine.diff(self.a, self.b)
+            result = engine.diff(self.a, self.b, self.tenant_id)
         finally:
             patcher.stop()
 
@@ -338,7 +340,7 @@ class TestBaselineDriftEndToEnd:
             "this test would also pass on the buggy version-based engine"
         )
 
-        result = baseline_diff(baseline_a, baseline_b)
+        result = baseline_diff(baseline_a, baseline_b, tenant_id=fx["tenant"].id)
 
         assert [c.id for c in result.changed] == [artifact_id]
         changes = result.changed[0].field_changes
@@ -363,7 +365,7 @@ class TestBaselineDriftEndToEnd:
         )
 
         baseline_b = _build("BL-398-D", fx)
-        result = baseline_diff(baseline_a, baseline_b)
+        result = baseline_diff(baseline_a, baseline_b, tenant_id=fx["tenant"].id)
 
         assert len(result.changed) == 1
         assert result.changed[0].field_changes["description"] == {
@@ -377,9 +379,34 @@ class TestBaselineDriftEndToEnd:
         baseline_a = _build("BL-398-E", fx)
         baseline_b = _build("BL-398-F", fx)
 
-        result = baseline_diff(baseline_a, baseline_b)
+        result = baseline_diff(baseline_a, baseline_b, tenant_id=fx["tenant"].id)
 
         assert (result.added, result.removed, result.changed) == ([], [], [])
+
+    def test_diff_across_tenant_boundary_raises_not_found(self, workspace_fixture):
+        """ADR-03 (issue #464): a baseline_id valid for tenant A must not be
+        diffable by passing a different tenant's tenant_id.
+
+        Regression guard for the cross-tenant leak this project fixed: before
+        #464, ``_validate_scopes`` looked baselines up via ``.unscoped.get(id=...)``
+        with no tenant filter, so any tenant could probe/read another
+        tenant's baseline by UUID alone. The tenant_id argument — not the
+        UUID — must decide existence.
+        """
+        from persistence.models import Tenant
+
+        fx = workspace_fixture
+        baseline_a = _build("BL-398-TENANT-A1", fx)
+        baseline_b = _build("BL-398-TENANT-A2", fx)
+
+        other_tenant = Tenant.objects.create(
+            id=uuid.uuid4(),
+            name="issue398-tenant-other",
+            slug=f"issue398-other-{uuid.uuid4().hex[:8]}",
+        )
+
+        with pytest.raises(BaselineNotFoundError):
+            baseline_diff(baseline_a, baseline_b, tenant_id=other_tenant.id)
 
 
 # ---------------------------------------------------------------------------
