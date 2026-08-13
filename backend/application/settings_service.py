@@ -52,6 +52,7 @@ from persistence.models import (
     PromptTemplate,
     ReviewPolicy,
 )
+from presets.registry import TIER_EXTENDED
 
 from application.base import ServiceBase, ValidationError
 from application.prompt_template_versioning import (
@@ -531,6 +532,33 @@ class SettingsService(ServiceBase):
     # around, only the effective one matters. See persistence.models.
     # ReviewPolicy's class docstring for the full scoping rationale.
 
+    # Modes that let AiDerivationService._auto_approve cross an approval gate
+    # without a human decision, other than via an explicit confidence check
+    # (GitHub #452): "auto" always did (given an explicit auto_approve_target
+    # exists for the item type), "review_changes" is documented as currently
+    # identical to "auto". Both are unsafe as the *effective* mode for a
+    # preset tier that mandates human approval gates.
+    _UNGATED_MODES = ("auto", "review_changes")
+
+    @staticmethod
+    def _workspace_tier(workspace_id: "str | None") -> "str | None":
+        """Best-effort resolution of *workspace_id*'s active preset tier.
+
+        Returns ``None`` when no workspace is in scope (tenant-global row)
+        or the workspace/its preset config cannot be resolved -- callers
+        must treat that as "tier unknown" and skip tier-specific behaviour
+        rather than raise, since this is a read-side safety net, not the
+        primary validation path.
+        """
+        if not workspace_id:
+            return None
+        try:
+            from presets.services import get_preset
+
+            return get_preset(workspace_id).preset
+        except Exception:
+            return None
+
     def get_effective_review_policy(
         self, ctx: AuthContext, *, workspace_id: "str | None" = None
     ) -> ReviewPolicy:
@@ -539,6 +567,20 @@ class SettingsService(ServiceBase):
         Resolution order: active workspace-scoped row -> tenant-global row
         (``workspace_id=None``) -> an unsaved default instance
         (``mode="auto"``, ``min_confidence=0.7``). A read never creates a row.
+
+        GitHub #452: for a workspace on the ``extended`` preset tier, the
+        resolved mode is additionally floored to ``"review_all"`` when it
+        would otherwise be ``"auto"`` or ``"review_changes"`` -- the
+        ``extended`` tier's approval-workflow rigor (REQ-L2-PC-001) requires
+        a human decision at every approval gate, so it must never depend on
+        a stored/defaulted policy value that lets
+        ``AiDerivationService._auto_approve`` cross one unsupervised. This
+        override is applied here (not only in ``update_review_policy``) so
+        that both this read path and the write path share one enforcement
+        point, and so pre-existing rows created before this fix are covered
+        too. The underlying stored value is left untouched -- only the
+        in-memory, unsaved instance returned to the caller reflects the
+        floor.
         """
         self._set_tenant_context(ctx)
         if workspace_id is not None:
@@ -546,18 +588,35 @@ class SettingsService(ServiceBase):
                 tenant_id=ctx.tenant_id, workspace_id=workspace_id
             ).first()
             if row is not None:
-                return row
+                return self._apply_tier_floor(row, workspace_id)
         row = ReviewPolicy.objects.filter(
             tenant_id=ctx.tenant_id, workspace_id=None
         ).first()
         if row is not None:
-            return row
-        return ReviewPolicy(
-            tenant_id=ctx.tenant_id,
-            workspace_id=workspace_id,
-            mode="auto",
-            min_confidence=0.7,
+            return self._apply_tier_floor(row, workspace_id)
+        return self._apply_tier_floor(
+            ReviewPolicy(
+                tenant_id=ctx.tenant_id,
+                workspace_id=workspace_id,
+                mode="auto",
+                min_confidence=0.7,
+            ),
+            workspace_id,
         )
+
+    def _apply_tier_floor(
+        self, policy: ReviewPolicy, workspace_id: "str | None"
+    ) -> ReviewPolicy:
+        """Floor *policy* to ``"review_all"`` if its tier requires it.
+
+        See :meth:`get_effective_review_policy` for the rationale. Mutates
+        and returns *policy* in place; never persists the change.
+        """
+        if policy.mode in self._UNGATED_MODES:
+            tier = self._workspace_tier(workspace_id)
+            if tier == TIER_EXTENDED:
+                policy.mode = "review_all"
+        return policy
 
     def update_review_policy(
         self,
@@ -572,6 +631,12 @@ class SettingsService(ServiceBase):
         Validates ``mode`` against ``REVIEW_POLICY_MODES`` and that
         ``min_confidence`` is within ``[0.0, 1.0]``; raises ``ValidationError``
         otherwise.
+
+        GitHub #452: also rejects ``mode in ("auto", "review_changes")`` for
+        a workspace on the ``extended`` preset tier -- that tier requires a
+        human approval gate, so it must not be possible to explicitly store
+        a policy that bypasses it (defense in depth alongside the read-side
+        floor in :meth:`get_effective_review_policy`).
         """
         self._set_tenant_context(ctx)
         if mode not in REVIEW_POLICY_MODES:
@@ -580,6 +645,12 @@ class SettingsService(ServiceBase):
             )
         if not (0.0 <= min_confidence <= 1.0):
             raise ValidationError("min_confidence must be between 0.0 and 1.0.")
+        if mode in self._UNGATED_MODES and self._workspace_tier(workspace_id) == TIER_EXTENDED:
+            raise ValidationError(
+                f"mode='{mode}' is not allowed for the 'extended' preset tier: "
+                "extended workspaces require a human approval gate "
+                "(use 'review_all' or 'review_high_risk')."
+            )
         row, _ = ReviewPolicy.objects.update_or_create(
             tenant_id=ctx.tenant_id,
             workspace_id=workspace_id,
