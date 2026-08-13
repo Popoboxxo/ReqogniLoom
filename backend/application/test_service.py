@@ -7,11 +7,11 @@ req_id  : REQ-L2-AS-005 (TestCase CRUD), REQ-L2-AS-025 (Coverage)
 Manages TestCase entities with:
   - Full CRUD including execution_status management
   - WorkflowState initialisation on create
-  - Cascade TraceLink deletion on delete
+  - Soft-delete via workflow outdate() (GH-484: TraceLinks are preserved,
+    not cascade-deleted, so reactivate() restores them intact)
   - Coverage calculation delegation to TraceabilityEngine
 
 Interfaces consumed:
-  IF-AS-INT-005     TraceLinkService.cascade_delete_trace_links (on delete)
   IF-AS-INT-011     DomainEventBus → TestCaseCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-003 traceability.services.coverage (for coverage calculation)
   IF-AS-EXT-OUT-007 persistence.models.TestCase (Django ORM)
@@ -243,7 +243,16 @@ class TestService(ServiceBase):
 
     @atomic_transaction
     def delete_test_case(self, test_case_id: UUID, ctx: AuthContext) -> None:
-        """Delete TestCase + cascade TraceLinks (IF-AS-INT-005)."""
+        """Soft-delete a TestCase via the workflow engine (IF-AS-INT-005).
+
+        GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
+        survive alongside the outdated TestCase, symmetric with
+        Requirement/ADR/Need/etc., so ``reactivate()`` (GH-443) restores the
+        record with its links intact instead of silently losing them.
+        ``CoverageCalculator.coverage()`` compensates by excluding links
+        whose source TestCase is itself outdated from the coverage count
+        (see ``coverage_calculator.py``).
+        """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
@@ -254,12 +263,6 @@ class TestService(ServiceBase):
             raise NotFoundError(f"TestCase {test_case_id} not found")
 
         workspace_id = test_case.artifact.workspace_id
-        artifact_id = test_case.artifact_id
-
-        # IF-AS-INT-005
-        self._trace_link_service.cascade_delete_trace_links(
-            UUID(str(artifact_id)), ctx
-        )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of hard-deleting the row.

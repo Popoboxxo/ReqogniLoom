@@ -11,8 +11,13 @@ Cascade-delete runs inside the caller's transaction context (ADR-L3-AS005-02).
 Interfaces served:
   IF-AS-INT-001  ArtifactService     → cascade_delete_trace_links(artifact_id)
   IF-AS-INT-002  RequirementService  → create_trace_link(source_id, target_id, type)
-  IF-AS-INT-004  ArchitectureService → cascade_delete_trace_links(arch_el_id)
-  IF-AS-INT-005  TestService         → cascade_delete_trace_links(test_case_id)
+
+GH-484: TestService and IssueService/RiskService used to call
+cascade_delete_trace_links(...) on soft-delete (formerly IF-AS-INT-005) —
+removed, TraceLinks now survive soft-delete like every other entity so
+reactivate() (GH-443) restores them intact. cascade_delete_trace_links()
+itself is unchanged and still used by ArtifactService.delete_artifact()
+(hard delete, IF-AS-INT-001).
 
 Interfaces consumed:
   IF-AS-EXT-OUT-003  TraceabilityEngine:
@@ -490,7 +495,7 @@ class TraceLinkService(ServiceBase):
             for row in rows
         ]
 
-    # ---------- IF-AS-INT-001 / 004 / 005 ----------
+    # ---------- IF-AS-INT-001 (hard delete only, GH-484) ----------
 
     def cascade_delete_trace_links(
         self, entity_id: UUID, ctx: AuthContext

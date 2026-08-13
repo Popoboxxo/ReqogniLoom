@@ -5,7 +5,7 @@ leaf_id : COMP-AS-015
 req_id  : REQ-L1-029
 
 Orchestrates:
-  IF-AS-INT-002   TraceLinkService.create_trace_link / cascade_delete_trace_links
+  IF-AS-INT-002   TraceLinkService.create_trace_link
   IF-AS-INT-003   WorkflowFacade.transition (status transitions)
   IF-AS-INT-017   DomainEventBus → IssueCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-007  application.models.Issue (Django ORM)
@@ -347,7 +347,12 @@ class IssueService(ServiceBase):
 
     @atomic_transaction
     def delete_issue(self, issue_id: UUID, ctx: AuthContext) -> None:
-        """Delete Issue and cascade-delete TraceLinks (REQ-L3-ISSUE-004).
+        """Soft-delete an Issue via the workflow engine (REQ-L3-ISSUE-004).
+
+        GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
+        survive alongside the outdated Issue, symmetric with
+        Requirement/ADR/Need/etc., so ``reactivate()`` (GH-443) restores the
+        record with its links intact instead of silently losing them.
 
         Args:
             issue_id: UUID of the Issue to delete.
@@ -361,14 +366,6 @@ class IssueService(ServiceBase):
             raise NotFoundError(f"Issue {issue_id} not found")
 
         workspace_id = issue.workspace_id
-
-        try:
-            self._trace_link_service.cascade_delete_trace_links(issue_id, ctx)
-        except Exception:
-            logger.debug(
-                "IssueService.delete_issue: cascade TraceLink delete skipped for issue=%s",
-                issue_id,
-            )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of hard-deleting the row.

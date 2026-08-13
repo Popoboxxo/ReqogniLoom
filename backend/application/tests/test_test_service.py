@@ -9,7 +9,7 @@ Coverage:
                       not found, audit and event emission
   - update_test_case: success, not found
   - update_test_status: valid status accepted, invalid status raises ValidationError
-  - delete_test_case: success, cascade trace links, not found
+  - delete_test_case: success, trace links preserved (GH-484), not found
   - get_test_case / list_test_cases: delegation
   - VALID_TEST_TYPES / VALID_EXECUTION_STATUSES constants
   - Tenant isolation: _set_tenant_context called
@@ -439,10 +439,13 @@ class TestDeleteTestCase:
             with pytest.raises(NotFoundError, match="TestCase"):
                 svc.delete_test_case(test_case_id=TC_ID, ctx=ctx)
 
-    def test_delete_cascades_trace_links_and_calls_outdate_not_hard_delete(self):
-        """cascade_delete_trace_links called, then the soft-delete routes
-        through workflow.services.outdate() instead of test_case.delete()
-        (REQ-006/Phase 0)."""
+    def test_delete_does_not_cascade_trace_links_and_calls_outdate_not_hard_delete(
+        self,
+    ):
+        """GH-484: cascade_delete_trace_links is NOT called anymore — the
+        soft-delete only routes through workflow.services.outdate() instead
+        of test_case.delete() (REQ-006/Phase 0), and TraceLinks survive so
+        reactivate() (GH-443) restores them."""
         svc = TestService()
         ctx = _make_ctx()
         mock_tc = _make_test_case()
@@ -471,7 +474,7 @@ class TestDeleteTestCase:
         ):
             svc.delete_test_case(test_case_id=TC_ID, ctx=ctx)
 
-        mock_cascade.assert_called_once()
+        mock_cascade.assert_not_called()
         mock_outdate.assert_called_once_with(
             item_id=mock_tc.id,
             item_type="TestCase",

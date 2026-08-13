@@ -80,14 +80,23 @@ class CoverageCalculator:
             workspace_id: The workspace to compute coverage for.
             artifact_type: Optional artifact type filter.
             link_type: Optional link type filter (default: "verifies").
-            include_outdated: GH-443. When False (default), soft-deleted
-                (``status="outdated"``) Requirements are excluded from both
-                ``total`` and ``uncovered`` — deleting a requirement must not
-                keep dragging the coverage KPI down, and it must not reappear
-                in the uncovered list. This mirrors the long-standing default
-                of the sibling :meth:`get_coverage_data`; ``coverage()`` simply
-                never got the same treatment when Requirement DELETE became a
-                soft-delete.
+            include_outdated: GH-443/GH-484. When False (default):
+                - soft-deleted (``status="outdated"``) Requirements are
+                  excluded from both ``total`` and ``uncovered`` — deleting a
+                  requirement must not keep dragging the coverage KPI down,
+                  and it must not reappear in the uncovered list. This
+                  mirrors the long-standing default of the sibling
+                  :meth:`get_coverage_data`.
+                - ``verifies`` links whose SOURCE TestCase is itself
+                  soft-deleted (``status="outdated"``) no longer count as
+                  coverage (GH-484). TestCase/Issue/Risk soft-delete used to
+                  hard-cascade-delete their TraceLinks, so an outdated
+                  TestCase's link was already gone by the time ``coverage()``
+                  ran; now that the cascade is gone (TraceLinks survive
+                  ``reactivate()``), this method filters them out explicitly
+                  instead, using the same criterion as
+                  :meth:`_exclude_outdated_testcase_ids` (used by the sibling
+                  :meth:`get_coverage_data`) for consistency.
 
         Returns:
             CoverageReport with total, covered, uncovered, percentage.
@@ -121,6 +130,7 @@ class CoverageCalculator:
             req_artifact_ids=req_artifact_ids,
             link_type=effective_link_type,
             tenant_id=tenant_id,
+            include_outdated=include_outdated,
         )
 
         covered_req_ids = [req_id_map[aid] for aid in covered_artifact_ids if aid in req_id_map]
@@ -322,10 +332,22 @@ class CoverageCalculator:
         req_artifact_ids: list[str],
         link_type: str,
         tenant_id: uuid.UUID,
+        *,
+        include_outdated: bool = False,
     ) -> set[str]:
         """Return the set of requirement artifact IDs that have a matching link.
 
         Uses raw SQL for performance with large sets (REQ-L2-TE-012).
+
+        GH-484: when *link_type* is ``"verifies"`` (the default; per
+        ADR-L3-TE3-01 the only link type that counts for test coverage) and
+        *include_outdated* is False, links whose SOURCE TestCase is itself
+        outdated/soft-deleted are excluded from the result. TestCase
+        soft-delete no longer hard-cascade-deletes its TraceLinks, so a
+        stale link must not keep inflating the coverage percentage. Reuses
+        :meth:`_exclude_outdated_testcase_ids` — the same filter criterion
+        the sibling :meth:`get_coverage_data` already applies — for
+        consistency.
         """
         if not req_artifact_ids:
             return set()
@@ -337,7 +359,7 @@ class CoverageCalculator:
         # when its artifact id appears as the link TARGET, not the source.
         placeholders = ", ".join(["%s"] * len(req_artifact_ids))
         sql = f"""
-            SELECT DISTINCT target_id
+            SELECT DISTINCT source_id, target_id
             FROM pl_tracelink
             WHERE target_id IN ({placeholders})
               AND link_type = %s
@@ -349,7 +371,14 @@ class CoverageCalculator:
             cur.execute(sql, params)
             rows = cur.fetchall()
 
-        return {str(row[0]) for row in rows}
+        if link_type == "verifies" and not include_outdated:
+            source_ids = {str(row[0]) for row in rows}
+            active_source_ids = self._exclude_outdated_testcase_ids(source_ids)
+            return {
+                str(row[1]) for row in rows if str(row[0]) in active_source_ids
+            }
+
+        return {str(row[1]) for row in rows}
 
     def _get_verifies_links_detail(
         self,

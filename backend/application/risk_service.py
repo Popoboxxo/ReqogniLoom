@@ -5,7 +5,7 @@ leaf_id : COMP-AS-014
 req_id  : REQ-L1-029
 
 Orchestrates:
-  IF-AS-INT-002   TraceLinkService.create_trace_link / cascade_delete_trace_links
+  IF-AS-INT-002   TraceLinkService.create_trace_link
   IF-AS-INT-003   WorkflowFacade.transition (status transitions)
   IF-AS-INT-016   DomainEventBus → RiskCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-007  application.models.Risk (Django ORM)
@@ -398,7 +398,12 @@ class RiskService(ServiceBase):
 
     @atomic_transaction
     def delete_risk(self, risk_id: UUID, ctx: AuthContext) -> None:
-        """Delete Risk and cascade-delete TraceLinks (REQ-L3-RISK-004).
+        """Soft-delete a Risk via the workflow engine (REQ-L3-RISK-004).
+
+        GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
+        survive alongside the outdated Risk, symmetric with
+        Requirement/ADR/Need/etc., so ``reactivate()`` (GH-443) restores the
+        record with its links intact instead of silently losing them.
 
         Args:
             risk_id: UUID of the Risk to delete.
@@ -412,14 +417,6 @@ class RiskService(ServiceBase):
             raise NotFoundError(f"Risk {risk_id} not found")
 
         workspace_id = risk.workspace_id
-
-        try:
-            self._trace_link_service.cascade_delete_trace_links(risk_id, ctx)
-        except Exception:
-            logger.debug(
-                "RiskService.delete_risk: cascade TraceLink delete skipped for risk=%s",
-                risk_id,
-            )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of hard-deleting the row.
