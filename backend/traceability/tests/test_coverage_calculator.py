@@ -13,7 +13,7 @@ import uuid
 import pytest
 
 from traceability.coverage_calculator import CoverageCalculator
-from traceability.exceptions import InvalidFilterError
+from traceability.exceptions import BaselineCoverageNotSupportedError, InvalidFilterError
 from traceability.tests.conftest import (
     active_tenant,
     make_artifact,
@@ -352,3 +352,62 @@ class TestGetCoverageData:
         incl_tc_ids = {tc["id"] for tc in entry_incl.test_cases}
         assert str(active_tc_art.id) in incl_tc_ids
         assert str(outdated_tc_art.id) in incl_tc_ids
+
+
+# ---------------------------------------------------------------------------
+# GH-397: baseline_id must not be silently ignored
+# ---------------------------------------------------------------------------
+
+class TestBaselineIdIsNotSilentlyIgnored:
+    """Regression tests for GH-397.
+
+    Before the fix, ``get_coverage_data(workspace_id, baseline_id=...)``
+    accepted a ``baseline_id`` and silently discarded it, always computing
+    coverage against live data — the API pretended a baseline-snapshot
+    comparison had happened but always returned live data instead. The fix
+    rejects the parameter explicitly instead of a partial implementation
+    (see ``BaselineCoverageNotSupportedError`` docstring for the reasoning).
+    """
+
+    def test_baseline_id_is_rejected_explicitly(self, calc, tenant_a, workspace_a):
+        """A non-None baseline_id must raise, never silently fall back to live data."""
+        with active_tenant(tenant_a):
+            with pytest.raises(BaselineCoverageNotSupportedError) as exc_info:
+                calc.get_coverage_data(workspace_a.id, baseline_id=uuid.uuid4())
+
+        assert "baseline" in str(exc_info.value).lower()
+
+    def test_baseline_id_rejection_happens_before_any_live_computation(
+        self, calc, tenant_a, workspace_a
+    ):
+        """The old bug: a baseline_id query silently returned live coverage data.
+
+        This test reproduces the exact scenario that made GH-397 dangerous: a
+        workspace with live, non-trivial coverage data. Pre-fix, calling
+        ``get_coverage_data`` with a (nonexistent, never validated) baseline_id
+        would happily return that live data as if it were a baseline snapshot.
+        Post-fix it must raise instead of returning any CoverageData at all —
+        proving the live-data path was never silently taken.
+        """
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "Req-1")
+            tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            # Sanity check: live coverage is non-trivial (this is the data a
+            # fail-open implementation would have silently returned).
+            live_data = calc.get_coverage_data(workspace_a.id)
+            assert len(live_data.entries) == 1
+            assert live_data.entries[0].test_cases
+
+            with pytest.raises(BaselineCoverageNotSupportedError):
+                calc.get_coverage_data(workspace_a.id, baseline_id=uuid.uuid4())
+
+    def test_baseline_id_none_is_unaffected(self, calc, tenant_a, workspace_a):
+        """Explicit baseline_id=None must keep working exactly as before (live data)."""
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "Req-1")
+
+            data = calc.get_coverage_data(workspace_a.id, baseline_id=None)
+
+        assert len(data.entries) == 1

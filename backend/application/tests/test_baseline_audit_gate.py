@@ -10,8 +10,8 @@ workspace's own rigor preset already declares broken.
 
 Two layers are covered:
   * wiring — the facade consults ``AuditService.blocking_findings`` before
-    delegating to ``baseline.services.build``, and fails open on an auditor
-    malfunction (mock-level, mirroring ``test_baseline_facade.py``);
+    delegating to ``baseline.services.build``, and fails CLOSED on an auditor
+    malfunction (GH-400; mock-level, mirroring ``test_baseline_facade.py``);
   * tier behaviour — verified against real preset configs and the real
     RuleEngine, not assumed.
 """
@@ -137,11 +137,17 @@ class TestBaselineAuditGateWiring:
         scopes = mock_audit.call_args.kwargs["scopes"]
         assert scopes == [AuditScope(scope="document", artifact_id=str(doc_id))]
 
-    def test_auditor_malfunction_fails_open(self):
-        """An internal auditor error must not make baselining impossible."""
+    def test_auditor_malfunction_fails_closed(self):
+        """GH-400: an internal auditor error must BLOCK the build, not open the gate.
+
+        Regression test for the fail-open bug: the gate used to catch any
+        non-``ValidationError`` exception from ``AuditService.blocking_findings``,
+        log it, and let the baseline build proceed as if the audit had come
+        back clean. A security/compliance gate must fail closed when its own
+        evaluation is unreliable.
+        """
         facade = BaselineFacade()
         ctx = _make_ctx()
-        baseline_id = uuid.uuid4()
 
         with (
             patch("application.baseline_facade.TenantContext"),
@@ -153,16 +159,17 @@ class TestBaselineAuditGateWiring:
                 "blocking_findings",
                 side_effect=RuntimeError("engine exploded"),
             ),
-            patch("baseline.services.build", return_value=baseline_id) as mock_build,
+            patch("baseline.services.build") as mock_build,
             patch("application.baseline_facade.ServiceBase._audit"),
             patch("application.baseline_facade.ServiceBase._emit_event"),
         ):
-            result = facade.create_baseline(
-                scope="project", workspace_id=WS_ID, name="v1", ctx=ctx
-            )
+            with pytest.raises(ValidationError) as exc_info:
+                facade.create_baseline(
+                    scope="project", workspace_id=WS_ID, name="v1", ctx=ctx
+                )
 
-        assert result == baseline_id
-        mock_build.assert_called_once()
+        assert "engine exploded" in str(exc_info.value)
+        mock_build.assert_not_called()
 
     def test_warnings_do_not_block(self):
         """Only BLOCKER severity gates; WARNING findings are advisory."""

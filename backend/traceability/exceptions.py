@@ -108,6 +108,38 @@ class InvalidFilterError(TraceLinkError):
         self.value = value
 
 
+class BaselineCoverageNotSupportedError(TraceLinkError):
+    """Raised when ``baseline_id`` is passed to a coverage query (GH-397).
+
+    ``CoverageCalculator.get_coverage_data`` used to accept a ``baseline_id``
+    parameter and silently ignore it, always computing coverage against live
+    data while implying a baseline-snapshot comparison had been performed.
+    Explicit rejection is used instead of a partial/incorrect implementation
+    because ``baseline.delta_index_builder.ScopeResolver`` does not capture
+    the data needed for *any* baseline scope consistently:
+      - ``trace_link`` entries (needed to know which Requirement was
+        `verified` by which TestCase) are only captured for
+        ``scope="document"`` baselines, never for ``project``/``global``.
+      - ``test_run``/``test_run_result`` entries (needed for the per-test-case
+        result shown in the VCRM) are only captured for
+        ``scope="project"``/``"global"`` baselines, never for ``document``.
+    A real implementation therefore needs delta-index capture to be extended
+    first (a separate, larger change to baseline creation); see backend
+    developer notes for GH-397.
+    """
+
+    def __init__(self, baseline_id: object) -> None:
+        super().__init__(
+            "Coverage against a Baseline snapshot is not supported yet "
+            f"(baseline_id={baseline_id}). The Baseline delta index does not "
+            "consistently capture the TraceLink and TestRunResult data "
+            "needed to answer this for every baseline scope; omit "
+            "baseline_id to get live coverage, or see GH-397 for the "
+            "tracked follow-up to extend baseline snapshot capture."
+        )
+        self.baseline_id = baseline_id
+
+
 __all__ = [
     "TraceLinkError",
     "InvalidLinkTypeError",
@@ -118,4 +150,5 @@ __all__ = [
     "QueryTimeoutError",
     "PayloadTooLargeError",
     "InvalidFilterError",
+    "BaselineCoverageNotSupportedError",
 ]
