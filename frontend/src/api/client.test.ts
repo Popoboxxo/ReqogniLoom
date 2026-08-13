@@ -8,6 +8,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   apiClient,
+  extractApiErrorMessage,
+  extractErrorMessage,
   resetUnauthorizedGuard,
   setUnauthorizedHandler,
   RequestTimeoutError,
@@ -343,5 +345,71 @@ describe("apiClient — request timeout (GitHub #450)", () => {
     await vi.advanceTimersByTimeAsync(5_000);
 
     await assertion;
+  });
+});
+
+/**
+ * GitHub #339 / #340 — the SPA swallowed server validation errors on save.
+ *
+ * `extractApiErrorMessage` is the seam every save/create handler now uses to
+ * decide *what* to show: the server's own reason when there is one, otherwise
+ * `null` so the caller can fall back to its own localised copy instead of
+ * rendering `[object Object]`.
+ */
+describe("extractApiErrorMessage (#339/#340)", () => {
+  it("prefers the field-level detail over the generic top-level message", () => {
+    // Shape produced by build_error_response() for a serializer rejection —
+    // see backend/rest_api/tests/test_security_hardening_269.py
+    // ::test_rejection_uses_the_standard_error_envelope.
+    expect(
+      extractApiErrorMessage({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Validation failed.",
+          details: [
+            {
+              field: "title",
+              errors: [
+                "contains disallowed content: HTML markup is not permitted in free-text fields.",
+              ],
+            },
+          ],
+        },
+      })
+    ).toBe(
+      "contains disallowed content: HTML markup is not permitted in free-text fields."
+    );
+  });
+
+  it("falls back to the top-level message when there are no field details", () => {
+    // Shape produced by _service_error_response() for an application-layer
+    // ValidationError, e.g. the extended preset's change_reason policy.
+    expect(
+      extractApiErrorMessage({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "change_reason required by workspace preset policy",
+          details: [],
+        },
+      })
+    ).toBe("change_reason required by workspace preset policy");
+  });
+
+  it("returns the message of the typed errors apiFetch itself throws", () => {
+    expect(extractApiErrorMessage(new ForbiddenError())).toBe(
+      "You do not have permission to perform this action."
+    );
+  });
+
+  it("returns null for an opaque value so the caller's own copy wins", () => {
+    expect(extractApiErrorMessage({ something: "unexpected" })).toBeNull();
+    expect(extractApiErrorMessage(undefined)).toBeNull();
+  });
+
+  it("extractErrorMessage still always yields a string", () => {
+    expect(extractErrorMessage({ nope: true })).toBe("[object Object]");
+    expect(
+      extractErrorMessage({ error: { code: "X", message: "boom", details: [] } })
+    ).toBe("boom");
   });
 });

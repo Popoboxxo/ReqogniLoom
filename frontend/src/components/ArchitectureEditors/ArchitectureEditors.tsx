@@ -38,10 +38,12 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
+import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
   ArchitectureElement,
 } from "../../types";
+import styles from "./ArchitectureEditors.module.css";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
 
@@ -98,6 +100,11 @@ export default function ArchitectureEditors(): JSX.Element {
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
 
+  // #340: rejected create/delete calls used to end in a bare console.error,
+  // leaving the list unchanged and the user without any reason. One banner in
+  // the list panel serves both — they are the only two list-level writes.
+  const [listActionError, setListActionError] = useState<string | null>(null);
+
   // "Ableiten": create a Requirement allocated to the selected element
   // (SE: Req --allocated-to--> ArchitectureElement).
   const [showDeriveForm, setShowDeriveForm] = useState(false);
@@ -148,6 +155,7 @@ export default function ArchitectureEditors(): JSX.Element {
   const handleCreate = useCallback(
     async (parentId?: string, customTitle?: string): Promise<void> => {
       if (!activeWorkspace) return;
+      setListActionError(null);
       try {
         const created = await architectureApi.create({
           workspace_id: activeWorkspace.id,
@@ -160,7 +168,10 @@ export default function ArchitectureEditors(): JSX.Element {
         refresh();
         navigate(`/architecture/${created.id}`);
       } catch (err: unknown) {
-        console.error("Create failed:", err);
+        // #340 (same defect class as RequirementEditors): the server rejects
+        // markup in a title with a 400 naming the field. Logging that to the
+        // console only made a rejected create look like a silent no-op.
+        setListActionError(extractApiErrorMessage(err) ?? t("arch.createFailed"));
       }
     },
     [activeWorkspace, t, refresh, navigate]
@@ -173,15 +184,18 @@ export default function ArchitectureEditors(): JSX.Element {
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
+      setListActionError(null);
       try {
         await architectureApi.delete(id);
         refresh();
         navigate("/architecture");
       } catch (err: unknown) {
-        console.error("Delete failed:", err);
+        // #340: a refused delete used to leave the element in the tree with
+        // no explanation. Shares the list-panel banner with create.
+        setListActionError(extractApiErrorMessage(err) ?? t("arch.deleteFailed"));
       }
     },
-    [refresh, navigate]
+    [refresh, navigate, t]
   );
 
   // Filter elements by search and convert to WorkspaceTreeNode[] (REQ-003).
@@ -353,6 +367,13 @@ export default function ArchitectureEditors(): JSX.Element {
           }
         />
       </div>
+
+      {/* #340: server rejection of a list-level write (create/delete). */}
+      {listActionError && (
+        <p role="alert" data-testid="arch-action-error" className={styles.actionError}>
+          {listActionError}
+        </p>
+      )}
 
       {/* Inline create form */}
       {showCreateForm && (
