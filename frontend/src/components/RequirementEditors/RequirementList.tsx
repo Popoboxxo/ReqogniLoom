@@ -47,20 +47,34 @@ function getTypeColor(type?: RequirementType): string {
 }
 
 /**
+ * Issue #394: V-model level badge prefix (`L0`-`L4`), rendered in front of
+ * the type abbreviation — analogous to the `L{n}` badge ArchitectureElement
+ * already shows (issue root cause: "L1/L2 requirements are visually
+ * identical, flat list without hierarchy indicator"). Empty string when the
+ * level has not been assigned (NULL until set explicitly, see
+ * `persistence.models.Requirement.level`).
+ */
+function reqLevelPrefix(level?: number | null): string {
+  return level != null ? `L${level} ` : '';
+}
+
+/**
  * Map a Requirement to a WorkspaceTreeNode with optional parent hierarchy.
  *
  * @param req - Requirement to convert.
  * @param typeLabel - Spelled-out label for `req.type` (e.g. from
  *   `t('reqType.SyReq')`), used as the badge tooltip/aria-label
  *   (issue #169 — "SR" abbreviation without legend).
+ * @param levelLabel - Spelled-out label for `req.level` (e.g. from
+ *   `t('reqLevel.L1')`), appended to the tooltip (issue #394).
  */
-function reqToNode(req: Requirement, typeLabel?: string): WorkspaceTreeNode {
+function reqToNode(req: Requirement, typeLabel?: string, levelLabel?: string): WorkspaceTreeNode {
   const badge = req.type
     ? {
-        text: getTypeBadgeAbbreviation(req.type),
+        text: reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type),
         bg: getTypeColor(req.type),
         color: 'white',
-        title: typeLabel,
+        title: levelLabel ? `${levelLabel} · ${typeLabel ?? ''}` : typeLabel,
       }
     : undefined;
   return {
@@ -146,7 +160,11 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   const treeNodes = useMemo(
     () =>
       visibleRequirements.map((req) =>
-        reqToNode(req, req.type ? t(`reqType.${req.type}`) : undefined),
+        reqToNode(
+          req,
+          req.type ? t(`reqType.${req.type}`) : undefined,
+          req.level != null ? t(`reqLevel.L${req.level}`) : undefined,
+        ),
       ),
     [visibleRequirements, t],
   );
@@ -305,8 +323,18 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               <ArtifactRow
                 id={req.uid}
                 idFallback={req.id.slice(0, 8)}
-                levelLabel={req.type ? getTypeBadgeAbbreviation(req.type) : undefined}
-                levelTitle={req.type ? t(`reqType.${req.type}`) : undefined}
+                levelLabel={
+                  req.type
+                    ? reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type)
+                    : undefined
+                }
+                levelTitle={
+                  req.type
+                    ? req.level != null
+                      ? `${t(`reqLevel.L${req.level}`)} · ${t(`reqType.${req.type}`)}`
+                      : t(`reqType.${req.type}`)
+                    : undefined
+                }
                 title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
                 status={req.status}
                 statusLabel={getWorkflowStatusLabel(req.status)}

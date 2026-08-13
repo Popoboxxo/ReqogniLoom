@@ -220,6 +220,8 @@
     "verificationMethod": "Verification Method",
     "verificationMethodRequired": "Verification method is required.",
     "complexityFibonacci": "Complexity (Fibonacci)",
+    "level": "V-Model Level",
+    "levelUnset": "-- Not set --",
     "selectOption": "Select Option",
     "exportPdf": "Export PDF",
     "titleRequired": "Title is required.",
@@ -656,6 +658,13 @@
     "FeatureReq": "Feature Requirement (FeatureReq)",
     "SWReq": "Software Requirement (SWReq)",
     "HWReq": "Hardware Requirement (HWReq)"
+  },
+  "reqLevel": {
+    "L0": "L0 System",
+    "L1": "L1 Subsystem",
+    "L2": "L2 Component",
+    "L3": "L3 Part",
+    "L4": "L4 Material"
   },
   "testRuns": {
     "create": "Create Run",

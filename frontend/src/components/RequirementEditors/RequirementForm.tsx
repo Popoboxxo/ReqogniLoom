@@ -26,6 +26,8 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   Requirement,
   RequirementType,
+  RequirementLevel,
+  REQUIREMENT_LEVELS,
   VerificationMethod,
   UUID,
   TraceLink,
@@ -123,6 +125,11 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [verificationMethod, setVerificationMethod] = useState<VerificationMethod | ''>(
     requirement.verification_method || ''
   );
+  // Issue #394: V-model hierarchy level (L0-L4). `''` represents "not set"
+  // (backend field is nullable and NULL until assigned explicitly).
+  const [level, setLevel] = useState<RequirementLevel | ''>(
+    requirement.level ?? ''
+  );
   // REQ-L2-AS-037: user-defined custom fields (stored on the backing Artifact).
   const [customFields, setCustomFields] = useState<CustomFields>(
     requirement.custom_fields || {}
@@ -150,6 +157,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     setType(requirement.type || 'SyReq');
     setComplexityFibonacci(requirement.complexity_fibonacci || 1);
     setVerificationMethod(requirement.verification_method || '');
+    setLevel(requirement.level ?? '');
     setCustomFields(requirement.custom_fields || {});
     setSaveError(null);
   }, [requirement]);
@@ -222,6 +230,10 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         acceptance_criteria: acceptanceCriteria,
         category,
         type,
+        // Issue #394: always sent (like `category`) — `''` maps to `null` so
+        // an explicit "not set" selection actually clears a previously
+        // assigned level instead of being silently dropped.
+        level: level === '' ? null : level,
       };
 
       // #344: never send an empty `change_reason`. It is not a content field —
@@ -265,6 +277,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     type,
     complexityFibonacci,
     verificationMethod,
+    level,
     customFields,
     onSaved,
   ]);
@@ -529,6 +542,33 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               </div>
             )}
 
+            {/* Issue #394: V-model hierarchy level (L0-L4). Previously the
+                model field existed (`persistence.models.Requirement.level`)
+                but had no editor — this is the field-level equivalent of the
+                `L{n}` badge ArchitectureElement already shows. Rendered
+                unconditionally (no isFieldVisible gate, like `type`'s
+                sibling `complexity_fibonacci`/`verification_method` fields
+                are gated by SyReq-only visibility) since the level applies to
+                every requirement type, not just SyReq. */}
+            <div>
+              <label htmlFor="req-level" style={labelStyle}>
+                {t('editor.level')}
+              </label>
+              <select
+                id="req-level"
+                data-testid="req-level"
+                value={level}
+                onChange={(e) => setLevel(e.target.value === '' ? '' : (Number(e.target.value) as RequirementLevel))}
+                style={inputStyle}
+              >
+                <option value="">{t('editor.levelUnset')}</option>
+                {REQUIREMENT_LEVELS.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {t(`reqLevel.L${lvl}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {type === 'SyReq' && isFieldVisible('complexity_fibonacci') && (
               <div>
