@@ -59,5 +59,5 @@ def test_post_without_trailing_slash_leaks_nothing_even_in_debug_mode() -> None:
 def test_post_with_trailing_slash_still_reaches_the_view() -> None:
     """Sanity/no-regression: the well-formed URL is unaffected by the fix."""
     response = APIClient().post("/api/v1/requirements/", data={}, format="json")
-    # Unauthenticated -> 403, but it must reach the view (not 404/500).
-    assert response.status_code == 403
+    # Unauthenticated (missing credentials) -> 401 (#476), but it must reach the view (not 404/500).
+    assert response.status_code == 401
