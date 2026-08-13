@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enforce human review gate for extended-tier workspace baselines (#491)
   - Correct trace-link type documentation to match 15-type enum (#493)
   - Display requirement level (V-model L0–L4) in UI artifact headers (#494)
+  - Keep TraceLinks alive across TestCase/Issue/Risk soft-delete + reactivate; exclude outdated TestCases from coverage calculation (#484, PR #509)
+- **Baseline:** Fix `TypeError` in `baseline/tests/test_diff_value_based_398.py` after `DiffEngine.diff()` gained a required `tenant_id` parameter (#464 follow-up); adds explicit cross-tenant isolation regression test (#483, PR #508)
 - **MCP & API Transport:** Enable SSE transport via ASGI; REST API bundle/schema consistency aligned (#485, #477, #462)
 - **Plugin Marketplace:** Write Claude Code plugin marketplace.json to correct path (#492)
 - **Permission & Auth:** Workspace-scope admin checks for permissions.revoke and events.dlq_* operations (#467); enforce REQ-106 token budget and audit trail for 3 LLM copilot flows (#471)
