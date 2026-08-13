@@ -9,28 +9,67 @@ test.describe('[REQ-L2-ICD-001] ICD CRUD API', () => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
 
-    // Fetch existing ArchitectureElement artifacts for source/target element IDs.
+    // Provision the two ArchitectureElement artifacts this test needs.
     // NOTE: /api/v1/icds/ requires source_element_id/target_element_id to
     // reference ArchitectureElement artifacts (backend/icd/icd_manager.py).
     // The generic /api/v1/artifacts/ endpoint returns the workspace's whole
     // artifact tree (all types, e.g. StakeholderNeed) and does not support
-    // filtering by artifact_type, so it cannot reliably be used here — use
-    // the dedicated /api/v1/architecture/ endpoint instead.
-    const architectureResp = await request.get(
+    // filtering by artifact_type, so it cannot be used here — use the
+    // dedicated /api/v1/architecture/ endpoint instead.
+    //
+    // The elements MUST be created here rather than read from whatever the
+    // seeded workspace happens to contain: `seed_demo` provisions only the
+    // tenant/user/workspace and no artifacts at all, and the suite runs
+    // sharded (`--shard=N/4`) with a *separate database per shard job*. The
+    // specs that do create architecture elements (architecture.spec.ts,
+    // architecture-editor.spec.ts) land in shard 1 while this file lands in
+    // shard 2, so relying on their leftovers made this test fail on every
+    // sharded CI run while passing on an unsharded local run.
+    //
+    // Invariant I5 (backend/application/validators.py) allows a workspace
+    // exactly one *root* element, so the second element has to be attached
+    // under the first via `parent_id` — creating two roots returns 400.
+    // Existing elements are reused when the workspace already has some (a
+    // long-lived dev database, or a shard that did run the architecture
+    // specs first), and only the ones created here are cleaned up again.
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const createdElementIds: string[] = [];
+
+    const createElement = async (title: string, parentId?: string): Promise<string> => {
+      const resp = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
+        headers,
+        data: {
+          workspace_id: SEEDED_WORKSPACE_ID,
+          title,
+          element_type: 'component',
+          ...(parentId ? { parent_id: parentId } : {}),
+        },
+      });
+      expect(resp.status(), await resp.text()).toBe(201);
+      const element = await resp.json();
+      expect(element.id).toBeDefined();
+      createdElementIds.push(element.id as string);
+      return element.id as string;
+    };
+
+    const elementsResp = await request.get(
       `${BACKEND_URL}/api/v1/architecture/?workspace_id=${SEEDED_WORKSPACE_ID}`,
       { headers },
     );
-    let sourceId: string;
-    let targetId: string;
+    expect(elementsResp.status()).toBe(200);
+    const elementsBody = await elementsResp.json();
+    const existing: Record<string, unknown>[] = Array.isArray(elementsBody)
+      ? elementsBody
+      : (elementsBody.results ?? []);
 
-    expect(architectureResp.status()).toBe(200);
-    const architectureElements = await architectureResp.json();
-    const elementList: Record<string, unknown>[] = Array.isArray(architectureElements)
-      ? architectureElements
-      : (architectureElements.results ?? []);
-    expect(elementList.length).toBeGreaterThanOrEqual(2);
-    sourceId = elementList[0].id as string;
-    targetId = elementList[1].id as string;
+    const rootId =
+      (existing.find((el) => el.parent_id == null)?.id as string | undefined) ??
+      (await createElement(`E2E ICD Root Element ${suffix}`));
+    const sourceId = rootId;
+    const targetId =
+      (existing.find((el) => (el.id as string) !== rootId)?.id as string | undefined) ??
+      (await createElement(`E2E ICD Target Element ${suffix}`, rootId));
+    expect(sourceId).not.toBe(targetId);
 
     // Step 1: Create an ICD
     const createResp = await request.post(`${BACKEND_URL}/api/v1/icds/`, {
@@ -95,5 +134,12 @@ test.describe('[REQ-L2-ICD-001] ICD CRUD API', () => {
     // Step 7: Verify deletion
     const getDeletedResp = await request.get(`${BACKEND_URL}/api/v1/icds/${icdId}/`, { headers });
     expect(getDeletedResp.status()).toBe(404);
+
+    // Cleanup: remove only the architecture elements provisioned above (leaves
+    // first, so a child is never orphaned) so repeated runs against a
+    // long-lived dev database don't accumulate them.
+    for (const elementId of [...createdElementIds].reverse()) {
+      await request.delete(`${BACKEND_URL}/api/v1/architecture/${elementId}/`, { headers });
+    }
   });
 });
