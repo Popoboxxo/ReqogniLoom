@@ -330,7 +330,13 @@
     "architectureGroup": "Architecture Elements",
     "other": "Other Links",
     "allLinkTypes": "All link types",
-    "emptyTitle": "No trace links yet"
+    "emptyTitle": "No trace links yet",
+    "coverageSummary": "{{covered}}/{{total}} requirements verified · {{uncovered}} without a test",
+    "showUncoveredOnly": "Only requirements without coverage",
+    "verified": "verified",
+    "notVerified": "no test",
+    "allCoveredTitle": "All requirements are verified",
+    "allCoveredDescription": "Every requirement has at least one verifying test case."
   },
   "createTraceLinkDialog": {
     "title": "Create Trace Link",
@@ -517,7 +523,10 @@
   },
   "impact": {
     "summaryRootSelected": "Starting from: {{title}}",
-    "summaryNoRoot": "No artifact selected"
+    "summaryNoRoot": "No artifact selected",
+    "cycleBadge": "cycle",
+    "cycleDetected": "Already on this path (cycle)",
+    "maxDepthReached": "Maximum depth reached"
   },
   "issues": {
     "selectIssue": "Select an issue from the list to view details.",

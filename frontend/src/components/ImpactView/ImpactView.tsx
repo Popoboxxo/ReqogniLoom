@@ -27,9 +27,18 @@
  * now only pre-selects an artifact and hands it off here via sessionStorage
  * (see impact-preset.ts), so the root can be loaded directly without a
  * repeat search.
+ *
+ * issue #415: the tree traverses trace links in *both* directions, so without
+ * a visited set every edge can be walked straight back (`L1 -> L2 -> L1 -> …`)
+ * — five artifacts and four links expanded into 25+ nodes. Each node now
+ * carries the set of artifact ids on its path from the root; a child already
+ * on that path is rendered once, marked as a cycle, and cannot be expanded
+ * again. The root additionally derives its own title from the endpoint
+ * metadata of its first link fetch, so a handed-off root without a resolved
+ * title no longer stays a bare UUID while its children show titles.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
 import { searchApi } from "../../api/search";
@@ -38,10 +47,20 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { PageHeader } from "../shared/PageHeader";
 import { IMPACT_PRESET_STORAGE_KEY } from "./impact-preset";
+import {
+  endpointOf,
+  formatShortId,
+  neighborOf,
+  type TraceDirection,
+} from "../../utils/traceEndpoints";
+import styles from "./ImpactView.module.css";
 import type { TraceLink, UUID } from "../../types";
 
 /** Maximum tree depth — bounds recursion for cyclic/dense trace graphs. */
 const MAX_DEPTH = 4;
+
+/** Stable empty path set for the root node (#415) — avoids a new Set per render. */
+const EMPTY_VISITED: ReadonlySet<UUID> = new Set<UUID>();
 
 /** A resolved artifact endpoint of a trace link (id + display metadata). */
 interface TreeArtifact {
@@ -53,33 +72,60 @@ interface TreeArtifact {
 /** One outgoing/incoming trace-link edge from a tree node to a child artifact. */
 interface ChildEdge {
   link: TraceLink;
-  direction: "outgoing" | "incoming";
+  direction: TraceDirection;
   child: TreeArtifact;
+  /** #415: child already occurs on the path from the root — do not recurse. */
+  isCycle: boolean;
 }
 
 /**
  * Builds child edges from the raw TraceLink list returned for a node.
  * "outgoing" means the current node is the link's source ("A derives-from B"
  * read as A -> B); "incoming" means the current node is the target.
+ *
+ * #415: duplicate edges (same direction, link type and child) collapse into
+ * one, and edges pointing back onto the node's own path are flagged so the
+ * renderer can stop the traversal there instead of oscillating forever.
  */
-function toChildEdges(nodeId: UUID, links: TraceLink[]): ChildEdge[] {
-  return links
-    .map((link) => {
-      const outgoing = link.source_id === nodeId;
-      const child: TreeArtifact = outgoing
-        ? {
-            id: link.target_id,
-            title: link.target_title ?? "",
-            artifactType: link.target_type ?? "",
-          }
-        : {
-            id: link.source_id,
-            title: link.source_title ?? "",
-            artifactType: link.source_type ?? "",
-          };
-      return { link, direction: outgoing ? "outgoing" : "incoming", child } as ChildEdge;
-    })
-    .filter((edge) => edge.child.id !== nodeId);
+function toChildEdges(
+  nodeId: UUID,
+  links: TraceLink[],
+  visitedIds: ReadonlySet<UUID>
+): ChildEdge[] {
+  const selfIds: ReadonlySet<UUID> = new Set([nodeId]);
+  const edges: ChildEdge[] = [];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const neighbor = neighborOf(link, selfIds);
+    if (!neighbor) continue; // self-link or unrelated link
+    const dedupeKey = `${neighbor.direction}:${link.link_type}:${neighbor.endpoint.id}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    edges.push({
+      link,
+      direction: neighbor.direction,
+      child: neighbor.endpoint,
+      isCycle: visitedIds.has(neighbor.endpoint.id),
+    });
+  }
+  return edges;
+}
+
+/**
+ * #415: the artifact a node was fetched for appears on one side of every link
+ * returned for it, with its title resolved by the backend — so a node handed
+ * in without a title can recover its own from the first fetch.
+ */
+function selfTitleFromLinks(nodeId: UUID, links: TraceLink[]): TreeArtifact | null {
+  for (const link of links) {
+    for (const side of ["source", "target"] as const) {
+      const endpoint = endpointOf(link, side);
+      if (endpoint.id === nodeId && endpoint.title) {
+        return { id: nodeId, title: endpoint.title, artifactType: endpoint.artifactType };
+      }
+    }
+  }
+  return null;
 }
 
 /** Groups child edges by "direction:link_type" so the tree renders one
@@ -104,6 +150,13 @@ interface ArtifactTreeNodeProps {
   node: TreeArtifact;
   depth: number;
   onlyActive: boolean;
+  /**
+   * #415: artifact ids on the path from the root down to (and including) this
+   * node. A child already in this set closes a cycle and is not expandable.
+   */
+  visitedIds: ReadonlySet<UUID>;
+  /** #415: this node closes a cycle — render it, but never traverse further. */
+  isCycle?: boolean;
 }
 
 function ArtifactTreeNode({
@@ -111,17 +164,26 @@ function ArtifactTreeNode({
   node,
   depth,
   onlyActive,
+  visitedIds,
+  isCycle = false,
 }: ArtifactTreeNodeProps): JSX.Element {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState<boolean>(false);
   const [edges, setEdges] = useState<ChildEdge[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // #415: title recovered from the node's own link fetch when the caller could
+  // not supply one (e.g. a root handed over from the traceability view).
+  const [resolvedSelf, setResolvedSelf] = useState<TreeArtifact | null>(null);
 
   const atMaxDepth = depth >= MAX_DEPTH;
+  const childVisitedIds = useMemo(
+    () => new Set<UUID>([...visitedIds, node.id]),
+    [visitedIds, node.id]
+  );
 
   const toggle = async (): Promise<void> => {
-    if (atMaxDepth) return;
+    if (atMaxDepth || isCycle) return;
     if (expanded) {
       setExpanded(false);
       return;
@@ -131,7 +193,8 @@ function ArtifactTreeNode({
       setError(null);
       try {
         const resp = await tracelinksApi.listForArtifact(workspaceId, node.id);
-        setEdges(toChildEdges(node.id, resp.results));
+        setEdges(toChildEdges(node.id, resp.results, childVisitedIds));
+        if (!node.title) setResolvedSelf(selfTitleFromLinks(node.id, resp.results));
       } catch (err: unknown) {
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
@@ -154,11 +217,20 @@ function ArtifactTreeNode({
   );
   const groups = groupEdges(visibleEdges);
 
+  // #415: root and child nodes share one title code path — backend-resolved
+  // title first, then the title recovered from this node's own links, then a
+  // shortened id (never the full raw UUID the audit saw on the root).
+  const displayType = node.artifactType || resolvedSelf?.artifactType || "?";
+  const displayTitle =
+    node.title || resolvedSelf?.title || formatShortId(node.id);
+  const toggleDisabled = atMaxDepth || isCycle;
+
   return (
     <div style={{ marginLeft: depth === 0 ? 0 : "var(--space-5)" }}>
       <div
         data-testid="impact-tree-node"
         data-depth={depth}
+        data-cycle={isCycle ? "true" : undefined}
         style={{
           display: "flex",
           alignItems: "center",
@@ -171,24 +243,26 @@ function ArtifactTreeNode({
           type="button"
           data-testid="impact-node-toggle"
           onClick={() => void toggle()}
-          disabled={atMaxDepth}
+          disabled={toggleDisabled}
           aria-expanded={expanded}
           title={
-            atMaxDepth
-              ? t("impact.maxDepthReached", "Maximale Tiefe erreicht")
-              : undefined
+            isCycle
+              ? t("impact.cycleDetected", "Bereits im Pfad enthalten (Zyklus)")
+              : atMaxDepth
+                ? t("impact.maxDepthReached", "Maximale Tiefe erreicht")
+                : undefined
           }
           style={{
             background: "none",
             border: "none",
-            cursor: atMaxDepth ? "not-allowed" : "pointer",
+            cursor: toggleDisabled ? "not-allowed" : "pointer",
             fontSize: "var(--font-size-sm)",
             color: "var(--color-text-muted)",
             width: "1.25em",
             padding: 0,
           }}
         >
-          {atMaxDepth ? "·" : expanded ? "▼" : "▶"}
+          {toggleDisabled ? "·" : expanded ? "▼" : "▶"}
         </button>
         <span
           data-testid="impact-node-type"
@@ -201,11 +275,16 @@ function ArtifactTreeNode({
             fontWeight: 500,
           }}
         >
-          {node.artifactType || "?"}
+          {displayType}
         </span>
         <span style={{ fontWeight: 500, color: "var(--color-text)" }}>
-          {node.title || node.id}
+          {displayTitle}
         </span>
+        {isCycle && (
+          <span data-testid="impact-cycle-badge" className={styles.cycleBadge}>
+            ↺ {t("impact.cycleBadge", "Zyklus")}
+          </span>
+        )}
       </div>
 
       {expanded && (
@@ -278,6 +357,8 @@ function ArtifactTreeNode({
                       node={edge.child}
                       depth={depth + 1}
                       onlyActive={onlyActive}
+                      visitedIds={childVisitedIds}
+                      isCycle={edge.isCycle}
                     />
                   ))}
                 </div>
@@ -312,9 +393,16 @@ export function ImpactView(): JSX.Element {
       if (!raw) return;
       sessionStorage.removeItem(IMPACT_PRESET_STORAGE_KEY);
       const preset = JSON.parse(raw) as { id?: string; title?: string; artifactType?: string };
-      if (preset.id && preset.title && preset.artifactType) {
-        setRootArtifact({ id: preset.id, title: preset.title, artifactType: preset.artifactType });
-        setQuery(preset.title);
+      // #415: only the id is mandatory. Requiring title+type meant a handoff
+      // whose title could not be resolved was dropped entirely; the node now
+      // recovers both from its own trace-link fetch.
+      if (preset.id) {
+        setRootArtifact({
+          id: preset.id,
+          title: preset.title ?? "",
+          artifactType: preset.artifactType ?? "",
+        });
+        if (preset.title) setQuery(preset.title);
       }
     } catch {
       // Malformed/absent preset — fall back to the normal search flow.
@@ -529,6 +617,7 @@ export function ImpactView(): JSX.Element {
                 node={rootArtifact}
                 depth={0}
                 onlyActive={onlyActive}
+                visitedIds={EMPTY_VISITED}
               />
             </section>
           )}

@@ -330,7 +330,13 @@
     "architectureGroup": "Architekturelemente",
     "other": "Weitere Links",
     "allLinkTypes": "Alle Verknüpfungstypen",
-    "emptyTitle": "Noch keine Verknüpfungen"
+    "emptyTitle": "Noch keine Verknüpfungen",
+    "coverageSummary": "{{covered}}/{{total}} Anforderungen verifiziert · {{uncovered}} ohne Test",
+    "showUncoveredOnly": "Nur nicht abgedeckte Anforderungen",
+    "verified": "verifiziert",
+    "notVerified": "kein Test",
+    "allCoveredTitle": "Alle Anforderungen sind verifiziert",
+    "allCoveredDescription": "Jede Anforderung hat mindestens einen verifizierenden Testfall."
   },
   "createTraceLinkDialog": {
     "title": "Trace-Link erstellen",
@@ -517,7 +523,10 @@
   },
   "impact": {
     "summaryRootSelected": "Ausgehend von: {{title}}",
-    "summaryNoRoot": "Kein Artefakt ausgewählt"
+    "summaryNoRoot": "Kein Artefakt ausgewählt",
+    "cycleBadge": "Zyklus",
+    "cycleDetected": "Bereits im Pfad enthalten (Zyklus)",
+    "maxDepthReached": "Maximale Tiefe erreicht"
   },
   "issues": {
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",

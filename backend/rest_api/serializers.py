@@ -472,6 +472,15 @@ class RequirementSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # Issue #413/#416: id of the owning Artifact. TraceLink endpoints are
+    # Artifact ids, never Requirement ids, so without this field the UI cannot
+    # tell whether a link endpoint *is* the requirement it is rendering — the
+    # traceability list fell back to raw UUIDs and the requirement editor's
+    # hierarchy panel resolved every link back to the artifact itself.
+    # ``_dto_from_orm`` has always supplied the value; the serializer just
+    # never declared the field, so DRF dropped it. Read-only, nullable,
+    # matching StakeholderNeedSerializer / ArchitectureElementSerializer.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)

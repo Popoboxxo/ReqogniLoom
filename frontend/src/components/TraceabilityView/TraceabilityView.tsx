@@ -8,6 +8,22 @@
  * Each link shows source -> link_type -> target, resolving requirement
  * titles where possible so the table stays human-readable.
  *
+ * Issue #413: "where possible" used to mean "never". TraceLink endpoints are
+ * **Artifact** ids, while the title index was built from entity list responses
+ * keyed by *entity* id (`Requirement.id`, `ArchitectureElement.id`, ...) — two
+ * disjoint id spaces, so every lookup missed and the whole view degraded to
+ * truncated UUID pairs, while `/impact` (which reads the backend-supplied
+ * `source_title`/`target_title`) showed titles for the very same links. The
+ * index is now keyed by Artifact id and seeded from the link payload itself;
+ * entity lists only add titles for artifacts that appear in no link at all.
+ * The same index feeds the impact hand-off, whose root node showed a bare
+ * UUID for exactly this reason (#415).
+ *
+ * Issue #413 also adds the coverage surface: every Requirement endpoint is
+ * marked verified / not verified, and a filter lists the requirements with no
+ * verifying test at all — including those with no trace link whatsoever, which
+ * a link-centric list can never show.
+ *
  * Interfaces consumed:
  *   IF-RF-EXT-OUT-001 → GET  /api/v1/tracelinks/?workspace_id=<id>
  *   IF-RF-EXT-OUT-001 → POST /api/v1/tracelinks/
@@ -41,6 +57,14 @@ import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
 import { IMPACT_PRESET_STORAGE_KEY } from "../ImpactView/impact-preset";
 import type { ImpactPreset } from "../ImpactView/impact-preset";
+import {
+  buildArtifactTitleIndex,
+  collectVerifiedArtifactIds,
+  endpointOf,
+  formatShortId,
+  type TraceEndpoint,
+} from "../../utils/traceEndpoints";
+import styles from "./TraceabilityView.module.css";
 import type {
   ArchitectureElement,
   Artifact,
@@ -52,8 +76,13 @@ import type {
 
 interface TraceabilityState {
   links: TraceLink[];
+  /** Artifact-id keyed display titles (#413) — never entity-id keyed. */
   titles: Record<UUID, string>;
+  /** Artifact-id keyed artifact types (#413). */
+  types: Record<UUID, string>;
   artifacts: Artifact[];
+  /** Workspace requirements, for the coverage surface (#413). */
+  requirements: Requirement[];
   cycles: UUID[][];
   isLoading: boolean;
   error: string | null;
@@ -62,11 +91,16 @@ interface TraceabilityState {
 const INITIAL_STATE: TraceabilityState = {
   links: [],
   titles: {},
+  types: {},
   artifacts: [],
+  requirements: [],
   cycles: [],
   isLoading: true,
   error: null,
 };
+
+/** Artifact type of a requirement endpoint, as reported by the backend. */
+const REQUIREMENT_ARTIFACT_TYPE = "Requirement";
 
 // Canonical link_type order (REQ-L2-RF-006 — predictable section order).
 // Sourced from the shared label map so all 12 backend link types are covered.
@@ -74,10 +108,6 @@ const LINK_TYPE_ORDER: string[] = ALL_LINK_TYPES;
 
 
 const MAX_TITLE_LENGTH = 60;
-
-function formatId(id: UUID): string {
-  return `${id.slice(0, 8)}…`;
-}
 
 // Truncate long titles so the artifact selector stays scannable (issue #51).
 function truncateTitle(title: string): string {
@@ -88,13 +118,63 @@ function truncateTitle(title: string): string {
 
 function renderEndpoint(id: UUID, titles: Record<UUID, string>): string {
   const title = titles[id];
-  return title ? `${truncateTitle(title)} (${formatId(id)})` : formatId(id);
+  return title ? `${truncateTitle(title)} (${formatShortId(id)})` : formatShortId(id);
 }
 
 function artifactLabel(a: Artifact, titles: Record<UUID, string>): string {
   const title = titles[a.id];
-  if (title) return `${a.artifact_type}: ${truncateTitle(title)} (${formatId(a.id)})`;
-  return `${a.artifact_type} (${formatId(a.id)})`;
+  if (title) return `${a.artifact_type}: ${truncateTitle(title)} (${formatShortId(a.id)})`;
+  return `${a.artifact_type} (${formatShortId(a.id)})`;
+}
+
+/**
+ * One rendered trace-link endpoint (#413): artifact-type badge, resolved
+ * title and — for requirements — its verification-coverage marker.
+ */
+function EndpointCell({
+  endpoint,
+  titles,
+  types,
+  verifiedIds,
+  testId,
+  coveredLabel,
+  uncoveredLabel,
+}: {
+  endpoint: TraceEndpoint;
+  titles: Record<UUID, string>;
+  types: Record<UUID, string>;
+  verifiedIds: ReadonlySet<UUID>;
+  testId: string;
+  coveredLabel: string;
+  uncoveredLabel: string;
+}): JSX.Element {
+  const artifactType = endpoint.artifactType || types[endpoint.id] || "";
+  const title = endpoint.title || titles[endpoint.id] || "";
+  const isRequirement = artifactType === REQUIREMENT_ARTIFACT_TYPE;
+  const isVerified = verifiedIds.has(endpoint.id);
+
+  return (
+    <span data-testid={testId} className={styles.endpoint}>
+      {artifactType && (
+        <span data-testid={`${testId}-type`} className={styles.endpointType}>
+          {artifactType}
+        </span>
+      )}
+      <span className={styles.endpointTitle} title={title || endpoint.id}>
+        {title ? truncateTitle(title) : formatShortId(endpoint.id)}
+      </span>
+      {title && <span className={styles.endpointId}>({formatShortId(endpoint.id)})</span>}
+      {isRequirement && (
+        <span
+          data-testid="tracelink-coverage-badge"
+          data-covered={isVerified ? "true" : "false"}
+          className={`${styles.coverageBadge} ${isVerified ? styles.covered : styles.uncovered}`}
+        >
+          {isVerified ? `✓ ${coveredLabel}` : `⚠ ${uncoveredLabel}`}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function groupByLinkType(links: TraceLink[]): Record<string, TraceLink[]> {
@@ -132,20 +212,16 @@ export default function TraceabilityView(): JSX.Element {
   // REQ-005/#181: list-panel search + link-type filter (ListToolbar).
   const [listSearch, setListSearch] = useState<string>("");
   const [linkTypeFilter, setLinkTypeFilter] = useState<string>("");
+  // #413: "nicht abgedeckt" filter — swaps the link list for the list of
+  // requirements without a verifying test.
+  const [showUncoveredOnly, setShowUncoveredOnly] = useState<boolean>(false);
 
   useEffect(() => {
     // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
     // (truthy fake UUID) until isLoadingWorkspace flips to false, so a bare
     // `!activeWorkspace` guard fires against the fake id (401).
     if (!activeWorkspace || isLoadingWorkspace) {
-      setState({
-        links: [],
-        titles: {},
-        artifacts: [],
-        cycles: [],
-        isLoading: false,
-        error: null,
-      });
+      setState({ ...INITIAL_STATE, isLoading: false });
       return;
     }
 
@@ -186,7 +262,10 @@ export default function TraceabilityView(): JSX.Element {
           cyclesResp,
         ] = await Promise.all([
           tracelinksApi.listAll(activeWorkspace.id),
-          requirementsApi.list(activeWorkspace.id),
+          // #413: listAll, not list — the coverage panel must know about
+          // *every* requirement, and a page-size-25 slice would silently
+          // report the requirements on page 2 as fully covered.
+          requirementsApi.listAll(activeWorkspace.id),
           architectureApi.list(activeWorkspace.id),
           testcasesApi.listAll(activeWorkspace.id),
           artifactsApi.list(activeWorkspace.id),
@@ -199,36 +278,66 @@ export default function TraceabilityView(): JSX.Element {
         ]);
         if (cancelled) return;
 
+        // #413: everything is keyed by **Artifact** id, because that is what
+        // a TraceLink endpoint is. Entities that expose their backing
+        // `artifact_id` are indexed under it; the remaining ones (TestCase
+        // has no `artifact_id` in its serializer) fall back to their entity
+        // id, which is harmless — the link payload below overwrites any
+        // entry for an artifact that actually participates in a link.
         const titles: Record<UUID, string> = {};
-        for (const r of reqResp.results as Requirement[]) {
-          titles[r.id] = r.title || t("editor.untitled");
+        const types: Record<UUID, string> = {};
+        const requirements = reqResp as Requirement[];
+        const indexEntity = (
+          entityId: UUID,
+          artifactId: UUID | undefined,
+          title: string | undefined,
+          artifactType: string
+        ): void => {
+          titles[artifactId ?? entityId] = title || t("editor.untitled");
+          types[artifactId ?? entityId] = artifactType;
+        };
+
+        for (const r of requirements) {
+          indexEntity(r.id, r.artifact_id, r.title, "Requirement");
         }
         for (const el of archResp.results as ArchitectureElement[]) {
-          titles[el.id] = el.title || t("editor.untitled");
+          indexEntity(el.id, el.artifact_id, el.title, "ArchitectureElement");
         }
         for (const tc of tcResp) {
-          titles[tc.id] = tc.title || t("editor.untitled");
+          indexEntity(tc.id, undefined, tc.title, "TestCase");
         }
-        for (const rk of riskResp as { id: UUID; title?: string }[]) {
-          titles[rk.id] = rk.title || t("editor.untitled");
+        for (const rk of riskResp as { id: UUID; artifact_id?: UUID; title?: string }[]) {
+          indexEntity(rk.id, rk.artifact_id, rk.title, "Risk");
         }
-        for (const is of issueResp as { id: UUID; title?: string }[]) {
-          titles[is.id] = is.title || t("editor.untitled");
+        for (const is of issueResp as { id: UUID; artifact_id?: UUID; title?: string }[]) {
+          indexEntity(is.id, is.artifact_id, is.title, "Issue");
         }
-        for (const ad of adrResp as { id: UUID; title?: string }[]) {
-          titles[ad.id] = ad.title || t("editor.untitled");
+        for (const ad of adrResp as { id: UUID; artifact_id?: UUID; title?: string }[]) {
+          indexEntity(ad.id, ad.artifact_id, ad.title, "Adr");
         }
-        for (const nd of needResp as { id: UUID; title?: string }[]) {
-          titles[nd.id] = nd.title || t("editor.untitled");
+        for (const nd of needResp as { id: UUID; artifact_id?: UUID; title?: string }[]) {
+          indexEntity(nd.id, nd.artifact_id, nd.title, "StakeholderNeed");
         }
-        for (const ic of icdResp as { id: UUID; name?: string }[]) {
-          titles[ic.id] = ic.name || t("editor.untitled");
+        for (const ic of icdResp as { id: UUID; artifact_id?: UUID; name?: string }[]) {
+          indexEntity(ic.id, ic.artifact_id, ic.name, "Icd");
+        }
+        for (const a of artifactsResp.results) {
+          types[a.id] = a.artifact_type;
+        }
+        // REQ-002 endpoint metadata wins: it is already Artifact-id keyed and
+        // resolved by the backend across every artifact type.
+        Object.assign(titles, buildArtifactTitleIndex(linksResp));
+        for (const link of linksResp) {
+          if (link.source_type) types[link.source_id] = link.source_type;
+          if (link.target_type) types[link.target_id] = link.target_type;
         }
 
         setState({
           links: linksResp,
           titles,
+          types,
           artifacts: artifactsResp.results,
+          requirements,
           cycles: cyclesResp.cycles,
           isLoading: false,
           error: null,
@@ -238,27 +347,13 @@ export default function TraceabilityView(): JSX.Element {
         // 404 → endpoint missing → render empty state gracefully
         const status = (err as { status?: number })?.status;
         if (status === 404) {
-          setState({
-            links: [],
-            titles: {},
-            artifacts: [],
-            cycles: [],
-            isLoading: false,
-            error: null,
-          });
+          setState({ ...INITIAL_STATE, isLoading: false });
           return;
         }
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
           String(err);
-        setState({
-          links: [],
-          titles: {},
-          artifacts: [],
-          cycles: [],
-          isLoading: false,
-          error: msg,
-        });
+        setState({ ...INITIAL_STATE, isLoading: false, error: msg });
       }
     }
 
@@ -286,6 +381,20 @@ export default function TraceabilityView(): JSX.Element {
   const grouped = useMemo(() => groupByLinkType(filteredLinks), [filteredLinks]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);
   const hasActiveListControls = Boolean(listSearch || linkTypeFilter);
+
+  // #413: verification coverage. `verifiedIds` holds Artifact ids (the link
+  // endpoint id space); requirements are matched through their `artifact_id`.
+  const verifiedIds = useMemo(
+    () => collectVerifiedArtifactIds(state.links),
+    [state.links]
+  );
+  const uncoveredRequirements = useMemo(
+    () =>
+      state.requirements.filter((r) => !verifiedIds.has(r.artifact_id ?? r.id)),
+    [state.requirements, verifiedIds]
+  );
+  const coveredRequirementCount =
+    state.requirements.length - uncoveredRequirements.length;
 
   async function handleExportPdf(): Promise<void> {
     if (!activeWorkspace) return;
@@ -319,8 +428,11 @@ export default function TraceabilityView(): JSX.Element {
     const artifact = state.artifacts.find((a) => a.id === impactArtifact);
     const preset: ImpactPreset = {
       id: impactArtifact,
-      title: state.titles[impactArtifact] ?? formatId(impactArtifact),
-      artifactType: artifact?.artifact_type ?? "",
+      // #415: the title index is Artifact-id keyed now, so this resolves —
+      // it used to always fall through to the shortened UUID, which is what
+      // the impact tree then displayed as its root node.
+      title: state.titles[impactArtifact] ?? "",
+      artifactType: artifact?.artifact_type ?? state.types[impactArtifact] ?? "",
     };
     try {
       sessionStorage.setItem(IMPACT_PRESET_STORAGE_KEY, JSON.stringify(preset));
@@ -387,9 +499,73 @@ export default function TraceabilityView(): JSX.Element {
   const resetListFilters = (): void => {
     setListSearch("");
     setLinkTypeFilter("");
+    setShowUncoveredOnly(false);
   };
 
-  const listPanel = (
+  // #413: the coverage surface. Rendered whenever the workspace has
+  // requirements, because "which requirement has no test?" must be answerable
+  // even when not a single trace link exists yet.
+  const coveragePanel = state.requirements.length > 0 && (
+    <div className={styles.coveragePanel} data-testid="traceability-coverage-panel">
+      <p className={styles.coverageSummary} data-testid="traceability-coverage-summary">
+        {t(
+          "traceability.coverageSummary",
+          "{{covered}}/{{total}} Anforderungen verifiziert · {{uncovered}} ohne Test",
+          {
+            covered: coveredRequirementCount,
+            total: state.requirements.length,
+            uncovered: uncoveredRequirements.length,
+          }
+        )}
+      </p>
+      <label className={styles.coverageToggle}>
+        <input
+          type="checkbox"
+          data-testid="traceability-uncovered-toggle"
+          checked={showUncoveredOnly}
+          onChange={(e) => setShowUncoveredOnly(e.target.checked)}
+        />
+        {t("traceability.showUncoveredOnly", "Nur nicht abgedeckte Anforderungen")}
+      </label>
+    </div>
+  );
+
+  const uncoveredPanel = (
+    <>
+      {coveragePanel}
+      {uncoveredRequirements.length === 0 ? (
+        <EmptyState
+          variant="empty"
+          testId="traceability-uncovered-empty"
+          title={t("traceability.allCoveredTitle", "Alle Anforderungen sind verifiziert")}
+          description={t(
+            "traceability.allCoveredDescription",
+            "Jede Anforderung hat mindestens einen verifizierenden Testfall."
+          )}
+        />
+      ) : (
+        <ul className={styles.uncoveredList} data-testid="traceability-uncovered-list">
+          {uncoveredRequirements.map((r) => (
+            <li key={r.id} className={styles.uncoveredItem} data-testid="uncovered-requirement-item">
+              <span className={styles.endpointType}>{REQUIREMENT_ARTIFACT_TYPE}</span>
+              <span className={styles.endpointTitle} title={r.title}>
+                {truncateTitle(r.title || t("editor.untitled"))}
+              </span>
+              <span className={styles.uncoveredUid}>{r.uid ?? formatShortId(r.id)}</span>
+              <span
+                className={`${styles.coverageBadge} ${styles.uncovered}`}
+                data-testid="uncovered-requirement-badge"
+              >
+                ⚠ {t("traceability.notVerified", "kein Test")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+
+  const linkListPanel = (
     <>
       <ListToolbar
         testIdPrefix="tracelink-list"
@@ -411,6 +587,8 @@ export default function TraceabilityView(): JSX.Element {
             : String(state.links.length)
         }
       />
+
+      {coveragePanel}
 
       {state.cycles.length > 0 && (
         <div
@@ -537,9 +715,15 @@ export default function TraceabilityView(): JSX.Element {
                         color: "var(--color-text)",
                       }}
                     >
-                      <span data-testid="tracelink-source">
-                        {renderEndpoint(link.source_id, state.titles)}
-                      </span>
+                      <EndpointCell
+                        endpoint={endpointOf(link, "source")}
+                        titles={state.titles}
+                        types={state.types}
+                        verifiedIds={verifiedIds}
+                        testId="tracelink-source"
+                        coveredLabel={t("traceability.verified", "verifiziert")}
+                        uncoveredLabel={t("traceability.notVerified", "kein Test")}
+                      />
                       <span
                         aria-hidden="true"
                         style={{
@@ -571,9 +755,15 @@ export default function TraceabilityView(): JSX.Element {
                       >
                         →
                       </span>
-                      <span data-testid="tracelink-target">
-                        {renderEndpoint(link.target_id, state.titles)}
-                      </span>
+                      <EndpointCell
+                        endpoint={endpointOf(link, "target")}
+                        titles={state.titles}
+                        types={state.types}
+                        verifiedIds={verifiedIds}
+                        testId="tracelink-target"
+                        coveredLabel={t("traceability.verified", "verifiziert")}
+                        uncoveredLabel={t("traceability.notVerified", "kein Test")}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -584,6 +774,8 @@ export default function TraceabilityView(): JSX.Element {
       )}
     </>
   );
+
+  const listPanel = showUncoveredOnly ? uncoveredPanel : linkListPanel;
 
   // #184: this panel used to run its own reachability query
   // (traceabilityApi.impact) and render a duplicate result list — that
