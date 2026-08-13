@@ -17,6 +17,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
 
 // ---------------------------------------------------------------------------
@@ -36,8 +37,23 @@ vi.mock("../../api/stakeholder-need");
 vi.mock("../../api/icds");
 vi.mock("../../api/workspaces");
 vi.mock("../../context/WorkspaceContext");
+// Minimal i18next stand-in: honours the `t(key, defaultValue, options)`
+// signature *including* `{{placeholder}}` interpolation, so tests can assert
+// on rendered counts instead of on raw template strings.
 vi.mock("react-i18next", () => {
-  const t = (key: string, fallback?: string): string => fallback ?? key;
+  const interpolate = (template: string, opts?: Record<string, unknown>): string =>
+    opts
+      ? template.replace(/\{\{(\w+)\}\}/g, (match, name: string) =>
+          opts[name] === undefined ? match : String(opts[name])
+        )
+      : template;
+  const t = (key: string, second?: unknown, third?: unknown): string => {
+    const fallback = typeof second === "string" ? second : undefined;
+    const opts = (typeof second === "object" && second !== null ? second : third) as
+      | Record<string, unknown>
+      | undefined;
+    return interpolate(fallback ?? key, opts);
+  };
   return { useTranslation: () => ({ t }) };
 });
 // Stub CreateTraceLinkDialog so it does not pull in more dependencies
@@ -98,7 +114,7 @@ function setupDefaultMocks(): void {
     activeWorkspace: MOCK_WORKSPACE,
   } as any);
   vi.mocked(tracelinksModule.tracelinksApi.listAll).mockResolvedValue(EMPTY_LIST as any);
-  vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue(EMPTY_PAGE as any);
+  vi.mocked(requirementsModule.requirementsApi.listAll).mockResolvedValue(EMPTY_LIST as any);
   vi.mocked(archModule.architectureApi.list).mockResolvedValue(EMPTY_PAGE as any);
   vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(EMPTY_LIST as any);
   vi.mocked(artifactsModule.artifactsApi.list).mockResolvedValue(EMPTY_PAGE as any);
@@ -155,11 +171,9 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
 
   it("[REQ-053] renders links grouped by type after data resolves", async () => {
     vi.mocked(tracelinksModule.tracelinksApi.listAll).mockResolvedValue(MOCK_LINKS as any);
-    vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
-      results: [
-        { id: "req-001", title: "Navigation accuracy <= 1m CEP", workspace_id: "ws-trace-001" },
-      ],
-    } as any);
+    vi.mocked(requirementsModule.requirementsApi.listAll).mockResolvedValue([
+      { id: "req-001", title: "Navigation accuracy <= 1m CEP", workspace_id: "ws-trace-001" },
+    ] as any);
     vi.mocked(archModule.architectureApi.list).mockResolvedValue({
       results: [
         { id: "arch-001", title: "GPS Receiver Module", workspace_id: "ws-trace-001" },
@@ -199,5 +213,151 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("traceability-view")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #413 — readable endpoints + coverage
+// ---------------------------------------------------------------------------
+
+/**
+ * Artifact ids differ from entity ids on purpose: that mismatch is the whole
+ * bug. `req-001` is the Requirement id, `art-req-001` its backing Artifact —
+ * and only the latter ever appears in a TraceLink.
+ */
+const COVERAGE_LINKS = [
+  {
+    id: "tl-100",
+    source_id: "art-tc-001",
+    source_title: "TC-1 Login smoke test",
+    source_type: "TestCase",
+    target_id: "art-req-001",
+    target_title: "Login must be possible",
+    target_type: "Requirement",
+    link_type: "verifies",
+    version: 1,
+    created_at: "2026-02-01T08:00:00Z",
+  },
+  {
+    id: "tl-101",
+    source_id: "art-req-002",
+    source_title: "Password rotation",
+    source_type: "Requirement",
+    target_id: "art-arch-001",
+    target_title: "AuthModule",
+    target_type: "ArchitectureElement",
+    link_type: "allocated-to",
+    version: 1,
+    created_at: "2026-02-01T09:00:00Z",
+  },
+];
+
+const COVERAGE_REQUIREMENTS = [
+  {
+    id: "req-001",
+    artifact_id: "art-req-001",
+    uid: "REQ-1",
+    title: "Login must be possible",
+    workspace_id: "ws-trace-001",
+  },
+  {
+    id: "req-002",
+    artifact_id: "art-req-002",
+    uid: "REQ-2",
+    title: "Password rotation",
+    workspace_id: "ws-trace-001",
+  },
+];
+
+describe("TraceabilityView — readable endpoints and coverage (#413)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    vi.mocked(tracelinksModule.tracelinksApi.listAll).mockResolvedValue(COVERAGE_LINKS as any);
+    vi.mocked(requirementsModule.requirementsApi.listAll).mockResolvedValue(
+      COVERAGE_REQUIREMENTS as any
+    );
+  });
+
+  it("[#413] renders endpoint titles and artifact types instead of bare UUID pairs", async () => {
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("tracelink-item").length).toBe(2);
+    });
+
+    const sources = screen.getAllByTestId("tracelink-source");
+    const targets = screen.getAllByTestId("tracelink-target");
+    expect(sources[0]).toHaveTextContent("TC-1 Login smoke test");
+    expect(targets[0]).toHaveTextContent("Login must be possible");
+    // Artifact type badge accompanies each endpoint
+    expect(screen.getAllByTestId("tracelink-source-type")[0]).toHaveTextContent("TestCase");
+    expect(screen.getAllByTestId("tracelink-target-type")[0]).toHaveTextContent("Requirement");
+  });
+
+  it("[#413] marks requirement endpoints as verified / not verified", async () => {
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("tracelink-coverage-badge").length).toBeGreaterThan(0);
+    });
+
+    const badges = screen.getAllByTestId("tracelink-coverage-badge");
+    const covered = badges.map((b) => b.getAttribute("data-covered"));
+    // req-001 is verified by TC-1, req-002 has no verifying test
+    expect(covered).toContain("true");
+    expect(covered).toContain("false");
+  });
+
+  it("[#413] summarises coverage over all requirements", async () => {
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("traceability-coverage-summary")).toBeInTheDocument();
+    });
+    const summary = screen.getByTestId("traceability-coverage-summary").textContent ?? "";
+    expect(summary).toContain("1");
+    expect(summary).toContain("2");
+  });
+
+  it("[#413] 'not covered' filter lists requirements without a verifying test", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("traceability-uncovered-toggle")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("traceability-uncovered-toggle"));
+
+    const items = await screen.findAllByTestId("uncovered-requirement-item");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent("Password rotation");
+    // The covered requirement must not be listed
+    expect(screen.queryByText(/Login must be possible/)).not.toBeInTheDocument();
+  });
+
+  it("[#413] counts a requirement without any trace link as uncovered", async () => {
+    vi.mocked(requirementsModule.requirementsApi.listAll).mockResolvedValue([
+      ...COVERAGE_REQUIREMENTS,
+      {
+        id: "req-003",
+        artifact_id: "art-req-003",
+        uid: "REQ-3",
+        title: "Orphan requirement",
+        workspace_id: "ws-trace-001",
+      },
+    ] as any);
+
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("traceability-uncovered-toggle")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("traceability-uncovered-toggle"));
+
+    const items = await screen.findAllByTestId("uncovered-requirement-item");
+    expect(items.map((i) => i.textContent ?? "").join(" ")).toContain("Orphan requirement");
   });
 });

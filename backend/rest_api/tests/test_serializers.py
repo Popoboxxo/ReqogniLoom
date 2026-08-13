@@ -178,6 +178,41 @@ class TestRequirementSerializer:
         ser = RequirementSerializer(data=data)
         assert ser.is_valid(), ser.errors
 
+    def test_artifact_id_rendered(self) -> None:
+        """#413/#416: the backing Artifact id must reach the client.
+
+        TraceLink endpoints are Artifact ids, so a client holding only the
+        Requirement id cannot tell whether a link endpoint is this very
+        requirement. ``_dto_from_orm`` always supplied ``artifact_id``; the
+        serializer simply never declared the field, so DRF dropped it and the
+        traceability UI degraded to raw UUIDs.
+        """
+        artifact_id = str(uuid.uuid4())
+        payload = {
+            "id": str(uuid.uuid4()),
+            "workspace_id": str(uuid.uuid4()),
+            "artifact_id": artifact_id,
+            "title": "Test requirement",
+            "description": "",
+            "category": "functional",
+            "status": "draft",
+            "type": "SyReq",
+            "version": 1,
+        }
+        data = RequirementSerializer(payload).data
+        assert data["artifact_id"] == artifact_id
+
+    def test_artifact_id_is_read_only(self) -> None:
+        """A client-supplied artifact_id is ignored, never persisted."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "artifact_id": str(uuid.uuid4()),
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert "artifact_id" not in ser.validated_data
+
     def test_missing_title_invalid(self) -> None:
         data = {
             "workspace_id": str(uuid.uuid4()),

@@ -21,6 +21,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ImpactView } from "./ImpactView";
+import { IMPACT_PRESET_STORAGE_KEY } from "./impact-preset";
 import * as searchModule from "../../api/search";
 import * as tracelinksModule from "../../api/tracelinks";
 import * as workspaceContext from "../../context/WorkspaceContext";
@@ -172,5 +173,124 @@ describe("ImpactView", () => {
     // A link-group with derives_from direction arrow should appear
     const linkGroups = screen.getAllByTestId("impact-link-group");
     expect(linkGroups.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #415 — cycle detection and root title
+// ---------------------------------------------------------------------------
+
+const ROOT_ID = "art-req-l1";
+const CHILD_ID = "art-req-l2";
+
+/** The single decomposition link between L1 and L2, as the API returns it. */
+const DECOMPOSITION_LINK = {
+  id: "tl-l1-l2",
+  workspace_id: WORKSPACE_ID,
+  source_id: ROOT_ID,
+  source_title: "L1 System requirement",
+  source_type: "Requirement",
+  target_id: CHILD_ID,
+  target_title: "L2 Subsystem requirement",
+  target_type: "Requirement",
+  link_type: "decomposes",
+  version: 1,
+  created_at: "2026-02-01T10:00:00Z",
+};
+
+function mockSearchHit(id: string, title: string, artifactType = "Requirement"): void {
+  vi.mocked(searchModule.searchApi.search).mockResolvedValue({
+    results: [
+      {
+        id,
+        artifact_type: artifactType,
+        title,
+        description: "",
+        relevance_score: 1,
+        workspace_id: WORKSPACE_ID,
+      },
+    ],
+    total_count: 1,
+    page: 1,
+    limit: 10,
+    query: title,
+  } as never);
+}
+
+describe("ImpactView — cycle detection (#415)", () => {
+  it("[#415] does not re-expand an artifact already on the path", async () => {
+    // Both artifacts see the same single link — the traversal used to walk it
+    // back and forth forever (L1 -> L2 -> L1 -> ...).
+    vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
+      results: [DECOMPOSITION_LINK],
+      count: 1,
+      next: null,
+      previous: null,
+    } as never);
+    mockSearchHit(ROOT_ID, "L1 System requirement");
+
+    const user = userEvent.setup();
+    render(<ImpactView />);
+
+    await user.type(screen.getByTestId("impact-search-input"), "L1");
+    await user.click(screen.getByTestId("impact-search-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("impact-search-result")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("impact-search-result"));
+
+    // Expand the root: exactly one child (L2), marked as expandable.
+    await user.click(screen.getAllByTestId("impact-node-toggle")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("impact-tree-node")).toHaveLength(2);
+    });
+
+    // Expand the child: its only link points back at the root, which is
+    // already on the path — it renders once, flagged, and cannot be expanded.
+    await user.click(screen.getAllByTestId("impact-node-toggle")[1]);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("impact-tree-node")).toHaveLength(3);
+    });
+
+    const cycleBadges = screen.getAllByTestId("impact-cycle-badge");
+    expect(cycleBadges).toHaveLength(1);
+    const nodes = screen.getAllByTestId("impact-tree-node");
+    expect(nodes[2]).toHaveAttribute("data-cycle", "true");
+    expect(screen.getAllByTestId("impact-node-toggle")[2]).toBeDisabled();
+  });
+
+  it("[#415] root node shows a title, never the raw UUID", async () => {
+    // Hand-off from the traceability view without a resolved title (the exact
+    // situation that rendered `Requirement 9c706550…` as the root).
+    sessionStorage.setItem(
+      IMPACT_PRESET_STORAGE_KEY,
+      JSON.stringify({ id: ROOT_ID, title: "", artifactType: "" })
+    );
+    vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
+      results: [DECOMPOSITION_LINK],
+      count: 1,
+      next: null,
+      previous: null,
+    } as never);
+
+    const user = userEvent.setup();
+    render(<ImpactView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("impact-tree-panel")).toBeInTheDocument();
+    });
+    // Before expanding: shortened id, not the full UUID.
+    expect(screen.getByTestId("impact-tree-panel")).not.toHaveTextContent(ROOT_ID);
+
+    await user.click(screen.getAllByTestId("impact-node-toggle")[0]);
+
+    // After the node loaded its own links it knows its title and type — the
+    // same rendering path the child nodes use.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("impact-tree-node")[0]).toHaveTextContent(
+        "L1 System requirement"
+      );
+    });
+    expect(screen.getAllByTestId("impact-node-type")[0]).toHaveTextContent("Requirement");
   });
 });

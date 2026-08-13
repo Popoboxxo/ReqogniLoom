@@ -1,0 +1,17 @@
+/**
+ * ImpactView — styles for elements added by issue #415 (cycle detection).
+ *
+ * The rest of this component still uses inline styles (frozen by the
+ * `ui-ratchet` baseline); new markup goes through CSS Modules per the UI
+ * concept, using design tokens from `styles/tokens.css` only.
+ */
+
+.cycleBadge {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
