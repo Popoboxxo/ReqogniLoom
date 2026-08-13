@@ -114,11 +114,7 @@ export function CreateWorkspaceModal({
   ): Promise<void> => {
     event.preventDefault();
     if (!formData.name.trim()) {
-      setCreateError(
-        t("workspaceCreate.errorRequired") ||
-          t("workspace.create.nameRequired") ||
-          "Name is required"
-      );
+      setCreateError(t("workspaceCreate.errorRequired") || "Name is required");
       return;
     }
     setIsCreating(true);
@@ -137,7 +133,6 @@ export function CreateWorkspaceModal({
       setCreateError(
         apiErr?.error?.message ||
           t("workspaceCreate.errorGeneric") ||
-          t("workspace.create.error") ||
           "Failed to create workspace"
       );
     } finally {
@@ -155,7 +150,7 @@ export function CreateWorkspaceModal({
 
   return (
     <Dialog
-      title={t("workspace.create.title") || "Create workspace"}
+      title={t("workspaceCreate.title") || "Create workspace"}
       onClose={handleClose}
       size="sm"
       testId="create-workspace-modal"
@@ -178,7 +173,7 @@ export function CreateWorkspaceModal({
               fontFamily: "inherit",
             }}
           >
-            {t("workspace.create.cancel") || "Cancel"}
+            {t("workspaceCreate.cancel") || "Cancel"}
           </button>
           <button
             type="submit"
@@ -208,14 +203,14 @@ export function CreateWorkspaceModal({
       <form id={formId} data-testid="create-workspace-form" onSubmit={handleSubmit} style={bodyStyle}>
         <div>
           <label style={labelStyle} htmlFor="new-workspace-name">
-            {t("workspace.create.namePlaceholder") || "Name"}
+            {t("workspaceCreate.namePlaceholder") || "Name"}
           </label>
           <input
             ref={nameInputRef}
             id="new-workspace-name"
             type="text"
             data-testid="new-workspace-name"
-            placeholder={t("workspace.create.namePlaceholder") || "Name"}
+            placeholder={t("workspaceCreate.namePlaceholder") || "Name"}
             value={formData.name}
             onChange={(e) =>
               setFormData((d) => ({ ...d, name: e.target.value }))
@@ -227,7 +222,7 @@ export function CreateWorkspaceModal({
 
         <div>
           <label style={labelStyle} htmlFor="create-workspace-preset">
-            {t("workspace.create.preset") || "Preset"}
+            {t("workspaceCreate.presetLabel") || "Preset"}
           </label>
           <select
             id="create-workspace-preset"
@@ -250,7 +245,7 @@ export function CreateWorkspaceModal({
 
         <div>
           <label style={labelStyle} htmlFor="create-workspace-language">
-            {t("workspace.create.language") || "Language"}
+            {t("workspaceCreate.languageLabel") || "Language"}
           </label>
           <select
             id="create-workspace-language"

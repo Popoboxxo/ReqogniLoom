@@ -33,6 +33,7 @@ import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { Dialog } from '../shared/Dialog';
+import fieldHints from '../shared/FieldHints.module.css';
 import type { CustomFields } from '../../types';
 import { ASIL_LEVEL_OPTIONS, MAKE_OR_BUY_OPTIONS } from '../../utils/asilUtils';
 import type { ArchitectureElement, ASILLevel, MakeOrBuyDecision, ElementType } from '../../types';
@@ -523,6 +524,15 @@ export function ArchitectureForm({
           </div>
         )}
       </div>
+      {/*
+       * Issue 422: element_type is a free-text field maintained by hand and
+       * independent of the derived `role` shown above (SysEng 2.0 §1.2) —
+       * without this hint the two can look like a contradiction (e.g. role
+       * "System" next to element_type "component").
+       */}
+      <p data-testid="arch-element-type-hint" className={fieldHints.hint}>
+        {t('archLegend.elementTypeMeaning')}
+      </p>
 
       {/* Parent element picker */}
       <label htmlFor="arch-parent" style={labelStyle}>
@@ -616,18 +626,23 @@ export function ArchitectureForm({
           workspace defines no fields. */}
       {element.artifact_id && <ArtifactCustomFields artifactId={element.artifact_id} />}
 
-      {/* Change reason — extended preset only */}
+      {/*
+       * Change reason — extended preset only. Issue 417: the server enforces
+       * change_reason on every update in the extended preset identically for
+       * all artifact types (PresetPolicyService.is_change_reason_required),
+       * so the required marker must match Requirement/StakeholderNeed.
+       */}
       {isExtendedPreset && (
         <>
           <label htmlFor="arch-change-reason" style={labelStyle}>
-            {t('req.changeReason')}
+            {t('req.changeReason')} <span className={fieldHints.requiredMarker}>*</span>
           </label>
           <input
             id="arch-change-reason"
             data-testid="arch-change-reason-input"
             value={changeReason}
             onChange={(e) => setChangeReason(e.target.value)}
-            placeholder={t('req.changeReasonPlaceholder')}
+            placeholder={t('req.changeReasonPlaceholderArchitecture')}
             style={inputStyle}
           />
         </>

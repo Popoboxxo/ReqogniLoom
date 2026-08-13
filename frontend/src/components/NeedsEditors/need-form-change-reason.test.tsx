@@ -55,7 +55,9 @@ vi.mock("react-i18next", () => ({
         "nav.traceability": "Traceability",
         "req.changeReason": "Change Reason",
         "req.changeReasonPlaceholder": "Why is this being changed?",
+        "req.changeReasonPlaceholderNeed": "Why is this need being changed?",
         "req.changeReasonRequired": "Change reason is required.",
+        "req.section.changeControl": "Change Control",
       };
       return map[key] ?? key;
     },
@@ -166,6 +168,14 @@ describe("NeedForm — change_reason support for Extended preset (REQ-162)", () 
   it("hides the change_reason field for the Minimal preset", () => {
     renderForm("minimal");
     expect(screen.queryByTestId("need-change-reason-input")).not.toBeInTheDocument();
+  });
+
+  it("uses the need-specific change_reason placeholder, not the requirement one (#418)", () => {
+    renderForm("extended");
+    expect(screen.getByTestId("need-change-reason-input")).toHaveAttribute(
+      "placeholder",
+      "Why is this need being changed?"
+    );
   });
 
   it("blocks save and does not call the API when Extended and change_reason is empty", async () => {
