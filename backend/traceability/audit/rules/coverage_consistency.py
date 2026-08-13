@@ -36,10 +36,13 @@ LinkType gap: CONS-P9/CONS-P10 are deferred (verified against code, 2026-07-19)
 CONS-P9 ("open CONFLICTS_WITH link blocks the Approval-Transition") and
 CONS-P10 ("no link may reference a SUPERCEDES-replaced artifact") both
 require ``LinkType`` members that do not exist. Verified against
-``backend/traceability/types.py``: the ``LinkType`` enum has 14 members (see
-UMSETZUNGSPLAN_SYSENG_2.0.md §2.3 — the CLAUDE.md project taxonomy names 8
-link types including ``CONFLICTS_WITH`` and ``SUPERCEDES``, but the actual
-code enum diverges and defines neither). ``TraceLinkManager.create_link()``
+``backend/traceability/types.py``: the ``LinkType`` enum had 14 members when
+this was first investigated (2026-07-19, see UMSETZUNGSPLAN_SYSENG_2.0.md
+§2.3) and has 15 now (``diagram-ref`` was added 2026-08-08, #353/#428) — the
+CLAUDE.md project taxonomy at the time named 8 link types including
+``CONFLICTS_WITH`` and ``SUPERCEDES``, but the actual code enum diverges and
+still defines neither (see GitHub #404, which corrected the documentation
+side of this gap). ``TraceLinkManager.create_link()``
 validates ``link_type`` against ``VALID_LINK_TYPES`` and would reject both
 strings (``InvalidLinkTypeError``) — no real user can ever create such a
 link through the validated path.
@@ -306,9 +309,10 @@ class OpenConflictBlocksApprovalRule(Rule):
     rule_id = CONS_P9
     deferred_reason = (
         "LinkType.CONFLICTS_WITH is not a member of traceability.types.LinkType "
-        "(14 members, verified 2026-07-19; see UMSETZUNGSPLAN_SYSENG_2.0.md "
-        "§2.3). No unvalidated string workaround is used per product "
-        "decision — implement this rule once the enum is extended."
+        "(15 members as of 2026-08-08, 14 when first verified 2026-07-19; see "
+        "UMSETZUNGSPLAN_SYSENG_2.0.md §2.3). No unvalidated string workaround "
+        "is used per product decision — implement this rule once the enum is "
+        "extended."
     )
 
     def check(self, context: AuditContext) -> List[Finding]:
@@ -338,9 +342,10 @@ class NoDanglingSupersededReferenceRule(Rule):
     rule_id = CONS_P10
     deferred_reason = (
         "LinkType.SUPERCEDES is not a member of traceability.types.LinkType "
-        "(14 members, verified 2026-07-19; see UMSETZUNGSPLAN_SYSENG_2.0.md "
-        "§2.3). No unvalidated string workaround is used per product "
-        "decision — implement this rule once the enum is extended."
+        "(15 members as of 2026-08-08, 14 when first verified 2026-07-19; see "
+        "UMSETZUNGSPLAN_SYSENG_2.0.md §2.3). No unvalidated string workaround "
+        "is used per product decision — implement this rule once the enum is "
+        "extended."
     )
 
     def check(self, context: AuditContext) -> List[Finding]:

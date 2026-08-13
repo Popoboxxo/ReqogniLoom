@@ -18,10 +18,12 @@ below.
 3. Create the test case with `test.create`; refine with `test.update`. `test.get` fetches a single
    test case by ID and `test.query` searches by criteria — use either before creating, to confirm
    you're editing the right existing case rather than duplicating it.
-4. Link it to the requirement with `test.link` using the `TESTS` link type.
+4. Link it to the requirement with `test.link` — this always creates a `verifies` TraceLink
+   (ReqogniLoom has no dedicated `tests` link type; `test.link` doesn't take a link-type parameter
+   at all, the type is fixed).
 5. When it's time to execute: `test.run_create` starts a run, `test.run_report_results` records
    outcomes per test case (`passed`/`failed`/`blocked`/`skipped` — this also advances the run's
-   lifecycle phase and, on a passing result, is expected to add a `VERIFIES` link back to the
+   lifecycle phase and, on a passing result, is expected to add a `verifies` link back to the
    requirement), `test.run_get` checks current status without re-submitting results. The 4-phase
    lifecycle is `created` -> `in_progress` -> `completed`/`failed` -> `archived`.
 6. `test.derive_from_requirement` asks the LLM adapter to propose a test-case skeleton from a

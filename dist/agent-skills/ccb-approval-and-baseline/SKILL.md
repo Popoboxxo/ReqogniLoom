@@ -16,8 +16,11 @@ scopes referenced below.
 2. Record decisions with `adr.create`/`adr.update`; `adr.read` fetches a single ADR by ID when you
    need to check its current content before revising it. Prefer `adr.outdate` (reversible via
    `adr.reactivate`) over `adr.delete` for a decision that's no longer active but wasn't wrong when
-   made — `adr.delete` is for genuine entry errors only; a superseded decision gets a new ADR with
-   a `SUPERCEDES` link, the old one stays on record. Track work items the same way: `issue.create`
+   made — `adr.delete` is for genuine entry errors only; a superseded decision gets a new ADR, and
+   the old one's status moves to `Superseded` with a `decides` TraceLink recorded from the new ADR
+   to the old one (ReqogniLoom has no dedicated `supersedes` link type — `decides` is the
+   established equivalent for ADR-to-ADR supersession). The old one stays on record either way.
+   Track work items the same way: `issue.create`
    opens one, `issue.read` fetches a single issue by ID. Apply the same outdate-vs-delete
    distinction to `issue.outdate`/`issue.reactivate` vs `issue.delete` for issue tracking —
    `issue.update` refines an existing issue record (e.g. status, severity) without touching its
@@ -48,7 +51,7 @@ scopes referenced below.
    automatically on approval.
 7. Use `traceability.query` to see the existing link graph before changing an element,
    `traceability.suggest_links` to find candidate ADR/requirement/issue relationships you may have
-   missed, and `traceability.create_link` to record one explicitly (e.g. a `SUPERCEDES` link
-   between ADR versions).
+   missed, and `traceability.create_link` to record one explicitly (e.g. a `decides` link
+   between ADR versions when a supersession relationship needs to be captured by hand).
 8. `artifact.search` locates the requirement/architecture/ADR/issue/Change Request you need when
    you don't have an exact ID.

@@ -25,8 +25,10 @@ below.
    requirement/architecture IDs); refine with `risk.update` as assessment matures, and `risk.read`
    fetches a single risk by ID when you already know which one you're revisiting. Risk-to-entity
    linking for the primary threatened element is driven by fields on the risk itself; use
-   `traceability.create_link` directly when a risk needs an additional `RELATED_TO`/
-   `CONFLICTS_WITH` link beyond that primary one. `risk.delete` is for a risk record created in
+   `traceability.create_link` directly (link_type `traces` — the generic, unrestricted association;
+   ReqogniLoom has no dedicated `related-to`/`conflicts-with` link type) when a risk needs an
+   additional relationship beyond that primary one, and record the nature of the relationship in
+   the risk's own description. `risk.delete` is for a risk record created in
    error only, never as a way to "close" a risk that turned out real and mitigated — a mitigated
    risk stays on record with its mitigation documented.
 6. Re-check `traceability.query` after any create/update to confirm the resulting link graph
