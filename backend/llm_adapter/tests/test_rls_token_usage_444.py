@@ -33,13 +33,16 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.db import connection
+from django.db import connection, transaction
 
 from llm_adapter import tasks
 from llm_adapter.interface import LlmResult
+from llm_adapter.providers import resolve_provider_config
+from llm_adapter.token_tracking import record_token_usage
 from persistence.db_roles import APP_DB_ROLE
-from persistence.models import Tenant, TokenUsageRecord
-from persistence.tenancy import TenantContext
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import LlmSettings, Tenant, TokenUsageRecord
+from persistence.tenancy import TenantContext, TenantContextNotSetError
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -108,7 +111,7 @@ class TestRunCapabilityRecordsTokenUsageUnderRls:
                     "validate_artifact", {"artifact_id": "a1"}, str(tenant.id)
                 )
 
-            with pytest.raises(Exception):
+            with pytest.raises(TenantContextNotSetError):
                 TenantContext.get_tenant()
 
             with connection.cursor() as cursor:
@@ -125,3 +128,111 @@ class TestRunCapabilityRecordsTokenUsageUnderRls:
             with connection.cursor() as cursor:
                 cursor.execute("RESET app.current_tenant")
                 cursor.execute("RESET ROLE")
+
+
+@_pg_only
+class TestResolveProviderConfigUnderRls:
+    """The quieter half of #444: the LlmSettings SELECT, not the INSERT.
+
+    RLS's ``USING`` clause does not raise when ``app.current_tenant`` is unset —
+    it returns zero rows. ``_apply_db_settings`` reads that as "this tenant has
+    no settings" and silently hands back the environment config, so the worker
+    ran on the wrong provider/model with nothing in the logs. The INSERT tests
+    above cannot catch a regression of this half, because they mock
+    ``get_provider`` and never look at the resolved config.
+    """
+
+    @staticmethod
+    def _seed_settings(tenant: Tenant) -> None:
+        # Written as the superuser test role (bypasses RLS) — setup data.
+        TenantContext.set_tenant(tenant.id)
+        try:
+            LlmSettings.objects.create(
+                provider="ollama",
+                base_url="http://tenant-444.invalid:11434",
+                model_name="tenant-model-444",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_settings_hidden_without_rls_session_variable(self, tenant):
+        """Pre-fix condition: TenantContext alone leaves RLS unarmed, so the
+        tenant's LlmSettings row is invisible and the env fallback wins."""
+        self._seed_settings(tenant)
+        env_config = resolve_provider_config()  # no tenant at all — pure env
+
+        with connection.cursor() as cursor:
+            cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+        TenantContext.set_tenant(tenant.id)
+        try:
+            config = resolve_provider_config()
+        finally:
+            TenantContext.clear_tenant()
+            with connection.cursor() as cursor:
+                cursor.execute("RESET ROLE")
+
+        assert config.model_name == env_config.model_name
+        assert config.model_name != "tenant-model-444", (
+            "LlmSettings row was visible without app.current_tenant — RLS is "
+            "not enforced for this role, so this test proves nothing"
+        )
+
+    def test_settings_resolved_with_rls_session_variable(self, tenant):
+        """The fix: set_request_tenant arms RLS, so the persisted per-tenant
+        settings win over the environment config again."""
+        self._seed_settings(tenant)
+
+        with connection.cursor() as cursor:
+            cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+        try:
+            set_request_tenant(tenant.id)
+            config = resolve_provider_config()
+        finally:
+            clear_request_tenant()
+            with connection.cursor() as cursor:
+                cursor.execute("RESET ROLE")
+
+        assert config.provider_name == "ollama"
+        assert config.model_name == "tenant-model-444"
+        assert config.api_base_url == "http://tenant-444.invalid:11434"
+
+
+@_pg_only
+class TestRecordTokenUsageDoesNotPoisonCallerTransaction:
+    """#444 follow-up (#522 suggestion 1): the ``transaction.atomic()`` savepoint.
+
+    ``record_token_usage`` swallows its own failures by contract, but before the
+    savepoint was added the *caller's* ambient transaction stayed in Postgres's
+    "aborted" state afterwards — every later query on that connection raised
+    ``TransactionManagementError``, including ``clear_request_tenant``'s own
+    ``RESET``. Swallowing the exception while wrecking the caller's transaction
+    is not "best-effort", it is the same outage with a quieter traceback.
+
+    The failure is produced the way production produced it — an RLS ``WITH
+    CHECK`` violation under the least-privilege role with ``app.current_tenant``
+    unset — rather than by patching ``objects.create`` to raise: a mock raises
+    before touching the database, so no transaction is ever aborted and the
+    test would pass with or without the savepoint.
+    """
+
+    def test_failed_insert_leaves_callers_transaction_usable(self, tenant):
+        TenantContext.set_tenant(tenant.id)
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+
+                # app.current_tenant deliberately unset -> WITH CHECK rejects.
+                record_token_usage(
+                    provider="mock", capability="validate_artifact", input_tokens=7
+                )
+
+                # The caller's transaction must still accept queries. Without
+                # the savepoint this raises TransactionManagementError.
+                assert TokenUsageRecord.objects.count() == 0
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("RESET ROLE")
+            TenantContext.clear_tenant()
+
+        assert not TokenUsageRecord.unscoped.filter(tenant_id=tenant.id).exists()

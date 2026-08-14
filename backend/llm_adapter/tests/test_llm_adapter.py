@@ -977,7 +977,7 @@ class TestRunCapabilityTask:
         assert result["provider"] == "mock"
 
     @pytest.mark.django_db
-    def test_sets_and_clears_tenant_context(self, db):
+    def test_sets_and_clears_tenant_context(self):
         # #444: run_capability now restores the tenant context via
         # set_request_tenant(), which also sets the RLS session variable on a
         # real DB connection (persistence/middleware.py) — unlike
@@ -985,7 +985,7 @@ class TestRunCapabilityTask:
         # NOT swallow a failure to do so (silently not arming RLS is exactly
         # the bug #444 fixed), so this test needs real DB access it never
         # needed before.
-        from persistence.tenancy import TenantContext
+        from persistence.tenancy import TenantContext, TenantContextNotSetError
         from llm_adapter.interface import LlmResult
         from llm_adapter import tasks
 
@@ -1009,7 +1009,7 @@ class TestRunCapabilityTask:
             # Context is set during execution ...
             assert str(seen["tenant"]) == tenant_uuid
             # ... and cleared afterwards (finally block).
-            with pytest.raises(Exception):
+            with pytest.raises(TenantContextNotSetError):
                 TenantContext.get_tenant()
         finally:
             TenantContext.clear_tenant()
