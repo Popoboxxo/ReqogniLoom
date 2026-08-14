@@ -150,6 +150,7 @@ class _FakeProvider:
         self, prompt: str, *, purpose: str = "", context=None, timeout=None
     ) -> str:
         self.calls += 1
+        self.last_prompt = prompt
         return self._text
 
 
@@ -161,6 +162,40 @@ def genuine_provider(monkeypatch) -> _FakeProvider:
         "llm_adapter.providers.get_provider", lambda *a, **k: provider
     )
     return provider
+
+
+class TestCompressPromptCarriesRawBundleVerbatim:
+    """Issue #442 investigation: the reported "compression achieves nothing"
+    symptom was not a code defect (measured against a real, non-mock
+    provider double: the rendered prompt does carry the full raw bundle,
+    and the provider's response is passed through unaltered). This asserts
+    the one thing that IS a real, non-vacuous contract here -- unlike
+    asserting a size reduction against a fixed-string fake provider, which
+    the fake's own hardcoded return value would make meaningless."""
+
+    def test_rendered_prompt_contains_the_raw_markdown_verbatim(
+        self, auth_ctx, workspace, requirement, architecture_element,
+        genuine_provider,
+    ):
+        from application.requirement_bundle_formatters import format_bundle_markdown
+
+        result = _sample_bundle_result(
+            requirement.id, architecture_element.artifact_id, title="Distinctive Title 442"
+        )
+        raw_markdown = format_bundle_markdown(result)
+
+        BundleCompressionService().compress(
+            auth_ctx,
+            result,
+            root_id=architecture_element.id,
+            depth=0,
+            filter_mode="all",
+            fields=None,
+            format="markdown",
+            workspace_id=workspace.id,
+        )
+
+        assert raw_markdown in genuine_provider.last_prompt
 
 
 class TestCompressCacheMiss:

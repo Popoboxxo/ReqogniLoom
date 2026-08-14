@@ -1772,6 +1772,19 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``GET /api/v1/bundle-compression-status/{task_id}/`` instead of
         blocking the request thread on an LLM call.
 
+        ``mode=compressed`` is lossless, token-density compression for
+        machine consumption, not a lossy human summary (issue #442) — every
+        fact in the raw bundle must still be recoverable afterward, so it is
+        not guaranteed to shrink a bundle whose content is already dense
+        attribute data (e.g. every field of every requirement populated).
+        Without an LLM provider configured (this project's default is
+        ``LLM_PROVIDER=mock``) no compression happens at all — ``provider``
+        reports ``mock``, ``is_mock_fallback`` is true, and the text is a
+        placeholder prefixed with ``[MOCK FALLBACK] ``. Treat that as "no
+        compression available", not as a compressed bundle. To reduce the
+        raw size before compression, narrow ``?filter_mode=custom&fields=``
+        to the columns actually needed.
+
         The output format is selected with ``?output_format=`` — deliberately
         *not* ``?format=``, which is DRF's reserved URL_FORMAT_OVERRIDE and
         collides with content negotiation. ``Accept`` and ``?format=`` are
