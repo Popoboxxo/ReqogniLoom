@@ -101,6 +101,34 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* Issue #449: the scroll region already works (overflow-y: auto on this
+     element, not the outer <nav> — see #47/#168), but on some platforms
+     (overlay scrollbars, e.g. macOS/GNOME) the default scrollbar is
+     invisible until actively scrolling, so short viewports give no visual
+     cue that the remaining ~10 nav items are reachable below the fold.
+     A persistent, styled thin scrollbar makes the affordance obvious
+     regardless of OS scrollbar theme. Same pattern as RightSidebar.module.css
+     .panels and WorkflowEditor.module.css, just using the nav's own
+     (always-dark) color tokens instead of the app-theme-aware ones. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-nav-border) transparent;
+}
+
+.scrollContent::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollContent::-webkit-scrollbar-thumb {
+  background: var(--color-nav-border);
+  border-radius: var(--radius-full);
+}
+
+.scrollContent::-webkit-scrollbar-thumb:hover {
+  background: var(--color-nav-text-muted);
 }
 
 .logoRow {
