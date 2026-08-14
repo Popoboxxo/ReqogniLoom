@@ -65,8 +65,12 @@ MCP-Toolgroup `prompt_template.*`) hat bereits exakt die benötigte
 Factory-Default) und einen seit Phase 4 offenen, freien `name`-Namensraum.
 
 Interview-Protokolle werden als `PromptTemplate`-Zeilen unter dem Namensraum
-`interview.protocol.<artifact_type>` gespeichert (z. B.
-`interview.protocol.requirement`), Inhalt als validiertes YAML mit Struktur:
+`interview.protocol.<artifact_type>` gespeichert — `<artifact_type>` im
+selben PascalCase-Format wie `Artifact.artifact_type` im restlichen System
+(`"Requirement"`, `"ArchitectureElement"`, `"StakeholderNeed"`, `"Risk"`,
+`"TestCase"`, `"Adr"`, `"Issue"`, `"Goal"` — alle außer `"MainGoal"`, siehe
+Abschnitt 1), z. B. `interview.protocol.Requirement`. Inhalt als validiertes
+YAML mit Struktur:
 
 ```yaml
 phases:
@@ -100,6 +104,13 @@ Unterscheidung "nichts erzeugt implizit eine Zeile" (issue #276-Prinzip)
 erhalten bleibt — ein Workspace bekommt nur dann eine eigene Override-Zeile,
 wenn jemand sie explizit anlegt.
 
+Die konkreten `{platzhalter}`-Variablen innerhalb eines `prompt_fragment`
+(z. B. `{artifact_type}`, `{missing_fields_json}`) sowie deren Anzeige in
+der bestehenden Prompt-Template-Admin-UI (`AiPromptsSection.tsx`) werden in
+Spec 3, Abschnitt 7 festgelegt — dieselbe Ersetzungsmechanik wie die
+bestehenden 8 Derivation-Prompt-Typen (`str.replace("{" + key + "}", ...)`,
+unbekannte/fehlende Platzhalter bleiben unverändert).
+
 **Offene Frage für den Implementierungsplan:** YAML-Validierung beim
 `prompt_template.create`/`.update`-Schreibpfad — heute nimmt der Tool
 beliebigen String-Content an. Für `interview.protocol.*`-Namen sollte
@@ -120,6 +131,7 @@ Tenant-scoped (`TenantScopedModel`, RLS wie jedes andere Modell hier).
 | `collected_fields` | JSON | Bisher gesammelte Antworten |
 | `grounding_snapshot` | JSON | Letzter Grounding-Treffer-Stand |
 | `resulting_artifact_ids` | JSON (Liste) | Nach `formalize`: erzeugte + angepasste Artefakt-IDs |
+| `transcript` | JSON (Liste), Default `[]` | Ergänzt in Spec 3 (Web-UI-Widget): Liste aus `{role, text, timestamp}`. Nur der Chat-Client (Spec 3) schreibt hinein; formularbasierte Clients (Spec 2) lassen es leer — additiv, kein Breaking Change für bestehende Clients. |
 | `started_by` | FK User/API-Key | Audit |
 | `created_at`/`updated_at` | timestamp | — |
 
@@ -143,6 +155,19 @@ RBAC/Audit nach bestehendem `_WRITE_TOOL_PREFIXES`-Muster
   Artefakte, markiert Session `completed`. Siehe Abschnitt 5.
 - **`interview.list(workspace_id, status?)`**, **`interview.get(session_id)`**
   — Audit/Abruf (read-only).
+
+### 4.1 REST-Fassade
+
+Ergänzt in Spec 2 (Hermes-Plugin) als geprüft-nicht-nötig (das Plugin
+spricht MCP direkt über den bestehenden `POST /mcp/`-JSON-RPC-Transport),
+aber in Spec 3 (natives Web-UI-Widget) als zwingend erforderlich bestätigt:
+die Web-App authentifiziert sich ausschließlich über httpOnly-Cookie + CSRF,
+nie über API-Key/MCP. `/api/v1/interviews/...` spiegelt dieselben sieben
+Operationen als dünne REST-Endpoints auf derselben Facade/den Services —
+gleiches Dual-Protokoll-Muster wie `requirement_bundle` (REST-Action +
+MCP-Tool über denselben Service). Details in
+`docs/superpowers/specs/2026-08-14-interview-management-web-widget-design.md`
+Abschnitt 3.
 
 ## 5. Formalisierungs-Logik
 
