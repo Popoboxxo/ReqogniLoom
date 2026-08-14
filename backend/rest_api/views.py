@@ -36,6 +36,7 @@ from uuid import UUID
 
 from django.http import Http404, HttpResponse
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -1662,6 +1663,84 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    # #447: drf-spectacular cannot introspect ``request.query_params.get(...)``
+    # calls, so this action shipped documenting only the path parameter while
+    # accepting six query parameters — the schema was unusable for client
+    # generation, and the correct path was undiscoverable for anyone reading
+    # the spec instead of the source (#446). Declared explicitly; keep this
+    # list in sync with the parsing below.
+    @extend_schema(
+        summary="Requirement bundle export for an architecture element",
+        parameters=[
+            OpenApiParameter(
+                name="depth",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Maximum number of ALLOCATED_TO levels to walk below this "
+                    "element. Omitted = unlimited."
+                ),
+            ),
+            OpenApiParameter(
+                name="filter_mode",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["all", "visible", "custom"],
+                default="all",
+                description="Which requirement fields to include.",
+            ),
+            OpenApiParameter(
+                name="fields",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated field whitelist, used with "
+                    "``filter_mode=custom``."
+                ),
+            ),
+            OpenApiParameter(
+                name="output_format",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["json", "markdown", "csv"],
+                default="json",
+                description=(
+                    "Response format for ``mode=raw``; ignored for "
+                    "``mode=compressed``. Deliberately not ``?format=``, which "
+                    "is DRF's reserved content-negotiation override."
+                ),
+            ),
+            OpenApiParameter(
+                name="mode",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["raw", "compressed"],
+                default="raw",
+                description=(
+                    "``raw`` returns the bundle as stored; ``compressed`` routes "
+                    "it through the LLM compression service."
+                ),
+            ),
+            OpenApiParameter(
+                name="async",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description=(
+                    "``mode=compressed`` only: dispatch the compression to a "
+                    "Celery worker and answer 202 with a ``task_id`` to poll at "
+                    "``GET /api/v1/bundle-compression-status/{task_id}/``. "
+                    "Forced on for bundles over SYNC_ITEM_COUNT_THRESHOLD items."
+                ),
+            ),
+        ],
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -5989,6 +6068,58 @@ class SearchViewSet(viewsets.ViewSet):
     GET /api/v1/search/?q=<query>&workspace_id=<id>[&type=Requirement&page=1&limit=20]
     """
 
+    # #447: the schema documented zero parameters for this endpoint, so a
+    # generated client had no way to learn that ``q`` and ``workspace_id`` are
+    # both mandatory — it would emit a bare GET and get a 400 back.
+    @extend_schema(
+        summary="Full-text search across artifacts",
+        parameters=[
+            OpenApiParameter(
+                name="q",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Search query. Required and must be non-empty; a blank "
+                    "value returns 400 rather than an empty result set."
+                ),
+            ),
+            OpenApiParameter(
+                name="workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace UUID to search in.",
+            ),
+            OpenApiParameter(
+                name="type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description=(
+                    "Artifact type filter (Requirement | ArchitectureElement | "
+                    "TestCase). May be repeated."
+                ),
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=1,
+                description="Page number.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=20,
+                description="Page size (max 100).",
+            ),
+        ],
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/search/ — full-text search.
 
