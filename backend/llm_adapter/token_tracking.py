@@ -10,7 +10,11 @@ and enforces a configurable daily limit
 Design principles:
     - Fault-tolerant: recording and limit checks never raise into the LLM call
       path. A DB failure degrades to "not recorded" / "fail-open" so a broken
-      accounting layer can never take down the AI features.
+      accounting layer can never take down the AI features. Every DB access
+      here runs in its own ``transaction.atomic()`` savepoint — swallowing the
+      exception is not enough on Postgres, where a failed statement leaves the
+      caller's ambient transaction aborted and breaks every query it runs
+      afterwards (#444, extended to the read paths per the #522 review).
     - Tenant-scoped: records are written and queried through the tenant-isolating
       default manager, so the active ``TenantContext`` scopes every query.
     - No provider SDK imports; this module is a thin persistence + aggregation
@@ -96,15 +100,23 @@ def get_daily_usage(days: int = 1) -> int:
         Sum of ``input_tokens + output_tokens`` over the window, or 0.
     """
     try:
+        from django.db import transaction  # noqa: PLC0415
         from django.db.models import Sum  # noqa: PLC0415
         from django.utils import timezone  # noqa: PLC0415
 
         from persistence.models import TokenUsageRecord  # noqa: PLC0415
 
         since = timezone.now() - timedelta(days=days)
-        agg = TokenUsageRecord.objects.filter(created_at__gte=since).aggregate(
-            total=Sum("input_tokens") + Sum("output_tokens")
-        )
+        # #522 review follow-up (F4): savepoint for the same reason the INSERT
+        # in record_token_usage has one. A failing SELECT aborts an ambient
+        # Postgres transaction exactly as a failing INSERT does, so without
+        # this the "never affects the caller" contract held on one of four
+        # paths only. This one matters most: is_over_daily_limit() calls it
+        # before *every* LLM request, in-request, from seven services.
+        with transaction.atomic():
+            agg = TokenUsageRecord.objects.filter(created_at__gte=since).aggregate(
+                total=Sum("input_tokens") + Sum("output_tokens")
+            )
         return int(agg["total"] or 0)
     except Exception as exc:  # noqa: BLE001 — fail-open aggregation
         logger.warning("TokenUsageTracker: get_daily_usage failed: %s", exc)
@@ -128,17 +140,22 @@ def aggregate_usage(days: int = 30) -> Dict[str, Any]:
     """
     result: Dict[str, Any] = {"days": days, "total_tokens": 0, "by_provider": {}}
     try:
+        from django.db import transaction  # noqa: PLC0415
         from django.db.models import Sum  # noqa: PLC0415
         from django.utils import timezone  # noqa: PLC0415
 
         from persistence.models import TokenUsageRecord  # noqa: PLC0415
 
         since = timezone.now() - timedelta(days=days)
-        rows = (
-            TokenUsageRecord.objects.filter(created_at__gte=since)
-            .values("provider")
-            .annotate(total=Sum("input_tokens") + Sum("output_tokens"))
-        )
+        # #522 review follow-up (F4): savepoint — see get_daily_usage. The
+        # queryset is materialised inside the block on purpose; a lazy
+        # QuerySet would execute after the savepoint was released.
+        with transaction.atomic():
+            rows = list(
+                TokenUsageRecord.objects.filter(created_at__gte=since)
+                .values("provider")
+                .annotate(total=Sum("input_tokens") + Sum("output_tokens"))
+            )
         total = 0
         for row in rows:
             provider_total = int(row["total"] or 0)

@@ -115,7 +115,20 @@ def run_capability(
     # Imported here to avoid import-time coupling and keep the module importable
     # in contexts where these deps are not needed.
     from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
     from llm_adapter.providers import get_provider, resolve_provider_config
+
+    # #522 review follow-up: snapshot the context *before* arming it. Under
+    # CELERY_TASK_ALWAYS_EAGER (settings_test.py) apply_async runs this body
+    # inline on the caller's own thread and DB connection, and
+    # AsyncTaskDispatcher._resolve_tenant_id (dispatcher.py) reads tenant_id
+    # off that same caller's thread-local — so tenant_id is non-None precisely
+    # when the caller already owns a context. Tearing it down unconditionally
+    # in the finally therefore disarmed the *caller's* isolation for the rest
+    # of its request, at both layers: CapabilityRouter.log_llm_call's audit
+    # INSERT runs after this returns and was dropped by its own swallowing
+    # except. Same unset->set nesting guard AuthTenancyMiddleware already uses.
+    tenant_was_set = TenantContext.is_set()
 
     try:
         if tenant_id:
@@ -166,8 +179,26 @@ def run_capability(
         logger.error("LLM task failed for capability %s: %s", capability, exc, exc_info=True)
         raise
     finally:
-        if tenant_id:
-            clear_request_tenant()
+        if tenant_id and not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 — teardown must not mask the cause
+                # #522 review follow-up: clear_request_tenant executes
+                # `RESET app.current_tenant` on the connection, so unlike the
+                # old bare TenantContext.clear_tenant() it can raise — and a
+                # raise from a finally *replaces* the exception in flight.
+                # Celery would then store this teardown error as the task
+                # result while the real failure survived only in the log line
+                # above. RESET only fails when the connection is already
+                # broken; CONN_MAX_AGE is unset (Django default 0), so that
+                # connection is closed rather than handed on with a stale
+                # app.current_tenant. clear_request_tenant also clears the
+                # Python thread-local before it touches the DB, so that half
+                # of the teardown has happened regardless.
+                logger.exception(
+                    "LLM task could not reset the tenant context (capability=%s)",
+                    capability,
+                )
 
 
 __all__ = ["run_capability", "ALLOWED_CAPABILITIES"]
