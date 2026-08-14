@@ -2131,6 +2131,63 @@ class TokenUsageRecord(TenantScopedModel):
         return int(self.input_tokens or 0) + int(self.output_tokens or 0)
 
 
+# ---------------------------------------------------------------------------
+# Interview session state (Interview-Management-Engine spec §3.2)
+# ---------------------------------------------------------------------------
+
+
+class InterviewSession(TenantScopedModel):
+    """Cross-host interview progress state (Interview-Management-Engine spec §3.2).
+
+    The server-side turn state that lets a session started on one host
+    (e.g. Claude Code) resume on another (e.g. Hermes) — every host reads
+    this row via interview.get_state instead of relying on its own
+    conversation history.
+    """
+
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_COMPLETED = "completed"
+    STATUS_ABANDONED = "abandoned"
+    STATUS_CHOICES = [
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_ABANDONED, "Abandoned"),
+    ]
+
+    workspace = models.ForeignKey(
+        Workspace, on_delete=models.CASCADE, related_name="interview_sessions"
+    )
+    artifact_type = models.CharField(
+        max_length=64,
+        help_text="Which interview protocol applies (PascalCase, matches Artifact.artifact_type).",
+    )
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_IN_PROGRESS
+    )
+    target_artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="interview_sessions",
+        help_text="Set once grounding identifies an existing artifact to adjust instead of creating a new one.",
+    )
+    collected_fields = models.JSONField(default=dict, blank=True)
+    grounding_snapshot = models.JSONField(default=dict, blank=True)
+    resulting_artifact_ids = models.JSONField(default=list, blank=True)
+    transcript = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of {role, text, timestamp}. Only chat-driving clients (Spec 3) write to this; form clients (Spec 2) leave it empty.",
+    )
+
+    class Meta:
+        db_table = "pl_interview_session"
+        indexes = [
+            models.Index(fields=["workspace", "status"]),
+        ]
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -2164,6 +2221,7 @@ __all__ = [
     "LlmProvider",
     "LlmSettings",
     "TokenUsageRecord",
+    "InterviewSession",
     "PromptTemplate",
     "PROMPT_TEMPLATE_DEFAULTS",
     "DEFAULT_NEED_TO_SYSREQ",
