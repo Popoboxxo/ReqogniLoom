@@ -406,14 +406,14 @@ export default function ArchitectureEditors(): JSX.Element {
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
-            >{t('cancel', 'Cancel')}</button>
+            >{t('actions.cancel', 'Cancel')}</button>
             <button data-testid="arch-new-save-btn" type="submit" disabled={!newTitle.trim()}
               style={{
                 background: 'var(--color-primary)', color: 'white', border: 'none',
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
-            >{t('create', 'Create')}</button>
+            >{t('actions.create', 'Create')}</button>
           </div>
         </form>
       )}

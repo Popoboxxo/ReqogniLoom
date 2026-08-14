@@ -340,6 +340,14 @@
     "allCoveredTitle": "All requirements are verified",
     "allCoveredDescription": "Every requirement has at least one verifying test case."
   },
+  "tracelinks": {
+    "panelTitle": "Trace Links",
+    "upstream": "Incoming",
+    "downstream": "Outgoing",
+    "empty": "No links yet.",
+    "loadFailed": "Trace links could not be loaded.",
+    "deleteFailed": "Trace link could not be deleted."
+  },
   "createTraceLinkDialog": {
     "title": "Create Trace Link",
     "searchLabel": "Search elements",
@@ -659,11 +667,18 @@
   "req": {
     "changeReason": "Change Reason",
     "changeReasonPlaceholder": "Why is this requirement being changed?",
+    "changeReasonPlaceholderNeed": "Why is this need being changed?",
+    "changeReasonPlaceholderArchitecture": "Why is this architecture element being changed?",
     "changeReasonRequired": "Change reason is required.",
     "acceptanceCriteriaRequired": "Acceptance criteria are required for this rigor preset.",
     "createFailed": "Failed to create requirement.",
     "deleteFailed": "Failed to delete requirement.",
-    "pdfExportFailed": "PDF export failed."
+    "pdfExportFailed": "PDF export failed.",
+    "section": {
+      "generalInformation": "General Information",
+      "classificationProperties": "Classification & Properties",
+      "changeControl": "Change Control"
+    }
   },
   "reqType": {
     "StReq": "Stakeholder Requirement (StReq)",
@@ -1385,6 +1400,10 @@
     "level0": "Root — the system itself.",
     "level1": "Direct decomposition of the root, e.g. subsystems.",
     "levelN": "Every further decomposition step, e.g. components and their parts.",
+    "roleVsTypeTitle": "Role vs. Element Type",
+    "roleVsTypeHint": "Two independent fields that are deliberately not kept in sync — a root element with the role \"System\" can still be classified as \"component\" for domain purposes.",
+    "roleMeaning": "Derived automatically from the element's position in the tree (root = System, inner = Subsystem, leaf = Component). Not editable, changes when you reparent the element.",
+    "elementTypeMeaning": "Freely chosen domain classification, maintained by hand. Can diverge from the role and is not adjusted automatically.",
     "identityTitle": "Element header",
     "identifier": "Identifier of the element, always in a monospaced font. Clicking the identifier in the header copies it.",
     "version": "Current revision. Kept neutral — a version is not a status. Older revisions appear dimmed and without a border.",

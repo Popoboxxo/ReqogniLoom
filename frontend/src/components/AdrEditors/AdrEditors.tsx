@@ -194,7 +194,7 @@ export default function AdrEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : t('create', 'Create')}
+                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Create')}
               </button>
             </>
           }

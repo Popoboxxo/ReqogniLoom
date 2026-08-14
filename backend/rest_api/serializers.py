@@ -28,7 +28,7 @@ Design:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from django.utils import translation
 from rest_framework import pagination, serializers
@@ -189,6 +189,36 @@ def normalize_preset_blob(blob: Any) -> dict[str, Any]:
     if not resolved:
         return dict(blob)
     return {**blob, "tier": resolved, "name": resolved}
+
+
+def extract_preset_tier(value: Any) -> Optional[str]:
+    """Extract a bare tier string from a workspace-preset write payload (GH-411).
+
+    ``Workspace.preset`` round-trips through the wire as the resolved object
+    ``normalize_preset_blob`` above builds on read (``{"tier": "standard",
+    "name": "standard", ...}``), but the write side
+    (``WorkspaceViewSet.create``/``set_preset`` in rest_api/views.py) used to
+    accept only a bare tier string and reject that very same object shape
+    with a confusing "Invalid preset '{'tier': 'standard'}'" error — the
+    ``str()`` of a dict, not a real validation message.
+
+    Accepts either shape:
+      - a plain tier string: ``"standard"``
+      - an object carrying it under ``tier`` or ``name``: ``{"tier": "standard"}``
+
+    Returns the extracted string (still unvalidated against the canonical
+    tier list — callers pass it on to ``WorkspaceService.create_workspace``/
+    ``switch_preset_tier``, which reject an unknown tier explicitly), or
+    ``None`` when no tier string could be extracted at all (wrong type, or
+    an object without a usable ``tier``/``name`` key) so the caller can
+    return a clear 400 instead of a silently-wrong value.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        tier = value.get("tier") or value.get("name")
+        return tier if isinstance(tier, str) else None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -989,6 +1019,12 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     # fields (SEC-03/B006) so HTML/script markup is stripped, not stored verbatim.
     name = SanitizedCharField(max_length=255)
     # #271: passthrough on write, normalised on read — see to_representation.
+    # As a JSONField this already accepts either shape (bare tier string or
+    # {"tier": ...} object) at the serializer level; GH-411's actual 400 came
+    # from WorkspaceViewSet.create/set_preset (rest_api/views.py) reading
+    # request.data directly and never going through this serializer for
+    # input — see extract_preset_tier() above for the shared parsing used
+    # by both of those handlers now.
     preset = serializers.JSONField(required=False, default=dict)
     ai_prompts = serializers.JSONField(required=False, default=dict)
     decomposition_link_type = serializers.CharField(
@@ -1676,6 +1712,7 @@ __all__ = [
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
     "normalize_preset_blob",
+    "extract_preset_tier",
     "AdrSerializer",
     "RiskSerializer",
     "IssueSerializer",

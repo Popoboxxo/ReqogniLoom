@@ -431,7 +431,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         {/* SECTION: General Information */}
         <div style={{ marginBottom: 'var(--space-6)' }}>
           <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-            General Information
+            {t('req.section.generalInformation')}
           </h3>
           
           <label htmlFor="req-title" style={labelStyle}>
@@ -484,7 +484,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         {/* SECTION: Classification & Properties */}
         <div style={{ marginBottom: 'var(--space-6)' }}>
           <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-            Classification & Properties
+            {t('req.section.classificationProperties')}
           </h3>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
@@ -653,7 +653,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         {isChangeReasonRequired && (
           <div style={{ marginBottom: 'var(--space-6)' }}>
             <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-              Change Control
+              {t('req.section.changeControl')}
             </h3>
             
             <label htmlFor="change-reason" style={labelStyle}>
