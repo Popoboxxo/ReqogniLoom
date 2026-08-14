@@ -823,6 +823,19 @@ ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the RES
 | `/mcp/` | GET | — | Server info / health check (no auth required) |
 | (stdio) | — | stdio (local pipe) | `params.api_key` argument |
 
+**Choosing a transport.** HTTP and SSE are two independent, equally supported
+transports — not two stages of one handshake. `POST /mcp/` is a complete
+Streamable-HTTP JSON-RPC endpoint: `initialize`, `tools/list` and `tools/call`
+all work over it with a single request/response round-trip, without ever
+touching `/mcp/sse/`. Use it for scripts, CI jobs and any client that just wants
+to call a tool (the [Manual MCP Test](#manual-mcp-test-curl) above is plain
+`curl` against this endpoint). Use `/mcp/sse/` when your MCP client expects a
+long-lived event stream — most desktop MCP clients (Claude Desktop, Cursor) do,
+which is why the shipped client configs point at it. The server advertises what
+it actually implements: `GET /mcp/` (no auth) returns
+`{"transports": ["http", "sse", "stdio"], ...}`, so a client can discover the
+available transports instead of assuming one.
+
 **SSE requires an ASGI server.** The SSE view streams asynchronously; a WSGI
 server (including `manage.py runserver`) cannot serve it — Django buffers the
 whole async iterator, so the request never returns. Both the production image
