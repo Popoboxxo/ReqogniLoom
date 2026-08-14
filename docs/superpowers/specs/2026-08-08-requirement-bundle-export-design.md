@@ -144,14 +144,26 @@ Sonderbehandlung.
 
 ### REST
 
+> **Korrektur (#446), 2026-08-14 — dieser Abschnitt war ein Entwurfsskizze und
+> weicht vom implementierten Kontrakt ab.** Der Pfad heißt `architecture/{id}/`,
+> nicht `architecture-elements/{id}/`, und der Formatparameter heißt
+> `output_format`, nicht `format` (`?format=` ist DRF-reserviert für Content
+> Negotiation). Einen workspace-weiten Einstieg `GET /api/v1/requirement-bundle/`
+> gibt es nicht und gab es nie — der Export hängt immer an einem
+> Architektur-Element. Verbindliche Quelle ist ab sofort das OpenAPI-Schema
+> (`GET /api/schema/`), in dem seit #447 alle Query-Parameter deklariert sind.
+> Der Block unten zeigt den *implementierten* Stand.
+
 ```
-GET /api/v1/architecture-elements/{id}/requirement-bundle/
-    ?depth=<int|full>
+GET /api/v1/architecture/{id}/requirement-bundle/
+    ?depth=<int>                 (weglassen = unbegrenzt)
     &filter_mode=<all|visible|custom>
-    &fields=<comma-list>        (nur bei filter_mode=custom)
-    &format=<json|markdown|csv>
+    &fields=<comma-list>         (nur bei filter_mode=custom)
+    &output_format=<json|markdown|csv>   (ignoriert bei mode=compressed)
     &mode=<raw|compressed>
     &async=<bool>                (nur bei mode=compressed relevant)
+
+GET /api/v1/bundle-compression-status/{task_id}/   (Polling fuer async=true)
 
 GET /api/v1/attribute-schema/
     ?artifact_type=<optional>
