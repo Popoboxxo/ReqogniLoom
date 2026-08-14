@@ -2,8 +2,9 @@
 MCP Tool Group for cross-host structured Interviews (Interview-Management-Engine spec §4).
 
 Wraps InterviewService (Task 3) for interview.start / interview.get_state /
-interview.answer / interview.list / interview.get. Grounding
-(interview.ground_*) and interview.formalize land in later tasks (6-7) — do
+interview.answer / interview.list / interview.get /
+interview.grounding_context (Task 5, structural only). AI-assisted
+grounding ranking and interview.formalize land in later tasks (6-7) — do
 not add them here.
 """
 from __future__ import annotations
@@ -39,6 +40,7 @@ class InterviewToolGroup(BaseToolGroup):
         "interview.answer": "_handle_answer",
         "interview.list": "_handle_list",
         "interview.get": "_handle_get",
+        "interview.grounding_context": "_handle_grounding_context",
     }
 
     _TOOL_SCHEMAS = [
@@ -109,6 +111,24 @@ class InterviewToolGroup(BaseToolGroup):
         {
             "name": "interview.get",
             "description": "Fetch one interview session's summary (id, workspace, artifact_type, status) by id.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "UUID of the interview session."},
+                },
+                "required": ["session_id"],
+            },
+        },
+        {
+            "name": "interview.grounding_context",
+            "description": (
+                "Structural (non-AI) grounding: find existing artifacts whose title "
+                "overlaps the session's collected title, so the interview can flag "
+                "possible duplicates before a new artifact is created. Only "
+                "Requirement is wired up so far; other artifact types return no "
+                "candidates for now. Refreshes and returns the session's "
+                "grounding_snapshot."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -202,6 +222,16 @@ class InterviewToolGroup(BaseToolGroup):
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok(_session_to_dict(session))
+
+    def _handle_grounding_context(
+        self, *, params: Dict[str, Any], auth_context, api_key: str
+    ) -> ToolResult:
+        session_id = require_uuid(params, "session_id")
+        try:
+            result = self._service.grounding_context(auth_context, session_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        return ToolResult.ok(result)
 
 
 __all__ = ["InterviewToolGroup"]

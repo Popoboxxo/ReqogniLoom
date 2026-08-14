@@ -158,3 +158,27 @@ class TestAbandonedTtl:
         )
 
         assert session.id not in {s.id for s in in_progress}
+
+
+class TestGroundingStructural:
+    """spec §6 step 1: structural (non-AI) grounding for Requirement interviews."""
+
+    def test_grounding_finds_existing_requirement_by_title_overlap(self, ctx, workspace):
+        from application.requirement_service import RequirementService
+
+        RequirementService().create_requirement(
+            workspace_id=workspace.id, title="SSO login support", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+
+        result = InterviewService().grounding_context(ctx, session.id)
+
+        assert len(result["candidates"]) >= 1
+        titles = [c["title"] for c in result["candidates"]]
+        assert "SSO login support" in titles
+
+    def test_grounding_with_no_answers_yet_returns_empty_candidates(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        result = InterviewService().grounding_context(ctx, session.id)
+        assert result["candidates"] == []

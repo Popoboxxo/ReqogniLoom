@@ -237,6 +237,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "interview.get_state",
         "interview.list",
         "interview.get",
+        # Interview-Management-Engine Task 5: interview.grounding_context
+        # only refreshes the session's own grounding_snapshot cache from a
+        # read-only query against existing artifacts -- it never creates or
+        # updates a real artifact, so it stays out of _WRITE_TOOL_PREFIXES
+        # and is exempted here the same way get_state/list/get are.
+        "interview.grounding_context",
     }
 )
 

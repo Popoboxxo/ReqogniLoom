@@ -121,6 +121,41 @@ class InterviewService(ServiceBase):
         session.refresh_from_db(fields=["version"])
         return session
 
+    @atomic_transaction
+    def grounding_context(self, ctx, session_id: UUID) -> "dict[str, Any]":
+        """Structural (non-AI) grounding — spec §6 step 1.
+
+        Only ``Requirement`` is wired up here (YAGNI): the other 7 in-scope
+        artifact types get the same shape once their equivalent read
+        services are confirmed, in a later pass. AI-assisted ranking on top
+        of this structural pre-filter is Task 6.
+        """
+        session = self._get_session(ctx, session_id)
+        candidates: "list[dict[str, Any]]" = []
+
+        title = session.collected_fields.get("title")
+        if title and session.artifact_type == "Requirement":
+            from application.requirement_service import RequirementService
+
+            # Structural pre-filter: substring match on title within the
+            # workspace. Cheap, always available, no AI required. list_requirements()
+            # returns a lazy QuerySet of Requirement ORM objects (title/artifact_id
+            # attrs) -- not dicts, and excludes soft-deleted rows by default.
+            matches = RequirementService().list_requirements(
+                workspace_id=session.workspace_id, ctx=ctx
+            )
+            candidates = [
+                {"artifact_id": str(r.artifact_id), "title": r.title, "score": None}
+                for r in matches
+                if title.lower() in r.title.lower()
+            ]
+
+        session.grounding_snapshot = {"candidates": candidates}
+        session.version = F("version") + 1
+        session.save(update_fields=["grounding_snapshot", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
+        return session.grounding_snapshot
+
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
         self._set_tenant_context(ctx)
         # Bulk-flip stale rows before filtering, so a "status=in_progress"

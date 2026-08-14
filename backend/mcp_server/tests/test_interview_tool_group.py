@@ -298,6 +298,42 @@ class TestInterviewToolGroup:
         assert result.success is False
         assert result.error_code == "UNKNOWN_TOOL"
 
+    # ------------------------------------------------------------------
+    # interview.grounding_context
+    # ------------------------------------------------------------------
+
+    def test_grounding_context_calls_service_and_returns_snapshot(self):
+        group, svc = self._group()
+        svc.grounding_context.return_value = {
+            "candidates": [
+                {"artifact_id": str(WORKSPACE_UUID), "title": "SSO login support", "score": None}
+            ]
+        }
+
+        result = group.execute_tool(
+            tool_name="interview.grounding_context",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data == svc.grounding_context.return_value
+        svc.grounding_context.assert_called_once_with(EDITOR_CTX, SESSION_UUID)
+
+    def test_grounding_context_not_found_returns_not_found(self):
+        group, svc = self._group()
+        svc.grounding_context.side_effect = NotFoundError("InterviewSession not found")
+
+        result = group.execute_tool(
+            tool_name="interview.grounding_context",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
 
 # ---------------------------------------------------------------------------
 # Registration / RBAC classification structural checks
@@ -322,15 +358,24 @@ class TestInterviewToolGroupRegistration:
             ), f"{tool_name} missing from _WRITE_TOOL_PREFIXES"
 
     def test_read_tools_are_not_rbac_gated(self):
-        """interview.get_state/list/get are reads: under the fail-closed
-        RBAC gate (_is_write_tool in tool_registry.py) any tool name not
-        explicitly listed as read-only defaults to write-protected, so a
-        Viewer would wrongly be denied a plain read unless these three are
-        added to _READ_ONLY_TOOL_NAMES."""
+        """interview.get_state/list/get/grounding_context are reads: under
+        the fail-closed RBAC gate (_is_write_tool in tool_registry.py) any
+        tool name not explicitly listed as read-only defaults to
+        write-protected, so a Viewer would wrongly be denied a plain read
+        unless these are added to _READ_ONLY_TOOL_NAMES.
+        grounding_context does mutate the session's own grounding_snapshot
+        cache, but that's a read-shaped side effect (spec framing: advisory
+        grounding, not an artifact write), same class as get_state/list/get.
+        """
         from mcp_server.tool_registry import ToolRegistry
 
         registry = ToolRegistry()
-        for tool_name in ("interview.get_state", "interview.list", "interview.get"):
+        for tool_name in (
+            "interview.get_state",
+            "interview.list",
+            "interview.get",
+            "interview.grounding_context",
+        ):
             assert registry._is_write_tool(tool_name) is False, (
                 f"{tool_name} is wrongly RBAC-gated as a write tool"
             )
