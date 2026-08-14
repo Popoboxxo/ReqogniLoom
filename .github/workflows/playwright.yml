@@ -94,6 +94,10 @@ jobs:
         run: |
           python manage.py migrate --noinput
           python manage.py seed_demo
+          # Fixture workspace for tests/toothbrush-syseng.spec.ts. The spec used
+          # to seed itself via `docker compose exec`, which no CI job can do —
+          # there is no compose stack here, only the runserver process below.
+          python manage.py seed_toothbrush
 
       - name: Start Django backend
         working-directory: backend

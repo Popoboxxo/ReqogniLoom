@@ -97,6 +97,24 @@ def auth_ctx(user: User) -> AuthContext:
 
 
 @pytest.fixture
+def admin_ctx(user: User) -> AuthContext:
+    """Admin context for tenant-level configuration.
+
+    AttributeVisibilityConfig CRUD is admin-only (#470); bundle export itself
+    stays an editor-level read. The two fixtures keep that split explicit
+    instead of over-privileging every bundle test.
+    """
+    return AuthContext(
+        user_id=user.id,
+        tenant_id=user.tenant.id,
+        active_roles=("admin",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="Bundle Tenant",
+    )
+
+
+@pytest.fixture
 def make_architecture_element(tenant: Tenant):
     def _make(ws: Workspace, title: str = "AE", parent=None) -> ArchitectureElement:
         with _active(tenant):
@@ -137,15 +155,17 @@ def make_allocated_to_link(tenant: Tenant):
 
 
 @pytest.fixture
-def make_attribute_visibility_config(auth_ctx: AuthContext):
+def make_attribute_visibility_config(admin_ctx: AuthContext):
     """Create an AttributeVisibilityConfig row via the service (which sets
     tenant context itself — see AttributeVisibilityConfigService.create_config),
     mirroring application/tests/test_service_boundaries_req066.py's pattern.
+
+    Uses admin_ctx: create_config enforces the ``admin`` role (#470).
     """
 
     def _make(entity_type: str, attribute_name: str, is_visible: bool):
         return AttributeVisibilityConfigService().create_config(
-            auth_ctx,
+            admin_ctx,
             entity_type=entity_type,
             attribute_name=attribute_name,
             is_visible=is_visible,
@@ -561,3 +581,26 @@ class TestGetBundleFiltering:
         fields = result.items[0].fields
         assert "title" in fields
         assert "description" not in fields
+
+    def test_filter_mode_visible_is_not_admin_only(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link, make_attribute_visibility_config,
+    ):
+        """Regression: enforcing ``admin`` on AttributeVisibilityConfig CRUD
+        (#470) also gated the read that filter_mode='visible' resolves through,
+        so every editor/viewer bundle export in that mode raised
+        PermissionDeniedError. auth_ctx here holds only ('editor',).
+        """
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="R1")
+        make_allocated_to_link(source=req, target=root)
+        make_attribute_visibility_config(
+            entity_type="Requirement", attribute_name="description", is_visible=False
+        )
+
+        assert "admin" not in auth_ctx.active_roles
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=0,
+            filter_mode="visible",
+        )
+        assert "description" not in result.items[0].fields

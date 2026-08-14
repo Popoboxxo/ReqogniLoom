@@ -164,8 +164,11 @@ class TestDiffBaselines:
         ):
             result = facade.diff_baselines(a_id, b_id, ctx)
 
+        # tenant_id is part of the contract since the cross-tenant baseline
+        # leak fix (ADR-03, #464): baseline.services.diff scopes both lookups
+        # to the caller's tenant, so the facade MUST forward ctx.tenant_id.
         mock_diff.assert_called_once_with(
-            baseline_a_id=a_id, baseline_b_id=b_id
+            baseline_a_id=a_id, baseline_b_id=b_id, tenant_id=ctx.tenant_id
         )
         assert result is mock_result
 

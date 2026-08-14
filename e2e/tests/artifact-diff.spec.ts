@@ -1,6 +1,6 @@
 // REQ-L1-040, REQ-L2-RF-014: Artifact Diff — visual diff view
 // Create a requirement, modify it, open diff view, assert changed field visible
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -11,11 +11,36 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await loginAsAdmin(page);
   });
 
+  /**
+   * Save the open requirement and wait for the detail-refetch GET.
+   *
+   * The seeded workspace runs the "extended" preset, whose policy rejects a
+   * PATCH without a change reason ("change_reason required by workspace preset
+   * policy", HTTP 400). Without filling change-reason-input the save never
+   * reaches the server successfully, no refetch is triggered, and the
+   * waitForResponse below hangs until the test times out.
+   */
+  async function saveWithChangeReason(page: Page, reason: string): Promise<void> {
+    await page.locator('[data-testid="change-reason-input"]').fill(reason);
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
+  }
+
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
-    // Bumped from 10000ms: the create flow now needs an extra fill+click
+    // Bumped from 10000ms: the create flow needs an extra fill+click
     // round-trip (req-new-title-input/req-new-save-btn) before the detail
-    // editor renders (issue #172).
-    test.setTimeout(15000);
+    // editor renders (issue #172), and every save additionally fills
+    // change-reason-input (extended-preset policy) and waits for the
+    // detail-refetch GET. 15000ms no longer covers two such saves.
+    test.setTimeout(30000);
 
     // Navigate to requirements and create a new one. The create form
     // (issue #172: PageHeader pattern) asks for the title up front via
@@ -33,35 +58,16 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
 
     // Save the requirement. The save handler PATCHes the requirement and
     // then invalidates the detail query, which triggers a background GET
-    // refetch (../RequirementEditors/useRequirementData.ts refresh()). Wait
-    // for that refetch response instead of a fixed delay, so the next edit
-    // is guaranteed to race against fresh, persisted state.
-    await Promise.all([
-      page.waitForResponse(
-        (resp) =>
-          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
-          resp.request().method() === 'GET' &&
-          resp.status() === 200
-      ),
-      page.locator('[data-testid="save-btn"]').click(),
-    ]);
-    // Wait for save to complete (button text returns from "Saving..." to "Save")
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
+    // refetch (../RequirementEditors/useRequirementData.ts refresh()).
+    // saveWithChangeReason waits for that refetch instead of a fixed delay, so
+    // the next edit is guaranteed to race against fresh, persisted state.
+    await saveWithChangeReason(page, 'initial content');
 
     // Now modify the title
     await titleInput.fill('Diff Test Requirement - Modified');
 
     // Save again to create a new version
-    await Promise.all([
-      page.waitForResponse(
-        (resp) =>
-          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
-          resp.request().method() === 'GET' &&
-          resp.status() === 200
-      ),
-      page.locator('[data-testid="save-btn"]').click(),
-    ]);
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
+    await saveWithChangeReason(page, 'renamed for the diff assertion');
 
     // Diff is no longer behind a "View Diff" modal trigger — since
     // REQ-L2-RF-034/036 (RightSidebar shell) it is rendered inline in the
@@ -106,10 +112,12 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
-    // Bumped from 10000ms: the create flow now needs an extra fill+click
+    // Bumped from 10000ms: the create flow needs an extra fill+click
     // round-trip (req-new-title-input/req-new-save-btn) before the detail
-    // editor renders (issue #172).
-    test.setTimeout(15000);
+    // editor renders (issue #172), and every save additionally fills
+    // change-reason-input (extended-preset policy) and waits for the
+    // detail-refetch GET. 15000ms no longer covers two such saves.
+    test.setTimeout(30000);
 
     // Navigate to requirements and create a new one. The create form
     // (issue #172: PageHeader pattern) asks for the title up front via
@@ -124,16 +132,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     // Fill in data and save. See the previous test for why we wait for the
     // detail-refetch GET rather than a fixed delay.
     await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
-    await Promise.all([
-      page.waitForResponse(
-        (resp) =>
-          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
-          resp.request().method() === 'GET' &&
-          resp.status() === 200
-      ),
-      page.locator('[data-testid="save-btn"]').click(),
-    ]);
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
+    await saveWithChangeReason(page, 'initial content');
 
     // Diff view is rendered inline in the persistent ArtifactInspector
     // sidebar (REQ-L2-RF-034/036) — no separate "View Diff" trigger exists

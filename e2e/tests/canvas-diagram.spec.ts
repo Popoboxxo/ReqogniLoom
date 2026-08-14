@@ -113,12 +113,16 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await expect(page.locator('[data-testid="canvas-width-slider"]')).toBeVisible();
     await expect(page.locator('[data-testid="canvas-width-label"]')).toHaveText('2px');
 
-    // Change stroke width via JS evaluation (range input)
-    await page.locator('[data-testid="canvas-width-slider"]').evaluate((el: HTMLInputElement) => {
-      el.value = '10';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    // Drive the slider by keyboard (step=1, so 2px + 8 × ArrowRight = 10px).
+    // Assigning `el.value` from evaluate() cannot work here: the slider is a
+    // controlled React input, and React's value tracker swallows the synthetic
+    // `input` event that follows a direct assignment, so onChange never runs.
+    // Keyboard is what a real user does and goes through the native setter.
+    const slider = page.locator('[data-testid="canvas-width-slider"]');
+    await slider.focus();
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
     await expect(page.locator('[data-testid="canvas-width-label"]')).toHaveText('10px');
 
     // Change color using a quick-color palette button (blue #4f6ef7)

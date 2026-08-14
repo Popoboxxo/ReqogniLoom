@@ -81,6 +81,27 @@ class AttributeVisibilityConfigService(ServiceBase):
             raise NotFoundError(f"Config {config_id} not found")
         return obj
 
+    def hidden_attribute_names(self, ctx: AuthContext, entity_type: str) -> set[str]:
+        """Return the attribute names hidden for *entity_type* in this tenant.
+
+        This is the **consumption** read of the visibility config, as opposed to
+        the admin-gated management reads (:meth:`list_configs`,
+        :meth:`get_config`). Any authenticated tenant member may resolve which
+        fields are hidden, because that is what applying the config to their own
+        data requires — e.g. bundle export with ``filter_mode='visible'``.
+        Gating it on ``admin`` would make the configured visibility unusable by
+        exactly the non-admin users it is meant to constrain.
+
+        Config rows are an explicit hide toggle, not an allow-list: a field with
+        no row is visible, so only ``is_visible=False`` rows are returned.
+        """
+        self._set_tenant_context(ctx)
+        return set(
+            AttributeVisibilityConfig.objects.filter(
+                tenant_id=ctx.tenant_id, entity_type=entity_type, is_visible=False
+            ).values_list("attribute_name", flat=True)
+        )
+
     def describe_schema(
         self, ctx: AuthContext, entity_type: str | None = None
     ) -> list[dict[str, Any]]:
@@ -98,12 +119,9 @@ class AttributeVisibilityConfigService(ServiceBase):
                 raise NotFoundError(f"Unknown entity_type {entity_type!r}")
             schemas = {entity_type: schemas[entity_type]}
 
-        hidden_by_type: dict[str, set[str]] = {}
-        for et in schemas:
-            configs = AttributeVisibilityConfig.objects.filter(
-                tenant_id=ctx.tenant_id, entity_type=et, is_visible=False
-            )
-            hidden_by_type[et] = {c.attribute_name for c in configs}
+        hidden_by_type: dict[str, set[str]] = {
+            et: self.hidden_attribute_names(ctx, et) for et in schemas
+        }
 
         result: list[dict[str, Any]] = []
         for et, field_names in schemas.items():
