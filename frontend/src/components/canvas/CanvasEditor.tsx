@@ -24,7 +24,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { diagramsApi } from "../../api/diagrams";
+import { diagramKeys } from "../DiagramView/useDiagramData";
 import type {
   CanvasStroke,
   CanvasStrokeData,
@@ -126,6 +128,7 @@ export function CanvasEditor({
   onAutoSave,
 }: CanvasEditorProps): JSX.Element {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const fabricRef = useRef<FabricCanvas>(null);
@@ -399,12 +402,22 @@ export function CanvasEditor({
       setSaveStatus("saved");
       onAutoSave?.(strokeData.strokes);
 
+      // REQ-L1-029 / B-DIAG-001: this save goes straight through
+      // diagramsApi, bypassing useDiagramDetail's mutation and the
+      // invalidation it normally triggers. Without this, the detail pane's
+      // react-query cache (30s staleTime) keeps serving the pre-save
+      // version — the backend has already created the new immutable
+      // version, the UI just never asks for it again within that window.
+      void queryClient.invalidateQueries({
+        queryKey: diagramKeys.detail(diagramId),
+      });
+
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err) {
       console.error("Canvas auto-save failed", err);
       setSaveStatus("error");
     }
-  }, [diagramId, isDirty, onAutoSave]);
+  }, [diagramId, isDirty, onAutoSave, queryClient]);
 
   // -----------------------------------------------------------------------
   // Fabric.js initialization

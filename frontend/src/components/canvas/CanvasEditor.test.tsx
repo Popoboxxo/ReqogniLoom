@@ -6,9 +6,23 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { CanvasEditor } from "./CanvasEditor";
+
+// CanvasEditor invalidates the diagram-detail query cache on save
+// (B-DIAG-001 / REQ-L1-029), which needs a real QueryClientProvider in scope
+// — same pattern as e.g. NeedsEditors/need-form.test.tsx.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return rtlRender(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
 
 // Mock the diagrams API
 vi.mock("../../api/diagrams", () => ({
