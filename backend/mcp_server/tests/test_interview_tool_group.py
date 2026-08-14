@@ -155,6 +155,11 @@ class TestInterviewToolGroup:
         assert answer_result.success is True
         svc.answer.assert_called_once_with(EDITOR_CTX, session.id, "title", "SSO login")
         mock_audit.assert_called_once()
+        call_kwargs = mock_audit.call_args.kwargs
+        assert call_kwargs["tool_name"] == "interview.answer"
+        # AuditLog.op is a fixed vocabulary (audit/models.py OP_CHOICES) --
+        # updating an existing InterviewSession row maps to "update", not a literal "answer".
+        assert call_kwargs["operation"] == "update"
 
         state_result = group.execute_tool(
             tool_name="interview.get_state",
