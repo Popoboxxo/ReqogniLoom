@@ -22,7 +22,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { diagramsApi } from "../../api/diagrams";
+import { diagramKeys } from "../DiagramView/useDiagramData";
 import type { MermaidPreviewResponse } from "../../types";
 import styles from "../../styles/components/MermaidEditor.module.css";
 import { sanitizeSvg } from "../../utils/sanitizeSvg";
@@ -54,6 +56,7 @@ export function MermaidEditor({
   onSourceChange,
 }: MermaidEditorProps): JSX.Element {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
 
   const [source, setSource] = useState(initialSource ?? "");
   const [preview, setPreview] = useState<MermaidPreviewResponse | null>(null);
@@ -313,13 +316,23 @@ export function MermaidEditor({
         isDirtyRef.current = false;
         setSaveStatus("saved");
 
+        // REQ-L1-029 / B-DIAG-001: this save goes straight through
+        // diagramsApi, bypassing useDiagramDetail's mutation and the
+        // invalidation it normally triggers. Without this, the detail pane's
+        // react-query cache (30s staleTime) keeps serving the pre-save
+        // version — the backend has already created v2, the UI just never
+        // asks for it again within that window.
+        void queryClient.invalidateQueries({
+          queryKey: diagramKeys.detail(diagramId),
+        });
+
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch (err) {
         console.error("Mermaid auto-save failed", err);
         setSaveStatus("error");
       }
     },
-    [diagramId]
+    [diagramId, queryClient]
   );
 
   // Manual save

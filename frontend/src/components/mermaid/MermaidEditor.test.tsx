@@ -6,8 +6,22 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor, act } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MermaidEditor } from "./MermaidEditor";
+
+// MermaidEditor invalidates the diagram-detail query cache on save
+// (B-DIAG-001 / REQ-L1-029), which needs a real QueryClientProvider in scope
+// — same pattern as e.g. NeedsEditors/need-form.test.tsx.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return rtlRender(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
 
 // Mock the diagrams API
 const mockFetchMermaidSource = vi.fn().mockResolvedValue({
@@ -251,6 +265,52 @@ describe("MermaidEditor", () => {
         expect(mockSaveMermaidSource).toHaveBeenCalledWith(
           "test-diagram-id",
           "flowchart TD\n  A --> C"
+        );
+      },
+      { timeout: 5000 }
+    );
+  });
+
+  it("invalidates the diagram-detail query cache after auto-save (B-DIAG-001 / REQ-L1-029)", async () => {
+    // Regression: the fullscreen mermaid editor saves through diagramsApi
+    // directly, bypassing useDiagramDetail's mutation and the invalidation
+    // it normally runs on success. Before this fix, the detail pane's
+    // react-query cache (30s staleTime) kept serving the pre-save version —
+    // the backend had already created the new immutable version, the UI
+    // just never asked for it again within that window, so a re-opened
+    // detail pane showed the stale version number.
+    cm.listener = null;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <MermaidEditor
+          diagramId="test-diagram-id"
+          initialSource="flowchart TD\n  A --> B"
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(cm.listener).not.toBeNull();
+    });
+
+    await act(async () => {
+      cm.listener?.({
+        docChanged: true,
+        state: { doc: { toString: () => "flowchart TD\n  A --> E" } },
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(invalidateSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            queryKey: ["diagrams", "detail", "test-diagram-id"],
+          })
         );
       },
       { timeout: 5000 }
