@@ -237,6 +237,8 @@
   },
   "arch": {
     "deriveRequirement": "Anforderung ableiten",
+    "createFailed": "Architekturelement konnte nicht angelegt werden.",
+    "deleteFailed": "Architekturelement konnte nicht gelöscht werden.",
     "lifecycleStatus": {
       "active": "Aktiv",
       "outdated": "Veraltet",
@@ -669,6 +671,9 @@
     "changeReasonPlaceholderArchitecture": "Warum wird dieses Architekturelement geändert?",
     "changeReasonRequired": "Änderungsgrund ist erforderlich.",
     "acceptanceCriteriaRequired": "Abnahmekriterien sind für dieses Rigor-Preset erforderlich.",
+    "createFailed": "Anforderung konnte nicht angelegt werden.",
+    "deleteFailed": "Anforderung konnte nicht gelöscht werden.",
+    "pdfExportFailed": "PDF-Export fehlgeschlagen.",
     "section": {
       "generalInformation": "Allgemeine Informationen",
       "classificationProperties": "Klassifikation & Eigenschaften",

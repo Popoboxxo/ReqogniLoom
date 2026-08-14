@@ -237,6 +237,8 @@
   },
   "arch": {
     "deriveRequirement": "Derive requirement",
+    "createFailed": "Failed to create architecture element.",
+    "deleteFailed": "Failed to delete architecture element.",
     "lifecycleStatus": {
       "active": "Active",
       "outdated": "Outdated",
@@ -669,6 +671,9 @@
     "changeReasonPlaceholderArchitecture": "Why is this architecture element being changed?",
     "changeReasonRequired": "Change reason is required.",
     "acceptanceCriteriaRequired": "Acceptance criteria are required for this rigor preset.",
+    "createFailed": "Failed to create requirement.",
+    "deleteFailed": "Failed to delete requirement.",
+    "pdfExportFailed": "PDF export failed.",
     "section": {
       "generalInformation": "General Information",
       "classificationProperties": "Classification & Properties",

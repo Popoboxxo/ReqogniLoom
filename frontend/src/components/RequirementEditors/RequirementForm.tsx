@@ -105,6 +105,16 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   // stuck with an un-fixable approval-transition error.
   const isAcceptanceCriteriaRequiredPreset =
     activeWorkspace?.preset === 'standard' || isExtendedPreset;
+  // #339: a change reason is mandatory either because the workspace runs the
+  // extended preset (PresetPolicyService.is_change_reason_required, enforced
+  // on EVERY update) or because an explicit AttributeVisibilityConfig row
+  // marks the field required. Both conditions must drive the *same* three
+  // things — the client-side guard in validateForm, the `*` marker and the
+  // rendering of the field itself. They used to disagree: the guard fired on
+  // either condition while the field only rendered for the extended preset,
+  // so a config-driven requirement produced a save the user could never
+  // complete (no input to fill in).
+  const isChangeReasonRequired = isExtendedPreset || isFieldRequired('change_reason');
 
   // Form state
   const [title, setTitle] = useState(requirement.title);
@@ -186,7 +196,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     // fired and every save in an extended workspace silently 400'd.
     // The workspace preset is the authority here; an explicit
     // AttributeVisibilityConfig can only make the field required in addition.
-    if ((isExtendedPreset || isFieldRequired('change_reason')) && !changeReason.trim()) {
+    if (isChangeReasonRequired && !changeReason.trim()) {
       return t('req.changeReasonRequired');
     }
 
@@ -207,7 +217,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       }
     }
     return null;
-  }, [title, changeReason, type, verificationMethod, t, isExtendedPreset, isFieldVisible, isFieldRequired]);
+  }, [title, changeReason, type, verificationMethod, t, isChangeReasonRequired, isFieldVisible, isFieldRequired]);
 
   /**
    * Handle save action.
@@ -637,8 +647,10 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         {/* #344: in the extended preset the change reason is mandatory
             server-side, so the field must be rendered regardless of the
             AttributeVisibilityConfig — hiding it would make every save
-            impossible to complete. */}
-        {isExtendedPreset && (
+            impossible to complete.
+            #339: it is rendered for a config-driven requirement too, so the
+            asterisk, the client-side guard and the input never disagree. */}
+        {isChangeReasonRequired && (
           <div style={{ marginBottom: 'var(--space-6)' }}>
             <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
               {t('req.section.changeControl')}
@@ -655,7 +667,17 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               rows={2}
               style={{ ...inputStyle, resize: 'vertical' }}
               placeholder={t('req.changeReasonPlaceholder')}
+              required
+              aria-required="true"
             />
+            {/* #339: the asterisk alone was reported as too easy to miss for a
+                field whose omission costs the whole edit. Mirrors the
+                acceptance-criteria hint above. */}
+            {!changeReason.trim() && (
+              <p data-testid="change-reason-hint" className={styles.fieldHint}>
+                {t('req.changeReasonRequired')}
+              </p>
+            )}
           </div>
         )}
 

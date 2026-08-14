@@ -26,9 +26,13 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // Mock API modules
 // ---------------------------------------------------------------------------
 
-vi.mock("../api/client", () => ({
+vi.mock("../api/client", async (importActual) => ({
+  ...(await importActual<typeof import("../api/client")>()),
   getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
   extractErrorMessage: vi.fn().mockReturnValue("Error"),
+  // #340: NOT stubbed on purpose — the create/delete handlers under test must
+  // be exercised against the real extraction logic, so a test that shows the
+  // server's own message really proves the envelope is read correctly.
   setAuthToken: vi.fn(),
   setUnauthorizedHandler: vi.fn(),
   apiClient: {
@@ -136,6 +140,7 @@ import RequirementEditors from "../components/RequirementEditors/RequirementEdit
 import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
 import { testcasesApi } from "../api/testcases";
+import { workspacesApi } from "../api/workspaces";
 import { extractErrorMessage } from "../api/client";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
@@ -374,5 +379,161 @@ describe("RequirementEditors Task 3.1 (ArtifactRow / EmptyState)", () => {
     });
     expect(screen.getByTestId("req-list-no-match-reset-filters")).toBeInTheDocument();
     expect(screen.queryByTestId("req-list-empty")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub #339 / #340 — the UI must never swallow a server rejection
+//
+// Both issues share one root cause: the list-level write handlers in
+// RequirementEditors caught their rejection into `console.error` and had no
+// UI surface at all, so a rejected create/delete was indistinguishable from a
+// no-op. Every sibling artifact container (Need/Risk/TestCase/Adr/Issue)
+// already rendered a `createError`; Requirements was the one that did not.
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors — server validation errors are visible (#339/#340)", () => {
+  /** The exact 400 body the free-text guard produces for markup in a title. */
+  const XSS_REJECTION = {
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "Validation failed.",
+      details: [
+        {
+          field: "title",
+          errors: [
+            "contains disallowed content: HTML markup is not permitted in free-text fields.",
+          ],
+        },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("renders the server's rejection reason when a create is refused", async () => {
+    vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    await user.type(
+      screen.getByTestId("req-new-title-input"),
+      "<script>alert(1)</script>"
+    );
+    await user.click(screen.getByTestId("req-new-save-btn"));
+
+    const alert = await screen.findByTestId("req-create-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(
+      "HTML markup is not permitted in free-text fields."
+    );
+  });
+
+  it("keeps the create form (and the typed title) open after a refused create", async () => {
+    vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    await user.type(screen.getByTestId("req-new-title-input"), "<b>x</b>");
+    await user.click(screen.getByTestId("req-new-save-btn"));
+
+    await screen.findByTestId("req-create-error");
+    // Nothing was lost: the user can correct the title in place.
+    expect(screen.getByTestId("req-new-title-input")).toHaveValue("<b>x</b>");
+  });
+
+  it("clears the create error once the user starts correcting the title", async () => {
+    vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    await user.type(screen.getByTestId("req-new-title-input"), "<b>x</b>");
+    await user.click(screen.getByTestId("req-new-save-btn"));
+    await screen.findByTestId("req-create-error");
+
+    await user.type(screen.getByTestId("req-new-title-input"), "y");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("req-create-error")).not.toBeInTheDocument()
+    );
+  });
+
+  it("falls back to localised copy when the rejection carries no message", async () => {
+    vi.mocked(requirementsApi.create).mockRejectedValueOnce({ weird: true });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    await user.type(screen.getByTestId("req-new-title-input"), "Fine title");
+    await user.click(screen.getByTestId("req-new-save-btn"));
+
+    const alert = await screen.findByTestId("req-create-error");
+    // Never an "[object Object]" dump — the container's own i18n key wins.
+    expect(alert.textContent).not.toContain("object Object");
+    expect(alert.textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  it("surfaces a refused list-level action in the page banner", async () => {
+    // The PDF export is the reachable list-level action on this page (the
+    // list's own delete confirmation is currently unreachable — its
+    // `setConfirmDeleteId` has no caller, tracked separately). It used to
+    // fail with a console.error and no download, i.e. invisibly.
+    vi.mocked(workspacesApi.downloadPdfReport).mockRejectedValueOnce({
+      error: {
+        code: "PERMISSION_DENIED",
+        message: "You do not have permission to perform this action.",
+        details: [],
+      },
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("export-pdf-btn")).toBeEnabled()
+    );
+    await user.click(screen.getByTestId("export-pdf-btn"));
+
+    const alert = await screen.findByTestId("req-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(
+      "You do not have permission to perform this action."
+    );
   });
 });

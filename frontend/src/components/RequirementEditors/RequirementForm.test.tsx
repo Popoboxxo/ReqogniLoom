@@ -40,13 +40,16 @@ vi.mock("../WorkflowStatusEditor", () => ({
   ),
 }));
 
+// Field names an AttributeVisibilityConfig row marks as required. Empty by
+// default, mirroring the real defaults: with no config rows (the state of a
+// fresh workspace) every field is visible and *no* field is required — #344
+// hinged on that second default. #339 tests flip `change_reason` on.
+let mockRequiredFields: string[] = [];
+
 vi.mock("../../context/EntityTypeContext", () => ({
   useEntityType: () => ({
-    // Mirrors the real defaults: with no AttributeVisibilityConfig rows (the
-    // default state of a fresh workspace) every field is visible and *no*
-    // field is required. #344 hinged on that second default.
     isFieldVisible: () => true,
-    isFieldRequired: () => false,
+    isFieldRequired: (field: string) => mockRequiredFields.includes(field),
   }),
 }));
 
@@ -371,5 +374,92 @@ describe("RequirementForm — save persistence and failure surfacing (#344)", ()
     const payload = (requirementsApi.update as ReturnType<typeof vi.fn>).mock
       .calls[0][1];
     expect(payload).toMatchObject({ change_reason: "clarified wording" });
+  });
+});
+
+/**
+ * Issue #339 — "Change Reason is not marked as mandatory".
+ *
+ * A change reason is mandatory when EITHER the workspace runs the extended
+ * preset (`PresetPolicyService.is_change_reason_required`, enforced on every
+ * update) OR an AttributeVisibilityConfig row marks the field required. Those
+ * two conditions used to disagree: `validateForm` blocked on either, while
+ * the field itself only rendered for the extended preset — so a config-driven
+ * requirement produced a save the user could never complete, with no input to
+ * put the reason into.
+ */
+describe("RequirementForm — change_reason is marked and reachable (#339)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(requirementsApi.update).mockResolvedValue(
+      {} as unknown as Requirement
+    );
+  });
+
+  afterEach(() => {
+    mockPreset = "standard";
+    mockRequiredFields = [];
+  });
+
+  it("marks the field as required with an asterisk in the extended preset", () => {
+    mockPreset = "extended";
+    renderForm();
+
+    const label = document.querySelector('label[for="change-reason"]');
+    expect(label).not.toBeNull();
+    expect(label).toHaveTextContent("*");
+    expect(screen.getByTestId("change-reason-input")).toBeRequired();
+    // Plus a hint in words, since a lone asterisk was reported as too easy to
+    // miss for a field whose omission costs the entire edit.
+    expect(screen.getByTestId("change-reason-hint")).toBeInTheDocument();
+  });
+
+  it("hides the hint once a reason has been entered", () => {
+    mockPreset = "extended";
+    renderForm();
+
+    fireEvent.change(screen.getByTestId("change-reason-input"), {
+      target: { value: "clarified wording" },
+    });
+
+    expect(screen.queryByTestId("change-reason-hint")).not.toBeInTheDocument();
+  });
+
+  it("renders the field when only an AttributeVisibilityConfig requires it", () => {
+    mockPreset = "standard";
+    mockRequiredFields = ["change_reason"];
+    renderForm();
+
+    // Without the input this save is unsatisfiable: the guard below blocks,
+    // but there is nothing to type the reason into.
+    expect(screen.getByTestId("change-reason-input")).toBeInTheDocument();
+  });
+
+  it("lets a config-required change reason actually be satisfied", async () => {
+    mockPreset = "standard";
+    mockRequiredFields = ["change_reason"];
+    renderForm();
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("req.changeReasonRequired");
+    expect(requirementsApi.update).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("change-reason-input"), {
+      target: { value: "config-required reason" },
+    });
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    expect(
+      (requirementsApi.update as ReturnType<typeof vi.fn>).mock.calls[0][1]
+    ).toMatchObject({ change_reason: "config-required reason" });
+  });
+
+  it("keeps the field out of a workspace that does not require it", () => {
+    mockPreset = "standard";
+    renderForm();
+
+    expect(screen.queryByTestId("change-reason-input")).not.toBeInTheDocument();
   });
 });

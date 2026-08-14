@@ -24,6 +24,29 @@
   color: var(--color-danger);
 }
 
+/*
+ * #339/#340: server-rejection banners for the list panel. Classes (not
+ * `style={{ }}`) because `src/test/ui-ratchet.test.ts` freezes the number of
+ * inline styles under `src/components` at an exact count.
+ *
+ * `.formError` sits inside the inline create form, under the title input;
+ * `.actionError` is the page-level banner for delete / PDF export.
+ */
+.formError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.actionError {
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
 .fieldHint {
   margin-top: calc(-1 * var(--space-3));
   margin-bottom: var(--space-4);
