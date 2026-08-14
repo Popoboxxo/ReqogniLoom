@@ -2184,7 +2184,7 @@ class InterviewSession(TenantScopedModel):
     class Meta:
         db_table = "pl_interview_session"
         indexes = [
-            models.Index(fields=["workspace", "status"]),
+            models.Index(fields=["workspace", "status"], name="idx_iview_ws_status"),
         ]
 
 
