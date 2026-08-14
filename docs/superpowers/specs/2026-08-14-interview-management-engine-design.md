@@ -71,13 +71,27 @@ Interview-Protokolle werden als `PromptTemplate`-Zeilen unter dem Namensraum
 ```yaml
 phases:
   - name: elicitation
-    required_fields: [title, rationale, acceptance_criteria]
+    required_fields:
+      # `type` ist optional, Default `text`; `choices` nur bei `enum`.
+      # Ergänzt in Spec 2 (Hermes-Plugin-Integration), rückwärtskompatibel:
+      # bestehende Einträge ohne `type` gelten weiterhin als `text`.
+      - name: title
+        type: text
+      - name: rationale
+        type: textarea
+      - name: acceptance_criteria
+        type: textarea
     prompt_fragment: "..."
   - name: approval
     prompt_fragment: "..."
   - name: formalization
     prompt_fragment: "..."
 ```
+
+`type` ist ausschließlich für strukturierte Formular-Clients relevant (siehe
+Spec 2, `docs/superpowers/specs/2026-08-14-interview-management-hermes-plugin-design.md`
+Abschnitt 4) — Host-Agenten, die den Dialog frei über die Skill-Datei führen
+(Claude Code, Opencode, Antigravity), ignorieren `type` und lesen nur `name`.
 
 Factory-Defaults leben analog zu `PROMPT_TEMPLATE_DEFAULTS`
 (`application.ai_derivation_service`) in einer neuen, parallelen
