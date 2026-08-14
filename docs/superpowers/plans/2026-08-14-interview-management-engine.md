@@ -536,7 +536,7 @@ git commit -m "feat: add interview protocol config (PromptTemplate reuse + YAML 
 
 **Interfaces:**
 - Consumes: `persistence.models.InterviewSession` (Task 1), `application.interview_protocol.get_protocol` (Task 2), `application.base.ServiceBase._set_tenant_context`, `application.base.NotFoundError`/`ValidationError`.
-- Produces: `application.interview_service.InterviewService` with methods `start(self, ctx, artifact_type: str, workspace_id: UUID, seed_context: dict | None = None) -> InterviewSession`, `get_state(self, ctx, session_id: UUID) -> dict` (returns `{phase, collected_fields, missing_fields, grounding_snapshot, status}`), `answer(self, ctx, session_id: UUID, field: str, value: Any) -> InterviewSession`, `list_sessions(self, ctx, workspace_id: UUID, status: str | None = None) -> QuerySet[InterviewSession]`, `get(self, ctx, session_id: UUID) -> InterviewSession`. Also `application.interview_service.ABANDONED_TTL` (a `datetime.timedelta` constant).
+- Produces: `application.interview_service.InterviewService` with methods `start(self, ctx, artifact_type: str, workspace_id: UUID, seed_context: dict | None = None) -> InterviewSession`, `get_state(self, ctx, session_id: UUID) -> dict` (returns `{phase, collected_fields, missing_fields, grounding_snapshot, status}`, where `missing_fields` is `list[{"name": str, "type": str, "choices": list[str] | None}]` — not bare strings; Spec 2's Hermes form view needs the type to pick an input control), `answer(self, ctx, session_id: UUID, field: str, value: Any) -> InterviewSession`, `list_sessions(self, ctx, workspace_id: UUID, status: str | None = None) -> QuerySet[InterviewSession]`, `get(self, ctx, session_id: UUID) -> InterviewSession`. Also `application.interview_service.ABANDONED_TTL` (a `datetime.timedelta` constant).
 
 This task also implements spec §9's "verwaiste Sessions" behavior: a
 session untouched past `ABANDONED_TTL` lazily flips to `abandoned` the
@@ -598,7 +598,10 @@ class TestGetState:
         state = InterviewService().get_state(ctx, session.id)
 
         assert state["phase"] == "elicitation"
-        assert "title" in state["missing_fields"]
+        missing_names = [f["name"] for f in state["missing_fields"]]
+        assert "title" in missing_names
+        title_field = next(f for f in state["missing_fields"] if f["name"] == "title")
+        assert title_field["type"] == "text"
         assert state["collected_fields"] == {}
 
     def test_unknown_session_raises_not_found(self, ctx):
@@ -616,7 +619,7 @@ class TestAnswer:
         state = InterviewService().get_state(ctx, session.id)
 
         assert state["collected_fields"]["title"] == "Login must support SSO"
-        assert "title" not in state["missing_fields"]
+        assert "title" not in [f["name"] for f in state["missing_fields"]]
 
     def test_answer_on_completed_session_raises_validation_error(self, ctx, workspace):
         from persistence.models import InterviewSession
@@ -786,13 +789,24 @@ class InterviewService(ServiceBase):
         protocol = get_protocol(ctx=None, artifact_type=session.artifact_type, workspace_id=session.workspace_id)  # noqa: E501 -- see note below
         for phase in protocol.phases:
             missing = [
-                f.name for f in phase.required_fields
+                f for f in phase.required_fields
                 if f.name not in session.collected_fields
             ]
             if missing:
                 return phase, missing
         # Every field of every phase is answered.
         return protocol.phases[-1], []
+
+    @staticmethod
+    def _serialise_field(f) -> "dict[str, Any]":
+        # Spec 2 (Hermes plugin, §3-4): InterviewFormView renders one input
+        # per missing field and needs its type/choices to pick the right
+        # control (text/textarea/enum/number) -- a bare field-name string
+        # would lose exactly the information the protocol config's `type`
+        # amendment was added for. Every host consumes this same shape;
+        # skill-driven hosts (Claude Code/Opencode/Antigravity) just read
+        # `.name` and ignore `.type`/`.choices`.
+        return {"name": f.name, "type": f.type, "choices": f.choices}
 
     def get_state(self, ctx, session_id: UUID) -> "dict[str, Any]":
         session = self._get_session(ctx, session_id)
@@ -802,7 +816,7 @@ class InterviewService(ServiceBase):
             "status": session.status,
             "phase": phase.name,
             "collected_fields": session.collected_fields,
-            "missing_fields": missing,
+            "missing_fields": [self._serialise_field(f) for f in missing],
             "grounding_snapshot": session.grounding_snapshot,
         }
 
@@ -907,7 +921,7 @@ class TestInterviewStart:
         )
         assert not result.is_error
         assert "session_id" in result.data
-        assert "title" in result.data["missing_fields"]
+        assert "title" in [f["name"] for f in result.data["missing_fields"]]
 
 
 class TestInterviewAnswerAndGetState:
