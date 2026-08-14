@@ -10,9 +10,17 @@ Architecture:
 
 Each tenant-scoped table gets RLS enabled plus a policy that only exposes rows
 whose ``tenant_id`` equals the session variable ``app.current_tenant``. A Django
-middleware (owned by AuthAndTenancy, ARCH-L1-011, not yet implemented) must set
-this variable per request via ``SET LOCAL app.current_tenant = '<uuid>'``
-(IF-PL-EXT-IN-008).
+middleware (owned by AuthAndTenancy, ARCH-L1-011) must set this variable per
+request via ``SET app.current_tenant = '<uuid>'`` (IF-PL-EXT-IN-008).
+
+#522: this docstring (and the L2 architecture document) originally specified
+``SET LOCAL``. ``persistence.middleware.set_request_tenant`` uses session-scoped
+``SET`` instead, and must: ``ATOMIC_REQUESTS`` is off, so most requests run each
+statement in its own auto-committed transaction and ``SET LOCAL`` would revert
+after the first query — silently disabling RLS for the rest of the request
+(fix #110). The scope is therefore the connection, paired with an unconditional
+``RESET`` in ``clear_request_tenant``; see that module for the guarantees this
+relies on.
 
 Behaviour when ``app.current_tenant`` is unset/empty:
     The policy compares against ``current_setting('app.current_tenant', true)``

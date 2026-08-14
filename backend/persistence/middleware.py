@@ -9,7 +9,13 @@ implemented. It exists so the PersistenceLayer ships the propagation seam that
 both isolation layers depend on:
 
 1. COMP-PL-002 (app layer): ``TenantContext.set_tenant`` → thread-local filter.
-2. COMP-PL-006 (DB layer): ``SET LOCAL app.current_tenant`` → RLS policy match.
+2. COMP-PL-006 (DB layer): ``SET app.current_tenant`` → RLS policy match.
+
+.. note:: The architecture documents (L2_PersistenceLayerSystem_Architecture.md,
+   ``migrations/0003_rls_policies.py``) describe layer 2 as ``SET LOCAL``. The
+   implementation deliberately uses session-scoped ``SET`` instead; see
+   :func:`set_request_tenant` for why ``SET LOCAL`` cannot work here and what
+   guarantees the session-scoped variant relies on.
 
 Reference:
 - L2_PersistenceLayerSystem_Architecture.md §2 (IF-PL-EXT-IN-008)
@@ -39,6 +45,19 @@ def set_request_tenant(tenant_id: UUID | str) -> None:
     request-end (paired unconditionally in ``clear_request_tenant``, always
     called from a ``finally``) is what keeps the value scoped correctly on
     a possibly-reused connection.
+
+    #522: because the scope is the *connection*, not the transaction, the
+    pairing with ``clear_request_tenant`` is load-bearing — every caller must
+    clear from a ``finally`` (``BaseTenantMiddleware.__call__`` and
+    ``llm_adapter.tasks.run_capability`` both do). If a caller ever aborted
+    hard enough to skip its ``finally`` *and* the connection outlived it, the
+    stale value would still be armed for whatever runs next on that
+    connection. Today nothing can: Celery's prefork pool dies with its
+    connection on SIGKILL/OOM, and every path that reuses a connection either
+    calls ``set_request_tenant`` (overwriting the stale value) or runs under
+    the middleware. Switching to a thread/gevent pool with persistent
+    connections, or dropping one of those ``finally`` blocks, would break that
+    argument — not the ``SET``/``SET LOCAL`` choice, which is forced.
     """
     if not isinstance(tenant_id, UUID):
         tenant_id = UUID(str(tenant_id))
