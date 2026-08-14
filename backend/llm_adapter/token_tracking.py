@@ -53,15 +53,28 @@ def record_token_usage(
     if input_tokens is None:
         input_tokens = 0
     try:
+        from django.db import transaction  # noqa: PLC0415
+
         from persistence.models import TokenUsageRecord  # noqa: PLC0415
 
-        TokenUsageRecord.objects.create(
-            provider=provider,
-            capability=capability,
-            input_tokens=int(input_tokens or 0),
-            output_tokens=int(output_tokens or 0),
-            workspace_id=workspace_id,
-        )
+        # #444 follow-up: a bare TokenUsageRecord.objects.create() call left a
+        # failed INSERT's Postgres transaction "aborted" for whoever called
+        # record_token_usage() from inside their own ambient transaction —
+        # every query the caller ran afterward (this module's own or theirs)
+        # then raised TransactionManagementError, even though the INSERT
+        # failure itself was caught and logged here. That defeats this
+        # function's "never affects the caller" contract as badly as letting
+        # the original exception propagate would have. atomic() gives the
+        # INSERT its own savepoint, so a failure rolls back only that
+        # savepoint and the caller's transaction stays usable.
+        with transaction.atomic():
+            TokenUsageRecord.objects.create(
+                provider=provider,
+                capability=capability,
+                input_tokens=int(input_tokens or 0),
+                output_tokens=int(output_tokens or 0),
+                workspace_id=workspace_id,
+            )
     except Exception as exc:  # noqa: BLE001 — accounting must never break LLM calls
         logger.warning(
             "TokenUsageTracker: failed to record usage for %s via %s: %s",

@@ -114,12 +114,23 @@ def run_capability(
 
     # Imported here to avoid import-time coupling and keep the module importable
     # in contexts where these deps are not needed.
-    from persistence.tenancy import TenantContext
+    from persistence.middleware import clear_request_tenant, set_request_tenant
     from llm_adapter.providers import get_provider, resolve_provider_config
 
     try:
         if tenant_id:
-            TenantContext.set_tenant(tenant_id)
+            # #444: TenantContext.set_tenant() alone only satisfies the Django
+            # ORM side (TenantManager filters/auto-injects tenant_id in
+            # Python). It never issues `SET app.current_tenant` on this
+            # worker's DB connection, so Postgres RLS's WITH CHECK policy
+            # rejects every INSERT here (record_token_usage below) with "new
+            # row violates row-level security policy" — and its USING policy
+            # silently hides every SELECT (resolve_provider_config's
+            # LlmSettings lookup), masking the failure as "no per-tenant
+            # settings configured" instead of surfacing it. Celery workers run
+            # outside any request thread, so nothing else sets the RLS session
+            # variable for this connection; set_request_tenant does both.
+            set_request_tenant(tenant_id)
         # REQ-083: resolve per-tenant LLM settings from the DB (tenant context
         # is active now); falls back to the environment when no tenant_id was
         # dispatched or no settings row exists.
@@ -156,7 +167,7 @@ def run_capability(
         raise
     finally:
         if tenant_id:
-            TenantContext.clear_tenant()
+            clear_request_tenant()
 
 
 __all__ = ["run_capability", "ALLOWED_CAPABILITIES"]
