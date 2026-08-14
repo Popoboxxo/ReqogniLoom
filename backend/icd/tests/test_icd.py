@@ -584,6 +584,7 @@ class TestBreakingChangeDetection:
             r2 = update_icd(
                 icd_id=r1.icd.id,
                 payload=IcdUpdateDTO(postconditions=["200", "audit"]),
+                tenant_id=tenant_a.id,
             )
 
         assert r2.validation_result is not None
@@ -609,6 +610,7 @@ class TestBreakingChangeDetection:
                 r2 = update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(preconditions=["auth", "new_req"]),
+                    tenant_id=tenant_a.id,
                 )
 
         assert r2.validation_result.is_breaking is True
@@ -735,6 +737,7 @@ class TestGetIcdVersions:
             r1_v2 = update_icd(
                 icd_id=r1.icd.id,
                 payload=IcdUpdateDTO(semantic_description="updated"),
+                tenant_id=tenant_a.id,
             )
 
             versions = get_icd_versions(workspace_id)
@@ -780,6 +783,7 @@ class TestAuditLogger:
                 update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(preconditions=["auth", "new_breaking_req"]),
+                    tenant_id=tenant_a.id,
                 )
 
         mock_log.assert_called_once()
@@ -803,6 +807,7 @@ class TestAuditLogger:
                 update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(postconditions=["200", "extra_guarantee"]),
+                    tenant_id=tenant_a.id,
                 )
 
         mock_log.assert_not_called()
@@ -999,6 +1004,7 @@ class TestIcdInterfaceTypeChoices:
             r2 = update_icd(
                 icd_id=r1.icd.id,
                 payload=IcdUpdateDTO(interface_type="event-in"),
+                tenant_id=tenant_a.id,
             )
 
         assert r1.current_version.interface_type == "data"
