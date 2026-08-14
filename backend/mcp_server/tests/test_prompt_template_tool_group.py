@@ -192,6 +192,31 @@ def test_get_falls_back_to_default_for_phase3_derive_flow_names(pt_ctx):
     assert result.data["content"] == DERIVATION_DEFAULTS["testcase_derive"]
 
 
+def test_get_falls_back_to_interview_protocol_default(pt_ctx):
+    """.get() must also resolve the interview-protocol factory-default
+    registry (application.interview_protocol.INTERVIEW_PROTOCOL_DEFAULTS),
+    not just the 7-entry derivation-flow one -- a fresh tenant that never
+    overrides "interview.protocol.Requirement" should still get a usable
+    protocol back instead of NOT_FOUND."""
+    _tenant, ctx = pt_ctx
+
+    group = PromptTemplateToolGroup()
+    result = group.execute_tool(
+        tool_name="prompt_template.get",
+        params={"slot": "interview.protocol.Requirement"},
+        auth_context=ctx,
+        api_key=_API_KEY,
+    )
+
+    assert result.success
+    from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
+
+    assert (
+        result.data["content"]
+        == INTERVIEW_PROTOCOL_DEFAULTS["interview.protocol.Requirement"]
+    )
+
+
 def test_get_unknown_slot_returns_not_found(pt_ctx):
     """A name with no DB row and no factory default -> NOT_FOUND.
 
@@ -434,6 +459,55 @@ def test_prompt_template_create_requires_name_and_content(pt_admin_ctx):
     )
     assert not result2.success
     assert result2.error_code == "VALIDATION_ERROR"
+
+
+def test_create_rejects_malformed_interview_protocol_yaml(pt_admin_ctx):
+    """.create()/.update() reject malformed YAML for names in the
+    "interview.protocol." namespace (application.interview_protocol
+    .parse_protocol_yaml raises ProtocolValidationError) -- matching the
+    tool's existing VALIDATION_ERROR convention rather than persisting a
+    broken protocol row that would only fail later, at interview.start
+    time, for every workspace relying on it."""
+    _tenant, ctx = pt_admin_ctx
+    group = PromptTemplateToolGroup()
+
+    result = group.execute_tool(
+        tool_name="prompt_template.create",
+        params={
+            "name": "interview.protocol.Requirement",
+            "content": "not: [valid, yaml: structure",
+        },
+        auth_context=ctx,
+        api_key=_API_KEY,
+    )
+
+    assert not result.success
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_create_accepts_valid_interview_protocol_yaml(pt_admin_ctx):
+    """Sanity counterpart: well-formed protocol YAML for an
+    "interview.protocol." name is written normally, same as any other
+    template."""
+    _tenant, ctx = pt_admin_ctx
+    group = PromptTemplateToolGroup()
+
+    result = group.execute_tool(
+        tool_name="prompt_template.create",
+        params={
+            "name": "interview.protocol.Requirement",
+            "content": (
+                "phases:\n"
+                "  - name: elicitation\n"
+                "    prompt_fragment: 'Ask for the title.'\n"
+            ),
+        },
+        auth_context=ctx,
+        api_key=_API_KEY,
+    )
+
+    assert result.success
+    assert result.data["name"] == "interview.protocol.Requirement"
 
 
 def test_prompt_template_create_is_audited(pt_admin_ctx, monkeypatch):
