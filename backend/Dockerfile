@@ -74,8 +74,18 @@ COPY --from=builder /install /usr/local
 # Copy application code
 COPY . .
 
-# Create non-root user for security (REQ-059)
-RUN addgroup --system app && adduser --system --ingroup app app
+# Create non-root user for security (REQ-059).
+# #439: `adduser --system` without `--home` leaves HOME at Debian's system-user
+# default, `/nonexistent` — gunicorn's control server derives its socket path
+# from $HOME and fails to bind there ("Control server error: [Errno 13]
+# Permission denied: '/nonexistent'") on every startup. `--home` alone does
+# not create the directory for a --system account either, so it is made and
+# chown'd explicitly; ENV HOME backs up any tool that reads the env var
+# directly instead of doing a passwd lookup.
+RUN addgroup --system app \
+    && adduser --system --ingroup app --home /home/app --shell /usr/sbin/nologin app \
+    && mkdir -p /home/app && chown app:app /home/app
+ENV HOME=/home/app
 
 # Ensure working directory is owned by app user
 RUN chown -R app:app /app
