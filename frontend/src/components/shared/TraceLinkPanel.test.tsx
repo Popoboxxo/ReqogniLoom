@@ -15,6 +15,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { i18n } from "../../i18n/index";
 import { TraceLinkPanel } from "./TraceLinkPanel";
+import { tracelinksApi } from "../../api/tracelinks";
+import { resolveArtifactRef } from "../../api/artifactRefs";
 
 vi.mock("../../api/tracelinks", () => ({
   tracelinksApi: {
@@ -22,6 +24,12 @@ vi.mock("../../api/tracelinks", () => ({
     create: vi.fn(),
     delete: vi.fn(),
   },
+}));
+
+vi.mock("../../api/artifactRefs", () => ({
+  resolveArtifactRef: vi
+    .fn()
+    .mockResolvedValue({ title: "Neighbour", route: "/requirements/x" }),
 }));
 
 vi.mock("../../context/WorkspaceContext", () => ({
@@ -45,5 +53,83 @@ describe("TraceLinkPanel — i18n (#421)", () => {
     expect(screen.getByText("Ausgehend")).toBeInTheDocument();
     expect(screen.queryByText("Incoming")).not.toBeInTheDocument();
     expect(screen.queryByText("Outgoing")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Regression coverage for #512 — "UI calls a dead endpoint:
+ * GET /api/v1/artifacts/{id}/ -> 404 on the Architecture detail page".
+ *
+ * The editors pass their *entity* id (ArchitectureElement.id) as
+ * `artifactId`. GET /tracelinks/?artifact_id=<id> resolves that internally
+ * but echoes the id back verbatim as this link's own endpoint
+ * (rest_api/views.py::_neighbor_to_dict), so the response mixes one entity
+ * id with Artifact ids for the neighbours. The panel used to resolve *both*
+ * endpoints of every link, which meant one guaranteed 404 per panel load —
+ * for a title that renderLinkItem never displays, since it only ever shows
+ * the other end of the link.
+ */
+describe("TraceLinkPanel — artifact ref resolution (#512)", () => {
+  const ENTITY_ID = "11111111-1111-1111-1111-111111111111";
+  const NEIGHBOUR_ID = "22222222-2222-2222-2222-222222222222";
+
+  const link = (overrides: Record<string, unknown>) => ({
+    id: "link-1",
+    link_type: "derives-from",
+    version: 1,
+    created_at: "2026-08-14T00:00:00Z",
+    source_title: "",
+    target_title: "",
+    source_type: "",
+    target_type: "",
+    ...overrides,
+  });
+
+  it("resolves only the other endpoint, never the artifact the panel is on", async () => {
+    vi.mocked(resolveArtifactRef).mockClear();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValueOnce({
+      // upstream: the panel's own artifact is the target
+      results: [link({ source_id: NEIGHBOUR_ID, target_id: ENTITY_ID })],
+      count: 1,
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <TraceLinkPanel workspaceId="ws-1" artifactId={ENTITY_ID} />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(resolveArtifactRef)).toHaveBeenCalledWith(NEIGHBOUR_ID);
+    });
+    expect(vi.mocked(resolveArtifactRef)).not.toHaveBeenCalledWith(ENTITY_ID);
+    expect(vi.mocked(resolveArtifactRef)).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resolve anything the backend already supplied a title for", async () => {
+    vi.mocked(resolveArtifactRef).mockClear();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValueOnce({
+      // downstream: the panel's own artifact is the source
+      results: [
+        link({
+          source_id: ENTITY_ID,
+          target_id: NEIGHBOUR_ID,
+          target_title: "Resolved by backend",
+          target_type: "Requirement",
+        }),
+      ],
+      count: 1,
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <TraceLinkPanel workspaceId="ws-1" artifactId={ENTITY_ID} />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Resolved by backend")).toBeInTheDocument();
+    });
+    expect(vi.mocked(resolveArtifactRef)).not.toHaveBeenCalled();
   });
 });

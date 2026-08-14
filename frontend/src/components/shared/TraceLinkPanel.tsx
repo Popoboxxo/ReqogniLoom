@@ -65,10 +65,21 @@ export function TraceLinkPanel({
       });
 
       // For IDs not resolved via backend titles, fall back to resolveArtifactRef.
+      //
+      // #512: only the *other* endpoint of a link is ever rendered
+      // (renderLinkItem takes `otherId`), and only the other endpoint is
+      // reliably an Artifact id. GET /tracelinks/?artifact_id=<id> echoes the
+      // requested id back verbatim as this link's own endpoint
+      // (rest_api/views.py::_neighbor_to_dict) — and the editors pass their
+      // *entity* id (ArchitectureElement.id, not .artifact_id), which the
+      // backend resolves internally but does not translate in the response.
+      // Resolving that endpoint therefore meant a
+      // GET /api/v1/artifacts/<entity-id>/ that 404s on every panel load, for
+      // a title that is never displayed. Resolve only what is rendered.
       const unresolvedIds = new Set<UUID>();
       res.results.forEach((l) => {
-        if (!refsFromBackend[l.source_id]) unresolvedIds.add(l.source_id);
-        if (!refsFromBackend[l.target_id]) unresolvedIds.add(l.target_id);
+        const otherId = l.source_id === artifactId ? l.target_id : l.source_id;
+        if (!refsFromBackend[otherId]) unresolvedIds.add(otherId);
       });
 
       const fallbackEntries = await Promise.all(
