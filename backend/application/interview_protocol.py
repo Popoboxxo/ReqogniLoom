@@ -71,11 +71,15 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
 
     phases = []
     for raw_phase in raw["phases"]:
+        if not isinstance(raw_phase, dict):
+            raise ProtocolValidationError("Each phase must be a dict, not a list item or scalar.")
         if "name" not in raw_phase:
             raise ProtocolValidationError("Each phase needs a 'name'.")
         raw_fields = raw_phase.get("required_fields") or []
         fields = []
         for raw_field in raw_fields:
+            if not isinstance(raw_field, dict):
+                raise ProtocolValidationError("Each required_field must be a dict.")
             if "name" not in raw_field:
                 raise ProtocolValidationError("Each required_field needs a 'name'.")
             field_type = raw_field.get("type", "text")
