@@ -30,6 +30,7 @@ import { useRequirementData } from './useRequirementData';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { requirementsApi } from '../../api/requirements';
+import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { EntityTypeProvider } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
@@ -78,6 +79,13 @@ export default function RequirementEditors(): JSX.Element {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  // #340: a rejected create (e.g. the free-text guard refusing markup in the
+  // title) must be visible in the create form itself — this used to be a bare
+  // console.error, which reads as "Save did nothing" to the user.
+  const [createError, setCreateError] = useState<string | null>(null);
+  // #340: same for the list-level actions that have no form of their own
+  // (delete, PDF export) — rendered as a banner under the page header.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // PDF export state
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -131,6 +139,7 @@ export default function RequirementEditors(): JSX.Element {
     if (!activeWorkspace) return;
     const title = newTitle.trim() || t('editor.newRequirementTitle');
     setIsCreating(true);
+    setCreateError(null);
     try {
       const created = await createRequirement.mutateAsync({
         workspace_id: activeWorkspace.id,
@@ -140,11 +149,22 @@ export default function RequirementEditors(): JSX.Element {
       setNewTitle('');
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
-      console.error('Create failed:', err);
+      // #340: the server rejects e.g. `<script>alert(1)</script>` as a title
+      // with a 400 whose `error.details[0].errors[0]` names the offending
+      // field. Swallowing that into console.error left the form open with no
+      // visible reason, i.e. an apparent silent no-op. The form deliberately
+      // stays open so the typed title is preserved and can be corrected.
+      setCreateError(extractApiErrorMessage(err) ?? t('req.createFailed'));
     } finally {
       setIsCreating(false);
     }
   }, [activeWorkspace, createRequirement, navigate, newTitle, t]);
+
+  /** Open/close the inline create form, discarding any stale error. */
+  const toggleCreateForm = useCallback((): void => {
+    setCreateError(null);
+    setShowCreateForm((open) => !open);
+  }, []);
 
   /**
    * Handle delete requirement with confirmation.
@@ -152,14 +172,17 @@ export default function RequirementEditors(): JSX.Element {
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
       if (!activeWorkspace) return;
+      setActionError(null);
       try {
         await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id });
         navigate('/requirements');
       } catch (err: unknown) {
-        console.error('Delete failed:', err);
+        // #340: a refused delete (permission, workflow gate) must not look
+        // like the row simply stayed where it was.
+        setActionError(extractApiErrorMessage(err) ?? t('req.deleteFailed'));
       }
     },
-    [activeWorkspace, deleteRequirement, navigate]
+    [activeWorkspace, deleteRequirement, navigate, t]
   );
 
   /**
@@ -168,6 +191,7 @@ export default function RequirementEditors(): JSX.Element {
   const handleExportPdf = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
     setIsExportingPdf(true);
+    setActionError(null);
     try {
       const blob = await workspacesApi.downloadPdfReport(activeWorkspace.id);
       const url = URL.createObjectURL(blob);
@@ -179,11 +203,12 @@ export default function RequirementEditors(): JSX.Element {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      console.error('PDF export failed:', err);
+      // #340: a failed export produced no download and no message at all.
+      setActionError(extractApiErrorMessage(err) ?? t('req.pdfExportFailed'));
     } finally {
       setIsExportingPdf(false);
     }
-  }, [activeWorkspace]);
+  }, [activeWorkspace, t]);
 
   /**
    * REQ-008: AI-assisted decomposition of the selected requirement to
@@ -273,7 +298,7 @@ export default function RequirementEditors(): JSX.Element {
         count={{ shown: requirements.length, total: requirements.length }}
         primaryAction={{
           label: `+ ${t('actions.new')}`,
-          onClick: () => setShowCreateForm(!showCreateForm),
+          onClick: toggleCreateForm,
           testId: 'create-req-btn',
         }}
         secondaryActions={[
@@ -291,6 +316,15 @@ export default function RequirementEditors(): JSX.Element {
           },
         ]}
       />
+
+      {/* #340: failures of the header actions (PDF export) and of the list's
+          row actions (delete) have no form to attach to — they surface here,
+          right under the header that triggered them. */}
+      {actionError && (
+        <p role="alert" data-testid="req-action-error" className={styles.actionError}>
+          {actionError}
+        </p>
+      )}
 
       {/* Create form */}
       {showCreateForm && (
@@ -326,7 +360,12 @@ export default function RequirementEditors(): JSX.Element {
             data-testid="req-new-title-input"
             type="text"
             value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
+            onChange={(e) => {
+              setNewTitle(e.target.value);
+              // The message described the *previous* attempt; keep it until
+              // the user actually starts correcting the input.
+              if (createError) setCreateError(null);
+            }}
             autoFocus
             disabled={isCreating}
             placeholder={t('editor.newRequirementTitle')}
@@ -341,12 +380,22 @@ export default function RequirementEditors(): JSX.Element {
               boxSizing: 'border-box',
             }}
           />
+          {/* #340: the server's own reason (e.g. "contains disallowed
+              content: HTML markup is not permitted in free-text fields")
+              belongs directly under the field that produced it — see
+              docs/architecture/UI_STYLE_GUIDE.md §5.2. */}
+          {createError && (
+            <p role="alert" data-testid="req-create-error" className={styles.formError}>
+              {createError}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
             <button
               data-testid="req-new-cancel-btn"
               type="button"
               onClick={() => {
                 setShowCreateForm(false);
+                setCreateError(null);
                 setNewTitle('');
               }}
               disabled={isCreating}
@@ -411,7 +460,10 @@ export default function RequirementEditors(): JSX.Element {
         selectedId={selectedId}
         onSelect={(id) => navigate(`/requirements/${id}`)}
         onDelete={handleDelete}
-        onCreateNew={() => setShowCreateForm(true)}
+        onCreateNew={() => {
+          setCreateError(null);
+          setShowCreateForm(true);
+        }}
       />
     </div>
   );

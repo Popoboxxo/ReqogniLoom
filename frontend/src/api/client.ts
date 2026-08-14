@@ -421,17 +421,49 @@ export const apiClient = {
 // ---------------------------------------------------------------------------
 
 /**
- * Extract a human-readable message from a thrown ApiError. Prefers the
- * first field-level detail (e.g. serializer validation on parent_id)
- * over the generic top-level message.
+ * Extract a message that is safe to *show a user*, or `null` when the thrown
+ * value carries none.
+ *
+ * Prefers the first field-level detail
+ * (`error.details[0].errors[0]` — e.g. the free-text/XSS guard's
+ * "contains disallowed content: ..." on `title`, GitHub #340) over the
+ * generic top-level `error.message`, because the top-level message of a
+ * serializer rejection is only the localised "Validation failed" placeholder
+ * (`build_error_response` in `backend/rest_api/serializers.py`).
+ *
+ * Typed errors thrown by {@link apiFetch} itself (`ForbiddenError`,
+ * `UnprocessableEntityError`, `RequestTimeoutError`) are plain `Error`
+ * subclasses with a user-facing message, so those are returned too.
+ *
+ * Returning `null` — instead of `String(err)` — is the point: it lets a caller
+ * fall back to its own localised copy ("Failed to create requirement.")
+ * for a genuinely opaque failure without ever rendering an `[object Object]`
+ * dump, while still preferring the server's specific reason when there is one:
+ *
+ * ```ts
+ * setCreateError(extractApiErrorMessage(err) ?? t("req.createFailed"));
+ * ```
  */
-export function extractErrorMessage(err: unknown): string {
+export function extractApiErrorMessage(err: unknown): string | null {
   const apiErr = err as Partial<ApiError> | null;
   const detail = apiErr?.error?.details?.[0];
   const detailMsg = detail?.errors?.[0];
   if (detailMsg) return detailMsg;
   if (apiErr?.error?.message) return apiErr.error.message;
-  return String(err);
+  if (err instanceof Error && err.message) return err.message;
+  return null;
+}
+
+/**
+ * Extract a human-readable message from a thrown ApiError. Prefers the
+ * first field-level detail (e.g. serializer validation on parent_id)
+ * over the generic top-level message.
+ *
+ * Always returns a string; use {@link extractApiErrorMessage} when a
+ * localised fallback should win over a stringified unknown value.
+ */
+export function extractErrorMessage(err: unknown): string {
+  return extractApiErrorMessage(err) ?? String(err);
 }
 
 // ---------------------------------------------------------------------------

@@ -24,7 +24,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // Mock API modules
 // ---------------------------------------------------------------------------
 
-vi.mock("../api/client", () => ({
+vi.mock("../api/client", async (importActual) => ({
+  ...(await importActual<typeof import("../api/client")>()),
   getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
   extractErrorMessage: vi.fn().mockReturnValue("Error"),
   setAuthToken: vi.fn(),
@@ -346,5 +347,69 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       // The last element is far outside the initial window.
       expect(screen.queryByTestId("arch-tree-node-arch-499")).not.toBeInTheDocument();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub #340 — same swallow-the-rejection defect as RequirementEditors
+// ---------------------------------------------------------------------------
+
+describe("ArchitectureEditors — server validation errors are visible (#340)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("renders the server's rejection reason when a create is refused", async () => {
+    vi.mocked(architectureApi.create).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed.",
+        details: [
+          {
+            field: "title",
+            errors: [
+              "contains disallowed content: HTML markup is not permitted in free-text fields.",
+            ],
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-arch-btn"));
+    await user.type(
+      screen.getByTestId("arch-new-title-input"),
+      "<script>alert(1)</script>"
+    );
+    await user.click(screen.getByTestId("arch-new-save-btn"));
+
+    const alert = await screen.findByTestId("arch-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(
+      "HTML markup is not permitted in free-text fields."
+    );
   });
 });
