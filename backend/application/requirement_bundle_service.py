@@ -397,12 +397,14 @@ class RequirementBundleQueryService(ServiceBase):
         "visible" mode default-visibility convention: AttributeVisibilityConfig
         rows are an explicit hide toggle, not an allow-list — the model field
         itself defaults to ``is_visible=True`` (persistence/models.py) and no
-        codepath in this codebase treats a missing config row as hidden (see
-        AttributeVisibilityConfigService.list_configs, which returns only the
-        rows that exist; application/tests/test_service_boundaries_req066.py
-        has no "missing row implies hidden" test). A field with no config row
-        at all is therefore visible by default; only a row with
-        ``is_visible=False`` removes a field from the "visible" set.
+        codepath in this codebase treats a missing config row as hidden. A field
+        with no config row at all is therefore visible by default; only a row
+        with ``is_visible=False`` removes a field from the "visible" set.
+
+        Resolution goes through ``hidden_attribute_names``, the non-gated
+        consumption read — not ``list_configs``, which requires the ``admin``
+        role (#470) and would make filter_mode='visible' unusable for the
+        editors and viewers the config is meant to constrain.
         """
         if filter_mode == "all":
             return set(REQUIREMENT_ALL_FIELDS)
@@ -414,10 +416,9 @@ class RequirementBundleQueryService(ServiceBase):
             AttributeVisibilityConfigService,
         )
 
-        configs = AttributeVisibilityConfigService().list_configs(ctx).filter(
-            entity_type="Requirement"
+        hidden_names = AttributeVisibilityConfigService().hidden_attribute_names(
+            ctx, "Requirement"
         )
-        hidden_names = {c.attribute_name for c in configs if not c.is_visible}
         return set(REQUIREMENT_ALL_FIELDS) - hidden_names
 
 

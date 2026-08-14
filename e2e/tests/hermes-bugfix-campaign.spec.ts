@@ -726,17 +726,30 @@ test.describe('[REQ-129] MCP tools/list deduplication', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Area 9: MCP capability declaration — no SSE transport (REQ-131)
+// Area 9: MCP capability declaration matches the served transports (REQ-131)
 // ---------------------------------------------------------------------------
-test.describe('[REQ-131] MCP capability declaration — no SSE', () => {
-  test('[REQ-131] GET /mcp/ does not declare SSE as a transport', async ({ request }) => {
+test.describe('[REQ-131] MCP capability declaration', () => {
+  // SSE was temporarily dropped from the declaration while `GET /mcp/sse/`
+  // answered 500 on every request (#455). That is fixed and the server now runs
+  // ASGI unconditionally (uvicorn in dev, gunicorn -k UvicornWorker in prod),
+  // so SSE is served again — and every distributed plugin config ships
+  // `"type": "sse"`. The invariant REQ-131 actually protects is that the
+  // declaration matches what is routed, not that SSE is absent.
+  test('[REQ-131] GET /mcp/ declares SSE and the route answers', async ({ request }) => {
     const response = await request.get(`${BACKEND_URL}/mcp/`);
     expect(response.status()).toBe(200);
     const body = await response.json();
 
     const transports: string[] = body.transports ?? [];
-    // SSE must not be declared (it is not implemented — REQ-131)
-    expect(transports, 'SSE must not be in transports declaration').not.toContain('sse');
+    expect(transports, 'SSE is served, so it must be declared').toContain('sse');
+
+    // A declared transport must be routed. Unauthenticated it answers 401 —
+    // what matters is that it is neither 404 (not routed) nor 5xx (broken,
+    // the #455 regression this guards against).
+    const sse = await request.get(`${BACKEND_URL}/mcp/sse/`, { failOnStatusCode: false });
+    expect(sse.status(), 'declared SSE transport must be routed and not erroring')
+      .toBeLessThan(500);
+    expect(sse.status(), 'declared SSE transport must be routed').not.toBe(404);
   });
 
   test('[REQ-131] GET /mcp/ declares http transport', async ({ request }) => {

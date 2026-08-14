@@ -371,7 +371,12 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
       expect(page.locator('[data-testid="traceability-list"]')).toBeVisible({ timeout: 8000 }).catch(() => null),
       expect(page.locator('[data-testid="traceability-empty"]')).toBeVisible({ timeout: 8000 }).catch(() => null),
     ]);
-    // PDF-Export-Button ist immer sichtbar (REQ-L1-003 Traceability-Matrix)
+    // PDF-Export liegt seit der PageHeader-Migration (#172, UI-Konzept 12.1)
+    // im "⋯"-Overflow-Menü und ist erst nach dem Öffnen gemountet — siehe
+    // tests/pdf-export.spec.ts, gleicher Ablauf.
+    const overflowTrigger = page.locator('[data-testid="page-header-overflow-trigger"]');
+    await expect(overflowTrigger).toBeVisible({ timeout: 10000 });
+    await overflowTrigger.click();
     const exportBtn = page.locator('[data-testid="export-pdf-btn"]');
     await expect(exportBtn).toBeVisible({ timeout: 6000 });
   });
@@ -439,7 +444,10 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
       expect(page.locator('[data-testid="baselines-empty"]')).toBeVisible({ timeout: 10000 }).catch(() => null),
     ]);
 
-    // UI-Form für Baseline-Erstellung öffnen
+    // UI-Form für Baseline-Erstellung öffnen. Task 5.2: die Aktion liegt im
+    // Overflow-Menü des PageHeaders, nicht als primärer Button.
+    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });
 

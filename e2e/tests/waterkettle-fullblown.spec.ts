@@ -562,36 +562,56 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test('Phase 4d: Diagramm editieren — erzeugt das eine neue Version?', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams`);
+    // Filter first — the diagram list grows with every phase (and every prior
+    // run against a persistent dev database), so a bare getByText can be left
+    // waiting on an entry that is simply further down the list.
+    await page.getByTestId('diagram-list-search-input').fill('WK-Block-001');
     await page.getByText('WK-Block-001: Wasserkessel Top-Level').first().click();
-    await expect(page.locator('[data-testid="diagram-edit-btn"]')).toBeVisible();
-    await page.locator('[data-testid="diagram-edit-btn"]').click();
-    await page.locator('[data-testid="diagram-source-textarea"]').waitFor({ timeout: 6000 });
 
+    // GH-353 Task 9 / D4: mermaid (like node_graph and canvas_stroke) is edited
+    // in a fullscreen editor, so the detail pane's primary action navigates
+    // there instead of turning into an inline source form. Only plantuml/json
+    // still render diagram-edit-btn + diagram-source-textarea.
     const detailContent = await page.content();
     const hasV1 = detailContent.includes('v1') || detailContent.includes('v—') || detailContent.includes('—');
+
+    await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible();
+    await page.locator('[data-testid="diagram-open-editor-btn"]').click();
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     const newContent = `graph LR
   A[Stromversorgung] --> B[Heizelement v2]
   B --> C[Wasserbehälter v2]`;
-    await page.locator('[data-testid="diagram-source-textarea"]').fill(newContent);
-    // handleSave() (DiagramDetailView.tsx) PATCHes the diagram and then
-    // invalidates the detail query, which triggers a background GET
-    // refetch (useDiagramData.ts). Wait for that refetch instead of a
-    // fixed delay, so the version-label read below reflects fresh state.
+    // CodeMirror renders a contenteditable div, not a textarea — select-all
+    // and retype (same helper shape as tests/mermaid-diagram.spec.ts).
+    const cmContent = page.locator('[data-testid="mermaid-code-editor"] .cm-content');
+    await cmContent.waitFor({ state: 'visible', timeout: 10000 });
+    await cmContent.click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Delete');
+    await page.keyboard.type(newContent, { delay: 10 });
+
+    // The fullscreen editor owns its own state and persists the source through
+    // PUT /diagrams/{id}/mermaid-source/ (diagramsApi.saveMermaidSource) — not
+    // the PATCH the inline form used to send. Click before the 2s auto-save
+    // timer fires, otherwise the manual save is a no-op (isDirty already false)
+    // and nothing further would be sent.
     await Promise.all([
       page.waitForResponse(
         (resp) =>
-          /\/diagrams\/[^/]+\/?($|\?)/.test(resp.url()) &&
-          resp.request().method() === 'GET' &&
-          resp.status() === 200
+          /\/diagrams\/[^/]+\/mermaid-source\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'PUT' &&
+          resp.status() < 400
       ),
-      page.locator('[data-testid="diagram-save-btn"]').click(),
+      page.locator('[data-testid="mermaid-save-btn"]').click(),
     ]);
-    // handleSave() also exits edit mode (setIsEditing(false)) once the
-    // save resolves — wait for the edit textarea to disappear so we know
-    // the detail view has re-rendered with the (possibly bumped) version.
-    await expect(page.locator('[data-testid="diagram-source-textarea"]')).toBeHidden({
-      timeout: 8000,
+
+    // Back to the detail pane to read the (possibly bumped) version label.
+    await page.goto(`${FRONTEND_URL}/diagrams`);
+    await page.getByTestId('diagram-list-search-input').fill('WK-Block-001');
+    await page.getByText('WK-Block-001: Wasserkessel Top-Level').first().click();
+    await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible({
+      timeout: 10000,
     });
 
     const afterContent = await page.content();
@@ -617,6 +637,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test('Phase 5b: Baseline doc1 (document scope) über UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
+    // Task 5.2: creation lives in the PageHeader overflow menu (same as
+    // createBaselineViaUI in wk-helpers.ts).
+    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await page.locator('[data-testid="create-baseline-form"]').waitFor({ timeout: 6000 });
     await page.locator('[data-testid="baseline-scope-document"]').check();

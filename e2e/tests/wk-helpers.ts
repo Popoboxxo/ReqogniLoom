@@ -51,18 +51,35 @@ export async function createRequirementViaUI(
     const descArea = page.locator('textarea').first();
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
-      await page.locator('[data-testid="save-btn"]').click();
-      await page.waitForLoadState('networkidle');
+      await saveRequirementDetail(page, 'E2E: set description');
     }
   }
   if (data.category) {
     // REQ_CATEGORIES option values are lowercase (frontend/src/types/index.ts) —
     // normalize so callers can pass human-readable category names.
     await page.locator('[data-testid="req-category"]').selectOption(data.category.toLowerCase());
-    await page.locator('[data-testid="save-btn"]').click();
-    await page.waitForLoadState('networkidle');
+    await saveRequirementDetail(page, 'E2E: set category');
   }
   return id;
+}
+
+/**
+ * Speichert den Requirement-Detail-Editor und füllt vorher — falls gerendert —
+ * die Change-Reason.
+ *
+ * Die WK-Szenarien setzen in Phase 0 das `extended`-Preset, dessen Policy jeden
+ * PATCH ohne Begründung mit `400 change_reason required by workspace preset
+ * policy` ablehnt. Ohne diesen Schritt lief der Save ins Leere: der Request
+ * schlug fehl, `waitForLoadState('networkidle')` merkte davon nichts, und die
+ * gerade gesetzte Kategorie bzw. Beschreibung war still verworfen.
+ */
+async function saveRequirementDetail(page: Page, reason: string): Promise<void> {
+  const reasonInput = page.locator('[data-testid="change-reason-input"]');
+  if (await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await reasonInput.fill(reason);
+  }
+  await page.locator('[data-testid="save-btn"]').click();
+  await page.waitForLoadState('networkidle');
 }
 
 /**
