@@ -427,7 +427,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
         {isExtendedPreset && (
           <div style={{ marginBottom: 'var(--space-6)' }}>
             <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-              Change Control
+              {t('req.section.changeControl')}
             </h3>
 
             <label htmlFor="need-change-reason" style={labelStyle}>
@@ -443,7 +443,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
               }}
               rows={2}
               style={{ ...inputStyle, resize: 'vertical' }}
-              placeholder={t('req.changeReasonPlaceholder')}
+              placeholder={t('req.changeReasonPlaceholderNeed')}
             />
           </div>
         )}

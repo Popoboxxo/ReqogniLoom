@@ -338,6 +338,14 @@
     "allCoveredTitle": "Alle Anforderungen sind verifiziert",
     "allCoveredDescription": "Jede Anforderung hat mindestens einen verifizierenden Testfall."
   },
+  "tracelinks": {
+    "panelTitle": "Trace-Links",
+    "upstream": "Eingehend",
+    "downstream": "Ausgehend",
+    "empty": "Keine Links vorhanden.",
+    "loadFailed": "Trace-Links konnten nicht geladen werden.",
+    "deleteFailed": "Trace-Link konnte nicht gelöscht werden."
+  },
   "createTraceLinkDialog": {
     "title": "Trace-Link erstellen",
     "searchLabel": "Elemente suchen",
@@ -657,8 +665,15 @@
   "req": {
     "changeReason": "Änderungsgrund",
     "changeReasonPlaceholder": "Warum wird diese Anforderung geändert?",
+    "changeReasonPlaceholderNeed": "Warum wird dieser Bedarf geändert?",
+    "changeReasonPlaceholderArchitecture": "Warum wird dieses Architekturelement geändert?",
     "changeReasonRequired": "Änderungsgrund ist erforderlich.",
-    "acceptanceCriteriaRequired": "Abnahmekriterien sind für dieses Rigor-Preset erforderlich."
+    "acceptanceCriteriaRequired": "Abnahmekriterien sind für dieses Rigor-Preset erforderlich.",
+    "section": {
+      "generalInformation": "Allgemeine Informationen",
+      "classificationProperties": "Klassifikation & Eigenschaften",
+      "changeControl": "Änderungskontrolle"
+    }
   },
   "reqType": {
     "StReq": "Stakeholder-Anforderung (StReq)",
@@ -1380,6 +1395,10 @@
     "level0": "Wurzel — das System selbst.",
     "level1": "Direkte Zerlegung der Wurzel, z. B. Subsysteme.",
     "levelN": "Jede weitere Zerlegungsstufe, z. B. Komponenten und deren Teile.",
+    "roleVsTypeTitle": "Rolle vs. Element-Typ",
+    "roleVsTypeHint": "Zwei unabhängige Felder, die absichtlich nicht synchronisiert werden — ein Root-Element mit der Rolle „System” kann fachlich trotzdem als „component” klassifiziert sein.",
+    "roleMeaning": "Automatisch aus der Baumposition abgeleitet (Wurzel = System, innerer Knoten = Subsystem, Blatt = Komponente). Nicht editierbar, ändert sich beim Verschieben.",
+    "elementTypeMeaning": "Frei wählbare fachliche Klassifikation, von Hand gepflegt. Kann von der Rolle abweichen und wird nicht automatisch angepasst.",
     "identityTitle": "Kopfzeile des Elements",
     "identifier": "Bezeichner des Elements, immer in Festbreitenschrift. Ein Klick auf den Bezeichner in der Kopfzeile kopiert ihn.",
     "version": "Aktuelle Fassung. Neutral gehalten — eine Version ist kein Status. Ältere Fassungen erscheinen blasser und ohne Rahmen.",

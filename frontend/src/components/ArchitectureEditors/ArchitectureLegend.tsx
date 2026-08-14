@@ -256,6 +256,31 @@ export function ArchitectureLegend({
         />
       </LegendSection>
 
+      <LegendSection
+        title={t("archLegend.roleVsTypeTitle", "Rolle vs. Element-Typ")}
+        hint={t(
+          "archLegend.roleVsTypeHint",
+          "Zwei unabhängige Felder, die absichtlich nicht synchronisiert werden — ein Root-Element mit der Rolle „System” kann fachlich trotzdem als „component” klassifiziert sein.",
+        )}
+      >
+        <LegendRow
+          testId={`${testId}-role-sample`}
+          sample={<strong>{t("arch.role", "Rolle")}</strong>}
+          meaning={t(
+            "archLegend.roleMeaning",
+            "Automatisch aus der Baumposition abgeleitet (Wurzel = System, innerer Knoten = Subsystem, Blatt = Komponente). Nicht editierbar, ändert sich beim Verschieben.",
+          )}
+        />
+        <LegendRow
+          testId={`${testId}-elementtype-sample`}
+          sample={<strong>{t("arch.elementType", "Element-Typ")}</strong>}
+          meaning={t(
+            "archLegend.elementTypeMeaning",
+            "Frei wählbare fachliche Klassifikation, von Hand gepflegt. Kann von der Rolle abweichen und wird nicht automatisch angepasst.",
+          )}
+        />
+      </LegendSection>
+
       <LegendSection title={t("archLegend.identityTitle", "Kopfzeile des Elements")}>
         <LegendRow
           testId={`${testId}-identifier`}

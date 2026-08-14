@@ -144,3 +144,67 @@ describe("ArchitectureForm — AI Decompose button", () => {
     expect(handleDecompose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ArchitectureForm — change control consistency (#417/#418/#422)", () => {
+  it("shows a required marker on the change_reason label for the extended preset, like Requirement/StakeholderNeed", () => {
+    renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={true}
+      />
+    );
+
+    const input = screen.getByTestId("arch-change-reason-input");
+    expect(input).toBeInTheDocument();
+    // The label + required marker share the same <label>; querying by id
+    // via getAttribute keeps this independent of the DOM structure.
+    const label = document.querySelector('label[for="arch-change-reason"]');
+    expect(label?.textContent).toContain("*");
+  });
+
+  it("uses the architecture-specific change_reason placeholder, not the requirement one (#418)", () => {
+    renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={true}
+      />
+    );
+
+    const input = screen.getByTestId("arch-change-reason-input");
+    expect(input).toHaveAttribute("placeholder", "req.changeReasonPlaceholderArchitecture");
+  });
+
+  it("hides the change_reason field for non-extended presets", () => {
+    renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+      />
+    );
+
+    expect(screen.queryByTestId("arch-change-reason-input")).not.toBeInTheDocument();
+  });
+
+  it("renders a hint clarifying element_type is independent of the derived role (#422)", () => {
+    renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+      />
+    );
+
+    expect(screen.getByTestId("arch-element-type-hint")).toBeInTheDocument();
+  });
+});
