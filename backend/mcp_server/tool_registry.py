@@ -146,6 +146,12 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "review.approve",
     "review.reject",
     "review.request_changes",
+    # Interview-Management-Engine Task 4: interview.start creates a new
+    # InterviewSession, interview.answer mutates its collected_fields.
+    # interview.get_state/list/get are reads (see _READ_ONLY_TOOL_NAMES).
+    # interview.formalize is added here too, in Task 7, when it exists.
+    "interview.start",
+    "interview.answer",
 )
 
 # ---------------------------------------------------------------------------
@@ -224,6 +230,13 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # mirrors BundleCompressionStatusView (REST), which is a plain GET
         # with no write-role requirement. Same class as admin.backup_list.
         "requirement_bundle.compression_status",
+        # Interview-Management-Engine Task 4: interview.get_state/list/get
+        # are plain reads of InterviewSession state, same class as
+        # needs.get_traces/architecture.get — interview.start/answer stay
+        # fail-closed WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        "interview.get_state",
+        "interview.list",
+        "interview.get",
     }
 )
 
@@ -443,6 +456,7 @@ class ToolRegistry:
         from mcp_server.tools.baseline import BaselineToolGroup
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
+        from mcp_server.tools.interview import InterviewToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -490,6 +504,10 @@ class ToolRegistry:
             # Requirement Bundle Export, Plan 1 Task 6: raw (non-AI) bundle
             # export + attribute discovery, both read-only.
             "requirement_bundle": RequirementBundleToolGroup(),
+            # Interview-Management-Engine Task 4: cross-host structured
+            # interviews (start/get_state/answer/list/get). Grounding and
+            # formalize land on the same prefix in Tasks 6-7.
+            "interview": InterviewToolGroup(),
         })
 
     def list_tools(
