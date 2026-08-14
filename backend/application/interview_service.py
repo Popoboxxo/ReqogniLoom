@@ -17,6 +17,7 @@ from django.utils import timezone
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES, get_protocol
 from persistence.models import InterviewSession
+from persistence.transactions import atomic_transaction
 
 # spec §9 "verwaiste Sessions": a session untouched this long lazily flips
 # to abandoned the next time anything reads it. No scheduled job (YAGNI).
@@ -24,6 +25,7 @@ ABANDONED_TTL = timedelta(days=30)
 
 
 class InterviewService(ServiceBase):
+    @atomic_transaction
     def start(
         self,
         ctx,
@@ -106,6 +108,7 @@ class InterviewService(ServiceBase):
             "grounding_snapshot": session.grounding_snapshot,
         }
 
+    @atomic_transaction
     def answer(self, ctx, session_id: UUID, field: str, value: Any) -> InterviewSession:
         session = self._get_session(ctx, session_id)
         if session.status != InterviewSession.STATUS_IN_PROGRESS:
