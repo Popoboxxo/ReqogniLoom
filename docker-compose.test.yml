@@ -1,0 +1,69 @@
+# ReqogniLoom — Test overlay (Compose)
+#
+# WHY THIS FILE EXISTS: `docker-compose.yml`'s `backend`/`frontend` services
+# may resolve to a prebuilt registry image (no source, and `.dockerignore`
+# strips `tests/` from what *is* built) instead of a local build context —
+# e.g. when `docker-compose.override.yml` is absent (its own header says:
+# "For production, delete docker-compose.override.yml"). `docker compose exec
+# backend pytest` then collects 0 tests (pytest exit code 5) and `npm test`
+# has no vitest/testing-library devDependencies to run against.
+#
+# This overlay defines standalone `backend-test`/`frontend-test` services
+# that always build from source with the repo bind-mounted over the image,
+# independent of how the base `backend`/`frontend` services are configured —
+# so `make test-backend`/`make test-frontend` keep working regardless of
+# whether the base stack is running dev (build+mount) or prod (registry
+# image) services. Requires `postgres`/`redis` from the base stack already
+# running (`docker-compose up -d`).
+#
+# Usage (also see Makefile test-backend / test-frontend):
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
+#     run --rm backend-test
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
+#     run --rm frontend-test
+
+services:
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings_test
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      DEBUG: ${DEBUG:-True}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      # Superuser, not DB_APP_USER: the RLS test fixtures (test_rls_policies.py
+      # et al.) run `ALTER ROLE "reqogniloom_app" ...`, which the
+      # least-privilege app role cannot do to itself.
+      DB_USER: ${DB_USER:-reqogniloom}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+    volumes:
+      # Hot bind-mount: overrides whatever the image baked in (or didn't —
+      # .dockerignore strips tests/ from the built image on purpose).
+      - ./backend:/app
+      - ./docs:/app/docs:ro
+    depends_on:
+      - postgres
+      - redis
+    entrypoint: []
+    command: ["pytest", "-q"]
+
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    entrypoint: []
+    command: ["sh", "-c", "npm install && npm test"]
