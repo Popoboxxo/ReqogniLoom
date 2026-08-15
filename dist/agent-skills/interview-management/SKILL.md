@@ -35,9 +35,22 @@ truth for state:
    returns an empty `missing_fields` for the final phase), call
    `interview.formalize(session_id)` to create or update the real
    artifact(s). Report the resulting artifact id(s) to the user.
+   
+   **Note:** `formalize()` currently only supports `Requirement`. For the
+   other 7 in-scope types (ArchitectureElement, StakeholderNeed, Risk,
+   TestCase, Adr, Issue, Goal), the interview session still collects and
+   validates all fields via `interview.answer()` and `interview.get_state()`.
+   However, the artifact will not be auto-created/updated; instead, surface
+   the collected field values to the user and guide them to create the
+   artifact via the ReqogniLoom UI or a dedicated creation flow.
 
 ## Scope
 
 Available for: Requirement, ArchitectureElement, StakeholderNeed, Risk,
 TestCase, Adr, Issue, Goal. NOT available for MainGoal (read-only,
 intentionally out of scope).
+
+`interview.start()`, `interview.answer()`, `interview.get_state()`, and
+`interview.grounding_context()` work for all 8 in-scope types.
+`interview.formalize()` currently only supports `Requirement` — for the other
+7 types, collect and display field values instead.
