@@ -1,5 +1,18 @@
 # Hermes IDE Plugin — Requirements MVP Implementation Plan
 
+> **[SUPERSEDED, 2026-08-15]** The plugin direction described here (REST-backed
+> requirements CRUD: `connect → list → detail → form`) was not carried
+> forward. `integrations/hermes-plugin/reqogniloom/` on `main` instead
+> implements the interview-management approach from
+> `docs/superpowers/plans/2026-08-14-interview-management-hermes-plugin.md`
+> (MCP-backed structured interview form, merged via PR #546/#547/#548) — a
+> different problem (guided interview vs. direct artifact CRUD), not a
+> continuation of this plan. This plan's own unmerged branch
+> (`feat/hermes-ide-plugin-requirements-mvp`) is kept in git history in case
+> a direct CRUD UI in the plugin is wanted later, but nothing here should be
+> picked up as-is without re-checking it against the current plugin
+> architecture first.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a working Hermes IDE plugin that lets a user browse, search, view, create, and edit ReqogniLoom requirements from a sidebar panel, built and locally verified inside this repo.

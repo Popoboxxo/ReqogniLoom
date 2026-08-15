@@ -63,6 +63,7 @@ from rest_api.diagram_canvas_views import (
 )
 from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
+from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
 from rest_api.preference_views import UserPreferenceView
 from rest_api.settings_views import (
@@ -156,6 +157,7 @@ router.register(r"icds", IcdViewSet, basename="icd")
 router.register(r"metrics", MetricsViewSet, basename="metrics")
 router.register(r"attribute-visibility-configs", AttributeVisibilityConfigViewSet, basename="attribute-visibility-config")
 router.register(r"glossary", GlossaryTermViewSet, basename="glossary")
+router.register(r"interviews", InterviewViewSet, basename="interview")
 
 # ---------------------------------------------------------------------------
 # URL patterns

@@ -126,6 +126,10 @@ class InterviewService(ServiceBase):
             "collected_fields": session.collected_fields,
             "missing_fields": [self._serialise_field(f) for f in missing],
             "grounding_snapshot": session.grounding_snapshot,
+            # Web Widget spec §9 -- the chat pane needs the full transcript
+            # to render conversation history on mount/resume. Additive and
+            # harmless to the Hermes plugin's form view, which ignores it.
+            "transcript": session.transcript,
         }
 
     @atomic_transaction
@@ -644,6 +648,132 @@ class InterviewService(ServiceBase):
         session.save(update_fields=["resulting_artifact_ids", "status", "modified_at", "version"])
         session.refresh_from_db(fields=["version"])
         return {"resulting_artifact_ids": resulting_ids, "status": session.status}
+
+    def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
+        """Server-generated conversational turn -- Web Widget spec §5.
+
+        Unlike grounding_context()'s AI-ranking layer, this is NOT fail-open:
+        the web widget has no AI agent of its own to drive the interview
+        dialogue (spec §5, Global Constraints), so "no LLM provider
+        available" must surface as a ValidationError the widget can show,
+        not silently do nothing. A *configured* mock provider (the default
+        dev deployment shape, ``LLM_PROVIDER=mock``) is still called though
+        -- only a failed provider *resolution* (``_resolve_provider()``
+        returning ``None``) raises.
+
+        Appends the user message and the assistant's reply to
+        ``session.transcript`` regardless of whether any fields were
+        extracted, so a resumed session always shows the full conversation.
+        """
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+
+        session = self._get_session(ctx, session_id)
+        if session.status != InterviewSession.STATUS_IN_PROGRESS:
+            raise ValidationError(f"InterviewSession {session_id} is {session.status}, cannot chat.")
+
+        provider, provider_name, resolve_error = self._resolve_provider()
+        if provider is None:
+            # NOT fail-open (spec §5) -- unlike grounding, there is no
+            # meaningful degraded behavior for "have a conversation" without
+            # an LLM, so this surfaces as an error rather than silently
+            # doing nothing.
+            raise ValidationError(f"No LLM provider available for interview chat: {resolve_error}")
+
+        audit_logger = LlmAuditLogger()
+        entity_id = str(session.id)
+
+        # REQ-106: per-tenant daily token budget. This free-form flow
+        # bypasses CapabilityRouter, so nothing else enforces it -- same
+        # reasoning as _rank_candidates_with_ai / BundleCompressionService.
+        # Not fail-open here either: an exhausted budget still means "cannot
+        # chat right now", not "chat silently does nothing".
+        if is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.chat_turn",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise ValidationError(
+                "Daily LLM token limit exceeded for this tenant. Try again later "
+                "or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
+        phase, missing = self._current_phase_and_missing(ctx, session)
+        template = AiDerivationService._get_template_content(ctx, "interview.chat_turn", session.workspace_id)
+        prompt = AiDerivationService._render(
+            template,
+            artifact_type=session.artifact_type,
+            transcript_json=json.dumps(session.transcript),
+            current_phase_fragment=phase.prompt_fragment,
+            missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
+            grounding_snapshot_json=json.dumps(session.grounding_snapshot),
+            user_message=user_message,
+        )
+
+        timeout = resolve_timeout_seconds("interview.chat_turn")
+        try:
+            raw_response = provider.complete(prompt, purpose="interview.chat_turn", timeout=timeout)
+        except Exception as error:  # noqa: BLE001 -- not fail-open, see docstring
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.chat_turn",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            raise ValidationError(f"Interview chat LLM call failed: {error}") from error
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        record_token_usage(provider=provider_name, capability="interview.chat_turn", input_tokens=0)
+
+        try:
+            parsed = json.loads(raw_response)
+            extracted = parsed.get("extracted_fields", {}) or {}
+            reply = parsed.get("reply", "")
+        except (ValueError, AttributeError):
+            # Model didn't follow the JSON contract -- degrade to "no fields
+            # extracted, relay the raw text" rather than crashing the chat.
+            # This is a response-shape leniency, distinct from the provider-
+            # availability contract above: the call itself succeeded.
+            extracted = {}
+            reply = raw_response
+
+        # Only record values for fields the protocol actually declares
+        # (mirrors answer()'s own permissive-but-typed-when-known behavior)
+        # -- an unresolved field name is silently skipped rather than
+        # stored, since the prompt explicitly instructs the model to only
+        # extract fields from the "still needed" list.
+        protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
+        for field_name, value in extracted.items():
+            if self._find_protocol_field(protocol, field_name) is not None:
+                self.answer(ctx, session_id, field_name, value)
+
+        now = timezone.now().isoformat()
+        session.refresh_from_db()
+        session.transcript = [
+            *session.transcript,
+            {"role": "user", "text": user_message, "timestamp": now},
+            {"role": "assistant", "text": reply, "timestamp": now},
+        ]
+        session.version = F("version") + 1
+        session.save(update_fields=["transcript", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
+
+        return {"reply": reply, "state": self.get_state(ctx, session_id)}
 
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
         self._set_tenant_context(ctx)

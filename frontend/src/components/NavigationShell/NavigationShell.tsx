@@ -28,6 +28,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { AuthGate } from "./AuthGate";
 import { SidebarNavigation } from "./SidebarNavigation";
 import { LoginPage } from "./LoginPage";
+import { InterviewWidget } from "../InterviewWidget/InterviewWidget";
 
 // Lazy-loaded route components for performance (REQ-L2-RF-009)
 const DashboardViews = lazy(
@@ -169,6 +170,10 @@ function AppShell(): JSX.Element {
           </Suspense>
         </ErrorBoundary>
       </main>
+      {/* Route-independent, always-mounted overlay (interview-management web
+          widget plan Task 5) -- must render on every authenticated route,
+          not just one page, so it lives here rather than inside a <Route>. */}
+      <InterviewWidget />
     </div>
   );
 }

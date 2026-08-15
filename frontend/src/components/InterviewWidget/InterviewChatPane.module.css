@@ -1,0 +1,43 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.userMessage {
+  text-align: right;
+  color: var(--color-text);
+}
+
+.assistantMessage {
+  text-align: left;
+  color: var(--color-text-muted);
+}
+
+.error {
+  color: var(--color-danger);
+  padding: 0 var(--space-2);
+}
+
+.inputRow {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.input {
+  flex: 1;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}

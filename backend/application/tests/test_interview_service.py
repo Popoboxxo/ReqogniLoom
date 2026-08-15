@@ -72,6 +72,7 @@ class TestGetState:
         title_field = next(f for f in state["missing_fields"] if f["name"] == "title")
         assert title_field["type"] == "text"
         assert state["collected_fields"] == {}
+        assert state["transcript"] == []
 
     def test_unknown_session_raises_not_found(self, ctx):
         with pytest.raises(NotFoundError):
@@ -652,3 +653,109 @@ class TestFormalize:
 
         with pytest.raises(ValidationError):
             InterviewService().formalize(ctx, session.id)
+
+
+class _ChatFakeProvider:
+    """A provider double whose .complete() returns a fixed JSON-shaped
+    extraction result, following the same non-vacuous-double principle as
+    bundle_compression's _FakeProvider (issue #442 investigation): this
+    must not be a hardcoded final-answer double, or a test asserting
+    "field got extracted" would be meaningless. It returns exactly what a
+    real provider following the chat_turn prompt's contract would."""
+
+    PROVIDER_NAME = "anthropic"
+
+    def __init__(self, response_json: str):
+        self._response_json = response_json
+        self.last_prompt = None
+
+    def complete(self, prompt, *, purpose="", context=None, timeout=None):
+        self.last_prompt = prompt
+        return self._response_json
+
+
+class TestGenerateChatTurn:
+    """Web Widget spec §5: server-side conversational turn generation,
+    NOT fail-open (unlike grounding)."""
+
+    def test_extracts_field_and_records_transcript(self, ctx, workspace, monkeypatch):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        provider = _ChatFakeProvider(
+            '{"extracted_fields": {"title": "SSO login support"}, "reply": "Got it -- what is the rationale?"}'
+        )
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        result = InterviewService().generate_chat_turn(ctx, session.id, "We need SSO login support")
+
+        assert result["reply"] == "Got it -- what is the rationale?"
+        assert result["state"]["collected_fields"]["title"] == "SSO login support"
+
+        transcript_texts = [t["text"] for t in InterviewService().get(ctx, session.id).transcript]
+        assert "We need SSO login support" in transcript_texts
+        assert "Got it -- what is the rationale?" in transcript_texts
+
+    def test_no_provider_configured_raises_not_fail_open(self, ctx, workspace, monkeypatch):
+        """spec §5: chat generation is NOT fail-open, unlike grounding."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        monkeypatch.setattr(
+            InterviewService,
+            "_resolve_provider",
+            lambda self: (None, "unknown", RuntimeError("no provider configured")),
+        )
+
+        with pytest.raises(ValidationError):
+            InterviewService().generate_chat_turn(ctx, session.id, "anything")
+
+    def test_ambiguous_extraction_asks_clarifying_question_without_recording_a_field(
+        self, ctx, workspace, monkeypatch
+    ):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        # No "extracted_fields" key at all -- the model chose to ask instead
+        # of guess, exactly the spec §5 contract.
+        provider = _ChatFakeProvider('{"extracted_fields": {}, "reply": "Could you clarify the title?"}')
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        result = InterviewService().generate_chat_turn(ctx, session.id, "something vague")
+
+        assert result["state"]["collected_fields"] == {}
+        assert result["reply"] == "Could you clarify the title?"
+
+    def test_unknown_field_extraction_is_silently_skipped(self, ctx, workspace, monkeypatch):
+        """The model must only extract fields from the "still needed" list
+        (prompt contract) -- a field name outside the protocol must not
+        blow up generate_chat_turn nor be stored, mirroring answer()'s own
+        tolerance for names it doesn't resolve."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        provider = _ChatFakeProvider(
+            '{"extracted_fields": {"not_a_real_field": "x"}, "reply": "Noted."}'
+        )
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        result = InterviewService().generate_chat_turn(ctx, session.id, "irrelevant")
+
+        assert "not_a_real_field" not in result["state"]["collected_fields"]
+
+    def test_completed_session_raises_validation_error(self, ctx, workspace, monkeypatch):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login")
+        InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+        InterviewService().formalize(ctx, session.id)
+
+        provider = _ChatFakeProvider('{"extracted_fields": {}, "reply": "n/a"}')
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        with pytest.raises(ValidationError):
+            InterviewService().generate_chat_turn(ctx, session.id, "anything")
+
+    def test_malformed_json_response_degrades_to_relaying_raw_text(self, ctx, workspace, monkeypatch):
+        """The LLM call itself succeeded but didn't follow the JSON
+        contract -- this is a response-shape leniency, distinct from the
+        provider-availability contract, so it must not raise."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        provider = _ChatFakeProvider("not json at all")
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        result = InterviewService().generate_chat_turn(ctx, session.id, "hi")
+
+        assert result["reply"] == "not json at all"
+        assert result["state"]["collected_fields"] == {}

@@ -201,6 +201,48 @@ entry per candidate, in any order. Do not invent artifact_ids that are not \
 in the candidate list.
 """
 
+# Interview-Management Web Widget (Task 2, spec §5) prompt -- server-side
+# conversational turn generation for the web widget, which (unlike Claude
+# Code/Opencode/Antigravity/Hermes) has no AI agent of its own to drive the
+# interview dialogue. Registered here for the same reason
+# INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE is: this module's
+# PROMPT_TEMPLATE_DEFAULTS is the single canonical registry;
+# InterviewService only reads it via AiDerivationService._get_template_content,
+# it never owns a copy. Not fail-open (spec §5) -- InterviewService.
+# generate_chat_turn() raises ValidationError up front when no provider is
+# configured, rather than calling this template against the mock.
+INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE = """\
+You are conducting a structured interview to help create or update a \
+{artifact_type} in a requirements management system. Extract any field \
+values the user's latest message clearly provides, and propose the next \
+thing to say.
+
+Do NOT guess. If a message is ambiguous or you are not confident about a \
+value, leave it out of extracted_fields and ask a clarifying question in \
+your reply instead -- an incorrectly recorded answer is worse than asking \
+again.
+
+Conversation so far (JSON list of {"role": ..., "text": ..., "timestamp": ...}):
+{transcript_json}
+
+Current phase instructions:
+{current_phase_fragment}
+
+Fields still needed (JSON list of {"name": ..., "type": ..., "choices": ...}):
+{missing_fields_json}
+
+Possibly related existing artifacts (JSON):
+{grounding_snapshot_json}
+
+Latest user message:
+{user_message}
+
+Respond with a single JSON object (no prose, no markdown fences) with \
+this exact shape: {"extracted_fields": {"<field_name>": "<value>", ...}, \
+"reply": "<what to say back to the user>"}. extracted_fields may be \
+empty. Only include fields from the "Fields still needed" list.
+"""
+
 # Canonical slot registry covering all 7 names this module's derive flows use
 # (Phase 4, REQ-L2-PT-001). Deliberately NOT the same object as
 # ``persistence.models.PROMPT_TEMPLATE_DEFAULTS`` (imported above as
@@ -224,6 +266,7 @@ PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
     "decision_to_adr": DECISION_TO_ADR_PROMPT_TEMPLATE,
     "bundle_compression": BUNDLE_COMPRESSION_PROMPT_TEMPLATE,
     "interview.grounding_rank": INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE,
+    "interview.chat_turn": INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE,
 }
 
 # ---------------------------------------------------------------------------
@@ -1677,5 +1720,6 @@ __all__ = [
     "DECISION_TO_ADR_PROMPT_TEMPLATE",
     "BUNDLE_COMPRESSION_PROMPT_TEMPLATE",
     "INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE",
+    "INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]
