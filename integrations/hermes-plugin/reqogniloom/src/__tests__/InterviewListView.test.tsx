@@ -26,7 +26,7 @@ describe("InterviewListView", () => {
     });
 
     render(<InterviewListView state={state} />);
-    fireEvent.click(screen.getByText(/Requirement/i));
+    fireEvent.click(screen.getByText(/Requirement.*in_progress/));
 
     expect(resumeInterview).toHaveBeenCalledWith("s-1");
   });

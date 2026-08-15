@@ -20,8 +20,6 @@ const buttonStyle: React.CSSProperties = {
 };
 
 export function InterviewListView({ state }: { state: AppState }): JSX.Element {
-  const activeTypes = new Set(state.interviewList.map((s) => s.artifact_type));
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {state.interviewError && (
@@ -54,18 +52,16 @@ export function InterviewListView({ state }: { state: AppState }): JSX.Element {
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>Start new</span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {IN_SCOPE_ARTIFACT_TYPES.map((type) => (
-            !activeTypes.has(type) && (
-              <button
-                key={type}
-                type="button"
-                data-testid={`interview-start-${type}`}
-                style={buttonStyle}
-                onClick={() => void startNewInterview(type)}
-                disabled={state.interviewBusy}
-              >
-                {type}
-              </button>
-            )
+            <button
+              key={type}
+              type="button"
+              data-testid={`interview-start-${type}`}
+              style={buttonStyle}
+              onClick={() => void startNewInterview(type)}
+              disabled={state.interviewBusy}
+            >
+              {type}
+            </button>
           ))}
         </div>
       </div>
