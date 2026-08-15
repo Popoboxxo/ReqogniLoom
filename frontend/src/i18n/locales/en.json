@@ -675,6 +675,7 @@
     "createFailed": "Failed to create requirement.",
     "deleteFailed": "Failed to delete requirement.",
     "pdfExportFailed": "PDF export failed.",
+    "aiDeriveEmpty": "The AI proposed no next-level requirements. Check that this requirement has a description, then try again.",
     "section": {
       "generalInformation": "General Information",
       "classificationProperties": "Classification & Properties",

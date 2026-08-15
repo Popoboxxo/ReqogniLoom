@@ -236,6 +236,11 @@ export const requirementsApi = {
    * Calls POST /api/v1/requirements/{id}/decompose-next-level/ which returns
    * proposed child requirement drafts without persisting them (Draft/Accept
    * pattern, REQ-L2-AI-001). Requires at least one allocated-to arch element.
+   *
+   * Issue #311: `note` is present only when `drafts` came back empty and
+   * carries the backend's (English) explanation of why. The UI shows its own
+   * localised message instead; the field exists for API/MCP consumers and for
+   * diagnostics.
    */
   aiDecomposeNextLevel(
     id: UUID
@@ -247,6 +252,7 @@ export const requirementsApi = {
       suggested_arch_element_id: string | null;
     }>;
     parent_requirement_id: string;
+    note?: string;
   }> {
     return apiClient.post(
       `/requirements/${id}/decompose-next-level/`,

@@ -323,6 +323,39 @@ def _derivation_cache_key(
     return f"{_DERIVATION_CACHE_PREFIX}:{digest}"
 
 
+def _is_empty_completion(text: str) -> bool:
+    """Return True when a completion carries no usable content (issue #311).
+
+    Recognises the three content-free shapes a provider can answer with: an
+    empty/blank string, an empty JSON array (``[]``) and an empty JSON object
+    (``{}``) — the fallback-marker prefix and Markdown fences are stripped
+    first, mirroring :meth:`AiDerivationService._parse_json_list`. Anything
+    that is not valid JSON is *not* treated as empty: a prose answer is real
+    content for the free-form purposes (``goal_aggregate``), and for the
+    JSON-shaped flows it raises a visible parse error anyway.
+
+    Used to keep such answers out of the derivation cache. Caching one turns a
+    single "the model proposed nothing" into DERIVATION_CACHE_TTL_SECONDS of
+    guaranteed-empty results for that artifact, served without ever calling the
+    provider again — so a retry (the obvious user reaction to an empty result)
+    cannot recover, which is what issue #311 reported as "silently returns 0
+    drafts". Same reasoning as the existing mock-fallback rule (REQ-105):
+    degraded output must be recomputed, not pinned.
+    """
+    stripped = text.strip()
+    if stripped.startswith(MOCK_FALLBACK_MARKER):
+        stripped = stripped[len(MOCK_FALLBACK_MARKER):].strip()
+    if stripped.startswith("```"):
+        stripped = stripped.replace("```json", "").replace("```", "").strip()
+    if not stripped:
+        return True
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return parsed in ([], {})
+
+
 def invalidate_derivation_cache(artifact_id: UUID | str | None) -> None:
     """Invalidate every cached LLM derivation for *artifact_id*.
 
@@ -407,13 +440,12 @@ class AiDerivationService(ServiceBase):
             need_description=truncate_prompt_content(need.description or ""),
         )
 
-        raw = self._complete(
+        items = self._complete_json_list(
             prompt,
             purpose="need_to_sysreq",
             artifact_id=need.artifact_id,
             context={"n": count},
         )
-        items = self._parse_json_list(raw)
 
         drafts = [
             {
@@ -423,7 +455,6 @@ class AiDerivationService(ServiceBase):
                 "suggested_parent_id": str(need.id),
             }
             for item in items
-            if isinstance(item, dict)
         ]
         return {"drafts": drafts}
 
@@ -485,13 +516,15 @@ class AiDerivationService(ServiceBase):
             arch_elements_json=json.dumps(arch_payload),
         )
 
-        raw = self._complete(
+        # require_objects=False: this flow's array carries bare id strings, not
+        # draft objects (see _complete_json_list).
+        suggested = self._complete_json_list(
             prompt,
             purpose="sysreq_to_arch_assign",
             artifact_id=req.artifact_id,
             context={"arch_element_ids": [entry["id"] for entry in arch_payload]},
+            require_objects=False,
         )
-        suggested = self._parse_json_list(raw)
 
         # Keep only ids the LLM was actually offered (defensive against
         # hallucinated identifiers).
@@ -519,11 +552,15 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``{"drafts": [{title, description, rationale,
             suggested_arch_element_id}], "parent_requirement_id": <uuid-str>}``.
+            When ``drafts`` is empty an additional ``note`` key explains why
+            (issue #311) — additive, present only in that case, mirroring how
+            the write path only adds ``failed`` when something failed.
 
         Raises:
             NotFoundError: The requirement does not exist for this tenant.
             ValidationError: The requirement has no allocated architecture element.
-            LlmResponseError: The provider returned non-JSON content.
+            LlmResponseError: The provider returned non-JSON content, or an
+                array from which no draft could be extracted (issue #311).
         """
         self._set_tenant_context(ctx)
 
@@ -560,13 +597,12 @@ class AiDerivationService(ServiceBase):
             arch_elements_json=json.dumps(arch_payload),
         )
 
-        raw = self._complete(
+        items = self._complete_json_list(
             prompt,
             purpose="sysreq_decompose_next_level",
             artifact_id=req.artifact_id,
             context={"arch_element_ids": [entry["id"] for entry in arch_payload]},
         )
-        items = self._parse_json_list(raw)
 
         drafts = [
             {
@@ -580,12 +616,52 @@ class AiDerivationService(ServiceBase):
                 ),
             }
             for item in items
-            if isinstance(item, dict)
         ]
-        return {
+        result: Dict[str, Any] = {
             "drafts": drafts,
             "parent_requirement_id": str(req.id),
         }
+        if not drafts:
+            result["note"] = self._empty_decomposition_note(req)
+            logger.warning(
+                "decompose_requirement_next_level produced no drafts "
+                "(requirement=%s, provider response was an empty array). %s",
+                req.id,
+                result["note"],
+            )
+        return result
+
+    @staticmethod
+    def _empty_decomposition_note(req: Requirement) -> str:
+        """Explain an empty ``drafts`` list to the caller (issue #311).
+
+        Reaching this point means the provider answered with a well-formed but
+        empty JSON array — no transport error, no parse error, nothing dropped
+        (:meth:`_usable_entries` would have raised). The caller, typically an
+        MCP agent, otherwise sees a bare ``drafts: []`` and cannot tell that
+        apart from a broken pipeline, which is what issue #311 reported.
+
+        The most common cause by far is a content-free prompt: a Requirement
+        created through ``requirement.derive``/``requirement.create`` with a
+        title only leaves the model nothing to decompose (the same empty
+        description that issue #459 fixed on the ``derive`` path). That case is
+        called out explicitly because it is actionable; otherwise the note just
+        states what happened.
+        """
+        base = (
+            "The LLM returned an empty list — no decomposition drafts were "
+            "proposed. This is the provider's answer, not a failed call "
+            "(a transport or parsing failure raises an error instead)."
+        )
+        if not (req.description or "").strip():
+            return (
+                f"{base} This requirement has no description, so the prompt "
+                "contained only its title; add a description and retry."
+            )
+        return (
+            f"{base} Retry, rephrase the requirement, or check the "
+            "'sysreq_decompose_next_level' prompt template."
+        )
 
     def derive_testcase_from_requirement(
         self,
@@ -629,13 +705,12 @@ class AiDerivationService(ServiceBase):
             req_description=truncate_prompt_content(req.description or ""),
         )
 
-        raw = self._complete(
+        parsed = self._complete_json_object(
             prompt,
             purpose="test_derive_from_requirement",
             artifact_id=req.artifact_id,
             context={"req_title": req.title},
         )
-        parsed = self._parse_json_object(raw)
 
         raw_steps = parsed.get("steps")
         steps = [
@@ -701,13 +776,12 @@ class AiDerivationService(ServiceBase):
             ae_description=truncate_prompt_content(ae.description or ""),
         )
 
-        raw = self._complete(
+        items = self._complete_json_list(
             prompt,
             purpose="derive_risks_from_architecture",
             artifact_id=ae.artifact_id,
             context={"ae_title": ae.title},
         )
-        items = self._parse_json_list(raw)
 
         drafts = [
             {
@@ -724,7 +798,6 @@ class AiDerivationService(ServiceBase):
                 ),
             }
             for item in items
-            if isinstance(item, dict)
         ]
         return {"drafts": drafts, "architecture_element_id": str(ae.id)}
 
@@ -790,13 +863,12 @@ class AiDerivationService(ServiceBase):
         )
         prompt = self._render(template, workspace_text=workspace_text)
 
-        raw = self._complete(
+        items = self._complete_json_list(
             prompt,
             purpose="derive_glossary_from_workspace",
             artifact_id=str(workspace.id),
             context={"workspace_id": str(workspace.id)},
         )
-        items = self._parse_json_list(raw)
 
         drafts = [
             {
@@ -810,7 +882,6 @@ class AiDerivationService(ServiceBase):
                 "abbreviation": str(item.get("abbreviation", "")),
             }
             for item in items
-            if isinstance(item, dict)
         ]
         return {"drafts": drafts, "workspace_id": str(workspace.id)}
 
@@ -862,13 +933,12 @@ class AiDerivationService(ServiceBase):
             decision_description=truncate_prompt_content(decision_description or ""),
         )
 
-        raw = self._complete(
+        parsed = self._complete_json_object(
             prompt,
             purpose="derive_adr_from_decision",
             artifact_id=str(workspace.id),
             context={"decision_description": decision_description},
         )
-        parsed = self._parse_json_object(raw)
 
         draft = {
             "title": str(parsed.get("title", "")),
@@ -1508,6 +1578,11 @@ class AiDerivationService(ServiceBase):
         from persistence.tenancy import TenantContext, TenantContextNotSetError
 
         provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
+        # Issue #311: remember which cache entry this call read or wrote, so a
+        # caller whose parsing rejects the answer can evict it
+        # (_discard_cached_completion). Reset per call; the fallback paths
+        # below return before a key even exists.
+        self._last_cache_key = None
 
         try:
             provider = get_provider()
@@ -1545,6 +1620,7 @@ class AiDerivationService(ServiceBase):
             str(artifact_id),
             prompt,
         )
+        self._last_cache_key = cache_key
 
         cached = cache.get(cache_key)
         if cached is not None:
@@ -1650,10 +1726,127 @@ class AiDerivationService(ServiceBase):
             input_tokens=0,
         )
 
-        # Never cache a fallback-marked (degraded) response (REQ-105).
-        if not result.startswith(MOCK_FALLBACK_MARKER):
+        # Never cache a fallback-marked (degraded) response (REQ-105), and
+        # never cache a content-free one (issue #311, see
+        # _is_empty_completion): both must be recomputed on the next call.
+        if _is_empty_completion(result):
+            logger.warning(
+                "LLM returned an empty response (purpose=%s, artifact=%s, "
+                "provider=%s); not cached so the next call retries.",
+                purpose,
+                artifact_id,
+                effective_provider_name,
+            )
+        elif not result.startswith(MOCK_FALLBACK_MARKER):
             cache.set(cache_key, result, DERIVATION_CACHE_TTL_SECONDS)
         return result
+
+    def _complete_json_list(
+        self,
+        prompt: str,
+        *,
+        purpose: str,
+        artifact_id: UUID | str,
+        context: Optional[Dict[str, Any]] = None,
+        require_objects: bool = True,
+    ) -> List[Any]:
+        """Run a completion and return its JSON array (issue #311).
+
+        The single entry point for every array-shaped flow: it chains
+        :meth:`_complete`, :meth:`_parse_json_list` and — unless
+        *require_objects* is False, as for the id-list flow
+        :meth:`suggest_architecture_for_requirement` — :meth:`_usable_entries`.
+
+        Its reason to exist is the failure path: :meth:`_complete` caches the
+        raw text *before* any flow can judge it, so an unusable answer used to
+        be replayed from the cache on every retry for the full
+        ``DERIVATION_CACHE_TTL_SECONDS``, with the provider never consulted
+        again. Rejecting the answer therefore also evicts it here, which makes
+        an immediate retry — the obvious reaction to the error — actually
+        reach the provider.
+
+        Args:
+            prompt: The rendered prompt.
+            purpose: Capability name (cache namespace, audit entry, log text).
+            artifact_id: Source artifact of this derivation (cache namespace).
+            context: Optional structured hints for the provider.
+            require_objects: Whether the array must carry JSON objects.
+
+        Returns:
+            The parsed array; only its object entries when *require_objects*.
+
+        Raises:
+            LlmResponseError: The response was not a usable JSON array.
+        """
+        raw = self._complete(
+            prompt, purpose=purpose, artifact_id=artifact_id, context=context
+        )
+        try:
+            items = self._parse_json_list(raw)
+            if require_objects:
+                items = self._usable_entries(items, purpose=purpose)
+        except LlmResponseError:
+            self._discard_cached_completion(purpose=purpose, artifact_id=artifact_id)
+            raise
+        return items
+
+    def _complete_json_object(
+        self,
+        prompt: str,
+        *,
+        purpose: str,
+        artifact_id: UUID | str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Object-shaped sibling of :meth:`_complete_json_list` (issue #311).
+
+        Used by the single-draft flows (``derive_testcase_from_requirement``,
+        ``derive_adr_from_decision``) and evicts the cached answer on the same
+        grounds: a response the flow cannot parse must not be replayed from the
+        cache for the rest of the TTL.
+
+        Raises:
+            LlmResponseError: The response was not a JSON object.
+        """
+        raw = self._complete(
+            prompt, purpose=purpose, artifact_id=artifact_id, context=context
+        )
+        try:
+            return self._parse_json_object(raw)
+        except LlmResponseError:
+            self._discard_cached_completion(purpose=purpose, artifact_id=artifact_id)
+            raise
+
+    def _discard_cached_completion(
+        self, *, purpose: str, artifact_id: UUID | str
+    ) -> None:
+        """Drop the cache entry of the completion this instance last ran.
+
+        No-op when the last :meth:`_complete` call never reached the cache
+        (mock fallback, provider error). Never raises — failing to evict must
+        not replace the caller's real error with a cache-backend one.
+        """
+        cache_key = getattr(self, "_last_cache_key", None)
+        if cache_key is None:
+            return
+        self._last_cache_key = None
+        try:
+            cache.delete(cache_key)
+        except Exception:  # pragma: no cover - defensive; cache backend down
+            logger.warning(
+                "Failed to evict unusable cached LLM response "
+                "(purpose=%s, artifact=%s)",
+                purpose,
+                artifact_id,
+                exc_info=True,
+            )
+            return
+        logger.warning(
+            "Evicted an unusable cached LLM response (purpose=%s, artifact=%s) "
+            "so the next call retries the provider.",
+            purpose,
+            artifact_id,
+        )
 
     @staticmethod
     def _parse_json_list(raw: str) -> List[Any]:
@@ -1681,6 +1874,60 @@ class AiDerivationService(ServiceBase):
                 "The LLM response was not a JSON array as expected."
             )
         return parsed
+
+    @staticmethod
+    def _usable_entries(items: List[Any], *, purpose: str) -> List[Dict[str, Any]]:
+        """Return the object entries of a parsed LLM array (issue #311).
+
+        Every list-shaped Draft/Accept flow builds its drafts from the JSON
+        objects in the provider's array and has to skip anything else — a
+        model that answers ``["Sub-requirement one", ...]`` instead of
+        ``[{"title": ...}, ...]`` must not crash the flow with an
+        ``AttributeError`` on ``item.get``.
+
+        Silently dropping *all* of them, however, made a structurally
+        unusable answer look exactly like a model that legitimately proposed
+        nothing: both returned ``drafts: []`` with no error and no log line
+        (issue #311). So the two cases are separated here:
+
+        * array non-empty, no object in it → the extraction failed, raise
+          :class:`LlmResponseError` (mapped to ``INTERNAL_ERROR`` by every
+          ``mcp_server.tools.ai_derivation`` handler and to a 5xx by the REST
+          views, i.e. a *visible* failure);
+        * array with a mix → keep the usable entries, WARN about the dropped
+          ones, since a partial answer is still worth showing the user;
+        * empty array → returned unchanged. An empty list stays a legal
+          answer ("nothing to propose") and several callers/tests rely on
+          that, so it is never an error here — the decompose flow annotates
+          it for the caller instead (see
+          :meth:`decompose_requirement_next_level`).
+
+        Args:
+            items: The already parsed JSON array (see :meth:`_parse_json_list`).
+            purpose: Capability name of the calling flow, for the log/error text.
+
+        Returns:
+            The subset of *items* that are dicts.
+
+        Raises:
+            LlmResponseError: *items* is non-empty but contains no object.
+        """
+        entries = [item for item in items if isinstance(item, dict)]
+        if items and not entries:
+            raise LlmResponseError(
+                f"The LLM response for '{purpose}' was a JSON array of "
+                f"{len(items)} entries, but none of them was an object with "
+                "the expected draft fields — nothing could be extracted."
+            )
+        if len(entries) != len(items):
+            logger.warning(
+                "Dropped %d of %d non-object entries from the LLM response "
+                "(purpose=%s).",
+                len(items) - len(entries),
+                len(items),
+                purpose,
+            )
+        return entries
 
     @staticmethod
     def _parse_json_object(raw: str) -> Dict[str, Any]:

@@ -262,6 +262,56 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
   });
 
+  // Issue #311: zero drafts used to render the *success* message — both
+  // branches of the status ternary were literally identical, so "the AI
+  // returned nothing" was indistinguishable from "derivation worked".
+  it("reports an empty AI derivation as a problem, not as success (issue #311)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(requirementsApi.aiDecomposeNextLevel).mockResolvedValue({
+      drafts: [],
+      parent_requirement_id: MOCK_REQUIREMENT.id,
+      note: "The LLM returned an empty list.",
+    });
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("req-ai-derive-btn"));
+
+    const status = await screen.findByTestId("req-ai-derive-status");
+    await waitFor(() => {
+      expect(status).toHaveAttribute("role", "alert");
+    });
+    expect(status.textContent ?? "").toMatch(/aiDeriveEmpty|proposed no|keine/i);
+  });
+
+  it("reports a non-empty AI derivation as success (issue #311)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(requirementsApi.aiDecomposeNextLevel).mockResolvedValue({
+      drafts: [
+        {
+          title: "Child requirement",
+          description: "d",
+          rationale: "r",
+          suggested_arch_element_id: null,
+        },
+      ],
+      parent_requirement_id: MOCK_REQUIREMENT.id,
+    });
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("req-ai-derive-btn"));
+
+    const status = await screen.findByTestId("req-ai-derive-status");
+    await waitFor(() => {
+      expect(status).toHaveAttribute("role", "status");
+    });
+  });
+
   it("renders the ArtifactInspector exactly once — no duplicate RightSidebar (REQ-TBD)", async () => {
     renderEditor(MOCK_REQUIREMENT.id);
 

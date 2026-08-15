@@ -222,12 +222,16 @@ export default function RequirementEditors(): JSX.Element {
     try {
       const result = await requirementsApi.aiDecomposeNextLevel(requirement.id);
       const count = result.drafts?.length ?? 0;
-      setAiDeriveStatus(
-        count > 0
-          ? t('needs.deriveSuccess')
-          : t('needs.deriveSuccess')
-      );
-      refresh();
+      // Issue #311: both branches used to render the same success message, so
+      // a run that produced zero drafts reported "derived successfully" and
+      // left no trace of the fact that nothing had happened.
+      if (count > 0) {
+        setAiDeriveStatus(t('needs.deriveSuccess'));
+        refresh();
+        return;
+      }
+      setAiDeriveIsError(true);
+      setAiDeriveStatus(t('req.aiDeriveEmpty'));
     } catch (err: unknown) {
       const apiErr = err as { error?: { message?: string } };
       setAiDeriveIsError(true);
