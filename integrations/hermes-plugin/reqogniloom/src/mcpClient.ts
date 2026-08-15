@@ -80,3 +80,103 @@ export async function callMcpTool(
   }
   return frame.result;
 }
+
+export interface InterviewField {
+  name: string;
+  type: "text" | "textarea" | "enum" | "number";
+  choices: string[] | null;
+}
+
+export interface InterviewState {
+  session_id: string;
+  status: "in_progress" | "completed" | "abandoned";
+  phase: string;
+  collected_fields: Record<string, unknown>;
+  missing_fields: InterviewField[];
+  grounding_snapshot: { candidates: { artifact_id: string; title: string; score: number | null }[] };
+}
+
+export interface InterviewSummary {
+  id: string;
+  workspace_id: string;
+  artifact_type: string;
+  status: string;
+}
+
+export async function interviewStart(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  artifactType: string
+): Promise<InterviewState> {
+  return callMcpTool(network, connection, "interview.start", {
+    artifact_type: artifactType,
+    workspace_id: connection.workspaceId,
+  }) as Promise<InterviewState>;
+}
+
+export async function interviewGetState(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string
+): Promise<InterviewState> {
+  return callMcpTool(network, connection, "interview.get_state", {
+    session_id: sessionId,
+  }) as Promise<InterviewState>;
+}
+
+export async function interviewAnswer(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string,
+  field: string,
+  value: unknown
+): Promise<InterviewState> {
+  return callMcpTool(network, connection, "interview.answer", {
+    session_id: sessionId,
+    field,
+    value,
+  }) as Promise<InterviewState>;
+}
+
+export async function interviewGroundingContext(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string
+): Promise<InterviewState["grounding_snapshot"]> {
+  return callMcpTool(network, connection, "interview.grounding_context", {
+    session_id: sessionId,
+  }) as Promise<InterviewState["grounding_snapshot"]>;
+}
+
+export async function interviewFormalize(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string
+): Promise<{ resulting_artifact_ids: string[]; status: string }> {
+  return callMcpTool(network, connection, "interview.formalize", {
+    session_id: sessionId,
+  }) as Promise<{ resulting_artifact_ids: string[]; status: string }>;
+}
+
+export async function interviewList(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  status?: string
+): Promise<InterviewSummary[]> {
+  const params: Record<string, unknown> = { workspace_id: connection.workspaceId };
+  if (status) params.status = status;
+  const result = (await callMcpTool(network, connection, "interview.list", params)) as {
+    sessions: InterviewSummary[];
+  };
+  return result.sessions;
+}
+
+export async function interviewGet(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string
+): Promise<InterviewSummary> {
+  return callMcpTool(network, connection, "interview.get", {
+    session_id: sessionId,
+  }) as Promise<InterviewSummary>;
+}

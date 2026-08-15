@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { callMcpTool, McpRpcError } from "../mcpClient";
+import {
+  callMcpTool,
+  McpRpcError,
+  interviewAnswer,
+  interviewFormalize,
+  interviewGetState,
+  interviewGroundingContext,
+  interviewList,
+  interviewStart,
+} from "../mcpClient";
 
 const CONNECTION = { baseUrl: "https://example.com", apiKey: "reqlo_abc", workspaceId: "ws-1" };
 
@@ -88,5 +97,106 @@ describe("callMcpTool", () => {
     await expect(
       callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})
     ).rejects.toThrow();
+  });
+});
+
+describe("interview.* wrappers", () => {
+  it("interviewStart calls interview.start with artifact_type and workspace_id from the connection", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          session_id: "s-1",
+          status: "in_progress",
+          phase: "elicitation",
+          collected_fields: {},
+          missing_fields: [{ name: "title", type: "text", choices: null }],
+          grounding_snapshot: { candidates: [] },
+        },
+      })
+    );
+
+    const state = await interviewStart({ fetch: fetchMock }, CONNECTION, "Requirement");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.method).toBe("interview.start");
+    expect(body.params).toEqual({ artifact_type: "Requirement", workspace_id: "ws-1" });
+    expect(state.session_id).toBe("s-1");
+    expect(state.missing_fields[0].type).toBe("text");
+  });
+
+  it("interviewAnswer sends session_id/field/value and returns the refreshed state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          session_id: "s-1",
+          status: "in_progress",
+          phase: "elicitation",
+          collected_fields: { title: "SSO login" },
+          missing_fields: [],
+          grounding_snapshot: { candidates: [] },
+        },
+      })
+    );
+
+    const state = await interviewAnswer({ fetch: fetchMock }, CONNECTION, "s-1", "title", "SSO login");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.params).toEqual({ session_id: "s-1", field: "title", value: "SSO login" });
+    expect(state.collected_fields.title).toBe("SSO login");
+  });
+
+  it("interviewFormalize returns resulting_artifact_ids and status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { resulting_artifact_ids: ["art-1"], status: "completed" },
+      })
+    );
+
+    const result = await interviewFormalize({ fetch: fetchMock }, CONNECTION, "s-1");
+
+    expect(result.resulting_artifact_ids).toEqual(["art-1"]);
+    expect(result.status).toBe("completed");
+  });
+
+  it("interviewList passes status through as a query param when given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { sessions: [] } })
+    );
+
+    await interviewList({ fetch: fetchMock }, CONNECTION, "in_progress");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.params).toEqual({ workspace_id: "ws-1", status: "in_progress" });
+  });
+
+  it("interviewList omits status when not given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { sessions: [] } })
+    );
+
+    await interviewList({ fetch: fetchMock }, CONNECTION);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.params).toEqual({ workspace_id: "ws-1" });
+  });
+
+  it("interviewGroundingContext returns the candidates list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { candidates: [{ artifact_id: "art-1", title: "Existing req", score: null }] },
+      })
+    );
+
+    const snapshot = await interviewGroundingContext({ fetch: fetchMock }, CONNECTION, "s-1");
+
+    expect(snapshot.candidates).toHaveLength(1);
   });
 });
