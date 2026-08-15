@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES, get_protocol
-from persistence.models import InterviewSession
+from persistence.models import InterviewSession, Workspace
 from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,13 @@ class InterviewService(ServiceBase):
                 f"(MainGoal stays read-only; other unknown types are unsupported)."
             )
         self._set_tenant_context(ctx)
+        # Fail fast with a clean NotFoundError (same pattern as
+        # RequirementService.create_requirement) rather than letting
+        # InterviewSession's FK constraint raise a bare IntegrityError on an
+        # unknown workspace_id, which the MCP layer's generic exception
+        # handler would otherwise surface as an opaque INTERNAL_ERROR.
+        if not Workspace.objects.filter(id=workspace_id).exists():
+            raise NotFoundError(f"Workspace {workspace_id} not found")
         # Fail fast if the protocol config is missing/broken rather than
         # creating a session that can never progress past get_state.
         get_protocol(ctx, artifact_type, workspace_id)
@@ -459,6 +466,20 @@ class InterviewService(ServiceBase):
                 f"required field(s): {missing_names}. Cannot formalize."
             )
 
+        # The completeness guard above only trusts the *protocol*: if a
+        # workspace's custom interview.protocol.Requirement override never
+        # declares a `title` field in required_fields, `missing` above is
+        # trivially empty (nothing named `title` was ever "missing") even
+        # though `title` resolves to "" here. A Requirement must not be
+        # created/updated with an empty title regardless of what the
+        # protocol says is required -- check independently.
+        title = (session.collected_fields.get("title") or "").strip()
+        if not title:
+            raise ValidationError(
+                f"InterviewSession {session_id} has no non-empty 'title' in "
+                "collected_fields; cannot formalize a Requirement without a title."
+            )
+
         from application.requirement_service import RequirementService
         from persistence.models import Requirement
 
@@ -477,14 +498,14 @@ class InterviewService(ServiceBase):
             updated = svc.update_requirement(
                 target.id,
                 ctx,
-                title=session.collected_fields.get("title"),
+                title=title,
                 description=session.collected_fields.get("rationale"),
             )
             resulting_ids.append(str(updated.artifact_id))
         else:
             created = svc.create_requirement(
                 workspace_id=session.workspace_id,
-                title=session.collected_fields.get("title", ""),
+                title=title,
                 ctx=ctx,
                 description=session.collected_fields.get("rationale", ""),
             )

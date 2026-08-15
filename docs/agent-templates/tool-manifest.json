@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.6.0-beta.2",
-  "tool_count": 147,
+  "generated_from": "reqogniloom==1.6.0-beta.3",
+  "tool_count": 154,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1885,6 +1885,154 @@
       }
     },
     {
+      "name": "interview.answer",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "Record an answer for one field of the current phase (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          },
+          "field": {
+            "type": "string",
+            "description": "Field name being answered."
+          },
+          "value": {
+            "description": "Answer value (type depends on the field's declared type)."
+          }
+        },
+        "required": [
+          "session_id",
+          "field",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "interview.formalize",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "Turn the session's collected answers into a real artifact (write). Creates a new Requirement, or -- if grounding set a target -- updates the existing one instead, re-checking at write time that the target still exists. Marks the session completed and returns resulting_artifact_ids. Only artifact_type='Requirement' sessions are supported so far.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.get",
+      "prefix": "interview",
+      "is_write": false,
+      "description": "Fetch one interview session's summary (id, workspace, artifact_type, status) by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.get_state",
+      "prefix": "interview",
+      "is_write": false,
+      "description": "Fetch the current progress of an interview session: phase, collected_fields, missing_fields and grounding_snapshot. Any host can call this to resume a session started elsewhere.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.grounding_context",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "Structural (non-AI) grounding: find existing artifacts whose title overlaps the session's collected title, so the interview can flag possible duplicates before a new artifact is created. Only Requirement is wired up so far; other artifact types return no candidates for now. Refreshes and returns the session's grounding_snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.list",
+      "prefix": "interview",
+      "is_write": false,
+      "description": "List interview sessions in a workspace, optionally filtered by status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional status filter: in_progress, completed, or abandoned."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.start",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "Start a new structured interview for one artifact type in a workspace (write). Returns the new session_id plus its current interview state (phase, collected_fields, missing_fields) so the caller can immediately render the first question.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifact_type": {
+            "type": "string",
+            "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
+          "seed_context": {
+            "type": "object",
+            "description": "Optional pre-known field values to seed the session's collected_fields with, e.g. when the caller already knows some answers before the interview starts."
+          }
+        },
+        "required": [
+          "artifact_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "issue.create",
       "prefix": "issue",
       "is_write": true,
@@ -2562,7 +2710,7 @@
       "name": "prompt_template.get",
       "prefix": "prompt_template",
       "is_write": false,
-      "description": "Return the effective LLM prompt content for a given template name, for the active tenant (and, if workspace_id is given, that workspace's override if one exists). Falls back to the factory default for any of the 7 known template names (need_to_sysreq | sysreq_to_arch_assign | sysreq_decompose_next_level | testcase_derive | architecture_to_risk | workspace_to_glossary | decision_to_adr) when no row has been created.",
+      "description": "Return the effective LLM prompt content for a given template name, for the active tenant (and, if workspace_id is given, that workspace's override if one exists). Falls back to the factory default for any of the 7 known derivation-flow template names (need_to_sysreq | sysreq_to_arch_assign | sysreq_decompose_next_level | testcase_derive | architecture_to_risk | workspace_to_glossary | decision_to_adr) or an interview.protocol.<ArtifactType> name when no row has been created.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3532,6 +3680,24 @@
       }
     },
     {
+      "name": "test.run_complete",
+      "prefix": "test",
+      "is_write": true,
+      "description": "Finalize a TestRun (write, audited): recomputes the aggregate status from its recorded results (passed if all results passed, failed if any failed, partial if any is blocked/not_run, closed if it has no results at all) and sets finished_at. GH-403: closes the gap where the advertised created -> in_progress -> completed/failed lifecycle had no MCP tool to leave in_progress.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "UUID of the test run."
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
       "name": "test.run_create",
       "prefix": "test",
       "is_write": true,
@@ -3624,24 +3790,6 @@
         "required": [
           "run_id",
           "results"
-        ]
-      }
-    },
-    {
-      "name": "test.run_complete",
-      "prefix": "test",
-      "is_write": true,
-      "description": "Finalize a TestRun (write, audited): recomputes the aggregate status from its recorded results (passed if all results passed, failed if any failed, partial if any is blocked/not_run, closed if it has no results at all) and sets finished_at. GH-403: closes the gap where the advertised created -> in_progress -> completed/failed lifecycle had no MCP tool to leave in_progress.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "run_id": {
-            "type": "string",
-            "description": "UUID of the test run."
-          }
-        },
-        "required": [
-          "run_id"
         ]
       }
     },

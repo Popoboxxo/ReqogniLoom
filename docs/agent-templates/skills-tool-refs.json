@@ -47,5 +47,9 @@
     "baseline.list", "baseline.compare", "change_request.query", "review.list_pending",
     "artifact.search", "glossary.read", "requirement.get", "architecture.get", "test.get",
     "goal.read", "baseline.get", "change_request.read"
+  ],
+  "interview-management": [
+    "interview.start", "interview.get_state", "interview.answer",
+    "interview.grounding_context", "interview.formalize"
   ]
 }

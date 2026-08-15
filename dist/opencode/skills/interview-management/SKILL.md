@@ -50,7 +50,8 @@ Available for: Requirement, ArchitectureElement, StakeholderNeed, Risk,
 TestCase, Adr, Issue, Goal. NOT available for MainGoal (read-only,
 intentionally out of scope).
 
-`interview.start()`, `interview.answer()`, `interview.get_state()`, and
-`interview.grounding_context()` work for all 8 in-scope types.
-`interview.formalize()` currently only supports `Requirement` — for the other
-7 types, collect and display field values instead.
+`interview.start()`, `interview.answer()`, and `interview.get_state()` work
+for all 8 in-scope types. `interview.grounding_context()` currently only
+matches candidates for `Requirement` — for the other 7 types it returns no
+candidates. `interview.formalize()` currently only supports `Requirement` —
+for the other 7 types, collect and display field values instead.

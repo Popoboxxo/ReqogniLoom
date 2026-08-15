@@ -69,8 +69,14 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
     if not isinstance(raw, dict) or "phases" not in raw:
         raise ProtocolValidationError("Protocol YAML must have a top-level 'phases' list.")
 
+    raw_phases = raw["phases"]
+    if not isinstance(raw_phases, list) or not raw_phases:
+        raise ProtocolValidationError(
+            "Protocol YAML 'phases' must be a non-empty list of phases."
+        )
+
     phases = []
-    for raw_phase in raw["phases"]:
+    for raw_phase in raw_phases:
         if not isinstance(raw_phase, dict):
             raise ProtocolValidationError("Each phase must be a dict, not a list item or scalar.")
         if "name" not in raw_phase:

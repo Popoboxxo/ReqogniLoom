@@ -58,6 +58,14 @@ class TestParseProtocolYaml:
         with pytest.raises(ProtocolValidationError):
             parse_protocol_yaml("phase_list: []\n")
 
+    def test_rejects_empty_phases_list(self):
+        with pytest.raises(ProtocolValidationError):
+            parse_protocol_yaml("phases: []\n")
+
+    def test_rejects_null_phases(self):
+        with pytest.raises(ProtocolValidationError):
+            parse_protocol_yaml("phases:\n")
+
     def test_rejects_enum_field_without_choices(self):
         with pytest.raises(ProtocolValidationError):
             parse_protocol_yaml(

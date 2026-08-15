@@ -52,6 +52,13 @@ class TestStart:
         with pytest.raises(ValidationError):
             InterviewService().start(ctx, "MainGoal", workspace.id)
 
+    def test_start_raises_not_found_for_unknown_workspace_id(self, ctx):
+        """An unknown workspace_id must surface as a clean NotFoundError,
+        not a bare IntegrityError from InterviewSession's FK constraint
+        (same class as RequirementService.create_requirement's check)."""
+        with pytest.raises(NotFoundError):
+            InterviewService().start(ctx, "Requirement", uuid.uuid4())
+
 
 class TestGetState:
     def test_reports_missing_fields_for_fresh_session(self, ctx, workspace):
@@ -440,3 +447,31 @@ class TestFormalize:
             TenantContext.clear_tenant()
         assert refreshed.status == InterviewSession.STATUS_IN_PROGRESS
         assert refreshed.resulting_artifact_ids == []
+
+    def test_formalize_rejects_empty_title_even_if_protocol_has_no_title_field(self, ctx, workspace):
+        """The completeness guard only trusts the protocol: a workspace that
+        overrides interview.protocol.Requirement to never ask for `title`
+        would pass `missing_fields == []` trivially, but formalize() must
+        still refuse to create a Requirement with an empty title
+        independent of what the protocol declares as required."""
+        from persistence.models import PromptTemplate
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            PromptTemplate.objects.create(
+                tenant_id=ctx.tenant_id,
+                name="interview.protocol.Requirement",
+                content="phases:\n  - name: only_phase\n    prompt_fragment: 'no title field'\n",
+                version=1,
+                is_active=True,
+                workspace_id=workspace.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        state = InterviewService().get_state(ctx, session.id)
+        assert state["missing_fields"] == []
+
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(ctx, session.id)

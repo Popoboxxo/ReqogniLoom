@@ -99,13 +99,43 @@ class TestInterviewToolGroup:
         assert result.success is True
         assert result.data["session_id"] == str(session.id)
         assert "title" in [f["name"] for f in result.data["missing_fields"]]
-        svc.start.assert_called_once_with(EDITOR_CTX, "Requirement", WORKSPACE_UUID)
+        svc.start.assert_called_once_with(
+            EDITOR_CTX, "Requirement", WORKSPACE_UUID, seed_context=None
+        )
         mock_audit.assert_called_once()
         call_kwargs = mock_audit.call_args.kwargs
         assert call_kwargs["tool_name"] == "interview.start"
         # AuditLog.op is a fixed vocabulary (audit/models.py OP_CHOICES) --
         # a new InterviewSession row maps to "create", not a literal "start".
         assert call_kwargs["operation"] == "create"
+
+    @patch("mcp_server.tools.interview.write_mcp_audit")
+    def test_start_passes_seed_context_through_to_the_service(self, mock_audit):
+        """seed_context is part of InterviewService.start()'s interface but
+        was never read/forwarded by the MCP layer -- confirm it now is."""
+        group, svc = self._group()
+        session = _mock_session()
+        svc.start.return_value = session
+        svc.get_state.return_value = _mock_state(session)
+
+        result = group.execute_tool(
+            tool_name="interview.start",
+            params={
+                "artifact_type": "Requirement",
+                "workspace_id": str(WORKSPACE_UUID),
+                "seed_context": {"title": "Pre-known title"},
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.start.assert_called_once_with(
+            EDITOR_CTX,
+            "Requirement",
+            WORKSPACE_UUID,
+            seed_context={"title": "Pre-known title"},
+        )
 
     def test_start_validation_error_returns_validation_error(self):
         group, svc = self._group()
@@ -132,6 +162,21 @@ class TestInterviewToolGroup:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
         svc.start.assert_not_called()
+
+    def test_start_unknown_workspace_returns_not_found(self):
+        """An unknown workspace_id must surface as a clean NOT_FOUND, not a
+        raw INTERNAL_ERROR from an unhandled exception."""
+        group, svc = self._group()
+        svc.start.side_effect = NotFoundError("Workspace not found")
+
+        result = group.execute_tool(
+            tool_name="interview.start",
+            params={"artifact_type": "Requirement", "workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
 
     # ------------------------------------------------------------------
     # interview.answer + interview.get_state
@@ -195,6 +240,21 @@ class TestInterviewToolGroup:
         )
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
+
+    def test_answer_missing_value_param_returns_validation_error(self):
+        """value is schema-required; an omitted value must not silently
+        record None as the answer."""
+        group, svc = self._group()
+
+        result = group.execute_tool(
+            tool_name="interview.answer",
+            params={"session_id": str(SESSION_UUID), "field": "title"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.answer.assert_not_called()
 
     def test_get_state_not_found_returns_not_found(self):
         group, svc = self._group()
@@ -421,20 +481,26 @@ class TestInterviewToolGroupRegistration:
     def test_write_tools_are_registered_as_write_tools(self):
         from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
-        for tool_name in ("interview.start", "interview.answer", "interview.formalize"):
+        for tool_name in (
+            "interview.start",
+            "interview.answer",
+            "interview.formalize",
+            "interview.grounding_context",
+        ):
             assert any(
                 tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES
             ), f"{tool_name} missing from _WRITE_TOOL_PREFIXES"
 
     def test_read_tools_are_not_rbac_gated(self):
-        """interview.get_state/list/get/grounding_context are reads: under
-        the fail-closed RBAC gate (_is_write_tool in tool_registry.py) any
-        tool name not explicitly listed as read-only defaults to
-        write-protected, so a Viewer would wrongly be denied a plain read
-        unless these are added to _READ_ONLY_TOOL_NAMES.
-        grounding_context does mutate the session's own grounding_snapshot
-        cache, but that's a read-shaped side effect (spec framing: advisory
-        grounding, not an artifact write), same class as get_state/list/get.
+        """interview.get_state/list/get are reads: under the fail-closed RBAC
+        gate (_is_write_tool in tool_registry.py) any tool name not
+        explicitly listed as read-only defaults to write-protected, so a
+        Viewer would wrongly be denied a plain read unless these are added
+        to _READ_ONLY_TOOL_NAMES.
+        interview.grounding_context is deliberately NOT in this list: it now
+        makes a real LLM provider call (Task 6), so it is write-gated like
+        every other LLM-invoking MCP tool (e.g. ai_derivation.*) -- a
+        Viewer-role API key must not be able to drive LLM spend.
         """
         from mcp_server.tool_registry import ToolRegistry
 
@@ -443,8 +509,11 @@ class TestInterviewToolGroupRegistration:
             "interview.get_state",
             "interview.list",
             "interview.get",
-            "interview.grounding_context",
         ):
             assert registry._is_write_tool(tool_name) is False, (
                 f"{tool_name} is wrongly RBAC-gated as a write tool"
             )
+        assert registry._is_write_tool("interview.grounding_context") is True, (
+            "interview.grounding_context makes a real LLM call and must be "
+            "write-gated"
+        )

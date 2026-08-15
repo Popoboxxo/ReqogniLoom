@@ -154,6 +154,13 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "interview.start",
     "interview.answer",
     "interview.formalize",
+    # Post-hoc fix (final-review batch): interview.grounding_context was
+    # exempted here as read-only in Task 5 when it was pure structural
+    # matching, but Task 6 added a real LLM provider call inside it without
+    # revisiting this gate. Every other LLM-invoking MCP tool (e.g.
+    # ai_derivation.*) is deliberately write-gated so a Viewer-role API key
+    # cannot drive LLM spend -- interview.grounding_context must be too.
+    "interview.grounding_context",
 )
 
 # ---------------------------------------------------------------------------
@@ -239,12 +246,9 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "interview.get_state",
         "interview.list",
         "interview.get",
-        # Interview-Management-Engine Task 5: interview.grounding_context
-        # only refreshes the session's own grounding_snapshot cache from a
-        # read-only query against existing artifacts -- it never creates or
-        # updates a real artifact, so it stays out of _WRITE_TOOL_PREFIXES
-        # and is exempted here the same way get_state/list/get are.
-        "interview.grounding_context",
+        # interview.grounding_context moved to _WRITE_TOOL_PREFIXES above
+        # (post-hoc fix, final-review batch) once it started making real LLM
+        # calls -- no longer exempt here.
     }
 )
 

@@ -61,6 +61,14 @@ class InterviewToolGroup(BaseToolGroup):
                         "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'.",
                     },
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "seed_context": {
+                        "type": "object",
+                        "description": (
+                            "Optional pre-known field values to seed the session's "
+                            "collected_fields with, e.g. when the caller already "
+                            "knows some answers before the interview starts."
+                        ),
+                    },
                 },
                 "required": ["artifact_type", "workspace_id"],
             },
@@ -165,9 +173,14 @@ class InterviewToolGroup(BaseToolGroup):
     ) -> ToolResult:
         artifact_type = require_param(params, "artifact_type")
         workspace_id = require_uuid(params, "workspace_id")
+        seed_context = params.get("seed_context")
 
         try:
-            session = self._service.start(auth_context, artifact_type, workspace_id)
+            session = self._service.start(
+                auth_context, artifact_type, workspace_id, seed_context=seed_context
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
@@ -201,6 +214,10 @@ class InterviewToolGroup(BaseToolGroup):
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         field = require_param(params, "field")
+        if "value" not in params:
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Required parameter 'value' is missing."
+            )
         value = params.get("value")
 
         try:
