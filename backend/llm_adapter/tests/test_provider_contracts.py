@@ -9,7 +9,9 @@ Contract tests: verify all LLM providers fully implement LlmCapabilityInterface.
 
 These tests are pure unit tests — no network calls, no DB access required.
 The concrete HTTP providers (Anthropic, OpenAI, Ollama, Azure) are instantiated
-with a dummy ProviderConfig; their _chat / SDK methods are never invoked.
+with a dummy ProviderConfig. Most contract checks never invoke _chat / the
+SDK methods; the model_name-precedence tests below do invoke them, against
+patched fake HTTP/SDK clients (no real network access).
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from llm_adapter.providers import (
     MockLlmProvider,
     OllamaProvider,
     OpenAiProvider,
+    OpencodeGoProvider,
     ProviderConfig,
 )
 
@@ -255,16 +258,25 @@ def test_mock_provider_decompose_requirement_returns_children() -> None:
 
 @pytest.mark.parametrize(
     "provider_cls",
-    [OpenAiProvider, AnthropicProvider],
+    [OpenAiProvider, AnthropicProvider, OllamaProvider, OpencodeGoProvider],
     ids=lambda c: c.__name__,
 )
 def test_http_provider_honours_configured_model_name(provider_cls: type) -> None:
-    """[Issue #118] A configured model_name must override the class default
-    MODEL_NAME - providers must not silently ignore LLM_MODEL_NAME / the
-    DB-configured LlmSettings.model_name."""
+    """[Issue #118, #196] A configured model_name must override the class
+    default MODEL_NAME - providers must not silently ignore LLM_MODEL_NAME /
+    the DB-configured LlmSettings.model_name.
+
+    Ollama and OpencodeGo previously re-derived their own ``_model`` from
+    ``os.environ.get("LLM_MODEL")`` instead of reading the config-resolved
+    ``self.model_name``, so a DB-configured model_name (which never reaches
+    the process environment) was silently ignored (issue #196). The shared
+    ``api_base_url`` in this config satisfies OllamaProvider's mandatory
+    base_url check without affecting the other providers.
+    """
     config = ProviderConfig(
         provider_name="test-dummy",
         api_key="sk-dummy-key-for-contract-tests-only",
+        api_base_url="http://localhost:11434",
         model_name="a-custom-configured-model",
     )
     provider = provider_cls(config)
@@ -273,20 +285,48 @@ def test_http_provider_honours_configured_model_name(provider_cls: type) -> None
 
 @pytest.mark.parametrize(
     "provider_cls",
-    [OpenAiProvider, AnthropicProvider],
+    [OpenAiProvider, AnthropicProvider, OllamaProvider, OpencodeGoProvider],
     ids=lambda c: c.__name__,
 )
 def test_http_provider_falls_back_to_default_model_name(provider_cls: type) -> None:
-    """[Issue #118] With no configured model_name, the provider still falls
-    back to its own MODEL_NAME class default (no regression on unconfigured
-    deployments)."""
+    """[Issue #118, #196] With no configured model_name, the provider still
+    falls back to its own MODEL_NAME class default (no regression on
+    unconfigured deployments)."""
     config = ProviderConfig(
         provider_name="test-dummy",
         api_key="sk-dummy-key-for-contract-tests-only",
+        api_base_url="http://localhost:11434",
         model_name="",
     )
     provider = provider_cls(config)
     assert provider.model_name == provider_cls.MODEL_NAME
+
+
+# ---------------------------------------------------------------------------
+# MockLlmProvider model_name (issue #196): MockLlmProvider extends
+# LlmCapabilityInterface directly (not _BaseHttpProvider) and had no
+# model_name attribute at all, breaking interface parity for any generic
+# caller that reads .model_name polymorphically (it is also the default
+# provider).
+# ---------------------------------------------------------------------------
+
+
+def test_mock_provider_honours_configured_model_name() -> None:
+    """[Issue #196] MockLlmProvider must expose model_name like every other
+    provider, and its results must reflect the configured model."""
+    provider = MockLlmProvider(
+        ProviderConfig(provider_name="mock", model_name="custom-mock-model")
+    )
+    assert provider.model_name == "custom-mock-model"
+    result = provider.validate_artifact("REQ-001")
+    assert result.model == "custom-mock-model"
+
+
+def test_mock_provider_falls_back_to_default_model_name() -> None:
+    """[Issue #196] With no configured model_name, MockLlmProvider falls back
+    to its own MODEL_NAME class default."""
+    provider = MockLlmProvider(ProviderConfig(provider_name="mock", model_name=""))
+    assert provider.model_name == MockLlmProvider.MODEL_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -389,3 +429,138 @@ def test_openai_provider_falls_back_to_sdk_default_when_base_url_unset() -> None
     with patch.dict(sys.modules, {"openai": fake_openai}):
         provider._chat("hello")
     assert captured["kwargs"]["base_url"] is None
+
+
+# ---------------------------------------------------------------------------
+# Call-site model= assertions (issue #196): the regression tests above only
+# assert on provider.model_name resolution, not on the actual `model=` kwarg
+# sent to the vendor SDK / HTTP payload - a call site that reintroduces
+# `model=self.MODEL_NAME` (or a bypassing `self._model`) would not be caught
+# by them. These tests stub the transport and assert on the outbound
+# request/call directly, closing that gap for Ollama, OpencodeGo and Azure.
+# ---------------------------------------------------------------------------
+
+
+def _fake_openai_module_capturing_model(captured: dict) -> types.ModuleType:
+    """Build a fake `openai` module recording the `model=` kwarg passed to
+    chat.completions.create() (as opposed to _fake_openai_module, which only
+    records the OpenAI() constructor kwargs)."""
+
+    def _openai_ctor(**_kwargs):
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        response.usage = MagicMock(total_tokens=2)
+
+        def _create(**create_kwargs):
+            captured["model"] = create_kwargs.get("model")
+            return response
+
+        client.chat.completions.create.side_effect = _create
+        return client
+
+    fake_module = types.ModuleType("openai")
+    fake_module.OpenAI = _openai_ctor
+    return fake_module
+
+
+def _fake_azure_openai_module(captured: dict) -> types.ModuleType:
+    """Build a fake `openai` module exposing AzureOpenAI, recording the
+    `model=` kwarg passed to chat.completions.create()."""
+
+    def _azure_ctor(**_kwargs):
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        response.usage = MagicMock(total_tokens=2)
+
+        def _create(**create_kwargs):
+            captured["model"] = create_kwargs.get("model")
+            return response
+
+        client.chat.completions.create.side_effect = _create
+        return client
+
+    fake_module = types.ModuleType("openai")
+    fake_module.AzureOpenAI = _azure_ctor
+    return fake_module
+
+
+def test_ollama_chat_sends_configured_model_in_request_payload() -> None:
+    """[Issue #196] The actual outbound Ollama request must use the
+    configured model_name, not a value re-derived from os.environ only."""
+    captured: dict = {}
+
+    def _post(url, json, timeout):  # noqa: A002 - matches requests.post signature
+        captured["json"] = json
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"response": "ok", "eval_count": 1}
+        return response
+
+    fake_requests = types.ModuleType("requests")
+    fake_requests.post = _post
+
+    provider = OllamaProvider(
+        ProviderConfig(
+            provider_name="ollama",
+            api_base_url="http://localhost:11434",
+            model_name="llama3.1-custom",
+        )
+    )
+    with patch.dict(sys.modules, {"requests": fake_requests}):
+        provider._chat("prompt")
+
+    assert captured["json"]["model"] == "llama3.1-custom"
+
+
+def test_opencode_go_provider_sends_configured_model_in_request() -> None:
+    """[Issue #196] OpencodeGoProvider must send the configured model_name to
+    chat.completions.create(), not a value re-derived from os.environ only."""
+    captured: dict = {}
+    fake_openai = _fake_openai_module_capturing_model(captured)
+    config = ProviderConfig(
+        provider_name="opencode_go",
+        api_key="sk-dummy",
+        model_name="claude-custom-model",
+    )
+    provider = OpencodeGoProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert captured["model"] == "claude-custom-model"
+
+
+def test_azure_provider_sends_configured_model_when_no_deployment_set() -> None:
+    """[Issue #196] Without an azure_deployment override, the actual
+    create() call must fall back to the configured model_name, not the
+    class-level MODEL_NAME default."""
+    captured: dict = {}
+    fake_openai = _fake_azure_openai_module(captured)
+    config = ProviderConfig(
+        provider_name="azure",
+        api_key="sk-dummy",
+        api_base_url="https://example.openai.azure.com",
+        model_name="gpt-4o-custom",
+    )
+    provider = AzureOpenAiProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert captured["model"] == "gpt-4o-custom"
+
+
+def test_azure_provider_deployment_still_wins_over_configured_model_name() -> None:
+    """[Issue #196] azure_deployment routing is unaffected by the fix - it
+    must remain first in the fallback chain."""
+    captured: dict = {}
+    fake_openai = _fake_azure_openai_module(captured)
+    config = ProviderConfig(
+        provider_name="azure",
+        api_key="sk-dummy",
+        api_base_url="https://example.openai.azure.com",
+        azure_deployment="my-deployment",
+        model_name="gpt-4o-custom",
+    )
+    provider = AzureOpenAiProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert captured["model"] == "my-deployment"
