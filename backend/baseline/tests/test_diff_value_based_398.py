@@ -500,3 +500,98 @@ class TestStateCaptureCompleteness:
         assert state["title"] == "ADR-398 Use value-based diffs"
         assert state["decision"] == "compare snapshotted values"
         assert state["consequences"] == "counters stop being load-bearing"
+
+    def test_goal_content_is_captured_instead_of_a_bare_artifact_type(
+        self, workspace_fixture
+    ):
+        """Issue #218: Goal used to snapshot as ``{"artifact_type": "Goal"}``.
+
+        Goal uses an immutable-row-per-version pattern (a new Goal row plus a
+        new backing Artifact per edit). Without a captured title/description a
+        baseline diff cannot tell "this Goal was edited" from "this Goal is
+        unrelated content that happens to share nothing" — every edit looked
+        like a brand-new artifact appearing from nowhere.
+        """
+        fx = workspace_fixture
+        from application.models import Goal
+        from persistence.models import Artifact
+
+        goal_artifact = Artifact.objects.create(
+            id=uuid.uuid4(),
+            tenant=fx["tenant"],
+            workspace=fx["workspace"],
+            artifact_type="Goal",
+        )
+        lineage_id = uuid.uuid4()
+        Goal.objects.create(
+            id=uuid.uuid4(),
+            artifact=goal_artifact,
+            tenant_id=fx["tenant"].id,
+            workspace_id=fx["workspace"].id,
+            lineage_id=lineage_id,
+            sequence_number=1,
+            title="Reduce onboarding time",
+            description="Cut new-user time-to-first-artifact below 10 minutes.",
+            status="Freigegeben",
+        )
+
+        states = capture_states(
+            [DeltaIndexTuple(item_id=str(goal_artifact.id), version=1)],
+            fx["tenant"].id,
+        )
+        state = states[str(goal_artifact.id)]
+
+        assert state["artifact_type"] == "Goal"
+        assert state["title"] == "Reduce onboarding time"
+        assert (
+            state["description"]
+            == "Cut new-user time-to-first-artifact below 10 minutes."
+        )
+        assert state["status"] == "Freigegeben"
+        assert state["lineage_id"] == str(lineage_id)
+        assert state["sequence_number"] == 1
+
+    def test_main_goal_content_is_captured_instead_of_a_bare_artifact_type(
+        self, workspace_fixture
+    ):
+        """Issue #218: MainGoal used to snapshot as ``{"artifact_type": "MainGoal"}``.
+
+        Like Goal, MainGoal is immutable-row-per-version — the aggregated
+        content lived only in ``content``/``source``, neither of which was
+        ever captured.
+        """
+        fx = workspace_fixture
+        from application.models import MainGoal
+        from persistence.models import Artifact
+
+        mg_artifact = Artifact.objects.create(
+            id=uuid.uuid4(),
+            tenant=fx["tenant"],
+            workspace=fx["workspace"],
+            artifact_type="MainGoal",
+        )
+        MainGoal.objects.create(
+            id=uuid.uuid4(),
+            artifact=mg_artifact,
+            tenant_id=fx["tenant"].id,
+            workspace_id=fx["workspace"].id,
+            sequence_number=1,
+            content="Deliver a self-service onboarding flow by Q4.",
+            source="ai",
+            generated_from_goal_ids=["11111111-1111-1111-1111-111111111111"],
+            status="Freigegeben",
+        )
+
+        states = capture_states(
+            [DeltaIndexTuple(item_id=str(mg_artifact.id), version=1)],
+            fx["tenant"].id,
+        )
+        state = states[str(mg_artifact.id)]
+
+        assert state["artifact_type"] == "MainGoal"
+        assert state["content"] == "Deliver a self-service onboarding flow by Q4."
+        assert state["source"] == "ai"
+        assert state["status"] == "Freigegeben"
+        assert state["generated_from_goal_ids"] == [
+            "11111111-1111-1111-1111-111111111111"
+        ]

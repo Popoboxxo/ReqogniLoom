@@ -58,7 +58,7 @@ from persistence.models import (
     StakeholderNeed,
     TestCase,
 )
-from application.models import Adr, Issue, Risk
+from application.models import Adr, Goal, Issue, MainGoal, Risk
 
 from application.base import NotFoundError, ServiceBase
 
@@ -71,7 +71,8 @@ logger = logging.getLogger(__name__)
 
 # Fields that contain Markdown / multiline text → line-level diff
 # "payload" holds diagram source (Mermaid/PlantUML) — also line-diffed.
-_TEXT_FIELDS = frozenset({"description", "payload"})
+# "content" holds the aggregated MainGoal text (REQ-L2-TE-020) — same shape.
+_TEXT_FIELDS = frozenset({"description", "payload", "content"})
 
 # Fields that contain JSON-serialisable data → serialise before comparison
 _JSON_FIELDS = frozenset({"steps"})
@@ -89,6 +90,19 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     # REQ-142: Diagram has real per-version snapshots (DiagramVersion), unlike
     # the single-row entities above — see diff_for_diagram()/list_versions_for_diagram().
     "Diagram": ["payload_format", "payload", "canvas_json"],
+    # REQ-L2-TE-020: Goal/MainGoal use an immutable-row-per-version pattern
+    # (list_versions_for_goal/list_versions_for_main_goal go through
+    # GoalService/MainGoalService for that). These entries only cover the
+    # generic entity-diff dispatch tables (issue #219), and only resolve the
+    # v0 -> current comparison: Goal.version/MainGoal.version are never
+    # incremented (each edit is a new row), while the *displayed* version
+    # numbers are GoalService.list_versions()'s per-lineage sequence_number
+    # (1..N) — the two are not the same namespace, so diff_for_entity() still
+    # raises NotFoundError for any from_version/to_version pair beyond 0/1.
+    # A real Goal/MainGoal version diff needs a lineage-aware
+    # diff_for_goal(lineage_id, from_seq, to_seq), not this generic path.
+    "Goal": ["title", "description", "status"],
+    "MainGoal": ["content", "source", "status"],
 }
 
 _ENTITY_MODELS = {
@@ -100,6 +114,8 @@ _ENTITY_MODELS = {
     "Risk": Risk,
     "Issue": Issue,
     "GlossaryTerm": GlossaryTerm,
+    "Goal": Goal,
+    "MainGoal": MainGoal,
 }
 
 
