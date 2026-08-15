@@ -149,17 +149,25 @@ WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
 def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
     """Permit non-canonical ``op`` values in the audit model.
 
-    The production ``AuditEntry`` model restricts ``op`` to the canonical
-    ``["create", "update", "delete", "transition"]`` via ``choices``.
-    Several MCP tools use richer operation names (e.g.
-    ``"workspace.close"``, ``"replay"``, ``"permissions.set_rule"``).
-    Those audit writes are legitimate but the model's ``full_clean()``
-    rejects them.
+    The production ``AuditEntry`` model restricts ``op`` to a closed
+    ``choices`` enum. Several MCP tools use richer operation names (e.g.
+    ``"workspace.close"``, ``"replay"``, ``"decompose"``) that are not yet
+    part of that enum. Those audit writes are legitimate but the model's
+    ``full_clean()`` rejects them.
 
     This autouse fixture widens the choices list on the field's
     ``_choices`` attribute at test setup and restores the original via
     ``monkeypatch`` so the tests exercise the real service code path
     without modifying the production schema.
+
+    #539: the admin/user/permissions op values (``"user.create"``,
+    ``"admin.restore"``, ``"permissions.set_rule"``, ...) used to be relaxed
+    here too — that masked the production bug where ``write_mcp_audit``
+    silently swallowed the ``ValidationError`` these undeclared values
+    caused, so ``test_write_tool_creates_audit_entry`` passed while real MCP
+    calls wrote zero audit rows. Those values are now declared in
+    ``AuditEntry.OP_CHOICES`` for real (see migration
+    ``0008_alter_auditentry_op``) and no longer need relaxing.
     """
     from audit import models as audit_models
 
@@ -170,13 +178,6 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
         ("workspace.reactivate", "Workspace Reactivate"),
         ("workspace.delete", "Workspace Delete"),
         ("replay", "DLQ Replay"),
-        ("permissions.set_rule", "Permissions Set Rule"),
-        ("permissions.revoke", "Permissions Revoke"),
-        ("user.create", "User Create"),
-        ("user.assign_role", "User Assign Role"),
-        ("user.deactivate", "User Deactivate"),
-        ("admin.backup_create", "Admin Backup Create"),
-        ("admin.restore", "Admin Restore"),
         ("decompose", "Requirement Decompose"),
         ("validate", "Requirement Validate"),
     ]

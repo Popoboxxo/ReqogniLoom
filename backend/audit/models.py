@@ -120,6 +120,13 @@ class AuditEntry(TenantScopedModel):
     OP_WORKSPACE_DELETE = "workspace.delete"
     OP_CLONE = "clone"
     OP_ASSIGN = "assign"
+    OP_ADMIN_BACKUP_CREATE = "admin.backup_create"
+    OP_ADMIN_RESTORE = "admin.restore"
+    OP_PERMISSIONS_SET_RULE = "permissions.set_rule"
+    OP_PERMISSIONS_REVOKE = "permissions.revoke"
+    OP_USER_CREATE = "user.create"
+    OP_USER_ASSIGN_ROLE = "user.assign_role"
+    OP_USER_DEACTIVATE = "user.deactivate"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -127,6 +134,14 @@ class AuditEntry(TenantScopedModel):
     # the business mutation already succeeded. Any new ``operation=`` string
     # passed to ``ServiceBase._audit`` MUST be added here (guarded by
     # ``audit/tests/test_op_vocabulary.py``).
+    #
+    # NOTE (#539): the same failure mode applies to ``write_mcp_audit``
+    # (mcp_server/tools/base.py) — its ``operation=`` argument goes through
+    # the identical ``full_clean()`` validation, but the resulting
+    # ValidationError is caught and only logged (never re-raised), so an
+    # undeclared op there silently produces zero audit rows instead of a
+    # loud 500. The admin/user/permissions op values below were added for
+    # that reason; any new MCP admin-style tool op must be added here too.
     OP_CHOICES = [
         (OP_CREATE, "Create"),
         (OP_UPDATE, "Update"),
@@ -138,6 +153,13 @@ class AuditEntry(TenantScopedModel):
         (OP_WORKSPACE_DELETE, "Workspace Delete"),
         (OP_CLONE, "Clone"),
         (OP_ASSIGN, "Assign"),
+        (OP_ADMIN_BACKUP_CREATE, "Admin Backup Create"),
+        (OP_ADMIN_RESTORE, "Admin Restore"),
+        (OP_PERMISSIONS_SET_RULE, "Permissions Set Rule"),
+        (OP_PERMISSIONS_REVOKE, "Permissions Revoke"),
+        (OP_USER_CREATE, "User Create"),
+        (OP_USER_ASSIGN_ROLE, "User Assign Role"),
+        (OP_USER_DEACTIVATE, "User Deactivate"),
     ]
 
     SOURCE_REST = "rest"
