@@ -45,7 +45,7 @@ const MOCK_WORKSPACE = { id: "ws-arch-001", name: "System Architecture WS", pres
 const MOCK_ELEMENT = {
   id: "arch-001",
   workspace_id: "ws-arch-001",
-  name: "Navigation Subsystem",
+  title: "Navigation Subsystem",
   description: "Handles GPS position, velocity estimation and waypoint sequencing.",
   element_type: "subsystem",
   parent_id: null,
@@ -105,7 +105,7 @@ describe("useArchitectureData (REQ-049)", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.elements).toHaveLength(1);
     expect(result.current.elements[0].id).toBe("arch-001");
-    expect(result.current.elements[0].name).toBe("Navigation Subsystem");
+    expect(result.current.elements[0].title).toBe("Navigation Subsystem");
   });
 
   it("[REQ-049] populates element and linkedTraceLinks when selectedId is provided", async () => {
