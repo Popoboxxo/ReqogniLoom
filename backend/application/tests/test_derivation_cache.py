@@ -279,7 +279,7 @@ def test_different_tenants_do_not_share_cache(monkeypatch):
     # Same identical prompt/purpose/artifact_id string for both tenants.
     TenantContext.set_tenant(tenant_a.id)
     try:
-        out_a = svc._complete(
+        out_a, _cache_key_a = svc._complete(
             "shared prompt", purpose="need_to_sysreq", artifact_id="art-shared", context=None
         )
     finally:
@@ -289,7 +289,7 @@ def test_different_tenants_do_not_share_cache(monkeypatch):
     # through a full derive_* flow (which would need its own artifacts).
     TenantContext.set_tenant(tenant_b.id)
     try:
-        out_b = svc._complete(
+        out_b, _cache_key_b = svc._complete(
             "shared prompt", purpose="need_to_sysreq", artifact_id="art-shared", context=None
         )
     finally:
@@ -369,10 +369,14 @@ def test_complete_does_not_cache_marker_response(monkeypatch):
     )
 
     svc = AiDerivationService()
-    out1 = svc._complete("p", purpose="need_to_sysreq", artifact_id="art-x")
-    out2 = svc._complete("p", purpose="need_to_sysreq", artifact_id="art-x")
+    out1, cache_key1 = svc._complete("p", purpose="need_to_sysreq", artifact_id="art-x")
+    out2, cache_key2 = svc._complete("p", purpose="need_to_sysreq", artifact_id="art-x")
 
     assert out1 == out2 == marked
+    # Fallback marker responses never reach a cache write, but the key is
+    # still computed deterministically from (provider, tenant, purpose,
+    # artifact_id, prompt) — identical inputs must yield identical keys.
+    assert cache_key1 == cache_key2
     assert provider.calls == 2
 
 
@@ -440,6 +444,104 @@ def test_unusable_response_is_evicted_so_a_retry_reaches_the_provider(
 
     assert provider.calls == 2
     assert [draft["title"] for draft in result["drafts"]] == ["t"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #552 finding B2 — cache-key race on a shared service instance
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_calls_on_shared_instance_do_not_evict_each_others_cache(
+    monkeypatch,
+):
+    """Regression for issue #552 code-review finding B2.
+
+    REST callers always get a fresh ``AiDerivationService()`` per request
+    (``rest_api/views.py``), but the MCP transport shares ONE instance across
+    concurrently handled requests: ``mcp_server/tool_registry.py`` builds the
+    ``ai_derivation`` tool group once as a process-level lazy singleton, and
+    ``mcp_server/views.py`` dispatches requests onto a ``mcp-msg`` thread
+    pool that all reuse it.
+
+    ``_complete()`` used to remember the cache key it just read/wrote on the
+    instance attribute ``self._last_cache_key`` so that
+    ``_discard_cached_completion()`` could evict it after a failed parse.
+    That is only safe for a single in-flight call per instance: if a second,
+    concurrently handled request's ``_complete()`` call landed on the shared
+    instance *between* the first request's ``_complete()`` and its own
+    ``_discard_cached_completion()``, the second request's key silently
+    replaced the first request's key on ``self`` — so the first request's
+    failed-parse cleanup deleted the *second* (still valid) request's cache
+    entry instead of its own.
+
+    This test reproduces that exact interleaving deterministically (no
+    threads needed): request A's malformed answer is parsed only after
+    request B's full, valid derivation has already run to completion and
+    cached its result on the same shared instance — simulating a context
+    switch that happens while A is between its provider call and its own
+    (failing) parse step.
+    """
+    provider_a = _CountingProvider("not valid json")
+    provider_b = _CountingProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+
+    svc = AiDerivationService()
+    real_parse_json_list = ds.AiDerivationService._parse_json_list
+
+    def _parse_json_list_with_interleaving(raw: str):
+        if raw == "not valid json":
+            # Simulate another, concurrently handled request (B) running to
+            # completion on the SAME shared service instance while A is
+            # still "in between" its own _complete() call (already done —
+            # its cache_key is a local variable in A's _complete_json_list
+            # stack frame) and the parse step below.
+            monkeypatch.setattr(
+                "llm_adapter.providers.get_provider", lambda *a, **k: provider_b
+            )
+            svc._complete_json_list(
+                "prompt-b", purpose="need_to_sysreq", artifact_id="art-b"
+            )
+            monkeypatch.setattr(
+                "llm_adapter.providers.get_provider", lambda *a, **k: provider_a
+            )
+        return real_parse_json_list(raw)
+
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider_a
+    )
+    monkeypatch.setattr(
+        ds.AiDerivationService,
+        "_parse_json_list",
+        staticmethod(_parse_json_list_with_interleaving),
+    )
+
+    with pytest.raises(ds.LlmResponseError):
+        svc._complete_json_list(
+            "prompt-a", purpose="need_to_sysreq", artifact_id="art-a"
+        )
+
+    # A's own unusable answer must still be evicted (issue #311 behaviour is
+    # unchanged by this fix) ...
+    monkeypatch.setattr(
+        ds.AiDerivationService, "_parse_json_list", staticmethod(real_parse_json_list)
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider_a
+    )
+    with pytest.raises(ds.LlmResponseError):
+        svc._complete_json_list(
+            "prompt-a", purpose="need_to_sysreq", artifact_id="art-a"
+        )
+    assert provider_a.calls == 2  # retried the provider, not replayed from cache
+
+    # ... but B's valid, unrelated cache entry must have survived A's
+    # eviction — the bug this test guards against deleted it instead.
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider_b
+    )
+    svc._complete_json_list("prompt-b", purpose="need_to_sysreq", artifact_id="art-b")
+    assert provider_b.calls == 1  # served from cache, NOT recomputed
 
 
 def test_non_empty_completion_is_still_cached(monkeypatch):
