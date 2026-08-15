@@ -35,7 +35,13 @@ import {
   BaselineComparePanel,
   BaselineEntriesSection,
 } from "./BaselinesPanels";
+import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
+
+// GH-513 / F5 (PR #554 review): mirrors the backend
+// `MIN_OVERRIDE_REASON_LENGTH` in `backend/application/baseline_facade.py`
+// so the two are not two independently-drifting magic numbers.
+const MIN_OVERRIDE_REASON_LENGTH = 10;
 
 // Re-exported so existing imports (and unit tests) that pull DiffItemRow from
 // this module keep working after the Container/Presenter split (REQ-050).
@@ -290,6 +296,9 @@ export default function BaselinesView(): JSX.Element {
     setListSearch("");
     setScopeFilter("");
   };
+
+  const overrideSubmitDisabled =
+    isSaving || overrideReason.trim().length < MIN_OVERRIDE_REASON_LENGTH;
 
   return (
     <div
@@ -599,33 +608,15 @@ export default function BaselinesView(): JSX.Element {
             {gateBlocked && (
               <div
                 data-testid="baseline-override-panel"
-                style={{
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-3)",
-                  marginBottom: "var(--space-4)",
-                  background: "var(--color-surface-raised)",
-                }}
+                className={styles.overridePanel}
               >
                 <label
                   htmlFor="baseline-override-reason"
-                  style={{
-                    display: "block",
-                    fontWeight: 500,
-                    color: "var(--color-text)",
-                    marginBottom: "var(--space-1)",
-                    fontSize: "var(--font-size-sm)",
-                  }}
+                  className={styles.overrideLabel}
                 >
                   {t("baselines.overrideLabel")}
                 </label>
-                <p
-                  style={{
-                    fontSize: "var(--font-size-xs)",
-                    color: "var(--color-text-muted)",
-                    margin: "0 0 var(--space-2) 0",
-                  }}
-                >
+                <p className={styles.overrideHint}>
                   {t("baselines.overrideHint")}
                 </p>
                 <textarea
@@ -634,36 +625,17 @@ export default function BaselinesView(): JSX.Element {
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
                   rows={3}
-                  style={{
-                    width: "100%",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2)",
-                    fontSize: "var(--font-size-sm)",
-                    fontFamily: "inherit",
-                    background: "var(--color-surface)",
-                    color: "var(--color-text)",
-                    marginBottom: "var(--space-2)",
-                  }}
+                  className={styles.overrideReasonInput}
                 />
                 <button
                   data-testid="baseline-override-submit-btn"
                   onClick={() => void handleCreate(true)}
-                  disabled={isSaving || overrideReason.trim().length < 10}
-                  style={{
-                    background: "var(--color-danger)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "var(--font-size-sm)",
-                    cursor:
-                      isSaving || overrideReason.trim().length < 10
-                        ? "not-allowed"
-                        : "pointer",
-                    opacity:
-                      isSaving || overrideReason.trim().length < 10 ? 0.7 : 1,
-                  }}
+                  disabled={overrideSubmitDisabled}
+                  className={`${styles.overrideSubmitBtn} ${
+                    overrideSubmitDisabled
+                      ? styles.overrideSubmitBtnDisabled
+                      : styles.overrideSubmitBtnEnabled
+                  }`}
                 >
                   {t("baselines.overrideSubmit")}
                 </button>
@@ -834,4 +806,3 @@ const detailValueStyle: React.CSSProperties = {
   fontSize: "var(--font-size-base)",
   wordBreak: "break-all",
 };
-
