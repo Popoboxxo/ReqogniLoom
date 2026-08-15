@@ -331,6 +331,13 @@ class MockLlmProvider(LlmCapabilityInterface):
 
     The mock always returns stable, predictable LlmResult objects so test
     assertions can rely on specific values without network access.
+
+    Since Issue #196, a configured ``model_name`` (env var or DB-persisted
+    ``LlmSettings`` row) overrides ``MODEL_NAME`` here too, for consistency
+    with the other providers — the reported ``model`` on results may
+    therefore no longer read ``"mock-model-v1"`` in deployments that set a
+    model default alongside ``LLM_PROVIDER=mock`` (this is intentional: the
+    same config knob behaves the same way regardless of provider).
     """
 
     PROVIDER_NAME = "mock"
@@ -338,6 +345,11 @@ class MockLlmProvider(LlmCapabilityInterface):
 
     def __init__(self, config: Optional[ProviderConfig] = None) -> None:
         self._config = config or _read_config()
+        # Issue #196: a configured model_name must win over the class-level
+        # MODEL_NAME default, mirroring _BaseHttpProvider's precedence
+        # (issue #118) so the mock provider reports the same model it was
+        # actually configured with instead of always the hardcoded default.
+        self.model_name = self._config.model_name or self.MODEL_NAME
 
     def _simulate(self) -> None:
         """Apply configured delay and optional error simulation."""
@@ -369,7 +381,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.85,
             suggestions=[f"Mock suggestion for artifact {artifact_id}"],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=42,
         )
 
@@ -392,7 +404,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.90,
             suggestions=[],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=100,
             children=[
                 {"id": f"{requirement_id}-child-1", "title": "Mock child 1", "type": "sub-requirement"},
@@ -417,7 +429,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.95,
             suggestions=[],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=200,
             issues=[],
         )
@@ -434,7 +446,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.92,
             suggestions=[],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=120,
             children=[
                 {"id": f"{need_id}-derived-1", "title": "Mock Derived Requirement 1", "description": "System shall do X.", "type": "SyReq"},
@@ -1379,7 +1391,11 @@ class OllamaProvider(_BaseHttpProvider):
 
     Env vars:
         LLM_API_BASE_URL=http://localhost:11434  (default)
-        LLM_MODEL=llama3  (overrides MODEL_NAME, optional)
+        LLM_MODEL_NAME / LLM_MODEL=llama3  (overrides MODEL_NAME, optional)
+
+    A DB-persisted ``LlmSettings.model_name`` row takes precedence over both
+    of the above (see Issue #196) — env vars are only the fallback for
+    unconfigured deployments.
     """
 
     PROVIDER_NAME = "ollama"
@@ -1394,11 +1410,14 @@ class OllamaProvider(_BaseHttpProvider):
                 "Set OLLAMA_BASE_URL environment variable."
             )
         self._base_url = config.api_base_url
-        # `.get("LLM_MODEL", default)` only falls back when the key is
-        # *absent*; some environments define LLM_MODEL="" (present but
-        # empty), which would silently send an empty model id to the
-        # provider. `or` treats "" the same as unset.
-        self._model = os.environ.get("LLM_MODEL") or self.MODEL_NAME
+        # Issue #196: a configured model_name (LLM_MODEL_NAME env or the
+        # DB-persisted LlmSettings row) must win over the class-level
+        # MODEL_NAME default. self.model_name (set by _BaseHttpProvider from
+        # config.model_name or MODEL_NAME) is the canonical source - do not
+        # re-derive a parallel value from os.environ here, or a DB-configured
+        # model_name that never reached the process environment is silently
+        # ignored (issue #118's guarantee only holds if callers actually use
+        # self.model_name).
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1421,7 +1440,7 @@ class OllamaProvider(_BaseHttpProvider):
             # classified (and retried) by status code (REQ-082).
             response = requests.post(
                 url,
-                json={"model": self._model, "prompt": prompt, "stream": False},
+                json={"model": self.model_name, "prompt": prompt, "stream": False},
                 timeout=effective_timeout,
             )
             response.raise_for_status()
@@ -1455,7 +1474,7 @@ class OllamaProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
         )
 
@@ -1480,7 +1499,7 @@ class OllamaProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1505,7 +1524,7 @@ class OllamaProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
@@ -1534,7 +1553,7 @@ class OllamaProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
@@ -1580,7 +1599,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
-                model=self._config.azure_deployment or self.MODEL_NAME,
+                model=self._config.azure_deployment or self.model_name,
                 messages=[{"role": "user", "content": prompt}],
             ),
             timeout_seconds=effective_timeout,
@@ -1610,7 +1629,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
         )
 
@@ -1635,7 +1654,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1660,7 +1679,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
@@ -1689,7 +1708,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
@@ -1713,8 +1732,13 @@ class OpencodeGoProvider(_BaseHttpProvider):
         LLM_API_KEY=<your-opencode-go-key>
         LLM_API_BASE_URL=https://opencode.ai/zen/go/v1  (default; override to
             point at a self-hosted or alternate OpenCode Go endpoint)
-        LLM_MODEL=<model-id>  (overrides MODEL_NAME, optional — see
-            https://opencode.ai/docs/providers for available model ids)
+        LLM_MODEL_NAME / LLM_MODEL=<model-id>  (overrides MODEL_NAME,
+            optional — see https://opencode.ai/docs/providers for available
+            model ids)
+
+    A DB-persisted ``LlmSettings.model_name`` row takes precedence over both
+    of the above (see Issue #196) — env vars are only the fallback for
+    unconfigured deployments.
     """
 
     PROVIDER_NAME = "opencode_go"
@@ -1724,10 +1748,9 @@ class OpencodeGoProvider(_BaseHttpProvider):
     def __init__(self, config: ProviderConfig) -> None:
         super().__init__(config)
         self._base_url = (config.api_base_url or self.DEFAULT_BASE_URL).strip()
-        # See OllamaProvider.__init__ for why `or` (not `.get(..., default)`)
-        # is required here: LLM_MODEL="" (present but empty) must still fall
-        # back to MODEL_NAME.
-        self._model = os.environ.get("LLM_MODEL") or self.MODEL_NAME
+        # Issue #196: see OllamaProvider.__init__ for why the configured
+        # self.model_name (set by _BaseHttpProvider) must be used here
+        # instead of re-deriving the model from os.environ.
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1750,7 +1773,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
-                model=self._model,
+                model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
             ),
             timeout_seconds=effective_timeout,
@@ -1780,7 +1803,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
         )
 
@@ -1805,7 +1828,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1830,7 +1853,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
@@ -1859,7 +1882,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
