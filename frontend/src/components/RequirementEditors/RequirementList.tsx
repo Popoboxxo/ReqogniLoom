@@ -292,7 +292,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           title={t('editor.emptyTitle')}
           description={t('editor.emptyDescription')}
           actions={[
-            { label: `+ ${t('editor.newRequirementTitle')}`, onClick: onCreateNew, testId: 'req-list-empty-create' },
+            { label: t('requirements.newRequirement'), onClick: onCreateNew, testId: 'req-list-empty-create' },
           ]}
         />
       ) : visibleRequirements.length === 0 ? (

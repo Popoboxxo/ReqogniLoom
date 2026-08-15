@@ -301,7 +301,9 @@ export default function RequirementEditors(): JSX.Element {
         density="compact"
         count={{ shown: requirements.length, total: requirements.length }}
         primaryAction={{
-          label: `+ ${t('actions.new')}`,
+          // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
+          // GH-343): every other artifact route reads "New <Entity>".
+          label: t('requirements.newRequirement'),
           onClick: toggleCreateForm,
           testId: 'create-req-btn',
         }}

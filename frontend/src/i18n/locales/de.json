@@ -302,7 +302,7 @@
     "source": "Quelle",
     "target": "Ziel",
     "linkType": "Link-Typ",
-    "create": "Neuen Link erstellen",
+    "create": "Neuer Trace Link",
     "derive": "Ableiten",
     "deriveTitle": "Titel der abgeleiteten Anforderung",
     "deriveTitleRequired": "Bitte einen Titel für die abgeleitete Anforderung eingeben.",
@@ -449,7 +449,7 @@
     "global": "Global",
     "all": "Alle",
     "workspace": "Workspace",
-    "addTerm": "Begriff hinzufügen",
+    "addTerm": "Neuer Begriff",
     "editTerm": "Begriff bearbeiten",
     "newTerm": "Neuer Begriff",
     "deleteConfirm": "Diesen Begriff wirklich löschen?",
@@ -701,7 +701,7 @@
     "L4": "L4 Material"
   },
   "testRuns": {
-    "create": "Testlauf erstellen",
+    "create": "Neuer Testlauf",
     "summary_one": "{{count}} Testlauf",
     "summary_other": "{{count}} Testläufe",
     "emptyTitle": "Noch keine Testläufe",
@@ -1046,6 +1046,7 @@
     }
   },
   "requirements": {
+    "newRequirement": "Neue Anforderung",
     "similar": {
       "heading": "Ähnliche Anforderungen",
       "findButton": "Ähnliche finden",
