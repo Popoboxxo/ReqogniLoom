@@ -4,12 +4,20 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { InterviewFormView } from "../InterviewFormView";
 import type { AppState } from "../state";
 import type { InterviewState } from "../mcpClient";
+import { makeAppState } from "./testHelpers";
 
 vi.mock("../state", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../state")>();
-  return { ...actual, answerInterviewField: vi.fn(), formalizeInterview: vi.fn(), closeInterview: vi.fn() };
+  return {
+    ...actual,
+    answerInterviewField: vi.fn(),
+    formalizeInterview: vi.fn(),
+    closeInterview: vi.fn(),
+    cancelInterview: vi.fn(),
+    setInterviewTarget: vi.fn(),
+  };
 });
-import { answerInterviewField, closeInterview, formalizeInterview } from "../state";
+import { answerInterviewField, cancelInterview, closeInterview, formalizeInterview, setInterviewTarget } from "../state";
 
 function makeInterview(overrides: Partial<InterviewState> = {}): InterviewState {
   return {
@@ -20,13 +28,7 @@ function makeInterview(overrides: Partial<InterviewState> = {}): InterviewState 
 }
 
 function makeState(activeInterview: InterviewState, overrides: Partial<AppState> = {}): AppState {
-  return {
-    view: "interviews", connection: { baseUrl: "https://x", apiKey: "k", workspaceId: "ws-1" },
-    workspaceName: "WS", pendingCredentials: null, pendingWorkspaces: [],
-    connectError: null, connecting: false, activeInterview,
-    interviewList: [], interviewError: null, interviewBusy: false,
-    ...overrides,
-  };
+  return makeAppState({ activeInterview, ...overrides });
 }
 
 describe("InterviewFormView field rendering", () => {
@@ -103,6 +105,17 @@ describe("InterviewFormView field rendering", () => {
     expect(screen.getByText(/Similar existing req/i)).toBeInTheDocument();
   });
 
+  it("calls setInterviewTarget with the candidate's artifact_id when its 'Use this' button is clicked", () => {
+    const interview = makeInterview({
+      grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "Similar existing req", score: null }] },
+    });
+    render(<InterviewFormView state={makeState(interview)} />);
+
+    fireEvent.click(screen.getByTestId("interview-target-art-9"));
+
+    expect(setInterviewTarget).toHaveBeenCalledWith("art-9");
+  });
+
   it("shows interviewError when present", () => {
     const interview = makeInterview({
       missing_fields: [{ name: "title", type: "text", choices: null }],
@@ -112,7 +125,7 @@ describe("InterviewFormView field rendering", () => {
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
 
-  it("renders a Cancel button in the in-progress branch that calls closeInterview", () => {
+  it("renders a Cancel button in the in-progress branch that returns to the interview list (not straight to connected)", () => {
     const interview = makeInterview({
       missing_fields: [{ name: "title", type: "text", choices: null }],
     });
@@ -120,7 +133,28 @@ describe("InterviewFormView field rendering", () => {
 
     fireEvent.click(screen.getByTestId("interview-form-cancel-button"));
 
+    expect(cancelInterview).toHaveBeenCalled();
+    expect(closeInterview).not.toHaveBeenCalled();
+  });
+
+  it("renders a Close button with a data-testid in the completed/abandoned read-only branch that calls closeInterview", () => {
+    const interview = makeInterview({ status: "completed", missing_fields: [] });
+    render(<InterviewFormView state={makeState(interview)} />);
+
+    fireEvent.click(screen.getByTestId("interview-form-close-button"));
+
     expect(closeInterview).toHaveBeenCalled();
+  });
+
+  it("shows already-answered fields as a read-only list", () => {
+    const interview = makeInterview({
+      collected_fields: { title: "SSO login" },
+      missing_fields: [{ name: "rationale", type: "textarea", choices: null }],
+    });
+    render(<InterviewFormView state={makeState(interview)} />);
+
+    expect(screen.getByText(/title/)).toBeInTheDocument();
+    expect(screen.getByText(/SSO login/)).toBeInTheDocument();
   });
 
   it("renders without throwing when grounding_snapshot has no candidates key (realistic un-grounded backend shape)", () => {

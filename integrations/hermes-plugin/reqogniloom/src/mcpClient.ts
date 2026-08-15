@@ -171,12 +171,14 @@ export async function interviewList(
   return result.sessions;
 }
 
-export async function interviewGet(
+export async function interviewSetTarget(
   network: HermesNetworkAPI,
   connection: Connection,
-  sessionId: string
-): Promise<InterviewSummary> {
-  return callMcpTool(network, connection, "interview.get", {
+  sessionId: string,
+  artifactId: string
+): Promise<InterviewState> {
+  return callMcpTool(network, connection, "interview.set_target", {
     session_id: sessionId,
-  }) as Promise<InterviewSummary>;
+    artifact_id: artifactId,
+  }) as Promise<InterviewState>;
 }

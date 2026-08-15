@@ -2,6 +2,7 @@ import * as React from "react";
 import { useState } from "react";
 import type { AppState } from "./state";
 import { connectWithCredentials, chooseWorkspace } from "./state";
+import { buttonStyle, ErrorBanner } from "./uiKit";
 
 const inputStyle: React.CSSProperties = {
   background: "var(--bg-2)",
@@ -11,16 +12,6 @@ const inputStyle: React.CSSProperties = {
   padding: "6px 8px",
   fontSize: "var(--text-sm)",
   fontFamily: "var(--font-mono)",
-};
-
-const buttonStyle: React.CSSProperties = {
-  background: "var(--accent)",
-  color: "var(--bg-1)",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  padding: "6px 12px",
-  cursor: "pointer",
-  fontSize: "var(--text-xs)",
 };
 
 export function ConnectScreen({ state }: { state: AppState }) {
@@ -67,8 +58,13 @@ export function ConnectScreen({ state }: { state: AppState }) {
           placeholder="reqlo_..."
         />
       </label>
-      {state.connectError && <p style={{ color: "var(--red)", fontSize: "var(--text-xs)" }}>{state.connectError}</p>}
-      <button type="submit" style={buttonStyle} disabled={state.connecting || !baseUrl || !apiKey}>
+      <ErrorBanner message={state.connectError} />
+      <button
+        type="submit"
+        data-testid="connect-submit-button"
+        style={buttonStyle}
+        disabled={state.connecting || !baseUrl || !apiKey}
+      >
         {state.connecting ? "Connecting…" : "Connect"}
       </button>
     </form>

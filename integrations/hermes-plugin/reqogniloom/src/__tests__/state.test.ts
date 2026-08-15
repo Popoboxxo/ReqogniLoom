@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HermesPluginAPI } from "../hermes-api-types";
 import { ReqogniLoomApiError, type Workspace } from "../api";
+import type { InterviewState } from "../mcpClient";
 
 // Mock the api module so state.ts's calls to listWorkspaces are fully
 // controlled by each test without touching real network.fetch.
@@ -24,6 +25,7 @@ vi.mock("../mcpClient", async () => {
     interviewList: vi.fn(),
     interviewFormalize: vi.fn(),
     interviewGroundingContext: vi.fn(),
+    interviewSetTarget: vi.fn(),
   };
 });
 
@@ -32,6 +34,7 @@ import * as mcpClient from "../mcpClient";
 import {
   __resetStateForTesting,
   answerInterviewField,
+  cancelInterview,
   chooseWorkspace,
   closeInterview,
   connectWithCredentials,
@@ -42,6 +45,7 @@ import {
   openInBrowser,
   openInterviews,
   resumeInterview,
+  setInterviewTarget,
   startNewInterview,
   subscribe,
 } from "../state";
@@ -349,6 +353,20 @@ describe("interview state", () => {
     expect(getState().view).toBe("connected");
   });
 
+  it("cancelInterview clears activeInterview and returns to the interviews list instead of skipping past it", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    const summaries = [{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }];
+    vi.mocked(mcpClient.interviewList).mockResolvedValue(summaries);
+
+    await cancelInterview();
+
+    expect(getState().activeInterview).toBeNull();
+    expect(getState().view).toBe("interviews");
+    expect(getState().interviewList).toEqual(summaries);
+  });
+
   it("resumeInterview loads an existing session via interviewGetState", async () => {
     await connectedState();
     vi.mocked(mcpClient.interviewGetState).mockResolvedValue(fakeInterviewState);
@@ -399,6 +417,42 @@ describe("interview state", () => {
     expect(getState().interviewList).toEqual(summaries);
   });
 
+  it("setInterviewTarget calls interviewSetTarget and refreshes activeInterview", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewSetTarget).mockResolvedValue({
+      session_id: "s-1",
+      status: "in_progress",
+      phase: "elicitation",
+      collected_fields: {},
+      missing_fields: [],
+      grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "Similar existing req", score: null }] },
+    });
+
+    await setInterviewTarget("art-9");
+
+    expect(mcpClient.interviewSetTarget).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "s-1",
+      "art-9"
+    );
+    expect(getState().activeInterview?.missing_fields).toEqual([]);
+  });
+
+  it("a failed setInterviewTarget sets interviewError and leaves activeInterview untouched", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewSetTarget).mockRejectedValue(new Error("not a Requirement session"));
+
+    await setInterviewTarget("art-9");
+
+    expect(getState().interviewError).toBe("not a Requirement session");
+    expect(getState().activeInterview).toEqual(fakeInterviewState);
+  });
+
   it("formalizeInterview calls interviewFormalize and returns the result", async () => {
     await connectedState();
     vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
@@ -415,6 +469,91 @@ describe("interview state", () => {
     // activeInterview must flip to completed so InterviewFormView's read-only
     // branch takes over instead of re-rendering the (now stale) in-progress form.
     expect(getState().activeInterview?.status).toBe("completed");
+  });
+
+  it("formalizeInterview uses the server's returned status rather than hardcoding 'completed'", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewFormalize).mockResolvedValue({
+      resulting_artifact_ids: [],
+      status: "abandoned",
+    });
+
+    await formalizeInterview();
+
+    expect(getState().activeInterview?.status).toBe("abandoned");
+  });
+
+  it("answerInterviewField discards a stale response if the session was closed while the call was in flight", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+
+    let resolveAnswer!: (value: InterviewState) => void;
+    vi.mocked(mcpClient.interviewAnswer).mockReturnValue(
+      new Promise((resolve) => {
+        resolveAnswer = resolve;
+      })
+    );
+
+    const pending = answerInterviewField("title", "SSO login");
+    closeInterview(); // user navigates away while the call is still in flight
+    resolveAnswer({
+      session_id: "s-1", status: "in_progress", phase: "elicitation",
+      collected_fields: { title: "SSO login" }, missing_fields: [],
+      grounding_snapshot: { candidates: [] },
+    });
+    await pending;
+
+    // Must not resurrect a phantom activeInterview after the user navigated away.
+    expect(getState().activeInterview).toBeNull();
+    expect(getState().view).toBe("connected");
+  });
+
+  it("formalizeInterview discards a stale response if the session was closed while formalizing", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+
+    let resolveFormalize!: (value: { resulting_artifact_ids: string[]; status: string }) => void;
+    vi.mocked(mcpClient.interviewFormalize).mockReturnValue(
+      new Promise((resolve) => {
+        resolveFormalize = resolve;
+      })
+    );
+
+    const pending = formalizeInterview();
+    closeInterview();
+    resolveFormalize({ resulting_artifact_ids: ["REQ-1"], status: "completed" });
+    await pending;
+
+    expect(getState().activeInterview).toBeNull();
+    expect(getState().view).toBe("connected");
+  });
+
+  it("setInterviewTarget discards a stale response if the session was closed while the call was in flight", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+
+    let resolveTarget!: (value: InterviewState) => void;
+    vi.mocked(mcpClient.interviewSetTarget).mockReturnValue(
+      new Promise((resolve) => {
+        resolveTarget = resolve;
+      })
+    );
+
+    const pending = setInterviewTarget("art-9");
+    closeInterview();
+    resolveTarget({
+      session_id: "s-1", status: "in_progress", phase: "elicitation",
+      collected_fields: {}, missing_fields: [],
+      grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "x", score: null }] },
+    });
+    await pending;
+
+    expect(getState().activeInterview).toBeNull();
   });
 });
 

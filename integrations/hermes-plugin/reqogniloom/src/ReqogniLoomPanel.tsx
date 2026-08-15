@@ -1,3 +1,10 @@
+// UI strings across this package are hardcoded English, unlike the main
+// ReqogniLoom frontend's DE/EN i18n layering (frontend/src/i18n/) -- a
+// deliberate scope decision, not an oversight: this plugin ships as a
+// separate, small package with no i18n infrastructure of its own, and every
+// Hermes host this targets so far runs English-only IDEs. Pulling in a
+// translation setup for a handful of button labels would be scope creep
+// well beyond what wiring the interview UI into the plugin panel calls for.
 import * as React from "react";
 import { useEffect, useState } from "react";
 import type { PluginPanelProps } from "./hermes-api-types";

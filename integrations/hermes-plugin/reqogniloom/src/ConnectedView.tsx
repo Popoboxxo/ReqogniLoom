@@ -1,16 +1,7 @@
 import * as React from "react";
 import type { AppState } from "./state";
 import { disconnect, openInBrowser, openInterviews } from "./state";
-
-const buttonStyle: React.CSSProperties = {
-  background: "var(--accent)",
-  color: "var(--bg-1)",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  padding: "6px 12px",
-  cursor: "pointer",
-  fontSize: "var(--text-xs)",
-};
+import { buttonStyle } from "./uiKit";
 
 export function ConnectedView({ state }: { state: AppState }) {
   return (
@@ -19,13 +10,13 @@ export function ConnectedView({ state }: { state: AppState }) {
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>Connected to</span>
         <span style={{ fontSize: "var(--text-sm)" }}>{state.workspaceName}</span>
       </div>
-      <button style={buttonStyle} onClick={() => void openInBrowser()}>
+      <button data-testid="open-in-browser-button" style={buttonStyle} onClick={() => void openInBrowser()}>
         Open ReqogniLoom
       </button>
-      <button style={buttonStyle} onClick={() => void openInterviews()}>
+      <button data-testid="open-interviews-button" style={buttonStyle} onClick={() => void openInterviews()}>
         Interviews
       </button>
-      <button style={buttonStyle} onClick={() => void disconnect()}>
+      <button data-testid="disconnect-button" style={buttonStyle} onClick={() => void disconnect()}>
         Disconnect
       </button>
     </div>

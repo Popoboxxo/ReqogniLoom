@@ -6,6 +6,7 @@ import {
   interviewGetState,
   interviewGroundingContext,
   interviewList as fetchInterviewList,
+  interviewSetTarget,
   interviewStart,
   type InterviewState,
   type InterviewSummary,
@@ -209,15 +210,53 @@ export async function resumeInterview(sessionId: string): Promise<void> {
   }
 }
 
+// True if *sessionId* still identifies the current activeInterview. Guards
+// every interview.* mutation below against overwriting state with a stale
+// response that resolves after the user has already navigated away (closed,
+// cancelled, or resumed a different session) -- without it, an in-flight
+// answer/formalize/set_target call could resurrect a phantom activeInterview
+// (or, for formalizeInterview, spread `null` into `{...null, status}`).
+function isStillActiveSession(sessionId: string): boolean {
+  return state.activeInterview?.session_id === sessionId;
+}
+
 export async function answerInterviewField(field: string, value: unknown): Promise<void> {
   if (!state.connection || !state.activeInterview) return;
   const sessionId = state.activeInterview.session_id;
   setState({ interviewBusy: true, interviewError: null });
   try {
     const refreshed = await interviewAnswer(api().network, state.connection, sessionId, field, value);
-    setState({ activeInterview: refreshed, interviewBusy: false });
+    if (isStillActiveSession(sessionId)) {
+      setState({ activeInterview: refreshed, interviewBusy: false });
+    } else {
+      setState({ interviewBusy: false });
+    }
   } catch (err) {
-    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to save answer." });
+    if (isStillActiveSession(sessionId)) {
+      setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to save answer." });
+    } else {
+      setState({ interviewBusy: false });
+    }
+  }
+}
+
+export async function setInterviewTarget(artifactId: string): Promise<void> {
+  if (!state.connection || !state.activeInterview) return;
+  const sessionId = state.activeInterview.session_id;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const refreshed = await interviewSetTarget(api().network, state.connection, sessionId, artifactId);
+    if (isStillActiveSession(sessionId)) {
+      setState({ activeInterview: refreshed, interviewBusy: false });
+    } else {
+      setState({ interviewBusy: false });
+    }
+  } catch (err) {
+    if (isStillActiveSession(sessionId)) {
+      setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to set target." });
+    } else {
+      setState({ interviewBusy: false });
+    }
   }
 }
 
@@ -227,19 +266,39 @@ export async function formalizeInterview(): Promise<{ resulting_artifact_ids: st
   setState({ interviewBusy: true, interviewError: null });
   try {
     const result = await interviewFormalize(api().network, state.connection, sessionId);
-    setState({
-      interviewBusy: false,
-      activeInterview: { ...state.activeInterview, status: "completed" },
-    });
+    const current = state.activeInterview;
+    if (current && current.session_id === sessionId) {
+      setState({
+        interviewBusy: false,
+        activeInterview: { ...current, status: result.status as InterviewState["status"] },
+      });
+    } else {
+      setState({ interviewBusy: false });
+    }
     return result;
   } catch (err) {
-    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to formalize interview." });
+    if (isStillActiveSession(sessionId)) {
+      setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to formalize interview." });
+    } else {
+      setState({ interviewBusy: false });
+    }
     return null;
   }
 }
 
 export function closeInterview(): void {
   setState({ activeInterview: null, view: "connected" });
+}
+
+// Cancel out of the in-progress form back to the interview list -- unlike
+// closeInterview() (used by the completed/abandoned read-only view's "Close",
+// where there is genuinely nothing left to browse), Cancel must not skip past
+// the list the user came from. The session itself is left in_progress
+// server-side (no interview.abandon MCP tool exists to actually abort it);
+// re-fetching the list means it shows up there for the user to resume.
+export async function cancelInterview(): Promise<void> {
+  setState({ activeInterview: null });
+  await openInterviews();
 }
 
 // Test-only helper: resets module-level state and the cached API reference

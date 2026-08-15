@@ -7,6 +7,7 @@ import {
   interviewGetState,
   interviewGroundingContext,
   interviewList,
+  interviewSetTarget,
   interviewStart,
 } from "../mcpClient";
 
@@ -198,5 +199,29 @@ describe("interview.* wrappers", () => {
     const snapshot = await interviewGroundingContext({ fetch: fetchMock }, CONNECTION, "s-1");
 
     expect(snapshot.candidates).toHaveLength(1);
+  });
+
+  it("interviewSetTarget sends session_id/artifact_id and returns the refreshed state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          session_id: "s-1",
+          status: "in_progress",
+          phase: "elicitation",
+          collected_fields: {},
+          missing_fields: [],
+          grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "Existing req", score: null }] },
+        },
+      })
+    );
+
+    const state = await interviewSetTarget({ fetch: fetchMock }, CONNECTION, "s-1", "art-9");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.method).toBe("interview.set_target");
+    expect(body.params).toEqual({ session_id: "s-1", artifact_id: "art-9" });
+    expect(state.session_id).toBe("s-1");
   });
 });

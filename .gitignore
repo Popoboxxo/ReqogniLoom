@@ -35,6 +35,7 @@ graphify-out/
 .meta-config/env.sh
 .meta-config/env.unset.ps1
 .meta-config/env.unset.sh
+.meta-config/secrets.local.yaml
 .opencode/agents/
 .opencode/commands/
 .opencode/mcp.local.json
