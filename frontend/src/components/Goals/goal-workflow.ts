@@ -35,3 +35,18 @@ import { resolveBadgeVariant } from "../../utils/statusBadge";
 export function isArchiveTransition(targetState: string): boolean {
   return resolveBadgeVariant(targetState) === "warning";
 }
+
+/**
+ * True when `status` belongs to the "not yet approved" draft family
+ * (review round 2, finding 2): `resolveBadgeVariant`'s `neutral` fallback is
+ * exactly the draft/entwurf/unknown-state bucket (ch. 8.2). This is
+ * deliberately a positive membership check, not a negative exclusion of
+ * `success`/`warning` — a custom ADR-06 workflow can introduce states like
+ * `rejected` (→ `danger`) or `in_review` (→ `info`) that a
+ * `!== success && !== warning` filter would wrongly wave through as
+ * pending drafts. Mirrors `isArchiveTransition` above, which classifies the
+ * `warning` family the same positive way.
+ */
+export function isDraftState(status: string): boolean {
+  return resolveBadgeVariant(status) === "neutral";
+}

@@ -440,7 +440,11 @@ class GoalToolGroup(BaseToolGroup):
         """
         service = GoalService()
         goal_id = require_uuid(params, "goal_id")
-        target_state = params.get("target_state") or params.get("to_status")
+        # Issue #221 finding 4: this used to also accept an undocumented
+        # `to_status` alias (not in `inputSchema`, not referenced by any test
+        # or doc in the repo) — removed rather than documented, since nothing
+        # actually depends on it.
+        target_state = params.get("target_state")
         if not target_state:
             return self._invalid_target_state_error(
                 service,
