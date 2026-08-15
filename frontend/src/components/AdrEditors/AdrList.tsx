@@ -2,25 +2,32 @@
  * AdrList — left-panel navigation for ADRs (REQ-003).
  *
  * Task 2.1 remodel: rows are <ArtifactRow> (ch. 12.3 — id/level on top,
- * title below, status + version badges) instead of a bare WorkspaceTree
- * node, and the empty list vs. empty filter result render through
- * <EmptyState> with distinct text and actions (ch. 12.7/13.3). The page
- * title, always-visible summary and "New ADR" primary action now live in
- * <PageHeader> at the AdrEditors level (ch. 12.1/12.2) — this component
- * only owns search/filter/sort and the row list.
+ * title below, status + version badges), and the empty list vs. empty
+ * filter result render through <EmptyState> with distinct text and actions
+ * (ch. 12.7/13.3). The page title, always-visible summary and "New ADR"
+ * primary action now live in <PageHeader> at the AdrEditors level
+ * (ch. 12.1/12.2) — this component only owns search/filter/sort and the
+ * row list.
+ *
+ * Task 4.4 (virtualization ratchet): rows now render through the shared
+ * <WorkspaceTree>'s `renderRow` slot (the same pattern `RequirementList`
+ * established) instead of a bare `.map()`, so `virtualize` costs one prop
+ * — WorkspaceTree owns the row virtualization, ADRs have no hierarchy so
+ * every node is a root (`parentId: null`), mirroring `NeedList`.
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
+import { WorkspaceTree } from '../shared/WorkspaceTree';
+import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { Adr } from '../../types';
 import {
   buildStatusFilterOptions,
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
-import styles from './AdrList.module.css';
 
 interface AdrListProps {
   items: Adr[];
@@ -46,6 +53,11 @@ function sortItems(list: Adr[], sortKey: SortKey): Adr[] {
   return sorted;
 }
 
+/** Map an Adr to a WorkspaceTreeNode (flat — no hierarchy). */
+function adrToNode(adr: Adr): WorkspaceTreeNode {
+  return { id: adr.id, name: adr.title || 'Untitled', parentId: null };
+}
+
 export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
@@ -61,6 +73,16 @@ export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListPro
     });
     return sortItems(filtered, sortKey);
   }, [items, listSearch, statusFilter, sortKey]);
+
+  const treeNodes = useMemo(() => visible.map(adrToNode), [visible]);
+
+  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
+  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const adrById = useMemo(() => {
+    const map = new Map<string, Adr>();
+    for (const adr of visible) map.set(adr.id, adr);
+    return map;
+  }, [visible]);
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `it.status !== statusFilter` compares against — the shared
@@ -118,22 +140,37 @@ export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListPro
         // only a filter reset, never a create action.
         <EmptyState variant="no-match" testId="adr-list-no-match" onResetFilters={resetFilters} />
       ) : (
-        <div className={styles.rows} data-testid="adr-list-rows">
-          {visible.map((adr) => (
-            <ArtifactRow
-              key={adr.id}
-              id={adr.uid}
-              idFallback={adr.id.slice(0, 8)}
-              title={adr.title || t('adrs.untitled', 'Untitled')}
-              status={adr.status}
-              statusLabel={getWorkflowStatusLabel(adr.status)}
-              version={adr.version}
-              selected={adr.id === selectedId}
-              onClick={() => onSelect(adr.id)}
-              testId={`adr-row-${adr.id}`}
-            />
-          ))}
-        </div>
+        // Task 4.4: WorkspaceTree owns virtualization; rows are <ArtifactRow>
+        // via renderRow, same as RequirementList.
+        <WorkspaceTree
+          data-testid="adr-list-rows"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          showSearch={false}
+          virtualize
+          // <ArtifactRow>'s two-line id/title layout is taller than
+          // WorkspaceTree's default single-line row estimate (34px).
+          virtualRowHeight={64}
+          emptyLabel={t('editor.empty', 'No items.')}
+          noMatchesLabel={t('editor.noMatches', 'No matches found.')}
+          renderRow={(node, { isSelected }) => {
+            const adr = adrById.get(node.id);
+            if (!adr) return null;
+            return (
+              <ArtifactRow
+                id={adr.uid}
+                idFallback={adr.id.slice(0, 8)}
+                title={adr.title || t('adrs.untitled', 'Untitled')}
+                status={adr.status}
+                statusLabel={getWorkflowStatusLabel(adr.status)}
+                version={adr.version}
+                selected={isSelected}
+                testId={`adr-row-${adr.id}`}
+              />
+            );
+          }}
+        />
       )}
     </div>
   );

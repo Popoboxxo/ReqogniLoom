@@ -1,7 +1,0 @@
-/* TestCaseList — row list container (ch. 12.3). */
-
-.rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}

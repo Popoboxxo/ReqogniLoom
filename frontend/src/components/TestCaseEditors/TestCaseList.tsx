@@ -2,26 +2,31 @@
  * TestCaseList — left-panel navigation for test cases (REQ-003).
  *
  * Task 2.4 remodel: rows are <ArtifactRow> (ch. 12.3 — id/level on top,
- * title below, status + version badges) instead of a WorkspaceTree node, and
- * the empty list vs. empty filter result render through <EmptyState> with
- * distinct text and actions (ch. 12.7/13.3). The page title, always-visible
- * summary and "New Test Case" primary action now live in <PageHeader> at the
- * TestCaseEditors level (ch. 12.1/12.2) — this component only owns
- * search/filter/sort and the row list. Mirrors AdrList/RiskList/IssueList
- * (Tasks 2.1/2.2/2.3).
+ * title below, status + version badges), and the empty list vs. empty
+ * filter result render through <EmptyState> with distinct text and actions
+ * (ch. 12.7/13.3). The page title, always-visible summary and "New Test
+ * Case" primary action now live in <PageHeader> at the TestCaseEditors
+ * level (ch. 12.1/12.2) — this component only owns search/filter/sort and
+ * the row list. Mirrors AdrList/RiskList/IssueList (Tasks 2.1/2.2/2.3).
+ *
+ * Task 4.4 (virtualization ratchet): rows now render through the shared
+ * <WorkspaceTree>'s `renderRow` slot instead of a bare `.map()`, so
+ * `virtualize` costs one prop — every node is a root (`parentId: null`),
+ * mirroring `NeedList`/`AdrList`/`RiskList`/`IssueList`.
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
+import { WorkspaceTree } from '../shared/WorkspaceTree';
+import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { TestCase } from '../../api/testcases';
 import {
   buildStatusFilterOptions,
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
-import styles from './TestCaseList.module.css';
 
 interface TestCaseListProps {
   items: TestCase[];
@@ -47,6 +52,11 @@ function sortItems(list: TestCase[], sortKey: SortKey): TestCase[] {
   return sorted;
 }
 
+/** Map a TestCase to a WorkspaceTreeNode (flat — no hierarchy). */
+function testCaseToNode(tc: TestCase): WorkspaceTreeNode {
+  return { id: tc.id, name: tc.title || 'Untitled', parentId: null };
+}
+
 export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestCaseListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
@@ -62,6 +72,16 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
     });
     return sortItems(filtered, sortKey);
   }, [items, listSearch, statusFilter, sortKey]);
+
+  const treeNodes = useMemo(() => visible.map(testCaseToNode), [visible]);
+
+  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
+  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const testCaseById = useMemo(() => {
+    const map = new Map<string, TestCase>();
+    for (const tc of visible) map.set(tc.id, tc);
+    return map;
+  }, [visible]);
 
   // GH-453: derived from the loaded items, so the option values are exactly
   // the values `it.status !== statusFilter` compares against — for whichever
@@ -119,22 +139,37 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
         // only a filter reset, never a create action.
         <EmptyState variant="no-match" testId="tc-list-no-match" onResetFilters={resetFilters} />
       ) : (
-        <div className={styles.rows} data-testid="tc-list-rows">
-          {visible.map((tc) => (
-            <ArtifactRow
-              key={tc.id}
-              id={tc.uid}
-              idFallback={tc.id.slice(0, 8)}
-              title={tc.title || t('testcases.untitled', 'Untitled')}
-              status={tc.status}
-              statusLabel={getWorkflowStatusLabel(tc.status)}
-              version={tc.version}
-              selected={tc.id === selectedId}
-              onClick={() => onSelect(tc.id)}
-              testId={`tc-row-${tc.id}`}
-            />
-          ))}
-        </div>
+        // Task 4.4: WorkspaceTree owns virtualization; rows are <ArtifactRow>
+        // via renderRow, same as RequirementList.
+        <WorkspaceTree
+          data-testid="tc-list-rows"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          showSearch={false}
+          virtualize
+          // <ArtifactRow>'s two-line id/title layout is taller than
+          // WorkspaceTree's default single-line row estimate (34px).
+          virtualRowHeight={64}
+          emptyLabel={t('editor.empty', 'No items.')}
+          noMatchesLabel={t('editor.noMatches', 'No matches found.')}
+          renderRow={(node, { isSelected }) => {
+            const tc = testCaseById.get(node.id);
+            if (!tc) return null;
+            return (
+              <ArtifactRow
+                id={tc.uid}
+                idFallback={tc.id.slice(0, 8)}
+                title={tc.title || t('testcases.untitled', 'Untitled')}
+                status={tc.status}
+                statusLabel={getWorkflowStatusLabel(tc.status)}
+                version={tc.version}
+                selected={isSelected}
+                testId={`tc-row-${tc.id}`}
+              />
+            );
+          }}
+        />
       )}
     </div>
   );

@@ -2,25 +2,31 @@
  * IssueList — left-panel navigation for issues (REQ-003).
  *
  * Task 2.3 remodel: rows are <ArtifactRow> (ch. 12.3 — id/level on top,
- * title below, status + version badges) instead of a WorkspaceTree node, and
- * the empty list vs. empty filter result render through <EmptyState> with
- * distinct text and actions (ch. 12.7/13.3). The page title, always-visible
- * summary and "New Issue" primary action now live in <PageHeader> at the
- * IssueEditors level (ch. 12.1/12.2) — this component only owns
- * search/filter/sort and the row list. Mirrors AdrList/RiskList (Tasks 2.1/2.2).
+ * title below, status + version badges), and the empty list vs. empty
+ * filter result render through <EmptyState> with distinct text and actions
+ * (ch. 12.7/13.3). The page title, always-visible summary and "New Issue"
+ * primary action now live in <PageHeader> at the IssueEditors level
+ * (ch. 12.1/12.2) — this component only owns search/filter/sort and the
+ * row list. Mirrors AdrList/RiskList (Tasks 2.1/2.2).
+ *
+ * Task 4.4 (virtualization ratchet): rows now render through the shared
+ * <WorkspaceTree>'s `renderRow` slot instead of a bare `.map()`, so
+ * `virtualize` costs one prop — every node is a root (`parentId: null`),
+ * mirroring `NeedList`/`AdrList`/`RiskList`.
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
+import { WorkspaceTree } from '../shared/WorkspaceTree';
+import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { Issue } from '../../types';
 import {
   buildStatusFilterOptions,
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
-import styles from './IssueList.module.css';
 
 interface IssueListProps {
   items: Issue[];
@@ -46,6 +52,11 @@ function sortItems(list: Issue[], sortKey: SortKey): Issue[] {
   return sorted;
 }
 
+/** Map an Issue to a WorkspaceTreeNode (flat — no hierarchy). */
+function issueToNode(issue: Issue): WorkspaceTreeNode {
+  return { id: issue.id, name: issue.title || 'Untitled', parentId: null };
+}
+
 export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
@@ -61,6 +72,16 @@ export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueLis
     });
     return sortItems(filtered, sortKey);
   }, [items, listSearch, statusFilter, sortKey]);
+
+  const treeNodes = useMemo(() => visible.map(issueToNode), [visible]);
+
+  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
+  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const issueById = useMemo(() => {
+    const map = new Map<string, Issue>();
+    for (const issue of visible) map.set(issue.id, issue);
+    return map;
+  }, [visible]);
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `it.status !== statusFilter` compares against — the shared
@@ -118,22 +139,37 @@ export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueLis
         // only a filter reset, never a create action.
         <EmptyState variant="no-match" testId="issue-list-no-match" onResetFilters={resetFilters} />
       ) : (
-        <div className={styles.rows} data-testid="issue-list-rows">
-          {visible.map((issue) => (
-            <ArtifactRow
-              key={issue.id}
-              id={issue.uid}
-              idFallback={issue.id.slice(0, 8)}
-              title={issue.title || t('issues.untitled', 'Untitled')}
-              status={issue.status}
-              statusLabel={getWorkflowStatusLabel(issue.status)}
-              version={issue.version}
-              selected={issue.id === selectedId}
-              onClick={() => onSelect(issue.id)}
-              testId={`issue-row-${issue.id}`}
-            />
-          ))}
-        </div>
+        // Task 4.4: WorkspaceTree owns virtualization; rows are <ArtifactRow>
+        // via renderRow, same as RequirementList.
+        <WorkspaceTree
+          data-testid="issue-list-rows"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          showSearch={false}
+          virtualize
+          // <ArtifactRow>'s two-line id/title layout is taller than
+          // WorkspaceTree's default single-line row estimate (34px).
+          virtualRowHeight={64}
+          emptyLabel={t('editor.empty', 'No items.')}
+          noMatchesLabel={t('editor.noMatches', 'No matches found.')}
+          renderRow={(node, { isSelected }) => {
+            const issue = issueById.get(node.id);
+            if (!issue) return null;
+            return (
+              <ArtifactRow
+                id={issue.uid}
+                idFallback={issue.id.slice(0, 8)}
+                title={issue.title || t('issues.untitled', 'Untitled')}
+                status={issue.status}
+                statusLabel={getWorkflowStatusLabel(issue.status)}
+                version={issue.version}
+                selected={isSelected}
+                testId={`issue-row-${issue.id}`}
+              />
+            );
+          }}
+        />
       )}
     </div>
   );
