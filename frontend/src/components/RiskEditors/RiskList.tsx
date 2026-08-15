@@ -2,25 +2,31 @@
  * RiskList — left-panel navigation for risks (REQ-003).
  *
  * Task 2.2 remodel: rows are <ArtifactRow> (ch. 12.3 — id/level on top,
- * title below, status + version badges) instead of a WorkspaceTree node, and
- * the empty list vs. empty filter result render through <EmptyState> with
- * distinct text and actions (ch. 12.7/13.3). The page title, always-visible
- * summary and "New Risk" primary action now live in <PageHeader> at the
- * RiskEditors level (ch. 12.1/12.2) — this component only owns
- * search/filter/sort and the row list. Mirrors AdrList (Task 2.1).
+ * title below, status + version badges), and the empty list vs. empty
+ * filter result render through <EmptyState> with distinct text and actions
+ * (ch. 12.7/13.3). The page title, always-visible summary and "New Risk"
+ * primary action now live in <PageHeader> at the RiskEditors level
+ * (ch. 12.1/12.2) — this component only owns search/filter/sort and the
+ * row list. Mirrors AdrList (Task 2.1).
+ *
+ * Task 4.4 (virtualization ratchet): rows now render through the shared
+ * <WorkspaceTree>'s `renderRow` slot instead of a bare `.map()`, so
+ * `virtualize` costs one prop — every node is a root (`parentId: null`),
+ * mirroring `NeedList`/`AdrList`.
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
+import { WorkspaceTree } from '../shared/WorkspaceTree';
+import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { Risk } from '../../types';
 import {
   buildStatusFilterOptions,
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
-import styles from './RiskList.module.css';
 
 interface RiskListProps {
   items: Risk[];
@@ -46,6 +52,11 @@ function sortItems(list: Risk[], sortKey: SortKey): Risk[] {
   return sorted;
 }
 
+/** Map a Risk to a WorkspaceTreeNode (flat — no hierarchy). */
+function riskToNode(risk: Risk): WorkspaceTreeNode {
+  return { id: risk.id, name: risk.title || 'Untitled', parentId: null };
+}
+
 export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
@@ -61,6 +72,16 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
     });
     return sortItems(filtered, sortKey);
   }, [items, listSearch, statusFilter, sortKey]);
+
+  const treeNodes = useMemo(() => visible.map(riskToNode), [visible]);
+
+  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
+  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const riskById = useMemo(() => {
+    const map = new Map<string, Risk>();
+    for (const risk of visible) map.set(risk.id, risk);
+    return map;
+  }, [visible]);
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `it.status !== statusFilter` compares against — the shared
@@ -118,22 +139,37 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
         // only a filter reset, never a create action.
         <EmptyState variant="no-match" testId="risk-list-no-match" onResetFilters={resetFilters} />
       ) : (
-        <div className={styles.rows} data-testid="risk-list-rows">
-          {visible.map((risk) => (
-            <ArtifactRow
-              key={risk.id}
-              id={risk.uid}
-              idFallback={risk.id.slice(0, 8)}
-              title={risk.title || t('risks.untitled', 'Untitled')}
-              status={risk.status}
-              statusLabel={getWorkflowStatusLabel(risk.status)}
-              version={risk.version}
-              selected={risk.id === selectedId}
-              onClick={() => onSelect(risk.id)}
-              testId={`risk-row-${risk.id}`}
-            />
-          ))}
-        </div>
+        // Task 4.4: WorkspaceTree owns virtualization; rows are <ArtifactRow>
+        // via renderRow, same as RequirementList.
+        <WorkspaceTree
+          data-testid="risk-list-rows"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          showSearch={false}
+          virtualize
+          // <ArtifactRow>'s two-line id/title layout is taller than
+          // WorkspaceTree's default single-line row estimate (34px).
+          virtualRowHeight={64}
+          emptyLabel={t('editor.empty', 'No items.')}
+          noMatchesLabel={t('editor.noMatches', 'No matches found.')}
+          renderRow={(node, { isSelected }) => {
+            const risk = riskById.get(node.id);
+            if (!risk) return null;
+            return (
+              <ArtifactRow
+                id={risk.uid}
+                idFallback={risk.id.slice(0, 8)}
+                title={risk.title || t('risks.untitled', 'Untitled')}
+                status={risk.status}
+                statusLabel={getWorkflowStatusLabel(risk.status)}
+                version={risk.version}
+                selected={isSelected}
+                testId={`risk-row-${risk.id}`}
+              />
+            );
+          }}
+        />
       )}
     </div>
   );

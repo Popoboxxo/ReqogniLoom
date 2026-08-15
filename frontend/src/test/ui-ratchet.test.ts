@@ -305,6 +305,22 @@ const HEX_LITERAL_CSS_FILE_BASELINE = 6;
 // 2 -> 1, leaving only the primitive itself. `WorkspaceTree` is the target,
 // not a duplicate of itself — this gate's "0 remaining" state is now `1`,
 // i.e. exactly the primitive, correctly never removable.
+//
+// Task 4.4 (virtualization ratchet): investigated `ImpactView.tsx`'s local
+// `ArtifactTreeNode` as a candidate for the same `WorkspaceTree` migration
+// AdrList/RiskList/IssueList/TestCaseList got in this task (see those
+// files' `renderRow` wiring). Never added here in the first place, and for
+// the same reason `RequirementTreeNode.tsx` was removed above: it is
+// structurally identical (lazy per-node `tracelinksApi.listForArtifact`
+// fetch on expand, path-based cycle guard, `MAX_DEPTH` cap) but with *more*
+// grouping — children are grouped dynamically by `direction:link_type`
+// (`groupEdges()`), an arbitrary number of named sub-groups per node, vs.
+// `RequirementTreeNode`'s fixed two (Parents/Children). `WorkspaceTree`'s
+// synchronous flat-`nodes[]` contract cannot represent either the lazy
+// fetch or the dynamic multi-group children. See §16.3 exception entry
+// (`ImpactView/ImpactView.tsx`, Task 4.4) for the full writeup. Do NOT "fix"
+// this by force-migrating `ArtifactTreeNode` onto `WorkspaceTree` — same
+// structural mismatch as `RequirementTreeNode`, not an oversight.
 const KNOWN_TREE_IMPLEMENTATIONS = [
   join(COMPONENTS_DIR, "shared", "WorkspaceTree", "workspace-tree.tsx"),
 ];
