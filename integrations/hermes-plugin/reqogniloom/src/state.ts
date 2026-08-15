@@ -6,6 +6,7 @@ import {
   interviewGetState,
   interviewGroundingContext,
   interviewList as fetchInterviewList,
+  interviewSetTarget,
   interviewStart,
   type InterviewState,
   type InterviewSummary,
@@ -218,6 +219,18 @@ export async function answerInterviewField(field: string, value: unknown): Promi
     setState({ activeInterview: refreshed, interviewBusy: false });
   } catch (err) {
     setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to save answer." });
+  }
+}
+
+export async function setInterviewTarget(artifactId: string): Promise<void> {
+  if (!state.connection || !state.activeInterview) return;
+  const sessionId = state.activeInterview.session_id;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const refreshed = await interviewSetTarget(api().network, state.connection, sessionId, artifactId);
+    setState({ activeInterview: refreshed, interviewBusy: false });
+  } catch (err) {
+    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to set target." });
   }
 }
 

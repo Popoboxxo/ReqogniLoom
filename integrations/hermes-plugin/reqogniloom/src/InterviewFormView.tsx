@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState } from "react";
 import type { AppState } from "./state";
-import { answerInterviewField, closeInterview, formalizeInterview } from "./state";
+import { answerInterviewField, closeInterview, formalizeInterview, setInterviewTarget } from "./state";
 import type { InterviewField } from "./mcpClient";
 
 const inputStyle: React.CSSProperties = {
@@ -90,9 +90,20 @@ export function InterviewFormView({ state }: { state: AppState }): JSX.Element |
       <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>{interview.phase}</span>
 
       {candidates.length > 0 && (
-        <ul style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>
+        <ul style={{ fontSize: "var(--text-xs)", color: "var(--text-2)", listStyle: "none", padding: 0 }}>
           {candidates.map((c) => (
-            <li key={c.artifact_id}>Possibly related: {c.title}</li>
+            <li key={c.artifact_id} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              Possibly related: {c.title}
+              <button
+                type="button"
+                data-testid={`interview-target-${c.artifact_id}`}
+                style={buttonStyle}
+                disabled={state.interviewBusy}
+                onClick={() => void setInterviewTarget(c.artifact_id)}
+              >
+                Use this
+              </button>
+            </li>
           ))}
         </ul>
       )}

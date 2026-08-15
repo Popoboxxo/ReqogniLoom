@@ -7,9 +7,15 @@ import type { InterviewState } from "../mcpClient";
 
 vi.mock("../state", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../state")>();
-  return { ...actual, answerInterviewField: vi.fn(), formalizeInterview: vi.fn(), closeInterview: vi.fn() };
+  return {
+    ...actual,
+    answerInterviewField: vi.fn(),
+    formalizeInterview: vi.fn(),
+    closeInterview: vi.fn(),
+    setInterviewTarget: vi.fn(),
+  };
 });
-import { answerInterviewField, closeInterview, formalizeInterview } from "../state";
+import { answerInterviewField, closeInterview, formalizeInterview, setInterviewTarget } from "../state";
 
 function makeInterview(overrides: Partial<InterviewState> = {}): InterviewState {
   return {
@@ -101,6 +107,17 @@ describe("InterviewFormView field rendering", () => {
     render(<InterviewFormView state={makeState(interview)} />);
 
     expect(screen.getByText(/Similar existing req/i)).toBeInTheDocument();
+  });
+
+  it("calls setInterviewTarget with the candidate's artifact_id when its 'Use this' button is clicked", () => {
+    const interview = makeInterview({
+      grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "Similar existing req", score: null }] },
+    });
+    render(<InterviewFormView state={makeState(interview)} />);
+
+    fireEvent.click(screen.getByTestId("interview-target-art-9"));
+
+    expect(setInterviewTarget).toHaveBeenCalledWith("art-9");
   });
 
   it("shows interviewError when present", () => {

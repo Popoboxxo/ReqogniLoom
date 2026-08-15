@@ -24,6 +24,7 @@ vi.mock("../mcpClient", async () => {
     interviewList: vi.fn(),
     interviewFormalize: vi.fn(),
     interviewGroundingContext: vi.fn(),
+    interviewSetTarget: vi.fn(),
   };
 });
 
@@ -42,6 +43,7 @@ import {
   openInBrowser,
   openInterviews,
   resumeInterview,
+  setInterviewTarget,
   startNewInterview,
   subscribe,
 } from "../state";
@@ -397,6 +399,42 @@ describe("interview state", () => {
     expect(mcpClient.interviewList).toHaveBeenCalledWith(expect.anything(), expect.anything(), "in_progress");
     expect(getState().view).toBe("interviews");
     expect(getState().interviewList).toEqual(summaries);
+  });
+
+  it("setInterviewTarget calls interviewSetTarget and refreshes activeInterview", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewSetTarget).mockResolvedValue({
+      session_id: "s-1",
+      status: "in_progress",
+      phase: "elicitation",
+      collected_fields: {},
+      missing_fields: [],
+      grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "Similar existing req", score: null }] },
+    });
+
+    await setInterviewTarget("art-9");
+
+    expect(mcpClient.interviewSetTarget).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "s-1",
+      "art-9"
+    );
+    expect(getState().activeInterview?.missing_fields).toEqual([]);
+  });
+
+  it("a failed setInterviewTarget sets interviewError and leaves activeInterview untouched", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewSetTarget).mockRejectedValue(new Error("not a Requirement session"));
+
+    await setInterviewTarget("art-9");
+
+    expect(getState().interviewError).toBe("not a Requirement session");
+    expect(getState().activeInterview).toEqual(fakeInterviewState);
   });
 
   it("formalizeInterview calls interviewFormalize and returns the result", async () => {

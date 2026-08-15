@@ -171,6 +171,18 @@ export async function interviewList(
   return result.sessions;
 }
 
+export async function interviewSetTarget(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string,
+  artifactId: string
+): Promise<InterviewState> {
+  return callMcpTool(network, connection, "interview.set_target", {
+    session_id: sessionId,
+    artifact_id: artifactId,
+  }) as Promise<InterviewState>;
+}
+
 export async function interviewGet(
   network: HermesNetworkAPI,
   connection: Connection,
