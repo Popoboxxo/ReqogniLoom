@@ -345,6 +345,158 @@ def test_decompose_without_allocation_is_validation_error(auth_context, workspac
 
 
 # ---------------------------------------------------------------------------
+# Issue #311 — an empty draft list must never be silent
+# ---------------------------------------------------------------------------
+
+
+def _allocated_requirement(auth_context, workspace, description=""):
+    """A Requirement with the mandatory allocated-to link the flow requires."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Allocated req",
+        description=description,
+        ctx=auth_context,
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Component C", ctx=auth_context
+    )
+    TraceLinkService().allocate(
+        requirement_id=req.id, architecture_element_id=arch.id, ctx=auth_context
+    )
+    return req
+
+
+def test_decompose_next_level_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """A JSON array without a single object is an extraction failure, not "no drafts".
+
+    Issue #311: the provider answered — the response just carries nothing this
+    flow can turn into a draft (e.g. a bare list of strings). Dropping every
+    entry and returning ``drafts: []`` made that indistinguishable from a
+    model that legitimately proposed nothing.
+    """
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+    provider = _CaptureProvider(
+        json.dumps(["Sub-requirement one", "Sub-requirement two"])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError) as excinfo:
+        AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+    assert "2" in str(excinfo.value)
+
+
+def test_decompose_next_level_keeps_usable_entries_of_a_mixed_array(
+    auth_context, workspace, monkeypatch
+):
+    """A partially malformed array still yields the drafts it does contain."""
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+    provider = _CaptureProvider(
+        json.dumps(
+            [
+                "junk entry",
+                {"title": "t", "description": "d", "rationale": "r"},
+            ]
+        )
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert [draft["title"] for draft in result["drafts"]] == ["t"]
+
+
+def test_decompose_next_level_empty_result_explains_itself(
+    auth_context, workspace, monkeypatch
+):
+    """An empty ``drafts`` list is annotated with why it is empty (issue #311).
+
+    An empty JSON array stays a legal answer ("nothing to decompose"), so this
+    is a note rather than an error — but the caller (an MCP agent) must be able
+    to tell that apart from a broken pipeline.
+    """
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert result["drafts"] == []
+    assert "note" in result
+    assert "empty" in result["note"].lower()
+
+
+def test_decompose_next_level_empty_result_flags_a_missing_description(
+    auth_context, workspace, monkeypatch
+):
+    """The note names the most common cause: a requirement with no description."""
+    req = _allocated_requirement(auth_context, workspace, description="")
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert "description" in result["note"].lower()
+
+
+def test_decompose_next_level_success_carries_no_note(auth_context, workspace):
+    """The note is additive and only present when there is nothing to report on."""
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert result["drafts"]
+    assert "note" not in result
+
+
+def test_derive_requirements_from_need_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """Same extraction guard on the sibling flow (issue #311, same defect class)."""
+    need = _make_need(auth_context, workspace, "N", "Some need content.")
+    provider = _CaptureProvider(json.dumps([1, 2, 3]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_requirements_from_need(auth_context, need.id, n=3)
+
+
+def test_derive_risks_from_architecture_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """Same extraction guard on the risk flow (issue #311, same defect class)."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps(["a risk", "another risk"]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+
+def test_derive_glossary_from_workspace_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """Same extraction guard on the glossary flow (issue #311, same defect class)."""
+    provider = _CaptureProvider(json.dumps(["Term A", "Term B"]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_glossary_from_workspace(auth_context, workspace.id)
+
+
+# ---------------------------------------------------------------------------
 # REQ-046 — long descriptions are truncated before being embedded in a prompt
 # ---------------------------------------------------------------------------
 

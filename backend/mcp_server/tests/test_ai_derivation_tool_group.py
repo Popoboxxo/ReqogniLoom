@@ -165,6 +165,80 @@ def test_decompose_without_allocation_is_validation_error(ai_ctx):
     assert result.error_code == "VALIDATION_ERROR"
 
 
+def test_decompose_unusable_llm_array_is_visible_error(ai_ctx, monkeypatch):
+    """Issue #311: an unusable provider answer must reach the agent as an error.
+
+    Guards the whole boundary, not just the service: the extraction failure
+    raised by ``AiDerivationService._usable_entries`` has to arrive as a failed
+    ToolResult, never as a successful preview with an empty ``drafts`` list.
+    """
+    import json
+
+    _tenant, ctx, workspace = ai_ctx
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="parent", description="content", ctx=ctx
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Comp", ctx=ctx
+    )
+    TraceLinkService().allocate(
+        requirement_id=req.id, architecture_element_id=arch.id, ctx=ctx
+    )
+
+    class _StringListProvider:
+        def complete(self, prompt, *, purpose="", context=None, timeout=None):
+            return json.dumps(["Sub-requirement one", "Sub-requirement two"])
+
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: _StringListProvider()
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.decompose_requirement_next_level",
+        {"requirement_id": str(req.id)},
+        ctx,
+    )
+
+    assert not result.success
+    assert result.error_code == "INTERNAL_ERROR"
+
+
+def test_decompose_empty_llm_array_is_annotated(ai_ctx, monkeypatch):
+    """Issue #311: a legitimately empty answer stays a success, but says why."""
+    import json
+
+    _tenant, ctx, workspace = ai_ctx
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="parent", description="content", ctx=ctx
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Comp", ctx=ctx
+    )
+    TraceLinkService().allocate(
+        requirement_id=req.id, architecture_element_id=arch.id, ctx=ctx
+    )
+
+    class _EmptyProvider:
+        def complete(self, prompt, *, purpose="", context=None, timeout=None):
+            return json.dumps([])
+
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: _EmptyProvider()
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.decompose_requirement_next_level",
+        {"requirement_id": str(req.id)},
+        ctx,
+    )
+
+    assert result.success
+    assert result.data["drafts"] == []
+    assert result.data["note"]
+
+
 def test_missing_uuid_is_validation_error(ai_ctx):
     _tenant, ctx, _workspace = ai_ctx
 

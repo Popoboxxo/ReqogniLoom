@@ -675,6 +675,7 @@
     "createFailed": "Anforderung konnte nicht angelegt werden.",
     "deleteFailed": "Anforderung konnte nicht gelöscht werden.",
     "pdfExportFailed": "PDF-Export fehlgeschlagen.",
+    "aiDeriveEmpty": "Die KI hat keine Anforderungen der nächsten Ebene vorgeschlagen. Prüfe, ob diese Anforderung eine Beschreibung hat, und versuche es erneut.",
     "section": {
       "generalInformation": "Allgemeine Informationen",
       "classificationProperties": "Klassifikation & Eigenschaften",

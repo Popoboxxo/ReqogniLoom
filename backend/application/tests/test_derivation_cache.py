@@ -374,3 +374,85 @@ def test_complete_does_not_cache_marker_response(monkeypatch):
 
     assert out1 == out2 == marked
     assert provider.calls == 2
+
+
+# ---------------------------------------------------------------------------
+# Issue #311 — a content-free response is never cached
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("payload", ["[]", "  []  ", "```json\n[]\n```", "{}", ""])
+def test_empty_completion_is_not_cached(monkeypatch, payload):
+    """A content-free answer must be recomputed, not pinned for the full TTL.
+
+    Issue #311: an empty array cached for DERIVATION_CACHE_TTL_SECONDS turned a
+    one-off "the model proposed nothing" into an hour of 0 drafts for that
+    requirement, with no provider call and therefore no way to retry out of it.
+    """
+    provider = _CountingProvider(payload)
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider
+    )
+
+    svc = AiDerivationService()
+    svc._complete("p", purpose="need_to_sysreq", artifact_id="art-empty")
+    svc._complete("p", purpose="need_to_sysreq", artifact_id="art-empty")
+
+    assert provider.calls == 2
+
+
+def test_unusable_response_is_evicted_so_a_retry_reaches_the_provider(
+    auth_context, workspace, monkeypatch
+):
+    """A response that fails extraction must not pin the failure for the TTL.
+
+    Issue #311: the raw text is cached before any flow gets to parse it, so a
+    structurally unusable answer used to be replayed from the cache on every
+    retry — the provider was never asked again and the flow kept failing
+    identically for a full hour.
+    """
+    need = _make_need(auth_context, workspace, "Need", "Desc")
+
+    responses = [
+        json.dumps(["not", "objects"]),
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}]),
+    ]
+
+    class _SequenceProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, prompt, *, purpose="", context=None, timeout=None):
+            payload = responses[min(self.calls, len(responses) - 1)]
+            self.calls += 1
+            return payload
+
+    provider = _SequenceProvider()
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider
+    )
+
+    svc = AiDerivationService()
+    with pytest.raises(ds.LlmResponseError):
+        svc.derive_requirements_from_need(auth_context, need.id, n=1)
+
+    result = svc.derive_requirements_from_need(auth_context, need.id, n=1)
+
+    assert provider.calls == 2
+    assert [draft["title"] for draft in result["drafts"]] == ["t"]
+
+
+def test_non_empty_completion_is_still_cached(monkeypatch):
+    """The guard above must not disable caching for real answers."""
+    provider = _CountingProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider
+    )
+
+    svc = AiDerivationService()
+    svc._complete("p", purpose="need_to_sysreq", artifact_id="art-full")
+    svc._complete("p", purpose="need_to_sysreq", artifact_id="art-full")
+
+    assert provider.calls == 1
