@@ -15,7 +15,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -66,6 +66,7 @@ vi.mock("../api/architecture", () => ({
     update: vi.fn(),
     delete: vi.fn(),
     get: vi.fn(),
+    reparent: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
   },
@@ -411,5 +412,191 @@ describe("ArchitectureEditors — server validation errors are visible (#340)", 
     expect(alert).toHaveTextContent(
       "HTML markup is not permitted in free-text fields."
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drag & drop reparenting of the decomposition hierarchy.
+//
+// Reinstated by user decision 2026-08-15, reversing the "won't do" note that
+// had sat on the tree since 2026-07-13. The tree itself only reports the drop;
+// the PATCH and the error handling live here, sharing the list-level error
+// banner with create/delete (#340).
+// ---------------------------------------------------------------------------
+
+describe("ArchitectureEditors — drag & drop reparenting", () => {
+  const ROOT_ELEMENT = { ...MOCK_ELEMENT, id: "arch-001", title: "AuthService" };
+  const SECOND_ELEMENT = {
+    ...MOCK_ELEMENT,
+    id: "arch-002",
+    title: "TokenStore",
+    parent_id: null,
+  };
+
+  /** Minimal DataTransfer stand-in — jsdom ships none. */
+  function makeDataTransfer(): {
+    setData: (format: string, value: string) => void;
+    getData: (format: string) => string;
+    dropEffect: string;
+    effectAllowed: string;
+  } {
+    const store: Record<string, string> = {};
+    return {
+      setData: (format, value) => {
+        store[format] = value;
+      },
+      getData: (format) => store[format] ?? "",
+      dropEffect: "",
+      effectAllowed: "",
+    };
+  }
+
+  async function dragElementOnto(fromId: string, toId: string): Promise<void> {
+    const from = await screen.findByTestId(`arch-tree-node-${fromId}`);
+    const to = await screen.findByTestId(`arch-tree-node-${toId}`);
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(from, { dataTransfer });
+    fireEvent.dragOver(to, { dataTransfer });
+    fireEvent.drop(to, { dataTransfer });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [ROOT_ELEMENT, SECOND_ELEMENT],
+      count: 2,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([
+      ROOT_ELEMENT,
+      SECOND_ELEMENT,
+    ] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(ROOT_ELEMENT as any);
+    vi.mocked(architectureApi.reparent).mockResolvedValue(SECOND_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("PATCHes the new parent when an element is dropped onto another", async () => {
+    renderEditor();
+
+    await dragElementOnto("arch-002", "arch-001");
+
+    await waitFor(() =>
+      expect(architectureApi.reparent).toHaveBeenCalledWith(
+        "arch-002",
+        "arch-001"
+      )
+    );
+  });
+
+  it("detaches an element to root level when dropped on the root dropzone", async () => {
+    // A child element, so that a drop on the root zone is a real change.
+    const CHILD = { ...MOCK_ELEMENT, id: "arch-003", title: "SessionCache", parent_id: "arch-001" };
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [ROOT_ELEMENT, CHILD],
+      count: 2,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([
+      ROOT_ELEMENT,
+      CHILD,
+    ] as any);
+
+    renderEditor();
+
+    const child = await screen.findByTestId("arch-tree-node-arch-003");
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(child, { dataTransfer });
+
+    const dropzone = await screen.findByTestId("arch-tree-root-dropzone");
+    fireEvent.dragOver(dropzone, { dataTransfer });
+    fireEvent.drop(dropzone, { dataTransfer });
+
+    await waitFor(() =>
+      expect(architectureApi.reparent).toHaveBeenCalledWith("arch-003", null)
+    );
+  });
+
+  it("shows the server's reason inline when the reparent is refused", async () => {
+    // The backend owns the hierarchy invariant (cycles, depth); the tree
+    // forwards such drops deliberately instead of second-guessing it.
+    vi.mocked(architectureApi.reparent).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed.",
+        details: [
+          {
+            field: "parent_id",
+            errors: ["would create a cycle in the architecture hierarchy."],
+          },
+        ],
+      },
+    });
+
+    renderEditor();
+
+    await dragElementOnto("arch-002", "arch-001");
+
+    const alert = await screen.findByTestId("arch-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(
+      "would create a cycle in the architecture hierarchy."
+    );
+  });
+
+  it("does not call the API when an element is dropped on itself", async () => {
+    renderEditor();
+
+    await dragElementOnto("arch-002", "arch-002");
+
+    expect(architectureApi.reparent).not.toHaveBeenCalled();
+  });
+
+  it("does not call the API when an element is dropped on its own descendant", async () => {
+    // Matches what the edit form already prevents by filtering descendants out
+    // of its parent dropdown. Server-side invariant I1 only runs at
+    // Standard/Extended rigor, so a Minimal workspace would otherwise persist
+    // the cycle and lose the subtree from the tree view.
+    const CHILD = {
+      ...MOCK_ELEMENT,
+      id: "arch-003",
+      title: "SessionCache",
+      parent_id: "arch-001",
+    };
+    const GRANDCHILD = {
+      ...MOCK_ELEMENT,
+      id: "arch-004",
+      title: "CacheEntry",
+      parent_id: "arch-003",
+    };
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [ROOT_ELEMENT, CHILD, GRANDCHILD],
+      count: 3,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([
+      ROOT_ELEMENT,
+      CHILD,
+      GRANDCHILD,
+    ] as any);
+
+    renderEditor();
+
+    // arch-003 is collapsed by default (only roots auto-expand).
+    const toggle = await screen.findByTestId("arch-tree-toggle-arch-003");
+    fireEvent.click(toggle);
+
+    await dragElementOnto("arch-001", "arch-004");
+
+    expect(architectureApi.reparent).not.toHaveBeenCalled();
   });
 });

@@ -96,10 +96,19 @@ export const architectureApi = {
   },
 
   /**
-   * Reparenting helper (REQ-001, Phase 2 — hierarchy tree reparenting).
-   * Shared by the edit-form parent dropdown and the tree drag&drop so
-   * both paths hit the same PATCH endpoint. `parentId = null` detaches
-   * the element and makes it a root (L0).
+   * Reparenting helper — moves an element under a new parent.
+   *
+   * Used by the Architecture tree's drag & drop (see
+   * `ArchitectureEditors.handleReparent`). The edit form's parent dropdown
+   * does NOT go through here: it submits `parent_id` together with the rest
+   * of the form in a single `update()` call. `parentId = null` detaches the
+   * element and makes it a root (L0).
+   *
+   * The backend validates the hierarchy invariants on this PATCH, but only
+   * those enabled for the workspace's rigor tier — a cycle (I1) is rejected at
+   * Standard/Extended and accepted at Minimal. Both UI entry points therefore
+   * screen for cycles before calling this (see `collectSelfAndDescendantIds`);
+   * a direct API caller is not protected.
    */
   reparent(id: UUID, parentId: UUID | null): Promise<ArchitectureElement> {
     return architectureApi.update(id, { parent_id: parentId });

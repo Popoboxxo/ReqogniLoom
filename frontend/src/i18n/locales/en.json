@@ -239,6 +239,7 @@
     "deriveRequirement": "Derive requirement",
     "createFailed": "Failed to create architecture element.",
     "deleteFailed": "Failed to delete architecture element.",
+    "reparentFailed": "Failed to move architecture element.",
     "lifecycleStatus": {
       "active": "Active",
       "outdated": "Outdated",

@@ -8,3 +8,35 @@
   flex: 1;
   min-width: 0;
 }
+
+/*
+ * Drag & drop reparenting (user decision 2026-08-15).
+ *
+ * The row <li> sets background and border-left inline (selection chrome), and
+ * an inline rule beats a class — so the drag affordances deliberately use
+ * properties the inline styles do not touch: outline for the drop target,
+ * opacity for the row in flight.
+ */
+.dropTarget {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+}
+
+.dragging {
+  opacity: 0.5;
+}
+
+.rootDropzone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-align: center;
+  user-select: none;
+}
+
+.rootDropzoneActive {
+  border-color: var(--color-primary);
+  background: var(--color-card-active-bg);
+}
