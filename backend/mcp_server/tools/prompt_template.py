@@ -10,14 +10,19 @@ Exposes four tools:
   prompt_template.get(slot: str, workspace_id: str | None) -> str
     Return the effective content for a template name ("slot"), most-specific
     first: active workspace override -> active tenant-global row -> factory
-    default (``application.ai_derivation_service.PROMPT_TEMPLATE_DEFAULTS``,
-    the 7-entry canonical registry — see that module for why it, not
-    ``persistence.models.PROMPT_TEMPLATE_DEFAULTS``, is the source used here).
+    default. The factory default is looked up in a merger of two registries
+    (``_ALL_FACTORY_DEFAULTS``, below): ``application.ai_derivation_service
+    .PROMPT_TEMPLATE_DEFAULTS`` (the 7-entry AI-derivation-flow registry —
+    see that module for why it, not ``persistence.models
+    .PROMPT_TEMPLATE_DEFAULTS``, is the source used here) and
+    ``application.interview_protocol.INTERVIEW_PROTOCOL_DEFAULTS`` (one
+    entry per in-scope artifact type, for ``interview.protocol.*`` names).
     Mirrors ``AiDerivationService._get_template_content``'s fallback chain in
-    every dimension that matters (same factory-default table, same
-    workspace-then-tenant-global precedence), but reads the ``PromptTemplate``
-    model directly rather than going through that service (this tool group
-    has no dependency on the AI derivation flows).
+    every dimension that matters (same workspace-then-tenant-global
+    precedence), but reads the ``PromptTemplate`` model directly rather than
+    going through that service (this tool group has no dependency on the AI
+    derivation flows) -- which also means it isn't limited to that service's
+    single factory-default table.
 
   prompt_template.list(workspace_id: str | None) -> [templates]
     Return every currently-active ``PromptTemplate`` row for the tenant
@@ -79,6 +84,11 @@ from django.db import IntegrityError
 from application.ai_derivation_service import (
     PROMPT_TEMPLATE_DEFAULTS,
 )
+from application.interview_protocol import (
+    INTERVIEW_PROTOCOL_DEFAULTS,
+    ProtocolValidationError,
+    parse_protocol_yaml,
+)
 from application.prompt_template_versioning import (
     get_active_template,
     list_active_templates,
@@ -94,6 +104,18 @@ from mcp_server.tools.base import (
     require_param,
     write_mcp_audit,
 )
+
+
+# Merged factory-default lookup: the 7-entry AI-derivation registry plus the
+# interview-protocol registry (application.interview_protocol), so
+# prompt_template.get/.list agree with every family of factory default, not
+# just the original derivation-flow one. Two distinct source registries are
+# kept (one per owning module) -- this dict only merges them for the read
+# path, it does not become a new source of truth itself.
+_ALL_FACTORY_DEFAULTS: Dict[str, str] = {
+    **PROMPT_TEMPLATE_DEFAULTS,
+    **INTERVIEW_PROTOCOL_DEFAULTS,
+}
 
 
 def _template_to_dict(row: PromptTemplate) -> Dict[str, Any]:
@@ -123,11 +145,12 @@ class PromptTemplateToolGroup(BaseToolGroup):
                 "Return the effective LLM prompt content for a given template "
                 "name, for the active tenant (and, if workspace_id is given, "
                 "that workspace's override if one exists). Falls back to the "
-                "factory default for any of the 7 known template names "
-                "(need_to_sysreq | sysreq_to_arch_assign | "
+                "factory default for any of the 7 known derivation-flow "
+                "template names (need_to_sysreq | sysreq_to_arch_assign | "
                 "sysreq_decompose_next_level | testcase_derive | "
                 "architecture_to_risk | workspace_to_glossary | "
-                "decision_to_adr) when no row has been created."
+                "decision_to_adr) or an interview.protocol.<ArtifactType> "
+                "name when no row has been created."
             ),
             "inputSchema": {
                 "type": "object",
@@ -248,14 +271,14 @@ class PromptTemplateToolGroup(BaseToolGroup):
         if row is not None:
             return ToolResult.ok({"slot": slot, "content": row.content})
 
-        if slot in PROMPT_TEMPLATE_DEFAULTS:
-            return ToolResult.ok({"slot": slot, "content": PROMPT_TEMPLATE_DEFAULTS[slot]})
+        if slot in _ALL_FACTORY_DEFAULTS:
+            return ToolResult.ok({"slot": slot, "content": _ALL_FACTORY_DEFAULTS[slot]})
 
         return ToolResult.error(
             "NOT_FOUND",
             f"No prompt template named '{slot}' exists for this tenant, and "
             "it is not one of the factory-default slots. Known "
-            f"factory-default slots: {', '.join(PROMPT_TEMPLATE_DEFAULTS)}. "
+            f"factory-default slots: {', '.join(_ALL_FACTORY_DEFAULTS)}. "
             "Use prompt_template.create to define a new one.",
         )
 
@@ -309,6 +332,17 @@ class PromptTemplateToolGroup(BaseToolGroup):
         name = require_param(params, "name")
         content = require_param(params, "content")
         workspace_id = optional_uuid(params, "workspace_id")
+
+        # Interview-protocol names carry structured YAML (application.
+        # interview_protocol) rather than free-form prompt text -- reject a
+        # malformed protocol here, at write time, instead of persisting a
+        # row that would only fail later, at interview.start time, for every
+        # workspace that resolves to it.
+        if str(name).startswith("interview.protocol."):
+            try:
+                parse_protocol_yaml(str(content))
+            except ProtocolValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         had_prior = (
             get_active_template(

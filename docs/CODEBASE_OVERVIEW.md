@@ -993,7 +993,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-All 11 tool groups listed below. Tools are called as `<prefix>.<tool_name>` (e.g., `requirement.query`, `test.run_create`).
+All 12 tool groups listed below. Tools are called as `<prefix>.<tool_name>` (e.g., `requirement.query`, `test.run_create`).
 
 ####1 `requirement.*` — Requirements Management
 

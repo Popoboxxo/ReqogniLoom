@@ -18,6 +18,7 @@ SERVER_NAME = "reqogniloom"
 SKILL_NAMES = [
     "vmodell-decomposition", "test-lifecycle", "risk-derivation",
     "ccb-approval-and-baseline", "traceability-audit",
+    "interview-management",
 ]
 
 
