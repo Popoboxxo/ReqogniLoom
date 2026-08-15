@@ -80,6 +80,7 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   partial: 'warning',
   outdated: 'warning',
   archiviert: 'warning',
+  archived: 'warning',
 
   // Neutral / draft / terminal
   draft: 'neutral',

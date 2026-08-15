@@ -11,9 +11,18 @@
  *   3. actions       — edit (= new lineage version) plus one button per move
  *                      the WorkflowEngine currently allows (issue #220: never
  *                      gated on hardcoded state names — a workspace may
- *                      customise its Goal state machine, ADR-06)
+ *                      customise its Goal state machine, ADR-06). The archive
+ *                      move is separated out and danger-styled (issue #238):
+ *                      it takes the goal out of the list, so it must not look
+ *                      like the approve/rework buttons beside it.
  *   4. workspace-defined attributes via <ArtifactCustomFields> (ch. 12.11)
- *   5. the version list of the lineage (GET /goals/{id}/versions/)
+ *
+ * Version history is NOT rendered here any more (issue #219): it now lives in
+ * the `<ArtifactInspector>` sidebar the page mounts next to this pane, whose
+ * `VersionPanel` reads the very same `GET /goals/{id}/versions/` endpoint and
+ * additionally offers switch/compare. Two surfaces for one job is exactly
+ * what ch. 3.4 ("Eine Fläche, eine Aufgabe") forbids — same reason
+ * RiskEditors keeps its version list only in the sidebar.
  *
  * Mutations are delegated upwards: the page owns the API calls so that a
  * rejected action surfaces in exactly one place (ch. 12.12).
@@ -22,7 +31,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { extractErrorMessage } from "../../api/client";
 import { goalsApi } from "../../api/goals";
 import { ArtifactCustomFields } from "../shared/ArtifactCustomFields";
 import { ArtifactId } from "../shared/ArtifactId";
@@ -31,8 +39,9 @@ import { VersionBadge } from "../shared/VersionBadge";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
+import { isArchiveTransition } from "./goal-workflow";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
-import type { ArtifactVersion, Goal } from "../../types";
+import type { Goal } from "../../types";
 
 export interface GoalDetailProps {
   goal: Goal;
@@ -40,24 +49,15 @@ export interface GoalDetailProps {
   /**
    * Perform one of the moves the WorkflowEngine currently allows. The whole
    * transition descriptor is handed over (not just the target state) so the
-   * page can honour `requires_change_reason` without re-deriving it.
+   * page can honour `requires_change_reason` without re-deriving it, and can
+   * confirm the archive move before it runs.
    */
   onTransition: (goal: Goal, transition: WorkflowAllowedTransition) => void;
 }
 
-const sectionLabelStyle: React.CSSProperties = {
-  display: "block",
-  margin: "0 0 var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: "var(--weight-semibold)",
-  color: "var(--color-text)",
-};
-
 export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [versions, setVersions] = useState<ArtifactVersion[]>([]);
-  const [versionsError, setVersionsError] = useState<string | null>(null);
   const [transitions, setTransitions] = useState<WorkflowAllowedTransition[]>([]);
 
   // Trace spine (Task 3.3 — UI concept ch. 5). Goal is one of the nine
@@ -78,27 +78,6 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
     },
     [derivationChain, navigate],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    setVersionsError(null);
-    void (async () => {
-      try {
-        const list = await goalsApi.versions(goal.id);
-        if (cancelled) return;
-        // The endpoint may be unavailable on older backends and is
-        // auto-mocked away in unit tests — never let a non-array through.
-        setVersions(Array.isArray(list) ? list : []);
-      } catch (err) {
-        if (cancelled) return;
-        setVersions([]);
-        setVersionsError(extractErrorMessage(err));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [goal.id]);
 
   // Issue #220: the lifecycle controls are driven by the WorkflowEngine, not
   // by string equality against hardcoded German state names. A workspace may
@@ -121,8 +100,8 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
       } catch {
         // A 404 means "no workflow configured for this workspace/type"; a
         // 403 means the caller may not move it. Both degrade to a read-only
-        // detail pane rather than an error banner — the versions list and
-        // the edit action stay usable (WorkflowStatusEditor does the same).
+        // detail pane rather than an error banner — the edit action stays
+        // usable (WorkflowStatusEditor does the same).
         if (!cancelled) setTransitions([]);
       }
     })();
@@ -131,10 +110,21 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
     };
   }, [goal.id, goal.status]);
 
+  // The archive move is destructive from the user's point of view (the goal
+  // leaves the list), so it is pulled out of the lifecycle row and rendered
+  // last, danger-styled — see goal-workflow.ts for why this is classified
+  // rather than name-matched.
+  const lifecycleTransitions = transitions.filter(
+    (tr) => !isArchiveTransition(tr.target_state),
+  );
+  const archiveTransitions = transitions.filter((tr) =>
+    isArchiveTransition(tr.target_state),
+  );
+
   return (
     <article data-testid="goal-detail">
-      {/* Trace spine (Task 3.3). Goals has no RightSidebar today, so there is
-          no trace-link duplication to remove here — this is a pure addition. */}
+      {/* Trace spine (Task 3.3). Trace links are shown here and deliberately
+          NOT again in the inspector sidebar (`hideTraceLinks`). */}
       <TraceSpine
         stations={derivationChain.stations}
         isLoading={derivationChain.isLoading}
@@ -212,12 +202,12 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
         >
           {t("goals.edit", "Bearbeiten")}
         </button>
-        {transitions.map((transition, index) => (
+        {lifecycleTransitions.map((transition, index) => (
           <button
             key={transition.target_state}
             type="button"
             // The first available move is the primary one; a customised
-            // workflow may offer several (e.g. approve / archive).
+            // workflow may offer several (e.g. approve / rework).
             className={index === 0 ? "btn-primary" : "btn-secondary"}
             data-testid={`goal-transition-${transition.target_state}`}
             onClick={() => onTransition(goal, transition)}
@@ -226,6 +216,19 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
                 for the states the stock `goal_default` preset ships. Any
                 custom state falls back to its own name, which is still
                 better than a wrong hardcoded label. */}
+            {t(`goals.transition.${transition.target_state}`, {
+              defaultValue: transition.target_state,
+            })}
+          </button>
+        ))}
+        {archiveTransitions.map((transition) => (
+          <button
+            key={transition.target_state}
+            type="button"
+            className="btn-danger"
+            data-testid={`goal-transition-${transition.target_state}`}
+            onClick={() => onTransition(goal, transition)}
+          >
             {t(`goals.transition.${transition.target_state}`, {
               defaultValue: transition.target_state,
             })}
@@ -240,71 +243,6 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
           <ArtifactCustomFields artifactId={goal.artifact_id} />
         </div>
       )}
-
-      {/* 5. Versions of this lineage. An "edit" appends a row here rather
-             than overwriting the current one (design spec 2.3). */}
-      <section data-testid="goal-versions">
-        <h3 style={sectionLabelStyle}>{t("goals.versions", "Versionen")}</h3>
-        {versionsError ? (
-          <p
-            role="alert"
-            data-testid="goal-versions-error"
-            style={{
-              margin: 0,
-              color: "var(--color-danger)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            {versionsError}
-          </p>
-        ) : versions.length === 0 ? (
-          <p
-            style={{
-              margin: 0,
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            {t("goals.versionsNone", "Nur die aktuelle Version.")}
-          </p>
-        ) : (
-          <ol
-            style={{
-              listStyle: "none",
-              margin: 0,
-              padding: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-            }}
-          >
-            {versions.map((v) => (
-              <li
-                key={v.version}
-                data-testid="goal-version-row"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--space-2)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                }}
-              >
-                <VersionBadge
-                  version={v.version}
-                  isCurrent={v.version === goal.sequence_number}
-                />
-                <span>{v.label}</span>
-                {v.modified_at && (
-                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                    {new Date(v.modified_at).toLocaleString()}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
     </article>
   );
 }

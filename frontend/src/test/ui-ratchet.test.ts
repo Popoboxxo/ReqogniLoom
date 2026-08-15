@@ -192,8 +192,16 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // uses the hoisted `saveErrorStyle` constant instead of an inline object
 // literal. Re-measured after that change: 1089. Baseline lowered in the same
 // PR per the ratchet rule above.
+//
+// Issue #238 (Goals route remodel): the route's create form moved from a
+// bare, fully inline-styled field stack in the detail pane into `<Dialog>` +
+// `Goals.module.css` (`GoalFormDialog`), its hand-rolled empty/no-match
+// blocks became `<EmptyState>`, its list rows became `<ArtifactRow>` via
+// `WorkspaceTree`'s `renderRow` slot, and the page/detail-pane layout
+// wrappers moved onto the same CSS Module. Re-measured after that change:
+// 1070. Baseline lowered in the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1089;
+const STYLE_BRACE_BASELINE = 1070;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
