@@ -30,9 +30,20 @@ import type { Goal, MainGoal } from "../../types";
 vi.mock("../../api/goals");
 vi.mock("../../api/main-goal");
 vi.mock("../../api/workflow-transitions");
+
+/**
+ * Mutable so the "workspace switch" regression test (issue #221 finding 7)
+ * can change the active workspace mid-test and re-render — `useWorkspace()`
+ * is re-invoked on every render and reads this variable fresh.
+ */
+let activeWorkspace: { id: string; name: string; goals_ai_enabled: boolean } = {
+  id: "w1",
+  name: "WS",
+  goals_ai_enabled: false,
+};
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
-    activeWorkspace: { id: "w1", name: "WS", goals_ai_enabled: false },
+    activeWorkspace,
     workspaces: [],
     isLoadingWorkspace: false,
   }),
@@ -93,6 +104,7 @@ const mockTransitions = (
 describe("GoalsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    activeWorkspace = { id: "w1", name: "WS", goals_ai_enabled: false };
     vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(null);
     vi.mocked(goalsModule.goalsApi.versions).mockResolvedValue([]);
     vi.mocked(mainGoalModule.mainGoalApi.versions).mockResolvedValue([]);
@@ -446,6 +458,37 @@ describe("GoalsPage", () => {
 
     fireEvent.click(await screen.findByTestId("goals-empty-create"));
     expect(await screen.findByTestId("goal-form-dialog")).toBeInTheDocument();
+  });
+
+  it("clears a stale error from a previous workspace once the next load succeeds", async () => {
+    // Issue #221 finding 7: `loadGoals` used to only ever set `error` on
+    // failure, relying on every *caller* (handleSelect, runTransition, ...)
+    // to clear it first. The route's own `[workspaceId]`-triggered reload —
+    // switching to a different workspace — is not one of those callers, so
+    // a failed load in one workspace stayed on screen after switching to a
+    // workspace whose load succeeds.
+    vi.mocked(goalsModule.goalsApi.list)
+      .mockRejectedValueOnce(new Error("Network down"))
+      .mockResolvedValueOnce([]);
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <GoalsPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId("goals-error")).toHaveTextContent(/Network down/);
+
+    activeWorkspace = { id: "w2", name: "WS2", goals_ai_enabled: false };
+    rerender(
+      <MemoryRouter>
+        <GoalsPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("goals-error")).not.toBeInTheDocument()
+    );
   });
 
   it("shows the no-match state with a filter reset when nothing matches the search", async () => {

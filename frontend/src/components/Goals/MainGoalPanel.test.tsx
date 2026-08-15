@@ -314,6 +314,111 @@ describe("MainGoalPanel", () => {
     expect(screen.getByText("Current main goal.")).toBeInTheDocument();
   });
 
+  // -------------------------------------------------------------------------
+  // Issue #221 finding 6 — hydrating an existing unapproved draft on mount
+  // -------------------------------------------------------------------------
+
+  it("hydrates an existing unapproved draft after a fresh mount (e.g. page refresh)", async () => {
+    // Before this fix, `draft` was only ever set by handleGenerate /
+    // handleCreateManual / handleApprove — a page refresh after generating
+    // or authoring a draft made the Approve control unreachable for the
+    // rest of that draft's life, even though the backend still had it.
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(null);
+    vi.mocked(mainGoalModule.mainGoalApi.list).mockResolvedValue([
+      makeMainGoal({
+        id: "mg9",
+        sequence_number: 1,
+        content: "Reloaded draft.",
+        status: "Entwurf",
+      }),
+    ]);
+
+    render(<MainGoalPanel workspaceId="w1" aiEnabled={false} />);
+
+    expect(await screen.findByTestId("main-goal-draft")).toHaveTextContent(
+      "Reloaded draft."
+    );
+    expect(screen.getByTestId("main-goal-approve-button")).toBeInTheDocument();
+  });
+
+  it("does not resurrect an older abandoned draft below the current approved version", async () => {
+    const approved = makeMainGoal({
+      id: "mg-cur",
+      sequence_number: 2,
+      content: "Approved content.",
+    });
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(approved);
+    vi.mocked(mainGoalModule.mainGoalApi.list).mockResolvedValue([
+      makeMainGoal({
+        id: "mg-old",
+        sequence_number: 1,
+        content: "Old abandoned draft.",
+        status: "Entwurf",
+      }),
+      approved,
+    ]);
+
+    render(<MainGoalPanel workspaceId="w1" aiEnabled={false} />);
+
+    await screen.findByText("Approved content.");
+    expect(screen.queryByTestId("main-goal-draft")).not.toBeInTheDocument();
+  });
+
+  it("does not treat an approved or archived version as a pending draft", async () => {
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(null);
+    vi.mocked(mainGoalModule.mainGoalApi.list).mockResolvedValue([
+      makeMainGoal({
+        id: "mg-arch",
+        sequence_number: 1,
+        content: "Archived content.",
+        status: "Archiviert",
+      }),
+    ]);
+
+    render(<MainGoalPanel workspaceId="w1" aiEnabled={false} />);
+
+    await screen.findByTestId("main-goal-empty");
+    expect(screen.queryByTestId("main-goal-draft")).not.toBeInTheDocument();
+  });
+
+  it("does not treat a rejected (non-draft, non-approved, non-archived) status as a pending draft", async () => {
+    // Review round 2, finding 2: the old predicate excluded only `success`
+    // and `warning` badge variants, so a custom ADR-06 workflow's
+    // `rejected` state (→ `danger`) slipped through as a pending draft with
+    // a live Approve button. The positive `isDraftState` check (only the
+    // `neutral` family) must reject it.
+    const approved = makeMainGoal({
+      id: "mg-cur",
+      sequence_number: 1,
+      content: "Approved content.",
+    });
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(approved);
+    vi.mocked(mainGoalModule.mainGoalApi.list).mockResolvedValue([
+      makeMainGoal({
+        id: "mg-rejected",
+        sequence_number: 2,
+        content: "Rejected content.",
+        status: "rejected",
+      }),
+      approved,
+    ]);
+
+    render(<MainGoalPanel workspaceId="w1" aiEnabled={false} />);
+
+    await screen.findByText("Approved content.");
+    expect(screen.queryByTestId("main-goal-draft")).not.toBeInTheDocument();
+  });
+
+  it("degrades quietly when the version list lookup fails, keeping the approved goal visible", async () => {
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(makeMainGoal());
+    vi.mocked(mainGoalModule.mainGoalApi.list).mockRejectedValue(new Error("boom"));
+
+    render(<MainGoalPanel workspaceId="w1" aiEnabled={false} />);
+
+    expect(await screen.findByText("Current main goal.")).toBeInTheDocument();
+    expect(screen.queryByTestId("main-goal-error")).not.toBeInTheDocument();
+  });
+
   it("reports the artifact currently on screen so the page can inspect it", async () => {
     // Issue #219: the page mounts the ArtifactInspector on this subject; a
     // fresh draft takes precedence over the approved version.
@@ -339,6 +444,68 @@ describe("MainGoalPanel", () => {
       expect(onActiveChange).toHaveBeenCalledWith(
         expect.objectContaining({ id: "mg2" }),
       )
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Review round 2, finding 1 — GoalsPage renders this panel without a `key`,
+  // so a workspace switch re-runs the mount effect on the SAME instance
+  // instead of remounting it.
+  // -------------------------------------------------------------------------
+
+  it("clears a previous workspace's draft when the panel is reused for a different workspace (no remount)", async () => {
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockImplementation((workspaceId) =>
+      Promise.resolve(workspaceId === "a" ? makeMainGoal({ id: "mg-a-current" }) : null),
+    );
+    vi.mocked(mainGoalModule.mainGoalApi.list).mockImplementation((workspaceId) =>
+      Promise.resolve(
+        workspaceId === "a"
+          ? [
+              makeMainGoal({
+                id: "mg-a-draft",
+                sequence_number: 2,
+                content: "Workspace A draft.",
+                status: "Entwurf",
+              }),
+            ]
+          : [],
+      ),
+    );
+
+    const { rerender } = render(<MainGoalPanel workspaceId="a" aiEnabled={false} />);
+
+    expect(await screen.findByTestId("main-goal-draft")).toHaveTextContent(
+      "Workspace A draft.",
+    );
+
+    // Same component instance, new workspace — no remount happens here.
+    rerender(<MainGoalPanel workspaceId="b" aiEnabled={false} />);
+
+    // Workspace B has neither a draft nor an approved goal; A's draft (and
+    // its Approve button, bound to A's draft id) must not linger.
+    await waitFor(() =>
+      expect(screen.queryByTestId("main-goal-draft")).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByTestId("main-goal-empty")).toBeInTheDocument();
+  });
+
+  it("clears a stale error banner when the panel is reused for a different workspace", async () => {
+    vi.mocked(mainGoalModule.mainGoalApi.current).mockImplementation((workspaceId) =>
+      workspaceId === "a"
+        ? Promise.reject(new Error("Workspace A failed to load."))
+        : Promise.resolve(null),
+    );
+
+    const { rerender } = render(<MainGoalPanel workspaceId="a" aiEnabled={false} />);
+
+    expect(await screen.findByTestId("main-goal-error")).toHaveTextContent(
+      "Workspace A failed to load.",
+    );
+
+    rerender(<MainGoalPanel workspaceId="b" aiEnabled={false} />);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("main-goal-error")).not.toBeInTheDocument(),
     );
   });
 });

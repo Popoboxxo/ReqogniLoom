@@ -1317,7 +1317,7 @@
     "mainGoalNoneHint": "Das Haupt-Ziel fasst die freigegebenen Ziele des Workspace zusammen. Erzeuge es per KI oder schreibe es selbst.",
     "mainGoalDraft": "Entwurf",
     "generate": "Haupt-Ziel per KI erzeugen",
-    "generateDisabledHint": "KI-Generierung ist fuer diesen Workspace deaktiviert.",
+    "generateDisabledHint": "KI-Generierung ist für diesen Workspace deaktiviert.",
     "manualOpen": "Haupt-Ziel selbst schreiben",
     "manualCancel": "Eingabe abbrechen",
     "manualPlaceholder": "Haupt-Ziel",
@@ -1332,7 +1332,7 @@
     "untitled": "Ohne Titel",
     "noDescription": "Keine Beschreibung.",
     "empty": "Noch keine Ziele",
-    "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe fuer das Haupt-Ziel.",
+    "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe für das Haupt-Ziel.",
     "editHint": "Bearbeiten legt eine neue Version desselben Ziels an. Die bisherige Version bleibt in der Historie erhalten.",
     "archiveConfirm": "„{{title}}“ wird archiviert und verschwindet aus der Liste. Die Version bleibt in der Historie erhalten.",
     "transition": {

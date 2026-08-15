@@ -40,7 +40,7 @@ import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
-import { isArchiveTransition } from "./goal-workflow";
+import { isArchiveTransition, isDraftState } from "./goal-workflow";
 import type { MainGoal, UUID } from "../../types";
 
 interface MainGoalPanelProps {
@@ -88,13 +88,62 @@ export function MainGoalPanel({
   );
 
   useEffect(() => {
-    mainGoalApi
-      .current(workspaceId)
-      // "No approved main goal yet" is an empty result, not an error
-      // (ch. 13.3): the endpoint answers 200 with an empty body, so normalise
-      // undefined to null and let the empty state speak.
-      .then((mg) => setCurrent(mg ?? null))
-      .catch((err: unknown) => setError(extractErrorMessage(err)));
+    let cancelled = false;
+    // Review round 2, finding 1: the panel is rendered without a `key` in
+    // `GoalsPage` (workspace switches do not remount it), so a workspace
+    // change re-runs this effect with new props but leaves whatever `draft`/
+    // `error` state the PREVIOUS workspace left behind on screen until this
+    // fetch resolves — an approve button bound to another workspace's draft
+    // id, and a stale error banner. Clear both up front, before the first
+    // `await`, so switching to a workspace with neither shows neither.
+    setDraft(null);
+    setError(null);
+    void (async () => {
+      let approved: MainGoal | null = null;
+      try {
+        // "No approved main goal yet" is an empty result, not an error
+        // (ch. 13.3): the endpoint answers 200 with an empty body, so
+        // normalise undefined to null and let the empty state speak.
+        approved = (await mainGoalApi.current(workspaceId)) ?? null;
+      } catch (err) {
+        if (!cancelled) setError(extractErrorMessage(err));
+        return;
+      }
+      if (cancelled) return;
+      setCurrent(approved);
+
+      // Issue #221 finding 6: before this, `draft` was only ever set by
+      // handleGenerate/handleCreateManual/handleApprove — a page refresh
+      // after generating or authoring a draft made the Approve control
+      // unreachable for the rest of that draft's life, even though the
+      // backend still had it. Re-derive it from the workspace's full
+      // version chain: the newest row that is neither approved nor
+      // archived AND newer than the currently approved row (so an older,
+      // abandoned draft below the current version never resurfaces and
+      // outranks it). A failed lookup degrades quietly, same contract as
+      // the archive-transitions lookup below — the approved MainGoal above
+      // already rendered.
+      try {
+        const versions = await mainGoalApi.list(workspaceId);
+        if (cancelled || !Array.isArray(versions)) return;
+        const approvedSeq = approved?.sequence_number ?? -1;
+        const pendingDraft = versions
+          .filter(
+            (mg) => mg.sequence_number > approvedSeq && isDraftState(mg.status),
+          )
+          .sort((a, b) => b.sequence_number - a.sequence_number)[0];
+        // Review round 2, recommendation 4: if the user generated/authored
+        // their own fresh draft while this hydration fetch was still in
+        // flight, a late-arriving `pendingDraft` here must not clobber it
+        // with an older one — keep whatever is already on screen.
+        if (pendingDraft) setDraft((prev) => prev ?? pendingDraft);
+      } catch {
+        // no-op — see comment above.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId]);
 
   // The artifact on screen: a fresh draft takes precedence over the approved
@@ -174,6 +223,9 @@ export function MainGoalPanel({
       if (!target) return;
       setError(null);
       try {
+        // Issue #221 finding 1 — same computed-string scope boundary as
+        // `GoalsPage.runTransition`: see the comment there for why this
+        // does not (yet) prompt for a real reason.
         await workflowTransitionsApi.transition(
           "main-goal",
           target.id,
@@ -313,7 +365,7 @@ export function MainGoalPanel({
               ? undefined
               : t(
                   "goals.generateDisabledHint",
-                  "KI-Generierung ist fuer diesen Workspace deaktiviert.",
+                  "KI-Generierung ist für diesen Workspace deaktiviert.",
                 )
           }
         >
