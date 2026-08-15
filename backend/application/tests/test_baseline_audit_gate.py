@@ -8,10 +8,13 @@ was only ever exposed as a *report*. ``BaselineFacade.create_baseline`` is its
 first enforcement point: a baseline must not freeze a trace graph the
 workspace's own rigor preset already declares broken.
 
-Two layers are covered:
+Three layers are covered:
   * wiring — the facade consults ``AuditService.blocking_findings`` before
     delegating to ``baseline.services.build``, and fails CLOSED on an auditor
     malfunction (GH-400; mock-level, mirroring ``test_baseline_facade.py``);
+  * override — the documented waiver path out of the GH-513 deadlock
+    (fail-closed gate + no in-UI way to resolve every finding), including its
+    RBAC gate, its justification requirement and its audit trail;
   * tier behaviour — verified against real preset configs and the real
     RuleEngine, not assumed.
 """
@@ -23,7 +26,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from application.audit_service import AuditService
-from application.base import ValidationError
+from application.base import (
+    BaselineGateBlockedError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from application.baseline_facade import BaselineFacade
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, Requirement, Tenant, Workspace
@@ -196,6 +203,223 @@ class TestBaselineAuditGateWiring:
 
 
 # ---------------------------------------------------------------------------
+# Override / waiver (GH-513)
+# ---------------------------------------------------------------------------
+
+
+class TestBaselineAuditGateOverride:
+    """The documented way out of the GH-513 deadlock.
+
+    Before this, a workspace with at least one BLOCKER could neither produce a
+    baseline (fail-closed gate, GH-490) nor resolve every finding through the
+    Auditor UI (only findings with an unambiguous automatic remediation offer
+    an "Adopt" button; GH-451). The gate stays fail-closed by default — the
+    escape hatch is an explicit, RBAC-gated, audit-logged waiver.
+    """
+
+    @staticmethod
+    def _gate_patches(*, findings, build_result=None):
+        return (
+            patch("application.baseline_facade.TenantContext"),
+            patch("application.baseline_facade.BaselineFacade._check_scope_allowed"),
+            patch.object(AuditService, "blocking_findings", return_value=findings),
+            patch(
+                "baseline.services.build",
+                return_value=build_result or uuid.uuid4(),
+            ),
+            patch("application.baseline_facade.ServiceBase._emit_event"),
+        )
+
+    def test_block_message_points_at_the_override_path(self):
+        """A dead end must at least document its own exit (GH-513)."""
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("admin",))
+        p1, p2, p3, p4, p5 = self._gate_patches(findings=[_blocker()])
+
+        with p1, p2, p3, p4, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ):
+            with pytest.raises(BaselineGateBlockedError) as exc_info:
+                facade.create_baseline(
+                    scope="project", workspace_id=WS_ID, name="v1", ctx=ctx
+                )
+
+        assert "override_reason" in str(exc_info.value)
+
+    def test_blocked_error_is_a_validation_error_subclass(self):
+        """Existing ``except ValidationError`` callers must keep working."""
+        assert issubclass(BaselineGateBlockedError, ValidationError)
+
+    def test_admin_override_with_justification_builds_the_baseline(self):
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("admin",))
+        baseline_id = uuid.uuid4()
+        p1, p2, p3, p4, p5 = self._gate_patches(
+            findings=[_blocker(), _blocker("VERIF-P8")], build_result=baseline_id
+        )
+
+        with p1, p2, p3, p4 as mock_build, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ) as mock_audit:
+            result = facade.create_baseline(
+                scope="project",
+                workspace_id=WS_ID,
+                name="v1",
+                ctx=ctx,
+                override_reason="Release 1.6 cut agreed with QA; findings tracked in GH-513.",
+            )
+
+        assert result == baseline_id
+        mock_build.assert_called_once()
+
+        details = mock_audit.call_args.kwargs["details"]
+        assert details["audit_gate_override"] is True
+        assert details["waived_blocker_count"] == 2
+        assert sorted(details["waived_rule_ids"]) == ["TRACE-P1", "VERIF-P8"]
+        assert (
+            mock_audit.call_args.kwargs["change_reason"]
+            == "Release 1.6 cut agreed with QA; findings tracked in GH-513."
+        )
+
+    def test_override_is_recorded_in_the_baseline_description(self):
+        """The waiver must be visible on the artefact it was granted for."""
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("admin",))
+        p1, p2, p3, p4, p5 = self._gate_patches(findings=[_blocker()])
+
+        with p1, p2, p3, p4 as mock_build, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ):
+            facade.create_baseline(
+                scope="project",
+                workspace_id=WS_ID,
+                name="v1",
+                ctx=ctx,
+                description="Release candidate",
+                override_reason="Waived for the beta cut, tracked in GH-513.",
+            )
+
+        description = mock_build.call_args.kwargs["description"]
+        assert description.startswith("Release candidate")
+        assert "SE-Auditor override" in description
+        assert "Waived for the beta cut" in description
+        assert "TRACE-P1" in description
+
+    def test_editor_may_not_override(self):
+        """Waiving a governance gate needs approval authority, not write access."""
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("editor",))
+        p1, p2, p3, p4, p5 = self._gate_patches(findings=[_blocker()])
+
+        with p1, p2, p3, p4 as mock_build, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ):
+            with pytest.raises(PermissionDeniedError):
+                facade.create_baseline(
+                    scope="project",
+                    workspace_id=WS_ID,
+                    name="v1",
+                    ctx=ctx,
+                    override_reason="We really need this baseline for the demo.",
+                )
+
+        mock_build.assert_not_called()
+
+    def test_approver_may_override(self):
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("approver",))
+        p1, p2, p3, p4, p5 = self._gate_patches(findings=[_blocker()])
+
+        with p1, p2, p3, p4 as mock_build, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ):
+            facade.create_baseline(
+                scope="project",
+                workspace_id=WS_ID,
+                name="v1",
+                ctx=ctx,
+                override_reason="Accepted deviation, see review protocol 2026-08-15.",
+            )
+
+        mock_build.assert_called_once()
+
+    @pytest.mark.parametrize("reason", ["", "   ", "ok", "  fix later  "])
+    def test_a_non_justification_is_rejected(self, reason):
+        """An empty or throwaway reason is not an auditable waiver."""
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("admin",))
+        p1, p2, p3, p4, p5 = self._gate_patches(findings=[_blocker()])
+
+        with p1, p2, p3, p4 as mock_build, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ):
+            with pytest.raises(ValidationError):
+                facade.create_baseline(
+                    scope="project",
+                    workspace_id=WS_ID,
+                    name="v1",
+                    ctx=ctx,
+                    override_reason=reason,
+                )
+
+        mock_build.assert_not_called()
+
+    def test_auditor_malfunction_is_not_overridable(self):
+        """An unknown verdict stays fail-closed — a waiver waives *known* findings.
+
+        GH-400's fail-closed rule is about the gate being unevaluable; there is
+        nothing to justify because nobody knows what would be waived.
+        """
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("admin",))
+
+        with (
+            patch("application.baseline_facade.TenantContext"),
+            patch("application.baseline_facade.BaselineFacade._check_scope_allowed"),
+            patch.object(
+                AuditService,
+                "blocking_findings",
+                side_effect=RuntimeError("engine exploded"),
+            ),
+            patch("baseline.services.build") as mock_build,
+            patch("application.baseline_facade.ServiceBase._audit"),
+            patch("application.baseline_facade.ServiceBase._emit_event"),
+        ):
+            with pytest.raises(ValidationError) as exc_info:
+                facade.create_baseline(
+                    scope="project",
+                    workspace_id=WS_ID,
+                    name="v1",
+                    ctx=ctx,
+                    override_reason="We accept the risk for the beta cut.",
+                )
+
+        assert not isinstance(exc_info.value, BaselineGateBlockedError)
+        mock_build.assert_not_called()
+
+    def test_override_reason_on_a_clean_workspace_is_inert(self):
+        """Nothing was waived, so nothing is recorded as waived."""
+        facade = BaselineFacade()
+        ctx = _make_ctx(roles=("admin",))
+        p1, p2, p3, p4, p5 = self._gate_patches(findings=[])
+
+        with p1, p2, p3, p4 as mock_build, p5, patch(
+            "application.baseline_facade.ServiceBase._audit"
+        ) as mock_audit:
+            facade.create_baseline(
+                scope="project",
+                workspace_id=WS_ID,
+                name="v1",
+                ctx=ctx,
+                description="Release candidate",
+                override_reason="Unnecessary justification.",
+            )
+
+        assert "audit_gate_override" not in mock_audit.call_args.kwargs["details"]
+        assert mock_build.call_args.kwargs["description"] == "Release candidate"
+
+
+# ---------------------------------------------------------------------------
 # Tier behaviour (real presets, real RuleEngine)
 # ---------------------------------------------------------------------------
 
@@ -304,3 +528,32 @@ class TestTierBehaviour:
         )
 
         assert baseline_id is not None
+
+    def test_broken_graph_is_releasable_with_a_documented_override(self, tenant):
+        """GH-513 end-to-end: the deadlock has an exit, on real rules.
+
+        Same broken graph as
+        ``test_extended_baseline_build_is_rejected_on_a_broken_graph`` — the
+        only difference is the justification.
+        """
+        ws = _workspace(tenant, "extended")
+        _orphan_requirement(tenant, ws)
+
+        baseline_id = BaselineFacade().create_baseline(
+            scope="project",
+            workspace_id=ws.id,
+            name="v1-waived",
+            ctx=_ctx(tenant),
+            override_reason="Beta cut; open trace findings tracked in GH-513.",
+        )
+
+        assert baseline_id is not None
+
+        from baseline.models import BaselineSnapshot
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            snapshot = BaselineSnapshot.objects.get(id=baseline_id)
+        finally:
+            TenantContext.clear_tenant()
+        assert "SE-Auditor override" in snapshot.description

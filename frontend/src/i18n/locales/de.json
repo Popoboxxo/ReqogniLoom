@@ -428,7 +428,10 @@
     "artifact": "Artefakt",
     "created": "Erstellt",
     "noArtifacts": "Keine Artefakte vorhanden",
-    "artifactRequired": "Bitte ein Artefakt auswählen."
+    "artifactRequired": "Bitte ein Artefakt auswählen.",
+    "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
+    "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 10 Zeichen).",
+    "overrideSubmit": "Baseline mit Ausnahme erstellen"
   },
   "glossary": {
     "searchPlaceholder": "Glossar durchsuchen...",

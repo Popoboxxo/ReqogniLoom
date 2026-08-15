@@ -113,6 +113,7 @@ from application.event_bus import (  # noqa: F401
 
 # Shared exceptions
 from application.base import (  # noqa: F401
+    BaselineGateBlockedError,
     LlmNotConfiguredError,
     NotFoundError,
     OptimisticLockError,
@@ -203,6 +204,7 @@ __all__ = [
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",
+    "BaselineGateBlockedError",
     "OptimisticLockError",
     "LlmNotConfiguredError",
     "PgVectorUnavailableError",

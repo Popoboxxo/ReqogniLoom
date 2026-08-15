@@ -109,6 +109,23 @@ export async function compareBaselines(
   return apiClient.get<BaselineDiff>(`/baselines/diff/?${query.toString()}`);
 }
 
+/**
+ * GH-513: error code returned by POST /baselines/ when the SE-Auditor reports
+ * BLOCKER findings for the workspace. Distinct from a generic
+ * `VALIDATION_ERROR` (which the same endpoint also uses for an *unevaluable*
+ * auditor — that case is deliberately not waivable), so the UI can offer the
+ * documented override path instead of a dead error message.
+ */
+export const SE_AUDITOR_BLOCKED_CODE = "SE_AUDITOR_BLOCKED";
+
+/** True when `err` is the API's SE-Auditor block envelope (GH-513). */
+export function isSeAuditorBlocked(err: unknown): boolean {
+  return (
+    (err as { error?: { code?: string } })?.error?.code ===
+    SE_AUDITOR_BLOCKED_CODE
+  );
+}
+
 export const baselinesApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<Baseline>> {
     return getList<Baseline>("/baselines/", {
@@ -127,6 +144,14 @@ export const baselinesApi = {
     scope?: string;
     description?: string;
     artifact_id?: UUID | null;
+    /**
+     * GH-513: written justification for creating the baseline although the
+     * SE-Auditor reports BLOCKER findings (error code
+     * {@link SE_AUDITOR_BLOCKED_CODE}). Requires the `admin` or `approver`
+     * role; the backend records it in the audit log and appends it to the
+     * baseline description. Omitting it keeps the fail-closed default.
+     */
+    override_reason?: string;
   }): Promise<Baseline> {
     return apiClient.post<Baseline>("/baselines/", data);
   },

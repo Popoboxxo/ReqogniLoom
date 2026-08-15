@@ -50,6 +50,7 @@ from application.services import (
     ArtifactService,
     ArtifactDiffService,
     BaselineFacade,
+    BaselineGateBlockedError,
     NotFoundError,
     OptimisticLockError,
     PermissionDeniedError,
@@ -143,8 +144,14 @@ from rest_api.serializers import (
 # No business logic — purely HTTP-concern translation.
 # ---------------------------------------------------------------------------
 
+# NOTE: both maps are keyed by *exact* exception type (see
+# ``_service_error_response``), so a subclass needs its own entry — otherwise
+# it silently degrades to a 500 "An internal error occurred.".
 _EXC_TO_HTTP: dict[type, int] = {
     ValidationError: status.HTTP_400_BAD_REQUEST,
+    # GH-513: same 400 as its ValidationError parent, deliberately — only the
+    # code differs, so existing clients keep their status-code handling.
+    BaselineGateBlockedError: status.HTTP_400_BAD_REQUEST,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
@@ -152,6 +159,9 @@ _EXC_TO_HTTP: dict[type, int] = {
 
 _EXC_TO_CODE: dict[type, str] = {
     ValidationError: "VALIDATION_ERROR",
+    # GH-513: a distinct code so a client can tell "known BLOCKERs, waivable
+    # with an override_reason" apart from every other 400 on this endpoint.
+    BaselineGateBlockedError: "SE_AUDITOR_BLOCKED",
     PermissionDeniedError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
@@ -2916,6 +2926,15 @@ class BaselineViewSet(BaseEntityViewSet):
         Issue #49: the nested-route ``workspace_pk`` URL kwarg (when present)
         takes precedence over a body-supplied ``workspace_id`` so the
         workspace-scoped route works even if the client omits the field.
+
+        SE-Auditor gate (GH-490/GH-513): creation is refused with HTTP 400 and
+        error code ``SE_AUDITOR_BLOCKED`` while the workspace has BLOCKER-level
+        audit findings in the requested scope. A caller holding the ``admin``
+        or ``approver`` role can override that verdict by repeating the request
+        with a written ``override_reason``; the waiver is then recorded in the
+        audit log and appended to the baseline description. A ``400`` with the
+        plain ``VALIDATION_ERROR`` code from the same gate means the auditor
+        itself could not be evaluated — that case is *not* overridable.
         """
         workspace_pk = kwargs.get("workspace_pk")
         self._check_preset(request, workspace_id=workspace_pk)
@@ -2942,6 +2961,12 @@ class BaselineViewSet(BaseEntityViewSet):
                 "description": data.get("description"),
                 "ctx": ctx,
             }
+            # GH-513: only forwarded when actually supplied — the facade treats
+            # a blank reason as "no override" anyway, but not sending the key
+            # keeps the default call shape unchanged for every other caller.
+            override_reason = data.get("override_reason")
+            if override_reason and str(override_reason).strip():
+                create_kwargs["override_reason"] = str(override_reason)
             # document scope requires a root artifact; artifact_id is the
             # view-facing name, the facade/service expect document_id.
             artifact_id = data.get("artifact_id")

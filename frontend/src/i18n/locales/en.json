@@ -428,7 +428,10 @@
     "artifact": "Artifact",
     "created": "Created",
     "noArtifacts": "No artifacts available",
-    "artifactRequired": "Please select an artifact."
+    "artifactRequired": "Please select an artifact.",
+    "overrideLabel": "Override justification (SE-Auditor)",
+    "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 10 characters).",
+    "overrideSubmit": "Create baseline with override"
   },
   "glossary": {
     "searchPlaceholder": "Search glossary...",
