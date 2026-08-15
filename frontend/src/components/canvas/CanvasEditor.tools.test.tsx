@@ -10,8 +10,21 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CanvasEditor } from "./CanvasEditor";
+
+// CanvasEditor calls useQueryClient() (B-DIAG-001 / REQ-L1-029), which needs a
+// real QueryClientProvider in scope — same pattern as CanvasEditor.test.tsx.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return rtlRender(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
 
 // Shared registry of created canvas instances, hoisted so the vi.mock factory
 // and the test bodies reference the same array.
