@@ -93,6 +93,14 @@ export default function GoalsPage(): JSX.Element {
     try {
       const list = await goalsApi.list(workspaceId);
       setGoals(Array.isArray(list) ? list : []);
+      // Issue #221 finding 7: every caller of loadGoals happened to clear
+      // `error` itself before calling it (handleSelect, runTransition, ...),
+      // but loadGoals is also the effect that re-fetches on a bare
+      // `workspaceId` change (workspace switch) — a stale error from the
+      // previous workspace stayed on screen there even though the new
+      // workspace's list loaded fine. A successful load must clear it here,
+      // not rely on every future caller remembering to.
+      setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     }
@@ -200,6 +208,22 @@ export default function GoalsPage(): JSX.Element {
         // The WorkflowEngine rejects an empty reason where the transition
         // demands one (`requires_change_reason`), so send a canned one for
         // exactly those moves rather than for every move.
+        //
+        // Issue #221 finding 1 (scope boundary): this is a computed string,
+        // not a real user-entered audit reason — it undermines the intent of
+        // the change-reason gate for every non-archive transition. A real
+        // fix would prompt for a reason the same way `ArchiveConfirmDialog`
+        // confirms the archive move, but that dialog (see ArchiveConfirmDialog
+        // .tsx) has no reason textarea to reuse today — it only confirms with
+        // a static body text. Adding one, and wiring a reason prompt into
+        // every `requires_change_reason` transition (here and in
+        // MainGoalPanel.handleArchive), is a state-management change across
+        // two components, not a one-line fix — out of scope for this polish
+        // pass. Kept minimal-invasive: the fallback text below explicitly
+        // reads as a mechanical status description ("Statuswechsel nach
+        // X"), not as a human-authored justification, so an auditor reading
+        // the change_reason later is not misled into thinking a person
+        // typed it.
         const changeReason = transition.requires_change_reason
           ? t("goals.transitionReason", {
               state: transition.target_state,
