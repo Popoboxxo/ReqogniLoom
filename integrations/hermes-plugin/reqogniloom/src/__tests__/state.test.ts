@@ -12,15 +12,36 @@ vi.mock("../api", async () => {
   };
 });
 
+// Mock the mcpClient module so state.ts's interview.* calls are fully
+// controlled by each test without touching real network.fetch.
+vi.mock("../mcpClient", async () => {
+  const actual = await vi.importActual<typeof import("../mcpClient")>("../mcpClient");
+  return {
+    ...actual,
+    interviewStart: vi.fn(),
+    interviewGetState: vi.fn(),
+    interviewAnswer: vi.fn(),
+    interviewList: vi.fn(),
+    interviewFormalize: vi.fn(),
+  };
+});
+
 import { listWorkspaces } from "../api";
+import * as mcpClient from "../mcpClient";
 import {
   __resetStateForTesting,
+  answerInterviewField,
   chooseWorkspace,
+  closeInterview,
   connectWithCredentials,
   disconnect,
+  formalizeInterview,
   getState,
   initState,
   openInBrowser,
+  openInterviews,
+  resumeInterview,
+  startNewInterview,
   subscribe,
 } from "../state";
 
@@ -247,6 +268,122 @@ describe("openInBrowser", () => {
 
     await expect(openInBrowser()).resolves.not.toThrow();
     expect(api.shell.openExternal).not.toHaveBeenCalled();
+  });
+});
+
+// Drives the real connect flow (with listWorkspaces mocked) rather than
+// poking at module-internal state directly, so these tests exercise the
+// same path a user would take to reach the "connected" view.
+async function connectedState(): Promise<HermesPluginAPI> {
+  const api = createMockApi();
+  await initState(api);
+  listWorkspacesMock.mockResolvedValue([workspaceA]);
+  await connectWithCredentials("https://example.com", "reqlo_abc");
+  return api;
+}
+
+const fakeInterviewState = {
+  session_id: "s-1",
+  status: "in_progress" as const,
+  phase: "elicitation",
+  collected_fields: {},
+  missing_fields: [{ name: "title", type: "text" as const, choices: null }],
+  grounding_snapshot: { candidates: [] },
+};
+
+describe("interview state", () => {
+  it("startNewInterview stores the returned InterviewState and switches view", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+
+    await startNewInterview("Requirement");
+
+    expect(getState().view).toBe("interviews");
+    expect(getState().activeInterview).toEqual(fakeInterviewState);
+  });
+
+  it("answerInterviewField calls interviewAnswer and refreshes activeInterview", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewAnswer).mockResolvedValue({
+      session_id: "s-1",
+      status: "in_progress",
+      phase: "elicitation",
+      collected_fields: { title: "SSO login" },
+      missing_fields: [],
+      grounding_snapshot: { candidates: [] },
+    });
+
+    await answerInterviewField("title", "SSO login");
+
+    expect(mcpClient.interviewAnswer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "s-1",
+      "title",
+      "SSO login"
+    );
+    expect(getState().activeInterview?.collected_fields.title).toBe("SSO login");
+  });
+
+  it("a failed interviewStart sets interviewError and does not switch view", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockRejectedValue(new Error("boom"));
+
+    await startNewInterview("Requirement");
+
+    expect(getState().interviewError).toBe("boom");
+    expect(getState().view).not.toBe("interviews");
+  });
+
+  it("closeInterview clears activeInterview and returns to the connected view", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+
+    closeInterview();
+
+    expect(getState().activeInterview).toBeNull();
+    expect(getState().view).toBe("connected");
+  });
+
+  it("resumeInterview loads an existing session via interviewGetState", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewGetState).mockResolvedValue(fakeInterviewState);
+
+    await resumeInterview("s-1");
+
+    expect(mcpClient.interviewGetState).toHaveBeenCalledWith(expect.anything(), expect.anything(), "s-1");
+    expect(getState().view).toBe("interviews");
+    expect(getState().activeInterview).toEqual(fakeInterviewState);
+  });
+
+  it("openInterviews loads the interview list and switches view", async () => {
+    await connectedState();
+    const summaries = [{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }];
+    vi.mocked(mcpClient.interviewList).mockResolvedValue(summaries);
+
+    await openInterviews();
+
+    expect(mcpClient.interviewList).toHaveBeenCalledWith(expect.anything(), expect.anything(), "in_progress");
+    expect(getState().view).toBe("interviews");
+    expect(getState().interviewList).toEqual(summaries);
+  });
+
+  it("formalizeInterview calls interviewFormalize and returns the result", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewFormalize).mockResolvedValue({
+      resulting_artifact_ids: ["REQ-1"],
+      status: "completed",
+    });
+
+    const result = await formalizeInterview();
+
+    expect(mcpClient.interviewFormalize).toHaveBeenCalledWith(expect.anything(), expect.anything(), "s-1");
+    expect(result).toEqual({ resulting_artifact_ids: ["REQ-1"], status: "completed" });
   });
 });
 
