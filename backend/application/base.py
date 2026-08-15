@@ -62,6 +62,25 @@ class ValidationError(ValueError):
     """Raised when domain validation fails (cycle detection, missing fields, …)."""
 
 
+class BaselineGateBlockedError(ValidationError):
+    """Raised when the SE-Auditor gate refuses a baseline build (GH-513).
+
+    A ``ValidationError`` subclass so every existing ``except ValidationError``
+    caller (REST views, MCP tools, ChangeRequestService) keeps behaving exactly
+    as before, but a *distinct* type so the API layer can answer a dedicated
+    error code. That code is what lets a client tell the two dead ends apart:
+
+      * this one — known BLOCKER findings, resolvable either by fixing them or
+        by re-sending the request with a documented ``override_reason``;
+      * a plain ``ValidationError`` from the same gate — the auditor itself
+        could not be evaluated (GH-400 fail-closed), which is *not* waivable.
+
+    Note for the REST layer: ``_service_error_response`` maps exception types
+    by exact identity, not ``isinstance`` — a new subclass MUST be registered
+    in ``_EXC_TO_HTTP``/``_EXC_TO_CODE`` or it degrades to a 500.
+    """
+
+
 class OptimisticLockError(RuntimeError):
     """Raised when an update targets a stale version (REQ-L2-AS-004)."""
 
@@ -223,6 +242,7 @@ class ServiceBase:
 
 __all__ = [
     "ServiceBase",
+    "BaselineGateBlockedError",
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",

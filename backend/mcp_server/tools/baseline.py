@@ -104,6 +104,16 @@ class BaselineToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Document Artifact UUID — required when scope='document'.",
                     },
+                    "override_reason": {
+                        "type": "string",
+                        "description": (
+                            "Written justification for creating the baseline "
+                            "although the SE-Auditor reports blocking findings "
+                            "(GH-513). Requires the 'admin' or 'approver' role; "
+                            "recorded in the audit log and on the baseline. "
+                            "Omit it to keep the default fail-closed behaviour."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "scope", "name"],
             },
@@ -164,6 +174,7 @@ class BaselineToolGroup(BaseToolGroup):
         name = require_param(params, "name")
         description = params.get("description")
         document_id = optional_uuid(params, "document_id")
+        override_reason = params.get("override_reason")
 
         try:
             # Codeberg #313: suppress create_baseline's single internal
@@ -177,6 +188,9 @@ class BaselineToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     description=description,
                     document_id=document_id,
+                    override_reason=(
+                        str(override_reason) if override_reason else None
+                    ),
                 )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))

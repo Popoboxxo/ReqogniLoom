@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  isSeAuditorBlocked,
   type BaselineDiff,
   type BaselineScope,
 } from "../../api/baselines";
@@ -77,6 +78,14 @@ export default function BaselinesView(): JSX.Element {
   const [formScope, setFormScope] = useState<BaselineScope>("project");
   const [isSaving, setIsSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // GH-513: the SE-Auditor gate (GH-490) blocks creation while the workspace
+  // has BLOCKER findings, and most findings have no in-UI fix (GH-451) — so a
+  // blocked create must offer the documented waiver instead of a dead end.
+  // The panel appears only after the backend actually answered
+  // SE_AUDITOR_BLOCKED; an unevaluable auditor is not waivable and keeps the
+  // plain error.
+  const [gateBlocked, setGateBlocked] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   // REQ-L2-BL-003: baseline compare (field-level diff). ``showCompare`` swaps
   // the right panel to the compare form + result. The diff state stays local
   // to the container since it is imperative (button-triggered, not a query).
@@ -117,29 +126,38 @@ export default function BaselinesView(): JSX.Element {
     }
   }, [showForm, formArtifactId, artifacts]);
 
-  const handleCreate = useCallback(async (): Promise<void> => {
-    // REQ-L1-049: ``document`` scope requires an artifact.
-    if (formScope === "document" && !formArtifactId) {
-      setCreateError(t("baselines.artifactRequired"));
-      return;
-    }
-    setIsSaving(true);
-    setCreateError(null);
-    try {
-      const created = await createBaseline({
-        scope: formScope,
-        artifactId: formArtifactId,
-      });
-      setShowForm(false);
-      setFormArtifactId("");
-      setFormScope("project");
-      setSelectedId(created.id);
-    } catch (err: unknown) {
-      setCreateError(baselineErrorMessage(err));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [formArtifactId, formScope, t, createBaseline]);
+  const handleCreate = useCallback(
+    async (withOverride = false): Promise<void> => {
+      // REQ-L1-049: ``document`` scope requires an artifact.
+      if (formScope === "document" && !formArtifactId) {
+        setCreateError(t("baselines.artifactRequired"));
+        return;
+      }
+      setIsSaving(true);
+      setCreateError(null);
+      try {
+        const created = await createBaseline({
+          scope: formScope,
+          artifactId: formArtifactId,
+          ...(withOverride ? { overrideReason } : {}),
+        });
+        setShowForm(false);
+        setFormArtifactId("");
+        setFormScope("project");
+        setGateBlocked(false);
+        setOverrideReason("");
+        setSelectedId(created.id);
+      } catch (err: unknown) {
+        setCreateError(baselineErrorMessage(err));
+        // Sticky on purpose: a rejected override (403 / too short) must not
+        // hide the panel the user is in the middle of using.
+        if (isSeAuditorBlocked(err)) setGateBlocked(true);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [formArtifactId, formScope, overrideReason, t, createBaseline],
+  );
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
@@ -574,6 +592,84 @@ export default function BaselinesView(): JSX.Element {
               </p>
             )}
 
+            {/* GH-513: waiver panel — shown only after the backend answered
+                SE_AUDITOR_BLOCKED. The button stays disabled until the
+                justification is long enough for the backend to accept it, so
+                the user is not sent into a second round-trip to learn that. */}
+            {gateBlocked && (
+              <div
+                data-testid="baseline-override-panel"
+                style={{
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-3)",
+                  marginBottom: "var(--space-4)",
+                  background: "var(--color-surface-raised)",
+                }}
+              >
+                <label
+                  htmlFor="baseline-override-reason"
+                  style={{
+                    display: "block",
+                    fontWeight: 500,
+                    color: "var(--color-text)",
+                    marginBottom: "var(--space-1)",
+                    fontSize: "var(--font-size-sm)",
+                  }}
+                >
+                  {t("baselines.overrideLabel")}
+                </label>
+                <p
+                  style={{
+                    fontSize: "var(--font-size-xs)",
+                    color: "var(--color-text-muted)",
+                    margin: "0 0 var(--space-2) 0",
+                  }}
+                >
+                  {t("baselines.overrideHint")}
+                </p>
+                <textarea
+                  id="baseline-override-reason"
+                  data-testid="baseline-override-reason"
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2)",
+                    fontSize: "var(--font-size-sm)",
+                    fontFamily: "inherit",
+                    background: "var(--color-surface)",
+                    color: "var(--color-text)",
+                    marginBottom: "var(--space-2)",
+                  }}
+                />
+                <button
+                  data-testid="baseline-override-submit-btn"
+                  onClick={() => void handleCreate(true)}
+                  disabled={isSaving || overrideReason.trim().length < 10}
+                  style={{
+                    background: "var(--color-danger)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor:
+                      isSaving || overrideReason.trim().length < 10
+                        ? "not-allowed"
+                        : "pointer",
+                    opacity:
+                      isSaving || overrideReason.trim().length < 10 ? 0.7 : 1,
+                  }}
+                >
+                  {t("baselines.overrideSubmit")}
+                </button>
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: "var(--space-3)" }}>
               <button
                 data-testid="baseline-submit-btn"
@@ -605,6 +701,8 @@ export default function BaselinesView(): JSX.Element {
                 onClick={() => {
                   setShowForm(false);
                   setCreateError(null);
+                  setGateBlocked(false);
+                  setOverrideReason("");
                 }}
                 style={{
                   background: "transparent",

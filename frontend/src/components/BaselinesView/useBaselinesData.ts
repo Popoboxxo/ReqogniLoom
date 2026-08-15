@@ -43,6 +43,12 @@ function apiErrorMessage(err: unknown): string {
 export interface CreateBaselinePayload {
   scope: BaselineScope;
   artifactId: string | null;
+  /**
+   * GH-513: justification for creating the baseline although the SE-Auditor
+   * reports BLOCKER findings. Only sent when the user actually filled it in —
+   * an absent value keeps the backend's fail-closed default.
+   */
+  overrideReason?: string;
 }
 
 export interface UseBaselinesDataParams {
@@ -139,12 +145,14 @@ export function useBaselinesData(
       if (!workspaceId) {
         return Promise.reject(new Error("no active workspace"));
       }
+      const overrideReason = payload.overrideReason?.trim();
       return baselinesApi.create({
         workspace_id: workspaceId,
         // ``project`` / ``global`` scopes send ``artifact_id: null``; the
         // backend requires the value only for ``document``.
         artifact_id: payload.scope === "document" ? payload.artifactId : null,
         scope: payload.scope,
+        ...(overrideReason ? { override_reason: overrideReason } : {}),
       });
     },
     onSuccess: () => void refreshList(),

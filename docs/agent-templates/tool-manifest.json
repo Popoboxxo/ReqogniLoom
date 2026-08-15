@@ -901,6 +901,10 @@
           "document_id": {
             "type": "string",
             "description": "Document Artifact UUID — required when scope='document'."
+          },
+          "override_reason": {
+            "type": "string",
+            "description": "Written justification for creating the baseline although the SE-Auditor reports blocking findings (GH-513). Requires the 'admin' or 'approver' role; recorded in the audit log and on the baseline. Omit it to keep the default fail-closed behaviour."
           }
         },
         "required": [

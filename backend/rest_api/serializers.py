@@ -94,6 +94,16 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "This field is not permitted by the active workspace preset.",
         "de": "Dieses Feld ist durch das aktive Workspace-Preset nicht erlaubt.",
     },
+    "SE_AUDITOR_BLOCKED": {
+        "en": (
+            "The SE-Auditor reported blocking findings; resolve them or supply "
+            "a written override justification."
+        ),
+        "de": (
+            "Der SE-Auditor meldet blockierende Findings; beheben Sie diese "
+            "oder geben Sie eine schriftliche Ausnahmebegründung an."
+        ),
+    },
     "INTERNAL_SERVER_ERROR": {
         "en": "An internal server error occurred.",
         "de": "Ein interner Serverfehler ist aufgetreten.",
@@ -934,6 +944,23 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     scope = serializers.CharField(max_length=32)
     description = SanitizedCharField(allow_blank=True, required=False, default="", max_length=20000)
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    # GH-513: written justification for creating the baseline despite BLOCKER
+    # findings from the SE-Auditor. Write-only — it is echoed back as part of
+    # the baseline description and recorded in the audit log, not as a field.
+    override_reason = SanitizedCharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+        max_length=2000,
+        help_text=(
+            "Justification for creating this baseline although the SE-Auditor "
+            "reports blocking findings (error code SE_AUDITOR_BLOCKED). "
+            "Requires the 'admin' or 'approver' role; recorded in the audit "
+            "log and appended to the baseline description."
+        ),
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
