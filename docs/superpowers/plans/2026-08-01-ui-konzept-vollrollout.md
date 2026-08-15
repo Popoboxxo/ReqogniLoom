@@ -427,6 +427,50 @@ Ein neuer Endpunkt löst `artifact_id ↔ (entity_type, entity_id)` für alle Ar
 
 **Abhängigkeiten:** Task 4.1. **Risiko: hoch** — `DecompositionTree` trägt die Architektur-Zerlegung, den fachlich empfindlichsten Baum. Eigener PR, kein Bündel.
 
+> **Nachtrag 2026-08-15 — Aufgabenstellung war überholt, umgesetzt als Neubau.**
+>
+> Die oben beschriebene Migration ("D&D aus `DecompositionTree` herausheben") ließ
+> sich nicht mehr ausführen: `DecompositionTree.tsx` war am 2026-08-03 mit Commit
+> `254c8c2` als toter Code gelöscht worden (835 Zeilen, null Consumer). Sein Drag &
+> Drop war nie im Produkt sichtbar; `architectureApi.reparent()` hatte zu keinem
+> Zeitpunkt einen Aufrufer. Der Architekturbaum rendert seit 2026-07-13
+> `WorkspaceTree` direkt und trug dort den Vermerk *„won't do: drag-and-drop
+> reparenting (user decision 2026-07-13)"*. Das Akzeptanzkriterium „funktioniert
+> unverändert" war damit gegenstandslos — es gab kein Verhalten zu erhalten, und
+> die beiden genannten Bestandstests deckten Drag & Drop nie ab.
+>
+> **Nutzerentscheidung 2026-08-15:** Umhängen per Drag & Drop soll es geben. Die
+> Notiz von 2026-07-13 ging auf TODO-004 aus
+> `docs/superpowers/specs/2026-07-12-frontend-feedback-strategie-design.md` zurück,
+> das *„kein Hierarchie-Tree für **Diagramme**"* festhielt — die Übertragung auf das
+> Architektur-Umhängen war eine Ausweitung, die so nicht entschieden worden war.
+>
+> **Stattdessen umgesetzt (Neubau, nicht Migration):**
+> - `WorkspaceTree` bekommt die opt-in Props `onReparent(id, newParentId)` und
+>   `rootDropzoneLabel`. Ohne `onReparent` ist das DOM unverändert — die übrigen
+>   Consumer (Needs, Requirements, Goals, ADR, Risk, Issue, TestCase, Diagram,
+>   Impact) sind nicht betroffen.
+> - Client-seitige No-ops: Drop auf sich selbst, Drop auf den aktuellen Parent,
+>   Drop in den eigenen Teilbaum. Der Zyklus-Guard nutzt
+>   `collectSelfAndDescendantIds` (`shared/WorkspaceTree/tree-hierarchy.ts`) —
+>   dieselbe Funktion, die auch die Parent-Auswahl in `ArchitectureForm` filtert,
+>   damit beide Wege identisch verbieten. Nötig, weil die serverseitige
+>   Invariante I1 nur ab Standard-Rigor läuft, Workspaces aber auf Minimal
+>   starten (Nutzerentscheidung 2026-08-15). Restrisiko: direkte REST-/MCP-Aufrufe
+>   umgehen den Guard weiterhin.
+> - Serverseitige Ablehnungen (I2 Level-Ordnung, I5 eine Wurzel) erscheinen inline
+>   im Listen-Banner (#340).
+> - `ArchitectureEditors` reicht `onReparent` durch und ruft
+>   `architectureApi.reparent()`; der „won't do"-Vermerk ist entfernt.
+> - Tests: 23 neue Fälle in `workspace-tree.test.tsx`, 5 in
+>   `ArchitectureEditors.test.tsx` (vorher gab es zu Drag & Drop keinen einzigen),
+>   plus `tree-hierarchy.test.ts` für den geteilten Zyklus-Helfer.
+>
+> Das zweite Akzeptanzkriterium („`DecompositionTree` enthält keine eigene
+> Baumdarstellung mehr") ist durch die Löschung vom 2026-08-03 erfüllt. Task 4.3 war
+> nie von dieser Task blockiert: die dafür nötige Render-Prop (`renderRow`) kam
+> bereits mit Task 3.1.
+
 ---
 
 ### Task 4.3: `RequirementTreeNode` ablösen
