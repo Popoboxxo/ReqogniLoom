@@ -1,9 +1,19 @@
 import type { HermesPluginAPI } from "./hermes-api-types";
 import { listWorkspaces, type Connection, type Workspace, ReqogniLoomApiError } from "./api";
+import {
+  interviewAnswer,
+  interviewFormalize,
+  interviewGetState,
+  interviewGroundingContext,
+  interviewList as fetchInterviewList,
+  interviewStart,
+  type InterviewState,
+  type InterviewSummary,
+} from "./mcpClient";
 
 const STORAGE_KEY = "reqogniloom-connection";
 
-export type View = "connect" | "connected";
+export type View = "connect" | "connected" | "interviews";
 
 export interface AppState {
   view: View;
@@ -13,6 +23,10 @@ export interface AppState {
   pendingWorkspaces: Workspace[];
   connectError: string | null;
   connecting: boolean;
+  activeInterview: InterviewState | null;
+  interviewList: InterviewSummary[];
+  interviewError: string | null;
+  interviewBusy: boolean;
 }
 
 function createInitialState(): AppState {
@@ -24,6 +38,10 @@ function createInitialState(): AppState {
     pendingWorkspaces: [],
     connectError: null,
     connecting: false,
+    activeInterview: null,
+    interviewList: [],
+    interviewError: null,
+    interviewBusy: false,
   };
 }
 
@@ -140,6 +158,88 @@ export async function disconnect(): Promise<void> {
 export async function openInBrowser(): Promise<void> {
   if (!state.connection) return;
   await api().shell.openExternal(state.connection.baseUrl);
+}
+
+export async function openInterviews(): Promise<void> {
+  if (!state.connection) return;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const list = await fetchInterviewList(api().network, state.connection, "in_progress");
+    setState({ interviewList: list, view: "interviews", interviewBusy: false });
+  } catch (err) {
+    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to load interviews." });
+  }
+}
+
+// Grounding is a nice-to-have hint, not a blocker (matches the backend's own
+// fail-open design for this feature): a lookup failure must not fail the
+// start/resume flow, and must not surface as interviewError -- it just leaves
+// grounding_snapshot as whatever the start/resume call already returned
+// (likely {}).
+async function withGroundingContext(connection: Connection, interview: InterviewState): Promise<InterviewState> {
+  try {
+    const grounding = await interviewGroundingContext(api().network, connection, interview.session_id);
+    return { ...interview, grounding_snapshot: { ...interview.grounding_snapshot, candidates: grounding.candidates } };
+  } catch {
+    return interview;
+  }
+}
+
+export async function startNewInterview(artifactType: string): Promise<void> {
+  if (!state.connection) return;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const interview = await interviewStart(api().network, state.connection, artifactType);
+    const withGrounding = await withGroundingContext(state.connection, interview);
+    setState({ activeInterview: withGrounding, view: "interviews", interviewBusy: false });
+  } catch (err) {
+    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to start interview." });
+  }
+}
+
+export async function resumeInterview(sessionId: string): Promise<void> {
+  if (!state.connection) return;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const interview = await interviewGetState(api().network, state.connection, sessionId);
+    const withGrounding = await withGroundingContext(state.connection, interview);
+    setState({ activeInterview: withGrounding, view: "interviews", interviewBusy: false });
+  } catch (err) {
+    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to resume interview." });
+  }
+}
+
+export async function answerInterviewField(field: string, value: unknown): Promise<void> {
+  if (!state.connection || !state.activeInterview) return;
+  const sessionId = state.activeInterview.session_id;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const refreshed = await interviewAnswer(api().network, state.connection, sessionId, field, value);
+    setState({ activeInterview: refreshed, interviewBusy: false });
+  } catch (err) {
+    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to save answer." });
+  }
+}
+
+export async function formalizeInterview(): Promise<{ resulting_artifact_ids: string[] } | null> {
+  if (!state.connection || !state.activeInterview) return null;
+  const sessionId = state.activeInterview.session_id;
+  setState({ interviewBusy: true, interviewError: null });
+  try {
+    const result = await interviewFormalize(api().network, state.connection, sessionId);
+    setState({
+      interviewBusy: false,
+      activeInterview: { ...state.activeInterview, status: "completed" },
+    });
+    return result;
+  } catch (err) {
+    setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to formalize interview." });
+    return null;
+  }
+}
+
+export function closeInterview(): void {
+  setState({ activeInterview: null, view: "connected" });
 }
 
 // Test-only helper: resets module-level state and the cached API reference

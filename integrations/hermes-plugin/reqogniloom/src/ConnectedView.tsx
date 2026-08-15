@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { AppState } from "./state";
-import { disconnect, openInBrowser } from "./state";
+import { disconnect, openInBrowser, openInterviews } from "./state";
 
 const buttonStyle: React.CSSProperties = {
   background: "var(--accent)",
@@ -21,6 +21,9 @@ export function ConnectedView({ state }: { state: AppState }) {
       </div>
       <button style={buttonStyle} onClick={() => void openInBrowser()}>
         Open ReqogniLoom
+      </button>
+      <button style={buttonStyle} onClick={() => void openInterviews()}>
+        Interviews
       </button>
       <button style={buttonStyle} onClick={() => void disconnect()}>
         Disconnect

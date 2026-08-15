@@ -11,7 +11,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "declaration": false,
-    "rootDir": "src"
+    "rootDir": "src",
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src"]
 }
