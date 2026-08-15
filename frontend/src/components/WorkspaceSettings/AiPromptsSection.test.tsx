@@ -202,3 +202,33 @@ describe("AiPromptsSection (issue #119)", () => {
     );
   });
 });
+
+describe("AiPromptsSection — interview slots (Spec 3 §7)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("generates a label for interview.protocol.<Type> slots without a hardcoded entry", async () => {
+    vi.mocked(api.listSlots).mockResolvedValue({
+      slots: [slot("interview.protocol.Requirement")],
+      count: 1,
+      workspace_id: WORKSPACE_ID,
+    });
+
+    render(<AiPromptsSection workspaceId={WORKSPACE_ID} />);
+
+    expect(await screen.findByText(/Interview: Requirement/i)).toBeInTheDocument();
+  });
+
+  it("shows the interview-specific placeholder hint block distinct from the derivation one", async () => {
+    vi.mocked(api.listSlots).mockResolvedValue({
+      slots: [slot("interview.chat_turn")],
+      count: 1,
+      workspace_id: WORKSPACE_ID,
+    });
+
+    render(<AiPromptsSection workspaceId={WORKSPACE_ID} />);
+
+    expect(await screen.findByText(/transcript_json/i)).toBeInTheDocument();
+  });
+});

@@ -134,7 +134,25 @@ const SLOT_LABELS: Record<string, string> = {
   architecture_to_risk: "Architecture Element → Risks",
   workspace_to_glossary: "Workspace → Glossary Terms",
   decision_to_adr: "Decision → ADR",
+  "interview.chat_turn": "Interview: Chat Turn Generation",
 };
+
+const INTERVIEW_PROTOCOL_PREFIX = "interview.protocol.";
+
+/**
+ * Generates a label for `interview.protocol.<Type>` slots without a
+ * per-type `SLOT_LABELS` entry -- `<Type>` is already PascalCase
+ * (Artifact.artifact_type convention, engine spec §3.1), so no
+ * transformation is needed beyond string concatenation. Covers future
+ * artifact types automatically (interview-management web widget plan
+ * Task 8).
+ */
+function labelForSlot(name: string): string {
+  if (name.startsWith(INTERVIEW_PROTOCOL_PREFIX)) {
+    return `Interview: ${name.slice(INTERVIEW_PROTOCOL_PREFIX.length)}`;
+  }
+  return SLOT_LABELS[name] ?? name;
+}
 
 /**
  * Order slots by the curated list first, then any unknown (MCP-created) name
@@ -293,6 +311,19 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
         )}
       </p>
 
+      {orderedSlots.some((s) => s.name.startsWith("interview.")) && (
+        <p style={hintStyle}>
+          {t(
+            "settings.promptTemplates.interviewDescription",
+            "Interview prompt placeholders differ by slot. " +
+              "interview.protocol.<Type> (phase prompt_fragment): {artifact_type}, {phase_name}, " +
+              "{collected_fields_json}, {missing_fields_json}, {grounding_snapshot_json}. " +
+              "interview.chat_turn: {transcript_json}, {user_message}, {current_phase_fragment}, " +
+              "{missing_fields_json}, {grounding_snapshot_json}."
+          )}
+        </p>
+      )}
+
       <div
         style={{
           display: "flex",
@@ -340,7 +371,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
             <label style={fieldLabelStyle} htmlFor={`prompt-${slot.name}`}>
               {t(
                 `settings.promptTemplates.slot.${slot.name}`,
-                SLOT_LABELS[slot.name] ?? slot.name
+                labelForSlot(slot.name)
               )}
               <span style={badgeStyle} data-testid={`prompt-${slot.name}-origin`}>
                 {originLabel(origin)}
