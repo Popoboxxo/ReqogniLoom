@@ -347,6 +347,7 @@ class TestFormalize:
         )
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "New title")
+        InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
 
         from persistence.models import InterviewSession
 
@@ -391,6 +392,7 @@ class TestFormalize:
         )
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "New title")
+        InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
 
         TenantContext.set_tenant(ctx.tenant_id)
         try:
@@ -415,7 +417,26 @@ class TestFormalize:
     def test_formalize_on_already_completed_session_raises_validation_error(self, ctx, workspace):
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "x")
+        InterviewService().answer(ctx, session.id, "rationale", "y")
         InterviewService().formalize(ctx, session.id)
 
         with pytest.raises(ValidationError):
             InterviewService().formalize(ctx, session.id)
+
+    def test_formalize_rejects_incomplete_session_with_missing_fields(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        # No answers given at all -- title/rationale still missing.
+
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(ctx, session.id)
+
+        # Must not have created anything or marked the session completed.
+        from persistence.models import InterviewSession
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            refreshed = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert refreshed.status == InterviewSession.STATUS_IN_PROGRESS
+        assert refreshed.resulting_artifact_ids == []

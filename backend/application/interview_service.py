@@ -444,6 +444,21 @@ class InterviewService(ServiceBase):
                 "other 7 types follow the identical pattern in a later pass."
             )
 
+        # Reuse get_state()'s exact missing-fields computation: a non-empty
+        # `missing` here means the interview is not actually complete yet
+        # (see _current_phase_and_missing's docstring/semantics -- it
+        # returns the first phase still short a required field, or the
+        # last phase with an empty list once everything is answered). Do
+        # not proceed to create/update a real artifact -- e.g. an
+        # empty-string ``title`` -- off an incomplete session.
+        _, missing = self._current_phase_and_missing(ctx, session)
+        if missing:
+            missing_names = ", ".join(f.name for f in missing)
+            raise ValidationError(
+                f"InterviewSession {session_id} is not complete yet -- missing "
+                f"required field(s): {missing_names}. Cannot formalize."
+            )
+
         from application.requirement_service import RequirementService
         from persistence.models import Requirement
 
