@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.6.0-beta.3",
-  "tool_count": 154,
+  "tool_count": 155,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2002,6 +2002,29 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.set_target",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "Confirm a grounding_context() candidate (or any already-known artifact_id) as this session's formalize() target (write). Once set, formalize() updates that existing Requirement instead of creating a new one. Requirement sessions only -- formalize()'s update branch does not support the other 7 in-scope artifact types yet. Re-validates that artifact_id resolves to a real Requirement right now. Returns the session's refreshed state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of the existing Requirement artifact to target."
+          }
+        },
+        "required": [
+          "session_id",
+          "artifact_id"
         ]
       }
     },

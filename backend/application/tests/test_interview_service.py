@@ -104,6 +104,80 @@ class TestAnswer:
             InterviewService().answer(ctx, session.id, "title", "x")
 
 
+def _install_number_and_enum_protocol(ctx, workspace) -> None:
+    """Override interview.protocol.Requirement with a `priority` (number)
+    and `element_type` (enum) field -- the default Requirement protocol
+    (title/rationale, both text-family) has no number/enum field to
+    exercise issue #542's type validation against."""
+    from persistence.models import PromptTemplate
+
+    TenantContext.set_tenant(ctx.tenant_id)
+    try:
+        PromptTemplate.objects.create(
+            tenant_id=ctx.tenant_id,
+            name="interview.protocol.Requirement",
+            content=(
+                "phases:\n"
+                "  - name: elicitation\n"
+                "    required_fields:\n"
+                "      - name: title\n"
+                "        type: text\n"
+                "      - name: priority\n"
+                "        type: number\n"
+                "      - name: element_type\n"
+                "        type: enum\n"
+                "        choices: [a, b, c]\n"
+                "    prompt_fragment: 'test protocol'\n"
+            ),
+            version=1,
+            is_active=True,
+            workspace_id=workspace.id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+class TestAnswerFieldTypeValidation:
+    """issue #542: answer() validates a submitted value against the
+    protocol's declared field type before storing it."""
+
+    def test_answer_rejects_non_numeric_value_for_number_field(self, ctx, workspace):
+        _install_number_and_enum_protocol(ctx, workspace)
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        with pytest.raises(ValidationError):
+            InterviewService().answer(ctx, session.id, "priority", "not-a-number")
+
+    def test_answer_rejects_value_not_in_enum_choices(self, ctx, workspace):
+        _install_number_and_enum_protocol(ctx, workspace)
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        with pytest.raises(ValidationError):
+            InterviewService().answer(ctx, session.id, "element_type", "not-a-valid-choice")
+
+    def test_answer_accepts_valid_typed_values(self, ctx, workspace):
+        _install_number_and_enum_protocol(ctx, workspace)
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        InterviewService().answer(ctx, session.id, "priority", 5)
+        InterviewService().answer(ctx, session.id, "element_type", "b")
+        state = InterviewService().get_state(ctx, session.id)
+
+        assert state["collected_fields"]["priority"] == 5
+        assert state["collected_fields"]["element_type"] == "b"
+
+    def test_answer_does_not_validate_unknown_field_names(self, ctx, workspace):
+        """A field name absent from the protocol entirely stays permissive
+        (pre-existing behavior, must not regress) -- only fields that
+        resolve to a real protocol field get type-checked."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        InterviewService().answer(ctx, session.id, "not_a_real_field", 12345)
+        state = InterviewService().get_state(ctx, session.id)
+
+        assert state["collected_fields"]["not_a_real_field"] == 12345
+
+
 class TestListAndGet:
     def test_list_filters_by_status(self, ctx, workspace):
         svc = InterviewService()
@@ -321,6 +395,78 @@ class TestGroundingAiAssisted:
         assert "SSO login support" in titles
 
 
+class TestSetTarget:
+    """issue #540: confirm a grounding_context() candidate (or any
+    already-known artifact_id) as the session's formalize() update target."""
+
+    def test_set_target_then_formalize_updates_existing_requirement(self, ctx, workspace):
+        from application.requirement_service import RequirementService
+        from persistence.models import InterviewSession
+
+        existing = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Old title", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        state = InterviewService().set_target(ctx, session.id, existing.artifact_id)
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            refreshed = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert refreshed.target_artifact_id == existing.artifact_id
+        # Reuses get_state()'s exact shape (this method's documented
+        # judgment call) -- confirm the response is a state dict, not some
+        # bespoke shape.
+        assert state["session_id"] == str(session.id)
+        assert state["status"] == "in_progress"
+
+        InterviewService().answer(ctx, session.id, "title", "New title")
+        InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        assert result["resulting_artifact_ids"] == [str(existing.artifact_id)]
+        updated = RequirementService().get_requirement(existing.id, ctx)
+        assert updated.title == "New title"
+        # No second Requirement was created -- the update branch was taken,
+        # not the create branch.
+        assert (
+            RequirementService()
+            .list_requirements(workspace_id=workspace.id, ctx=ctx)
+            .count()
+            == 1
+        )
+
+    def test_set_target_rejects_unknown_artifact_id(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        with pytest.raises(NotFoundError):
+            InterviewService().set_target(ctx, session.id, uuid.uuid4())
+
+    def test_set_target_rejects_non_requirement_session(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Risk", workspace.id)
+
+        with pytest.raises(ValidationError):
+            InterviewService().set_target(ctx, session.id, uuid.uuid4())
+
+    def test_set_target_rejects_completed_session(self, ctx, workspace):
+        from persistence.models import InterviewSession
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            InterviewSession.objects.filter(id=session.id).update(
+                status=InterviewSession.STATUS_COMPLETED
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        with pytest.raises(ValidationError):
+            InterviewService().set_target(ctx, session.id, uuid.uuid4())
+
+
 class TestFormalize:
     """spec §5 point 4 / §9: turn collected answers into a real Requirement,
     either creating a new one or updating the grounded target, then complete
@@ -472,6 +618,37 @@ class TestFormalize:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         state = InterviewService().get_state(ctx, session.id)
         assert state["missing_fields"] == []
+
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(ctx, session.id)
+
+    def test_formalize_rejects_non_string_title_without_crashing(self, ctx, workspace):
+        """issue #542 stopgap: a stray non-string, falsy `title` (old row,
+        or a future caller bypassing answer()'s new validation) must
+        degrade to a clean ValidationError, not AttributeError from
+        `.strip()` on a non-string. Bypasses answer() on purpose via direct
+        model manipulation, to exercise formalize()'s defense-in-depth
+        independently of the front-door fix.
+
+        Uses `0` rather than a truthy non-string like `42`: the fix is
+        `str(value or "").strip()`, so a *truthy* non-string (e.g. `42`)
+        coerces to a non-empty string ("42") and formalize() would proceed
+        treating it as a real title -- no crash, nothing to assert via
+        ValidationError. A *falsy* non-string is what actually exercises
+        the "degrades to empty title, rejected cleanly" path the issue
+        describes, while still proving `.strip()` never sees a raw int
+        (which is the crash this guards against).
+        """
+        from persistence.models import InterviewSession
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            InterviewSession.objects.filter(id=session.id).update(
+                collected_fields={"title": 0, "rationale": "Because reasons"}
+            )
+        finally:
+            TenantContext.clear_tenant()
 
         with pytest.raises(ValidationError):
             InterviewService().formalize(ctx, session.id)

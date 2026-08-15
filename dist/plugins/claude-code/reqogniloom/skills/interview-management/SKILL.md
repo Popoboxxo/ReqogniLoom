@@ -30,7 +30,12 @@ truth for state:
 4. Optionally call `interview.grounding_context(session_id)` to check
    for existing artifacts that might already cover what the user is
    describing, and mention any close matches to the user before
-   proceeding — this may avoid creating a duplicate.
+   proceeding — this may avoid creating a duplicate. If the user confirms
+   one of the suggested candidates is the artifact they actually mean,
+   call `interview.set_target(session_id, artifact_id)` before
+   formalizing — this makes `formalize()` update that existing artifact
+   instead of creating a new one. `set_target()`, like `formalize()`'s
+   update branch it feeds, currently only supports `Requirement` sessions.
 5. Once every required field for every phase is answered (`get_state`
    returns an empty `missing_fields` for the final phase), call
    `interview.formalize(session_id)` to create or update the real
@@ -55,3 +60,5 @@ for all 8 in-scope types. `interview.grounding_context()` currently only
 matches candidates for `Requirement` — for the other 7 types it returns no
 candidates. `interview.formalize()` currently only supports `Requirement` —
 for the other 7 types, collect and display field values instead.
+`interview.set_target()` is likewise `Requirement`-only, since it only ever
+feeds `formalize()`'s update branch.
