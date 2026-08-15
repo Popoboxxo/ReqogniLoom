@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import Any, Optional
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -134,11 +135,71 @@ class InterviewService(ServiceBase):
             raise ValidationError(
                 f"InterviewSession {session_id} is {session.status}, cannot answer."
             )
+        # issue #542: validate against the protocol's declared field type
+        # before storing. A field name that isn't in the protocol at all is
+        # left unvalidated on purpose -- answer() has always been permissive
+        # about unknown field names; only type-check fields that resolve.
+        protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
+        protocol_field = self._find_protocol_field(protocol, field)
+        if protocol_field is not None:
+            self._validate_field_value_type(protocol_field, value)
         session.collected_fields = {**session.collected_fields, field: value}
         session.version = F("version") + 1
         session.save(update_fields=["collected_fields", "modified_at", "version"])
         session.refresh_from_db(fields=["version"])
         return session
+
+    @staticmethod
+    def _find_protocol_field(protocol, field_name: str):
+        """Look up a field by name across every phase of *protocol*.
+
+        Same traversal ``_current_phase_and_missing`` already does over
+        ``phase.required_fields``, factored out here (issue #542) so
+        ``answer()`` can resolve a single field by name without
+        reimplementing the nested loop.
+
+        Returns ``None`` if no phase declares a field with that name.
+        """
+        for phase in protocol.phases:
+            for candidate in phase.required_fields:
+                if candidate.name == field_name:
+                    return candidate
+        return None
+
+    @staticmethod
+    def _validate_field_value_type(field, value: Any) -> None:
+        """Validate *value* against *field*'s declared protocol type -- issue #542.
+
+        Only called for fields that resolve to a real protocol field (see
+        ``_find_protocol_field``); raises ``ValidationError`` naming the
+        field, its expected type, and what was actually received.
+        """
+        if field.type == "number":
+            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+                raise ValidationError(
+                    f"Field {field.name!r} expects a number, got "
+                    f"{type(value).__name__}."
+                )
+            if isinstance(value, str):
+                try:
+                    float(value)
+                except ValueError:
+                    raise ValidationError(
+                        f"Field {field.name!r} expects a number, got a "
+                        f"non-numeric string {value!r}."
+                    )
+        elif field.type == "enum":
+            if value not in (field.choices or []):
+                raise ValidationError(
+                    f"Field {field.name!r} expects one of {field.choices!r}, "
+                    f"got {value!r}."
+                )
+        elif field.type in ("text", "textarea"):
+            if not isinstance(value, str):
+                raise ValidationError(
+                    f"Field {field.name!r} expects a string ({field.type}), "
+                    f"got {type(value).__name__}."
+                )
 
     @staticmethod
     def _structural_candidates(ctx, session: InterviewSession) -> "list[dict[str, Any]]":
@@ -364,7 +425,6 @@ class InterviewService(ServiceBase):
         ranked.sort(key=lambda c: (c["score"] is None, -(c["score"] or 0.0)))
         return ranked
 
-    @atomic_transaction
     def grounding_context(self, ctx, session_id: UUID) -> "dict[str, Any]":
         """Structural + AI-assisted grounding — spec §6.
 
@@ -378,6 +438,11 @@ class InterviewService(ServiceBase):
         belt-and-suspenders on top of ``_resolve_provider`` and
         ``_rank_candidates_with_ai`` already being fail-open internally,
         matching the plan's own sketch for this step.
+
+        No longer wrapped in ``@atomic_transaction`` as a whole (issue
+        #541): only the final ``session.save()`` below needs atomicity, so
+        the DB transaction is opened just around that block, not around the
+        ``provider.complete()`` network round-trip above it.
         """
         session = self._get_session(ctx, session_id)
         candidates = self._structural_candidates(ctx, session)
@@ -406,10 +471,12 @@ class InterviewService(ServiceBase):
                 session_id, exc_info=True,
             )
 
-        session.grounding_snapshot = {"candidates": candidates}
-        session.version = F("version") + 1
-        session.save(update_fields=["grounding_snapshot", "modified_at", "version"])
-        session.refresh_from_db(fields=["version"])
+        # LLM call happens outside the transaction (issue #541) -- only the final save needs atomicity.
+        with transaction.atomic():
+            session.grounding_snapshot = {"candidates": candidates}
+            session.version = F("version") + 1
+            session.save(update_fields=["grounding_snapshot", "modified_at", "version"])
+            session.refresh_from_db(fields=["version"])
         return session.grounding_snapshot
 
     @atomic_transaction
@@ -528,7 +595,12 @@ class InterviewService(ServiceBase):
         # though `title` resolves to "" here. A Requirement must not be
         # created/updated with an empty title regardless of what the
         # protocol says is required -- check independently.
-        title = (session.collected_fields.get("title") or "").strip()
+        # str(...) coercion is defense-in-depth (issue #542): answer() now
+        # rejects non-string title values up front, but a stray non-string
+        # could still reach here via old rows or a future caller that
+        # bypasses answer() -- degrade to "empty title, rejected cleanly"
+        # instead of AttributeError on .strip().
+        title = str(session.collected_fields.get("title") or "").strip()
         if not title:
             raise ValidationError(
                 f"InterviewSession {session_id} has no non-empty 'title' in "
