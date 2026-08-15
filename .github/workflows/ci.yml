@@ -177,3 +177,36 @@ jobs:
           echo "Scanning frontend dependencies for known vulnerabilities..."
           npm audit --audit-level=high
         continue-on-error: false
+
+  hermes-plugin-test:
+    name: "Hermes IDE Plugin (integrations/hermes-plugin)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: integrations/hermes-plugin/reqogniloom/package-lock.json
+
+      - name: Install hermes-plugin dependencies
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npm install
+
+      - name: Run Vitest
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npm run test
+
+      # "npm run build" also runs the verify-build guard as a postbuild step
+      # (fixes #545) -- it fails the job if the production bundle inlines
+      # React/its JSX runtime instead of keeping it external (the class of
+      # bug that silently broke this plugin in the
+      # feat/interview-management-hermes-plugin branch, undetected by both
+      # tsc --noEmit and vitest since neither exercises the real Vite build).
+      - name: Build and verify plugin bundle
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npm run build
