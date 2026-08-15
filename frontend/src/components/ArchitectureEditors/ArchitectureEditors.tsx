@@ -182,6 +182,44 @@ export default function ArchitectureEditors(): JSX.Element {
     await handleCreate(undefined, newTitle.trim());
   }, [newTitle, handleCreate]);
 
+  /**
+   * Drag & drop reparenting from the tree (user decision 2026-08-15).
+   *
+   * WorkspaceTree only reports the drop. It refuses cycle-forming drops
+   * itself (self, current parent, own subtree) using the same
+   * `collectSelfAndDescendantIds` helper that keeps descendants out of
+   * `ArchitectureForm`'s parent dropdown, so both ways of changing a parent
+   * forbid exactly the same set. That guard is deliberate rather than
+   * redundant: server-side invariant I1 (circular parent reference) only runs
+   * at Standard/Extended rigor (`RIGOR_INVARIANT_PRESETS`,
+   * backend/application/validators.py) while a workspace defaults to Minimal,
+   * where a cycle would be persisted and would take the whole subtree out of
+   * the tree view.
+   *
+   * Residual risk, unchanged by this: the guard is browser-side only. A REST
+   * or MCP client PATCHing `parent_id` directly on a Minimal-rigor workspace
+   * can still create a cycle. Closing that needs I1 enabled for every tier
+   * server-side.
+   *
+   * Rejections that do come back from the server (level order I2, single root
+   * I5, permissions) share the list-level error banner with create/delete
+   * (#340).
+   */
+  const handleReparent = useCallback(
+    async (id: string, newParentId: string | null): Promise<void> => {
+      setListActionError(null);
+      try {
+        await architectureApi.reparent(id, newParentId);
+        refresh();
+      } catch (err: unknown) {
+        setListActionError(
+          extractApiErrorMessage(err) ?? t("arch.reparentFailed"),
+        );
+      }
+    },
+    [refresh, t],
+  );
+
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
       setListActionError(null);
@@ -422,7 +460,9 @@ export default function ArchitectureEditors(): JSX.Element {
           showLevelBadge shows L0-L4 colored badges per design doc §6.
           onAddChild surfaces the "+ child" button on each tree row.
           showSearch=false: search is handled by the input above.
-          won't do: drag-and-drop reparenting — hierarchy view not needed (user decision 2026-07-13). */}
+          onReparent: drag & drop moves an element under a new parent, or onto
+          the root dropzone to detach it to L0. Reinstated on 2026-08-15,
+          reversing the 2026-07-13 "won't do" note that stood here before. */}
       <div style={{ flex: 1, overflow: "auto" }}>
         <WorkspaceTree
           data-testid="arch-tree"
@@ -430,6 +470,8 @@ export default function ArchitectureEditors(): JSX.Element {
           selectedId={selectedId}
           onSelect={(id) => navigate(`/architecture/${id}`)}
           onAddChild={(parentId) => void handleCreate(parentId)}
+          onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
+          rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
           showLevelBadge={true}
           showSearch={false}
           virtualize

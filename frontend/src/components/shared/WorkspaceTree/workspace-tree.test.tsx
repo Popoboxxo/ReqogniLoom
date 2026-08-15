@@ -15,7 +15,14 @@
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspaceTree } from './workspace-tree';
 import type { WorkspaceTreeNode, WorkspaceTreeProps } from './workspace-tree';
@@ -739,5 +746,338 @@ describe('WorkspaceTree — onAddChild', () => {
 
     expect(onAddChild).toHaveBeenCalledWith('n2');
     expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drag & drop reparenting (user decision 2026-08-15)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — drag & drop reparenting', () => {
+  /**
+   * Minimal stand-in for the browser's DataTransfer. jsdom ships no
+   * implementation, and the component reads `getData('text/plain')` on drop,
+   * so every drag sequence in these tests carries one of these through
+   * dragStart → dragOver → drop, exactly like a real drag does.
+   */
+  function makeDataTransfer(): {
+    setData: (format: string, value: string) => void;
+    getData: (format: string) => string;
+    dropEffect: string;
+    effectAllowed: string;
+  } {
+    const store: Record<string, string> = {};
+    return {
+      setData: (format, value) => {
+        store[format] = value;
+      },
+      getData: (format) => store[format] ?? '',
+      dropEffect: '',
+      effectAllowed: '',
+    };
+  }
+
+  const row = (id: string): HTMLElement =>
+    screen.getByTestId(`workspace-tree-node-${id}`);
+
+  /**
+   * Expands a row. Only root nodes auto-expand on first render, so any test
+   * that needs a grandchild in the DOM has to open its parent first.
+   */
+  function expandRow(id: string): void {
+    fireEvent.click(screen.getByTestId(`workspace-tree-toggle-${id}`));
+  }
+
+  /**
+   * Fires a dragleave whose `relatedTarget` (the element the pointer moved
+   * onto) actually survives into the handler. jsdom has no `DragEvent`
+   * constructor, so `fireEvent.dragLeave(el, { relatedTarget })` silently
+   * drops that init field — the property has to be defined on the event.
+   */
+  function dragLeaveTowards(target: HTMLElement, related: Node | null): void {
+    const event = createEvent.dragLeave(target);
+    Object.defineProperty(event, 'relatedTarget', { value: related });
+    fireEvent(target, event);
+  }
+
+  /** Drags `fromId` and drops it on `toId`'s row. */
+  function dragOnto(fromId: string, toId: string): void {
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row(fromId), { dataTransfer });
+    fireEvent.dragOver(row(toId), { dataTransfer });
+    fireEvent.drop(row(toId), { dataTransfer });
+  }
+
+  // -- opt-in: consumers without onReparent are completely unaffected -------
+
+  it('rows are not draggable when onReparent is omitted', () => {
+    renderTree({ nodes: TREE_NODES });
+    expect(row('root')).not.toHaveAttribute('draggable', 'true');
+  });
+
+  it('no root dropzone exists when onReparent is omitted', () => {
+    renderTree({ nodes: TREE_NODES });
+    fireEvent.dragStart(row('root'), { dataTransfer: makeDataTransfer() });
+    expect(
+      screen.queryByTestId('workspace-tree-root-dropzone'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('rows become draggable when onReparent is provided', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    expect(row('root')).toHaveAttribute('draggable', 'true');
+  });
+
+  // -- the reparent call itself --------------------------------------------
+
+  it('dropping a node onto another node reparents it under that node', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    dragOnto('child1', 'child2');
+
+    expect(onReparent).toHaveBeenCalledTimes(1);
+    expect(onReparent).toHaveBeenCalledWith('child1', 'child2');
+  });
+
+  it('dropping onto the root dropzone detaches the node to root level', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    const dropzone = screen.getByTestId('workspace-tree-root-dropzone');
+    fireEvent.dragOver(dropzone, { dataTransfer });
+    fireEvent.drop(dropzone, { dataTransfer });
+
+    expect(onReparent).toHaveBeenCalledWith('child1', null);
+  });
+
+  it('falls back to the dragged-node state when dataTransfer carries no id', () => {
+    // Some browsers (and every synthetic drop that skips dragStart's payload)
+    // hand over an empty text/plain; the in-flight drag id must still resolve.
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    fireEvent.drop(row('child2'), { dataTransfer: makeDataTransfer() });
+
+    expect(onReparent).toHaveBeenCalledWith('child1', 'child2');
+  });
+
+  // -- client-side no-ops ---------------------------------------------------
+
+  it('dropping a node onto itself is a no-op', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    dragOnto('child1', 'child1');
+
+    expect(onReparent).not.toHaveBeenCalled();
+  });
+
+  it('dropping a node onto its current parent is a no-op', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    dragOnto('child1', 'root');
+
+    expect(onReparent).not.toHaveBeenCalled();
+  });
+
+  it('dropping a root node onto the root dropzone is a no-op', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('root'), { dataTransfer });
+    fireEvent.drop(screen.getByTestId('workspace-tree-root-dropzone'), {
+      dataTransfer,
+    });
+
+    expect(onReparent).not.toHaveBeenCalled();
+  });
+
+  it('dropping a node onto its own child is a no-op', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+
+    dragOnto('root', 'child1');
+
+    expect(onReparent).not.toHaveBeenCalled();
+  });
+
+  it('dropping a node onto a deeper descendant is a no-op', () => {
+    // Moving a node into its own subtree closes a cycle in any tree, whatever
+    // the artifact type — so the tree refuses it instead of forwarding it.
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    expandRow('child1');
+
+    dragOnto('root', 'grandchild');
+
+    expect(onReparent).not.toHaveBeenCalled();
+  });
+
+  it('detaching a node to root is never treated as a cycle', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    expandRow('child1');
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('grandchild'), { dataTransfer });
+    fireEvent.drop(screen.getByTestId('workspace-tree-root-dropzone'), {
+      dataTransfer,
+    });
+
+    expect(onReparent).toHaveBeenCalledWith('grandchild', null);
+  });
+
+  it('does not offer a descendant as a drop target while dragging', () => {
+    // The form prevents the same move by leaving descendants out of its parent
+    // dropdown; the tree's equivalent is to not light the row up at all.
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    expandRow('child1');
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('root'), { dataTransfer });
+    fireEvent.dragOver(row('grandchild'), { dataTransfer });
+
+    expect(row('grandchild')).not.toHaveAttribute('data-drop-target', 'true');
+  });
+
+  // -- drop-target highlighting --------------------------------------------
+
+  it('marks the hovered row as the current drop target', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    fireEvent.dragOver(row('child2'), { dataTransfer });
+
+    expect(row('child2')).toHaveAttribute('data-drop-target', 'true');
+  });
+
+  it('does not mark the dragged row itself as a drop target', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    fireEvent.dragOver(row('child1'), { dataTransfer });
+
+    expect(row('child1')).not.toHaveAttribute('data-drop-target', 'true');
+    expect(row('child1')).toHaveAttribute('data-dragging', 'true');
+  });
+
+  it('keeps the highlight when the pointer moves onto a nested child of the same row', () => {
+    // Native D&D fires dragleave when the pointer crosses onto the row's own
+    // chevron/label/badge — treating that as "left the row" makes the
+    // highlight flicker through a whole drag.
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    fireEvent.dragOver(row('child2'), { dataTransfer });
+
+    const nestedChild = row('child2').querySelector('span');
+    expect(nestedChild).not.toBeNull();
+    dragLeaveTowards(row('child2'), nestedChild);
+
+    expect(row('child2')).toHaveAttribute('data-drop-target', 'true');
+  });
+
+  it('clears the highlight once the pointer truly leaves the row', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    fireEvent.dragOver(row('child2'), { dataTransfer });
+    dragLeaveTowards(row('child2'), row('root'));
+
+    expect(row('child2')).not.toHaveAttribute('data-drop-target', 'true');
+  });
+
+  // -- root dropzone lifecycle ---------------------------------------------
+
+  it('root dropzone is absent until a drag starts', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    expect(
+      screen.queryByTestId('workspace-tree-root-dropzone'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('root dropzone disappears again when the drag ends', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('child1'), { dataTransfer });
+    expect(screen.getByTestId('workspace-tree-root-dropzone')).toBeInTheDocument();
+
+    fireEvent.dragEnd(row('child1'));
+    expect(
+      screen.queryByTestId('workspace-tree-root-dropzone'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('root dropzone disappears after a completed drop', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+
+    dragOnto('child1', 'child2');
+
+    expect(
+      screen.queryByTestId('workspace-tree-root-dropzone'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders the caller-provided root dropzone label', () => {
+    renderTree({
+      nodes: TREE_NODES,
+      onReparent: vi.fn(),
+      rootDropzoneLabel: 'Drop here to make root (L0)',
+    });
+
+    fireEvent.dragStart(row('child1'), { dataTransfer: makeDataTransfer() });
+
+    expect(
+      screen.getByTestId('workspace-tree-root-dropzone'),
+    ).toHaveTextContent('Drop here to make root (L0)');
+  });
+
+  // -- interaction with the other tree capabilities -------------------------
+
+  it('starting a drag does not select the node', () => {
+    const onSelect = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn(), onSelect });
+
+    fireEvent.dragStart(row('child1'), { dataTransfer: makeDataTransfer() });
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('virtualized rows are draggable too', () => {
+    // Same container-size stubs the virtualized keyboard tests use — jsdom
+    // reports zero layout height, so without them the virtualizer may mount
+    // no rows at all.
+    const offsetHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockReturnValue(340);
+    const offsetWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+      .mockReturnValue(800);
+    try {
+      const many: WorkspaceTreeNode[] = Array.from({ length: 150 }, (_, i) => ({
+        id: `v${i}`,
+        name: `Node ${i}`,
+        parentId: null,
+      }));
+      renderTree({ nodes: many, virtualize: true, onReparent: vi.fn() });
+
+      expect(screen.getByTestId('workspace-tree-scroll')).toBeInTheDocument();
+      expect(row('v0')).toHaveAttribute('draggable', 'true');
+    } finally {
+      offsetHeightSpy.mockRestore();
+      offsetWidthSpy.mockRestore();
+    }
   });
 });

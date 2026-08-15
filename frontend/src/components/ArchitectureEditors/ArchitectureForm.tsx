@@ -27,6 +27,7 @@ import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
 import { ArtifactId } from '../shared/ArtifactId';
 import { LevelBadge } from '../shared/LevelBadge';
+import { collectSelfAndDescendantIds } from '../shared/WorkspaceTree';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { architectureApi } from '../../api/architecture';
@@ -207,29 +208,16 @@ export function ArchitectureForm({
     setCustomFields(element.custom_fields ?? {});
   }, [element.id]);
 
-  // Client-side cycle guard
-  const invalidParentIds = useMemo((): Set<string> => {
-    const childrenByParent = new Map<string, string[]>();
-    for (const el of elements) {
-      if (!el.parent_id) continue;
-      const bucket = childrenByParent.get(el.parent_id);
-      if (bucket) bucket.push(el.id);
-      else childrenByParent.set(el.parent_id, [el.id]);
-    }
-    const invalid = new Set<string>([element.id]);
-    const stack: string[] = [element.id];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) break;
-      for (const childId of childrenByParent.get(current) ?? []) {
-        if (!invalid.has(childId)) {
-          invalid.add(childId);
-          stack.push(childId);
-        }
-      }
-    }
-    return invalid;
-  }, [elements, element.id]);
+  // Client-side cycle guard — same computation the tree's drag & drop uses to
+  // refuse a drop, so both parent-changing surfaces forbid the same set.
+  const invalidParentIds = useMemo(
+    (): Set<string> =>
+      collectSelfAndDescendantIds(
+        elements.map((el) => ({ id: el.id, parentId: el.parent_id ?? null })),
+        element.id,
+      ),
+    [elements, element.id],
+  );
 
   const parentOptions = useMemo(
     () => elements.filter((el) => !invalidParentIds.has(el.id)),

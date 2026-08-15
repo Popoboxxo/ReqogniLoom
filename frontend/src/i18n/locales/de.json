@@ -239,6 +239,7 @@
     "deriveRequirement": "Anforderung ableiten",
     "createFailed": "Architekturelement konnte nicht angelegt werden.",
     "deleteFailed": "Architekturelement konnte nicht gelöscht werden.",
+    "reparentFailed": "Architekturelement konnte nicht umgehängt werden.",
     "lifecycleStatus": {
       "active": "Aktiv",
       "outdated": "Veraltet",
