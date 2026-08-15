@@ -26,5 +26,6 @@ def test_build_opencode_package(tmp_path):
     assert "{env:reqlo_" not in json.dumps(snippet)
 
     for skill_name in ["vmodell-decomposition", "test-lifecycle", "risk-derivation",
-                        "ccb-approval-and-baseline", "traceability-audit"]:
+                        "ccb-approval-and-baseline", "traceability-audit",
+                        "interview-management"]:
         assert (tmp_path / "skills" / skill_name / "SKILL.md").exists()

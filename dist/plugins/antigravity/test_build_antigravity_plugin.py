@@ -26,7 +26,8 @@ def test_build_antigravity_plugin(tmp_path):
     assert server["url"] == "${REQOGNILOOM_MCP_URL}/mcp/sse/"
 
     for skill_name in ["vmodell-decomposition", "test-lifecycle", "risk-derivation",
-                        "ccb-approval-and-baseline", "traceability-audit"]:
+                        "ccb-approval-and-baseline", "traceability-audit",
+                        "interview-management"]:
         skill = tmp_path / "reqogniloom" / "skills" / skill_name / "SKILL.md"
         assert skill.exists()
         assert skill.read_text() == (
