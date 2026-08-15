@@ -103,6 +103,28 @@ def _make_testcase_mock(**kwargs):
     return tc
 
 
+def _make_goal_mock(**kwargs):
+    goal = MagicMock()
+    goal.id = kwargs.get("id", uuid.uuid4())
+    goal.title = kwargs.get("title", "Reduce onboarding time")
+    goal.description = kwargs.get("description", "Initial description")
+    goal.status = kwargs.get("status", "Entwurf")
+    goal.version = kwargs.get("version", 1)
+    goal.modified_at = kwargs.get("modified_at", None)
+    return goal
+
+
+def _make_main_goal_mock(**kwargs):
+    mg = MagicMock()
+    mg.id = kwargs.get("id", uuid.uuid4())
+    mg.content = kwargs.get("content", "Deliver a self-service onboarding flow.")
+    mg.source = kwargs.get("source", "ai")
+    mg.status = kwargs.get("status", "Entwurf")
+    mg.version = kwargs.get("version", 1)
+    mg.modified_at = kwargs.get("modified_at", None)
+    return mg
+
+
 # ---------------------------------------------------------------------------
 # diff: from_version=0 → all fields "added"
 # ---------------------------------------------------------------------------
@@ -428,6 +450,88 @@ class TestDiffTestCase:
 
         steps_field = next(f for f in fields if f["name"] == "steps")
         assert steps_field["status"] == "modified"
+
+
+# ---------------------------------------------------------------------------
+# diff: Goal / MainGoal (issue #219 — _ENTITY_FIELDS/_ENTITY_MODELS gap)
+# ---------------------------------------------------------------------------
+
+
+class TestDiffForGoalAndMainGoal:
+    """Issue #219: Goal/MainGoal were missing from the diff dispatch tables.
+
+    Baselines already capture full Goal/MainGoal state (issue #398), but
+    ``ArtifactDiffService`` had no ``_ENTITY_FIELDS``/``_ENTITY_MODELS`` entry
+    for either type, so the entity-diff code path (``diff_for_entity`` /
+    ``list_versions_for_entity``) would fail with ``NotFoundError`` the moment
+    it was reached — e.g. from a future frontend wiring of #219.
+    """
+
+    def test_goal_is_registered_for_entity_diffing(self):
+        from application.artifact_diff_service import _ENTITY_FIELDS, _ENTITY_MODELS
+        from application.models import Goal
+
+        assert "Goal" in _ENTITY_FIELDS
+        assert _ENTITY_MODELS["Goal"] is Goal
+
+    def test_main_goal_is_registered_for_entity_diffing(self):
+        from application.artifact_diff_service import _ENTITY_FIELDS, _ENTITY_MODELS
+        from application.models import MainGoal
+
+        assert "MainGoal" in _ENTITY_FIELDS
+        assert _ENTITY_MODELS["MainGoal"] is MainGoal
+
+    def test_diff_for_goal_detects_title_change(self):
+        """Field-level diff on a Goal entity via diff_for_entity."""
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        goal_mock = _make_goal_mock(version=1)
+
+        goal_model = MagicMock()
+        goal_model.objects.filter.return_value.first.return_value = goal_mock
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch.dict(
+                "application.artifact_diff_service._ENTITY_MODELS",
+                {"Goal": goal_model},
+            ):
+                result = svc.diff_for_entity(
+                    entity_type="Goal",
+                    entity_id=goal_mock.id,
+                    from_version=0,
+                    to_version=1,
+                    ctx=ctx,
+                )
+
+        title_field = next(f for f in result["fields"] if f["name"] == "title")
+        assert title_field["status"] == "added"
+        assert title_field["to"] == "Reduce onboarding time"
+
+    def test_diff_for_main_goal_detects_content_change(self):
+        """Field-level diff on a MainGoal entity via diff_for_entity."""
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        mg_mock = _make_main_goal_mock(version=1)
+
+        mg_model = MagicMock()
+        mg_model.objects.filter.return_value.first.return_value = mg_mock
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch.dict(
+                "application.artifact_diff_service._ENTITY_MODELS",
+                {"MainGoal": mg_model},
+            ):
+                result = svc.diff_for_entity(
+                    entity_type="MainGoal",
+                    entity_id=mg_mock.id,
+                    from_version=0,
+                    to_version=1,
+                    ctx=ctx,
+                )
+
+        content_field = next(f for f in result["fields"] if f["name"] == "content")
+        assert content_field["status"] == "added"
+        assert content_field["to"] == "Deliver a self-service onboarding flow."
 
 
 # ---------------------------------------------------------------------------
