@@ -195,7 +195,11 @@ jobs:
 
       - name: Install hermes-plugin dependencies
         working-directory: integrations/hermes-plugin/reqogniloom
-        run: npm install
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npx tsc --noEmit
 
       - name: Run Vitest
         working-directory: integrations/hermes-plugin/reqogniloom

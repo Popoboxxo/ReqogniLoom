@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { AppState } from "./state";
 import { closeInterview, resumeInterview, startNewInterview } from "./state";
+import { buttonStyle, ErrorBanner } from "./uiKit";
 
 // Mirrors the engine's IN_SCOPE_ARTIFACT_TYPES (Spec 1 plan,
 // application/interview_protocol.py) -- fixed at design time, not fetched.
@@ -9,15 +10,12 @@ const IN_SCOPE_ARTIFACT_TYPES = [
   "TestCase", "Adr", "Issue", "Goal",
 ] as const;
 
-const buttonStyle: React.CSSProperties = {
-  background: "var(--accent)",
-  color: "var(--bg-1)",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  padding: "6px 12px",
-  cursor: "pointer",
-  fontSize: "var(--text-xs)",
-};
+// formalize() only implements the "Requirement" branch so far (backend
+// application/interview_service.py:569-574, "the other 7 types follow the
+// identical pattern in a later pass") -- offering them here without a
+// warning let a user fill in a whole non-Requirement interview and only
+// discover it can't be formalized at the very last click.
+const FORMALIZABLE_ARTIFACT_TYPES: ReadonlySet<string> = new Set(["Requirement"]);
 
 export function InterviewListView({ state }: { state: AppState }): JSX.Element {
   return (
@@ -31,11 +29,7 @@ export function InterviewListView({ state }: { state: AppState }): JSX.Element {
         Back
       </button>
 
-      {state.interviewError && (
-        <span style={{ color: "var(--danger, red)", fontSize: "var(--text-xs)" }}>
-          {state.interviewError}
-        </span>
-      )}
+      <ErrorBanner message={state.interviewError} />
 
       <div>
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>Active sessions</span>
@@ -47,6 +41,7 @@ export function InterviewListView({ state }: { state: AppState }): JSX.Element {
             <li key={session.id}>
               <button
                 type="button"
+                data-testid={`interview-resume-${session.id}`}
                 style={buttonStyle}
                 onClick={() => void resumeInterview(session.id)}
               >
@@ -60,18 +55,23 @@ export function InterviewListView({ state }: { state: AppState }): JSX.Element {
       <div>
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>Start new</span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {IN_SCOPE_ARTIFACT_TYPES.map((type) => (
-            <button
-              key={type}
-              type="button"
-              data-testid={`interview-start-${type}`}
-              style={buttonStyle}
-              onClick={() => void startNewInterview(type)}
-              disabled={state.interviewBusy}
-            >
-              {type}
-            </button>
-          ))}
+          {IN_SCOPE_ARTIFACT_TYPES.map((type) => {
+            const formalizable = FORMALIZABLE_ARTIFACT_TYPES.has(type);
+            return (
+              <button
+                key={type}
+                type="button"
+                data-testid={`interview-start-${type}`}
+                style={buttonStyle}
+                onClick={() => void startNewInterview(type)}
+                disabled={state.interviewBusy || !formalizable}
+                title={formalizable ? undefined : "Not formalizable yet — this artifact type is not supported by formalize() yet."}
+              >
+                {type}
+                {!formalizable && " (soon)"}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

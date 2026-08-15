@@ -2,7 +2,7 @@ import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { InterviewListView } from "../InterviewListView";
-import type { AppState } from "../state";
+import { makeAppState } from "./testHelpers";
 
 vi.mock("../state", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../state")>();
@@ -10,19 +10,9 @@ vi.mock("../state", async (importOriginal) => {
 });
 import { closeInterview, resumeInterview, startNewInterview } from "../state";
 
-function makeState(overrides: Partial<AppState> = {}): AppState {
-  return {
-    view: "interviews", connection: { baseUrl: "https://x", apiKey: "k", workspaceId: "ws-1" },
-    workspaceName: "WS", pendingCredentials: null, pendingWorkspaces: [],
-    connectError: null, connecting: false, activeInterview: null,
-    interviewList: [], interviewError: null, interviewBusy: false,
-    ...overrides,
-  };
-}
-
 describe("InterviewListView", () => {
   it("renders existing sessions and calls resumeInterview on click", () => {
-    const state = makeState({
+    const state = makeAppState({
       interviewList: [{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }],
     });
 
@@ -32,28 +22,35 @@ describe("InterviewListView", () => {
     expect(resumeInterview).toHaveBeenCalledWith("s-1");
   });
 
-  it("renders a start button per in-scope artifact type and calls startNewInterview", () => {
-    render(<InterviewListView state={makeState()} />);
+  it("renders a start button per in-scope artifact type and calls startNewInterview for the formalizable one", () => {
+    render(<InterviewListView state={makeAppState()} />);
 
-    fireEvent.click(screen.getByTestId("interview-start-Risk"));
+    fireEvent.click(screen.getByTestId("interview-start-Requirement"));
 
-    expect(startNewInterview).toHaveBeenCalledWith("Risk");
+    expect(startNewInterview).toHaveBeenCalledWith("Requirement");
   });
 
   it("does not offer MainGoal", () => {
-    render(<InterviewListView state={makeState()} />);
+    render(<InterviewListView state={makeAppState()} />);
 
     expect(screen.queryByTestId("interview-start-MainGoal")).not.toBeInTheDocument();
   });
 
+  it("disables start buttons for artifact types formalize() does not support yet", () => {
+    render(<InterviewListView state={makeAppState()} />);
+
+    expect(screen.getByTestId("interview-start-Risk")).toBeDisabled();
+    expect(screen.getByTestId("interview-start-Requirement")).not.toBeDisabled();
+  });
+
   it("shows interviewError when present", () => {
-    render(<InterviewListView state={makeState({ interviewError: "boom" })} />);
+    render(<InterviewListView state={makeAppState({ interviewError: "boom" })} />);
 
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
 
   it("renders a Back button that calls closeInterview", () => {
-    render(<InterviewListView state={makeState()} />);
+    render(<InterviewListView state={makeAppState()} />);
 
     fireEvent.click(screen.getByTestId("interview-list-back-button"));
 
