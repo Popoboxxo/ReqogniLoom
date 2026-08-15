@@ -290,7 +290,7 @@
     "summary_one": "{{count}} element",
     "summary_other": "{{count}} elements",
     "activeSuffix": "{{count}} active",
-    "newElement": "New architecture element"
+    "newElement": "New Architecture Element"
   },
   "traceability": {
     "upstream": "Upstream Links",
@@ -302,7 +302,7 @@
     "source": "Source",
     "target": "Target",
     "linkType": "Link Type",
-    "create": "New Link",
+    "create": "New Trace Link",
     "derive": "Derive",
     "deriveTitle": "Title of the derived requirement",
     "deriveTitleRequired": "Please enter a title for the derived requirement.",
@@ -449,8 +449,8 @@
     "global": "Global",
     "all": "All",
     "workspace": "Workspace",
-    "addTerm": "Add term",
-    "editTerm": "Edit term",
+    "addTerm": "New Term",
+    "editTerm": "Edit Term",
     "newTerm": "New term",
     "deleteConfirm": "Really delete this term?",
     "loadFailed": "Failed to load terms.",
@@ -489,7 +489,7 @@
     "summary_one": "{{count}} need",
     "summary_other": "{{count}} needs",
     "approvedSuffix": "{{count}} approved",
-    "newNeed": "New need",
+    "newNeed": "New Need",
     "emptyTitle": "No needs yet",
     "emptyDescription": "Stakeholder needs describe what stakeholders need and why."
   },
@@ -701,7 +701,7 @@
     "L4": "L4 Material"
   },
   "testRuns": {
-    "create": "Create Run",
+    "create": "New Test Run",
     "summary_one": "{{count}} test run",
     "summary_other": "{{count}} test runs",
     "emptyTitle": "No test runs yet",
@@ -1046,6 +1046,7 @@
     }
   },
   "requirements": {
+    "newRequirement": "New Requirement",
     "similar": {
       "heading": "Similar Requirements",
       "findButton": "Find Similar",
@@ -1310,7 +1311,7 @@
     "summary_one": "{{count}} goal",
     "summary_other": "{{count}} goals",
     "approvedSuffix": "{{count}} approved",
-    "newGoal": "New goal",
+    "newGoal": "New Goal",
     "mainGoal": "Main goal",
     "mainGoalNone": "No main goal approved yet.",
     "mainGoalNoneHint": "The main goal summarises the approved goals of this workspace. Generate it with AI or write it yourself.",
