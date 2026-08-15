@@ -135,7 +135,8 @@ def _complete_change_impact(prompt: str, *, context: Dict[str, Any]) -> str:
 
     DECISION (Phase 2, Task 6 -- see task-6-report.md): this is a third,
     deliberately minimal, local copy of the ``_complete()`` pattern already
-    duplicated by ``AiDerivationService._complete`` (cached, returns ``str``)
+    duplicated by ``AiDerivationService._complete`` (cached, returns a
+    ``(text, cache_key)`` tuple)
     and ``TraceabilitySuggestService._complete`` (uncached, returns a
     ``(raw, provider_name, degraded)`` tuple). Those two had already
     diverged in signature/return shape before this task started, so

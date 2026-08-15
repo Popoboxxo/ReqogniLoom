@@ -52,7 +52,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from django.core.cache import cache
@@ -1537,7 +1537,7 @@ class AiDerivationService(ServiceBase):
         purpose: str,
         artifact_id: UUID | str,
         context: Optional[Dict[str, Any]] = None,
-    ) -> str:
+    ) -> Tuple[str, Optional[str]]:
         """Run the configured provider's free-form completion (cached).
 
         Falls back to the credential-free mock provider when no provider is
@@ -1563,6 +1563,28 @@ class AiDerivationService(ServiceBase):
         ``mcp_server.tools.ai_derivation`` — which already catches
         ``LlmResponseError`` — reports a clean ``INTERNAL_ERROR`` instead of a
         500 / transport fault.
+
+        Returns:
+            A ``(text, cache_key)`` tuple. *cache_key* is the cache-backend
+            key this call read from or wrote to — the caller passes it back
+            into :meth:`_discard_cached_completion` if it later decides the
+            answer is unusable. It is ``None`` when the call degraded to the
+            mock fallback before any cache key could be computed (no
+            configured provider at all).
+
+            This value used to be stashed on ``self._last_cache_key`` as a
+            per-call "output parameter" instead of being returned. That is
+            safe only when a fresh :class:`AiDerivationService` is built per
+            request, as ``rest_api/views.py`` does — but the MCP transport
+            shares ONE service instance across concurrently handled requests
+            (``mcp_server/tool_registry.py`` builds the tool group once as a
+            process-level singleton, and ``mcp_server/views.py`` dispatches
+            requests onto a thread pool), so two interleaved calls on the
+            same instance could overwrite each other's cache key: one
+            request's failed parse would then evict the *other* request's
+            still-valid cache entry (see issue #552 code review finding B2).
+            Returning the key instead of storing it makes each call's key
+            local to that call again.
         """
         from django.conf import settings
 
@@ -1578,11 +1600,6 @@ class AiDerivationService(ServiceBase):
         from persistence.tenancy import TenantContext, TenantContextNotSetError
 
         provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
-        # Issue #311: remember which cache entry this call read or wrote, so a
-        # caller whose parsing rejects the answer can evict it
-        # (_discard_cached_completion). Reset per call; the fallback paths
-        # below return before a key even exists.
-        self._last_cache_key = None
 
         try:
             provider = get_provider()
@@ -1598,8 +1615,9 @@ class AiDerivationService(ServiceBase):
             result = MockLlmProvider().complete(
                 prompt, purpose=purpose, context=context
             )
-            # Fallback output is intentionally not cached (REQ-105).
-            return f"{MOCK_FALLBACK_MARKER}{result}"
+            # Fallback output is intentionally not cached (REQ-105); no cache
+            # key was ever computed for it either.
+            return f"{MOCK_FALLBACK_MARKER}{result}", None
 
         # fix #122: namespace the cache key by the *effective* provider
         # (`get_provider()` resolves the per-tenant LlmSettings override on top
@@ -1620,7 +1638,6 @@ class AiDerivationService(ServiceBase):
             str(artifact_id),
             prompt,
         )
-        self._last_cache_key = cache_key
 
         cached = cache.get(cache_key)
         if cached is not None:
@@ -1629,7 +1646,7 @@ class AiDerivationService(ServiceBase):
                 purpose,
                 artifact_id,
             )
-            return cached
+            return cached, cache_key
 
         audit_logger = LlmAuditLogger()
 
@@ -1682,7 +1699,11 @@ class AiDerivationService(ServiceBase):
             result = MockLlmProvider().complete(
                 prompt, purpose=purpose, context=context
             )
-            return f"{MOCK_FALLBACK_MARKER}{result}"
+            # This fallback is never cached (REQ-105) either, but the key was
+            # already computed above so it is still returned — harmless for
+            # eviction (nothing was ever written under it), and keeps the
+            # returned key consistent with every other post-computation path.
+            return f"{MOCK_FALLBACK_MARKER}{result}", cache_key
         except Exception as error:  # noqa: BLE001 — see fix #116 docstring note above
             # fix #116: circuit-breaker/timeout failures (LlmTransportError),
             # missing-SDK / SDK errors (RuntimeError) and any other provider
@@ -1739,7 +1760,7 @@ class AiDerivationService(ServiceBase):
             )
         elif not result.startswith(MOCK_FALLBACK_MARKER):
             cache.set(cache_key, result, DERIVATION_CACHE_TTL_SECONDS)
-        return result
+        return result, cache_key
 
     def _complete_json_list(
         self,
@@ -1778,7 +1799,7 @@ class AiDerivationService(ServiceBase):
         Raises:
             LlmResponseError: The response was not a usable JSON array.
         """
-        raw = self._complete(
+        raw, cache_key = self._complete(
             prompt, purpose=purpose, artifact_id=artifact_id, context=context
         )
         try:
@@ -1786,7 +1807,9 @@ class AiDerivationService(ServiceBase):
             if require_objects:
                 items = self._usable_entries(items, purpose=purpose)
         except LlmResponseError:
-            self._discard_cached_completion(purpose=purpose, artifact_id=artifact_id)
+            self._discard_cached_completion(
+                cache_key, purpose=purpose, artifact_id=artifact_id
+            )
             raise
         return items
 
@@ -1808,28 +1831,37 @@ class AiDerivationService(ServiceBase):
         Raises:
             LlmResponseError: The response was not a JSON object.
         """
-        raw = self._complete(
+        raw, cache_key = self._complete(
             prompt, purpose=purpose, artifact_id=artifact_id, context=context
         )
         try:
             return self._parse_json_object(raw)
         except LlmResponseError:
-            self._discard_cached_completion(purpose=purpose, artifact_id=artifact_id)
+            self._discard_cached_completion(
+                cache_key, purpose=purpose, artifact_id=artifact_id
+            )
             raise
 
     def _discard_cached_completion(
-        self, *, purpose: str, artifact_id: UUID | str
+        self, cache_key: Optional[str], *, purpose: str, artifact_id: UUID | str
     ) -> None:
-        """Drop the cache entry of the completion this instance last ran.
+        """Drop the cache entry of the completion that produced *cache_key*.
 
-        No-op when the last :meth:`_complete` call never reached the cache
-        (mock fallback, provider error). Never raises — failing to evict must
-        not replace the caller's real error with a cache-backend one.
+        *cache_key* is the value :meth:`_complete` returned for the call
+        whose answer the caller just rejected — passed in explicitly rather
+        than read off a ``self`` attribute, so this stays correct even when
+        the MCP transport shares one :class:`AiDerivationService` instance
+        across concurrently handled requests (see :meth:`_complete`'s
+        docstring / issue #552 finding B2: a shared instance attribute let
+        one request's failed parse evict a *different*, still-valid
+        in-flight request's cache entry).
+
+        No-op when *cache_key* is ``None`` (the mock-fallback path never
+        computes one). Never raises — failing to evict must not replace the
+        caller's real error with a cache-backend one.
         """
-        cache_key = getattr(self, "_last_cache_key", None)
         if cache_key is None:
             return
-        self._last_cache_key = None
         try:
             cache.delete(cache_key)
         except Exception:  # pragma: no cover - defensive; cache backend down

@@ -176,7 +176,11 @@ class MainGoalService(ServiceBase):
         )
         template = ai_svc._get_template_content(ctx, "goal_aggregate", workspace_id)
         prompt = ai_svc._render(template, goals=goals_text)
-        content = ai_svc._complete(
+        # AiDerivationService._complete() now returns a (text, cache_key)
+        # tuple (fix #552) instead of stashing the cache key on
+        # ``self._last_cache_key``; this flow has no eviction logic, so the
+        # cache key is discarded here.
+        content, _cache_key = ai_svc._complete(
             prompt,
             purpose="goal_aggregate",
             artifact_id=str(workspace_id),
