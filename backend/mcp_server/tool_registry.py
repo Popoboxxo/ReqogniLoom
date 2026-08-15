@@ -149,9 +149,11 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # Interview-Management-Engine Task 4: interview.start creates a new
     # InterviewSession, interview.answer mutates its collected_fields.
     # interview.get_state/list/get are reads (see _READ_ONLY_TOOL_NAMES).
-    # interview.formalize is added here too, in Task 7, when it exists.
+    # Task 7: interview.formalize creates/updates the resulting Requirement
+    # and completes the session -- a write.
     "interview.start",
     "interview.answer",
+    "interview.formalize",
 )
 
 # ---------------------------------------------------------------------------

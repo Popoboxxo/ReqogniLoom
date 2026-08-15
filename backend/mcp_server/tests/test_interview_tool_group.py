@@ -334,6 +334,75 @@ class TestInterviewToolGroup:
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
 
+    # ------------------------------------------------------------------
+    # interview.formalize
+    # ------------------------------------------------------------------
+
+    @patch("mcp_server.tools.interview.write_mcp_audit")
+    def test_formalize_calls_service_and_returns_result(self, mock_audit):
+        group, svc = self._group()
+        svc.formalize.return_value = {
+            "resulting_artifact_ids": ["11111111-1111-1111-1111-111111111111"],
+            "status": "completed",
+        }
+
+        result = group.execute_tool(
+            tool_name="interview.formalize",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data == svc.formalize.return_value
+        svc.formalize.assert_called_once_with(EDITOR_CTX, SESSION_UUID)
+        mock_audit.assert_called_once()
+        call_kwargs = mock_audit.call_args.kwargs
+        assert call_kwargs["tool_name"] == "interview.formalize"
+        assert call_kwargs["operation"] == "update"
+
+    def test_formalize_not_found_returns_not_found(self):
+        group, svc = self._group()
+        svc.formalize.side_effect = NotFoundError(
+            "Target artifact no longer exists; cannot formalize an update against it."
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.formalize",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_formalize_validation_error_returns_validation_error(self):
+        group, svc = self._group()
+        svc.formalize.side_effect = ValidationError(
+            "formalize() for artifact_type='Risk' is not implemented yet"
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.formalize",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_formalize_requires_session_id(self):
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="interview.formalize",
+            params={},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.formalize.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Registration / RBAC classification structural checks
@@ -352,7 +421,7 @@ class TestInterviewToolGroupRegistration:
     def test_write_tools_are_registered_as_write_tools(self):
         from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
-        for tool_name in ("interview.start", "interview.answer"):
+        for tool_name in ("interview.start", "interview.answer", "interview.formalize"):
             assert any(
                 tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES
             ), f"{tool_name} missing from _WRITE_TOOL_PREFIXES"

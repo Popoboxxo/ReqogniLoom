@@ -3,9 +3,8 @@ MCP Tool Group for cross-host structured Interviews (Interview-Management-Engine
 
 Wraps InterviewService (Task 3) for interview.start / interview.get_state /
 interview.answer / interview.list / interview.get /
-interview.grounding_context (Task 5, structural only). AI-assisted
-grounding ranking and interview.formalize land in later tasks (6-7) — do
-not add them here.
+interview.grounding_context (Task 5, structural + Task 6 AI-assisted
+ranking) / interview.formalize (Task 7, Requirement only).
 """
 from __future__ import annotations
 
@@ -41,6 +40,7 @@ class InterviewToolGroup(BaseToolGroup):
         "interview.list": "_handle_list",
         "interview.get": "_handle_get",
         "interview.grounding_context": "_handle_grounding_context",
+        "interview.formalize": "_handle_formalize",
     }
 
     _TOOL_SCHEMAS = [
@@ -128,6 +128,24 @@ class InterviewToolGroup(BaseToolGroup):
                 "Requirement is wired up so far; other artifact types return no "
                 "candidates for now. Refreshes and returns the session's "
                 "grounding_snapshot."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "UUID of the interview session."},
+                },
+                "required": ["session_id"],
+            },
+        },
+        {
+            "name": "interview.formalize",
+            "description": (
+                "Turn the session's collected answers into a real artifact (write). "
+                "Creates a new Requirement, or -- if grounding set a target -- "
+                "updates the existing one instead, re-checking at write time that "
+                "the target still exists. Marks the session completed and returns "
+                "resulting_artifact_ids. Only artifact_type='Requirement' sessions "
+                "are supported so far."
             ),
             "inputSchema": {
                 "type": "object",
@@ -231,6 +249,27 @@ class InterviewToolGroup(BaseToolGroup):
             result = self._service.grounding_context(auth_context, session_id)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+        return ToolResult.ok(result)
+
+    def _handle_formalize(
+        self, *, params: Dict[str, Any], auth_context, api_key: str
+    ) -> ToolResult:
+        session_id = require_uuid(params, "session_id")
+        try:
+            result = self._service.formalize(auth_context, session_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="InterviewSession",
+            entity_id=session_id,
+            tool_name="interview.formalize",
+            api_key=api_key,
+        )
         return ToolResult.ok(result)
 
 

@@ -405,6 +405,83 @@ class InterviewService(ServiceBase):
         session.refresh_from_db(fields=["version"])
         return session.grounding_snapshot
 
+    @atomic_transaction
+    def formalize(self, ctx, session_id: UUID) -> "dict[str, Any]":
+        """Turn the session's collected answers into a real artifact --
+        spec §5 point 4.
+
+        Only ``Requirement`` is implemented (YAGNI, matches
+        ``_structural_candidates``): the other 7 in-scope artifact types
+        raise ``ValidationError`` for now rather than being speculatively
+        stubbed out, per the plan's Self-Review Notes.
+
+        If the session was grounded onto an existing artifact
+        (``target_artifact_id`` set, e.g. by a future grounding-confirmation
+        flow), that artifact is updated instead of creating a new one. Its
+        existence is re-checked here, at write time -- spec §9: grounding
+        may be stale by the time formalize() runs, so a deleted target must
+        raise ``NotFoundError`` rather than silently creating a new artifact
+        (wrong outcome) or updating a row that no longer exists (impossible).
+
+        ``target_artifact_id`` is an ``Artifact`` PK, not a ``Requirement``
+        PK -- ``Requirement.artifact`` is a ``OneToOneField`` with its own
+        id (see ``reqif_import_service.py``'s identical
+        ``Requirement.objects.filter(artifact_id=...)`` lookup), so it has
+        to be resolved through that FK rather than passed straight to
+        ``RequirementService.get_requirement``/``update_requirement``, which
+        both take the Requirement's own id.
+        """
+        session = self._get_session(ctx, session_id)
+        if session.status != InterviewSession.STATUS_IN_PROGRESS:
+            raise ValidationError(
+                f"InterviewSession {session_id} is {session.status}, cannot formalize."
+            )
+
+        if session.artifact_type != "Requirement":
+            raise ValidationError(
+                f"formalize() for artifact_type={session.artifact_type!r} is not "
+                "implemented yet -- only Requirement is wired in this plan; the "
+                "other 7 types follow the identical pattern in a later pass."
+            )
+
+        from application.requirement_service import RequirementService
+        from persistence.models import Requirement
+
+        svc = RequirementService()
+        resulting_ids: "list[str]" = []
+
+        if session.target_artifact_id is not None:
+            target = Requirement.objects.filter(
+                artifact_id=session.target_artifact_id
+            ).first()
+            if target is None:
+                raise NotFoundError(
+                    f"Target artifact {session.target_artifact_id} no longer "
+                    "exists; cannot formalize an update against it."
+                )
+            updated = svc.update_requirement(
+                target.id,
+                ctx,
+                title=session.collected_fields.get("title"),
+                description=session.collected_fields.get("rationale"),
+            )
+            resulting_ids.append(str(updated.artifact_id))
+        else:
+            created = svc.create_requirement(
+                workspace_id=session.workspace_id,
+                title=session.collected_fields.get("title", ""),
+                ctx=ctx,
+                description=session.collected_fields.get("rationale", ""),
+            )
+            resulting_ids.append(str(created.artifact_id))
+
+        session.resulting_artifact_ids = resulting_ids
+        session.status = InterviewSession.STATUS_COMPLETED
+        session.version = F("version") + 1
+        session.save(update_fields=["resulting_artifact_ids", "status", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
+        return {"resulting_artifact_ids": resulting_ids, "status": session.status}
+
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
         self._set_tenant_context(ctx)
         # Bulk-flip stale rows before filtering, so a "status=in_progress"

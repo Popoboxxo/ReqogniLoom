@@ -312,3 +312,110 @@ class TestGroundingAiAssisted:
         assert len(result["candidates"]) >= 1
         titles = [c["title"] for c in result["candidates"]]
         assert "SSO login support" in titles
+
+
+class TestFormalize:
+    """spec §5 point 4 / §9: turn collected answers into a real Requirement,
+    either creating a new one or updating the grounded target, then complete
+    the session."""
+
+    def test_formalize_with_no_target_creates_new_requirement(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+        InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        assert len(result["resulting_artifact_ids"]) == 1
+        assert result["status"] == "completed"
+
+        from persistence.models import InterviewSession
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            refreshed = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert refreshed.status == InterviewSession.STATUS_COMPLETED
+        assert refreshed.resulting_artifact_ids == result["resulting_artifact_ids"]
+
+    def test_formalize_with_target_updates_existing_requirement(self, ctx, workspace):
+        from application.requirement_service import RequirementService
+
+        existing = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Old title", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "New title")
+
+        from persistence.models import InterviewSession
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            InterviewSession.objects.filter(id=session.id).update(
+                target_artifact_id=existing.artifact_id
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        updated = RequirementService().get_requirement(existing.id, ctx)
+        assert updated.title == "New title"
+        assert result["resulting_artifact_ids"] == [str(existing.artifact_id)]
+        assert result["status"] == "completed"
+
+    def test_formalize_reraises_if_target_artifact_deleted_mid_session(self, ctx, workspace):
+        """spec §5 point 4 / §9: re-check existence at write time -- a stale
+        grounded target must not silently fall back to creating a new
+        artifact, nor let the update through against a gone row.
+
+        Deletes only the ``Requirement`` sub-row, not its backing
+        ``Artifact``: ``InterviewSession.target_artifact`` is
+        ``on_delete=SET_NULL`` by deliberate, already-tested design
+        (persistence/tests/test_interview_session_model.py::
+        test_target_artifact_survives_artifact_deletion_as_null) -- hard-
+        deleting the ``Artifact`` itself nulls ``target_artifact_id`` in
+        the very same transaction, which by the time ``formalize()`` reads
+        the session is indistinguishable from "no target was ever set" and
+        would not exercise this re-check path at all. Deleting the
+        ``Requirement`` while its ``Artifact`` survives reproduces exactly
+        the state the re-check guards against: a ``target_artifact_id``
+        that is still set, but no longer resolves to a ``Requirement``.
+        """
+        from application.requirement_service import RequirementService
+        from persistence.models import InterviewSession, Requirement
+
+        existing = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Will be deleted", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "New title")
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            InterviewSession.objects.filter(id=session.id).update(
+                target_artifact_id=existing.artifact_id
+            )
+            Requirement.objects.filter(id=existing.id).delete()
+        finally:
+            TenantContext.clear_tenant()
+
+        with pytest.raises(NotFoundError):
+            InterviewService().formalize(ctx, session.id)
+
+    def test_formalize_for_non_requirement_type_raises_validation_error(self, ctx, workspace):
+        """Only Requirement is wired in this plan; the other 7 in-scope
+        artifact types are an explicit, stated scope cut."""
+        session = InterviewService().start(ctx, "Risk", workspace.id)
+
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(ctx, session.id)
+
+    def test_formalize_on_already_completed_session_raises_validation_error(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "x")
+        InterviewService().formalize(ctx, session.id)
+
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(ctx, session.id)
