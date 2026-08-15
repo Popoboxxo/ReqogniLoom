@@ -161,6 +161,9 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # ai_derivation.*) is deliberately write-gated so a Viewer-role API key
     # cannot drive LLM spend -- interview.grounding_context must be too.
     "interview.grounding_context",
+    # Issue #540: interview.set_target writes InterviewSession.target_artifact_id
+    # -- gated the same way as interview.start/answer/formalize above.
+    "interview.set_target",
 )
 
 # ---------------------------------------------------------------------------

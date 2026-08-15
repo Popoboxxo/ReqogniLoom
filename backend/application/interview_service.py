@@ -413,6 +413,61 @@ class InterviewService(ServiceBase):
         return session.grounding_snapshot
 
     @atomic_transaction
+    def set_target(self, ctx, session_id: UUID, artifact_id: UUID) -> "dict[str, Any]":
+        """Confirm a ``grounding_context()`` candidate (or any already-known
+        artifact_id) as the session's ``formalize()`` update target --
+        issue #540.
+
+        Without this, ``target_artifact_id`` was write-only dead code:
+        ``grounding_context()`` surfaces candidates but nothing ever set the
+        field, so ``formalize()``'s "update an existing artifact" branch was
+        unreachable through the real MCP surface. This is that missing
+        write path.
+
+        Requirement-only, matching ``formalize()``'s own update branch
+        (its docstring: "Only ``Requirement`` is implemented"): setting a
+        target on a session whose ``artifact_type`` formalize() can't
+        update yet would be a target formalize() can never use, so reject
+        it here instead of silently accepting a value that goes nowhere.
+
+        Re-checks that ``artifact_id`` resolves to a real ``Requirement``
+        right now, mirroring ``formalize()``'s own target re-check
+        (``Requirement.objects.filter(artifact_id=...).first()``) rather
+        than trusting the caller's possibly-stale ``grounding_context()``
+        snapshot -- same spec §9 staleness concern formalize() already
+        guards against at write time.
+        """
+        session = self._get_session(ctx, session_id)
+        if session.status != InterviewSession.STATUS_IN_PROGRESS:
+            raise ValidationError(
+                f"InterviewSession {session_id} is {session.status}, cannot set target."
+            )
+        if session.artifact_type != "Requirement":
+            raise ValidationError(
+                f"set_target() for artifact_type={session.artifact_type!r} is not "
+                "supported -- formalize()'s update branch is Requirement-only, so "
+                "a target on any other artifact_type could never be used."
+            )
+
+        from persistence.models import Requirement
+
+        if not Requirement.objects.filter(artifact_id=artifact_id).exists():
+            raise NotFoundError(f"Requirement with artifact_id={artifact_id} not found")
+
+        session.target_artifact_id = artifact_id
+        session.version = F("version") + 1
+        session.save(update_fields=["target_artifact_id", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
+        # Reuse get_state()'s shape rather than hand-rolling a parallel one
+        # (see this method's judgment-call note in the issue #540 report):
+        # every other read of "session state" already goes through
+        # get_state(), and returning it here means a host sees the
+        # newly-set target reflected immediately without a second round
+        # trip, the same way formalize()/grounding_context() return a
+        # ready-to-use result dict rather than the bare ORM object.
+        return self.get_state(ctx, session_id)
+
+    @atomic_transaction
     def formalize(self, ctx, session_id: UUID) -> "dict[str, Any]":
         """Turn the session's collected answers into a real artifact --
         spec §5 point 4.

@@ -4,7 +4,9 @@ MCP Tool Group for cross-host structured Interviews (Interview-Management-Engine
 Wraps InterviewService (Task 3) for interview.start / interview.get_state /
 interview.answer / interview.list / interview.get /
 interview.grounding_context (Task 5, structural + Task 6 AI-assisted
-ranking) / interview.formalize (Task 7, Requirement only).
+ranking) / interview.formalize (Task 7, Requirement only) /
+interview.set_target (issue #540, confirms a grounding_context()
+candidate as formalize()'s update target, Requirement only).
 """
 from __future__ import annotations
 
@@ -41,6 +43,7 @@ class InterviewToolGroup(BaseToolGroup):
         "interview.get": "_handle_get",
         "interview.grounding_context": "_handle_grounding_context",
         "interview.formalize": "_handle_formalize",
+        "interview.set_target": "_handle_set_target",
     }
 
     _TOOL_SCHEMAS = [
@@ -161,6 +164,30 @@ class InterviewToolGroup(BaseToolGroup):
                     "session_id": {"type": "string", "description": "UUID of the interview session."},
                 },
                 "required": ["session_id"],
+            },
+        },
+        {
+            "name": "interview.set_target",
+            "description": (
+                "Confirm a grounding_context() candidate (or any already-known "
+                "artifact_id) as this session's formalize() target (write). "
+                "Once set, formalize() updates that existing Requirement "
+                "instead of creating a new one. Requirement sessions only -- "
+                "formalize()'s update branch does not support the other 7 "
+                "in-scope artifact types yet. Re-validates that artifact_id "
+                "resolves to a real Requirement right now. Returns the "
+                "session's refreshed state."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "UUID of the interview session."},
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "UUID of the existing Requirement artifact to target.",
+                    },
+                },
+                "required": ["session_id", "artifact_id"],
             },
         },
     ]
@@ -285,6 +312,28 @@ class InterviewToolGroup(BaseToolGroup):
             entity_type="InterviewSession",
             entity_id=session_id,
             tool_name="interview.formalize",
+            api_key=api_key,
+        )
+        return ToolResult.ok(result)
+
+    def _handle_set_target(
+        self, *, params: Dict[str, Any], auth_context, api_key: str
+    ) -> ToolResult:
+        session_id = require_uuid(params, "session_id")
+        artifact_id = require_uuid(params, "artifact_id")
+        try:
+            result = self._service.set_target(auth_context, session_id, artifact_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="InterviewSession",
+            entity_id=session_id,
+            tool_name="interview.set_target",
             api_key=api_key,
         )
         return ToolResult.ok(result)

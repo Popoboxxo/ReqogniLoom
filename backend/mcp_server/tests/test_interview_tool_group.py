@@ -463,6 +463,82 @@ class TestInterviewToolGroup:
         assert result.error_code == "VALIDATION_ERROR"
         svc.formalize.assert_not_called()
 
+    # ------------------------------------------------------------------
+    # interview.set_target
+    # ------------------------------------------------------------------
+
+    @patch("mcp_server.tools.interview.write_mcp_audit")
+    def test_set_target_calls_service_and_returns_state(self, mock_audit):
+        group, svc = self._group()
+        session = _mock_session()
+        artifact_id = "22222222-2222-2222-2222-222222222222"
+        svc.set_target.return_value = _mock_state(session, missing_fields=[])
+
+        result = group.execute_tool(
+            tool_name="interview.set_target",
+            params={"session_id": str(session.id), "artifact_id": artifact_id},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data == svc.set_target.return_value
+        svc.set_target.assert_called_once_with(
+            EDITOR_CTX, session.id, UUID(artifact_id)
+        )
+        mock_audit.assert_called_once()
+        call_kwargs = mock_audit.call_args.kwargs
+        assert call_kwargs["tool_name"] == "interview.set_target"
+        assert call_kwargs["operation"] == "update"
+
+    def test_set_target_not_found_returns_not_found(self):
+        group, svc = self._group()
+        svc.set_target.side_effect = NotFoundError(
+            "Requirement with artifact_id=... not found"
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.set_target",
+            params={
+                "session_id": str(SESSION_UUID),
+                "artifact_id": "22222222-2222-2222-2222-222222222222",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_set_target_validation_error_returns_validation_error(self):
+        group, svc = self._group()
+        svc.set_target.side_effect = ValidationError(
+            "set_target() for artifact_type='Risk' is not supported"
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.set_target",
+            params={
+                "session_id": str(SESSION_UUID),
+                "artifact_id": "22222222-2222-2222-2222-222222222222",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_set_target_requires_artifact_id(self):
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="interview.set_target",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.set_target.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Registration / RBAC classification structural checks
@@ -486,6 +562,7 @@ class TestInterviewToolGroupRegistration:
             "interview.answer",
             "interview.formalize",
             "interview.grounding_context",
+            "interview.set_target",
         ):
             assert any(
                 tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES

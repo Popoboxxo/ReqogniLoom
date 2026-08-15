@@ -321,6 +321,78 @@ class TestGroundingAiAssisted:
         assert "SSO login support" in titles
 
 
+class TestSetTarget:
+    """issue #540: confirm a grounding_context() candidate (or any
+    already-known artifact_id) as the session's formalize() update target."""
+
+    def test_set_target_then_formalize_updates_existing_requirement(self, ctx, workspace):
+        from application.requirement_service import RequirementService
+        from persistence.models import InterviewSession
+
+        existing = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Old title", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        state = InterviewService().set_target(ctx, session.id, existing.artifact_id)
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            refreshed = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert refreshed.target_artifact_id == existing.artifact_id
+        # Reuses get_state()'s exact shape (this method's documented
+        # judgment call) -- confirm the response is a state dict, not some
+        # bespoke shape.
+        assert state["session_id"] == str(session.id)
+        assert state["status"] == "in_progress"
+
+        InterviewService().answer(ctx, session.id, "title", "New title")
+        InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        assert result["resulting_artifact_ids"] == [str(existing.artifact_id)]
+        updated = RequirementService().get_requirement(existing.id, ctx)
+        assert updated.title == "New title"
+        # No second Requirement was created -- the update branch was taken,
+        # not the create branch.
+        assert (
+            RequirementService()
+            .list_requirements(workspace_id=workspace.id, ctx=ctx)
+            .count()
+            == 1
+        )
+
+    def test_set_target_rejects_unknown_artifact_id(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        with pytest.raises(NotFoundError):
+            InterviewService().set_target(ctx, session.id, uuid.uuid4())
+
+    def test_set_target_rejects_non_requirement_session(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Risk", workspace.id)
+
+        with pytest.raises(ValidationError):
+            InterviewService().set_target(ctx, session.id, uuid.uuid4())
+
+    def test_set_target_rejects_completed_session(self, ctx, workspace):
+        from persistence.models import InterviewSession
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            InterviewSession.objects.filter(id=session.id).update(
+                status=InterviewSession.STATUS_COMPLETED
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        with pytest.raises(ValidationError):
+            InterviewService().set_target(ctx, session.id, uuid.uuid4())
+
+
 class TestFormalize:
     """spec §5 point 4 / §9: turn collected answers into a real Requirement,
     either creating a new one or updating the grounded target, then complete
