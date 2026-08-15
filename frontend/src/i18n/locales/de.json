@@ -1331,10 +1331,10 @@
     "editTitle": "Ziel bearbeiten",
     "untitled": "Ohne Titel",
     "noDescription": "Keine Beschreibung.",
-    "versions": "Versionen",
-    "versionsNone": "Nur die aktuelle Version.",
     "empty": "Noch keine Ziele",
     "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe fuer das Haupt-Ziel.",
+    "editHint": "Bearbeiten legt eine neue Version desselben Ziels an. Die bisherige Version bleibt in der Historie erhalten.",
+    "archiveConfirm": "„{{title}}“ wird archiviert und verschwindet aus der Liste. Die Version bleibt in der Historie erhalten.",
     "transition": {
       "Freigegeben": "Freigeben",
       "Entwurf": "Zurück zu Entwurf",

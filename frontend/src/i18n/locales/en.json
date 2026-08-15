@@ -1331,10 +1331,10 @@
     "editTitle": "Edit goal",
     "untitled": "Untitled",
     "noDescription": "No description.",
-    "versions": "Versions",
-    "versionsNone": "Only the current version.",
     "empty": "No goals yet",
     "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal.",
+    "editHint": "Editing creates a new version of the same goal. The previous version stays in the history.",
+    "archiveConfirm": "\"{{title}}\" will be archived and disappear from the list. The version stays in the history.",
     "transition": {
       "Freigegeben": "Approve",
       "Entwurf": "Back to draft",

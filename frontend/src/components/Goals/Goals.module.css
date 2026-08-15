@@ -1,0 +1,131 @@
+/*
+ * Goals route — shared chrome (issue #238).
+ *
+ * The route used to build every surface from inline `style={{...}}` object
+ * literals. Everything that is pure layout/typography now lives here, so the
+ * route follows the same CSS-Module convention the other artifact routes use
+ * (ArtifactRow, EmptyState, Dialog, ...) and every value resolves through a
+ * token from styles/tokens.css — no hardcoded colours or sizes.
+ */
+
+/* --- Tree: the two static grouping/anchor roots ------------------------- */
+
+/*
+ * "Haupt-Ziel" and "Ziele" are not artifacts, so they do not render as an
+ * <ArtifactRow>. They keep the tree's own selection mechanic (full-row
+ * background + 3px left accent), which <WorkspaceTree> hands over to the
+ * custom row slot as soon as `renderRow` is set.
+ */
+.rootRow {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.rootRow:hover {
+  background: var(--color-surface-raised);
+}
+
+.rootRowSelected,
+.rootRowSelected:hover {
+  background: var(--color-card-active-bg);
+  border-left: 3px solid var(--color-primary);
+}
+
+/* --- Detail pane / split-view layout ------------------------------------ */
+
+.detailPane {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-3);
+}
+
+.detailColumn {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: auto;
+}
+
+.pageRoot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* SplitView sizes itself to 100% of its box; the shell's <main> has no
+   resolved height, so the pane needs a floor of its own. */
+.splitHost {
+  flex: 1 1 auto;
+  min-height: 60vh;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.loading {
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+}
+
+/* --- Create / edit dialog ----------------------------------------------- */
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.input:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -1px;
+}
+
+.dialogHint {
+  margin: 0;
+  max-width: var(--measure);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+}

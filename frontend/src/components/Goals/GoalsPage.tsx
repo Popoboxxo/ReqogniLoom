@@ -5,21 +5,37 @@
  * is on — gated in SidebarNavigation, see NAV_ITEMS).
  *
  * UI concept ch. 6 / 12.6: the route is a split view, not a stack of panels.
- * It previously piled PageHeader + MainGoalPanel + a flat <ul> on top of
- * each other, which left the two things the concept insists on missing
- * entirely — a tree to navigate by and a detail pane to work in.
  *
- * Layout now:
+ * Layout:
  *   PageHeader (one <h1>, always-visible summary, one primary action)
  *   SplitView
- *     left  — <GoalsTree>: "Haupt-Ziel" and "Ziele" as the two roots
- *     right — <MainGoalPanel> | <GoalDetail> | <GoalForm>
+ *     left  — <GoalsTree>: "Haupt-Ziel" and "Ziele" as the two roots,
+ *              with ListToolbar search/status-filter/sort above them
+ *     right — <MainGoalPanel> | <GoalDetail>, with the shared
+ *              <ArtifactInspector> sidebar beside it
+ *   <GoalFormDialog>        — create / edit, modal (issue #238)
+ *   <ArchiveConfirmDialog>  — the archive move (issue #238)
+ *
+ * Issue #238 brought the route onto the same shape every other artifact route
+ * has: creation happens in a modal instead of inside the detail pane, the
+ * archive move is confirmed and danger-styled instead of sitting unlabelled
+ * among the lifecycle buttons, and the list rows/empty states are the shared
+ * <ArtifactRow>/<EmptyState> primitives (see GoalsTree).
+ *
+ * Issue #219: the `<ArtifactInspector>` sidebar is mounted here for both
+ * artifact types of this route — `kind="goal"` next to a selected Goal and
+ * `kind="mainGoal"` next to the main goal panel. Its VersionPanel is what
+ * finally makes Goal/MainGoal version history reachable; the wiring
+ * (VERSION_SUPPORTED_KINDS / VERSIONS_FETCHERS) had existed but no component
+ * rendered the sidebar. Trace links stay hidden there: <GoalDetail> already
+ * shows them through <TraceSpine>, and MainGoal has no artifact-level trace
+ * links at all (no `artifact_id` on the type).
  *
  * The page owns all Goal mutations so that a rejected create / edit /
- * approval surfaces in exactly one alert (ch. 12.12) instead of three.
- * MainGoal keeps its own state inside <MainGoalPanel>: AI generation,
- * manual authoring and release are a self-contained flow on a different
- * artifact type and are only re-seated here, not rewritten.
+ * transition surfaces in exactly one place (ch. 12.12) — inside the dialog
+ * while one is open, in the detail pane otherwise. MainGoal keeps its own
+ * state inside <MainGoalPanel>: AI generation, manual authoring, release and
+ * archiving are a self-contained flow on a different artifact type.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -28,18 +44,30 @@ import { extractErrorMessage } from "../../api/client";
 import { goalsApi } from "../../api/goals";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { PageHeader } from "../shared/PageHeader";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import { SplitView } from "../SplitView/SplitView";
 import { resolveBadgeVariant } from "../../utils/statusBadge";
+import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
 import { GoalDetail } from "./GoalDetail";
-import { GoalForm } from "./GoalForm";
+import { GoalFormDialog } from "./GoalFormDialog";
+import type { GoalFormValues } from "./GoalFormDialog";
+import { isArchiveTransition } from "./goal-workflow";
 import { GOALS_ROOT_NODE_ID, GoalsTree, MAIN_GOAL_NODE_ID } from "./GoalsTree";
 import { MainGoalPanel } from "./MainGoalPanel";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
-import type { Goal } from "../../types";
+import type { Goal, MainGoal } from "../../types";
+import styles from "./Goals.module.css";
 
-/** Create/edit form state. `null` = no form, `{ editing: null }` = create. */
+/** Create/edit form state. `null` = no dialog, `{ editing: null }` = create. */
 interface FormState {
   editing: Goal | null;
+}
+
+/** A confirmed-before-it-runs transition (currently only the archive move). */
+interface PendingTransition {
+  goal: Goal;
+  transition: WorkflowAllowedTransition;
 }
 
 export default function GoalsPage(): JSX.Element {
@@ -53,6 +81,12 @@ export default function GoalsPage(): JSX.Element {
   // of this route, so it is what an arriving user sees.
   const [selectedId, setSelectedId] = useState<string>(MAIN_GOAL_NODE_ID);
   const [form, setForm] = useState<FormState | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingArchive, setPendingArchive] = useState<PendingTransition | null>(null);
+  // Issue #219: the MainGoal the panel currently shows, so the inspector can
+  // be mounted beside it. Reported upwards because the inspector is a sibling
+  // of the whole detail column, not of the panel card.
+  const [activeMainGoal, setActiveMainGoal] = useState<MainGoal | null>(null);
 
   const loadGoals = useCallback(async (): Promise<void> => {
     if (!workspaceId) return;
@@ -72,6 +106,21 @@ export default function GoalsPage(): JSX.Element {
     () => goals.find((g) => g.id === selectedId) ?? null,
     [goals, selectedId],
   );
+
+  // Defensive fix (issue #238 review finding 3): fall back to the main-goal
+  // anchor whenever the selected Goal is missing from a freshly loaded list,
+  // regardless of which state it moved into. Previously this only ran for
+  // moves classified as "archive" (`isArchiveTransition`), which depends on
+  // `resolveBadgeVariant` recognising the target state's warning family — an
+  // unrecognised/custom state that still drops the row from
+  // `GoalService.list_current()` used to leave the detail pane silently
+  // empty (not the empty state, nothing) instead of falling back (ch. 13.5).
+  useEffect(() => {
+    if (selectedId === MAIN_GOAL_NODE_ID) return;
+    if (!goals.some((g) => g.id === selectedId)) {
+      setSelectedId(MAIN_GOAL_NODE_ID);
+    }
+  }, [goals, selectedId]);
 
   const summary = useMemo(() => {
     // Issue #220: no hardcoded state name here either. `resolveBadgeVariant`
@@ -95,15 +144,25 @@ export default function GoalsPage(): JSX.Element {
     // The "Ziele" node is a grouping row, not an artifact — clicking it only
     // ever expands/collapses (the caret handles that itself).
     if (id === GOALS_ROOT_NODE_ID) return;
-    setForm(null);
     setError(null);
     setSelectedId(id);
   }, []);
 
+  const openCreateDialog = useCallback((): void => {
+    setError(null);
+    setForm({ editing: null });
+  }, []);
+
+  const closeFormDialog = useCallback((): void => {
+    setError(null);
+    setForm(null);
+  }, []);
+
   const handleSubmit = useCallback(
-    async (values: { title: string; description: string }): Promise<void> => {
+    async (values: GoalFormValues): Promise<void> => {
       if (!workspaceId) return;
       setError(null);
+      setIsSubmitting(true);
       const editing = form?.editing ?? null;
       try {
         if (editing) {
@@ -123,16 +182,20 @@ export default function GoalsPage(): JSX.Element {
         }
         setForm(null);
       } catch (err) {
-        // ch. 12.12: a failed action keeps the form open and states the cause.
+        // ch. 12.12: a failed action keeps the dialog open and states the
+        // cause inside it, where the action was triggered.
         setError(extractErrorMessage(err));
+      } finally {
+        setIsSubmitting(false);
       }
     },
     [form, loadGoals, workspaceId],
   );
 
-  const handleTransition = useCallback(
+  const runTransition = useCallback(
     async (goal: Goal, transition: WorkflowAllowedTransition): Promise<void> => {
       setError(null);
+      setIsSubmitting(true);
       try {
         // The WorkflowEngine rejects an empty reason where the transition
         // demands one (`requires_change_reason`), so send a canned one for
@@ -144,13 +207,40 @@ export default function GoalsPage(): JSX.Element {
             })
           : "";
         await goalsApi.transition(goal.id, transition.target_state, changeReason);
+        // A goal dropped from `GoalService.list_current()` by this move (the
+        // archive move today, potentially other states in a customised
+        // workflow tomorrow) leaves the selection dangling — the defensive
+        // effect above resets it to the route's anchor once `goals` reloads.
         await loadGoals();
       } catch (err) {
         setError(extractErrorMessage(err));
+      } finally {
+        setIsSubmitting(false);
       }
     },
     [loadGoals, t],
   );
+
+  const handleTransition = useCallback(
+    (goal: Goal, transition: WorkflowAllowedTransition): void => {
+      // Archiving removes the goal from the list, so it is confirmed first;
+      // every other move is immediate and reversible through the workflow.
+      if (isArchiveTransition(transition.target_state)) {
+        setError(null);
+        setPendingArchive({ goal, transition });
+        return;
+      }
+      void runTransition(goal, transition);
+    },
+    [runTransition],
+  );
+
+  const confirmArchive = useCallback((): void => {
+    if (!pendingArchive) return;
+    const { goal, transition } = pendingArchive;
+    setPendingArchive(null);
+    void runTransition(goal, transition);
+  }, [pendingArchive, runTransition]);
 
   const handleEdit = useCallback((goal: Goal): void => {
     setError(null);
@@ -160,75 +250,98 @@ export default function GoalsPage(): JSX.Element {
 
   if (isLoadingWorkspace || !activeWorkspace) {
     return (
-      <p role="status" style={{ padding: "var(--space-8)", color: "var(--color-text-muted)" }}>
+      <p role="status" className={styles.loading}>
         {t("loading", "Laden...")}
       </p>
     );
   }
 
-  const detailPane = (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      {error && (
-        <p
-          data-testid="goals-error"
-          role="alert"
-          style={{
-            margin: 0,
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-          }}
-        >
-          {error}
-        </p>
-      )}
+  const isMainGoalSelected = selectedId === MAIN_GOAL_NODE_ID;
 
-      {form ? (
-        <GoalForm
-          editing={form.editing}
-          onSubmit={(values) => void handleSubmit(values)}
-          onCancel={() => {
-            setError(null);
-            setForm(null);
-          }}
+  /**
+   * Subject of the inspector sidebar (issue #219). Both kinds resolve their
+   * version list from the *entity* id: `GET /goals/{id}/versions/` looks the
+   * lineage up from the row, `GET /main-goals/{id}/versions/` the workspace
+   * chain — neither takes an `artifact_id`.
+   */
+  const inspector: {
+    kind: "goal" | "mainGoal";
+    artifactId: string;
+    version: VersionRef;
+  } | null = isMainGoalSelected
+    ? activeMainGoal
+      ? {
+          kind: "mainGoal",
+          artifactId: activeMainGoal.id,
+          version: {
+            version: activeMainGoal.sequence_number,
+            label: `v${activeMainGoal.sequence_number}`,
+            createdAt: activeMainGoal.created_at ?? null,
+            baselineIds: [],
+          },
+        }
+      : null
+    : selectedGoal
+      ? {
+          kind: "goal",
+          artifactId: selectedGoal.id,
+          version: {
+            version: selectedGoal.sequence_number,
+            label: `v${selectedGoal.sequence_number}`,
+            createdAt: selectedGoal.created_at ?? null,
+            baselineIds: [],
+          },
+        }
+      : null;
+
+  const detailPane = (
+    <div className={styles.detailPane}>
+      <div className={styles.detailColumn}>
+        {error && !form && (
+          <p data-testid="goals-error" role="alert" className={styles.error}>
+            {error}
+          </p>
+        )}
+
+        {isMainGoalSelected ? (
+          <MainGoalPanel
+            workspaceId={activeWorkspace.id}
+            aiEnabled={!!activeWorkspace.goals_ai_enabled}
+            onActiveChange={setActiveMainGoal}
+          />
+        ) : selectedGoal ? (
+          <GoalDetail
+            goal={selectedGoal}
+            onEdit={handleEdit}
+            onTransition={handleTransition}
+          />
+        ) : null}
+      </div>
+
+      {inspector && (
+        <RightSidebar
+          kind={inspector.kind}
+          artifactId={inspector.artifactId}
+          currentVersion={inspector.version}
+          hideTraceLinks
         />
-      ) : selectedId === MAIN_GOAL_NODE_ID ? (
-        <MainGoalPanel
-          workspaceId={activeWorkspace.id}
-          aiEnabled={!!activeWorkspace.goals_ai_enabled}
-        />
-      ) : selectedGoal ? (
-        <GoalDetail
-          goal={selectedGoal}
-          onEdit={handleEdit}
-          onTransition={(goal, transition) =>
-            void handleTransition(goal, transition)
-          }
-        />
-      ) : null}
+      )}
     </div>
   );
 
   return (
-    <div
-      data-testid="goals-page"
-      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
-    >
+    <div data-testid="goals-page" className={styles.pageRoot}>
       <PageHeader
         title={t("goals.title", "Ziele")}
         summary={summary}
         primaryAction={{
           label: t("goals.newGoal", "Neues Ziel"),
-          onClick: () => {
-            setError(null);
-            setForm({ editing: null });
-          },
+          onClick: openCreateDialog,
           disabled: Boolean(form),
           testId: "create-goal-btn",
         }}
       />
-      {/* SplitView sizes itself to 100% of its box; the shell's <main> has no
-          resolved height, so the pane needs a floor of its own. */}
-      <div style={{ flex: "1 1 auto", minHeight: "60vh" }}>
+      <div className={styles.splitHost}>
         <SplitView
           moduleType="goals"
           initialLeftWidth={350}
@@ -238,11 +351,36 @@ export default function GoalsPage(): JSX.Element {
               selectedId={selectedId}
               onSelect={handleSelect}
               workspaceId={workspaceId}
+              onCreateNew={openCreateDialog}
             />
           }
           rightPanel={detailPane}
         />
       </div>
+
+      {form && (
+        <GoalFormDialog
+          editing={form.editing}
+          error={error}
+          isSubmitting={isSubmitting}
+          onSubmit={(values) => void handleSubmit(values)}
+          onClose={closeFormDialog}
+        />
+      )}
+
+      {pendingArchive && (
+        <ArchiveConfirmDialog
+          testId="goal-archive-dialog"
+          itemLabel={pendingArchive.goal.title || t("goals.untitled", "Ohne Titel")}
+          confirmLabel={t(
+            `goals.transition.${pendingArchive.transition.target_state}`,
+            { defaultValue: pendingArchive.transition.target_state },
+          )}
+          isSubmitting={isSubmitting}
+          onConfirm={confirmArchive}
+          onCancel={() => setPendingArchive(null)}
+        />
+      )}
     </div>
   );
 }

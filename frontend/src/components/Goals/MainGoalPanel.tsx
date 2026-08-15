@@ -17,19 +17,41 @@
  * content, an empty state that offers the next step instead of reporting a
  * condition (ch. 3.5 / 12.7), and action labels that name the result
  * (ch. 14.2).
+ *
+ * Issue #238: the panel also offers the archive move, which it did not have
+ * at all before — a MainGoal could be created and approved but never retired.
+ * It is driven by the generic `/main-goals/{id}/transitions/` contract
+ * (`workflowTransitionsApi`, which already lists `main-goal`), so a workspace
+ * with a customised MainGoal state machine (ADR-06) gets its own moves rather
+ * than a hardcoded "Archiviert".
+ *
+ * Issue #219: `onActiveChange` reports the MainGoal the panel is currently
+ * showing so the page can mount the `<ArtifactInspector>` beside it — the
+ * panel itself must not, because the inspector is a sibling of the whole
+ * detail column, not of this card.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { mainGoalApi } from "../../api/main-goal";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
+import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
+import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
+import { isArchiveTransition } from "./goal-workflow";
 import type { MainGoal, UUID } from "../../types";
 
 interface MainGoalPanelProps {
   workspaceId: UUID;
   aiEnabled: boolean;
+  /**
+   * Reports the MainGoal currently on screen (the draft while one exists,
+   * otherwise the approved one, `null` when there is neither). Issue #219 —
+   * the page uses it as the inspector's subject.
+   */
+  onActiveChange?: (mainGoal: MainGoal | null) => void;
 }
 
 const sectionStyle: React.CSSProperties = {
@@ -48,13 +70,22 @@ const bodyStyle: React.CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
-export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): JSX.Element {
+export function MainGoalPanel({
+  workspaceId,
+  aiEnabled,
+  onActiveChange,
+}: MainGoalPanelProps): JSX.Element {
   const { t } = useTranslation();
   const [current, setCurrent] = useState<MainGoal | null>(null);
   const [draft, setDraft] = useState<MainGoal | null>(null);
   const [manualContent, setManualContent] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [archiveTransition, setArchiveTransition] =
+    useState<WorkflowAllowedTransition | null>(null);
+  const [archivePending, setArchivePending] = useState<WorkflowAllowedTransition | null>(
+    null,
+  );
 
   useEffect(() => {
     mainGoalApi
@@ -65,6 +96,44 @@ export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): J
       .then((mg) => setCurrent(mg ?? null))
       .catch((err: unknown) => setError(extractErrorMessage(err)));
   }, [workspaceId]);
+
+  // The artifact on screen: a fresh draft takes precedence over the approved
+  // version, because that is what the user is working on.
+  const active = draft ?? current;
+
+  useEffect(() => {
+    onActiveChange?.(active);
+  }, [active, onActiveChange]);
+
+  // Which moves the WorkflowEngine currently allows for the approved main
+  // goal. A 404 (no workflow configured) or 403 (role gate) degrades to "no
+  // archive button" rather than an error banner — same contract GoalDetail
+  // uses for Goal.
+  useEffect(() => {
+    const target = current;
+    if (!target) {
+      setArchiveTransition(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const resp = await workflowTransitionsApi.getTransitions("main-goal", target.id);
+        if (cancelled) return;
+        const allowed = Array.isArray(resp?.allowed_transitions)
+          ? resp.allowed_transitions
+          : [];
+        setArchiveTransition(
+          allowed.find((tr) => isArchiveTransition(tr.target_state)) ?? null,
+        );
+      } catch {
+        if (!cancelled) setArchiveTransition(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [current]);
 
   const handleGenerate = async (): Promise<void> => {
     setError(null);
@@ -98,6 +167,56 @@ export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): J
       setError(extractErrorMessage(err));
     }
   };
+
+  const handleArchive = useCallback(
+    async (transition: WorkflowAllowedTransition): Promise<void> => {
+      const target = current;
+      if (!target) return;
+      setError(null);
+      try {
+        await workflowTransitionsApi.transition(
+          "main-goal",
+          target.id,
+          transition.target_state,
+          transition.requires_change_reason
+            ? t("goals.transitionReason", {
+                state: transition.target_state,
+                defaultValue: `Statuswechsel nach ${transition.target_state}.`,
+              })
+            : "",
+        );
+        // `MainGoalService.get_current()` returns the NEWEST `Freigegeben`
+        // row, which is not necessarily `null` after archiving: e.g. v1
+        // approved, then v2 generated+approved, then v2 archived leaves v1
+        // (still `Freigegeben`) as the current one. Re-fetch instead of
+        // assuming "none approved" so the panel, the inspector, and the
+        // backend agree. This also re-derives `archiveTransition` for the
+        // new current row via the effect keyed on `current`.
+        const refreshed = await mainGoalApi.current(workspaceId);
+        setCurrent(refreshed ?? null);
+      } catch (err) {
+        setError(extractErrorMessage(err));
+      }
+    },
+    [current, t, workspaceId],
+  );
+
+  // Issue #238 finding 2: the dialog closes BEFORE the request starts (same
+  // pattern as `GoalsPage.confirmArchive`), so a doubled click on the confirm
+  // button cannot fire a second `transitions/` request — the button is gone
+  // by the time the first request is even in flight.
+  const confirmArchive = useCallback((): void => {
+    if (!archivePending) return;
+    const transition = archivePending;
+    setArchivePending(null);
+    void handleArchive(transition);
+  }, [archivePending, handleArchive]);
+
+  const archiveLabel = archiveTransition
+    ? t(`goals.transition.${archiveTransition.target_state}`, {
+        defaultValue: archiveTransition.target_state,
+      })
+    : "";
 
   return (
     <div data-testid="main-goal-panel" style={sectionStyle}>
@@ -214,6 +333,23 @@ export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): J
             ? t("goals.manualCancel", "Eingabe abbrechen")
             : t("goals.manualOpen", "Haupt-Ziel selbst schreiben")}
         </button>
+        {/*
+            The archive move — the only way to retire a MainGoal, since
+            MainGoals cannot be deleted (see goal-workflow.ts). Only shown
+            when the WorkflowEngine actually allows it for the caller. */}
+        {current && archiveTransition && (
+          <button
+            type="button"
+            className="btn-danger"
+            data-testid="main-goal-archive-button"
+            onClick={() => {
+              setError(null);
+              setArchivePending(archiveTransition);
+            }}
+          >
+            {archiveLabel}
+          </button>
+        )}
       </div>
 
       {manualOpen && (
@@ -303,6 +439,16 @@ export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): J
             {t("goals.approve", "Freigeben")}
           </button>
         </div>
+      )}
+
+      {archivePending && current && (
+        <ArchiveConfirmDialog
+          testId="main-goal-archive-dialog"
+          itemLabel={t("goals.mainGoal", "Haupt-Ziel")}
+          confirmLabel={archiveLabel}
+          onConfirm={confirmArchive}
+          onCancel={() => setArchivePending(null)}
+        />
       )}
     </div>
   );
