@@ -1,3 +1,4 @@
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { InterviewListView } from "../InterviewListView";
@@ -5,9 +6,9 @@ import type { AppState } from "../state";
 
 vi.mock("../state", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../state")>();
-  return { ...actual, startNewInterview: vi.fn(), resumeInterview: vi.fn() };
+  return { ...actual, startNewInterview: vi.fn(), resumeInterview: vi.fn(), closeInterview: vi.fn() };
 });
-import { resumeInterview, startNewInterview } from "../state";
+import { closeInterview, resumeInterview, startNewInterview } from "../state";
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -49,5 +50,13 @@ describe("InterviewListView", () => {
     render(<InterviewListView state={makeState({ interviewError: "boom" })} />);
 
     expect(screen.getByText("boom")).toBeInTheDocument();
+  });
+
+  it("renders a Back button that calls closeInterview", () => {
+    render(<InterviewListView state={makeState()} />);
+
+    fireEvent.click(screen.getByTestId("interview-list-back-button"));
+
+    expect(closeInterview).toHaveBeenCalled();
   });
 });

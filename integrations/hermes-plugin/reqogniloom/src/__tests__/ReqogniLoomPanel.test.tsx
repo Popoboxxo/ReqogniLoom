@@ -1,5 +1,6 @@
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { ReqogniLoomPanel } from "../ReqogniLoomPanel";
 import * as state from "../state";
 

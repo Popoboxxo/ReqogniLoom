@@ -23,6 +23,7 @@ vi.mock("../mcpClient", async () => {
     interviewAnswer: vi.fn(),
     interviewList: vi.fn(),
     interviewFormalize: vi.fn(),
+    interviewGroundingContext: vi.fn(),
   };
 });
 
@@ -359,6 +360,33 @@ describe("interview state", () => {
     expect(getState().activeInterview).toEqual(fakeInterviewState);
   });
 
+  it("startNewInterview fetches grounding context and merges candidates into activeInterview", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    vi.mocked(mcpClient.interviewGroundingContext).mockResolvedValue({
+      candidates: [{ artifact_id: "art-9", title: "Similar existing req", score: null }],
+    });
+
+    await startNewInterview("Requirement");
+
+    expect(mcpClient.interviewGroundingContext).toHaveBeenCalledWith(expect.anything(), expect.anything(), "s-1");
+    expect(getState().activeInterview?.grounding_snapshot.candidates).toEqual([
+      { artifact_id: "art-9", title: "Similar existing req", score: null },
+    ]);
+  });
+
+  it("startNewInterview still succeeds (no interviewError) when grounding context lookup fails", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    vi.mocked(mcpClient.interviewGroundingContext).mockRejectedValue(new Error("grounding boom"));
+
+    await startNewInterview("Requirement");
+
+    expect(getState().activeInterview).not.toBeNull();
+    expect(getState().activeInterview?.session_id).toBe("s-1");
+    expect(getState().interviewError).toBeNull();
+  });
+
   it("openInterviews loads the interview list and switches view", async () => {
     await connectedState();
     const summaries = [{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }];
@@ -384,6 +412,9 @@ describe("interview state", () => {
 
     expect(mcpClient.interviewFormalize).toHaveBeenCalledWith(expect.anything(), expect.anything(), "s-1");
     expect(result).toEqual({ resulting_artifact_ids: ["REQ-1"], status: "completed" });
+    // activeInterview must flip to completed so InterviewFormView's read-only
+    // branch takes over instead of re-rendering the (now stale) in-progress form.
+    expect(getState().activeInterview?.status).toBe("completed");
   });
 });
 

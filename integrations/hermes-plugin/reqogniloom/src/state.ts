@@ -4,6 +4,7 @@ import {
   interviewAnswer,
   interviewFormalize,
   interviewGetState,
+  interviewGroundingContext,
   interviewList as fetchInterviewList,
   interviewStart,
   type InterviewState,
@@ -170,12 +171,27 @@ export async function openInterviews(): Promise<void> {
   }
 }
 
+// Grounding is a nice-to-have hint, not a blocker (matches the backend's own
+// fail-open design for this feature): a lookup failure must not fail the
+// start/resume flow, and must not surface as interviewError -- it just leaves
+// grounding_snapshot as whatever the start/resume call already returned
+// (likely {}).
+async function withGroundingContext(connection: Connection, interview: InterviewState): Promise<InterviewState> {
+  try {
+    const grounding = await interviewGroundingContext(api().network, connection, interview.session_id);
+    return { ...interview, grounding_snapshot: { ...interview.grounding_snapshot, candidates: grounding.candidates } };
+  } catch {
+    return interview;
+  }
+}
+
 export async function startNewInterview(artifactType: string): Promise<void> {
   if (!state.connection) return;
   setState({ interviewBusy: true, interviewError: null });
   try {
     const interview = await interviewStart(api().network, state.connection, artifactType);
-    setState({ activeInterview: interview, view: "interviews", interviewBusy: false });
+    const withGrounding = await withGroundingContext(state.connection, interview);
+    setState({ activeInterview: withGrounding, view: "interviews", interviewBusy: false });
   } catch (err) {
     setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to start interview." });
   }
@@ -186,7 +202,8 @@ export async function resumeInterview(sessionId: string): Promise<void> {
   setState({ interviewBusy: true, interviewError: null });
   try {
     const interview = await interviewGetState(api().network, state.connection, sessionId);
-    setState({ activeInterview: interview, view: "interviews", interviewBusy: false });
+    const withGrounding = await withGroundingContext(state.connection, interview);
+    setState({ activeInterview: withGrounding, view: "interviews", interviewBusy: false });
   } catch (err) {
     setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to resume interview." });
   }
@@ -210,7 +227,10 @@ export async function formalizeInterview(): Promise<{ resulting_artifact_ids: st
   setState({ interviewBusy: true, interviewError: null });
   try {
     const result = await interviewFormalize(api().network, state.connection, sessionId);
-    setState({ interviewBusy: false });
+    setState({
+      interviewBusy: false,
+      activeInterview: { ...state.activeInterview, status: "completed" },
+    });
     return result;
   } catch (err) {
     setState({ interviewBusy: false, interviewError: err instanceof Error ? err.message : "Failed to formalize interview." });

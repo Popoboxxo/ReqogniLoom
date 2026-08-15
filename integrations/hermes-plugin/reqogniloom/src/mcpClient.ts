@@ -93,7 +93,7 @@ export interface InterviewState {
   phase: string;
   collected_fields: Record<string, unknown>;
   missing_fields: InterviewField[];
-  grounding_snapshot: { candidates: { artifact_id: string; title: string; score: number | null }[] };
+  grounding_snapshot: { candidates?: { artifact_id: string; title: string; score: number | null }[] };
 }
 
 export interface InterviewSummary {

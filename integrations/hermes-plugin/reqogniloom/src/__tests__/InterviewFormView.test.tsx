@@ -1,3 +1,4 @@
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { InterviewFormView } from "../InterviewFormView";
@@ -18,12 +19,13 @@ function makeInterview(overrides: Partial<InterviewState> = {}): InterviewState 
   };
 }
 
-function makeState(activeInterview: InterviewState): AppState {
+function makeState(activeInterview: InterviewState, overrides: Partial<AppState> = {}): AppState {
   return {
     view: "interviews", connection: { baseUrl: "https://x", apiKey: "k", workspaceId: "ws-1" },
     workspaceName: "WS", pendingCredentials: null, pendingWorkspaces: [],
     connectError: null, connecting: false, activeInterview,
     interviewList: [], interviewError: null, interviewBusy: false,
+    ...overrides,
   };
 }
 
@@ -99,6 +101,36 @@ describe("InterviewFormView field rendering", () => {
     render(<InterviewFormView state={makeState(interview)} />);
 
     expect(screen.getByText(/Similar existing req/i)).toBeInTheDocument();
+  });
+
+  it("shows interviewError when present", () => {
+    const interview = makeInterview({
+      missing_fields: [{ name: "title", type: "text", choices: null }],
+    });
+    render(<InterviewFormView state={makeState(interview, { interviewError: "boom" })} />);
+
+    expect(screen.getByText("boom")).toBeInTheDocument();
+  });
+
+  it("renders a Cancel button in the in-progress branch that calls closeInterview", () => {
+    const interview = makeInterview({
+      missing_fields: [{ name: "title", type: "text", choices: null }],
+    });
+    render(<InterviewFormView state={makeState(interview)} />);
+
+    fireEvent.click(screen.getByTestId("interview-form-cancel-button"));
+
+    expect(closeInterview).toHaveBeenCalled();
+  });
+
+  it("renders without throwing when grounding_snapshot has no candidates key (realistic un-grounded backend shape)", () => {
+    const interview = makeInterview({
+      grounding_snapshot: {},
+      missing_fields: [{ name: "title", type: "text", choices: null }],
+    });
+
+    expect(() => render(<InterviewFormView state={makeState(interview)} />)).not.toThrow();
+    expect(screen.queryByText(/Possibly related/i)).not.toBeInTheDocument();
   });
 
   it("renders a read-only completed view instead of the form when status is completed", () => {

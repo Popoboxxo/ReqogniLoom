@@ -63,6 +63,11 @@ export function InterviewFormView({ state }: { state: AppState }): JSX.Element |
   if (interview.status !== "in_progress") {
     return (
       <div>
+        {state.interviewError && (
+          <span style={{ color: "var(--danger, red)", fontSize: "var(--text-xs)" }}>
+            {state.interviewError}
+          </span>
+        )}
         <p>Session is {interview.status}.</p>
         {result && <p>Created/updated: {result.resulting_artifact_ids.join(", ")}</p>}
         <button type="button" style={buttonStyle} onClick={closeInterview}>
@@ -72,10 +77,16 @@ export function InterviewFormView({ state }: { state: AppState }): JSX.Element |
     );
   }
 
-  const candidates = interview.grounding_snapshot.candidates;
+  const candidates = interview.grounding_snapshot?.candidates ?? [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      {state.interviewError && (
+        <span style={{ color: "var(--danger, red)", fontSize: "var(--text-xs)" }}>
+          {state.interviewError}
+        </span>
+      )}
+
       <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>{interview.phase}</span>
 
       {candidates.length > 0 && (
@@ -93,18 +104,24 @@ export function InterviewFormView({ state }: { state: AppState }): JSX.Element |
         </label>
       ))}
 
-      <button
-        type="button"
-        data-testid="interview-formalize-button"
-        style={buttonStyle}
-        disabled={interview.missing_fields.length > 0}
-        onClick={async () => {
-          const r = await formalizeInterview();
-          if (r) setResult(r);
-        }}
-      >
-        Formalize
-      </button>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button
+          type="button"
+          data-testid="interview-formalize-button"
+          style={buttonStyle}
+          disabled={interview.missing_fields.length > 0}
+          onClick={async () => {
+            const r = await formalizeInterview();
+            if (r) setResult(r);
+          }}
+        >
+          Formalize
+        </button>
+
+        <button type="button" data-testid="interview-form-cancel-button" style={buttonStyle} onClick={closeInterview}>
+          Cancel
+        </button>
+      </div>
 
       {result && <p>Created/updated: {result.resulting_artifact_ids.join(", ")}</p>}
     </div>

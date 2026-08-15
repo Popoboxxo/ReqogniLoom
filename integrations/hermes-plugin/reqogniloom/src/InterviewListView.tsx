@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { AppState } from "./state";
-import { resumeInterview, startNewInterview } from "./state";
+import { closeInterview, resumeInterview, startNewInterview } from "./state";
 
 // Mirrors the engine's IN_SCOPE_ARTIFACT_TYPES (Spec 1 plan,
 // application/interview_protocol.py) -- fixed at design time, not fetched.
@@ -22,6 +22,15 @@ const buttonStyle: React.CSSProperties = {
 export function InterviewListView({ state }: { state: AppState }): JSX.Element {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      <button
+        type="button"
+        data-testid="interview-list-back-button"
+        style={buttonStyle}
+        onClick={closeInterview}
+      >
+        Back
+      </button>
+
       {state.interviewError && (
         <span style={{ color: "var(--danger, red)", fontSize: "var(--text-xs)" }}>
           {state.interviewError}
