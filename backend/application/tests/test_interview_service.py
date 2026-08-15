@@ -1,8 +1,10 @@
 """InterviewService core state machine — spec §4 (start/get_state/answer/list/get)."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
@@ -182,3 +184,131 @@ class TestGroundingStructural:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         result = InterviewService().grounding_context(ctx, session.id)
         assert result["candidates"] == []
+
+
+class TestGroundingAiAssisted:
+    """spec §6 step 2: AI-assisted ranking on top of the structural
+    pre-filter -- fail-open per spec §6, this is the one hard correctness
+    requirement (Task 6)."""
+
+    def test_mock_provider_still_returns_structural_candidates(self, ctx, workspace):
+        """No real provider configured (test env defaults to LLM_PROVIDER=mock)
+        -> structural results only, never blocks (spec §6)."""
+        from application.requirement_service import RequirementService
+
+        RequirementService().create_requirement(
+            workspace_id=workspace.id, title="SSO login support", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+
+        result = InterviewService().grounding_context(ctx, session.id)
+
+        assert len(result["candidates"]) >= 1
+
+    def test_provider_failure_does_not_raise(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "anything")
+
+        with patch(
+            "application.interview_service.InterviewService._resolve_provider",
+            side_effect=RuntimeError("boom"),
+        ):
+            # Must not raise -- fail-open per spec §6.
+            result = InterviewService().grounding_context(ctx, session.id)
+
+        assert "candidates" in result
+
+    def test_provider_call_failure_falls_back_to_structural_candidates(self, ctx, workspace):
+        """A real (non-mock) provider that raises mid-call must not lose the
+        structural candidates already found -- fail-open at the call layer,
+        not just the resolve layer."""
+        from application.requirement_service import RequirementService
+
+        RequirementService().create_requirement(
+            workspace_id=workspace.id, title="SSO login support", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+
+        broken_provider = object()
+        with patch(
+            "application.interview_service.InterviewService._resolve_provider",
+            return_value=(broken_provider, "anthropic", None),
+        ):
+            # broken_provider has no .complete(), so calling it raises
+            # AttributeError -- exercises the real call-failure path, not
+            # just a mocked side_effect.
+            result = InterviewService().grounding_context(ctx, session.id)
+
+        assert len(result["candidates"]) >= 1
+        titles = [c["title"] for c in result["candidates"]]
+        assert "SSO login support" in titles
+
+    def test_real_provider_success_merges_scores_and_sorts(self, ctx, workspace):
+        """A real provider that returns a well-formed ranking must actually
+        get applied -- fail-open is not the only correctness bar here."""
+        from application.requirement_service import RequirementService
+
+        # Both titles must contain the answered "SSO login support" as a
+        # substring -- that's what the Task 5 structural pre-filter matches
+        # on (title.lower() in r.title.lower()).
+        RequirementService().create_requirement(
+            workspace_id=workspace.id, title="SSO login support", ctx=ctx, description=""
+        )
+        RequirementService().create_requirement(
+            workspace_id=workspace.id,
+            title="SSO login support (extended)",
+            ctx=ctx,
+            description="",
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+
+        state = InterviewService().grounding_context(ctx, session.id)
+        by_title = {c["title"]: c["artifact_id"] for c in state["candidates"]}
+        assert set(by_title) == {"SSO login support", "SSO login support (extended)"}
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = json.dumps(
+            [
+                {"artifact_id": by_title["SSO login support (extended)"], "score": 0.2},
+                {"artifact_id": by_title["SSO login support"], "score": 0.95},
+            ]
+        )
+        with patch(
+            "application.interview_service.InterviewService._resolve_provider",
+            return_value=(fake_provider, "anthropic", None),
+        ):
+            result = InterviewService().grounding_context(ctx, session.id)
+
+        fake_provider.complete.assert_called_once()
+        assert [c["title"] for c in result["candidates"]] == [
+            "SSO login support",
+            "SSO login support (extended)",
+        ]
+        assert result["candidates"][0]["score"] == 0.95
+        assert result["candidates"][1]["score"] == 0.2
+
+    def test_malformed_ai_response_falls_back_to_structural_candidates(self, ctx, workspace):
+        """A real provider that returns non-JSON garbage must not lose the
+        structural candidates or raise -- fail-open at the parse layer."""
+        from application.requirement_service import RequirementService
+
+        RequirementService().create_requirement(
+            workspace_id=workspace.id, title="SSO login support", ctx=ctx, description=""
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = "not json at all {{{"
+        with patch(
+            "application.interview_service.InterviewService._resolve_provider",
+            return_value=(fake_provider, "anthropic", None),
+        ):
+            result = InterviewService().grounding_context(ctx, session.id)
+
+        assert len(result["candidates"]) >= 1
+        titles = [c["title"] for c in result["candidates"]]
+        assert "SSO login support" in titles

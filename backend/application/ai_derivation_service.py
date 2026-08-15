@@ -173,6 +173,34 @@ DECISION_TO_ADR_PROMPT_TEMPLATE = (
     'result>"}.'
 )
 
+# Interview Management Engine (Task 6, spec §6 step 2) prompt. Hardcoded for
+# the same reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above. Registered
+# here (rather than in interview_service.py itself) for the same reason
+# BUNDLE_COMPRESSION_PROMPT_TEMPLATE is registered here rather than in
+# bundle_compression_service.py -- this module's PROMPT_TEMPLATE_DEFAULTS is
+# the single canonical registry; InterviewService only reads it via
+# AiDerivationService._get_template_content, it never owns a copy.
+INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE = """\
+You are ranking candidate existing artifacts for relevance to a requirement \
+currently being captured in an interview. You are given the interview's \
+answers so far and a list of candidate artifacts that already passed a \
+structural (title-substring) pre-filter. Score each candidate's relevance \
+to the interview on a scale from 0.0 (unrelated) to 1.0 (certainly the same \
+artifact, or a direct duplicate/near-duplicate of what is being captured).
+
+Interview answers so far:
+{answers_text}
+
+Candidate artifacts (JSON):
+{candidates_json}
+
+Respond with a JSON array (no prose, no markdown fences) of objects with \
+this exact shape: {"artifact_id": "<artifact_id from the candidate list, \
+verbatim>", "score": <float between 0.0 and 1.0>}. Include exactly one \
+entry per candidate, in any order. Do not invent artifact_ids that are not \
+in the candidate list.
+"""
+
 # Canonical slot registry covering all 7 names this module's derive flows use
 # (Phase 4, REQ-L2-PT-001). Deliberately NOT the same object as
 # ``persistence.models.PROMPT_TEMPLATE_DEFAULTS`` (imported above as
@@ -195,6 +223,7 @@ PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
     "workspace_to_glossary": WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE,
     "decision_to_adr": DECISION_TO_ADR_PROMPT_TEMPLATE,
     "bundle_compression": BUNDLE_COMPRESSION_PROMPT_TEMPLATE,
+    "interview.grounding_rank": INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE,
 }
 
 # ---------------------------------------------------------------------------
@@ -1647,5 +1676,6 @@ __all__ = [
     "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
     "DECISION_TO_ADR_PROMPT_TEMPLATE",
     "BUNDLE_COMPRESSION_PROMPT_TEMPLATE",
+    "INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]

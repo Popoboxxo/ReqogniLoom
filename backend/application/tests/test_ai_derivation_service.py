@@ -169,10 +169,12 @@ def test_get_template_content_falls_back_workspace_then_global_then_factory(
 
 
 def test_get_template_content_covers_all_eight_names():
-    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 9 template names.
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 10 template names.
 
     Extended to 9 by Requirement Bundle Export, Plan 2 Task 1
-    (``bundle_compression`` — see application/bundle_compression_service.py).
+    (``bundle_compression`` — see application/bundle_compression_service.py),
+    then to 10 by Interview Management Engine Task 6
+    (``interview.grounding_rank`` — see application/interview_service.py).
     """
     from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
 
@@ -186,6 +188,7 @@ def test_get_template_content_covers_all_eight_names():
         "decision_to_adr",
         "goal_aggregate",
         "bundle_compression",
+        "interview.grounding_rank",
     }
 
 
