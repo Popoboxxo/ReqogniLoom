@@ -207,19 +207,32 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
-    try {
-      const [data, catalog] = await Promise.all([
-        promptTemplatesApi.listSlots(workspaceId),
-        promptVariablesApi.list(workspaceId),
-      ]);
-      setSlots(orderSlots(data.slots));
-      setVariables(catalog.variables);
+    // Fetched independently via allSettled, not Promise.all: the variable
+    // catalog only feeds the supplementary per-slot variable table, so a
+    // failure there (endpoint not yet deployed everywhere, a permission
+    // gap, a transient 500) must never block the core, already-productive
+    // prompt editor (save/reset) — which worked off a single `listSlots`
+    // fetch before this feature existed and must keep doing so even if the
+    // new catalog call errors.
+    const [slotsResult, variablesResult] = await Promise.allSettled([
+      promptTemplatesApi.listSlots(workspaceId),
+      promptVariablesApi.list(workspaceId),
+    ]);
+
+    if (slotsResult.status === "fulfilled") {
+      setSlots(orderSlots(slotsResult.value.slots));
       setDrafts({});
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setIsLoading(false);
+    } else {
+      setError(extractErrorMessage(slotsResult.reason));
     }
+
+    // Best-effort: on failure the variable table simply has nothing to show
+    // for any slot instead of surfacing a global error.
+    setVariables(
+      variablesResult.status === "fulfilled" ? variablesResult.value.variables : []
+    );
+
+    setIsLoading(false);
   }, [workspaceId]);
 
   useEffect(() => {

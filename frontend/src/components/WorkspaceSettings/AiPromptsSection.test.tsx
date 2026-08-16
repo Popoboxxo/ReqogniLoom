@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { AiPromptsSection } from "./AiPromptsSection";
 import * as promptTemplatesModule from "../../api/prompt-templates";
 import type { PromptSlotState } from "../../api/prompt-templates";
+import * as promptVariablesModule from "../../api/prompt-variables";
 
 vi.mock("../../api/prompt-templates", async () => {
   const actual = await vi.importActual<typeof promptTemplatesModule>(
@@ -121,6 +122,29 @@ describe("AiPromptsSection (issue #119)", () => {
     for (const name of ALL_SLOT_NAMES) {
       expect(screen.getByTestId(`prompt-${name}-input`)).toBeInTheDocument();
     }
+  });
+
+  it("keeps the editor usable when the variable catalog fetch fails", async () => {
+    // The variable catalog only feeds the supplementary per-slot variable
+    // table (Task 17) — a failure there (endpoint gap, permission issue,
+    // transient 500) must never take down the core, already-productive
+    // prompt editor, which worked off a single `listSlots` fetch before
+    // this feature existed.
+    vi.mocked(promptVariablesModule.promptVariablesApi.list).mockRejectedValueOnce(
+      new Error("variables endpoint unavailable")
+    );
+
+    render(<AiPromptsSection workspaceId={WORKSPACE_ID} />);
+
+    const input = await screen.findByTestId("prompt-need_to_sysreq-input");
+    expect(input).toHaveValue("ws need");
+    expect(screen.queryByTestId("prompt-template-error")).not.toBeInTheDocument();
+
+    // Save/reset still work — the core flow is unaffected.
+    await userEvent.click(screen.getByTestId("prompt-need_to_sysreq-reset"));
+    await waitFor(() =>
+      expect(api.clearSlot).toHaveBeenCalledWith("need_to_sysreq", WORKSPACE_ID)
+    );
   });
 
   it("loads the slots scoped to the active workspace", async () => {
