@@ -1095,6 +1095,9 @@
     "adoptSuccess": "Resolved — the correction was applied.",
     "modify": "Modify",
     "modifyReasonPrefix": "Not auto-fixable",
+    "modifyHint": "Open the affected artifact to correct it manually.",
+    "modifyNoTarget": "This finding references no artifact that can be opened — correct it via the affected artifacts listed above.",
+    "actionLegend": "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed.",
     "pageSummary": "Automated rule checks for requirements and architecture, grouped by rule with blocker/warning severity."
   },
   "archDecompose": {
