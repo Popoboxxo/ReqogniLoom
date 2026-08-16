@@ -47,6 +47,9 @@ function slot(name: string, overrides: Partial<PromptSlotState> = {}): PromptSlo
     has_workspace_override: false,
     effective_content: `factory ${name}`,
     effective_scope: "factory",
+    data_variables: [],
+    config_variables: [],
+    unknown_placeholders: [],
     ...overrides,
   };
 }
