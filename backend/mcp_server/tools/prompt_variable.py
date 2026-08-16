@@ -227,9 +227,13 @@ class PromptVariableToolGroup(BaseToolGroup):
             return denied
         name = require_param(params, "name")
         workspace_id = optional_uuid(params, "workspace_id")
-        variable = PromptVariableService().clear_variable(
-            auth_context, name=str(name), workspace_id=workspace_id
-        )
+        try:
+            variable = PromptVariableService().clear_variable(
+                auth_context, name=str(name), workspace_id=workspace_id
+            )
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
         write_mcp_audit(
             ctx=auth_context,
             operation="delete",

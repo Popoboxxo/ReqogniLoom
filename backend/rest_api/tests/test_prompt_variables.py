@@ -136,6 +136,14 @@ def test_delete_drops_the_override_and_returns_the_new_state(pv_ctx):
 
 
 @override_settings(**_JWT_OVERRIDES)
+def test_delete_rejects_a_data_variable(pv_ctx):
+    resp = _client().delete(f"{_LIST_URL}req_title/")
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@override_settings(**_JWT_OVERRIDES)
 def test_put_requires_admin(pv_ctx):
     resp = _client("pvreditor").put(
         f"{_LIST_URL}review_depth_hint/", {"value": "x"}, format="json"

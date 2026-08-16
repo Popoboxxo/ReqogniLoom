@@ -111,6 +111,17 @@ def test_get_reports_not_found_for_an_unknown_name(ctx_workspace):
     assert result.error_code == "NOT_FOUND"
 
 
+def test_clear_rejects_a_data_variable(ctx_workspace):
+    admin, _viewer, _ws = ctx_workspace
+
+    result = _group()._handle_clear(
+        params={"name": "req_title"}, auth_context=admin, api_key="k"
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
 def test_clear_returns_the_now_effective_state(ctx_workspace):
     admin, _viewer, workspace = ctx_workspace
     group = _group()

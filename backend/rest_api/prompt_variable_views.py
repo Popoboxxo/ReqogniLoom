@@ -175,6 +175,11 @@ class PromptVariableDetailView(_PromptVariableAdminMixin, APIView):
                 build_error_response("NOT_FOUND", lang, message=str(exc)),
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # 200 with the now-effective state rather than 204: the caller's next
         # question is always "so what applies now?", and the inherited value
         # is not derivable client-side without a second round trip.
