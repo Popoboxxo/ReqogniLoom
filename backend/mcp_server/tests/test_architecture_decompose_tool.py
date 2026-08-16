@@ -89,7 +89,7 @@ def test_generate_then_commit_roundtrip(n1_ctx):
     gen = _exec(
         group,
         "architecture.decompose",
-        {"element_id": str(root.id), "breadth": 2, "depth": 1},
+        {"element_id": str(root.id), "max_breadth": 2, "max_depth": 1},
         ctx,
     )
     assert gen.success

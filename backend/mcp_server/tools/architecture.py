@@ -227,9 +227,13 @@ class ArchitectureToolGroup(BaseToolGroup):
             "description": (
                 "SysEng 2.0 N1: generate a non-persistent decomposition draft "
                 "for an ArchitectureElement (child elements + derived "
-                "requirements + internal trace links). Review the returned "
-                "draft, then persist it via architecture.decompose_commit. "
-                "Available only in standard/extended rigor."
+                "requirements + internal trace links). The AI decides how "
+                "many children and levels are justified by the content; "
+                "max_breadth and max_depth are optional upper bounds that "
+                "override the workspace's configured caps for this call "
+                "only. Review the returned draft, then persist it via "
+                "architecture.decompose_commit. Available only in "
+                "standard/extended rigor."
             ),
             "inputSchema": {
                 "type": "object",
@@ -238,7 +242,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the ArchitectureElement (Subsystem) to decompose.",
                     },
-                    "breadth": {
+                    "max_breadth": {
                         "type": "integer",
                         "description": (
                             "Upper bound on child elements per level (the AI "
@@ -248,7 +252,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                             "of what is requested."
                         ),
                     },
-                    "depth": {
+                    "max_depth": {
                         "type": "integer",
                         "description": (
                             "Upper bound on recursion depth (the AI decides "
@@ -613,14 +617,23 @@ class ArchitectureToolGroup(BaseToolGroup):
         )
 
         element_id = require_uuid(params, "element_id")
-        breadth = params.get("breadth")
-        depth = params.get("depth")
+        # None (not a literal default) so the workspace's configured caps win
+        # when the caller omits the parameter — spec §3.3's precedence chain.
+        raw_breadth = params.get("max_breadth")
+        raw_depth = params.get("max_depth")
+        try:
+            max_breadth = int(raw_breadth) if raw_breadth is not None else None
+            max_depth = int(raw_depth) if raw_depth is not None else None
+        except (TypeError, ValueError):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "'max_breadth' and 'max_depth' must be integers."
+            )
         try:
             draft = ArchitectureDecomposeService().generate_draft(
                 auth_context,
                 element_id,
-                max_breadth=int(breadth) if breadth is not None else None,
-                max_depth=int(depth) if depth is not None else None,
+                max_breadth=max_breadth,
+                max_depth=max_depth,
             )
         except DecompositionNotAvailableError as exc:
             return ToolResult.error("FEATURE_NOT_ENABLED", str(exc))
