@@ -61,7 +61,6 @@ from auth_tenancy.context import AuthContext
 from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS as _CORE_PROMPT_TEMPLATE_DEFAULTS,
     ArchitectureElement,
-    PromptTemplate,
     Requirement,
     StakeholderNeed,
     TraceLink,
@@ -1486,49 +1485,60 @@ class AiDerivationService(ServiceBase):
     def _get_template_content(
         ctx: AuthContext, name: str, workspace_id: "UUID | None" = None
     ) -> str:
-        """Return the effective prompt content for *name* (Phase 4, REQ-L2-PT-001).
+        """Return the effective prompt content for *name* (REQ-L2-PT-001).
 
-        Fallback chain, most-specific first:
+        Thin delegation to :func:`application.prompt_resolver.resolve_template_content`
+        — the fallback chain (workspace override -> tenant-global row ->
+        factory default) now has exactly one implementation, shared with the
+        MCP ``prompt_template.get`` tool and ``interview_protocol.get_protocol``.
 
-          1. The active workspace-scoped override
-             (``workspace_id=workspace_id, name=name``) — only consulted when
-             *workspace_id* is given.
-          2. The active tenant-global row (``workspace_id=None, name=name``).
-          3. ``PROMPT_TEMPLATE_DEFAULTS[name]`` — this module's factory
-             default, covering all 7 derive-flow prompts.
-
-        The default manager is already tenant-scoped by the active
-        TenantContext (set by every caller via ``_set_tenant_context``), so
-        ``tenant_id=ctx.tenant_id`` here is belt-and-suspenders, not the sole
-        scoping mechanism.
+        Kept as a staticmethod rather than deleted because 12 call sites
+        across four services address it; the behaviour is unchanged except
+        that an unknown slot now raises
+        :class:`~application.prompt_resolver.PromptSlotNotFoundError`
+        (a ``ValidationError`` subclass) instead of a bare ``KeyError``.
         """
-        if workspace_id is not None:
-            row = PromptTemplate.objects.filter(
-                tenant_id=ctx.tenant_id,
-                workspace_id=workspace_id,
-                name=name,
-                is_active=True,
-            ).first()
-            if row is not None:
-                return row.content
-        row = PromptTemplate.objects.filter(
-            tenant_id=ctx.tenant_id, workspace_id=None, name=name, is_active=True
-        ).first()
-        if row is not None:
-            return row.content
-        return PROMPT_TEMPLATE_DEFAULTS[name]
+        from application.prompt_resolver import resolve_template_content
+
+        return resolve_template_content(name, ctx, workspace_id)
 
     @staticmethod
     def _render(template: str, **values: Any) -> str:
         """Substitute ``{name}`` placeholders without touching other braces.
 
-        A literal ``str.format`` call would choke on JSON braces embedded in a
+        Delegates to :func:`application.prompt_resolver.render_template`; a
+        literal ``str.format`` call would choke on JSON braces embedded in a
         user-customised prompt, so placeholders are replaced individually.
         """
-        rendered = template
-        for key, value in values.items():
-            rendered = rendered.replace("{" + key + "}", str(value))
-        return rendered
+        from application.prompt_resolver import render_template
+
+        return render_template(template, **values)
+
+    @staticmethod
+    def _resolve_and_render(
+        ctx: AuthContext,
+        name: str,
+        workspace_id: "UUID | None" = None,
+        *,
+        config_overrides: "Dict[str, Any] | None" = None,
+        **data_kwargs: Any,
+    ) -> str:
+        """Resolve *name* and render it with catalog config + data values.
+
+        Preferred over the ``_get_template_content`` + ``_render`` pair for
+        new flows: every ``config`` variable of the active tenant/workspace is
+        injected automatically, so an admin-created variable becomes usable in
+        this prompt without a code change (spec §3.2).
+        """
+        from application.prompt_resolver import resolve_and_render
+
+        return resolve_and_render(
+            name,
+            ctx,
+            workspace_id,
+            config_overrides=config_overrides,
+            **data_kwargs,
+        )
 
     def _complete(
         self,
