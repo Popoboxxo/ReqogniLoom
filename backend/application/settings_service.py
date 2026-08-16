@@ -349,12 +349,50 @@ class SettingsService(ServiceBase):
         return list(SettingsService._all_prompt_defaults())
 
     @staticmethod
+    def _slot_annotations(
+        ctx: AuthContext,
+        name: str,
+        content: str,
+        workspace_id: UUID | None,
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Return ``(data_variables, config_variables, unknown_placeholders)``.
+
+        ``config_variables`` lists only the config names the *effective body*
+        actually references — spec §5 asks the UI to show what this prompt
+        uses, not the whole catalog. ``unknown_placeholders`` is the typo
+        warning: a ``{name}`` that is neither a declared data variable of this
+        slot nor a resolvable config variable can never be filled.
+
+        Imported lazily for the same import-cycle reason as
+        :meth:`_all_prompt_defaults`.
+        """
+        from application.prompt_resolver import (
+            extract_placeholders,
+            resolve_config_values,
+            unknown_placeholders,
+        )
+        from application.prompt_slots import get_slot_data_variables
+
+        data_variables = list(get_slot_data_variables(name))
+        config_names = set(resolve_config_values(ctx, workspace_id))
+        config_variables = [
+            placeholder
+            for placeholder in extract_placeholders(content or "")
+            if placeholder in config_names
+        ]
+        unknown = unknown_placeholders(content or "", name, ctx, workspace_id)
+        return data_variables, config_variables, unknown
+
+    @staticmethod
     def _build_slot_state(
         name: str,
         *,
         global_row: PromptTemplate | None,
         workspace_row: PromptTemplate | None,
         factory_default: str | None,
+        data_variables: list[str] | None = None,
+        config_variables: list[str] | None = None,
+        unknown_placeholders: list[str] | None = None,
     ) -> dict[str, Any]:
         """Resolve one slot's per-scope rows into the wire representation.
 
@@ -365,12 +403,19 @@ class SettingsService(ServiceBase):
             factory_default: Factory text for ``name``, or ``None`` for a
                              custom name introduced via MCP that has no
                              factory default.
+            data_variables:   Declared code-bound variables for ``name``, or
+                             ``None`` when the caller annotates separately.
+            config_variables: Config variables the effective body actually
+                             references, or ``None``.
+            unknown_placeholders: ``{placeholders}`` neither list can fill,
+                             or ``None``.
 
         Returns:
             A dict with the per-scope contents plus the resolved
             ``effective_content``/``effective_scope`` (``"workspace"`` >
             ``"global"`` > ``"factory"``), mirroring
-            ``AiDerivationService._get_template_content``'s fallback chain.
+            ``AiDerivationService._get_template_content``'s fallback chain,
+            plus the three variable-catalog annotations (spec §5).
         """
         if workspace_row is not None:
             effective, scope = workspace_row.content, "workspace"
@@ -393,6 +438,9 @@ class SettingsService(ServiceBase):
             "has_workspace_override": workspace_row is not None,
             "effective_content": effective,
             "effective_scope": scope,
+            "data_variables": data_variables or [],
+            "config_variables": config_variables or [],
+            "unknown_placeholders": unknown_placeholders or [],
         }
 
     def _slot_state(
@@ -403,8 +451,8 @@ class SettingsService(ServiceBase):
         workspace_id: UUID | None,
         factory_default: str | None,
     ) -> dict[str, Any]:
-        """Fetch one slot's rows and resolve them (single-slot read path)."""
-        return self._build_slot_state(
+        """Fetch one slot's rows, resolve them, and annotate its variables."""
+        state = self._build_slot_state(
             name,
             global_row=get_active_template(
                 tenant_id=ctx.tenant_id, name=name, workspace_id=None
@@ -418,6 +466,13 @@ class SettingsService(ServiceBase):
             ),
             factory_default=factory_default,
         )
+        data_vars, config_vars, unknown = self._slot_annotations(
+            ctx, name, state["effective_content"], workspace_id
+        )
+        state["data_variables"] = data_vars
+        state["config_variables"] = config_vars
+        state["unknown_placeholders"] = unknown
+        return state
 
     def list_prompt_slots(
         self, ctx: AuthContext, *, workspace_id: UUID | None = None
@@ -449,15 +504,22 @@ class SettingsService(ServiceBase):
             else {}
         )
         names = set(defaults) | {r.name for r in rows}
-        return [
-            self._build_slot_state(
+        slots: list[dict[str, Any]] = []
+        for name in sorted(names):
+            state = self._build_slot_state(
                 name,
                 global_row=global_rows.get(name),
                 workspace_row=workspace_rows.get(name),
                 factory_default=defaults.get(name),
             )
-            for name in sorted(names)
-        ]
+            data_vars, config_vars, unknown = self._slot_annotations(
+                ctx, name, state["effective_content"], workspace_id
+            )
+            state["data_variables"] = data_vars
+            state["config_variables"] = config_vars
+            state["unknown_placeholders"] = unknown
+            slots.append(state)
+        return slots
 
     def set_prompt_slot(
         self,
