@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-08-16
+
+Promotion from beta.3 after comprehensive testing and stabilization. Beta.3 known issues resolved; 123 commits adding interview management, goals redesign, architecture improvements, and numerous bugfixes.
+
+### Added
+- **Interview Management Engine:** Complete lifecycle for structured requirement interviews with state machine, protocol configuration, AI-assisted grounding ranking, and formalize operation (#543, #540, #541, #542, #544)
+- **Interview Management Hermes Plugin:** Web-based interview conductor for Claude Code plugin ecosystem with workspace selection, form rendering, and typed field submission (#546, #547, #548)
+- **Interview Management Web Widget:** Native React UI component for hosting interview workflows within ReqogniLoom (#549)
+- **Interview MCP Tool Group:** REST API and MCP facades for interview.start, interview.answer, interview.formalize, interview.list, interview.get, interview.set_target with full RBAC (#543)
+- **Goals UI Redesign:** Complete overhaul with action toolbar, multi-select, search/filter, modal create, archive functionality, and ArtifactInspector version-history wiring (#564, #565, #566)
+- **Architecture Drag-and-Drop Reparenting:** WorkspaceTree now supports tree node drag-drop for efficient architecture element reorganization (#550)
+- **UI List Virtualization:** Adr, Risk, Issue, and TestCase list views now virtualized via WorkspaceTree for improved performance on large artifact sets (#553)
+- **MCP RBAC Test Coverage:** Regression tests ensuring RBAC enforcement on MCP tool calls (#538)
+
+### Fixed
+- **LLM Provider:** Honor configured model_name in Ollama, OpenCode, Mock, and Azure adapters; prevent silent fallback to provider default (#559)
+- **Cache Race Condition:** AiDerivationService cache key now threaded through service layer instead of instance state, fixing concurrent LLM request collisions (#561)
+- **Baseline/Diff Service:** Register Goal and MainGoal artifact types in diff service to enable field-level diffs (#563)
+- **Test Runner:** Decouple test runner from base compose service images to enable independent source mounts (#562)
+- **Baseline Override:** Add justification field for SE-Auditor override on blocked baseline finalization (#554)
+- **TypeScript Errors:** Resolve remaining tsc errors in CanvasEditor and related components (#557); add QueryClientProvider wrapper for CanvasEditor tests (#555)
+- **MCP Admin Audit Gap:** Register missing audit operation names for MCP admin tools (#556)
+- **UI Scrollbar Affordance:** Add visible scrollbar to sidebar navigation (#551)
+- **LLM Derivation:** Stop silently discarding unusable LLM derivation output; prevent empty draft inflation (#552)
+- **Action Label Consistency:** Standardize create-action button labels across artifact lists (#558)
+- **Baseline Styles:** Extract BaselinesView override panel styles to CSS module for improved maintainability (#560)
+- **Hermes Plugin Build:** Add postbuild guard against inlined React in Hermes plugin bundle (#547)
+- **Tenant Context Teardown:** Guard tenant context cleanup in LLM worker to prevent stale reference crashes (#528)
+- **Glossary & MCP:** Glossary soft-delete visibility and MCP get_context UUID crash fixes (#474)
+- **Draft Reload & i18n:** Goal/MainGoal panel draft reloading after backend refresh and i18n label consistency (#565, #566)
+
+### Known Issues
+- #393: MOE/MOP/TPM (Measures of Effectiveness, Performance, Production) metrics not yet integrated into reporting dashboard — feature planned for next release
+- Multiple SE Methodology findings from architecture review (open for prioritization in upcoming planning)
+- No regressions from beta.3; both beta.2 known issues (#455, #456) remain resolved
+
 ## [1.6.0-beta.3] — 2026-08-13
 
 ### Security
