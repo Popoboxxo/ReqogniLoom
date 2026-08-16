@@ -42,6 +42,12 @@ export interface PromptSlotState {
   /** The content that actually applies at the requested scope. */
   effective_content: string;
   effective_scope: PromptSlotScope;
+  /** Code-bound variables this slot's render call supplies. */
+  data_variables: string[];
+  /** Config variables the effective body actually references. */
+  config_variables: string[];
+  /** `{placeholders}` nothing can fill — almost certainly typos. */
+  unknown_placeholders: string[];
 }
 
 /** Read shape returned by GET /prompt-templates/slots/. */

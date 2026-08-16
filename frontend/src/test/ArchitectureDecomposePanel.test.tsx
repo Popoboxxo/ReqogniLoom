@@ -36,6 +36,14 @@ vi.mock("../api/architectureDecompose", () => ({
   },
 }));
 
+vi.mock("../api/prompt-variables", () => ({
+  promptVariablesApi: {
+    list: vi.fn().mockResolvedValue({ variables: [], count: 0, workspace_id: null }),
+    save: vi.fn(),
+    clear: vi.fn(),
+  },
+}));
+
 const DRAFT: DecompositionDraft = {
   workspace_id: "ws-1",
   root_element_id: "el-1",
@@ -102,8 +110,8 @@ describe("ArchitectureDecomposePanel", () => {
       expect(screen.getByTestId("arch-decompose-draft")).toBeInTheDocument()
     );
     expect(generate).toHaveBeenCalledWith("ws-1", "el-1", {
-      breadth: 2,
-      depth: 1,
+      maxBreadth: 5,
+      maxDepth: 3,
     });
     // Two node rows, mock-degraded banner, commit not yet called.
     expect(screen.getByTestId("arch-decompose-node-n1")).toBeInTheDocument();

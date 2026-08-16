@@ -18,7 +18,7 @@
  */
 
 import type { CSSProperties } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { architectureDecomposeApi } from "../../api/architectureDecompose";
@@ -28,6 +28,26 @@ import type {
   DraftNode,
 } from "../../api/architectureDecompose";
 import { extractErrorMessage } from "../../api/client";
+import { promptVariablesApi } from "../../api/prompt-variables";
+
+/**
+ * Used only when the variable catalog cannot be read (e.g. a non-admin user
+ * whose token cannot list prompt variables). Matches the backend factory
+ * defaults so the panel behaves identically either way.
+ */
+const FALLBACK_MAX_BREADTH = 5;
+const FALLBACK_MAX_DEPTH = 3;
+
+/** Read one int-valued config variable out of a catalog listing. */
+function capFromCatalog(
+  variables: { name: string; effective_value: unknown }[],
+  name: string,
+  fallback: number
+): number {
+  const found = variables.find((v) => v.name === name);
+  const value = Number(found?.effective_value);
+  return Number.isFinite(value) && value >= 1 ? value : fallback;
+}
 
 export interface ArchitectureDecomposePanelProps {
   workspaceId: string;
@@ -109,13 +129,38 @@ export function ArchitectureDecomposePanel({
   const { t } = useTranslation();
 
   const [phase, setPhase] = useState<Phase>("idle");
-  const [breadth, setBreadth] = useState<number>(2);
-  const [depth, setDepth] = useState<number>(1);
+  const [maxBreadth, setMaxBreadth] = useState<number>(FALLBACK_MAX_BREADTH);
+  const [maxDepth, setMaxDepth] = useState<number>(FALLBACK_MAX_DEPTH);
   const [draft, setDraft] = useState<DecompositionDraft | null>(null);
   const [result, setResult] = useState<CommitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const busy = phase === "generating" || phase === "committing";
+
+  // Defaults come from the variable catalog (spec §4) rather than hard-coded
+  // 2/1, so a workspace that raised its caps sees them here too. A failure is
+  // silent on purpose: the fallbacks equal the backend factory values, so the
+  // panel stays usable instead of blocking on an admin-only read.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const catalog = await promptVariablesApi.list(workspaceId);
+        if (cancelled) return;
+        setMaxBreadth(
+          capFromCatalog(catalog.variables, "max_breadth", FALLBACK_MAX_BREADTH)
+        );
+        setMaxDepth(
+          capFromCatalog(catalog.variables, "max_depth", FALLBACK_MAX_DEPTH)
+        );
+      } catch {
+        // Keep the fallbacks.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const handleGenerate = useCallback(async () => {
     setError(null);
@@ -125,7 +170,7 @@ export function ArchitectureDecomposePanel({
       const next = await architectureDecomposeApi.generate(
         workspaceId,
         element.id,
-        { breadth, depth }
+        { maxBreadth, maxDepth }
       );
       setDraft(next);
       setPhase("review");
@@ -133,7 +178,7 @@ export function ArchitectureDecomposePanel({
       setError(extractErrorMessage(err));
       setPhase("idle");
     }
-  }, [workspaceId, element.id, breadth, depth]);
+  }, [workspaceId, element.id, maxBreadth, maxDepth]);
 
   const handleCommit = useCallback(async () => {
     if (!draft) return;
@@ -164,27 +209,25 @@ export function ArchitectureDecomposePanel({
     <section style={styles.panel} data-testid="arch-decompose-panel">
       <div style={styles.controls}>
         <label style={styles.field}>
-          <span style={styles.muted}>{t("archDecompose.breadth")}</span>
+          <span style={styles.muted}>{t("archDecompose.maxBreadth")}</span>
           <input
             type="number"
             min={1}
-            max={5}
-            value={breadth}
+            value={maxBreadth}
             disabled={busy}
-            onChange={(e) => setBreadth(Number(e.target.value))}
+            onChange={(e) => setMaxBreadth(Number(e.target.value))}
             style={styles.numberInput}
             data-testid="arch-decompose-breadth"
           />
         </label>
         <label style={styles.field}>
-          <span style={styles.muted}>{t("archDecompose.depth")}</span>
+          <span style={styles.muted}>{t("archDecompose.maxDepth")}</span>
           <input
             type="number"
             min={1}
-            max={3}
-            value={depth}
+            value={maxDepth}
             disabled={busy}
-            onChange={(e) => setDepth(Number(e.target.value))}
+            onChange={(e) => setMaxDepth(Number(e.target.value))}
             style={styles.numberInput}
             data-testid="arch-decompose-depth"
           />
@@ -200,6 +243,10 @@ export function ArchitectureDecomposePanel({
             : t("archDecompose.generate")}
         </button>
       </div>
+
+      <p style={styles.muted} data-testid="arch-decompose-caps-hint">
+        {t("archDecompose.capsHint")}
+      </p>
 
       {error && (
         <div style={styles.error} role="alert" data-testid="arch-decompose-error">

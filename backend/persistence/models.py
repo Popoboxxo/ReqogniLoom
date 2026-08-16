@@ -1864,11 +1864,12 @@ class LlmSettings(TenantScopedModel):
 # Read-only default prompt content. Kept at module level so the data migration
 # can seed identical values without importing model behaviour.
 DEFAULT_NEED_TO_SYSREQ = (
-    "Given the following stakeholder need, generate {n} system-level "
-    "requirements. Each requirement must be specific, measurable, and testable. "
-    "Return a JSON array of objects with fields: title (string), description "
-    "(string), rationale (string).\n\nStakeholder Need:\nTitle: {need_title}\n"
-    "Description: {need_description}"
+    "Given the following stakeholder need, generate at most "
+    "{max_requirements_per_need} system-level requirements — produce only as "
+    "many as the need actually justifies. Each requirement must be specific, "
+    "measurable, and testable. Return a JSON array of objects with fields: "
+    "title (string), description (string), rationale (string).\n\n"
+    "Stakeholder Need:\nTitle: {need_title}\nDescription: {need_description}"
 )
 
 DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (
@@ -2012,6 +2013,124 @@ class PromptTemplate(TenantScopedModel):
                 if conflict_exists:
                     raise IntegrityError(
                         "Another active PromptTemplate already exists for "
+                        f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
+                        f"name={self.name!r})."
+                    )
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
+
+# Prompt-variable catalog (spec §3.1). Two kinds:
+#   "config" — pure configuration values (numeric caps, thresholds). Fully
+#              CRUD-able from the admin UI, no code deploy needed.
+#   "data"   — code-bound values computed from real artifact data (e.g.
+#              {req_title}). Registered here for catalog visibility only;
+#              never creatable or editable through REST/MCP/UI.
+PROMPT_VARIABLE_KIND_CONFIG = "config"
+PROMPT_VARIABLE_KIND_DATA = "data"
+PROMPT_VARIABLE_KINDS = (PROMPT_VARIABLE_KIND_CONFIG, PROMPT_VARIABLE_KIND_DATA)
+PROMPT_VARIABLE_TYPES = ("int", "str", "bool", "json")
+
+
+class PromptVariable(TenantScopedModel):
+    """Named, versioned, workspace-overridable prompt variable (spec §3.1).
+
+    Deliberately a structural copy of :class:`PromptTemplate`: same
+    ``workspace_id``-override semantics (``NULL`` = tenant-wide default, a
+    non-null value overrides it for that workspace only), same append-only
+    versioning (rows are effectively immutable — a new value is a new row and
+    the prior one is deactivated), and the same application-level "at most one
+    active row per ``(tenant, workspace_id, name)`` scope" rule enforced in
+    :meth:`save` rather than via a Postgres partial unique index (this
+    codebase has no precedent for ``condition=`` partial indexes in
+    ``persistence/migrations/*.py``).
+
+    ``default_value`` stores the JSON serialisation of the value so a single
+    TextField can carry all four ``var_type``s without a per-type column.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Variable identifier, e.g. 'max_breadth' (open-ended, not an enum).",
+    )
+    kind = models.CharField(
+        max_length=10,
+        choices=[(k, k) for k in PROMPT_VARIABLE_KINDS],
+        default=PROMPT_VARIABLE_KIND_CONFIG,
+        help_text="'config' (data-driven, UI-editable) or 'data' (code-bound, read-only).",
+    )
+    var_type = models.CharField(
+        max_length=20,
+        choices=[(t, t) for t in PROMPT_VARIABLE_TYPES],
+        default="str",
+        help_text="int | str | bool | json — how default_value is deserialised.",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-readable purpose, shown in the catalog UI.",
+    )
+    default_value = models.TextField(
+        blank=True,
+        default="",
+        help_text="JSON-serialised value for this scope.",
+    )
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Version number within the (tenant, workspace_id, name) scope; starts at 1.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is the active one for its scope.",
+    )
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Workspace override scope. NULL means tenant-wide default.",
+    )
+
+    class Meta:
+        db_table = "pl_prompt_variable"
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace_id", "name"],
+                name="ix_prompt_variable_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        scope = f"workspace={self.workspace_id}" if self.workspace_id else "global"
+        return f"PromptVariable(name={self.name!r}, {scope}, v{self.version})"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        """Persist the row, enforcing at most one active row per scope.
+
+        Uses the same Tenant-row mutex as :meth:`PromptTemplate.save`: under
+        Postgres READ COMMITTED a ``SELECT ... FOR UPDATE`` over a filter that
+        matches zero rows takes no lock, so the conflict check is serialised
+        by locking the parent ``Tenant`` row (which always exists) instead.
+
+        Raises:
+            IntegrityError: If ``is_active=True`` and another row already is
+                active for the same ``(tenant, workspace_id, name)`` scope.
+        """
+        if self.is_active:
+            with transaction.atomic():
+                Tenant.objects.select_for_update().get(pk=self.tenant_id)
+                conflict_exists = (
+                    PromptVariable.objects.filter(
+                        tenant_id=self.tenant_id,
+                        workspace_id=self.workspace_id,
+                        name=self.name,
+                        is_active=True,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if conflict_exists:
+                    raise IntegrityError(
+                        "Another active PromptVariable already exists for "
                         f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
                         f"name={self.name!r})."
                     )

@@ -142,40 +142,20 @@ INTERVIEW_PROTOCOL_DEFAULTS: "dict[str, str]" = {
 def get_protocol(ctx, artifact_type: str, workspace_id) -> ProtocolConfig:
     """Resolve the effective protocol for *artifact_type* in *workspace_id*.
 
-    Follows PromptTemplate's existing workspace -> tenant-global ->
-    factory-default chain, then parses+validates the resolved YAML.
+    Delegates the workspace -> tenant-global -> factory-default chain to
+    ``application.prompt_resolver.try_resolve_template_content`` (spec §3.3),
+    then parses and validates the resolved YAML. ``try_``-flavoured because a
+    missing protocol must surface as :class:`ProtocolValidationError` with an
+    artifact-type-specific message, not as a generic slot error.
 
-    Note: this deliberately does *not* call
-    ``AiDerivationService._get_template_content`` -- that staticmethod's
-    factory-default fallback is hardcoded to
-    ``ai_derivation_service.PROMPT_TEMPLATE_DEFAULTS`` (``return
-    PROMPT_TEMPLATE_DEFAULTS[name]``, unconditionally, no ``.get()``), so
-    calling it with an ``interview.protocol.*`` name that has no active DB
-    row would raise ``KeyError`` instead of falling back to
-    ``INTERVIEW_PROTOCOL_DEFAULTS``. Instead this mirrors the same
-    workspace -> tenant-global -> factory-default chain via
-    ``application.prompt_template_versioning.get_active_template``, the
-    same lower-level helper ``mcp_server.tools.prompt_template`` itself
-    uses for exactly this reason (see that module's docstring: "reads the
-    PromptTemplate model directly rather than going through that
-    service").
+    Imported lazily: ``prompt_resolver`` imports ``prompt_slots``, which reads
+    this module's ``INTERVIEW_PROTOCOL_DEFAULTS`` — a module-level import here
+    would close that cycle at import time.
     """
-    from application.prompt_template_versioning import get_active_template
+    from application.prompt_resolver import try_resolve_template_content
 
     name = f"interview.protocol.{artifact_type}"
-
-    if workspace_id is not None:
-        row = get_active_template(
-            tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
-        )
-        if row is not None:
-            return parse_protocol_yaml(row.content)
-
-    row = get_active_template(tenant_id=ctx.tenant_id, name=name, workspace_id=None)
-    if row is not None:
-        return parse_protocol_yaml(row.content)
-
-    content = INTERVIEW_PROTOCOL_DEFAULTS.get(name)
+    content = try_resolve_template_content(name, ctx, workspace_id)
     if content is None:
         raise ProtocolValidationError(
             f"No interview protocol configured or defaulted for artifact_type={artifact_type!r}."

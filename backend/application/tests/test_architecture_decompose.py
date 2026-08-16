@@ -165,7 +165,7 @@ class TestGenerateDraft:
 
             before = ArchitectureElement.objects.count()
             draft = ArchitectureDecomposeService().generate_draft(
-                ctx, root.id, breadth=2, depth=1
+                ctx, root.id, max_breadth=2, max_depth=1
             )
 
             assert draft.root_element_id == str(root.id)
@@ -206,7 +206,7 @@ class TestGenerateDraft:
         with _active(tenant):
             with pytest.raises(LlmResponseError):
                 ArchitectureDecomposeService().generate_draft(
-                    ctx, root.id, breadth=2, depth=1
+                    ctx, root.id, max_breadth=2, max_depth=1
                 )
         # Load-bearing: the budget check runs BEFORE the provider is ever
         # called, not just that some exception was eventually raised.
@@ -224,7 +224,7 @@ class TestGenerateDraft:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             draft = ArchitectureDecomposeService().generate_draft(
-                ctx, root.id, breadth=2, depth=2
+                ctx, root.id, max_breadth=2, max_depth=2
             )
             # 2 top-level + 2*2 second-level = 6 nodes; children reference parents.
             assert len(draft.nodes) == 6
@@ -247,7 +247,7 @@ class TestCommitDraft:
             switch_preset(str(workspace.id), "extended")
             root, anchor = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
 
             result = svc.commit_draft(ctx, draft)
 
@@ -329,7 +329,7 @@ class TestRollback:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
 
             before_elems = ArchitectureElement.objects.count()
             before_reqs = Requirement.objects.count()
@@ -363,7 +363,7 @@ class TestRollback:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
 
             before_elems = ArchitectureElement.objects.count()
 
@@ -416,7 +416,7 @@ class TestCommitPopulatesArtifactTree:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=2)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=2)
 
             result = svc.commit_draft(ctx, draft)
 
@@ -434,7 +434,7 @@ class TestCommitPopulatesArtifactTree:
             switch_preset(str(workspace.id), "extended")
             root, anchor = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
 
             result = svc.commit_draft(ctx, draft)
 
@@ -453,7 +453,7 @@ class TestCommitPopulatesArtifactTree:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=2)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=2)
             result = svc.commit_draft(ctx, draft)
 
             tree = ArtifactService().get_tree(
@@ -491,7 +491,7 @@ class TestCommitTraceLinkVisibility:
             switch_preset(str(workspace.id), "extended")
             root, anchor = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
             result = svc.commit_draft(ctx, draft)
 
             trace = TraceLinkService()
@@ -530,7 +530,7 @@ class TestCommitTraceLinkVisibility:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
             result = svc.commit_draft(ctx, draft)
 
             child_artifact_ids = {
@@ -567,7 +567,7 @@ class TestReportedRegressionsDoNotReproduce:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=2, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=2, max_depth=1)
 
             result = svc.commit_draft(ctx, draft)
 
@@ -595,7 +595,7 @@ class TestReportedRegressionsDoNotReproduce:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=1, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=1, max_depth=1)
             draft.root_element_id = str(_uuid.uuid4())
 
             before = ArchitectureElement.objects.count()
@@ -625,7 +625,7 @@ class TestReportedRegressionsDoNotReproduce:
             switch_preset(str(workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, workspace)
             svc = ArchitectureDecomposeService()
-            draft = svc.generate_draft(ctx, root.id, breadth=1, depth=1)
+            draft = svc.generate_draft(ctx, root.id, max_breadth=1, max_depth=1)
             # Hostile draft: every requirement field blanked out.
             draft.nodes = [
                 DraftNode(

@@ -8,8 +8,8 @@ HTTP <-> service call, never touches models/RuleEngine directly):
 
   POST /api/v1/workspaces/<workspace_id>/architecture/decompose/
        Generate a non-persistent decomposition draft for an ArchitectureElement.
-       Body: {element_id, breadth?, depth?}. Returns the draft for review.
-       Nothing is written. 403 when the workspace is minimal-rigor.
+       Body: {element_id, max_breadth?, max_depth?}. Returns the draft for
+       review. Nothing is written. 403 when the workspace is minimal-rigor.
 
   POST /api/v1/workspaces/<workspace_id>/architecture/decompose/commit/
        Persist a reviewed draft in one transaction. Body: {draft}. On success
@@ -41,11 +41,20 @@ from rest_api.serializers import build_error_response, detect_lang
 
 
 class GenerateDraftRequestSerializer(serializers.Serializer):
-    """Body of POST .../architecture/decompose/."""
+    """Body of POST .../architecture/decompose/.
+
+    Spec §4 (breaking change): the former ``breadth``/``depth`` target numbers
+    are gone. ``max_breadth``/``max_depth`` are optional *upper bounds*; when
+    omitted the workspace's ``max_breadth``/``max_depth`` config variables
+    apply. No ``max_value`` is declared here — the unconditional ceiling
+    (``_ABSOLUTE_MAX_BREADTH``/``_ABSOLUTE_MAX_DEPTH``) is enforced in
+    ``ArchitectureDecomposeService.generate_draft`` itself, not in this
+    serializer.
+    """
 
     element_id = serializers.UUIDField()
-    breadth = serializers.IntegerField(required=False, min_value=1, max_value=5)
-    depth = serializers.IntegerField(required=False, min_value=1, max_value=3)
+    max_breadth = serializers.IntegerField(required=False, min_value=1)
+    max_depth = serializers.IntegerField(required=False, min_value=1)
 
 
 class WorkspaceArchitectureDecomposeView(APIView):
@@ -72,8 +81,8 @@ class WorkspaceArchitectureDecomposeView(APIView):
             draft = ArchitectureDecomposeService().generate_draft(
                 get_auth_context(request),
                 data["element_id"],
-                breadth=data.get("breadth", 2),
-                depth=data.get("depth", 1),
+                max_breadth=data.get("max_breadth"),
+                max_depth=data.get("max_depth"),
             )
             return Response(draft.to_dict(), status=status.HTTP_200_OK)
         except DecompositionNotAvailableError as exc:

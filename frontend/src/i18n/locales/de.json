@@ -615,6 +615,7 @@
       "scopeGlobal": "Global (alle Workspaces)",
       "reset": "Auf Standard zurücksetzen",
       "resetToGlobal": "Override entfernen",
+      "unknownPlaceholders": "Unbekannte Platzhalter — sie bleiben im Prompt-Text stehen:",
       "origin": {
         "workspace": "Workspace-Override",
         "global": "Globaler Standard",
@@ -629,6 +630,29 @@
         "architecture_to_risk": "Architekturelement → Risiken",
         "workspace_to_glossary": "Workspace → Glossarbegriffe",
         "decision_to_adr": "Entscheidung → ADR"
+      }
+    },
+    "promptVariables": {
+      "title": "Prompt-Variablen",
+      "description": "Zentral verwaltete Werte, die in Prompt-Texten als {name} referenziert werden. 'code-gebunden' bedeutet: der Wert wird vom System aus echten Artefaktdaten berechnet.",
+      "columnName": "Variable",
+      "columnKind": "Art",
+      "columnType": "Typ",
+      "columnDescription": "Beschreibung",
+      "columnValue": "Effektiver Wert",
+      "columnOrigin": "Herkunft",
+      "kindConfig": "konfigurierbar",
+      "kindData": "code-gebunden",
+      "computedValue": "wird vom System berechnet",
+      "originCode": "Code",
+      "newName": "Neue Variable",
+      "create": "Anlegen",
+      "boolTrue": "Wahr",
+      "boolFalse": "Falsch",
+      "origin": {
+        "workspace": "Workspace-Override",
+        "global": "Globaler Standard",
+        "factory": "Werkseinstellung"
       }
     },
     "pageSummary": "Workspace-Konfiguration: Preset, Traceability, Sichtbarkeit, LLM-Einstellungen und Workflows.",
@@ -1104,8 +1128,9 @@
     "trigger": "KI-Zerlegung",
     "title": "KI-Zerlegung",
     "close": "Schließen",
-    "breadth": "Breite (Kinder je Ebene)",
-    "depth": "Tiefe (Ebenen)",
+    "maxBreadth": "Max. Kinder je Ebene",
+    "maxDepth": "Max. Ebenen",
+    "capsHint": "Die KI entscheidet anhand des Inhalts, wie viele Kind-Elemente und Ebenen fachlich sinnvoll sind. Diese Zahlen sind nur Obergrenzen, keine Zielvorgabe.",
     "generate": "Entwurf generieren",
     "generating": "Wird generiert...",
     "degraded": "Hinweis: deterministischer Mock-Entwurf (kein echter LLM-Provider konfiguriert).",

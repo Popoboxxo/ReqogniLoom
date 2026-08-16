@@ -53,9 +53,14 @@ export interface CommitResult {
   counts: { elements: number; requirements: number; links: number };
 }
 
+/**
+ * Optional *upper bounds* for one decompose call (spec §4). Omitting a value
+ * leaves the workspace's configured `max_breadth`/`max_depth` in force — the
+ * AI decides the actual structure from the element's content.
+ */
 export interface GenerateDraftOptions {
-  breadth?: number;
-  depth?: number;
+  maxBreadth?: number;
+  maxDepth?: number;
 }
 
 export const architectureDecomposeApi = {
@@ -69,8 +74,8 @@ export const architectureDecomposeApi = {
       `/workspaces/${workspaceId}/architecture/decompose/`,
       {
         element_id: elementId,
-        ...(options.breadth != null ? { breadth: options.breadth } : {}),
-        ...(options.depth != null ? { depth: options.depth } : {}),
+        ...(options.maxBreadth != null ? { max_breadth: options.maxBreadth } : {}),
+        ...(options.maxDepth != null ? { max_depth: options.maxDepth } : {}),
       }
     );
   },
