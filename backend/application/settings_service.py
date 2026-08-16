@@ -354,6 +354,8 @@ class SettingsService(ServiceBase):
         name: str,
         content: str,
         workspace_id: UUID | None,
+        *,
+        config_values: dict[str, Any] | None = None,
     ) -> tuple[list[str], list[str], list[str]]:
         """Return ``(data_variables, config_variables, unknown_placeholders)``.
 
@@ -363,24 +365,35 @@ class SettingsService(ServiceBase):
         warning: a ``{name}`` that is neither a declared data variable of this
         slot nor a resolvable config variable can never be filled.
 
+        Args:
+            config_values: Pre-resolved ``{config_name: value}`` (Task 5's
+                ``resolve_config_values``), or ``None`` to resolve it here.
+                It does not depend on ``name`` -- callers annotating many
+                slots for one request (``list_prompt_slots``) must resolve it
+                ONCE and pass it through, or every slot re-triggers the same
+                DB roundtrip (``list_active_variables``) for an identical
+                result. The typo check is reimplemented locally against this
+                dict instead of delegating to ``prompt_resolver
+                .unknown_placeholders``, which would otherwise re-resolve
+                config values internally and reintroduce the same N+1.
+
         Imported lazily for the same import-cycle reason as
         :meth:`_all_prompt_defaults`.
         """
         from application.prompt_resolver import (
             extract_placeholders,
             resolve_config_values,
-            unknown_placeholders,
         )
         from application.prompt_slots import get_slot_data_variables
 
+        if config_values is None:
+            config_values = resolve_config_values(ctx, workspace_id)
+
         data_variables = list(get_slot_data_variables(name))
-        config_names = set(resolve_config_values(ctx, workspace_id))
-        config_variables = [
-            placeholder
-            for placeholder in extract_placeholders(content or "")
-            if placeholder in config_names
-        ]
-        unknown = unknown_placeholders(content or "", name, ctx, workspace_id)
+        placeholders = extract_placeholders(content or "")
+        config_variables = [p for p in placeholders if p in config_values]
+        known = set(data_variables) | set(config_values)
+        unknown = [p for p in placeholders if p not in known]
         return data_variables, config_variables, unknown
 
     @staticmethod
@@ -489,6 +502,8 @@ class SettingsService(ServiceBase):
             workspace_id: Workspace whose overrides to report, or ``None`` for
                           the tenant-global view only.
         """
+        from application.prompt_resolver import resolve_config_values
+
         self._set_tenant_context(ctx)
         defaults = self._all_prompt_defaults()
         # One query for every active row of the tenant, then resolved in
@@ -503,6 +518,12 @@ class SettingsService(ServiceBase):
             if workspace_id is not None
             else {}
         )
+        # Resolved once for the whole page, not per slot: it does not depend
+        # on the slot name, so re-resolving it ~20+ times (once per slot,
+        # each internally re-querying list_active_variables) would multiply
+        # this single request's DB roundtrips by the slot count for an
+        # identical result every time.
+        config_values = resolve_config_values(ctx, workspace_id)
         names = set(defaults) | {r.name for r in rows}
         slots: list[dict[str, Any]] = []
         for name in sorted(names):
@@ -513,7 +534,11 @@ class SettingsService(ServiceBase):
                 factory_default=defaults.get(name),
             )
             data_vars, config_vars, unknown = self._slot_annotations(
-                ctx, name, state["effective_content"], workspace_id
+                ctx,
+                name,
+                state["effective_content"],
+                workspace_id,
+                config_values=config_values,
             )
             state["data_variables"] = data_vars
             state["config_variables"] = config_vars
