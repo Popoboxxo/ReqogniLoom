@@ -3,14 +3,26 @@
 The catalog migration rewires how prompt bodies are resolved and rendered.
 This pins the observable outcome: for every slot the product ships, rendering
 the factory body with its declared data variables must produce byte-identical
-output before and after the rewiring, and the resolver must agree with the
-legacy ``AiDerivationService`` entry points on every slot.
+output before and after the rewiring.
+
+Deliberately compares the legacy ``AiDerivationService`` entry points against
+the *raw source dicts* (``ai_derivation_service.PROMPT_TEMPLATE_DEFAULTS`` and
+``interview_protocol.INTERVIEW_PROTOCOL_DEFAULTS``), never against the
+resolver's own output: after the rewiring ``_get_template_content`` is a
+one-line delegation to ``resolve_template_content``, so a resolver-vs-wrapper
+comparison would trivially agree with itself no matter what either returned
+and could never catch a real regression (e.g. a name collision silently
+overwriting a legacy slot's body when the two source dicts are merged).
 """
 from __future__ import annotations
 
 import pytest
 
 from application.ai_derivation_service import AiDerivationService
+from application.ai_derivation_service import (
+    PROMPT_TEMPLATE_DEFAULTS as LEGACY_PROMPT_TEMPLATE_DEFAULTS,
+)
+from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
 from application.prompt_resolver import render_template, resolve_template_content
 from application.prompt_slots import get_prompt_slots
 from auth_tenancy.context import AuthContext
@@ -51,13 +63,47 @@ def test_every_shipped_slot_has_a_factory_body(ctx_workspace):
         assert resolve_template_content(name, ctx, workspace.id)
 
 
-def test_legacy_entry_point_agrees_with_the_resolver_on_every_slot(ctx_workspace):
+def test_legacy_entry_point_returns_the_unmodified_body_for_every_legacy_slot(
+    ctx_workspace,
+):
+    """Compares against ``ai_derivation_service.PROMPT_TEMPLATE_DEFAULTS`` — the
+    raw dict this staticmethod used to read directly before the rewiring —
+    not against the resolver, so this cannot pass tautologically."""
     ctx, workspace = ctx_workspace
 
-    for name in get_prompt_slots():
-        assert AiDerivationService._get_template_content(
-            ctx, name, workspace_id=workspace.id
-        ) == resolve_template_content(name, ctx, workspace.id)
+    assert LEGACY_PROMPT_TEMPLATE_DEFAULTS, "sanity: the source dict must be non-empty"
+    for name, expected_body in LEGACY_PROMPT_TEMPLATE_DEFAULTS.items():
+        assert (
+            AiDerivationService._get_template_content(ctx, name, workspace_id=workspace.id)
+            == expected_body
+        )
+
+
+def test_legacy_entry_point_returns_the_unmodified_body_for_every_interview_protocol_slot(
+    ctx_workspace,
+):
+    """Same as above for the other source dict (``interview_protocol``'s
+    per-artifact-type YAML protocols) — together the two tests cover every
+    slot ``get_prompt_slots()`` merges, each checked against its own raw
+    source rather than against the resolver."""
+    ctx, workspace = ctx_workspace
+
+    assert INTERVIEW_PROTOCOL_DEFAULTS, "sanity: the source dict must be non-empty"
+    for name, expected_body in INTERVIEW_PROTOCOL_DEFAULTS.items():
+        assert (
+            AiDerivationService._get_template_content(ctx, name, workspace_id=workspace.id)
+            == expected_body
+        )
+
+
+def test_the_two_source_dicts_cover_every_slot_get_prompt_slots_merges(ctx_workspace):
+    """Guards the two tests above against silently going stale: if a future
+    slot family is added to ``get_prompt_slots()`` without also being added to
+    one of the two raw-source comparisons here, this fails loudly instead of
+    the byte-identity claim quietly losing coverage for that family."""
+    covered = set(LEGACY_PROMPT_TEMPLATE_DEFAULTS) | set(INTERVIEW_PROTOCOL_DEFAULTS)
+
+    assert set(get_prompt_slots()) == covered
 
 
 def test_rendering_every_slot_substitutes_all_declared_data_variables(ctx_workspace):
@@ -83,10 +129,15 @@ def test_json_braces_in_a_body_survive_rendering(ctx_workspace):
     assert rendered == 'Return {"title": "x"} for Login'
 
 
-def test_legacy_render_matches_the_resolver_render():
+def test_legacy_render_produces_the_expected_literal_substitution():
+    """Asserts a hardcoded expected string, not ``render_template(...)``'s own
+    output: ``_render`` is now a one-line delegation to ``render_template``, so
+    comparing the two would trivially agree with itself regardless of whether
+    the substitution logic is actually correct (same tautology as the
+    ``_get_template_content`` fix above)."""
     body = 'a {x} {"json": 1} {y}'
 
-    assert AiDerivationService._render(body, x=1) == render_template(body, x=1)
+    assert AiDerivationService._render(body, x=1) == 'a 1 {"json": 1} {y}'
 
 
 def test_config_injection_does_not_alter_a_body_without_config_placeholders(
