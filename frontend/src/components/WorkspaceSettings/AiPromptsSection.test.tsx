@@ -29,6 +29,13 @@ vi.mock("../../api/prompt-templates", async () => {
     },
   };
 });
+vi.mock("../../api/prompt-variables", () => ({
+  promptVariablesApi: {
+    list: vi.fn().mockResolvedValue({ variables: [], count: 0, workspace_id: null }),
+    save: vi.fn(),
+    clear: vi.fn(),
+  },
+}));
 vi.mock("react-i18next", () => {
   const t = (_key: string, fallback?: string): string => fallback ?? _key;
   return { useTranslation: () => ({ t }) };

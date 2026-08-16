@@ -615,6 +615,7 @@
       "scopeGlobal": "Global (all workspaces)",
       "reset": "Reset to default",
       "resetToGlobal": "Remove override",
+      "unknownPlaceholders": "Unknown placeholders — they stay literally in the prompt text:",
       "origin": {
         "workspace": "Workspace override",
         "global": "Global default",
@@ -629,6 +630,25 @@
         "architecture_to_risk": "Architecture Element → Risks",
         "workspace_to_glossary": "Workspace → Glossary Terms",
         "decision_to_adr": "Decision → ADR"
+      }
+    },
+    "promptVariables": {
+      "title": "Prompt Variables",
+      "description": "Centrally managed values referenced in prompt texts as {name}. 'code-bound' means the value is computed by the system from real artifact data.",
+      "columnName": "Variable",
+      "columnKind": "Kind",
+      "columnType": "Type",
+      "columnDescription": "Description",
+      "columnValue": "Effective value",
+      "columnOrigin": "Origin",
+      "kindConfig": "configurable",
+      "kindData": "code-bound",
+      "computedValue": "computed by the system",
+      "originCode": "Code",
+      "origin": {
+        "workspace": "Workspace override",
+        "global": "Global default",
+        "factory": "Factory default"
       }
     },
     "pageSummary": "Workspace configuration: preset, traceability, visibility, LLM settings and workflows.",

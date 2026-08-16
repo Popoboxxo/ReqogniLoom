@@ -30,7 +30,9 @@ import {
   KNOWN_PROMPT_SLOTS,
   type PromptSlotState,
 } from "../../api/prompt-templates";
+import { promptVariablesApi, type PromptVariableState } from "../../api/prompt-variables";
 import { extractErrorMessage } from "../../api/client";
+import { PromptVariableTable } from "./PromptVariableTable";
 
 interface Props {
   /** Workspace whose overrides are edited when scope is "workspace". */
@@ -124,6 +126,15 @@ const selectStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
 };
 
+const warningStyle: React.CSSProperties = {
+  marginTop: "var(--space-2)",
+  padding: "var(--space-2) var(--space-3)",
+  background: "var(--color-badge-warning-bg)",
+  color: "var(--color-badge-warning-text)",
+  borderRadius: "var(--radius-sm)",
+  fontSize: "var(--font-size-sm)",
+};
+
 /** Human-readable label fallbacks for the slots the product ships with. */
 const SLOT_LABELS: Record<string, string> = {
   need_to_sysreq: "Stakeholder Need → System Requirements",
@@ -184,6 +195,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
   const { t } = useTranslation();
   const [scope, setScope] = useState<EditScope>("workspace");
   const [slots, setSlots] = useState<PromptSlotState[]>([]);
+  const [variables, setVariables] = useState<PromptVariableState[]>([]);
   // Only slots the admin actually edited appear here — an absent entry means
   // "show whatever the server last reported", so a scope switch or a reset
   // does not have to reconcile stale local copies.
@@ -196,8 +208,12 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
   const load = useCallback(async (): Promise<void> => {
     setError(null);
     try {
-      const data = await promptTemplatesApi.listSlots(workspaceId);
+      const [data, catalog] = await Promise.all([
+        promptTemplatesApi.listSlots(workspaceId),
+        promptVariablesApi.list(workspaceId),
+      ]);
       setSlots(orderSlots(data.slots));
+      setVariables(catalog.variables);
       setDrafts({});
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -432,6 +448,23 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
                 </span>
               )}
             </div>
+            <PromptVariableTable
+              slotName={slot.name}
+              variableNames={[...slot.data_variables, ...slot.config_variables]}
+              variables={variables}
+            />
+            {slot.unknown_placeholders.length > 0 && (
+              <p
+                style={warningStyle}
+                data-testid={`prompt-${slot.name}-unknown-placeholders`}
+              >
+                {t(
+                  "settings.promptTemplates.unknownPlaceholders",
+                  "Unbekannte Platzhalter — sie bleiben im Prompt-Text stehen:"
+                )}{" "}
+                {slot.unknown_placeholders.map((p) => `{${p}}`).join(", ")}
+              </p>
+            )}
           </div>
         );
       })}
