@@ -162,3 +162,31 @@ def test_get_variable_raises_for_an_unknown_name(ctx_workspace):
         PromptVariableService().get_variable(
             ctx, "does_not_exist", workspace_id=workspace.id
         )
+
+
+def test_a_global_write_inherits_the_type_from_an_existing_workspace_only_row(
+    ctx_workspace,
+):
+    """Finding #4 (final branch review): a brand-new config variable created
+    only at workspace scope must still have its type correctly inherited when
+    someone later writes a global (tenant-wide) value for the same name
+    without repeating ``var_type`` -- the old lookup order
+    (``workspace_id=None`` first, then the write's own ``workspace_id``)
+    collapses to the *same* ``workspace_id=None`` call twice when the write
+    itself targets the global scope, so it can never see a workspace-only
+    row and silently falls back to ``var_type="str"`` instead of the real
+    ``"json"``."""
+    ctx, workspace = ctx_workspace
+    svc = PromptVariableService()
+    svc.set_variable(
+        ctx,
+        name="review_checklist",
+        value=["a", "b"],
+        var_type="json",
+        workspace_id=workspace.id,
+    )
+
+    state = svc.set_variable(ctx, name="review_checklist", value=["c"])
+
+    assert state["var_type"] == "json"
+    assert state["global_value"] == ["c"]

@@ -214,10 +214,29 @@ class PromptVariableService(ServiceBase):
         """
         self._set_tenant_context(ctx)
         spec = PROMPT_VARIABLE_DEFAULTS.get(name)
-        existing = get_active_variable(
-            tenant_id=ctx.tenant_id, name=name, workspace_id=None
-        ) or get_active_variable(
-            tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
+        # Scope precedence for type inheritance (used only when `name` has no
+        # factory `spec`, below): the exact scope this write targets first,
+        # then the tenant-wide default, then -- as a last resort, purely to
+        # inherit a type -- any active row of the name in any scope. Mirrors
+        # the precedence documented everywhere else in the system (workspace
+        # > tenant > global-default) instead of the inverted order this used
+        # to have (code-review finding: `workspace_id=None` was tried before
+        # the write's own `workspace_id`, so a workspace-scoped write with an
+        # existing global row matched the wrong one, and -- concretely -- a
+        # global write for a name that only ever existed at workspace scope
+        # could never find it at all, since both of the old two lookups
+        # collapse to the same `workspace_id=None` call when the write itself
+        # targets the global scope).
+        existing = (
+            get_active_variable(
+                tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
+            )
+            or get_active_variable(
+                tenant_id=ctx.tenant_id, name=name, workspace_id=None
+            )
+            or PromptVariable.objects.filter(
+                tenant_id=ctx.tenant_id, name=name, is_active=True
+            ).first()
         )
 
         if spec is not None:
