@@ -330,16 +330,18 @@ class SettingsService(ServiceBase):
     def _all_prompt_defaults() -> dict[str, str]:
         """Return the canonical factory-default registry for every slot.
 
-        Imported lazily from ``ai_derivation_service`` because that module is
-        the single canonical registry for every derive-flow prompt name (see
-        its ``PROMPT_TEMPLATE_DEFAULTS`` comment) while it also imports this
-        module — a module-level import here would close that cycle.
-        """
-        from application.ai_derivation_service import (
-            PROMPT_TEMPLATE_DEFAULTS as _ALL_DEFAULTS,
-        )
+        Reads ``application.prompt_slots`` — the one consolidated registry
+        (spec §3.2) — instead of ``ai_derivation_service``'s
+        derive-flow-only dict, so slots owned by other services (e.g.
+        ``architecture_decompose_tree``) are editable in the slot UI too.
 
-        return dict(_ALL_DEFAULTS)
+        Imported lazily because ``prompt_slots`` lazily imports
+        ``ai_derivation_service``, which imports this module — a module-level
+        import here would close that cycle.
+        """
+        from application.prompt_slots import get_prompt_slots
+
+        return {name: spec.default_content for name, spec in get_prompt_slots().items()}
 
     @staticmethod
     def prompt_slot_names() -> list[str]:

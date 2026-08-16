@@ -527,12 +527,17 @@ class MockLlmProvider(LlmCapabilityInterface):
             # decomposition tree. Each node bundles a child ArchitectureElement
             # with a single derived Requirement so the N1 service can emit the
             # full internal link set (decomposes / derives-from / allocated-to).
-            # ``breadth`` children per level, nested ``depth`` levels deep;
-            # element_type is a descriptive tag only ("subsystem" for inner
-            # nodes, "component" for leaves — the authoritative role is derived
-            # from tree position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
-            breadth = max(1, int(ctx.get("breadth", 2)))
-            depth = max(1, int(ctx.get("depth", 1)))
+            # ``max_breadth`` children per level, nested ``max_depth`` levels
+            # deep; element_type is a descriptive tag only ("subsystem" for
+            # inner nodes, "component" for leaves — the authoritative role is
+            # derived from tree position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
+            # Context keys renamed from breadth/depth to max_breadth/max_depth
+            # when the prompt+caps moved into the prompt-variable catalog
+            # (spec §4) — the caller now sends the resolved *cap*, not a
+            # target count, but the mock still treats it as "how many to
+            # generate" for a deterministic, testable tree shape.
+            breadth = max(1, int(ctx.get("max_breadth", 2)))
+            depth = max(1, int(ctx.get("max_depth", 1)))
             title_base = str(ctx.get("element_title") or "System")
 
             def _build(prefix: str, level: int) -> list:

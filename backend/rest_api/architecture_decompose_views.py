@@ -72,8 +72,8 @@ class WorkspaceArchitectureDecomposeView(APIView):
             draft = ArchitectureDecomposeService().generate_draft(
                 get_auth_context(request),
                 data["element_id"],
-                breadth=data.get("breadth", 2),
-                depth=data.get("depth", 1),
+                max_breadth=data.get("breadth"),
+                max_depth=data.get("depth"),
             )
             return Response(draft.to_dict(), status=status.HTTP_200_OK)
         except DecompositionNotAvailableError as exc:

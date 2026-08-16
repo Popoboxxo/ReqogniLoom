@@ -601,14 +601,14 @@ class ArchitectureToolGroup(BaseToolGroup):
         )
 
         element_id = require_uuid(params, "element_id")
-        breadth = params.get("breadth", 2)
-        depth = params.get("depth", 1)
+        breadth = params.get("breadth")
+        depth = params.get("depth")
         try:
             draft = ArchitectureDecomposeService().generate_draft(
                 auth_context,
                 element_id,
-                breadth=int(breadth),
-                depth=int(depth),
+                max_breadth=int(breadth) if breadth is not None else None,
+                max_depth=int(depth) if depth is not None else None,
             )
         except DecompositionNotAvailableError as exc:
             return ToolResult.error("FEATURE_NOT_ENABLED", str(exc))

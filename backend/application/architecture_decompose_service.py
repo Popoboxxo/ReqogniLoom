@@ -85,21 +85,25 @@ _N1_VERIFICATION_RULES = frozenset({ARCH_003, TRACE_P4, TRACE_P5})
 # workspace — N1 output must satisfy them regardless of the workspace preset.
 _VERIFICATION_TIER = "extended"
 
-# Bounds on the generated tree so a single draft cannot explode into an
-# unbounded transaction (§3.1 blast-radius concern).
-_MAX_BREADTH = 5
-_MAX_DEPTH = 3
+# Prompt slot for the recursive decomposition (llm_adapter capability
+# ``arch_decompose_tree``). Spec §4: this is now a regular catalog slot
+# (``architecture_decompose_tree``) rather than a module-private constant, so
+# it is visible and editable in the prompt admin UI like every other prompt.
+# The blast-radius bounds it used to hard-code (_MAX_BREADTH/_MAX_DEPTH) are
+# now the ``max_breadth``/``max_depth`` config variables, resolvable per
+# workspace.
+ARCH_DECOMPOSE_PROMPT_SLOT = "architecture_decompose_tree"
 
-# Prompt template for the recursive decomposition (llm_adapter capability
-# ``arch_decompose_tree``). Kept here as a module constant — N1 does not read a
-# per-tenant PromptTemplate row (no new slot / migration); the mock provider
-# ignores the text and answers deterministically from the structured context.
 ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
-    "Decompose the architecture element '{element_title}' into {breadth} "
-    "child elements across {depth} level(s). For each child element propose a "
-    "concise title, a description, and a single derived requirement (title, "
-    "description, rationale) that the child element must satisfy. Return a JSON "
-    "array of nodes, each optionally carrying a nested 'children' array."
+    "Analyse the architecture element '{element_title}' and the requirements "
+    "allocated to it. Decompose it into the child elements that are actually "
+    "justified by its content — mirror real cohesion, do not split "
+    "artificially. Choose the number of children and the number of levels "
+    "yourself; use at most {max_breadth} child elements per level and at most "
+    "{max_depth} levels in total. For each child element propose a concise "
+    "title, a description, and a single derived requirement (title, "
+    "description, rationale) that the child element must satisfy. Return a "
+    "JSON array of nodes, each optionally carrying a nested 'children' array."
 )
 
 
@@ -319,16 +323,18 @@ class ArchitectureDecomposeService(ServiceBase):
         ctx: AuthContext,
         element_id: UUID | str,
         *,
-        breadth: int = 2,
-        depth: int = 1,
+        max_breadth: Optional[int] = None,
+        max_depth: Optional[int] = None,
     ) -> DecompositionDraft:
-        """Propose a recursive decomposition for *element_id* (no DB writes).
+        """Propose a decomposition for *element_id* (no DB writes).
 
         Args:
             ctx: Authenticated, tenant-scoped context.
             element_id: The ArchitectureElement (Subsystem) to decompose.
-            breadth: Children per level (clamped to 1..``_MAX_BREADTH``).
-            depth: Recursion depth (clamped to 1..``_MAX_DEPTH``).
+            max_breadth: Upper bound on children per level. ``None`` resolves
+                the ``max_breadth`` config variable for this workspace.
+            max_depth: Upper bound on levels. ``None`` resolves the
+                ``max_depth`` config variable for this workspace.
 
         Returns:
             A :class:`DecompositionDraft` for review — nothing is persisted.
@@ -338,6 +344,8 @@ class ArchitectureDecomposeService(ServiceBase):
             NotFoundError: The element does not exist for this tenant.
             ValidationError: The element has no allocated anchor requirement.
         """
+        from application.prompt_resolver import resolve_config_values
+
         self._set_tenant_context(ctx)
 
         element = (
@@ -360,16 +368,28 @@ class ArchitectureDecomposeService(ServiceBase):
                 "to satisfy ARCH-003/TRACE-P5)."
             )
 
-        breadth = max(1, min(int(breadth), _MAX_BREADTH))
-        depth = max(1, min(int(depth), _MAX_DEPTH))
+        # Explicit call parameter > workspace row > tenant row > factory
+        # default (spec §3.3). A caller-supplied cap is still floored at 1 so a
+        # zero or negative value cannot produce an empty draft.
+        caps = resolve_config_values(
+            ctx,
+            workspace_id,
+            overrides={"max_breadth": max_breadth, "max_depth": max_depth},
+        )
+        resolved_breadth = max(1, int(caps["max_breadth"]))
+        resolved_depth = max(1, int(caps["max_depth"]))
 
         raw_tree, provider_name, degraded = self._complete_tree(
+            ctx=ctx,
+            workspace_id=workspace_id,
             element_title=element.title,
-            breadth=breadth,
-            depth=depth,
+            max_breadth=resolved_breadth,
+            max_depth=resolved_depth,
             artifact_id=str(element.artifact_id),
         )
-        nodes = self._flatten_tree(raw_tree)
+        nodes = self._flatten_tree(
+            raw_tree, max_breadth=resolved_breadth, max_depth=resolved_depth
+        )
         if not nodes:
             raise ValidationError(
                 "The LLM returned no decomposition nodes for this element."
@@ -652,13 +672,27 @@ class ArchitectureDecomposeService(ServiceBase):
         )
 
     def _complete_tree(
-        self, *, element_title: str, breadth: int, depth: int, artifact_id: str
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: str,
+        element_title: str,
+        max_breadth: int,
+        max_depth: int,
+        artifact_id: str,
     ) -> Tuple[list, str, bool]:
         """Call the LLM provider for a decomposition tree (graceful degradation).
 
         Returns ``(parsed_tree, provider_name, degraded)``. On any provider
-        error it degrades to the credential-free deterministic mock so the draft
-        flow never crashes (§4 Phase 4a: "mit mock ... kein Crash").
+        error it degrades to the credential-free deterministic mock so the
+        draft flow never crashes (§4 Phase 4a: "mit mock ... kein Crash").
+
+        The prompt body now comes from the ``architecture_decompose_tree``
+        catalog slot and is rendered by the shared resolver, so a workspace
+        can customise both the wording and the caps (spec §4). Note the
+        deliberate switch away from ``str.format``: the body may legitimately
+        contain JSON braces once an admin edits it, which ``.format`` would
+        reject.
 
         Code review finding: this call bypassed REQ-106 (per-tenant daily LLM
         token budget) and the LlmAuditLog trail entirely -- it called
@@ -678,6 +712,7 @@ class ArchitectureDecomposeService(ServiceBase):
         from django.conf import settings
 
         from application.ai_derivation_service import LlmResponseError
+        from application.prompt_resolver import resolve_and_render
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
@@ -687,13 +722,17 @@ class ArchitectureDecomposeService(ServiceBase):
         )
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
-        prompt = ARCH_DECOMPOSE_PROMPT_TEMPLATE.format(
-            element_title=element_title, breadth=breadth, depth=depth
+        prompt = resolve_and_render(
+            ARCH_DECOMPOSE_PROMPT_SLOT,
+            ctx,
+            workspace_id,
+            config_overrides={"max_breadth": max_breadth, "max_depth": max_depth},
+            element_title=element_title,
         )
         context = {
             "element_title": element_title,
-            "breadth": breadth,
-            "depth": depth,
+            "max_breadth": max_breadth,
+            "max_depth": max_depth,
         }
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
         audit_logger = LlmAuditLogger()
@@ -784,23 +823,35 @@ class ArchitectureDecomposeService(ServiceBase):
             )
         return parsed
 
-    def _flatten_tree(self, raw_tree: list) -> List[DraftNode]:
-        """Flatten a nested provider tree into pre-order :class:`DraftNode` list.
+    def _flatten_tree(
+        self, raw_tree: list, *, max_breadth: int, max_depth: int
+    ) -> List[DraftNode]:
+        """Flatten a nested provider tree into a pre-order :class:`DraftNode` list.
 
         Assigns stable ``temp_id``s (``n1``, ``n1.1`` …) and wires
         ``parent_temp_id`` so :meth:`commit_draft` can process parents before
         children in a single pass.
+
+        Also enforces the resolved caps as a hard safety net (§3.1
+        blast-radius concern): the prompt merely *asks* the model for at most
+        ``max_breadth`` children over at most ``max_depth`` levels, so a model
+        that ignores the instruction is clamped here rather than allowed to
+        expand the commit transaction without bound.
         """
         nodes: List[DraftNode] = []
 
-        def _walk(items: list, parent_temp_id: Optional[str], prefix: str) -> None:
-            for i, item in enumerate(items):
+        def _walk(items: list, parent_temp_id: Optional[str], prefix: str, level: int) -> None:
+            kept = 0
+            for item in items:
+                if kept >= max_breadth:
+                    break
                 if not isinstance(item, dict):
                     continue
-                temp_id = f"{prefix}{i + 1}"
                 title = str(item.get("title", "")).strip()
                 if not title:
                     continue
+                kept += 1
+                temp_id = f"{prefix}{kept}"
                 nodes.append(
                     DraftNode(
                         temp_id=temp_id,
@@ -814,10 +865,10 @@ class ArchitectureDecomposeService(ServiceBase):
                     )
                 )
                 children = item.get("children")
-                if isinstance(children, list) and children:
-                    _walk(children, temp_id, f"{temp_id}.")
+                if level < max_depth and isinstance(children, list) and children:
+                    _walk(children, temp_id, f"{temp_id}.", level + 1)
 
-        _walk(raw_tree, None, "n")
+        _walk(raw_tree, None, "n", 1)
         return nodes
 
 
@@ -830,4 +881,5 @@ __all__ = [
     "DecompositionNotAvailableError",
     "DecompositionAuditError",
     "ARCH_DECOMPOSE_PROMPT_TEMPLATE",
+    "ARCH_DECOMPOSE_PROMPT_SLOT",
 ]

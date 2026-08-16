@@ -148,6 +148,23 @@ PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
         "json",
     ),
     "user_message": _data("user_message", "The user's latest interview message."),
+    "element_title": _data(
+        "element_title", "Title of the architecture element being decomposed."
+    ),
+    # --- config (data-driven, admin-editable) ------------------------------
+    "max_breadth": _config(
+        "max_breadth",
+        "Upper bound on child elements the AI may propose per level. Not a "
+        "target — the AI decides the real number from the content.",
+        "int",
+        5,
+    ),
+    "max_depth": _config(
+        "max_depth",
+        "Upper bound on decomposition levels the AI may propose in one draft.",
+        "int",
+        3,
+    ),
 }
 
 

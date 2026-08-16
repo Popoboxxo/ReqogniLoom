@@ -71,22 +71,29 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
         "grounding_snapshot_json",
         "user_message",
     ),
+    "architecture_decompose_tree": ("element_title",),
 }
 
 
 def get_prompt_slots() -> Dict[str, PromptSlotSpec]:
     """Return the merged factory registry, keyed by slot name.
 
-    Rebuilt per call (cheap dict comprehension over ~19 entries) so a test
+    Rebuilt per call (cheap dict comprehension over ~20 entries) so a test
     that monkeypatches one of the source registries sees the change — caching
     it would pin whatever the first caller observed.
     """
     from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
+    from application.architecture_decompose_service import (
+        ARCH_DECOMPOSE_PROMPT_TEMPLATE,
+    )
     from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
 
     merged: Dict[str, str] = {
         **PROMPT_TEMPLATE_DEFAULTS,
         **INTERVIEW_PROTOCOL_DEFAULTS,
+        # Spec §4: N1 no longer bypasses the catalog — its prompt is a regular
+        # slot, editable through AiPromptsSection like every other one.
+        "architecture_decompose_tree": ARCH_DECOMPOSE_PROMPT_TEMPLATE,
     }
     slots: Dict[str, PromptSlotSpec] = {}
     for name, content in merged.items():
