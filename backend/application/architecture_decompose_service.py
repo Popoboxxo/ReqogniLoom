@@ -94,6 +94,21 @@ _VERIFICATION_TIER = "extended"
 # workspace.
 ARCH_DECOMPOSE_PROMPT_SLOT = "architecture_decompose_tree"
 
+# Absolute, non-configurable ceiling (code-review finding on this task,
+# spec §3.1 blast-radius concern). ``resolve_config_values``'s precedence
+# chain puts an explicit call parameter above workspace/tenant/factory
+# (Task 5, by design) -- so without a second, unconditional clamp a caller
+# (e.g. an MCP tool invocation) could pass ``max_breadth=500`` straight
+# through. ``max_breadth``/``max_depth`` from the catalog are the
+# *admin-recommended* cap (configurable, overridable per workspace); these
+# two constants are the emergency brake underneath it that nothing can
+# override, applied after every other resolution step in both
+# :meth:`_complete_tree` (so the prompt/audit context never claims a cap
+# larger than what will actually be enforced) and :meth:`_flatten_tree`
+# (the actual safety net against the tree the LLM returns).
+_ABSOLUTE_MAX_BREADTH = 10
+_ABSOLUTE_MAX_DEPTH = 4
+
 ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
     "Analyse the architecture element '{element_title}' and the requirements "
     "allocated to it. Decompose it into the child elements that are actually "
@@ -370,7 +385,11 @@ class ArchitectureDecomposeService(ServiceBase):
 
         # Explicit call parameter > workspace row > tenant row > factory
         # default (spec §3.3). A caller-supplied cap is still floored at 1 so a
-        # zero or negative value cannot produce an empty draft.
+        # zero or negative value cannot produce an empty draft. This resolved
+        # value can still be arbitrarily large (an explicit override outranks
+        # every stored value, by design) -- _complete_tree/_flatten_tree apply
+        # the unconditional _ABSOLUTE_MAX_BREADTH/_ABSOLUTE_MAX_DEPTH ceiling
+        # on top of it, so no caller can bypass the blast-radius bound.
         caps = resolve_config_values(
             ctx,
             workspace_id,
@@ -722,6 +741,13 @@ class ArchitectureDecomposeService(ServiceBase):
         )
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
+        # Unconditional ceiling (see module docstring on _ABSOLUTE_MAX_BREADTH):
+        # applied here too, not just in _flatten_tree, so the prompt/audit
+        # context never advertises a cap larger than what will actually be
+        # enforced once the tree comes back.
+        max_breadth = min(max(1, int(max_breadth)), _ABSOLUTE_MAX_BREADTH)
+        max_depth = min(max(1, int(max_depth)), _ABSOLUTE_MAX_DEPTH)
+
         prompt = resolve_and_render(
             ARCH_DECOMPOSE_PROMPT_SLOT,
             ctx,
@@ -837,7 +863,16 @@ class ArchitectureDecomposeService(ServiceBase):
         ``max_breadth`` children over at most ``max_depth`` levels, so a model
         that ignores the instruction is clamped here rather than allowed to
         expand the commit transaction without bound.
+
+        ``max_breadth``/``max_depth`` are additionally clamped to
+        ``_ABSOLUTE_MAX_BREADTH``/``_ABSOLUTE_MAX_DEPTH`` here, unconditionally
+        -- these two parameters may already carry an explicit caller override
+        (resolve_config_values' precedence puts it above every stored value),
+        so without this second clamp a caller could request an arbitrarily
+        large tree despite the admin-configured ``max_breadth``/``max_depth``.
         """
+        max_breadth = min(max(1, int(max_breadth)), _ABSOLUTE_MAX_BREADTH)
+        max_depth = min(max(1, int(max_depth)), _ABSOLUTE_MAX_DEPTH)
         nodes: List[DraftNode] = []
 
         def _walk(items: list, parent_temp_id: Optional[str], prefix: str, level: int) -> None:

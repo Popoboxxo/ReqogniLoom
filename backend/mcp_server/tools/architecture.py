@@ -240,11 +240,23 @@ class ArchitectureToolGroup(BaseToolGroup):
                     },
                     "breadth": {
                         "type": "integer",
-                        "description": "Child elements per level (1..5, default 2).",
+                        "description": (
+                            "Upper bound on child elements per level (the AI "
+                            "decides the actual number); omit to use the "
+                            "workspace's configured max_breadth (factory "
+                            "default 5). Always hard-capped at 10 regardless "
+                            "of what is requested."
+                        ),
                     },
                     "depth": {
                         "type": "integer",
-                        "description": "Recursion depth (1..3, default 1).",
+                        "description": (
+                            "Upper bound on recursion depth (the AI decides "
+                            "the actual number of levels); omit to use the "
+                            "workspace's configured max_depth (factory "
+                            "default 3). Always hard-capped at 4 regardless "
+                            "of what is requested."
+                        ),
                     },
                 },
                 "required": ["element_id"],

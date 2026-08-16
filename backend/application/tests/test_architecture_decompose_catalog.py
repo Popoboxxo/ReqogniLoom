@@ -153,3 +153,71 @@ def test_the_prompt_carries_the_workspace_overridden_caps(ctx_workspace, monkeyp
     assert "Payment" in captured["prompt"]
     assert "at most 2" in captured["prompt"]
     assert captured["context"]["max_breadth"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Absolute, non-configurable ceiling (code-review finding, task-12 fix-up).
+#
+# resolve_config_values' precedence puts an explicit call parameter above
+# every stored value (workspace/tenant/factory default) by design (Task 5),
+# so a caller -- e.g. an MCP tool invocation forwarding an untrusted
+# max_breadth -- could otherwise request an arbitrarily large tree despite
+# whatever the admin configured. _ABSOLUTE_MAX_BREADTH/_ABSOLUTE_MAX_DEPTH are
+# the unconditional emergency brake underneath the configurable cap.
+# ---------------------------------------------------------------------------
+
+
+def test_flatten_clamps_an_absurd_max_breadth_to_the_absolute_ceiling():
+    import application.architecture_decompose_service as mod
+
+    nodes = ArchitectureDecomposeService()._flatten_tree(
+        _tree(breadth=30, depth=1), max_breadth=500, max_depth=500
+    )
+
+    assert len(nodes) == mod._ABSOLUTE_MAX_BREADTH
+
+
+def test_flatten_clamps_an_absurd_max_depth_to_the_absolute_ceiling():
+    import application.architecture_decompose_service as mod
+
+    nodes = ArchitectureDecomposeService()._flatten_tree(
+        _tree(breadth=1, depth=10), max_breadth=500, max_depth=500
+    )
+
+    assert max(n.temp_id.count(".") for n in nodes) == mod._ABSOLUTE_MAX_DEPTH - 1
+
+
+def test_the_prompt_clamps_an_absurd_explicit_override_to_the_absolute_ceiling(
+    ctx_workspace, monkeypatch
+):
+    """The scenario the finding describes: an explicit override (e.g. an MCP
+    caller forwarding ``max_breadth=500``) outranks every stored config value
+    and must still not reach the prompt/audit context unclamped."""
+    import application.architecture_decompose_service as mod
+
+    ctx, workspace = ctx_workspace
+    captured: dict = {}
+
+    class _Provider:
+        def complete(self, prompt, *, purpose, context):
+            captured["prompt"] = prompt
+            captured["context"] = context
+            return "[]"
+
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda: _Provider()
+    )
+
+    ArchitectureDecomposeService()._complete_tree(
+        ctx=ctx,
+        workspace_id=workspace.id,
+        element_title="Payment",
+        max_breadth=500,
+        max_depth=500,
+        artifact_id="00000000-0000-0000-0000-000000000000",
+    )
+
+    assert captured["context"]["max_breadth"] == mod._ABSOLUTE_MAX_BREADTH
+    assert captured["context"]["max_depth"] == mod._ABSOLUTE_MAX_DEPTH
+    assert f"at most {mod._ABSOLUTE_MAX_BREADTH}" in captured["prompt"]
+    assert "at most 500" not in captured["prompt"]
