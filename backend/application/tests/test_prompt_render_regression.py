@@ -22,6 +22,10 @@ from application.ai_derivation_service import AiDerivationService
 from application.ai_derivation_service import (
     PROMPT_TEMPLATE_DEFAULTS as LEGACY_PROMPT_TEMPLATE_DEFAULTS,
 )
+from application.architecture_decompose_service import (
+    ARCH_DECOMPOSE_PROMPT_SLOT,
+    ARCH_DECOMPOSE_PROMPT_TEMPLATE,
+)
 from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
 from application.prompt_resolver import render_template, resolve_template_content
 from application.prompt_slots import get_prompt_slots
@@ -29,6 +33,12 @@ from auth_tenancy.context import AuthContext
 from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db
+
+#: Third raw source dict (spec §4, Task 12): the single N1 architecture-decompose
+#: slot, which moved from a module-private constant to a regular catalog slot.
+#: Kept as a one-entry dict so it composes the same way as the other two raw
+#: sources below (coverage-set union + per-slot byte-identity assertion).
+ARCH_DECOMPOSE_SOURCE_DEFAULTS = {ARCH_DECOMPOSE_PROMPT_SLOT: ARCH_DECOMPOSE_PROMPT_TEMPLATE}
 
 
 @pytest.fixture
@@ -96,12 +106,33 @@ def test_legacy_entry_point_returns_the_unmodified_body_for_every_interview_prot
         )
 
 
+def test_legacy_entry_point_returns_the_unmodified_body_for_architecture_decompose_tree(
+    ctx_workspace,
+):
+    """Same as above for the third source dict (the single N1
+    architecture-decompose slot, spec §4 / Task 12) — together with the two
+    tests above this covers every slot ``get_prompt_slots()`` merges, each
+    checked against its own raw source rather than against the resolver."""
+    ctx, workspace = ctx_workspace
+
+    assert ARCH_DECOMPOSE_SOURCE_DEFAULTS, "sanity: the source dict must be non-empty"
+    for name, expected_body in ARCH_DECOMPOSE_SOURCE_DEFAULTS.items():
+        assert (
+            AiDerivationService._get_template_content(ctx, name, workspace_id=workspace.id)
+            == expected_body
+        )
+
+
 def test_the_two_source_dicts_cover_every_slot_get_prompt_slots_merges(ctx_workspace):
-    """Guards the two tests above against silently going stale: if a future
-    slot family is added to ``get_prompt_slots()`` without also being added to
-    one of the two raw-source comparisons here, this fails loudly instead of
-    the byte-identity claim quietly losing coverage for that family."""
-    covered = set(LEGACY_PROMPT_TEMPLATE_DEFAULTS) | set(INTERVIEW_PROTOCOL_DEFAULTS)
+    """Guards the tests above against silently going stale: if a future slot
+    family is added to ``get_prompt_slots()`` without also being added to one
+    of the raw-source comparisons here, this fails loudly instead of the
+    byte-identity claim quietly losing coverage for that family."""
+    covered = (
+        set(LEGACY_PROMPT_TEMPLATE_DEFAULTS)
+        | set(INTERVIEW_PROTOCOL_DEFAULTS)
+        | set(ARCH_DECOMPOSE_SOURCE_DEFAULTS)
+    )
 
     assert set(get_prompt_slots()) == covered
 
