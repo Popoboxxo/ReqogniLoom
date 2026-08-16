@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.1] — 2026-08-16
+
+### Added
+- **Centralized Prompt Variable Catalog:** Unified configuration system for AI prompt variables across REST API and MCP, enabling dynamic prompt slot configuration without code changes (#600)
+- **Prompt Variable REST/MCP CRUD:** New `/api/v1/prompt-variables/` endpoints and `prompt_variable` MCP tool group for catalog management (#600)
+- **Workspace Settings UI:** New prompt variable management section in workspace configuration panel (#600)
+- **Architecture Decompose Safeguards:** Migrated decompose breadth/depth constraints into configurable catalog variables with absolute blast-radius ceiling enforcement; AI decomposition now respects upper bounds from catalog (#600)
+- **Prompt Variable Auto-Injection:** Config variables automatically injected into prompt slots at request time; per-slot variable display and placeholder validation in UI (#600)
+- **Prompt Resolver Consolidation:** Unified prompt reading across AI derivation service, interviews, and MCP context generation via PromptVariableService (#600)
+
+### Fixed
+- Scope-lookup precedence corrections in PromptVariableService.set_variable (#600)
+- Stale {n} placeholder migration in existing need_to_sysreq rows (#600)
+- Config variable resolution performance: resolve max_requirements_per_need once per request (#600)
+
+### Known Issues
+- None new in this beta
+- Baseline on 1.6.0 stable; all beta.3 issues resolved
+
 ## [1.6.0] — 2026-08-16
 
 Promotion from beta.3 after comprehensive testing and stabilization. Beta.3 known issues resolved; 123 commits adding interview management, goals redesign, architecture improvements, and numerous bugfixes.
