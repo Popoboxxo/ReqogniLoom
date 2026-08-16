@@ -132,5 +132,39 @@ def test_derive_forwards_an_explicit_n_as_a_config_override(ctx_workspace, monke
     AiDerivationService().derive_requirements_from_need(ctx, need.id, n=5)
     assert captured["config_overrides"] == {"max_requirements_per_need": 5}
 
+    # Finding #3 (final branch review): the raw None is no longer forwarded
+    # as-is -- the service now resolves it once (workspace/tenant/factory
+    # chain, no stored override here -> factory default 3) *before* calling
+    # `_resolve_and_render`, so the same resolved int also reaches the mock
+    # provider's `context` (see
+    # test_omitting_n_with_a_workspace_override_makes_the_mock_generate_that_many
+    # below). Forwarding a bare `None` here would leave the resolver to
+    # re-resolve it independently of what `context` receives -- exactly the
+    # duplicate-resolution split that caused the bug.
     AiDerivationService().derive_requirements_from_need(ctx, need.id)
-    assert captured["config_overrides"] == {"max_requirements_per_need": None}
+    assert captured["config_overrides"] == {"max_requirements_per_need": 3}
+
+
+def test_omitting_n_with_a_workspace_override_makes_the_mock_generate_that_many(
+    ctx_workspace,
+):
+    """Finding #3 (final branch review): the mock provider must see the same
+    resolved ``max_requirements_per_need`` value that ends up in the rendered
+    prompt text -- not ``None`` falling back to ``MockLlmProvider``'s own
+    hardcoded default of 3 regardless of the actually configured value."""
+    ctx, workspace = ctx_workspace
+    from persistence.models import Artifact, StakeholderNeed
+
+    PromptVariableService().set_variable(
+        ctx, name="max_requirements_per_need", value=7, workspace_id=workspace.id
+    )
+    artifact = Artifact.objects.create(
+        tenant_id=ctx.tenant_id, workspace_id=workspace.id, artifact_type="StakeholderNeed"
+    )
+    need = StakeholderNeed.objects.create(
+        tenant_id=ctx.tenant_id, artifact=artifact, title="Need", description="d"
+    )
+
+    result = AiDerivationService().derive_requirements_from_need(ctx, need.id)
+
+    assert len(result["drafts"]) == 7

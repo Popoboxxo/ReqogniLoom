@@ -432,11 +432,31 @@ class AiDerivationService(ServiceBase):
         if need is None:
             raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
 
+        # Resolve `max_requirements_per_need` exactly once (workspace/tenant/
+        # factory chain, `count` as the top-precedence override) and reuse the
+        # same resolved int both for the rendered prompt text and for the
+        # mock-provider `context` below (code-review finding on this task:
+        # forwarding the raw, possibly-`None`, `count` into `context`
+        # independently of what the resolver put in the prompt let
+        # MockLlmProvider fall back to its own hardcoded default of 3
+        # whenever `n` was omitted, disagreeing with whatever bound the
+        # prompt text actually advertised). Mirrors
+        # ArchitectureDecomposeService._complete_tree's established pattern
+        # of resolving the config value up front and feeding the same value
+        # into both the prompt and the audit/mock context.
+        from application.prompt_resolver import resolve_config_values
+
+        resolved_count = resolve_config_values(
+            ctx,
+            need.artifact.workspace_id,
+            overrides={"max_requirements_per_need": count},
+        ).get("max_requirements_per_need")
+
         prompt = self._resolve_and_render(
             ctx,
             "need_to_sysreq",
             need.artifact.workspace_id,
-            config_overrides={"max_requirements_per_need": count},
+            config_overrides={"max_requirements_per_need": resolved_count},
             need_title=need.title,
             need_description=truncate_prompt_content(need.description or ""),
         )
@@ -445,7 +465,7 @@ class AiDerivationService(ServiceBase):
             prompt,
             purpose="need_to_sysreq",
             artifact_id=need.artifact_id,
-            context={"max_requirements_per_need": count},
+            context={"max_requirements_per_need": resolved_count},
         )
 
         drafts = [
