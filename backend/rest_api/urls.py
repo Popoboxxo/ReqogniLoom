@@ -66,6 +66,10 @@ from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
 from rest_api.preference_views import UserPreferenceView
+from rest_api.prompt_variable_views import (
+    PromptVariableDetailView,
+    PromptVariableListView,
+)
 from rest_api.settings_views import (
     LlmSettingsView,
     PromptTemplateResetView,
@@ -312,6 +316,18 @@ urlpatterns = [
         "prompt-templates/",
         PromptTemplateView.as_view(),
         name="prompt-templates",
+    ),
+    # Prompt variable catalog (spec §3.1) — admin-only, same scope semantics
+    # as the prompt-template slot API above.
+    path(
+        "prompt-variables/",
+        PromptVariableListView.as_view(),
+        name="prompt-variables",
+    ),
+    path(
+        "prompt-variables/<str:name>/",
+        PromptVariableDetailView.as_view(),
+        name="prompt-variable-detail",
     ),
     # Per-workspace AI-derivation review policy (Phase 5, REQ-L2-RV-001) —
     # admin-only, mirrors the workspace-scoped permission-definition pattern.
