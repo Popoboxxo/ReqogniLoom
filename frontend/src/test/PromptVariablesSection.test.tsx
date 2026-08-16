@@ -191,4 +191,121 @@ describe("PromptVariablesSection (spec §5)", () => {
       (await screen.findByTestId("prompt-variables-error")).textContent
     ).toContain("boom");
   });
+
+  it("keeps the workspace override visible after a global-scope write (review fix #1)", async () => {
+    // Root cause: the backend's state resolver skips workspace-row lookup
+    // when workspace_id is omitted (global-scope write), so its response
+    // reports has_workspace_override: false even though a workspace
+    // override still exists. Merging that partial response in directly
+    // would make the workspace view show the wrong effective value and
+    // disable the reset button. The fix refetches the full list instead.
+    const user = userEvent.setup();
+    const withOverride = variable("max_breadth", {
+      workspace_value: 2,
+      workspace_version: 1,
+      has_workspace_override: true,
+      effective_value: 2,
+      effective_scope: "workspace",
+    });
+    list
+      .mockResolvedValueOnce({
+        variables: [withOverride],
+        count: 1,
+        workspace_id: WORKSPACE_ID,
+      })
+      .mockResolvedValueOnce({
+        variables: [
+          variable("max_breadth", {
+            global_value: 9,
+            global_version: 1,
+            workspace_value: 2,
+            workspace_version: 1,
+            has_workspace_override: true,
+            effective_value: 2,
+            effective_scope: "workspace",
+          }),
+        ],
+        count: 1,
+        workspace_id: WORKSPACE_ID,
+      });
+    // Simulates the real backend's partial response for a global-scope
+    // write: it looks like the workspace override was dropped.
+    save.mockResolvedValueOnce(
+      variable("max_breadth", {
+        global_value: 9,
+        global_version: 1,
+        workspace_value: null,
+        has_workspace_override: false,
+        effective_value: 9,
+        effective_scope: "global",
+      })
+    );
+
+    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+    await screen.findByTestId("prompt-variable-max_breadth-input");
+
+    await user.selectOptions(
+      screen.getByTestId("prompt-variables-scope-select"),
+      "global"
+    );
+    const input = screen.getByTestId("prompt-variable-max_breadth-input");
+    await user.clear(input);
+    await user.type(input, "9");
+    await user.click(screen.getByTestId("prompt-variable-max_breadth-save"));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("max_breadth", 9, null)
+    );
+    // The fix requires a refetch after a global-scope write.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+
+    await user.selectOptions(
+      screen.getByTestId("prompt-variables-scope-select"),
+      "workspace"
+    );
+
+    expect(screen.getByTestId("prompt-variable-max_breadth-input")).toHaveValue(
+      "2"
+    );
+    expect(
+      screen.getByTestId("prompt-variable-max_breadth-origin").textContent
+    ).toContain("Workspace-Override");
+  });
+
+  it("rejects invalid JSON in the create form instead of saving the raw string (review fix #2)", async () => {
+    const user = userEvent.setup();
+    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+    await screen.findByTestId("prompt-variable-new-name");
+
+    await user.type(screen.getByTestId("prompt-variable-new-name"), "weird_cfg");
+    await user.selectOptions(screen.getByTestId("prompt-variable-new-type"), "json");
+    await user.type(
+      screen.getByTestId("prompt-variable-new-value"),
+      "{{not valid json"
+    );
+    await user.click(screen.getByTestId("prompt-variable-new-save"));
+
+    expect(
+      (await screen.findByTestId("prompt-variables-error")).textContent
+    ).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("uses a bounded true/false control for bool values (review fix #2)", async () => {
+    list.mockResolvedValue({
+      variables: [
+        variable("enable_x", {
+          var_type: "bool",
+          factory_default: false,
+          effective_value: false,
+        }),
+      ],
+      count: 1,
+      workspace_id: WORKSPACE_ID,
+    });
+    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+
+    const control = await screen.findByTestId("prompt-variable-enable_x-input");
+    expect(control.tagName).toBe("SELECT");
+  });
 });

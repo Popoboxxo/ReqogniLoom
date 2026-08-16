@@ -186,7 +186,15 @@ function originForScope(
   return variable.global_value === null ? "factory" : "global";
 }
 
-/** Turn the raw input text back into the variable's declared type. */
+/**
+ * Turn the raw input text back into the variable's declared type.
+ *
+ * Throws for a `json` value that doesn't parse — silently falling back to
+ * the raw string would let the backend store text where a structured value
+ * was intended, with no indication anything went wrong. `bool` values are
+ * sourced from a bounded `<select>` (see the "true"/"false" options below),
+ * so `raw === "true"` can never mis-parse an unrecognised string to `false`.
+ */
 function parseValue(raw: string, varType: PromptVariableType): unknown {
   if (varType === "int") return Number.parseInt(raw, 10);
   if (varType === "bool") return raw === "true";
@@ -194,7 +202,7 @@ function parseValue(raw: string, varType: PromptVariableType): unknown {
     try {
       return JSON.parse(raw);
     } catch {
-      return raw;
+      throw new Error(`Invalid JSON: ${raw}`);
     }
   }
   return raw;
@@ -205,6 +213,47 @@ function displayValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
   return JSON.stringify(value);
+}
+
+/** Options for the true/false select used for `var_type: "bool"` values. */
+interface BoolValueSelectProps {
+  testId: string;
+  value: string;
+  disabled: boolean;
+  onChange: (raw: string) => void;
+  trueLabel: string;
+  falseLabel: string;
+  id?: string;
+}
+
+/**
+ * Bounded control for boolean variable values. A free-text field would
+ * accept anything ("True", "1", "yes", ...) and `parseValue` would silently
+ * coerce every unrecognised string to `false` — a `<select>` with exactly
+ * two options makes that class of mistake structurally impossible.
+ */
+function BoolValueSelect({
+  testId,
+  value,
+  disabled,
+  onChange,
+  trueLabel,
+  falseLabel,
+  id,
+}: BoolValueSelectProps): JSX.Element {
+  return (
+    <select
+      id={id}
+      data-testid={testId}
+      value={value === "true" ? "true" : "false"}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      style={selectStyle}
+    >
+      <option value="true">{trueLabel}</option>
+      <option value="false">{falseLabel}</option>
+    </select>
+  );
 }
 
 export function PromptVariablesSection({
@@ -267,17 +316,40 @@ export function PromptVariablesSection({
     });
   };
 
+  /**
+   * Apply a mutation's result to local state. Writing at "workspace" scope
+   * always passes an explicit `workspace_id`, so the backend resolves and
+   * returns the *full* state (global + workspace) and `applyUpdated` can
+   * merge it in directly. Writing at "global" scope omits `workspace_id`,
+   * and the backend's state resolver skips workspace-row lookup entirely in
+   * that case — its response reports `has_workspace_override: false` even
+   * when a workspace override still exists. Trusting that partial response
+   * would silently blank out the override in the UI, so a global-scope
+   * write instead triggers a full refetch (`load`, which always includes
+   * `workspaceId`) to recover the accurate combined state.
+   */
+  const applyMutationResult = async (updated: PromptVariableState): Promise<void> => {
+    if (scope === "global") {
+      await load();
+      return;
+    }
+    applyUpdated(updated);
+  };
+
   const handleSave = async (variable: PromptVariableState): Promise<void> => {
     setBusyName(variable.name);
     setError(null);
     try {
       const raw = drafts[variable.name] ?? displayValue(valueForScope(variable, scope));
-      const updated = await promptVariablesApi.save(
-        variable.name,
-        parseValue(raw, variable.var_type),
-        targetScopeId()
-      );
-      applyUpdated(updated);
+      let parsed: unknown;
+      try {
+        parsed = parseValue(raw, variable.var_type);
+      } catch (parseErr) {
+        setError(extractErrorMessage(parseErr));
+        return;
+      }
+      const updated = await promptVariablesApi.save(variable.name, parsed, targetScopeId());
+      await applyMutationResult(updated);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -289,7 +361,8 @@ export function PromptVariablesSection({
     setBusyName(variable.name);
     setError(null);
     try {
-      applyUpdated(await promptVariablesApi.clear(variable.name, targetScopeId()));
+      const updated = await promptVariablesApi.clear(variable.name, targetScopeId());
+      await applyMutationResult(updated);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -303,13 +376,18 @@ export function PromptVariablesSection({
     setBusyName(name);
     setError(null);
     try {
-      const updated = await promptVariablesApi.save(
-        name,
-        parseValue(newValue, newType),
-        targetScopeId(),
-        { varType: newType, description: newDescription }
-      );
-      applyUpdated(updated);
+      let parsed: unknown;
+      try {
+        parsed = parseValue(newValue, newType);
+      } catch (parseErr) {
+        setError(extractErrorMessage(parseErr));
+        return;
+      }
+      const updated = await promptVariablesApi.save(name, parsed, targetScopeId(), {
+        varType: newType,
+        description: newDescription,
+      });
+      await applyMutationResult(updated);
       setNewName("");
       setNewDescription("");
       setNewValue("");
@@ -393,15 +471,28 @@ export function PromptVariablesSection({
             <span style={descriptionStyle}>{variable.description}</span>
             {variable.is_editable ? (
               <>
-                <input
-                  data-testid={`prompt-variable-${variable.name}-input`}
-                  value={value}
-                  disabled={isBusy}
-                  onChange={(e) =>
-                    setDrafts((prev) => ({ ...prev, [variable.name]: e.target.value }))
-                  }
-                  style={inputStyle}
-                />
+                {variable.var_type === "bool" ? (
+                  <BoolValueSelect
+                    testId={`prompt-variable-${variable.name}-input`}
+                    value={value}
+                    disabled={isBusy}
+                    onChange={(raw) =>
+                      setDrafts((prev) => ({ ...prev, [variable.name]: raw }))
+                    }
+                    trueLabel={t("settings.promptVariables.boolTrue", "Wahr")}
+                    falseLabel={t("settings.promptVariables.boolFalse", "Falsch")}
+                  />
+                ) : (
+                  <input
+                    data-testid={`prompt-variable-${variable.name}-input`}
+                    value={value}
+                    disabled={isBusy}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({ ...prev, [variable.name]: e.target.value }))
+                    }
+                    style={inputStyle}
+                  />
+                )}
                 <button
                   type="button"
                   data-testid={`prompt-variable-${variable.name}-save`}
@@ -478,13 +569,25 @@ export function PromptVariablesSection({
         </label>
         <label style={labelStyle} htmlFor="prompt-variable-new-value">
           {t("settings.promptVariables.columnValue", "Effektiver Wert")}
-          <input
-            id="prompt-variable-new-value"
-            data-testid="prompt-variable-new-value"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            style={inputStyle}
-          />
+          {newType === "bool" ? (
+            <BoolValueSelect
+              id="prompt-variable-new-value"
+              testId="prompt-variable-new-value"
+              value={newValue}
+              disabled={busyName !== null}
+              onChange={setNewValue}
+              trueLabel={t("settings.promptVariables.boolTrue", "Wahr")}
+              falseLabel={t("settings.promptVariables.boolFalse", "Falsch")}
+            />
+          ) : (
+            <input
+              id="prompt-variable-new-value"
+              data-testid="prompt-variable-new-value"
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              style={inputStyle}
+            />
+          )}
         </label>
         <button
           type="button"

@@ -647,6 +647,8 @@
       "originCode": "Code",
       "newName": "Neue Variable",
       "create": "Anlegen",
+      "boolTrue": "Wahr",
+      "boolFalse": "Falsch",
       "origin": {
         "workspace": "Workspace-Override",
         "global": "Globaler Standard",
