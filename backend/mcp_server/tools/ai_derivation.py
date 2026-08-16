@@ -131,9 +131,11 @@ def derive_requirements_from_need(
     task-status polling endpoint that was never exposed).
     """
     need_id = require_uuid(params, "need_id")
-    n_raw = params.get("n", 3)
+    n_raw = params.get("n")
     try:
-        n = int(n_raw)
+        # None means "use the workspace's max_requirements_per_need" config
+        # variable; an explicit value overrides it for this call only.
+        n = int(n_raw) if n_raw is not None else None
     except (TypeError, ValueError):
         return ToolResult.error("VALIDATION_ERROR", "'n' must be an integer.")
     mode, policy = _parse_mode_policy(params)
@@ -263,7 +265,11 @@ class AiDerivationToolGroup(BaseToolGroup):
                     },
                     "n": {
                         "type": "integer",
-                        "description": "Number of requirement drafts (default 3).",
+                        "description": (
+                            "Optional upper bound on requirement drafts. Omit to "
+                            "use the workspace's configured "
+                            "max_requirements_per_need (default 3)."
+                        ),
                     },
                     **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },

@@ -49,7 +49,7 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: Tuple[str, ...] = (
 #: from the service that builds the render call, so this map only changes
 #: together with that code (spec §3.2 — no junction table).
 _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
-    "need_to_sysreq": ("n", "need_title", "need_description"),
+    "need_to_sysreq": ("need_title", "need_description"),
     "sysreq_to_arch_assign": ("req_title", "req_description", "arch_elements_json"),
     "sysreq_decompose_next_level": (
         "req_title",

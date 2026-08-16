@@ -44,9 +44,9 @@ def test_declared_data_variables_are_registered_in_the_variable_catalog():
             assert PROMPT_VARIABLE_DEFAULTS[var].kind == "data"
 
 
-def test_need_to_sysreq_declares_its_three_data_variables():
+def test_need_to_sysreq_declares_its_two_data_variables():
+    """``n`` became the ``max_requirements_per_need`` config variable (spec §4)."""
     assert set(get_slot_data_variables("need_to_sysreq")) == {
-        "n",
         "need_title",
         "need_description",
     }

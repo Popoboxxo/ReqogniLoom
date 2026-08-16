@@ -147,7 +147,11 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                     "id": {"type": "string", "description": "UUID of the stakeholder need."},
                     "n": {
                         "type": "integer",
-                        "description": "Number of requirement drafts (default 3).",
+                        "description": (
+                            "Optional upper bound on requirement drafts. Omit to "
+                            "use the workspace's configured "
+                            "max_requirements_per_need (default 3)."
+                        ),
                     },
                     **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },

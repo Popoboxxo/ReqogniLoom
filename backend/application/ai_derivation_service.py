@@ -402,14 +402,17 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         stakeholder_need_id: UUID | str,
-        n: int = 3,
+        n: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Flow 1: propose ``n`` system requirements for a stakeholder need.
+        """Flow 1: propose system requirements for a stakeholder need.
 
         Args:
             ctx: Authenticated, tenant-scoped context.
             stakeholder_need_id: Source stakeholder need.
-            n: Number of requirement drafts to request (clamped to >= 1).
+            n: Explicit upper bound for this call, overriding the workspace's
+                ``max_requirements_per_need`` config variable. ``None`` (the
+                default) means "use the configured value" — spec §4 turned
+                this from a hard-coded 3 into catalog configuration.
 
         Returns:
             ``{"drafts": [{title, description, rationale, suggested_parent_id}]}``.
@@ -419,7 +422,7 @@ class AiDerivationService(ServiceBase):
             LlmResponseError: The provider returned non-JSON content.
         """
         self._set_tenant_context(ctx)
-        count = max(1, int(n))
+        count = max(1, int(n)) if n is not None else None
 
         need = (
             StakeholderNeed.objects.select_related("artifact")
@@ -429,12 +432,11 @@ class AiDerivationService(ServiceBase):
         if need is None:
             raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
 
-        template = self._get_template_content(
-            ctx, "need_to_sysreq", workspace_id=need.artifact.workspace_id
-        )
-        prompt = self._render(
-            template,
-            n=count,
+        prompt = self._resolve_and_render(
+            ctx,
+            "need_to_sysreq",
+            need.artifact.workspace_id,
+            config_overrides={"max_requirements_per_need": count},
             need_title=need.title,
             need_description=truncate_prompt_content(need.description or ""),
         )
@@ -443,7 +445,7 @@ class AiDerivationService(ServiceBase):
             prompt,
             purpose="need_to_sysreq",
             artifact_id=need.artifact_id,
-            context={"n": count},
+            context={"max_requirements_per_need": count},
         )
 
         drafts = [

@@ -474,7 +474,8 @@ class MockLlmProvider(LlmCapabilityInterface):
             purpose: One of ``need_to_sysreq``, ``sysreq_to_arch_assign`` or
                 ``sysreq_decompose_next_level``.
             context: Optional structured hints. Recognised keys:
-                ``n`` (int) and ``arch_element_ids`` (list of id strings).
+                ``max_requirements_per_need`` (int) and ``arch_element_ids``
+                (list of id strings).
 
         Returns:
             A JSON-encoded string appropriate for the declared purpose.
@@ -485,7 +486,13 @@ class MockLlmProvider(LlmCapabilityInterface):
         ctx = context or {}
 
         if purpose == "need_to_sysreq":
-            count = max(1, int(ctx.get("n", 3)))
+            # Context key renamed from ``n`` to ``max_requirements_per_need``
+            # when the count moved into the prompt-variable catalog (spec
+            # §4) — the caller now sends the resolved cap (``None`` when
+            # unset), but the mock still treats it as "how many to
+            # generate" for a deterministic, testable draft count.
+            raw_count = ctx.get("max_requirements_per_need")
+            count = max(1, int(raw_count)) if raw_count is not None else 3
             return json.dumps(
                 [
                     {

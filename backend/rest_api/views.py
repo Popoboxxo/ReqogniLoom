@@ -540,8 +540,11 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         returned a task_id with no reachable status endpoint.
         """
         lang = detect_lang(request)
+        raw_n = request.data.get("n") if isinstance(request.data, dict) else None
         try:
-            n = int(request.data.get("n", 3)) if isinstance(request.data, dict) else 3
+            # None means "use the workspace's max_requirements_per_need"
+            # config variable — an explicit value overrides it for this call.
+            n = int(raw_n) if raw_n is not None else None
         except (TypeError, ValueError):
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message="'n' must be an integer"),
@@ -571,8 +574,11 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         may contain ``{"n": <int>}`` to control how many drafts to request.
         """
         lang = detect_lang(request)
+        raw_n = request.data.get("n") if isinstance(request.data, dict) else None
         try:
-            n = int(request.data.get("n", 3)) if isinstance(request.data, dict) else 3
+            # None means "use the workspace's max_requirements_per_need"
+            # config variable — an explicit value overrides it for this call.
+            n = int(raw_n) if raw_n is not None else None
         except (TypeError, ValueError):
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message="'n' must be an integer"),

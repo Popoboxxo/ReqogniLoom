@@ -1864,11 +1864,12 @@ class LlmSettings(TenantScopedModel):
 # Read-only default prompt content. Kept at module level so the data migration
 # can seed identical values without importing model behaviour.
 DEFAULT_NEED_TO_SYSREQ = (
-    "Given the following stakeholder need, generate {n} system-level "
-    "requirements. Each requirement must be specific, measurable, and testable. "
-    "Return a JSON array of objects with fields: title (string), description "
-    "(string), rationale (string).\n\nStakeholder Need:\nTitle: {need_title}\n"
-    "Description: {need_description}"
+    "Given the following stakeholder need, generate at most "
+    "{max_requirements_per_need} system-level requirements — produce only as "
+    "many as the need actually justifies. Each requirement must be specific, "
+    "measurable, and testable. Return a JSON array of objects with fields: "
+    "title (string), description (string), rationale (string).\n\n"
+    "Stakeholder Need:\nTitle: {need_title}\nDescription: {need_description}"
 )
 
 DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (

@@ -83,7 +83,6 @@ def _config(name: str, description: str, var_type: str, default: Any) -> PromptV
 #: tell a typo apart from a known name.
 PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
     # --- data (code-bound) -------------------------------------------------
-    "n": _data("n", "Number of requirement drafts requested by the caller.", "int"),
     "need_title": _data("need_title", "Title of the source stakeholder need."),
     "need_description": _data(
         "need_description", "Description of the source stakeholder need."
@@ -162,6 +161,13 @@ PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
     "max_depth": _config(
         "max_depth",
         "Upper bound on decomposition levels the AI may propose in one draft.",
+        "int",
+        3,
+    ),
+    "max_requirements_per_need": _config(
+        "max_requirements_per_need",
+        "Upper bound on requirement drafts derived from one stakeholder need. "
+        "Not a target — the AI produces only as many as the need justifies.",
         "int",
         3,
     ),
