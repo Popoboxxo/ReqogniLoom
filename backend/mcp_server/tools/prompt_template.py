@@ -10,19 +10,13 @@ Exposes four tools:
   prompt_template.get(slot: str, workspace_id: str | None) -> str
     Return the effective content for a template name ("slot"), most-specific
     first: active workspace override -> active tenant-global row -> factory
-    default. The factory default is looked up in a merger of two registries
-    (``_ALL_FACTORY_DEFAULTS``, below): ``application.ai_derivation_service
-    .PROMPT_TEMPLATE_DEFAULTS`` (the 7-entry AI-derivation-flow registry —
-    see that module for why it, not ``persistence.models
-    .PROMPT_TEMPLATE_DEFAULTS``, is the source used here) and
-    ``application.interview_protocol.INTERVIEW_PROTOCOL_DEFAULTS`` (one
-    entry per in-scope artifact type, for ``interview.protocol.*`` names).
-    Mirrors ``AiDerivationService._get_template_content``'s fallback chain in
-    every dimension that matters (same workspace-then-tenant-global
-    precedence), but reads the ``PromptTemplate`` model directly rather than
-    going through that service (this tool group has no dependency on the AI
-    derivation flows) -- which also means it isn't limited to that service's
-    single factory-default table.
+    default. The whole chain -- including the merged factory-default lookup
+    across every slot family (AI-derivation flows and
+    ``interview.protocol.*`` names) -- is delegated to
+    ``application.prompt_resolver.try_resolve_template_content`` (spec §3.3),
+    the single resolution path shared with ``AiDerivationService`` and
+    ``application.interview_protocol.get_protocol``. This tool group no
+    longer keeps its own merged factory-default table.
 
   prompt_template.list(workspace_id: str | None) -> [templates]
     Return every currently-active ``PromptTemplate`` row for the tenant
@@ -81,14 +75,12 @@ from typing import Any, Dict
 
 from django.db import IntegrityError
 
-from application.ai_derivation_service import (
-    PROMPT_TEMPLATE_DEFAULTS,
-)
 from application.interview_protocol import (
-    INTERVIEW_PROTOCOL_DEFAULTS,
     ProtocolValidationError,
     parse_protocol_yaml,
 )
+from application.prompt_resolver import try_resolve_template_content
+from application.prompt_slots import get_prompt_slots
 from application.prompt_template_versioning import (
     get_active_template,
     list_active_templates,
@@ -104,18 +96,6 @@ from mcp_server.tools.base import (
     require_param,
     write_mcp_audit,
 )
-
-
-# Merged factory-default lookup: the 7-entry AI-derivation registry plus the
-# interview-protocol registry (application.interview_protocol), so
-# prompt_template.get/.list agree with every family of factory default, not
-# just the original derivation-flow one. Two distinct source registries are
-# kept (one per owning module) -- this dict only merges them for the read
-# path, it does not become a new source of truth itself.
-_ALL_FACTORY_DEFAULTS: Dict[str, str] = {
-    **PROMPT_TEMPLATE_DEFAULTS,
-    **INTERVIEW_PROTOCOL_DEFAULTS,
-}
 
 
 def _template_to_dict(row: PromptTemplate) -> Dict[str, Any]:
@@ -250,35 +230,20 @@ class PromptTemplateToolGroup(BaseToolGroup):
         slot = require_param(params, "slot")
         workspace_id = optional_uuid(params, "workspace_id")
 
-        # ADR-01 (#124): scope lookups delegated to
-        # application.prompt_template_versioning; the queries are unchanged, so
-        # the workspace-first / tenant-wide-fallback / factory-default
-        # precedence below behaves exactly as before.
-        if workspace_id is not None:
-            row = get_active_template(
-                tenant_id=auth_context.tenant_id,
-                name=slot,
-                workspace_id=workspace_id,
-            )
-            if row is not None:
-                return ToolResult.ok({"slot": slot, "content": row.content})
-
-        row = get_active_template(
-            tenant_id=auth_context.tenant_id,
-            name=slot,
-            workspace_id=None,
-        )
-        if row is not None:
-            return ToolResult.ok({"slot": slot, "content": row.content})
-
-        if slot in _ALL_FACTORY_DEFAULTS:
-            return ToolResult.ok({"slot": slot, "content": _ALL_FACTORY_DEFAULTS[slot]})
+        # Spec §3.3: the workspace-first / tenant-global / factory-default
+        # precedence now lives in exactly one place
+        # (application.prompt_resolver), shared with AiDerivationService and
+        # interview_protocol.get_protocol — this tool no longer keeps its own
+        # merged factory-default table.
+        content = try_resolve_template_content(str(slot), auth_context, workspace_id)
+        if content is not None:
+            return ToolResult.ok({"slot": slot, "content": content})
 
         return ToolResult.error(
             "NOT_FOUND",
             f"No prompt template named '{slot}' exists for this tenant, and "
             "it is not one of the factory-default slots. Known "
-            f"factory-default slots: {', '.join(_ALL_FACTORY_DEFAULTS)}. "
+            f"factory-default slots: {', '.join(sorted(get_prompt_slots()))}. "
             "Use prompt_template.create to define a new one.",
         )
 
