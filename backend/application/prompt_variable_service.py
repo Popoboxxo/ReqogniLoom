@@ -276,8 +276,27 @@ class PromptVariableService(ServiceBase):
         Clearing a workspace scope restores the tenant default; clearing the
         tenant scope restores the factory value. Rows are deactivated, never
         deleted, so the version history stays auditable.
+
+        Raises:
+            ValidationError: The name is a ``data`` variable — its value is
+                code-computed and was never eligible for an override, so
+                "clearing" it would silently no-op instead of surfacing the
+                caller's mistake.
         """
         self._set_tenant_context(ctx)
+        spec = PROMPT_VARIABLE_DEFAULTS.get(name)
+        existing = get_active_variable(
+            tenant_id=ctx.tenant_id, name=name, workspace_id=None
+        ) or get_active_variable(
+            tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
+        )
+        kind = spec.kind if spec is not None else (existing.kind if existing else None)
+        if kind == PROMPT_VARIABLE_KIND_DATA:
+            raise ValidationError(
+                f"PromptVariable {name!r} is code-bound (kind='data'); its value "
+                "is computed by the system and cannot be cleared."
+            )
+
         deactivate_variable_scope(
             tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
         )

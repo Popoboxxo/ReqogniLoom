@@ -141,6 +141,13 @@ def test_setting_a_data_variable_is_rejected(ctx_workspace):
         PromptVariableService().set_variable(ctx, name="req_title", value="nope")
 
 
+def test_clearing_a_data_variable_is_rejected(ctx_workspace):
+    ctx, _ws = ctx_workspace
+
+    with pytest.raises(ValidationError):
+        PromptVariableService().clear_variable(ctx, name="req_title")
+
+
 def test_setting_a_wrongly_typed_value_is_rejected(ctx_workspace, factory_cap):
     ctx, _ws = ctx_workspace
 
