@@ -8,6 +8,8 @@
  *   - Adopt success: POSTs remediate, removes the finding, shows a toast
  *   - Adopt 422 (not automatically fixable): finding flips into the
  *     "Modify" state in-place instead of leaving a dead Adopt button
+ *   - Modify (GitHub #451): enabled and navigates to the affected artifact's
+ *     editor; not rendered at all when that artifact cannot be resolved
  *   - Scope switch (project -> document) re-runs the audit with the
  *     selected scope_artifact_id
  *   - data-testid attributes present (E2E contract)
@@ -18,6 +20,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuditDashboard } from "./audit-dashboard";
 import { auditApi } from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
+import { traceabilityApi } from "../../api/traceability";
 import { UnprocessableEntityError } from "../../api/errors";
 import type { AuditReport } from "../../api/audit";
 import type { Artifact, PaginatedResponse } from "../../types";
@@ -28,6 +31,11 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+const mockNavigate = vi.fn();
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => mockNavigate,
+}));
+
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
     activeWorkspace: { id: "ws-001", name: "Test Workspace", preset: "extended" },
@@ -36,6 +44,7 @@ vi.mock("../../context/WorkspaceContext", () => ({
 
 vi.mock("../../api/audit");
 vi.mock("../../api/artifacts");
+vi.mock("../../api/traceability");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -84,6 +93,40 @@ const PROJECT_REPORT: AuditReport = {
   ],
 };
 
+const REQ_ARTIFACT_ID = "11111111-1111-1111-1111-111111111111";
+const ARCH_ARTIFACT_ID = "33333333-3333-3333-3333-333333333333";
+const REQ_ENTITY_ID = "aaaaaaaa-1111-1111-1111-111111111111";
+const ARCH_ENTITY_ID = "cccccccc-3333-3333-3333-333333333333";
+
+/** A finding whose only artifact has no backing domain row (`resolved: false`). */
+const DANGLING_ARTIFACT_ID = "99999999-9999-9999-9999-999999999999";
+
+const DANGLING_REPORT: AuditReport = {
+  tier: "extended",
+  scope: "project",
+  scope_artifact_id: null,
+  counts: { total: 1, blockers: 1, warnings: 0 },
+  findings: [
+    {
+      rule_id: "TRACE-P7",
+      severity: "blocker",
+      message: "Trace link crosses the scope boundary.",
+      artifact_ids: [DANGLING_ARTIFACT_ID],
+      scope: "project",
+      scope_artifact_id: null,
+      index: 0,
+      remediation: {
+        rule_id: "TRACE-P7",
+        automatic: false,
+        reason: "No automatic remediation is available for TRACE-P7.",
+        finding_artifact_ids: [DANGLING_ARTIFACT_ID],
+        action_kind: null,
+        params: {},
+      },
+    },
+  ],
+};
+
 const DOCUMENT_REPORT: AuditReport = {
   tier: "extended",
   scope: "document",
@@ -114,6 +157,38 @@ function setupDefaultMocks(): void {
     previous: null,
   };
   vi.mocked(artifactsApi.list).mockResolvedValue(artifactsPage);
+
+  // #451: the Modify action needs the Artifact id -> entity id mapping from
+  // GET /traceability/resolve/ to build an editor route. Unknown ids answer
+  // `resolved: false`, which is a normal response, not an error.
+  vi.mocked(traceabilityApi.resolve).mockImplementation((ids) =>
+    Promise.resolve(
+      ids.map((artifactId) => {
+        if (artifactId === REQ_ARTIFACT_ID) {
+          return {
+            artifact_id: artifactId,
+            resolved: true,
+            entity_type: "Requirement",
+            entity_id: REQ_ENTITY_ID,
+          };
+        }
+        if (artifactId === ARCH_ARTIFACT_ID) {
+          return {
+            artifact_id: artifactId,
+            resolved: true,
+            entity_type: "ArchitectureElement",
+            entity_id: ARCH_ENTITY_ID,
+          };
+        }
+        return {
+          artifact_id: artifactId,
+          resolved: false,
+          entity_type: null,
+          entity_id: null,
+        };
+      })
+    )
+  );
 }
 
 describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
@@ -144,33 +219,74 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     expect(screen.getByTestId("audit-count-warnings").textContent).toContain("1");
   });
 
-  it("shows an Adopt button for automatic findings and a disabled Modify button otherwise", async () => {
+  it("shows an Adopt button for automatic findings and an enabled Modify button otherwise", async () => {
     render(<AuditDashboard />);
 
     expect(await screen.findByTestId("audit-adopt-0")).toBeInTheDocument();
-    const modifyBtn = screen.getByTestId("audit-modify-1");
+    const modifyBtn = await screen.findByTestId("audit-modify-1");
     expect(modifyBtn).toBeInTheDocument();
-    expect(modifyBtn).toBeDisabled();
-    expect(modifyBtn).toHaveAttribute(
-      "title",
-      "A dangling parent cannot be invented automatically."
+    // GitHub #451: the whole point — this used to be permanently disabled,
+    // leaving every finding without an automatic proposal unfixable via the UI.
+    expect(modifyBtn).not.toBeDisabled();
+  });
+
+  // GitHub #451: Modify must actually go somewhere. Findings are derived from
+  // the trace graph and never persisted, so the only way to clear one is to
+  // correct the artifact it points at — the button navigates to that editor,
+  // resolving the finding's *Artifact* id to the *entity* id the route takes.
+  it("navigates to the affected artifact's editor when Modify is clicked", async () => {
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-modify-1"));
+
+    expect(mockNavigate).toHaveBeenCalledWith(`/architecture/${ARCH_ENTITY_ID}`);
+  });
+
+  it("resolves the finding's artifact ids through the batch resolve endpoint", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-modify-1");
+    expect(traceabilityApi.resolve).toHaveBeenCalledWith(
+      expect.arrayContaining([REQ_ARTIFACT_ID, ARCH_ARTIFACT_ID])
     );
   });
 
-  // GitHub #451: a disabled Modify button's explanation must also be visible
-  // as text, not only as a hover `title` — most findings have no registered
-  // automatic remediation (this is the common case, not an edge case), and a
-  // hover-only tooltip is not discoverable via keyboard/touch/screen reader.
-  it("shows the disabled reason as visible text next to a disabled Modify button", async () => {
+  // GitHub #451: the reason must also be visible as text, not only as a hover
+  // `title` — every finding without a registered automatic remediation lands
+  // here (the common case, not an edge case), and a hover-only tooltip is not
+  // discoverable via keyboard/touch/screen reader.
+  it("shows the not-auto-fixable reason as visible text next to the Modify button", async () => {
     render(<AuditDashboard />);
 
     const reason = await screen.findByTestId("audit-modify-reason-1");
     expect(reason.textContent).toContain(
       "A dangling parent cannot be invented automatically."
     );
-    // No enabled Modify button anywhere — there is no backend endpoint to
-    // apply a manual edit, so an always-enabled button would be a dead click.
-    expect(screen.queryByTestId("audit-modify-1")).toBeDisabled();
+  });
+
+  // GitHub #451: a control that cannot do anything is worse than no control —
+  // when the subject artifact has no editor route, render no button at all
+  // instead of a permanently disabled one.
+  it("renders no Modify button when the finding's artifact cannot be resolved", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(DANGLING_REPORT);
+
+    render(<AuditDashboard />);
+
+    const reason = await screen.findByTestId("audit-modify-reason-0");
+    expect(reason.textContent).toContain(
+      "This finding references no artifact that can be opened"
+    );
+    expect(screen.queryByTestId("audit-modify-0")).not.toBeInTheDocument();
+  });
+
+  // GitHub #451: "Adopt" (TRACE-P5 et al.) vs "Modify" is the automatic/manual
+  // split of the backend's remediation analysis, not a per-rule inconsistency.
+  it("explains the Adopt/Modify distinction in a legend", async () => {
+    render(<AuditDashboard />);
+
+    const legend = await screen.findByTestId("audit-action-legend");
+    expect(legend.textContent).toContain("Adopt applies the correction");
+    expect(legend.textContent).toContain("Modify opens the affected artifact");
   });
 
   // GitHub #450: the scope selector must stay interactive (mirrors the
@@ -231,13 +347,19 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     fireEvent.click(adoptBtn);
 
     const modifyBtn = await screen.findByTestId("audit-modify-0");
-    expect(modifyBtn).toBeDisabled();
-    expect(modifyBtn).toHaveAttribute("title", "Candidate became ambiguous; pick manually.");
+    // #451: the fallback is a usable manual action, not a dead disabled button.
+    expect(modifyBtn).not.toBeDisabled();
+    expect(screen.getByTestId("audit-modify-reason-0").textContent).toContain(
+      "Candidate became ambiguous; pick manually."
+    );
     expect(screen.getByTestId("audit-finding-error-0").textContent).toBe(
       "Candidate became ambiguous; pick manually."
     );
     // The finding is still present (not removed) — only its action state changed.
     expect(screen.getByTestId("audit-finding-0")).toBeInTheDocument();
+
+    fireEvent.click(modifyBtn);
+    expect(mockNavigate).toHaveBeenCalledWith(`/requirements/${REQ_ENTITY_ID}`);
   });
 
   // ---- Scope switch ----

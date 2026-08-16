@@ -6,14 +6,38 @@
  * Runs the workspace-scoped SE-Auditor (GET .../audit/) and renders its
  * findings grouped by rule id, with per-group blocker/warning badges and a
  * scope selector (project/document/global — document scope additionally
- * needs a root-artifact pick). Each finding offers either an "Adopt" button
- * (POST .../audit/remediate/, when the finding has an unambiguous automatic
- * fix) or a disabled "Modify" hint — there is no backend endpoint to edit a
- * finding directly, so a disabled control with a visible reason (not just a
- * hover title — most findings have no registered automatic remediation, so
- * this is the common state, not an edge case; GitHub #451) is the correct
- * read-only affordance rather than a dead, always-enabled button. Adopt
- * success removes the finding from the list; a 422 response (not
+ * needs a root-artifact pick).
+ *
+ * Per-finding actions (GitHub #451)
+ * ---------------------------------
+ * Every finding gets exactly one action, and which one it is follows the
+ * backend's remediation analysis (`traceability/audit/remediation.py`), not the
+ * rule id:
+ *
+ *   - `remediation.automatic === true`  -> **Adopt**: POST .../audit/remediate/
+ *     applies the proposal the backend already derived (today only TRACE-P1/P2/
+ *     P5 register one, which is why "Adopt" looks rule-specific in the UI — it
+ *     is not; the legend below states the distinction).
+ *   - `remediation.automatic === false` -> **Modify**: there is no "edit a
+ *     finding" endpoint and there cannot be one — findings are derived live from
+ *     the trace graph, never persisted, so the only way to clear one is to
+ *     correct the underlying artifact. The button therefore navigates to that
+ *     artifact's editor (`/traceability/resolve/` maps the finding's Artifact id
+ *     to the entity id the SPA routes take, see `use-finding-targets.ts`).
+ *
+ * Before #451 the Modify button was permanently `disabled`, which left findings
+ * without an automatic proposal — the overwhelming majority — with no path
+ * forward at all. Combined with the fail-closed baseline gate (#490) that is a
+ * workflow deadlock: blockers must be resolved before a baseline can be created,
+ * but nothing in the UI could resolve them.
+ *
+ * When the subject artifact cannot be resolved to an editor route (dangling
+ * artifact, or a type without a backing domain row — `resolved: false`), no
+ * button is rendered at all: a control that cannot do anything is worse than no
+ * control. The reason text stays visible in both cases, as text and not just as
+ * a hover `title`, which is not discoverable via keyboard/touch/screen reader.
+ *
+ * Adopt success removes the finding from the list; a 422 response (not
  * automatically fixable) flips the finding into the "Modify" state in-place
  * instead of leaving a dead button.
  *
@@ -28,6 +52,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { auditApi } from "../../api/audit";
 import type { AuditFinding, AuditScopeKind } from "../../api/audit";
@@ -36,6 +61,8 @@ import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import type { Artifact } from "../../types";
 import { PageHeader } from "../shared/PageHeader";
+import { primaryTarget, useFindingTargets } from "./use-finding-targets";
+import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +98,7 @@ function artifactLabel(a: Artifact): string {
 
 export function AuditDashboard(): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
 
   const [scope, setScope] = useState<AuditScopeKind>("project");
@@ -195,6 +223,18 @@ export function AuditDashboard(): JSX.Element {
       }
     },
     [activeWorkspace, scope, scopeArtifactId, t]
+  );
+
+  // ---- Modify workflow (GitHub #451) ----
+  // A finding is cleared by correcting the artifact it points at, so "Modify"
+  // is a navigation, not a mutation — there is no finding to PATCH.
+  const targets = useFindingTargets(findings);
+
+  const handleModify = useCallback(
+    (target: FindingTarget): void => {
+      navigate(target.route);
+    },
+    [navigate]
   );
 
   // ---- Derived state ----
@@ -342,6 +382,19 @@ export function AuditDashboard(): JSX.Element {
         )}
       </div>
 
+      {/* GitHub #451: "Adopt" vs "Modify" is not a per-rule quirk (TRACE-P5
+          showing "Adopt" while everything else showed "Modify" read like an
+          inconsistency) — it is the two outcomes of the backend's remediation
+          analysis. Stated once, here, instead of being folklore. */}
+      {findings.length > 0 && (
+        <p data-testid="audit-action-legend" style={legendStyle}>
+          {t(
+            "audit.actionLegend",
+            "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed.",
+          )}
+        </p>
+      )}
+
       {toast && (
         <div role="status" data-testid="audit-toast" style={toastStyle}>
           {toast}
@@ -368,7 +421,9 @@ export function AuditDashboard(): JSX.Element {
               ruleId={ruleId}
               findings={groupFindings}
               actionState={actionState}
+              targets={targets}
               onAdopt={handleAdopt}
+              onModify={handleModify}
             />
           ))}
         </div>
@@ -385,10 +440,19 @@ interface FindingGroupProps {
   ruleId: string;
   findings: AuditFinding[];
   actionState: Record<number, ActionState>;
+  targets: FindingTargetMap;
   onAdopt: (finding: AuditFinding) => void;
+  onModify: (target: FindingTarget) => void;
 }
 
-function FindingGroup({ ruleId, findings, actionState, onAdopt }: FindingGroupProps): JSX.Element {
+function FindingGroup({
+  ruleId,
+  findings,
+  actionState,
+  targets,
+  onAdopt,
+  onModify,
+}: FindingGroupProps): JSX.Element {
   const { t } = useTranslation();
   const blockers = findings.filter((f) => f.severity === "blocker").length;
   const warnings = findings.filter((f) => f.severity === "warning").length;
@@ -434,7 +498,9 @@ function FindingGroup({ ruleId, findings, actionState, onAdopt }: FindingGroupPr
             key={finding.index}
             finding={finding}
             action={actionState[finding.index] ?? { status: "idle" }}
+            target={primaryTarget(finding, targets)}
             onAdopt={onAdopt}
+            onModify={onModify}
           />
         ))}
       </ul>
@@ -449,10 +515,19 @@ function FindingGroup({ ruleId, findings, actionState, onAdopt }: FindingGroupPr
 interface FindingRowProps {
   finding: AuditFinding;
   action: ActionState;
+  /** Editor target for the manual correction; `null` while unresolved/unresolvable. */
+  target: FindingTarget | null;
   onAdopt: (finding: AuditFinding) => void;
+  onModify: (target: FindingTarget) => void;
 }
 
-function FindingRow({ finding, action, onAdopt }: FindingRowProps): JSX.Element {
+function FindingRow({
+  finding,
+  action,
+  target,
+  onAdopt,
+  onModify,
+}: FindingRowProps): JSX.Element {
   const { t } = useTranslation();
   const isPending = action.status === "pending";
 
@@ -519,25 +594,41 @@ function FindingRow({ finding, action, onAdopt }: FindingRowProps): JSX.Element 
           </button>
         ) : (
           <>
-            <button
-              type="button"
-              data-testid={`audit-modify-${finding.index}`}
-              disabled
-              title={finding.remediation.reason}
-              style={modifyButtonStyle}
-            >
-              {t("audit.modify", "Modify")}
-            </button>
-            {/* The disabled reason is also shown as visible text, not only as a
-                hover `title` — a hover-only tooltip is not discoverable via
-                keyboard/touch/screen reader, and most findings (all without a
-                registered automatic remediation) land in this disabled state,
-                so it is the common case here, not an edge case (GitHub #451). */}
+            {/* GitHub #451: an enabled Modify action that navigates to the
+                artifact the finding is about — the only place the correction
+                can actually be made, since findings are derived, not stored.
+                Rendered only when that artifact resolves to an editor route;
+                otherwise no control at all, because a button that cannot go
+                anywhere is exactly the dead affordance this issue is about. */}
+            {target && (
+              <button
+                type="button"
+                data-testid={`audit-modify-${finding.index}`}
+                onClick={() => onModify(target)}
+                title={t(
+                  "audit.modifyHint",
+                  "Open the affected artifact to correct it manually.",
+                )}
+                style={modifyButtonStyle}
+              >
+                {t("audit.modify", "Modify")}
+              </button>
+            )}
+            {/* The reason is shown as visible text, not only as a hover
+                `title` — a hover-only tooltip is not discoverable via
+                keyboard/touch/screen reader, and every finding without a
+                registered automatic remediation lands here, so it is the
+                common case, not an edge case (GitHub #451). */}
             <span
               data-testid={`audit-modify-reason-${finding.index}`}
               style={modifyReasonStyle}
             >
               {t("audit.modifyReasonPrefix", "Not auto-fixable")}: {finding.remediation.reason}
+              {!target &&
+                ` ${t(
+                  "audit.modifyNoTarget",
+                  "This finding references no artifact that can be opened — correct it via the affected artifacts listed above.",
+                )}`}
             </span>
           </>
         )}
@@ -617,16 +708,26 @@ const adoptButtonStyle = (isPending: boolean): CSSProperties => ({
   opacity: isPending ? 0.6 : 1,
 });
 
+// #451: a real, enabled action now — secondary/outline styling keeps it visually
+// subordinate to the green "Adopt" (automatic) without reading as disabled.
 const modifyButtonStyle: CSSProperties = {
   padding: "var(--space-1) var(--space-3)",
   background: "transparent",
-  color: "var(--color-text-muted)",
-  border: "1px solid var(--color-border)",
+  color: "var(--color-primary)",
+  border: "1px solid var(--color-primary)",
   borderRadius: "var(--radius-md)",
-  cursor: "help",
+  cursor: "pointer",
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
   fontFamily: "inherit",
+  whiteSpace: "nowrap",
+};
+
+const legendStyle: CSSProperties = {
+  margin: "0 0 var(--space-4) 0",
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-xs)",
+  lineHeight: 1.5,
 };
 
 const modifyReasonStyle: CSSProperties = {
