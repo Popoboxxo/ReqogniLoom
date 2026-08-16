@@ -25,6 +25,7 @@ req_id: REQ-L2-PT-001
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -41,6 +42,8 @@ from application.prompt_variables import (
     VariableTypeError,
     deserialize_variable_value,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Matches ``{name}`` placeholders only — a JSON object like ``{"a": 1}`` has
 #: a quote directly after the brace and therefore never matches.
@@ -70,8 +73,16 @@ def extract_placeholders(content: str) -> List[str]:
     return seen
 
 
-def render_template(content: str, **values: Any) -> str:
-    """Substitute ``{name}`` placeholders without touching other braces."""
+def render_template(content: str, /, **values: Any) -> str:
+    """Substitute ``{name}`` placeholders without touching other braces.
+
+    *content* is positional-only: ``PromptVariable.name`` is deliberately
+    unrestricted (an admin can register a ``config`` variable called
+    ``content`` at runtime — that is the whole point of the catalog), so a
+    keyword parameter named ``content`` here would collide with a same-named
+    value in ``**values`` and raise ``TypeError: got multiple values for
+    argument 'content'`` on every render call for that tenant.
+    """
     rendered = content
     for key, value in values.items():
         rendered = rendered.replace("{" + key + "}", str(value))
@@ -104,6 +115,17 @@ def resolve_template_content(
 ) -> str:
     """Like :func:`try_resolve_template_content`, but fails loudly.
 
+    ``workspace_id`` is intentionally a separate parameter, never defaulted
+    from ``ctx.workspace_id``: the scope that matters here is the workspace
+    that *owns the artifact being rendered for* (e.g. a StakeholderNeed's
+    ``artifact.workspace_id``), which is frequently not the workspace the
+    caller is currently "in". This mirrors the pre-existing, unchanged
+    precedent in ``AiDerivationService._get_template_content(ctx, name,
+    workspace_id=None)`` — every one of its call sites passes an explicit
+    workspace id derived from the entity being processed, never ``ctx``'s
+    own. Callers of this resolver must do the same; it will not infer a
+    workspace on their behalf.
+
     Raises:
         PromptSlotNotFoundError: No active row and no factory default — a
             clear error beats silently rendering an empty prompt (spec §8).
@@ -127,7 +149,11 @@ def resolve_config_values(
 
     Args:
         ctx:          Caller's auth context (supplies the tenant).
-        workspace_id: Workspace whose overrides apply, or ``None``.
+        workspace_id: Workspace whose overrides apply, or ``None``. Deliberately
+                      independent of ``ctx.workspace_id`` — see the equivalent
+                      note on :func:`resolve_template_content`. Callers must
+                      pass the workspace relevant to what is being rendered
+                      themselves; it is never read off ``ctx``.
         overrides:    Explicit per-call values (e.g. an MCP tool parameter)
                       that outrank every stored scope. Entries whose value is
                       ``None`` are ignored, so a caller can forward an omitted
@@ -157,6 +183,16 @@ def resolve_config_values(
         except VariableTypeError:
             # A malformed stored value must not break every render call —
             # fall through to whatever the lower precedence level supplied.
+            # Still surfaced via logging so an admin can see why their
+            # freshly-set value was ignored instead of it silently vanishing.
+            logger.warning(
+                "resolve_config_values: ignoring unparseable value for "
+                "variable %r (var_type=%r, workspace_id=%r); falling back "
+                "to the next lower-precedence value.",
+                row.name,
+                row.var_type,
+                row.workspace_id,
+            )
             continue
 
     for name, value in (overrides or {}).items():
@@ -177,6 +213,10 @@ def resolve_and_render(
 
     ``data_kwargs`` win on a name collision with a ``config`` variable — the
     code-supplied artifact data is always the more specific answer.
+
+    ``workspace_id`` is, like in :func:`resolve_template_content` and
+    :func:`resolve_config_values`, never defaulted from ``ctx.workspace_id`` —
+    it must be supplied by the caller for the entity actually being rendered.
 
     Raises:
         PromptSlotNotFoundError: See :func:`resolve_template_content`.

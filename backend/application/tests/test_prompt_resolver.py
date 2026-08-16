@@ -194,3 +194,53 @@ def test_unknown_placeholders_reports_only_undeclared_names(ctx_workspace):
     )
 
     assert unknown == ["typoo"]
+
+
+def test_malformed_stored_value_falls_back_to_the_next_scope_and_logs(
+    ctx_workspace, caplog
+):
+    """A row that fails to deserialize must not break the whole render call."""
+    import logging
+
+    ctx, workspace = ctx_workspace
+    _publish_config(ctx.tenant_id, "max_breadth", "4")
+    # Workspace-scoped override with a body that is not valid JSON for "int".
+    publish_new_variable_version(
+        tenant_id=ctx.tenant_id,
+        name="max_breadth",
+        kind="config",
+        var_type="int",
+        description="broken override",
+        default_value="nope",
+        workspace_id=workspace.id,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="application.prompt_resolver"):
+        values = resolve_config_values(ctx, workspace.id)
+
+    assert values["max_breadth"] == 4
+    assert any("max_breadth" in record.message for record in caplog.records)
+
+
+def test_workspace_id_accepts_a_string_as_well_as_a_uuid(ctx_workspace):
+    """All four public signatures advertise ``UUID | str`` — string must work too."""
+    ctx, workspace = ctx_workspace
+    publish_new_version(
+        tenant_id=ctx.tenant_id,
+        name="need_to_sysreq",
+        content="cap={max_breadth}",
+        workspace_id=workspace.id,
+    )
+    _publish_config(ctx.tenant_id, "max_breadth", "9", workspace_id=workspace.id)
+    workspace_id_str = str(workspace.id)
+
+    assert resolve_template_content("need_to_sysreq", ctx, workspace_id_str) == (
+        "cap={max_breadth}"
+    )
+    assert resolve_config_values(ctx, workspace_id_str)["max_breadth"] == 9
+    assert (
+        resolve_and_render("need_to_sysreq", ctx, workspace_id_str) == "cap=9"
+    )
+    assert unknown_placeholders(
+        "{max_breadth} {typoo}", "need_to_sysreq", ctx, workspace_id_str
+    ) == ["typoo"]
