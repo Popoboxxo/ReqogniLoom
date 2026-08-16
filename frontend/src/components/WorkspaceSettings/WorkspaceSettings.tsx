@@ -34,6 +34,7 @@ import { PermissionsSection } from "./PermissionsSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { AiPromptsSection } from "./AiPromptsSection";
+import { PromptVariablesSection } from "./PromptVariablesSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
 import { McpConnectionSection } from "./McpConnectionSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
@@ -560,6 +561,9 @@ export default function WorkspaceSettings(): JSX.Element {
             {/* AI Prompt Templates (REQ-L2-PT-001, issue #119) — every slot,
                 global default + per-workspace override. */}
             <AiPromptsSection workspaceId={activeWorkspace.id} />
+            {/* Prompt variable catalog (spec §5): the central place every
+                {placeholder} value is managed, across all prompt slots. */}
+            <PromptVariablesSection workspaceId={activeWorkspace.id} />
           </>
         )}
 

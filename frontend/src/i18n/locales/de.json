@@ -645,6 +645,8 @@
       "kindData": "code-gebunden",
       "computedValue": "wird vom System berechnet",
       "originCode": "Code",
+      "newName": "Neue Variable",
+      "create": "Anlegen",
       "origin": {
         "workspace": "Workspace-Override",
         "global": "Globaler Standard",

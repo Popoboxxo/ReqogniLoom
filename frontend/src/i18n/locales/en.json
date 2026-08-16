@@ -645,6 +645,8 @@
       "kindData": "code-bound",
       "computedValue": "computed by the system",
       "originCode": "Code",
+      "newName": "New variable",
+      "create": "Create",
       "origin": {
         "workspace": "Workspace override",
         "global": "Global default",
