@@ -126,6 +126,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "prompt_template.create",
     "prompt_template.update",
     "prompt_template.delete",
+    "prompt_variable.set",
+    "prompt_variable.clear",
     "diagram.create",
     "diagram.update",
     "diagram.outdate",
@@ -216,6 +218,8 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "user.list",
         "prompt_template.get",
         "prompt_template.list",
+        "prompt_variable.list",
+        "prompt_variable.get",
         "custom_field.get",
         "custom_field.query",
         "diagram.get",
@@ -465,6 +469,7 @@ class ToolRegistry:
         from mcp_server.tools.ai_derivation import AiDerivationToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
+        from mcp_server.tools.prompt_variable import PromptVariableToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
         from mcp_server.tools.custom_field import CustomFieldToolGroup
         from mcp_server.tools.review import ReviewToolGroup
@@ -507,6 +512,9 @@ class ToolRegistry:
                 "change_request", ChangeRequestService, item_type="ChangeRequest"
             ),
             "prompt_template": PromptTemplateToolGroup(),
+            # Prompt variable catalog (spec §3.1): the config layer the
+            # prompt_template group's bodies reference via {placeholders}.
+            "prompt_variable": PromptVariableToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
             "custom_field": CustomFieldToolGroup(),

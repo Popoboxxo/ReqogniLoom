@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.6.0-beta.3",
-  "tool_count": 155,
+  "generated_from": "reqogniloom==1.6.0",
+  "tool_count": 159,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2794,6 +2794,99 @@
         "required": [
           "name",
           "content"
+        ]
+      }
+    },
+    {
+      "name": "prompt_variable.clear",
+      "prefix": "prompt_variable",
+      "is_write": true,
+      "description": "Drop a prompt variable's active row at the given scope so it falls back to the next level (workspace -> tenant -> factory). Idempotent; returns the now-effective state (write, audited, admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variable name."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope whose override to drop."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "prompt_variable.get",
+      "prefix": "prompt_variable",
+      "is_write": false,
+      "description": "Return one prompt variable's per-scope state and resolved effective value. NOT_FOUND when the name is neither factory-registered nor stored for this tenant.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variable name."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope whose override to resolve."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "prompt_variable.list",
+      "prefix": "prompt_variable",
+      "is_write": false,
+      "description": "List every prompt variable in the catalog with its factory, tenant and workspace value plus the resolved effective value and its origin. kind='config' entries are editable; kind='data' entries are code-bound documentation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope whose overrides to resolve."
+          }
+        }
+      }
+    },
+    {
+      "name": "prompt_variable.set",
+      "prefix": "prompt_variable",
+      "is_write": true,
+      "description": "Publish a new active version of a config prompt variable for a (tenant, workspace_id, name) scope. Omitting workspace_id writes the tenant-wide default. An unknown name creates a new config variable usable in any prompt body immediately. kind='data' names are rejected (write, audited, admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variable name."
+          },
+          "value": {
+            "description": "New value; must match the variable's var_type."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace scope. Omit for the tenant default."
+          },
+          "var_type": {
+            "type": "string",
+            "description": "int | str | bool | json — only used when creating a name that has no factory entry yet (default 'str')."
+          },
+          "description": {
+            "type": "string",
+            "description": "Documentation shown in the catalog UI."
+          }
+        },
+        "required": [
+          "name",
+          "value"
         ]
       }
     },
