@@ -34,6 +34,17 @@ describe("InterviewArtifactPane", () => {
     expect(screen.getByText(/Similar req/i)).toBeInTheDocument();
   });
 
+  it("does not crash when grounding_snapshot has no candidates yet (real shape returned by start())", () => {
+    const interview = makeInterview({
+      grounding_snapshot: {} as InterviewState["grounding_snapshot"],
+    });
+
+    expect(() =>
+      render(<InterviewArtifactPane interview={interview} onFormalized={vi.fn()} />)
+    ).not.toThrow();
+    expect(screen.getByTestId("interview-artifact-formalize")).toBeInTheDocument();
+  });
+
   it("disables Formalize while fields are missing", () => {
     const interview = makeInterview({
       missing_fields: [{ name: "title", type: "text", choices: null }],

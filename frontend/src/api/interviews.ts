@@ -49,7 +49,9 @@ export interface InterviewState {
   collected_fields: Record<string, unknown>;
   missing_fields: InterviewField[];
   grounding_snapshot: {
-    candidates: { artifact_id: string; title: string; score: number | null }[];
+    /** Absent until `/grounding/` is explicitly called (lazy AI-ranked
+     * computation) -- `start()` returns `{}`, not `{ candidates: [] }`. */
+    candidates?: { artifact_id: string; title: string; score: number | null }[];
   };
   transcript: InterviewTranscriptEntry[];
 }
