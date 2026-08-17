@@ -51,7 +51,7 @@ pytest>=9.1.1,<10.0
 # change, so the cap is gone and the floor is raised to the first release that
 # declares Django 5.2 support.
 pytest-django>=4.13.0,<5.0
-pypdf>=6.14.2,<7.0
+pypdf>=6.16.1,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
 reportlab>=4.0,<5.0
