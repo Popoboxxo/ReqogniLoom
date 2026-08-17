@@ -313,13 +313,18 @@ export function ArtifactDiff({
   }, [fetchDiff]);
 
   // "From" cannot be the latest version (nothing sits above it); "To" is
-  // restricted to versions strictly greater than the current "From".
-  const fromOptions = sortedVersions.filter(
-    (v) => maxVersion === null || v.version < maxVersion
-  );
-  const toOptions = sortedVersions.filter(
-    (v) => fromVersion === null || v.version > fromVersion
-  );
+  // restricted to versions strictly greater than the current "From". With
+  // only one version total, those exclusions would leave both selects with
+  // zero options (empty dropdowns, e.g. every freshly created artifact) --
+  // fall back to offering the sole version in both instead.
+  const fromOptions =
+    sortedVersions.length <= 1
+      ? sortedVersions
+      : sortedVersions.filter((v) => maxVersion === null || v.version < maxVersion);
+  const toOptions =
+    sortedVersions.length <= 1
+      ? sortedVersions
+      : sortedVersions.filter((v) => fromVersion === null || v.version > fromVersion);
 
   // Keep "To" valid when the user moves "From" forward past it.
   const handleFromChange = (next: number): void => {
