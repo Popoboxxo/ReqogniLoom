@@ -37,7 +37,7 @@ redis>=5.0,<6.0
 # predictable /tmp/pytest-of-{user} basetemp directories on UNIX allow a local
 # user to cause a DoS or possibly escalate privileges. Fixed only in 9.0.3 —
 # there is no 8.x backport, so the CI pip-audit gate forces the major bump.
-pytest>=9.0.3,<10.0
+pytest>=9.1.1,<10.0
 # pytest-django 4.12.0 is the first release whose own test matrix runs against
 # pytest>=9; earlier 4.x releases predate pytest 9 entirely. Its install
 # requirement is only `pytest>=7`, so the floor has to be pinned here.
