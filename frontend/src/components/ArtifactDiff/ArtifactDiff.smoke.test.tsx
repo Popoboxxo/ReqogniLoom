@@ -160,6 +160,30 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
     });
   });
 
+  it("[REQ-053] From/To selects still list the sole version when only one version exists", async () => {
+    // Freshly created artifacts (e.g. a just-added Glossary term) have
+    // exactly one version. The From/To dropdowns must not end up empty.
+    versionsFetcher.mockResolvedValue([
+      { version: 1, label: "v1", modified_at: "2026-01-10T09:00:00Z" },
+    ]);
+
+    render(
+      <ArtifactDiff
+        entityId={ENTITY_ID}
+        entityType="requirement"
+        currentVersion={1}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("diff-from-version")).toHaveTextContent("v1");
+      expect(screen.getByTestId("diff-to-version")).toHaveTextContent("v1");
+    });
+  });
+
   it("[REQ-053] renders error element when versionsFetcher rejects", async () => {
     versionsFetcher.mockRejectedValue({ error: { message: "artifact history unavailable" } });
 

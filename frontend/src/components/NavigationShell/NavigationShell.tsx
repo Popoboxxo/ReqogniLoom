@@ -106,7 +106,7 @@ function AppShell(): JSX.Element {
     <div
       style={{
         display: "flex",
-        minHeight: "100vh",
+        height: "100vh",
       }}
     >
       <SidebarNavigation />
