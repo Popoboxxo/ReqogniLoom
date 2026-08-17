@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.2] — 2026-08-17
+
+### Fixed
+- Interview widget TypeError: guard against missing grounding_snapshot.candidates when artifact type is clicked in interview assistant (#602)
+- Diff UI dropdowns and app-wide scroll containment: fixed empty version dropdowns (Versions-Filter schloss einzige Version aus) and systemwide scroll overflow in NavigationShell (#603)
+
+### Known Issues
+- None new in this beta
+- Baseline on 1.6.0 stable; all beta.1 issues resolved
+
 ## [1.7.0-beta.1] — 2026-08-16
 
 ### Added

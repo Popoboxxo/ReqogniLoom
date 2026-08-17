@@ -34,6 +34,10 @@ services:
   # ─────────────────────────────────────────────────────────
   postgres:
     image: pgvector/pgvector:pg16
+    deploy:
+      resources:
+        limits:
+          memory: 384M
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-reqogniloom}
@@ -75,7 +79,7 @@ services:
   # but the newest BACKUP_RETENTION (default 7) dumps. Restore with:
   #   gunzip -c reqogniloom_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
   postgres-backup:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
@@ -109,6 +113,10 @@ services:
   # ─────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -134,30 +142,11 @@ services:
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      # Stamps the deployed version/commit/build time into the image (GET
-      # /api/v1/version/).
-      #
-      # For production CI/CD: the GitHub workflow (.github/workflows/docker-publish.yml)
-      # overrides these args with real values from git + VERSION file.
-      #
-      # For local development: use the ./backend/scripts/build.sh helper:
-      #   ./backend/scripts/build.sh [TAG]
-      #
-      # This script automatically extracts APP_VERSION (from ./VERSION),
-      # GIT_COMMIT_SHA (from git rev-parse HEAD), and BUILD_TIME (current UTC).
-      # It ensures single source of truth: env-vars set at build time match
-      # the OCI image labels, eliminating drift (Issue #266).
-      #
-      # Manual override (not recommended):
-      #   APP_VERSION=$(cat VERSION) GIT_COMMIT_SHA=$(git rev-parse HEAD) \
-      #   BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker-compose build backend
-      args:
-        APP_VERSION: ${APP_VERSION:-unknown}
-        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
-        BUILD_TIME: ${BUILD_TIME:-}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     restart: unless-stopped
     env_file: .env
     environment:
@@ -190,7 +179,7 @@ services:
       # non-root app user (the image seeds ownership; see backend/Dockerfile).
       - backend_dr_backups:/app/backups
     ports:
-      - "8000:8000"
+      - "8001:8000"
     logging:
       driver: "json-file"
       options:
@@ -225,9 +214,11 @@ services:
   # SYSTEM_ADMIN_PASSWORD is required only when the admin does not exist yet
   # (mirrors createsuperuser --noinput). See backend/application/self_init.py.
   migrate:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqogniloom.settings
@@ -265,9 +256,11 @@ services:
   # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    deploy:
+      resources:
+        limits:
+          memory: 384M
     restart: unless-stopped
     env_file: .env
     environment:
@@ -315,9 +308,11 @@ services:
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     restart: unless-stopped
     env_file: .env
     environment:
@@ -366,18 +361,17 @@ services:
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      # For production: use 'production' target with nginx
-      # For development: use 'development' target with 'docker-compose.override.yml'
-      target: production
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-        VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:1.7.0-beta.2
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    user: root
+    tmpfs:
+      - /var/cache/nginx
     restart: unless-stopped
     ports:
-      - "80:8080"
+      - "5173:8080"
     logging:
       driver: "json-file"
       options:
