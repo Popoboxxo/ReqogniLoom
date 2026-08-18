@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.97.0 — `2026-08-18`
+> Generiert von agent-meta v0.96.0 — `2026-08-15`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -19,6 +19,22 @@
 ## Eigene Notizen
 
 Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
+
+### Testumfang: wann volle E2E-Suite, wann nicht
+
+Die volle Playwright-E2E-Suite (`make test-e2e` bzw. `cd e2e && npx playwright test`,
+111 Tests) ist **nicht** bei jeder Änderung Pflicht — sie ist teuer (Zeit, ggf.
+Docker/Browser-Installation) und für kleine, isolierte Changes unverhältnismäßig.
+
+- **Kleinere Änderungen** (Ein-Datei-Bugfixes, isolierte Backend-Service-Fixes,
+  einzelne Komponenten-Fixes ohne Cross-Cutting-Wirkung): Unit-/Integrationstests
+  (`pytest` gezielt auf die betroffenen Testdateien, `vitest run`) reichen aus.
+  Reviewer/CI decken die volle E2E-Suite später ab.
+- **Größere Änderungen** (neue Features mit UI-Anteil, Änderungen an
+  Kern-Flows wie Auth/Routing/Navigation, breite Refactorings über mehrere
+  Layer): volle E2E-Suite vor Merge erforderlich.
+- Im Zweifel: den betroffenen Playwright-Spec gezielt laufen lassen
+  (`npx playwright test <spec>.spec.ts`) statt der vollen Suite.
 
 ---
 
@@ -107,7 +123,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.97.0 — `2026-08-18`
+Generiert von agent-meta v0.96.0 — `2026-08-15`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 

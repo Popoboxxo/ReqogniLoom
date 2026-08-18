@@ -1,4 +1,4 @@
-agent-meta-version: 0.96.0
+agent-meta-version: 0.97.0
 test-repo:
   enabled: false
   path: ''
@@ -211,11 +211,11 @@ variables:
     mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface
     mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies,
     verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to,
-    uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document,
-    Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro
-    Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf
-    Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req →
-    Subsystems → Components → Presentation) '
+    uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py)
+    - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare
+    State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker,
+    Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs →
+    System Req → Subsystems → Components → Presentation) '
   CODE_CONVENTIONS: '- Python (PEP 8, Typings, Docstrings für public API) - TypeScript
     (ESLint 9, Prettier, strict mode, functional Components + Hooks) - Django-Layer:
     Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/)
@@ -585,6 +585,10 @@ provider-tier-overrides:
   Claude:
     powerful: claude-opus-5
     max: claude-opus-5
+  Opencode:
+    balanced: opencode-go/mimo-v2.5
+    fast: opencode-go/mimo-v2.5
+    nano: opencode-go/mimo-v2.5
 knowledge-engine:
   okf:
     enforce-frontmatter: true
@@ -628,9 +632,6 @@ rules:
   issue-lifecycle:
     embed: false
     alwaysApply: true
-# Maximum number of agents that a coordinator (orchestrator, feature) may run in parallel via run_in_background. Default: 2. Set to 1 to disable parallelism.
 max-parallel-agents: 2
-# When true, sync.py injects a debug block into every generated agent. Active agents announce themselves ([Agent: <name>]), log every delegation (→ Delegiere an: ...), and confirm completion (✓ [Agent: <name>] fertig). Default: false — no change to any agent file.
 debug-mode: false
-# Allow sync.py to write files containing detected secrets to committed (non-gitignored) paths. Default: false — sync aborts with an error when a secret is detected in a committed file. Set to true only when you deliberately commit secret-looking values (e.g. static demo tokens). NOT recommended for production projects.
 allow-committed-secrets: false
