@@ -85,3 +85,5 @@ frontend/.scratchpad-shots/
 backups/
 .superpowers/
 docker-compose.local-e2e.yml
+.projectatlas/
+.agents/
