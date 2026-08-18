@@ -157,6 +157,27 @@ function AppShell(): JSX.Element {
                 path="/workspace-settings"
                 element={<Navigate to="/settings" replace />}
               />
+              {/* #575: legacy paths from before the routes below were
+                  renamed -- alias them to their current route instead of
+                  silently falling through to the "*" -> "/" catch-all,
+                  which stranded old bookmarks/deep-links on the Dashboard
+                  with no indication anything had moved. */}
+              <Route
+                path="/trace-links"
+                element={<Navigate to="/traceability" replace />}
+              />
+              <Route
+                path="/test-cases"
+                element={<Navigate to="/testcases" replace />}
+              />
+              <Route
+                path="/impact-analysis"
+                element={<Navigate to="/impact" replace />}
+              />
+              <Route
+                path="/se-auditor"
+                element={<Navigate to="/audit" replace />}
+              />
               <Route path="/goals" element={<GoalsPage />} />
               <Route path="/glossary" element={<GlossaryView />} />
               <Route path="/workflows" element={<WorkflowEditorPage />} />
