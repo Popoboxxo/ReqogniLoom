@@ -274,6 +274,16 @@ class TestRunService(ServiceBase):
             tc_id = entry.get("test_case_id")
             if not tc_id:
                 raise ValidationError("test_case_id is required for each result entry")
+            try:
+                tc_id = UUID(str(tc_id))
+            except (ValueError, AttributeError, TypeError):
+                # #578: a malformed test_case_id must not reach the ORM --
+                # Django's UUIDField lookup raises its own uncaught
+                # django.core.exceptions.ValidationError there, which the
+                # MCP tool handler's `except ValidationError` (this module's
+                # application-level one) doesn't match, surfacing as an
+                # unhandled 500 instead of a clean validation error.
+                raise ValidationError(f"'{tc_id}' is not a valid UUID for test_case_id")
 
             tc = TestCase.objects.filter(id=tc_id).first()
             if tc is None:

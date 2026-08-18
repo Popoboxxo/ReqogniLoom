@@ -374,6 +374,37 @@ class TestAddResultsBulk:
                     ctx=ctx,
                 )
 
+    def test_malformed_test_case_id_raises_validation_error_not_500(self):
+        """Issue #578: a non-UUID test_case_id must raise ValidationError
+        (-> 400/404 at the MCP/REST boundary), not let Django's ORM raise its
+        own uncaught ValidationError deep inside TestCase.objects.filter(),
+        which the MCP tool handler's except clauses don't catch and which
+        therefore surfaces as an unhandled 500."""
+        svc = TestRunService()
+        ctx = _make_ctx()
+        mock_tr = _make_test_run()
+
+        results_data = [
+            {"test_case_id": "x", "status": "passed"},
+        ]
+
+        with (
+            patch("application.test_run_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.test_run_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.test_run_service.TestRun.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_tr)),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="not a valid UUID"):
+                svc.add_results_bulk(
+                    test_run_id=RUN_ID,
+                    results=results_data,
+                    ctx=ctx,
+                )
+
 
 # ---------------------------------------------------------------------------
 # close_test_run / aggregate status
