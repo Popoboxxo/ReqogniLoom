@@ -1269,6 +1269,48 @@ class TestDeriveRequirementDescriptionInheritance:
 # ---------------------------------------------------------------------------
 
 
+class TestValidateRequirement:
+    """Issue #576: validate_artifact() returns a raw LlmResult dataclass on
+    success (see its docstring), not a dict -- the service must serialise it
+    into a structured JSON-able dict instead of falling back to str(result)
+    (a stringified Python repr, unusable for API/MCP consumers)."""
+
+    def test_validate_requirement_serialises_llm_result_to_dict(self):
+        from llm_adapter.interface import LlmResult
+
+        svc = RequirementService()
+        ctx = _make_ctx()
+        req_id = uuid.uuid4()
+        llm_result = LlmResult(
+            score=0.2,
+            suggestions=["Add acceptance criteria"],
+            provider="opencode_go",
+            model="gpt-4",
+            token_usage=42,
+        )
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter"
+            ) as mock_filter,
+            patch(
+                "llm_adapter.services.validate_artifact",
+                return_value=llm_result,
+            ),
+        ):
+            mock_filter.return_value.only.return_value.first.return_value = None
+            result = svc.validate_requirement(req_id, ctx)
+
+        assert result == {
+            "score": 0.2,
+            "suggestions": ["Add acceptance criteria"],
+            "provider": "opencode_go",
+            "model": "gpt-4",
+            "token_usage": 42,
+        }
+
+
 class TestCheckConsistency:
     """REQ-089: check_consistency wiring + REQ-046 content forwarding."""
 
