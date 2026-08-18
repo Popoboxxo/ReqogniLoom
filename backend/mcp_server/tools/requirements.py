@@ -418,6 +418,19 @@ class RequirementsToolGroup(BaseToolGroup):
         req_id = require_uuid(params, "id")
         data: Dict[str, Any] = params.get("data") or {}
 
+        # #601: the documented contract nests fields under `data` (#21), but
+        # need.update's contract is flat top-level params -- that cross-tool
+        # inconsistency leads real callers to send fields (notably
+        # change_reason) flat on requirement.update too, where they were
+        # silently dropped and produced a confusing "change_reason required"
+        # error even though the caller did send it. Fall back to top-level
+        # params for any field `data` doesn't set, without changing the
+        # documented nested contract for callers who already use it.
+        def _field(name: str) -> Any:
+            if name in data:
+                return data.get(name)
+            return params.get(name)
+
         try:
             # Codeberg #313: suppress update_requirement's single internal
             # _audit() call for the same entity — write_mcp_audit below is
@@ -426,10 +439,10 @@ class RequirementsToolGroup(BaseToolGroup):
                 req = self._service.update_requirement(
                     requirement_id=req_id,
                     ctx=auth_context,
-                    title=data.get("title"),
-                    description=data.get("description"),
-                    category=data.get("category"),
-                    change_reason=data.get("change_reason"),
+                    title=_field("title"),
+                    description=_field("description"),
+                    category=_field("category"),
+                    change_reason=_field("change_reason"),
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

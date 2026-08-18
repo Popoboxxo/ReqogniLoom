@@ -208,6 +208,36 @@ class TestRequirementsToolGroup:
         assert result.success is True
         mock_audit.assert_called_once()
 
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_update_accepts_flat_top_level_change_reason(self, mock_audit):
+        """Issue #601: requirement.update's documented contract nests fields
+        under `data` (issue #21), but need.update accepts flat top-level
+        params -- the cross-tool inconsistency led real callers to send
+        change_reason at the top level, where it was silently dropped
+        (data.get("change_reason") saw None even though the client did send
+        it), producing a confusing "change_reason required" error. The
+        handler must fall back to top-level params when `data` omits a
+        field, without breaking the documented nested contract."""
+        group, svc = self._group()
+        mock_req = _mock_requirement()
+        svc.update_requirement.return_value = mock_req
+
+        result = group.execute_tool(
+            tool_name="requirement.update",
+            params={
+                "id": str(mock_req.id),
+                "title": "renamed",
+                "change_reason": "QA-Test",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.update_requirement.assert_called_once()
+        call_kwargs = svc.update_requirement.call_args.kwargs
+        assert call_kwargs["title"] == "renamed"
+        assert call_kwargs["change_reason"] == "QA-Test"
+
     def test_requirement_get_not_found_returns_error(self):
         group, svc = self._group()
         svc.get_requirement.side_effect = NotFoundError("not found")
