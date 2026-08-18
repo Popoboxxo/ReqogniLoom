@@ -437,7 +437,9 @@ class RequirementService(ServiceBase):
         return requirement
 
     @atomic_transaction
-    def delete_requirement(self, requirement_id: UUID, ctx: AuthContext) -> None:
+    def delete_requirement(
+        self, requirement_id: UUID, ctx: AuthContext, change_reason: str = ""
+    ) -> None:
         """Soft-delete Requirement by setting lifecycle_status to 'deleted' (REQ-006).
 
         Physical deletion is intentionally avoided for end-user operations.
@@ -454,6 +456,13 @@ class RequirementService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
 
         workspace_id = requirement.artifact.workspace_id
+
+        # #604: delete used to skip the workspace's change_reason preset
+        # policy entirely -- a silent audit-trail gap next to
+        # StakeholderNeedService.delete(), which already enforces it.
+        if self._preset_policy.is_change_reason_required(str(workspace_id)):
+            if not change_reason:
+                raise ValidationError("change_reason is required by preset policy.")
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of writing lifecycle_status directly.

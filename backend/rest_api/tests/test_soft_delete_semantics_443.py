@@ -109,7 +109,7 @@ def test_delete_returns_204_and_detail_get_still_resolves_as_outdated(
     """The headline fix: a deleted requirement is observable as soft-deleted."""
     req = _create_requirement(authed_client, workspace, "Soft delete me")
 
-    delete = authed_client.delete(f"/api/v1/requirements/{req['id']}/")
+    delete = authed_client.delete(f"/api/v1/requirements/{req['id']}/", {"change_reason": "GH-443 regression"}, format="json")
     assert delete.status_code == 204, delete.content
 
     detail = authed_client.get(f"/api/v1/requirements/{req['id']}/")
@@ -147,7 +147,7 @@ def test_list_hides_outdated_by_default_and_shows_it_on_request(
 ):
     kept = _create_requirement(authed_client, workspace, "Kept")
     deleted = _create_requirement(authed_client, workspace, "Deleted")
-    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/")
+    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/", {"change_reason": "GH-443 regression"}, format="json")
 
     default_ids = _list_ids(authed_client, "/api/v1/requirements/", workspace)
     assert kept["id"] in default_ids
@@ -165,7 +165,7 @@ def test_status_filter_can_select_outdated_requirements(authed_client, workspace
     invisible in the UI's status filter."""
     kept = _create_requirement(authed_client, workspace, "Kept for status filter")
     deleted = _create_requirement(authed_client, workspace, "Deleted for status filter")
-    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/")
+    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/", {"change_reason": "GH-443 regression"}, format="json")
 
     outdated_ids = _list_ids(
         authed_client, "/api/v1/requirements/", workspace, status="outdated"
@@ -178,7 +178,7 @@ def test_status_filter_can_select_outdated_requirements(authed_client, workspace
 def test_include_deleted_flag_only_reacts_to_truthy_values(authed_client, workspace):
     """A stray ``?include_deleted=false`` must not turn the flag on."""
     deleted = _create_requirement(authed_client, workspace, "Stays hidden")
-    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/")
+    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/", {"change_reason": "GH-443 regression"}, format="json")
 
     for value in ("false", "0", "", "no"):
         ids = _list_ids(
@@ -247,9 +247,9 @@ def test_stakeholder_need_follows_the_same_contract(authed_client, workspace):
     assert created.status_code == 201, created.content
     need_id = created.json()["id"]
 
-    # Needs are the one endpoint whose DELETE takes a body: under an Extended
-    # preset StakeholderNeedService.delete enforces the change_reason gate that
-    # the other entities' deletes do not.
+    # #604: Requirements and StakeholderNeeds both enforce the workspace's
+    # change_reason preset policy on delete (Requirement used to silently
+    # skip it -- a gap fixed alongside this test's update).
     deleted = authed_client.delete(
         f"/api/v1/needs/{need_id}/",
         {"change_reason": "GH-443 regression"},
@@ -366,7 +366,7 @@ def test_uid_of_a_soft_deleted_requirement_stays_reserved(
             ctx=ctx,
             uid="REQ-GH443-1",
         )
-        svc.delete_requirement(created.id, ctx)
+        svc.delete_requirement(created.id, ctx, change_reason="GH-443 regression")
 
         with pytest.raises(ValidationError):
             svc.create_requirement(
@@ -390,7 +390,7 @@ def test_reactivate_restores_the_pre_delete_state(authed_client, workspace):
         "status"
     ]
 
-    authed_client.delete(f"/api/v1/requirements/{req['id']}/")
+    authed_client.delete(f"/api/v1/requirements/{req['id']}/", {"change_reason": "GH-443 regression"}, format="json")
     assert (
         authed_client.get(f"/api/v1/requirements/{req['id']}/").json()["status"]
         == "outdated"
@@ -432,7 +432,7 @@ def test_reactivate_requires_the_write_role(authed_client, workspace, tenant):
     """``workflow.services.reactivate`` force-transitions and performs no role
     check of its own, so the gate has to live in the facade."""
     req = _create_requirement(authed_client, workspace, "Viewer may not restore")
-    authed_client.delete(f"/api/v1/requirements/{req['id']}/")
+    authed_client.delete(f"/api/v1/requirements/{req['id']}/", {"change_reason": "GH-443 regression"}, format="json")
 
     viewer = User.objects.create(
         username="gh443viewer", email="gh443viewer@t.test", tenant=tenant
@@ -501,7 +501,7 @@ def test_coverage_ignores_soft_deleted_requirements(authed_client, workspace, te
 
     kept = _create_requirement(authed_client, workspace, "Counts")
     deleted = _create_requirement(authed_client, workspace, "Must not count")
-    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/")
+    authed_client.delete(f"/api/v1/requirements/{deleted['id']}/", {"change_reason": "GH-443 regression"}, format="json")
 
     TenantContext.set_tenant(tenant.id)
     try:

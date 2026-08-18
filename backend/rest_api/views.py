@@ -875,9 +875,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         traceability coverage ignores outdated records.
         """
         lang = detect_lang(request)
+        change_reason = request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_requirement(UUID(pk), ctx)
+            self._svc().delete_requirement(UUID(pk), ctx, change_reason=change_reason)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
