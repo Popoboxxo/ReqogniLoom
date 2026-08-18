@@ -138,7 +138,8 @@ sequenceDiagram
 ## How to Start
 
 ### Prerequisites
-- Docker Desktop 4.0+ (or Docker Engine + Docker Compose)
+- Docker Desktop or Docker Engine, with Docker Compose >= 2.24.4
+  (`docker compose version`) — the dev overlay needs the `!override` merge tag
 - Node.js 18+ (for E2E tests only; Vite dev server runs in container)
 - Git
 - 4+ GB available RAM
@@ -486,7 +487,8 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
 
 ### Prerequisites
 
-- Docker >= 24.0 and Docker Compose >= 2.20
+- Docker >= 24.0 and Docker Compose >= 2.24.4 (the development overlay
+  `docker-compose.override.yml` uses the `!override` merge tag)
 - A Linux server (amd64) or macOS
 - 8+ GB available RAM
 - HTTPS reverse proxy (nginx, Traefik, etc.) or cloud load balancer
@@ -1051,7 +1053,7 @@ Full OpenAPI 3.0 specification (drf-spectacular) available at http://localhost:8
 | | Vitest | latest |
 | | Playwright | 1.40+ |
 | **Infrastructure** | Docker | 24+ |
-| | Docker Compose | 2.20+ |
+| | Docker Compose | 2.24.4+ |
 | **AI / LLM Integration** | Native MCP server | JSON-RPC 2.0 (HTTP, SSE, stdio) |
 | | LLM Adapters | Anthropic, OpenAI, Ollama, Azure OpenAI, opencode_go, mock (default) |
 

@@ -15,6 +15,11 @@
 # is automatically merged by Docker Compose. To use it, ensure the
 # file exists in the project root (it does, by default).
 # For production, delete docker-compose.override.yml.
+# The dev overlay replaces (not extends) the frontend `ports:` list from this
+# file using the `!override` merge tag, so Docker Compose >= 2.24.4 is required
+# (compose-go PR #552, first shipped in Compose v2.24.4). Older Compose — and
+# any legacy v1 `docker-compose` — fails to parse the overlay; invoke such tools
+# with an explicit `-f docker-compose.yml` so this file is used on its own.
 #
 # SECURITY NOTES:
 # • NEVER commit .env with real secrets (already in .gitignore)
@@ -301,8 +306,27 @@ services:
     # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqogniloom project
     # REQ-077: single worker consumes all queues. Split into dedicated workers
     # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
+    #
+    # --concurrency is pinned instead of left at Celery's default (INFRA-03):
+    # the default is `os.cpu_count()`, so the number of prefork children — and
+    # with it the worker's total RSS — scales with the host, while the memory
+    # limit above stays fixed. A host with enough cores therefore exceeds the
+    # limit at boot and the worker is OOM-killed before it consumes a single
+    # task. Pinning the pool size decouples the two.
+    #
+    # Measured on this 4-core host via `docker exec <celery> ps -o pid,rss,args -e`
+    # plus `docker stats`, on two live 4-child workers running this very command:
+    # 14-44 MiB RSS per child (parent 19-38 MiB), 46 MiB and 132 MiB cgroup total
+    # respectively — the spread between two identically configured workers is
+    # workload history, not configuration. 384M therefore holds 4 children with
+    # room to spare. The per-child figures are what to multiply when raising
+    # CELERY_CONCURRENCY; raise the memory limit with it, never alone.
+    #
+    # Keep this on a single line — in a folded block (`>`) a continuation line
+    # that is indented deeper keeps its newline, and the flag would end up as a
+    # separate shell command instead of a celery argument.
     command: >
-      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events"
+      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events --concurrency=${CELERY_CONCURRENCY:-4}"
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
@@ -370,6 +394,10 @@ services:
     tmpfs:
       - /var/cache/nginx
     restart: unless-stopped
+    # Production mapping: host 5173 → nginx 8080 inside the prod image.
+    # Any overlay that republishes this service MUST use `ports: !override` —
+    # Compose appends port lists across files instead of replacing them. See the
+    # INFRA-01 note in docker-compose.override.yml for the full mechanism.
     ports:
       - "5173:8080"
     logging:
