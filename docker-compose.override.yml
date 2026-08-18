@@ -58,6 +58,23 @@ services:
 
   celery:
     # Development: verbose logging
+    #
+    # INFRA-03: the pool size is pinned here too, for the reason documented in
+    # docker-compose.yml — Celery's default is `os.cpu_count()`, so without it
+    # the worker's RSS grows with whatever machine a developer happens to use
+    # while the limit stays fixed. 2 children are enough to observe queue
+    # routing across default/llm/events.
+    #
+    # 768M is a deliberate safety margin for the dev case, not a figure derived
+    # from a formula. Reference points measured on this 4-core host: a 2-child
+    # dev worker idled at ~210 MiB, and the base file documents 14-44 MiB per
+    # child for the prod path. Dev is given the wider margin because it is the
+    # service the audit found OOM-killed and because an unused memory limit
+    # costs nothing. Lower it only together with CELERY_CONCURRENCY.
+    deploy:
+      resources:
+        limits:
+          memory: 768M
     environment:
       DJANGO_ENV: ${DJANGO_ENV:-development}
       DEBUG: ${DEBUG:-True}
@@ -66,8 +83,9 @@ services:
     volumes:
       # Hot-reload: mount source code
       - ./backend:/app
+    # Single line on purpose — see the note in docker-compose.yml.
     command: >
-      sh -c "celery -A reqogniloom worker --loglevel=debug"
+      sh -c "celery -A reqogniloom worker --loglevel=debug --concurrency=${CELERY_CONCURRENCY:-2}"
 
   celery-beat:
     # Development: same hot-reload mount as backend/celery (#171 — without this
@@ -82,11 +100,39 @@ services:
       - ./backend:/app
 
   frontend:
-    # Development: Use dev server with Vite hot module replacement
+    # Development: Use dev server with Vite hot module replacement.
+    #
+    # INFRA-02: the base file pins `image: ghcr.io/.../reqogniloom-frontend:<tag>`
+    # (the prod nginx image). Declaring only `build:` here is NOT enough —
+    # Compose reuses an already-present local image for that tag instead of
+    # building, so the dev `command:` below ran inside the nginx image and
+    # crash-looped with `sh: npm: not found` (exit 127). Two lines make the dev
+    # image unambiguous:
+    #   * a dev-only `image:` name — a build that inherits the base tag is
+    #     *tagged as the release tag*, silently replacing the pulled prod image
+    #     in the local cache for every other stack that uses it. The tag is
+    #     scoped by project name, so parallel stacks on one host stay separate
+    #     as long as COMPOSE_PROJECT_NAME (or `-p`) is set — two checkouts that
+    #     both fall back to the default still share the tag.
+    #   * `pull_policy: build` — rebuild on EVERY `up`, not just the first one,
+    #     and never pull. That is intended, not a bug: it is what guarantees a
+    #     changed Dockerfile/package.json cannot be silently ignored. The cold
+    #     build took ~60s on a 4-core host; repeat builds report every step as
+    #     CACHED.
+    image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-frontend:dev
+    pull_policy: build
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
+    # INFRA-04: the base limit of 128M is sized for prod nginx (~6 MiB RSS).
+    # `npm install` plus Vite's dependency pre-bundling scan need far more and
+    # were OOM-killed at that limit. Lower this only if the host is tight on
+    # RAM and `npm install` has already populated the node_modules volume.
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
@@ -94,8 +140,35 @@ services:
       # Hot-reload: mount source code
       - ./frontend:/app
       - /app/node_modules
-    ports:
+    # INFRA-01 (canonical note): `!override` REPLACES the base mapping
+    # (host 5173 → nginx 8080). Without the tag, Compose *appends* port lists
+    # across files rather than replacing them — the merged config then published
+    # container ports 8080 and 5173 on the same host port 5173 and every
+    # `docker compose up` failed with "Bind for 0.0.0.0:5173 failed: port is
+    # already allocated". Same applies to any further overlay that republishes
+    # this service. See https://docs.docker.com/reference/compose-file/merge/
+    # Requires Docker Compose >= 2.24.4.
+    ports: !override
       - "5173:5173"
+    # The base healthcheck curls nginx on :8080. The dev image serves Vite on
+    # :5173 and ships neither nginx nor curl, so the inherited check would fail
+    # forever and leave the container permanently "unhealthy" (breaking
+    # `up --wait` and any future `depends_on: service_healthy` on frontend).
+    # node >= 18 has a global fetch, so no extra tooling is needed.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "node -e \"fetch('http://localhost:5173/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Cold start includes a full `npm install` into the empty node_modules
+      # volume, which takes minutes on a fresh checkout. Known compromise: on a
+      # very slow first install the budget (300s grace + 5 x 30s retries) can
+      # still run out and mark the container unhealthy even though it recovers —
+      # nothing depends on frontend being healthy, so this only affects
+      # `up --wait`. Widen start_period if that becomes a nuisance.
+      start_period: 300s
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
       - backend

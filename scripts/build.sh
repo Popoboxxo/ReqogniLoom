@@ -77,10 +77,16 @@ main() {
   log_info "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}"
   log_info "BUILD_TIME=${BUILD_TIME}"
 
+  # `-f docker-compose.yml` on purpose (same as scripts/backup.sh and the
+  # Makefile's TEST_COMPOSE): without it, Compose auto-loads
+  # docker-compose.override.yml. That would build the frontend's *development*
+  # target instead of the release image this script stamps metadata into, and
+  # legacy `docker-compose` v1 cannot parse the overlay's `!override` merge tag
+  # at all (needs Compose >= 2.24.4).
   if docker-compose --version &> /dev/null; then
-    docker-compose build "$@"
+    docker-compose -f docker-compose.yml build "$@"
   else
-    docker compose build "$@"
+    docker compose -f docker-compose.yml build "$@"
   fi
 
   log_info "Build completed"
