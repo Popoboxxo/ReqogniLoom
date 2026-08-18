@@ -522,6 +522,38 @@ class TestDeleteRequirement:
             with pytest.raises(NotFoundError, match="Requirement"):
                 svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
+    def test_delete_change_reason_required_raises_validation_error(self):
+        """Issue #604: delete_requirement must honour the workspace's
+        change_reason preset policy, same as StakeholderNeedService.delete()
+        already does (test_stakeholder_need_service.py) -- it used to ignore
+        the policy entirely and always soft-delete with a hardcoded reason,
+        a silent gap in the audit-trail requirement that other entities'
+        delete already enforce."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_req = _make_requirement()
+
+        mock_policy = MagicMock()
+        mock_policy.is_change_reason_required.return_value = True
+        svc._preset_policy = mock_policy
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_req))
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="change_reason"):
+                svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
+
     def test_delete_cascades_trace_links_and_deletes(self):
         """delete_requirement soft-deletes via workflow.services.outdate() (REQ-006, Phase 0).
 
@@ -532,6 +564,7 @@ class TestDeleteRequirement:
         svc = RequirementService()
         ctx = _make_ctx()
         mock_req = _make_requirement()
+        svc._preset_policy = MagicMock(is_change_reason_required=MagicMock(return_value=False))
 
         with (
             patch("application.requirement_service.ServiceBase._set_tenant_context"),
@@ -567,6 +600,7 @@ class TestDeleteRequirement:
         svc = RequirementService()
         ctx = _make_ctx()
         mock_req = _make_requirement()
+        svc._preset_policy = MagicMock(is_change_reason_required=MagicMock(return_value=False))
 
         with (
             patch("application.requirement_service.ServiceBase._set_tenant_context"),

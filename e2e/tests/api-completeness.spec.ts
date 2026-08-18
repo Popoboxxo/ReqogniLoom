@@ -47,9 +47,10 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     expect(body.id).toBeDefined();
     expect(body.title).toBe('API Completeness E2E — Requirement');
 
-    // Cleanup
+    // Cleanup (extended preset requires change_reason on delete too, #604)
     await request.delete(`${BACKEND_URL}/api/v1/requirements/${body.id}/`, {
       headers: { Authorization: `Bearer ${token}` },
+      data: { change_reason: 'e2e cleanup' },
     });
   });
 
@@ -100,8 +101,11 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     const updated = await patchResp.json();
     expect(updated.title).toBe('PATCH Updated Requirement');
 
-    // Cleanup
-    await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, { headers });
+    // Cleanup (extended preset requires change_reason on delete too, #604)
+    await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
+      headers,
+      data: { change_reason: 'e2e cleanup' },
+    });
   });
 
   test('[REQ-L0-012] DELETE /api/v1/requirements/{id}/ soft-deletes requirement', async ({ request }) => {
@@ -124,8 +128,12 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     expect(createResp.ok()).toBeTruthy();
     const created = await createResp.json();
 
+    // #604: SEEDED_WORKSPACE_ID runs an Extended preset (mandatory
+    // change_reason) -- delete now enforces that policy the same way
+    // update already does, so the request needs a reason.
     const deleteResp = await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
       headers,
+      data: { change_reason: 'e2e cleanup' },
     });
     expect([200, 204]).toContain(deleteResp.status());
 
@@ -273,9 +281,9 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
       // Some backends require artifact UUIDs not requirement UUIDs — skip gracefully
       const errText = await linkResp.text();
       test.skip(true, `TraceLink creation failed (${linkResp.status()}): ${errText.slice(0, 200)}`);
-      // Cleanup reqs anyway
-      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers });
-      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers });
+      // Cleanup reqs anyway (extended preset requires change_reason, #604)
+      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
+      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
       return;
     }
 
@@ -288,9 +296,9 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     });
     expect([200, 204]).toContain(deleteResp.status());
 
-    // Cleanup reqs
-    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers });
-    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers });
+    // Cleanup reqs (extended preset requires change_reason, #604)
+    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
+    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
   });
 
   // -------------------------------------------------------------------------
