@@ -139,6 +139,7 @@
   },
   "loading": "Laden...",
   "actions": {
+    "add": "Hinzufügen",
     "edit": "Bearbeiten",
     "save": "Speichern",
     "saving": "Speichert...",
@@ -540,7 +541,8 @@
     "summaryNoRoot": "Kein Artefakt ausgewählt",
     "cycleBadge": "Zyklus",
     "cycleDetected": "Bereits im Pfad enthalten (Zyklus)",
-    "maxDepthReached": "Maximale Tiefe erreicht"
+    "maxDepthReached": "Maximale Tiefe erreicht",
+    "load": "Artefakt laden"
   },
   "issues": {
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
@@ -576,6 +578,14 @@
     "devMode": "Entwickler-Modus",
     "seMode": "SE-Modus",
     "saved": "Gespeichert.",
+    "tabs": {
+      "general": "Allgemein",
+      "traceability": "Traceability",
+      "visibility": "Sichtbarkeit",
+      "llm": "LLM & Prompts",
+      "governanceReplacement": "Workflows & Berechtigungen"
+    },
+    "attributeVisibility": "Attribut-Sichtbarkeit",
     "llm": {
       "providerUnsupportedOption": "{{provider}} (von dieser UI-Version nicht unterstützt)",
       "providerUnsupportedHint": "Provider \"{{provider}}\" wird von dieser UI-Version nicht unterstützt. Er bleibt beim Speichern unverändert, solange du keinen anderen Provider auswählst."

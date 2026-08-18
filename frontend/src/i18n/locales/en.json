@@ -139,6 +139,7 @@
   },
   "loading": "Loading...",
   "actions": {
+    "add": "Add",
     "edit": "Edit",
     "save": "Save",
     "saving": "Saving...",
@@ -540,7 +541,8 @@
     "summaryNoRoot": "No artifact selected",
     "cycleBadge": "cycle",
     "cycleDetected": "Already on this path (cycle)",
-    "maxDepthReached": "Maximum depth reached"
+    "maxDepthReached": "Maximum depth reached",
+    "load": "Load Artifact"
   },
   "issues": {
     "selectIssue": "Select an issue from the list to view details.",
@@ -576,6 +578,14 @@
     "devMode": "Dev Mode",
     "seMode": "SE Mode",
     "saved": "Saved.",
+    "tabs": {
+      "general": "General",
+      "traceability": "Traceability",
+      "visibility": "Visibility",
+      "llm": "LLM & Prompts",
+      "governanceReplacement": "Workflows & Permissions"
+    },
+    "attributeVisibility": "Attribute Visibility",
     "llm": {
       "providerUnsupportedOption": "{{provider}} (not supported by this UI version)",
       "providerUnsupportedHint": "Provider \"{{provider}}\" is not supported by this UI version. It stays unchanged on save unless you pick a different provider."
