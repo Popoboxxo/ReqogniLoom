@@ -25,7 +25,7 @@ ADR-L3-AS002-03: LLM not configured → explicit LlmNotConfiguredError.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -941,6 +941,11 @@ class RequirementService(ServiceBase):
                 raise LlmNotConfiguredError("LLM not configured")
             raise ValueError(result["error"].get("message", str(result)))
 
+        # validate_artifact() returns an LlmResult dataclass on success (see
+        # its docstring) -- serialise it into a plain dict instead of a
+        # Python repr string, which API/MCP consumers can't parse (#576).
+        if is_dataclass(result) and not isinstance(result, type):
+            return asdict(result)
         return result if isinstance(result, dict) else {"result": str(result)}
 
     def check_consistency(
