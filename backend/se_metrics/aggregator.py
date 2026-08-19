@@ -110,16 +110,54 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> 
     Tenant isolation (app-layer thread-local + Postgres RLS session
     variable, fix #405) is established for this worker thread's own
     connection via ``set_request_tenant``.
+
+    Fix #572: ``AuditQueryFilters`` has no ``workspace_id`` concept — it only
+    scopes by tenant (RLS) and ``entity_type``/``entity_id``. Because a
+    tenant can have several workspaces, the unfiltered query returned every
+    "Requirement update" audit entry for the whole *tenant*, so every
+    workspace's volatility metric was computed from the same tenant-wide
+    entry set (byte-identical ``volatility`` blocks across workspaces,
+    leaking one workspace's requirement titles into another's dashboard).
+
+    Review fix (F1): restricting to this workspace's Requirement ids used to
+    happen by fetching a tenant-wide, timestamp-truncated page (up to 10000
+    entries, newest first) and filtering it in Python *after* the fact. A
+    tenant whose total "Requirement update" volume across *all* workspaces
+    exceeds that 10000-entry budget for the period would silently under-count
+    (in the worst case: zero) a given workspace's volatility, with no warning
+    surfaced anywhere. ``AuditQueryFilters.entity_ids`` (additive to the
+    existing single-id ``entity_id`` filter) pushes the workspace membership
+    check down to the DB via ``entity_id__in``, so the 10000-entry budget
+    applies *per workspace*, not once for the whole tenant, and no Python
+    post-filter is needed.
     """
     set_request_tenant(tenant_id)
     try:
+        from persistence.models import Requirement
+
+        # Fix #572: restrict to Requirement ids that live in this workspace
+        # (Requirement has a direct `workspace` FK — no join through Artifact
+        # needed). Requirement.objects is tenant-scoped via TenantManager, so
+        # this also can't cross the tenant boundary set by set_request_tenant
+        # above.
+        workspace_requirement_ids = list(
+            Requirement.objects.filter(
+                workspace_id=UUID(str(workspace_id))
+            ).values_list("id", flat=True)
+        )
+        if not workspace_requirement_ids:
+            return []
+
         days = _parse_timeframe_days(timeframe)
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
         filters = AuditQueryFilters(
             entity_type="Requirement",
+            entity_ids=workspace_requirement_ids,
             timestamp_from=cutoff,
         )
-        # Fetch up to 10000 entries (performance SLA: REQ-L2-SM-011)
+        # Fetch up to 10000 entries (performance SLA: REQ-L2-SM-011) — this
+        # budget now applies to *this workspace's* Requirements only (F1),
+        # not the whole tenant.
         result = audit_query(filters=filters, page=1, page_size=200)
         entries = list(result.entries)
 

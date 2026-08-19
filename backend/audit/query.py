@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generator, Iterator, List, Optional
+from typing import Generator, Iterator, List, Optional, Sequence
 from uuid import UUID
 
 from audit.models import AuditEntry
@@ -62,6 +62,14 @@ class AuditQueryFilters:
     source: Optional[str] = None
     timestamp_from: Optional[datetime] = None
     timestamp_to: Optional[datetime] = None
+    # Fix #572 (review F1): additive multi-id filter. Distinct from entity_id
+    # (single-id, pre-existing) — callers that need to restrict to a known
+    # *set* of entities (e.g. "all Requirements in workspace X") apply that
+    # restriction at the DB level via entity_id__in instead of fetching a
+    # truncated tenant-wide page and filtering it in Python, which silently
+    # under-counts once a tenant's total entry volume for the period exceeds
+    # the query's page budget.
+    entity_ids: Optional[Sequence[UUID]] = None
 
 
 @dataclass
@@ -157,6 +165,8 @@ class AuditLogQuery:
         """
         if filters.entity_id is not None:
             qs = qs.filter(entity_id=filters.entity_id)
+        if filters.entity_ids is not None:
+            qs = qs.filter(entity_id__in=filters.entity_ids)
         if filters.entity_type is not None:
             qs = qs.filter(entity_type=filters.entity_type)
         if filters.actor is not None:
