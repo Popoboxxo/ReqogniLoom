@@ -137,7 +137,13 @@ export default function RequirementEditors(): JSX.Element {
    */
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
-    const title = newTitle.trim() || t('editor.newRequirementTitle');
+    // BUG-02 (SYSTEMAUDIT_2026-08-18 §4): title is a required field. This
+    // used to silently substitute the placeholder copy for a blank/
+    // whitespace-only input and submit that — the save button below is now
+    // disabled for the same condition, this guard only protects against a
+    // direct form submit (e.g. pressing Enter) bypassing that.
+    const title = newTitle.trim();
+    if (!title) return;
     setIsCreating(true);
     setCreateError(null);
     try {
@@ -421,7 +427,9 @@ export default function RequirementEditors(): JSX.Element {
             <button
               data-testid="req-new-save-btn"
               type="submit"
-              disabled={isCreating}
+              // BUG-02: title is required — disable rather than silently
+              // substitute a placeholder title on submit.
+              disabled={isCreating || !newTitle.trim()}
               style={{
                 background: 'var(--color-primary)',
                 color: 'white',
@@ -429,8 +437,8 @@ export default function RequirementEditors(): JSX.Element {
                 borderRadius: 'var(--radius-md)',
                 padding: 'var(--space-2) var(--space-3)',
                 fontSize: 'var(--font-size-sm)',
-                cursor: isCreating ? 'not-allowed' : 'pointer',
-                opacity: isCreating ? 0.6 : 1,
+                cursor: isCreating || !newTitle.trim() ? 'not-allowed' : 'pointer',
+                opacity: isCreating || !newTitle.trim() ? 0.6 : 1,
                 fontWeight: 600,
               }}
             >
