@@ -225,7 +225,7 @@ export function GoalsTree({
         showSearch={false}
         virtualize
         virtualRowHeight={VIRTUAL_ROW_HEIGHT_PX}
-        emptyLabel={t("goals.empty", "Noch keine Ziele")}
+        emptyLabel={t("goals.empty", "Noch keine Ziele.")}
         noMatchesLabel={t("editor.noMatches", "Keine Treffer.")}
         renderRow={(node, { isSelected }) => {
           const goal = goalById.get(node.id);
@@ -264,7 +264,7 @@ export function GoalsTree({
         <EmptyState
           variant="empty"
           testId="goals-empty"
-          title={t("goals.empty", "Noch keine Ziele")}
+          title={t("goals.empty", "Noch keine Ziele.")}
           description={t(
             "goals.emptyHint",
             "Ziele halten fest, was der Workspace erreichen soll.",
