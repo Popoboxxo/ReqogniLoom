@@ -174,25 +174,32 @@ export default function UserProfileSettings(): JSX.Element {
                     </span>
                   </span>
                 </label>
-                {overridden && (
-                  <button
-                    type="button"
-                    data-testid={`visibility-reset-${feature}`}
-                    onClick={() => void handleResetFeature(feature)}
-                    disabled={isPending}
-                    style={{
-                      background: "transparent",
-                      color: "var(--color-text-muted)",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: "var(--radius-sm)",
-                      padding: "var(--space-1) var(--space-3)",
-                      fontSize: "var(--font-size-sm)",
-                      cursor: isPending ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
-                  </button>
-                )}
+                {/*
+                  BUG-16 fix: always render the reset control, disabled when
+                  there is nothing to reset. Previously this was gated on
+                  `overridden` alone, so a successful reset (which clears
+                  `overridden`) unmounted the button entirely instead of
+                  disabling it — the E2E assertion `toBeDisabled()` could
+                  never be satisfied because the element left the DOM.
+                */}
+                <button
+                  type="button"
+                  data-testid={`visibility-reset-${feature}`}
+                  onClick={() => void handleResetFeature(feature)}
+                  disabled={isPending || !overridden}
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-1) var(--space-3)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor: isPending || !overridden ? "not-allowed" : "pointer",
+                    opacity: overridden ? 1 : 0.5,
+                  }}
+                >
+                  {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
+                </button>
               </div>
             );
           })}

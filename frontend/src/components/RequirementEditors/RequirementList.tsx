@@ -20,6 +20,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usePersistedListState } from '../../hooks/usePersistedListState';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { ListToolbar } from '../shared/ListToolbar';
 import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
@@ -138,11 +140,37 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   onCreateNew,
 }) => {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [listSearch, setListSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [sortKey, setSortKey] = useState<ReqSortKey>('default');
+  // BUG-19: persisted per tab session (sessionStorage) so navigating away to
+  // a detail view and back — or to another route entirely — does not
+  // silently discard the user's search/filter/sort selection.
+  //
+  // Review finding F-02: the key MUST include the active workspace ID.
+  // Without it, switching workspaces carried over the PREVIOUS workspace's
+  // search/filter/sort selection, making the newly-active workspace look
+  // filtered or empty for no visible reason — worse than the original
+  // BUG-19 symptom. `usePersistedListState` re-reads sessionStorage
+  // whenever this key changes (F-03), so switching workspaces correctly
+  // restores that workspace's own last-used selection (or the default, on
+  // first visit).
+  const workspaceScope = activeWorkspace?.id ?? 'no-workspace';
+  const [listSearch, setListSearch] = usePersistedListState(
+    `reqlo:list-state:requirements:${workspaceScope}:search`,
+    '',
+  );
+  const [categoryFilter, setCategoryFilter] = usePersistedListState(
+    `reqlo:list-state:requirements:${workspaceScope}:category`,
+    '',
+  );
+  const [statusFilter, setStatusFilter] = usePersistedListState(
+    `reqlo:list-state:requirements:${workspaceScope}:status`,
+    '',
+  );
+  const [sortKey, setSortKey] = usePersistedListState<ReqSortKey>(
+    `reqlo:list-state:requirements:${workspaceScope}:sort`,
+    'default',
+  );
 
   const visibleRequirements = useMemo(() => {
     const q = listSearch.trim().toLowerCase();

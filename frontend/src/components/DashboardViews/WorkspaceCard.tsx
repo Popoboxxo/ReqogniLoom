@@ -7,21 +7,44 @@
  *          REQ-L3-RF002-003 (Navigation von Dashboard zu Workspace-Detail)
  */
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceWithMetrics } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
+
+// Hoisted, not an inline object literal on the element itself — see the
+// ui-ratchet.test.ts frozen baseline (Task 7.4 "Sperrklinke") for inline
+// style usage in components/: the count must never increase, only decrease.
+const ACTIVE_BADGE_STYLE: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  fontWeight: 600,
+  color: "var(--color-badge-info-text)",
+  background: "var(--color-badge-info-bg)",
+  border: "1px solid var(--color-primary)",
+  borderRadius: "var(--radius-full)",
+  padding: "1px 8px",
+  whiteSpace: "nowrap",
+  lineHeight: 1.6,
+};
 
 interface WorkspaceCardProps {
   workspace: WorkspaceWithMetrics;
   onSelect: (workspace: WorkspaceWithMetrics) => void;
   onOpenSettings: (workspace: WorkspaceWithMetrics) => void;
+  /**
+   * BUG-18 (docs/SYSTEMAUDIT_2026-08-18.md §4): the Dashboard workspace grid
+   * previously had no way to tell which of the (potentially dozens of)
+   * cards was the currently active workspace — unlike the sidebar
+   * workspace switcher, which already marks the active entry.
+   */
+  isActive?: boolean;
 }
 
 export function WorkspaceCard({
   workspace,
   onSelect,
   onOpenSettings,
+  isActive = false,
 }: WorkspaceCardProps): JSX.Element {
   const { t } = useTranslation();
   const { terminologyLabel } = useWorkspace();
@@ -38,6 +61,7 @@ export function WorkspaceCard({
   return (
     <div
       data-testid="workspace-card"
+      data-active={isActive ? "true" : "false"}
       role="button"
       tabIndex={0}
       onClick={() => onSelect(workspace)}
@@ -58,7 +82,13 @@ export function WorkspaceCard({
         cursor: "pointer",
         transition: "var(--transition-normal)",
         transform: isHovered ? "translateY(-2px)" : "translateY(0)",
-        border: "1px solid var(--color-border)",
+        // BUG-18: the active card gets a distinct accent border/ring so it
+        // stands out from the rest of the grid at a glance, in addition to
+        // the explicit text badge below (border color alone is not
+        // sufficient for a11y — WCAG SC 1.4.1 Use of Color).
+        border: isActive
+          ? "2px solid var(--color-primary)"
+          : "1px solid var(--color-border)",
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-4)",
@@ -82,9 +112,21 @@ export function WorkspaceCard({
               fontWeight: 700,
               color: "var(--color-text)",
               lineHeight: 1.3,
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
             }}
           >
             {workspace.name}
+            {isActive && (
+              <span
+                data-testid="workspace-card-active-badge"
+                title={t("dashboard.activeWorkspace")}
+                style={ACTIVE_BADGE_STYLE}
+              >
+                {t("dashboard.activeWorkspace")}
+              </span>
+            )}
           </h3>
           <button
             type="button"

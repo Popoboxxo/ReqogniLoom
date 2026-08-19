@@ -271,7 +271,7 @@ export function TraceSpine({
             </button>
           </div>
           {panelItems.length === 0 ? (
-            <p className={styles.hint}>{t("traceSpine.empty", "Noch keine Verknuepfungen")}</p>
+            <p className={styles.hint}>{t("traceSpine.empty", "Noch keine Verknüpfungen.")}</p>
           ) : (
             <ul className={styles.panelList}>
               {panelItems.map((artifact) => (

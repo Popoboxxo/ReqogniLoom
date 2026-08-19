@@ -127,6 +127,34 @@ function SetterButton({
   );
 }
 
+function OverrideHarness({
+  feature,
+}: {
+  feature: "adr" | "risk" | "issue" | "diagrams" | "icds" | "metrics";
+}): JSX.Element {
+  const { setFeatureVisible, resetFeatureOverride, isFeatureOverridden } =
+    useWorkspace();
+  return (
+    <div>
+      <span data-testid={`overridden-${feature}`}>
+        {isFeatureOverridden(feature) ? "overridden" : "from-preset"}
+      </span>
+      <button
+        data-testid={`toggle-${feature}`}
+        onClick={() => void setFeatureVisible(feature, false)}
+      >
+        toggle
+      </button>
+      <button
+        data-testid={`reset-${feature}`}
+        onClick={() => void resetFeatureOverride(feature)}
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
 function MasterToggle(): JSX.Element {
   const { hideAllOptional, setHideAllOptional } = useWorkspace();
   return (
@@ -377,5 +405,94 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
       });
     });
     expect(screen.getByTestId("hide-all-state").textContent).toBe("hidden");
+  });
+
+  // BUG-16 regression (docs/SYSTEMAUDIT_2026-08-18.md §4): resetFeatureOverride
+  // used to call setFeatureVisible(feature, presetValue), which unconditionally
+  // re-marked the feature as overridden — so isFeatureOverridden() stayed
+  // true forever and the "reset" UI control could never become inactive
+  // again. Verifies the override flag is actually cleared once the
+  // effective value matches the preset again.
+  it("resetFeatureOverride clears isFeatureOverridden (BUG-16)", async () => {
+    nextGetReturn = null; // no pre-existing overrides
+    setListWorkspace("standard"); // adr defaults to true under "standard"
+
+    render(
+      <AuthProvider>
+        <WorkspaceProvider>
+          <OverrideHarness feature="adr" />
+        </WorkspaceProvider>
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith("ws-test");
+    });
+    expect(screen.getByTestId("overridden-adr").textContent).toBe(
+      "from-preset"
+    );
+
+    // Toggle away from the preset default → must become overridden.
+    await act(async () => {
+      screen.getByTestId("toggle-adr").click();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("overridden-adr").textContent).toBe(
+        "overridden"
+      );
+    });
+
+    // Reset back to the preset default → override flag must clear, not
+    // just re-persist the same value while staying "overridden".
+    await act(async () => {
+      screen.getByTestId("reset-adr").click();
+    });
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenLastCalledWith("ws-test", { adr: true });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("overridden-adr").textContent).toBe(
+        "from-preset"
+      );
+    });
+  });
+
+  // BUG-16 review finding F-01: the initial-load computation compared the
+  // preset default against ``pref.overrides[f]`` without checking whether
+  // the key was actually present. ``pref.overrides`` is sparse (only
+  // explicitly-set keys), so an untouched feature is ``undefined`` — and
+  // e.g. ``true !== undefined`` is true, wrongly marking every untouched
+  // feature as "overridden" on every page load/reload. Verifies that only
+  // the feature actually present in the stored overrides is marked
+  // overridden; a sibling feature absent from the stored row must read as
+  // "from-preset" even though its preset value is also `true`.
+  it("only marks features present in the stored overrides row as overridden on load (F-01)", async () => {
+    // adr is explicitly stored as false (standard preset default: true) →
+    // overridden. risk is NOT present in the stored row at all, even
+    // though the standard preset default for risk is also `true` — it
+    // must NOT be marked overridden merely because it differs from
+    // `undefined`.
+    nextGetReturn = wrapPref({ adr: false });
+    setListWorkspace("standard");
+
+    render(
+      <AuthProvider>
+        <WorkspaceProvider>
+          <OverrideHarness feature="adr" />
+          <OverrideHarness feature="risk" />
+        </WorkspaceProvider>
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("overridden-adr").textContent).toBe(
+        "overridden"
+      );
+    });
+    // The bug: this used to also read "overridden" for every untouched
+    // feature after a (re)load.
+    expect(screen.getByTestId("overridden-risk").textContent).toBe(
+      "from-preset"
+    );
   });
 });

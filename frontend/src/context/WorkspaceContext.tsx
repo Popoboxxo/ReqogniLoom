@@ -354,10 +354,18 @@ export function WorkspaceProvider({
           userOverridesRef.current = pref.overrides;
           hideAllOptionalRef.current = pref.hideAllOptional;
           // Only keys that differ from the preset get marked as "user-overridden".
+          // ``pref.overrides`` is sparse — a feature the user never touched
+          // is simply absent (``undefined``), not "explicitly set to the
+          // opposite of the preset". Without the presence check below,
+          // every untouched feature (`undefined`) compared against a
+          // `true` preset default reads as "differs" and gets wrongly
+          // marked overridden — reproducing BUG-16 on every page reload
+          // (docs/SYSTEMAUDIT_2026-08-18.md §4, review finding F-01).
           const preset: WorkspacePreset = activeWorkspace.preset ?? "standard";
           const overridden = new Set<OptionalArtifactFeature>();
           for (const f of OPTIONAL_FEATURES) {
-            if (PRESET_VISIBILITY[preset][f] !== pref.overrides[f]) {
+            const stored = pref.overrides[f];
+            if (stored !== undefined && PRESET_VISIBILITY[preset][f] !== stored) {
               overridden.add(f);
             }
           }
@@ -422,25 +430,37 @@ export function WorkspaceProvider({
     ): Promise<void> => {
       const workspaceId = activeWorkspace?.id;
       if (!workspaceId) return;
+      // "Overridden" means the effective value differs from the preset
+      // default — mirrors the load-time computation below (BUG-16 fix).
+      // Previously this unconditionally added the feature to
+      // ``overriddenKeys``, so ``resetFeatureOverride`` (which calls this
+      // with the preset's own value) could never actually clear the
+      // override flag and the reset button stayed permanently active.
+      const preset: WorkspacePreset = activeWorkspace?.preset ?? "standard";
+      const presetValue = PRESET_VISIBILITY[preset][feature] === true;
       // Optimistic local update — keep overrides sparse.
       const prev = userOverridesRef.current;
+      const prevOverriddenKeys = overriddenKeysRef.current;
       const next: FeatureOverrides = { ...(prev ?? {}), [feature]: value };
       setUserOverrides(next);
       userOverridesRef.current = next;
-      const nextKeys = new Set(overriddenKeysRef.current);
-      nextKeys.add(feature);
+      const nextKeys = new Set(prevOverriddenKeys);
+      if (value !== presetValue) {
+        nextKeys.add(feature);
+      } else {
+        nextKeys.delete(feature);
+      }
       setOverriddenKeys(nextKeys);
       overriddenKeysRef.current = nextKeys;
       try {
         await preferencesApi.update(workspaceId, { [feature]: value });
       } catch (err) {
-        // Rollback on failure.
+        // Rollback on failure — restore the exact previous overridden state
+        // instead of assuming the feature was never overridden.
         setUserOverrides(prev);
         userOverridesRef.current = prev;
-        const rolledKeys = new Set(overriddenKeysRef.current);
-        rolledKeys.delete(feature);
-        setOverriddenKeys(rolledKeys);
-        overriddenKeysRef.current = rolledKeys;
+        setOverriddenKeys(prevOverriddenKeys);
+        overriddenKeysRef.current = prevOverriddenKeys;
         throw err;
       }
     },
