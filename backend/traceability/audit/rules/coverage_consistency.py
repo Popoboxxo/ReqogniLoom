@@ -143,16 +143,29 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
 
 
 def _active_test_cases(context: AuditContext) -> Dict[str, str]:
-    """Return ``{artifact_id: title}`` for TestCases.
+    """Return ``{artifact_id: title}`` for active TestCases.
 
-    TestCase has no ``lifecycle_status`` (soft-delete) field — unlike
-    Requirement/ArchitectureElement/StakeholderNeed it is never soft-deleted,
-    so there is nothing to exclude here.
+    "Active" excludes ``status="outdated"``, the same status mirror
+    :func:`_active_requirements` filters on.
+
+    GH-574: this helper used to return every row, on the assumption that
+    TestCase is never soft-deleted. That stopped being true twice over —
+    REQ-165/REQ-166 registered TestCase in
+    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and GH-443 routed
+    ``TestService.delete_test_case`` through ``workflow.services.outdate()``,
+    so a deleted TestCase does carry ``status="outdated"``. Auditing it anyway
+    meant TRACE-P6 kept a workspace fail-closed on an artifact the user had
+    already removed, naming an id that no longer resolves in any list view.
+
+    Both consumers change with this: TRACE-P6 no longer flags deleted
+    TestCases, and VERIF-P8 no longer accepts one as verification evidence
+    (deleting the only TestCase covering a leaf Requirement re-opens VERIF-P8
+    instead of leaving the Requirement silently "covered").
     """
     qs = TestCase.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,
-    )
+    ).exclude(status="outdated")
     return {
         str(artifact_id): title
         for artifact_id, title in qs.values_list("artifact_id", "title")

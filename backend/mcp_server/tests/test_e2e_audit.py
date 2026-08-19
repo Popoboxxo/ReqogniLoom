@@ -44,6 +44,7 @@ from persistence.models import (
     ArchitectureElement,
     Artifact,
     Requirement,
+    StakeholderNeed,
     Tenant,
     TestCase,
     TestRun,
@@ -101,8 +102,24 @@ from mcp_server.tests.helpers import (
 WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
     "requirement.create": {"op": "create", "entity_type": "Requirement"},
     "requirement.update": {"op": "update", "entity_type": "Requirement"},
-    "requirement.decompose": {"op": "decompose", "entity_type": "Requirement"},
-    "requirement.validate": {"op": "validate", "entity_type": "Requirement"},
+    # #573: the lifecycle tools map onto the op their REST pendant writes —
+    # ``outdate`` is the MCP spelling of ``DELETE /requirements/{id}/``
+    # (RequirementService.delete_requirement -> op="delete") and ``reactivate``
+    # mirrors ``POST /requirements/{id}/reactivate/`` (WorkflowFacade.reactivate
+    # -> op="transition"), so an auditor filtering on op=delete sees REST and
+    # MCP deletions alike.
+    "requirement.outdate": {"op": "delete", "entity_type": "Requirement"},
+    "requirement.reactivate": {"op": "transition", "entity_type": "Requirement"},
+    # #573: LLM analyses have no REST pendant, so they get their own declared
+    # ops in the ``ai.`` namespace (see AuditEntry.OP_CHOICES).
+    "requirement.decompose": {"op": "ai.decompose", "entity_type": "Requirement"},
+    "requirement.validate": {"op": "ai.validate", "entity_type": "Requirement"},
+    "requirement.check_consistency": {
+        "op": "ai.check_consistency",
+        "entity_type": "Workspace",
+    },
+    "needs.outdate": {"op": "delete", "entity_type": "StakeholderNeed"},
+    "needs.reactivate": {"op": "transition", "entity_type": "StakeholderNeed"},
     "architecture.create": {"op": "create", "entity_type": "ArchitectureElement"},
     "architecture.update": {"op": "update", "entity_type": "ArchitectureElement"},
     "architecture.link": {"op": "create", "entity_type": "TraceLink"},
@@ -151,7 +168,7 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
 
     The production ``AuditEntry`` model restricts ``op`` to a closed
     ``choices`` enum. Several MCP tools use richer operation names (e.g.
-    ``"workspace.close"``, ``"replay"``, ``"decompose"``) that are not yet
+    ``"workspace.close"``, ``"replay"``) that are not yet
     part of that enum. Those audit writes are legitimate but the model's
     ``full_clean()`` rejects them.
 
@@ -168,6 +185,16 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
     calls wrote zero audit rows. Those values are now declared in
     ``AuditEntry.OP_CHOICES`` for real (see migration
     ``0008_alter_auditentry_op``) and no longer need relaxing.
+
+    #573: same story for ``"decompose"`` and ``"validate"`` — relaxing them
+    here is exactly what let ``requirement.decompose`` / ``requirement.validate``
+    (and their unrelaxed siblings ``outdate`` / ``reactivate`` /
+    ``check_consistency``, which were not covered by this test at all) ship
+    while writing zero audit rows in production. The requirements/needs tool
+    groups now emit declared ops only (migration
+    ``0009_alter_auditentry_op``), so nothing from those groups is relaxed.
+    ``"replay"`` (events.dlq_replay) and the ``ai_derivation.*`` ops are the
+    remaining known gaps — deliberately out of #573's scope, still relaxed.
     """
     from audit import models as audit_models
 
@@ -178,8 +205,6 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
         ("workspace.reactivate", "Workspace Reactivate"),
         ("workspace.delete", "Workspace Delete"),
         ("replay", "DLQ Replay"),
-        ("decompose", "Requirement Decompose"),
-        ("validate", "Requirement Validate"),
     ]
     op_field.choices = relaxed
     yield
@@ -259,6 +284,16 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
         _fake_validate,
     )
 
+    # #573: requirement.check_consistency is asynchronous — the real capability
+    # returns a task id. Stub it so the tool reaches its write_mcp_audit call.
+    def _fake_check_consistency(workspace_id, artifacts=None):
+        return {"task_id": str(uuid4()), "status": "queued"}
+
+    monkeypatch.setattr(
+        "llm_adapter.services.check_consistency",
+        _fake_check_consistency,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Local helpers — seed entities inside an active tenant context.
@@ -280,6 +315,81 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
             description="seeded for audit test",
             category="functional",
             status="draft",
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _seed_stakeholder_need(
+    workspace: Workspace, title: str = "Seeded Need"
+) -> StakeholderNeed:
+    set_request_tenant(workspace.tenant_id)
+    try:
+        artifact = Artifact.unscoped.create(
+            workspace=workspace,
+            tenant=workspace.tenant,
+            artifact_type="StakeholderNeed",
+        )
+        return StakeholderNeed.unscoped.create(
+            tenant=workspace.tenant,
+            artifact=artifact,
+            title=title,
+            description="seeded for audit test",
+            status="draft",
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _ensure_workflow_definitions(workspace: Workspace) -> None:
+    """Provision the per-entity workflow definitions for an ORM-built workspace.
+
+    ``e2e_workspace`` creates the ``Workspace`` row directly, which skips the
+    provisioning that ``WorkspaceService`` normally performs — and
+    ``workflow.services.outdate`` needs a ``WorkflowEngineDefinition`` to
+    initialise the item state against. Idempotent (``get_or_create``
+    throughout), so calling it per test case is safe.
+    """
+    from application.workspace_provisioning import provision_workspace_defaults
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        provision_workspace_defaults(
+            workspace_id=workspace.id,
+            tenant_id=workspace.tenant_id,
+            requirement_preset="extended",
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _outdate_for_reactivate(
+    workspace: Workspace, item_id: Any, item_type: str, user: User
+) -> None:
+    """Soft-delete *item_id* so a ``*.reactivate`` tool call has work to do.
+
+    ``workflow.services.outdate`` is the same escape hatch the MCP outdate
+    handlers use; calling it directly here keeps the arrange step out of the
+    tool under test.
+    """
+    from auth_tenancy.context import AuthContext as _AuthContext
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        from workflow.services import outdate
+
+        outdate(
+            item_id=item_id,
+            item_type=item_type,
+            workspace_id=workspace.id,
+            ctx=_AuthContext(
+                user_id=user.id,
+                tenant_id=workspace.tenant_id,
+                active_roles=(ROLE_ADMIN,),
+                auth_method=AuthMethod.API_KEY,
+                workspace_id=workspace.id,
+            ),
+            reason="arranged for reactivate audit test",
         )
     finally:
         clear_request_tenant()
@@ -425,12 +535,33 @@ def _build_audit_params(
             "workspace_id": str(workspace.id),
             "data": {"title": "Updated Audit Title", "change_reason": "audit test"},
         }
+    if tool_name == "requirement.outdate":
+        _ensure_workflow_definitions(workspace)
+        req = _seed_requirement(workspace)
+        return {"id": str(req.id), "workspace_id": str(workspace.id)}
+    if tool_name == "requirement.reactivate":
+        _ensure_workflow_definitions(workspace)
+        req = _seed_requirement(workspace)
+        _outdate_for_reactivate(workspace, req.id, "Requirement", user_admin)
+        return {"id": str(req.id), "workspace_id": str(workspace.id)}
     if tool_name == "requirement.decompose":
         req = _seed_requirement(workspace)
         return {"requirement_id": str(req.id), "workspace_id": str(workspace.id)}
     if tool_name == "requirement.validate":
         req = _seed_requirement(workspace)
         return {"requirement_id": str(req.id), "workspace_id": str(workspace.id)}
+    if tool_name == "requirement.check_consistency":
+        _seed_requirement(workspace, "Consistency Subject")
+        return {"workspace_id": str(workspace.id)}
+    if tool_name == "needs.outdate":
+        _ensure_workflow_definitions(workspace)
+        need = _seed_stakeholder_need(workspace)
+        return {"id": str(need.id), "workspace_id": str(workspace.id)}
+    if tool_name == "needs.reactivate":
+        _ensure_workflow_definitions(workspace)
+        need = _seed_stakeholder_need(workspace)
+        _outdate_for_reactivate(workspace, need.id, "StakeholderNeed", user_admin)
+        return {"id": str(need.id), "workspace_id": str(workspace.id)}
     if tool_name == "architecture.create":
         return {"title": "Audit Arch", "workspace_id": str(workspace.id)}
     if tool_name == "architecture.update":
@@ -1280,7 +1411,7 @@ def test_requirement_decompose_still_writes_one_entry_per_child(
                 tenant_id=e2e_workspace.tenant_id,
                 entity_type="Requirement",
                 entity_id=parent.id,
-                op="decompose",
+                op="ai.decompose",
             )
         )
     finally:
@@ -1292,5 +1423,5 @@ def test_requirement_decompose_still_writes_one_entry_per_child(
         f"got {len(child_create_entries)}: {[e.entity_id for e in child_create_entries]}"
     )
     assert {str(e.entity_id) for e in child_create_entries} == set(child_ids)
-    # And exactly one MCP-level "decompose" summary entry for the parent.
+    # And exactly one MCP-level "ai.decompose" summary entry for the parent.
     assert len(parent_decompose_entries) == 1

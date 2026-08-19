@@ -31,8 +31,10 @@ from .definition_store import WorkflowDefinitionDTO, WorkflowDefinitionError, Wo
 from .precondition_rules import (
     EC_MANDATORY_FIELDS_MISSING,
     EC_VERIFICATION_EVIDENCE_MISSING,
+    EC_VERIFIES_LINK_MISSING,
     check_mandatory_fields,
     check_verification_evidence,
+    check_verifies_link,
 )
 from .signature_gate import CredentialVerificationRequest, SignatureGateVerifier
 
@@ -322,6 +324,21 @@ class TransitionValidator:
                 valid=False, error_code=violation[0], error_message=violation[1]
             )
 
+        # ---- Rule 7: TestCase verifies-link coverage (#584) ------------------
+        # Only fires when approving a TestCase on a tier that declares
+        # "traceability_target" (Extended). Placed before rule 6 because both
+        # are graph checks and a TestCase never reaches "verified" anyway.
+        violation = check_verifies_link(
+            workspace_id=ws_str,
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
+            )
+
         # ---- Rule 6: verification evidence (SE lever 3) ----------------------
         # Only fires on "-> verified"; derives the V&V strategy §3 "Passed"
         # state from the actual trace links + latest test-run results.
@@ -383,4 +400,5 @@ __all__ = [
     "EC_DEFINITION_NOT_FOUND",
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
+    "EC_VERIFIES_LINK_MISSING",
 ]

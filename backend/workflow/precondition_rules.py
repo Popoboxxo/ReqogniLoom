@@ -14,6 +14,15 @@ Rule 5 — Mandatory-field completeness (SE-conformance lever 1)
     whose *target* state is the workflow's approval state. Every other
     transition (draft-internal edits, deprecation, rework) is untouched.
 
+Rule 7 — Verification coverage of a TestCase (GitHub #584)
+    A TestCase could be created, reviewed and approved without ever being
+    linked to what it verifies (0 of 30 TestCases carried a ``verifies`` link
+    in the reported workspace), which breaks the ISO 15288 6.4.8/6.4.9 chain
+    Requirement -> TestCase -> TestRun at its first hop. This rule is the
+    mirror image of rule 6: rule 6 stops a *Requirement* claiming verification
+    without evidence, rule 7 stops a *TestCase* being approved as verification
+    evidence without a subject.
+
 Rule 6 — Verification evidence (SE-conformance lever 3)
     ``docs/se/V_AND_V_STRATEGY.md`` §3 defines "Passed" as *Covered AND the
     most recent Test Run for all linked Test Cases is successful*. The
@@ -63,6 +72,7 @@ logger = logging.getLogger(__name__)
 
 EC_MANDATORY_FIELDS_MISSING = "MANDATORY_FIELDS_MISSING"
 EC_VERIFICATION_EVIDENCE_MISSING = "VERIFICATION_EVIDENCE_MISSING"
+EC_VERIFIES_LINK_MISSING = "VERIFIES_LINK_MISSING"
 
 # ---------------------------------------------------------------------------
 # State recognition
@@ -398,11 +408,165 @@ def check_verification_evidence(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Rule 7 — a TestCase must verify something before it can be approved (#584)
+# ---------------------------------------------------------------------------
+
+#: Policy field whose presence in the tier's ``mandatory_fields`` switches
+#: rule 7 on. Only the Extended tier declares ``traceability_target``
+#: (``presets/registry.py``), so this is the tier lever without inventing a
+#: second tier model — exactly how rule 5 derives its tier awareness.
+#:
+#: Rule 5 *skips* this policy field on purpose (see ``_GRAPH_LEVEL_FIELDS``):
+#: it is a graph property, not a scalar column, and for Requirements trace
+#: completeness is the SE-Auditor's mandate (TRACE-P1..P7 at baseline build).
+#: Rule 7 does not duplicate that — it applies the identical definition
+#: TRACE-P6 uses (>=1 ``verifies`` link to a live Requirement or
+#: ArchitectureElement) at the earlier, cheaper moment, so the author learns
+#: about it while approving the TestCase instead of when the release baseline
+#: is blocked. TRACE-P6 remains the backstop for everything that never
+#: transitions.
+_GRAPH_POLICY_FIELD = "traceability_target"
+
+#: Entity types rule 7 applies to. ``verifies`` is a TestCase-sourced link in
+#: ``traceability.types.SE_LINK_SEMANTICS``, so no other type can satisfy it.
+_VERIFIES_LINK_ENFORCED_TYPES = frozenset({"TestCase"})
+
+#: Raw link-type literal for "this artifact replaces that one". Deliberately a
+#: string, not a ``LinkType`` member: the enum has none (see the "LinkType gap"
+#: section of ``traceability/audit/rules/coverage_consistency.py``, which holds
+#: the same constant as ``_SUPERCEDES``). Rule 7 mirrors TRACE-P6's
+#: ``_superseded_artifact_ids`` so both apply *one* definition of a valid
+#: verification target; dropping it here would let a TestCase whose only
+#: subject was superseded pass the approval gate and be blocked at the baseline
+#: build instead — precisely the late feedback this rule exists to avoid.
+#: Direction: source = the new artifact, target = the superseded one.
+_SUPERSEDES_LINK_TYPE = "supersedes"
+
+
+def check_verifies_link(
+    *,
+    workspace_id: str,
+    item_type: str,
+    item_id: UUID,
+    target_state: str,
+) -> Optional[tuple[str, str]]:
+    """Require a ``verifies`` link before a TestCase may be approved (#584).
+
+    The link must point at a Requirement or ArchitectureElement that is alive
+    (not soft-deleted), not superseded, and lives in the same workspace — the
+    same target pool ``traceability.audit.rules.coverage_consistency``
+    (TRACE-P6) evaluates.
+
+    Args:
+        workspace_id: Workspace UUID string (drives the tier lookup).
+        item_type: Entity type being transitioned.
+        item_id: UUID of the entity being transitioned.
+        target_state: Requested target state.
+
+    Returns:
+        ``None`` when the precondition holds — including every non-approval
+        transition, every entity type outside
+        :data:`_VERIFIES_LINK_ENFORCED_TYPES`, every tier that does not declare
+        :data:`_GRAPH_POLICY_FIELD`, and every case that cannot be evaluated
+        (fail-open, see module docstring). Otherwise an
+        ``(error_code, error_message)`` tuple.
+    """
+    if not is_approval_transition(target_state):
+        return None
+    if item_type not in _VERIFIES_LINK_ENFORCED_TYPES:
+        return None
+
+    try:
+        from presets.services import get_preset
+
+        rules = get_preset(str(workspace_id))
+        tier = rules.preset
+        mandatory = tuple(rules.mandatory_fields or ())
+    except Exception:  # noqa: BLE001 — fail-open (see module docstring)
+        logger.exception(
+            "precondition_rules: preset lookup failed for ws=%s", workspace_id
+        )
+        return None
+
+    if _GRAPH_POLICY_FIELD not in mandatory:
+        return None
+
+    try:
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            TestCase,
+            TraceLink,
+        )
+        from traceability.types import LinkType
+        from workflow.services import outdated_item_ids
+
+        test_case = TestCase.objects.filter(pk=item_id).first()
+        if test_case is None:
+            return None
+
+        target_ids = set(
+            TraceLink.objects.filter(
+                link_type=LinkType.VERIFIES.value,
+                source_id=test_case.artifact_id,
+            ).values_list("target_id", flat=True)
+        )
+
+        # An artifact replaced via SUPERCEDES is not a valid subject —
+        # TRACE-P6 applies the same exclusion (_superseded_artifact_ids).
+        if target_ids:
+            target_ids -= set(
+                TraceLink.objects.filter(
+                    link_type=_SUPERSEDES_LINK_TYPE,
+                    target_id__in=target_ids,
+                ).values_list("target_id", flat=True)
+            )
+
+        live_target_exists = False
+        if target_ids:
+            live_target_exists = (
+                Requirement.objects.filter(
+                    artifact_id__in=target_ids,
+                    artifact__workspace_id=workspace_id,
+                )
+                .exclude(status="outdated")
+                .exists()
+                # ArchitectureElement has no status mirror — its soft-delete
+                # state lives only in WorkflowItemState (see outdated_item_ids).
+                or ArchitectureElement.objects.filter(
+                    artifact_id__in=target_ids,
+                    artifact__workspace_id=workspace_id,
+                )
+                .exclude(id__in=outdated_item_ids("ArchitectureElement"))
+                .exists()
+            )
+    except Exception:  # noqa: BLE001 — fail-open (see module docstring)
+        logger.exception(
+            "precondition_rules: verifies-link check failed for %s", item_id
+        )
+        return None
+
+    if live_target_exists:
+        return None
+
+    return (
+        EC_VERIFIES_LINK_MISSING,
+        (
+            f"Cannot approve this TestCase: the '{tier}' preset requires every "
+            "TestCase to declare what it verifies. Link it to a Requirement or "
+            "an Architecture Element with a 'verifies' trace link first."
+        ),
+    )
+
+
 __all__ = [
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
+    "EC_VERIFIES_LINK_MISSING",
     "check_mandatory_fields",
     "check_verification_evidence",
+    "check_verifies_link",
     "is_approval_transition",
     "is_verification_transition",
 ]

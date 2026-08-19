@@ -374,7 +374,14 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="outdate",
+            # #573: "outdate" is not a declared AuditEntry.op, so this write
+            # was silently dropped. Soft-delete is audited as "delete" by every
+            # sibling service (RequirementService.delete_requirement,
+            # TestService, AdrService, ...), so the MCP tool follows that
+            # convention. NOTE: StakeholderNeedService.delete — the REST
+            # pendant — writes no audit entry at all today; that separate gap
+            # is out of #573's scope.
+            operation="delete",
             entity_type="StakeholderNeed",
             entity_id=need_id,
             tool_name="needs.outdate",
@@ -409,7 +416,9 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="reactivate",
+            # #573: same op the REST pendant writes
+            # (POST /needs/{id}/reactivate/ -> WorkflowFacade.reactivate).
+            operation="transition",
             entity_type="StakeholderNeed",
             entity_id=need_id,
             tool_name="needs.reactivate",
