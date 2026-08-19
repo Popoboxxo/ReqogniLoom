@@ -4,6 +4,12 @@ Tests for COMP-AS-005 TraceLinkService.
 leaf_id : COMP-AS-005
 req_id  : REQ-L2-AS-010 (TraceLink Orchestration)
 
+Note (#625): ``create_trace_link`` resolves its endpoints through
+``_resolve_artifact`` (returns the id *and* the already-loaded Artifact row)
+rather than ``_resolve_artifact_id``, so the endpoint checks can reuse the row
+instead of re-SELECTing it. Stubs below therefore patch ``_resolve_artifact``
+and return ``(id, None)``; read paths still patch ``_resolve_artifact_id``.
+
 Coverage:
   - create_trace_link: all 8 valid types accepted, invalid type raises ValidationError,
     SourceNotFoundError → NotFoundError, TargetNotFoundError → NotFoundError,
@@ -135,7 +141,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
@@ -171,7 +177,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=SourceNotFoundError("not found"),
@@ -192,7 +198,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
         ):
             from traceability.services import TargetNotFoundError
 
@@ -215,7 +221,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=Exception("cross-workspace link not permitted"),
@@ -238,7 +244,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
             patch(
                 "traceability.services.create_trace_link", return_value=mock_result
             ),
@@ -265,7 +271,7 @@ class TestCreateTraceLink:
             patch(
                 "application.trace_link_service.ServiceBase._set_tenant_context"
             ) as mock_stc,
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
         ):
             with pytest.raises(ValidationError):
                 svc.create_trace_link(
@@ -740,17 +746,19 @@ class TestResolveArtifactId:
         mock_result = MagicMock()
         mock_result.id = uuid.uuid4()
 
+        # #625: create_trace_link resolves through _resolve_artifact, which
+        # returns (artifact_id, artifact_row_or_None).
         def _resolve_side_effect(entity_id):
             if entity_id == SOURCE_ID:
-                return source_artifact_id
+                return source_artifact_id, None
             if entity_id == TARGET_ID:
-                return target_artifact_id
-            return entity_id
+                return target_artifact_id, None
+            return entity_id, None
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(
-                svc, "_resolve_artifact_id", side_effect=_resolve_side_effect
+                svc, "_resolve_artifact", side_effect=_resolve_side_effect
             ) as mock_resolve,
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
@@ -789,7 +797,7 @@ class TestAllocationInvariantHook:
         mock_result.id = uuid.uuid4()
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
             patch("application.trace_link_service.TraceLinkService._audit"),
             patch.object(svc, "_check_allocation_invariant") as mock_check,
             patch(
