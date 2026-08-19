@@ -19,7 +19,10 @@ interface RiskFormProps {
 const SEVERITY_OPTIONS = ['low', 'medium', 'high'];
 const PROBABILITY_OPTIONS = ['low', 'medium', 'high'];
 const IMPACT_OPTIONS = ['low', 'medium', 'high'];
-const CATEGORY_OPTIONS = ['technical', 'operational', 'organizational', 'business'];
+// BUG-11 (Systemaudit 2026-08-18, §4): exported so RiskEditors' create
+// dialog can offer the same category choices as this edit form, instead of
+// duplicating the literal list.
+export const CATEGORY_OPTIONS = ['technical', 'operational', 'organizational', 'business'];
 
 export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Element {
   const { t } = useTranslation();

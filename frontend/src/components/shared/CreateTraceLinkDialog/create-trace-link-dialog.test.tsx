@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CreateTraceLinkDialog } from './create-trace-link-dialog';
 import * as requirementsApi from '../../../api/requirements';
@@ -375,6 +375,28 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('create-trace-link-submit')).toBeDisabled();
+      });
+    });
+
+    /**
+     * BUG-09 (Systemaudit 2026-08-18, §4 / GH-53) — the reported symptom was
+     * "source dropdown stays empty, 60s timeout after 116 retries" in
+     * tracelink-creation.spec.ts:73. This test proves the widget's own
+     * logic is not at fault: given API data resolving normally, the source
+     * <select> populates with a real, selectable <option> for every loaded
+     * element. Root-cause analysis (see the e2e spec's own comment) traced
+     * the actual timeout to loadElements() eagerly fetching all six
+     * artifact types against an unbounded, ever-growing shared seed
+     * workspace — an environment/data-volume issue, not a defect here.
+     */
+    it('populates the source select with a real option per loaded element', async () => {
+      renderDialog({ sourceId: undefined });
+
+      const select = await screen.findByTestId('create-trace-link-source-select');
+      await waitFor(() => {
+        const option = within(select).getByText((_, el) => el?.tagName === 'OPTION' && el.textContent === `REQ: ${MOCK_REQUIREMENTS[0].title}`);
+        expect(option).toBeInTheDocument();
+        expect(option).toHaveValue(MOCK_REQUIREMENTS[0].id);
       });
     });
   });

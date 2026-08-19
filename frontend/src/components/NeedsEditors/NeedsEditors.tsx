@@ -35,6 +35,11 @@ export default function NeedsEditors(): JSX.Element {
   const { needs, need, isLoading, error, refresh } = useNeedData(selectedId);
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): description/category are ordinary
+  // stakeholderNeedApi.create() fields the backend already accepts — they
+  // had no editor in this create form.
+  const [newDescription, setNewDescription] = useState('');
+  const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
@@ -67,8 +72,15 @@ export default function NeedsEditors(): JSX.Element {
     if (!newTitle.trim()) return;
     setCreateError(null);
     try {
-      const resp = await stakeholderNeedApi.create(activeWorkspace.id, { title: newTitle.trim() });
+      const resp = await stakeholderNeedApi.create(activeWorkspace.id, {
+        title: newTitle.trim(),
+        // BUG-11: only send what was actually typed.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+        ...(newCategory.trim() ? { category: newCategory.trim() } : {}),
+      });
       setNewTitle('');
+      setNewDescription('');
+      setNewCategory('');
       setShowCreate(false);
       refresh();
       navigate(`/needs/${resp.id}`);
@@ -85,6 +97,8 @@ export default function NeedsEditors(): JSX.Element {
   const handleCreateNewClick = () => {
     if (workspaces.length === 0) return;
     setCreateError(null);
+    setNewDescription('');
+    setNewCategory('');
     setShowCreate(true);
   };
 
@@ -181,6 +195,10 @@ export default function NeedsEditors(): JSX.Element {
           setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
           newTitle={newTitle}
           setNewTitle={setNewTitle}
+          newDescription={newDescription}
+          setNewDescription={setNewDescription}
+          newCategory={newCategory}
+          setNewCategory={setNewCategory}
           onSubmitCreate={handleCreateNew}
           createError={createError}
           onCreateClick={handleCreateNewClick}

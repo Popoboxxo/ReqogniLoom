@@ -656,3 +656,70 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
   });
 });
+
+/**
+ * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — the create-requirement form
+ * only ever had a title input; `description` and `category` are ordinary
+ * `requirementsApi.create()` fields (backend already accepts them) but had
+ * no editor at all, so every requirement started life with an empty
+ * description and no category, forcing an immediate follow-up edit.
+ */
+describe("RequirementEditors — create form has description/category fields (BUG-11)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("sends the typed description and category alongside the title on create", async () => {
+    vi.mocked(requirementsApi.create).mockResolvedValueOnce({
+      ...MOCK_REQUIREMENT,
+      id: "req-new",
+    } as any);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
+    await user.type(
+      screen.getByTestId("req-new-description-input"),
+      "Some description"
+    );
+    await user.selectOptions(
+      screen.getByTestId("req-new-category-select"),
+      "functional"
+    );
+    await user.click(screen.getByTestId("req-new-save-btn"));
+
+    await waitFor(() =>
+      expect(requirementsApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "New Req",
+          description: "Some description",
+          category: "functional",
+        })
+      )
+    );
+  });
+});

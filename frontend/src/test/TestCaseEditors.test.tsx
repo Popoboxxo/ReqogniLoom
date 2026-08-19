@@ -226,4 +226,35 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
       });
     });
   });
+
+  /**
+   * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — `description` is an
+   * ordinary testcasesApi.create() field the backend already accepts but
+   * had no editor in this dialog.
+   */
+  it("sends the typed description alongside the title on create (BUG-11)", async () => {
+    vi.mocked(testcasesApi.create).mockResolvedValue({ ...TEST_CASE, id: "tc-new-2" });
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-tc-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-tc-btn"));
+    await screen.findByTestId("tc-create-dialog");
+
+    await user.type(screen.getByTestId("tc-new-title-input"), "Login fails");
+    await user.type(screen.getByTestId("tc-new-description-input"), "Steps to reproduce...");
+    await user.click(screen.getByTestId("tc-new-save-btn"));
+
+    await waitFor(() => {
+      expect(testcasesApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Login fails",
+          description: "Steps to reproduce...",
+        })
+      );
+    });
+  });
 });

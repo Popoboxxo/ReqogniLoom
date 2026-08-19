@@ -47,8 +47,13 @@ import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { REQ_CATEGORIES } from '../../types';
 import type { RequirementType } from '../../types';
 import styles from './RequirementEditors.module.css';
+// F-04 (code review, 2026-08-19): '.createLabelInline'/'.createInput' live in
+// the shared module (see its own header comment) so this create form
+// doesn't duplicate them locally.
+import fieldHints from '../shared/FieldHints.module.css';
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -78,6 +83,12 @@ export default function RequirementEditors(): JSX.Element {
   // Create form state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description`/`category` are
+  // ordinary requirementsApi.create() fields the backend already accepts —
+  // they simply had no editor here, so every new requirement started empty
+  // and required an immediate follow-up edit to fill them in.
+  const [newDescription, setNewDescription] = useState('');
+  const [newCategory, setNewCategory] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   // #340: a rejected create (e.g. the free-text guard refusing markup in the
   // title) must be visible in the create form itself — this used to be a bare
@@ -150,9 +161,16 @@ export default function RequirementEditors(): JSX.Element {
       const created = await createRequirement.mutateAsync({
         workspace_id: activeWorkspace.id,
         title,
+        // BUG-11: only send what the user actually typed — an empty string
+        // for a field the backend treats as optional should not clobber a
+        // server-side default.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+        ...(newCategory ? { category: newCategory } : {}),
       });
       setShowCreateForm(false);
       setNewTitle('');
+      setNewDescription('');
+      setNewCategory('');
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
       // #340: the server rejects e.g. `<script>alert(1)</script>` as a title
@@ -164,7 +182,7 @@ export default function RequirementEditors(): JSX.Element {
     } finally {
       setIsCreating(false);
     }
-  }, [activeWorkspace, createRequirement, navigate, newTitle, t]);
+  }, [activeWorkspace, createRequirement, navigate, newTitle, newDescription, newCategory, t]);
 
   /** Open/close the inline create form, discarding any stale error. */
   const toggleCreateForm = useCallback((): void => {
@@ -392,6 +410,41 @@ export default function RequirementEditors(): JSX.Element {
               boxSizing: 'border-box',
             }}
           />
+
+          {/* BUG-11: description/category — ordinary create() fields the
+              backend already accepts, previously missing from this form. */}
+          <label htmlFor="new-req-description" className={fieldHints.createLabelInline}>
+            {t('editor.description')}
+          </label>
+          <textarea
+            id="new-req-description"
+            data-testid="req-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            disabled={isCreating}
+            rows={3}
+            className={fieldHints.createInput}
+          />
+
+          <label htmlFor="new-req-category" className={fieldHints.createLabelInline}>
+            {t('editor.category')}
+          </label>
+          <select
+            id="new-req-category"
+            data-testid="req-new-category-select"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            disabled={isCreating}
+            className={fieldHints.createInput}
+          >
+            <option value="">{t('editor.categoryPlaceholder')} --</option>
+            {REQ_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
           {/* #340: the server's own reason (e.g. "contains disallowed
               content: HTML markup is not permitted in free-text fields")
               belongs directly under the field that produced it — see
@@ -409,6 +462,8 @@ export default function RequirementEditors(): JSX.Element {
                 setShowCreateForm(false);
                 setCreateError(null);
                 setNewTitle('');
+                setNewDescription('');
+                setNewCategory('');
               }}
               disabled={isCreating}
               style={{

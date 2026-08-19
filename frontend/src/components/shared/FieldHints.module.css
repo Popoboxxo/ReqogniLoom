@@ -17,3 +17,70 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/*
+ * F-04 (code review, 2026-08-19, BUG-11/BUG-08): quick-create label/input
+ * pairs. Previously duplicated near-verbatim across six new per-component
+ * `.module.css` files (AdrEditors/TestCaseEditors byte-identical,
+ * IssueEditors/RiskEditors byte-identical, NeedList/RequirementEditors/
+ * ArchitectureEditors near-identical) — consolidated here per this file's
+ * own stated purpose (see header comment above).
+ *
+ * Two label variants exist because the create forms use two different
+ * parent layouts:
+ *  - `.createLabel` — plain `<form>` (no flex `gap`), used by the
+ *    Dialog-based create forms (TestCaseEditors/RiskEditors/IssueEditors/
+ *    AdrEditors): needs its own margin-top/-bottom for spacing.
+ *  - `.createLabelInline` — `display:flex; flexDirection:column; gap:...`
+ *    parent (RequirementEditors/ArchitectureEditors/NeedList's inline
+ *    create forms): the parent's `gap` already spaces siblings, so adding
+ *    a margin-top here too would double up the space above just this one
+ *    field.
+ * `.createInput` (textarea/select/input) is identical in both contexts.
+ */
+.createLabel {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.createLabelInline {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.createInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  resize: vertical;
+}
+
+/*
+ * BUG-08 (Systemaudit 2026-08-18, §4): field-level validation error state.
+ * `!important` deliberately wins over any inline `style` on the same
+ * element (equal-or-higher specificity would otherwise leave the red
+ * border invisible) — the input's base look still comes from `.createInput`
+ * or a component-local inline style; this only overrides the border color.
+ */
+.inputError {
+  border-color: var(--color-danger) !important;
+}
+
+.fieldError {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

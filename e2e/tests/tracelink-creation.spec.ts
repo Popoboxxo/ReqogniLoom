@@ -70,22 +70,43 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // -------------------------------------------------------------------------
   // REQ-L2-RF-006 — Create TraceLink via UI full happy path
   // -------------------------------------------------------------------------
+  //
+  // BUG-09 (Systemaudit 2026-08-18, §4 / GH-53): this test used to run
+  // directly against the shared SEEDED_WORKSPACE_ID and pick the first two
+  // requirements it found there. CreateTraceLinkDialog's loadElements()
+  // eagerly fetches *all* artifacts of *all* six types (full pagination, no
+  // server-side search) before the source <select> shows any real option —
+  // against SEEDED_WORKSPACE_ID, which accumulates artifacts across every
+  // CI run with no equivalent of the API-key cleanup in
+  // e2e/helpers/auth.ts#revokeAllApiKeys (see its doc comment for the exact
+  // same accumulation pattern already observed and fixed for API keys),
+  // that full load could take long enough to blow the suite's fixed 60s
+  // per-test timeout (playwright.config.ts `timeout: 60000` — the reported
+  // "60s Timeout nach 116 Retries"). The dialog itself was never broken
+  // (verified via CreateTraceLinkDialog's own component test, which
+  // populates the source select correctly from mocked API data); the
+  // dropdown just never finished loading in time. Isolating this test's
+  // workspace — the same pattern useIsolatedArchWorkspace() already uses
+  // above — removes exposure to that unbounded, ever-growing shared
+  // fixture and makes the test's own two requirements the only ones the
+  // dialog has to load.
   test('[REQ-L2-RF-006] can create TraceLink via UI when artifacts exist', async ({ page, request }) => {
     const token = await getAuthToken();
+    const workspaceId = await createIsolatedWorkspace(token);
+    const authHeaders = { Authorization: `Bearer ${token}` };
 
-    // Check if there are artifacts to link
-    const reqResp = await request.get(`${BACKEND_URL}/api/v1/requirements/`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { workspace_id: SEEDED_WORKSPACE_ID },
-    });
-    const reqBody = await reqResp.json();
-    const reqs: { id: string }[] = Array.isArray(reqBody) ? reqBody : reqBody.results ?? [];
+    const createReq = async (title: string): Promise<string> => {
+      const resp = await request.post(`${BACKEND_URL}/api/v1/requirements/`, {
+        headers: authHeaders,
+        data: { workspace_id: workspaceId, title },
+      });
+      const body = await resp.json();
+      return body.id as string;
+    };
+    const sourceReqId = await createReq('E2E TraceLink Source');
+    const targetReqId = await createReq('E2E TraceLink Target');
 
-    if (reqs.length < 2) {
-      test.skip(true, 'Need at least 2 requirements to create a TraceLink — seed more data');
-      return;
-    }
-
+    await setWorkspaceId(page, workspaceId);
     await page.goto(`${FRONTEND_URL}/traceability`);
     await page.locator('[data-testid="tracelink-create-btn"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
@@ -95,9 +116,9 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
     // whose entries are addressable directly by id via data-testid.
     const sourceSelect = page.locator('[data-testid="create-trace-link-source-select"]');
     await expect(sourceSelect).toBeVisible({ timeout: 6000 });
-    await sourceSelect.selectOption(reqs[0].id);
+    await sourceSelect.selectOption(sourceReqId);
 
-    const targetEl = page.locator(`[data-testid="create-trace-link-target-element-${reqs[1].id}"]`);
+    const targetEl = page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`);
     await expect(targetEl).toBeVisible({ timeout: 6000 });
     await targetEl.click();
 

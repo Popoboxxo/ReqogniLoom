@@ -15,6 +15,10 @@ import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useAdrData } from './useAdrData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { adrsApi } from '../../api/adrs';
+// F-04 (code review, 2026-08-19): shared create-form field styles (see
+// frontend/src/components/shared/FieldHints.module.css header comment) —
+// keeping them in one shared place instead of duplicating them per component.
+import fieldHints from '../shared/FieldHints.module.css';
 
 export default function AdrEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -24,6 +28,10 @@ export default function AdrEditors(): JSX.Element {
   const { items, item, isLoading, error, refresh } = useAdrData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
+  // adrsApi.create() field the backend already accepts — it had no editor
+  // in this create dialog.
+  const [newDescription, setNewDescription] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +44,7 @@ export default function AdrEditors(): JSX.Element {
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
     setNewTitle('');
+    setNewDescription('');
     setShowCreateDialog(true);
   }, []);
 
@@ -56,8 +65,14 @@ export default function AdrEditors(): JSX.Element {
     setCreateError(null);
     setIsCreating(true);
     try {
-      const resp = await adrsApi.create({ workspace_id: activeWorkspace.id, title: newTitle.trim() });
+      const resp = await adrsApi.create({
+        workspace_id: activeWorkspace.id,
+        title: newTitle.trim(),
+        // BUG-11: only send what was actually typed.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+      });
       setNewTitle('');
+      setNewDescription('');
       setShowCreateDialog(false);
       refresh();
       navigate(`/adrs/${resp.id}`);
@@ -223,6 +238,21 @@ export default function AdrEditors(): JSX.Element {
                 fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
               }}
             />
+
+            {/* BUG-11: description — an ordinary adrsApi.create() field the
+                backend already accepts, previously missing here. */}
+            <label htmlFor="adr-new-description" className={fieldHints.createLabel}>
+              {t('editor.description', 'Description')}
+            </label>
+            <textarea
+              id="adr-new-description"
+              data-testid="adr-new-description-input"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              rows={3}
+              className={fieldHints.createInput}
+            />
+
             {createError && (
               <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
                 {createError}

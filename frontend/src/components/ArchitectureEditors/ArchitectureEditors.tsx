@@ -44,6 +44,8 @@ import type {
   ArchitectureElement,
 } from "../../types";
 import styles from "./ArchitectureEditors.module.css";
+// F-04 (code review, 2026-08-19): shared create-form field styles.
+import fieldHints from "../shared/FieldHints.module.css";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
 
@@ -92,6 +94,10 @@ export default function ArchitectureEditors(): JSX.Element {
   // Inline create + search state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
+  // architectureApi.create() field the backend already accepts — it had no
+  // editor in this quick-create form.
+  const [newDescription, setNewDescription] = useState('');
   const [listSearch, setListSearch] = useState('');
   // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
   // workflow status, so we filter on the available lifecycle_status field.
@@ -153,7 +159,7 @@ export default function ArchitectureEditors(): JSX.Element {
   }, [element, activeWorkspace, deriveTitle, t, navigate]);
 
   const handleCreate = useCallback(
-    async (parentId?: string, customTitle?: string): Promise<void> => {
+    async (parentId?: string, customTitle?: string, customDescription?: string): Promise<void> => {
       if (!activeWorkspace) return;
       setListActionError(null);
       try {
@@ -162,9 +168,12 @@ export default function ArchitectureEditors(): JSX.Element {
           title: customTitle || t("arch.newElementTitle"),
           element_type: "component",
           parent_id: parentId ?? undefined,
+          // BUG-11: only send what was actually typed.
+          ...(customDescription?.trim() ? { description: customDescription.trim() } : {}),
         });
         setShowCreateForm(false);
         setNewTitle('');
+        setNewDescription('');
         refresh();
         navigate(`/architecture/${created.id}`);
       } catch (err: unknown) {
@@ -179,8 +188,8 @@ export default function ArchitectureEditors(): JSX.Element {
 
   const handleInlineCreate = useCallback(async () => {
     if (!newTitle.trim()) return;
-    await handleCreate(undefined, newTitle.trim());
-  }, [newTitle, handleCreate]);
+    await handleCreate(undefined, newTitle.trim(), newDescription);
+  }, [newTitle, newDescription, handleCreate]);
 
   /**
    * Drag & drop reparenting from the tree (user decision 2026-08-15).
@@ -437,8 +446,22 @@ export default function ArchitectureEditors(): JSX.Element {
               background: 'var(--color-surface)', color: 'var(--color-text)',
             }}
           />
+          {/* BUG-11: description — an ordinary architectureApi.create() field
+              the backend already accepts, previously missing here. */}
+          <label htmlFor="arch-new-description" className={fieldHints.createLabelInline}>
+            {t('editor.description')}
+          </label>
+          <textarea
+            id="arch-new-description"
+            data-testid="arch-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            rows={3}
+            className={fieldHints.createInput}
+          />
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button data-testid="arch-new-cancel-btn" type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); }}
+            <button data-testid="arch-new-cancel-btn" type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); setNewDescription(''); }}
               style={{
                 background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
