@@ -3,9 +3,20 @@ import { Page, request } from '@playwright/test';
 const BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+// Review finding F-05 (docs/SYSTEMAUDIT_2026-08-18.md follow-up, BUG-17):
+// `admin12345` is only the demo default in `seed_demo`
+// (`_DEFAULT_ADMIN_PASSWORD`/`SYSTEM_ADMIN_PASSWORD` fallback, see
+// backend/auth_tenancy/management/commands/seed_demo.py). A local
+// `.env` with its own `SYSTEM_ADMIN_PASSWORD` set (as the security-hardening
+// guidance in README recommends) makes every E2E login fail with a plain
+// 401 that reads like an unrelated app bug (e.g. "ICD version doesn't
+// increment" when the request never even got past login) — see
+// docs/SYSTEMAUDIT_2026-08-18.md BUG-17 for a concrete case. Overridable via
+// `E2E_ADMIN_PASSWORD` so a local run can point at the real seeded password
+// without editing this file.
 export const TEST_USER = {
   username: 'admin',
-  password: 'admin12345',
+  password: process.env.E2E_ADMIN_PASSWORD || 'admin12345',
 };
 
 /**
