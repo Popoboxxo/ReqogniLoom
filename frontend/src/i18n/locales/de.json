@@ -817,6 +817,7 @@
     "traceability": "Traceability",
     "noTraceLinks": "Keine TraceLinks mit diesem ICD verknüpft.",
     "noArtifacts": "Keine Architekturelemente verfügbar. Bitte zuerst Elemente anlegen.",
+    "selectIcd": "Wählen Sie ein ICD aus der Liste",
     "selectSource": "Quell-Element auswählen",
     "selectTarget": "Ziel-Element auswählen",
     "nameRequired": "Bitte einen ICD-Namen eingeben.",
@@ -847,6 +848,7 @@
     "noItems": "Noch keine Diagramme. Erstellen Sie eines, um zu beginnen.",
     "emptySource": "(kein Quellinhalt)",
     "notFound": "Diagramm nicht gefunden.",
+    "selectDiagram": "Wählen Sie ein Diagramm aus der Liste",
     "traceability": "Traceability",
     "noTraceLinks": "Keine Artefakte mit diesem Diagramm verknüpft.",
     "viewMode": "Ansicht",
@@ -1015,7 +1017,14 @@
       "critical": "Kritisch",
       "neutral": "Info"
     },
-    "pageSummary": "SE-Prozess-Kennzahlen: Traceability-Coverage, Volatilität, Workflow-Lücken und Risiken auf einen Blick."
+    "pageSummary": "SE-Prozess-Kennzahlen: Traceability-Coverage, Volatilität, Workflow-Lücken und Risiken auf einen Blick.",
+    "help": {
+      "coverage": "Prozentsatz der Anforderungen mit mindestens einer Trace-Verbindung zu Testfällen oder Architektur-Elementen.",
+      "volatility": "Durchschnittliche Anzahl von Änderungen pro Anforderung über die Projektlaufzeit. Höhere Werte zeigen unstabile Anforderungen an.",
+      "workflowGap": "Anzahl unvollständiger Workflow-Schritte. Zeigt die Lücken zwischen geplanten und abgeschlossenen Aktivitäten.",
+      "openRisks": "Gesamtzahl der identifizierten offenen Risiken im Workspace, unabhängig vom Schweregrad.",
+      "openRisksCritical": "Anzahl der kritischen Risiken mit höchstem Schweregrad, die sofortige Aufmerksamkeit erfordern."
+    }
   },
   "apiKeys": {
     "title": "Persönliche Zugriffstoken",

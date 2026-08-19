@@ -100,9 +100,16 @@ const MAX_HISTORY = 30;
 
 // ---------------------------------------------------------------------------
 // Help texts for metrics (Hilfsmodus)
+//
+// BUG-10 (SYSTEMAUDIT_2026-08-18 §4): these values are only the `t()`
+// fallback default now (see the `helpText={t(...)}` call site below) — they
+// used to be rendered directly via `METRIC_HELP[spec.name]` with no i18n
+// key at all, so the tile's "Show help" text was always German regardless
+// of the active UI language. Real translations live under `metrics.help.*`
+// in `frontend/src/i18n/locales/{de,en}.json`.
 // ---------------------------------------------------------------------------
 
-const METRIC_HELP: Record<string, string> = {
+const METRIC_HELP: Record<MetricTileSpec["name"], string> = {
   coverage:
     "Prozentsatz der Anforderungen mit mindestens einer Trace-Verbindung zu Testfällen oder Architektur-Elementen.",
   volatility:
@@ -588,7 +595,7 @@ export default function MetricsDashboard(): JSX.Element {
               computedAt={computedAt}
               isStale={isStale}
               helpMode={helpMode}
-              helpText={METRIC_HELP[spec.name]}
+              helpText={t(`metrics.help.${spec.name}`, METRIC_HELP[spec.name])}
             />
           ))}
         </div>
