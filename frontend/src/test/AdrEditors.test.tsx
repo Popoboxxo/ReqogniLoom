@@ -323,4 +323,35 @@ describe("AdrEditors Task 2.1 concept remodel (PageHeader / ArtifactRow / Dialog
       });
     });
   });
+
+  /**
+   * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — `description` is an
+   * ordinary adrsApi.create() field the backend already accepts but had no
+   * editor in this dialog.
+   */
+  it("sends the typed description alongside the title on create (BUG-11)", async () => {
+    vi.mocked(adrsApi.create).mockResolvedValue({ ...ADR, id: "adr-new-2" });
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+    await screen.findByTestId("adr-create-dialog");
+
+    await user.type(screen.getByTestId("adr-new-title-input"), "Adopt CQRS");
+    await user.type(screen.getByTestId("adr-new-description-input"), "Split read/write models");
+    await user.click(screen.getByTestId("adr-new-save-btn"));
+
+    await waitFor(() => {
+      expect(adrsApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Adopt CQRS",
+          description: "Split read/write models",
+        })
+      );
+    });
+  });
 });

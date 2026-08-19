@@ -43,6 +43,10 @@ import { MarkdownPreview } from './MarkdownPreview';
 import { VersionBadge } from '../shared/VersionBadge';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
 import styles from './RequirementEditors.module.css';
+// F-04 (code review, 2026-08-19): `.inputError`/`.fieldError` live in the
+// shared module (see its own header comment) so this form doesn't duplicate
+// them locally.
+import fieldHints from '../shared/FieldHints.module.css';
 
 /**
  * #344: the save error banner lives directly under the header action row, i.e.
@@ -149,6 +153,51 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveErrorRef = useRef<HTMLParagraphElement | null>(null);
+  // BUG-08 (Systemaudit 2026-08-18, §4): the top-of-form `saveError` banner
+  // already names the problem, but the offending input itself carried no
+  // visual/ARIA indication — a user scanning the (long) form had nothing on
+  // the field to find. Tracks only the title's own required-check so it
+  // doesn't light up for unrelated validation failures (e.g. a missing
+  // verification_method on a SyReq).
+  const [titleInvalid, setTitleInvalid] = useState(false);
+  // N-01/N-02/N-03 (code review, 2026-08-19): change_reason/
+  // verification_method must NOT alarm the user before they have done
+  // anything — an untouched requirement in an extended-preset workspace
+  // legitimately opens with an empty change_reason, and that used to
+  // immediately render a red border + ⚠ icon + `role="alert"` (which a
+  // screen reader announces on focus) purely from proactively deriving the
+  // flag off current form state. Gated behind the same
+  // save-attempt-driven event as `titleInvalid` instead: false until the
+  // first failed Save, so an untouched form is silent, and — since
+  // validateForm() can now surface all three branches at once instead of
+  // stopping at the first one — a single failed Save can legitimately show
+  // more than one field error simultaneously (mirrors real multi-field
+  // form validation; F-03's "no *duplicate* banner + field" guarantee is
+  // unaffected, there is still exactly one message per invalid field).
+  const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
+  // F-02 (code review, 2026-08-19): validateForm() has two more branches
+  // besides title (change_reason, verification_method) — leaving only the
+  // title branch marked would have made this file inconsistent with
+  // itself. Derived directly from the same form state validateForm()
+  // reads (not separate useState so they can never fall out of sync with
+  // what the user is currently seeing).
+  //
+  // change_reason additionally keeps its own pre-existing #339 behavior:
+  // a plain, low-key hint is shown proactively (before any Save attempt)
+  // so the user knows up front the field is required — `changeReasonMissing`
+  // drives that. Only the alarming treatment (red border, ⚠ icon,
+  // `aria-invalid`, `role="alert"`) is gated behind hasAttemptedSave — see
+  // its rendering below. verification_method has no such pre-existing
+  // proactive hint, so it is gated behind hasAttemptedSave outright (same
+  // as titleInvalid: silent until the first failed Save).
+  const changeReasonMissing = isChangeReasonRequired && !changeReason.trim();
+  const changeReasonInvalid = hasAttemptedSave && changeReasonMissing;
+  const verificationMethodInvalid =
+    hasAttemptedSave &&
+    type === 'SyReq' &&
+    isFieldVisible('verification_method') &&
+    isFieldRequired('verification_method') &&
+    !verificationMethod;
 
   // Code review regression: unlike every sibling editor (AdrForm, RiskForm,
   // IssueForm, TestCaseForm all have this reset effect keyed on their
@@ -170,6 +219,8 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     setLevel(requirement.level ?? '');
     setCustomFields(requirement.custom_fields || {});
     setSaveError(null);
+    setTitleInvalid(false);
+    setHasAttemptedSave(false);
   }, [requirement]);
 
   // #344: bring a freshly raised save error into view. `scrollIntoView` is
@@ -225,10 +276,31 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const handleSave = useCallback(async (): Promise<void> => {
     const validationError = validateForm();
     if (validationError) {
-      setSaveError(validationError);
+      // F-03 (code review, 2026-08-19): client-side validation errors now
+      // surface ONLY at the field itself (title-invalid marker below,
+      // change-reason/verification-method hints in the JSX are derived
+      // straight from form state) — never duplicated into the page-level
+      // `saveError` banner too, which used to make a screen reader announce
+      // the identical "Title is required" message twice. Any stale banner
+      // from a *previous* server-side rejection is cleared here as well, so
+      // it can't linger next to an unrelated fresh client-side field error.
+      setSaveError(null);
+      // BUG-08: only the title field itself gets the visual/ARIA marker —
+      // it mirrors the actual condition validateForm() checked, so an
+      // unrelated failure (e.g. missing verification_method) never lights
+      // up a title that is in fact fine.
+      setTitleInvalid(!title.trim());
+      // N-01/N-02 (code review, 2026-08-19): change_reason/
+      // verification_method's derived markers only go live once a Save has
+      // actually failed — this is that event. From here on (until the next
+      // successful save or a different requirement is selected) they track
+      // their own condition live, same as titleInvalid already did.
+      setHasAttemptedSave(true);
       return;
     }
 
+    setTitleInvalid(false);
+    setHasAttemptedSave(false);
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -441,9 +513,34 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             id="req-title"
             data-testid="req-title"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              // BUG-08: clear the field-level error as soon as the user
+              // starts correcting it — same UX as the change-reason/
+              // acceptance-criteria hints (#339/#412).
+              if (e.target.value.trim()) setTitleInvalid(false);
+              // F-01 (code review, 2026-08-19): a stale banner describing
+              // the *previous* attempt must not keep contradicting a field
+              // that has since been fixed — same pattern as
+              // RequirementEditors.tsx's create-form title input (#340).
+              if (saveError) setSaveError(null);
+            }}
             style={{ ...inputStyle, marginBottom: 'var(--space-4)' }}
+            className={titleInvalid ? fieldHints.inputError : undefined}
+            aria-invalid={titleInvalid}
+            aria-describedby={titleInvalid ? 'req-title-error' : undefined}
           />
+          {titleInvalid && (
+            <p
+              id="req-title-error"
+              role="alert"
+              data-testid="req-title-field-error"
+              className={fieldHints.fieldError}
+            >
+              <span aria-hidden="true">⚠</span>
+              {t('editor.titleRequired')}
+            </p>
+          )}
 
           <label htmlFor="req-description" style={{ ...labelStyle, marginBottom: 'var(--space-1)' }}>
             {t('editor.description')}
@@ -612,6 +709,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                   value={verificationMethod}
                   onChange={(e) => setVerificationMethod(e.target.value as VerificationMethod)}
                   style={inputStyle}
+                  className={verificationMethodInvalid ? fieldHints.inputError : undefined}
+                  aria-invalid={verificationMethodInvalid}
+                  aria-describedby={verificationMethodInvalid ? 'verification-method-error' : undefined}
                 >
                   <option value="">{t('editor.selectVerificationMethod')} --</option>
                   <option value="Inspection">Inspection</option>
@@ -619,6 +719,28 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                   <option value="Test">Test</option>
                   <option value="Analysis">Analysis</option>
                 </select>
+                {/* F-02 (code review, 2026-08-19): validateForm() has a third
+                    branch for this field (mandatory when SyReq +
+                    isFieldRequired) — consistency within this same file
+                    demanded it get the same visual/ARIA treatment as title,
+                    not just an early-return banner message no one could see
+                    on a field this far down the form. N-01 (code review,
+                    2026-08-19): gated behind hasAttemptedSave (see its own
+                    declaration above) — an untouched form must stay silent,
+                    not alarm a screen-reader user who has done nothing yet;
+                    only live after the first failed Save, same as
+                    titleInvalid. */}
+                {verificationMethodInvalid && (
+                  <p
+                    id="verification-method-error"
+                    role="alert"
+                    data-testid="verification-method-field-error"
+                    className={fieldHints.fieldError}
+                  >
+                    <span aria-hidden="true">⚠</span>
+                    {t('editor.verificationMethodRequired')}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -669,14 +791,41 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               placeholder={t('req.changeReasonPlaceholder')}
               required
               aria-required="true"
+              className={changeReasonInvalid ? fieldHints.inputError : undefined}
+              aria-invalid={changeReasonInvalid}
+              aria-describedby={changeReasonMissing ? 'change-reason-error' : undefined}
             />
             {/* #339: the asterisk alone was reported as too easy to miss for a
                 field whose omission costs the whole edit. Mirrors the
-                acceptance-criteria hint above. */}
-            {!changeReason.trim() && (
-              <p data-testid="change-reason-hint" className={styles.fieldHint}>
-                {t('req.changeReasonRequired')}
-              </p>
+                acceptance-criteria hint above — shown proactively (before any
+                Save attempt), as a plain low-key hint, same as it always was.
+                N-01 (code review, 2026-08-19): the alarming treatment
+                (icon + red border + `role="alert"`) must NOT fire on an
+                untouched form — a screen-reader user who has done nothing
+                yet must not hear "invalid entry". Only escalates to that
+                once hasAttemptedSave is true (first failed Save), matching
+                validateForm()'s own change_reason branch; until then it's
+                the exact same passive hint acceptance-criteria uses. */}
+            {changeReasonMissing && (
+              changeReasonInvalid ? (
+                <p
+                  id="change-reason-error"
+                  role="alert"
+                  data-testid="change-reason-hint"
+                  className={fieldHints.fieldError}
+                >
+                  <span aria-hidden="true">⚠</span>
+                  {t('req.changeReasonRequired')}
+                </p>
+              ) : (
+                <p
+                  id="change-reason-error"
+                  data-testid="change-reason-hint"
+                  className={styles.fieldHint}
+                >
+                  {t('req.changeReasonRequired')}
+                </p>
+              )
             )}
           </div>
         )}

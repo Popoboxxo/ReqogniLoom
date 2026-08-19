@@ -15,6 +15,11 @@ import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useRiskData } from './useRiskData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { risksApi } from '../../api/risks';
+import { CATEGORY_OPTIONS } from './RiskForm';
+// F-04 (code review, 2026-08-19): shared create-form field styles (see
+// frontend/src/components/shared/FieldHints.module.css header comment) —
+// keeping them in one shared place instead of duplicating them per component.
+import fieldHints from '../shared/FieldHints.module.css';
 
 export default function RiskEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -24,6 +29,11 @@ export default function RiskEditors(): JSX.Element {
   const { items, item, isLoading, error, refresh } = useRiskData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): description/category are ordinary
+  // risksApi.create() fields the backend already accepts — they had no
+  // editor in this create dialog.
+  const [newDescription, setNewDescription] = useState('');
+  const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +46,8 @@ export default function RiskEditors(): JSX.Element {
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
     setNewTitle('');
+    setNewDescription('');
+    setNewCategory('');
     setShowCreateDialog(true);
   }, []);
 
@@ -50,8 +62,16 @@ export default function RiskEditors(): JSX.Element {
     setCreateError(null);
     setIsCreating(true);
     try {
-      const resp = await risksApi.create({ workspace_id: activeWorkspace.id, title: newTitle.trim() });
+      const resp = await risksApi.create({
+        workspace_id: activeWorkspace.id,
+        title: newTitle.trim(),
+        // BUG-11: only send what was actually typed.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+        ...(newCategory ? { category: newCategory } : {}),
+      });
       setNewTitle('');
+      setNewDescription('');
+      setNewCategory('');
       setShowCreateDialog(false);
       refresh();
       navigate(`/risks/${resp.id}`);
@@ -217,6 +237,38 @@ export default function RiskEditors(): JSX.Element {
                 fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
               }}
             />
+
+            {/* BUG-11: description/category — ordinary risksApi.create()
+                fields the backend already accepts, previously missing
+                here. */}
+            <label htmlFor="risk-new-description" className={fieldHints.createLabel}>
+              {t('editor.description', 'Description')}
+            </label>
+            <textarea
+              id="risk-new-description"
+              data-testid="risk-new-description-input"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              rows={3}
+              className={fieldHints.createInput}
+            />
+
+            <label htmlFor="risk-new-category" className={fieldHints.createLabel}>
+              {t('editor.category', 'Category')}
+            </label>
+            <select
+              id="risk-new-category"
+              data-testid="risk-new-category-select"
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              className={fieldHints.createInput}
+            >
+              <option value="">{t('editor.categoryPlaceholder', 'Select')} --</option>
+              {CATEGORY_OPTIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+
             {createError && (
               <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
                 {createError}

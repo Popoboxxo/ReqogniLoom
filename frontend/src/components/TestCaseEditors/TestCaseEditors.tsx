@@ -14,6 +14,10 @@ import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { testcasesApi } from '../../api/testcases';
+// F-04 (code review, 2026-08-19): shared create-form field styles (see
+// frontend/src/components/shared/FieldHints.module.css header comment) —
+// keeping them in one shared place instead of duplicating them per component.
+import fieldHints from '../shared/FieldHints.module.css';
 
 export default function TestCaseEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -23,6 +27,10 @@ export default function TestCaseEditors(): JSX.Element {
   const { items, item, isLoading, error, refresh } = useTestCaseData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
+  // testcasesApi.create() field the backend already accepts — it had no
+  // editor in this create dialog.
+  const [newDescription, setNewDescription] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +43,7 @@ export default function TestCaseEditors(): JSX.Element {
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
     setNewTitle('');
+    setNewDescription('');
     setShowCreateDialog(true);
   }, []);
 
@@ -55,8 +64,14 @@ export default function TestCaseEditors(): JSX.Element {
     setCreateError(null);
     setIsCreating(true);
     try {
-      const resp = await testcasesApi.create({ workspace_id: activeWorkspace.id, title: newTitle.trim() });
+      const resp = await testcasesApi.create({
+        workspace_id: activeWorkspace.id,
+        title: newTitle.trim(),
+        // BUG-11: only send what was actually typed.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+      });
       setNewTitle('');
+      setNewDescription('');
       setShowCreateDialog(false);
       refresh();
       navigate(`/testcases/${resp.id}`);
@@ -223,6 +238,21 @@ export default function TestCaseEditors(): JSX.Element {
                 fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
               }}
             />
+
+            {/* BUG-11: description — an ordinary testcasesApi.create() field
+                the backend already accepts, previously missing here. */}
+            <label htmlFor="tc-new-description" className={fieldHints.createLabel}>
+              {t('editor.description', 'Description')}
+            </label>
+            <textarea
+              id="tc-new-description"
+              data-testid="tc-new-description-input"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              rows={3}
+              className={fieldHints.createInput}
+            />
+
             {createError && (
               <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
                 {createError}

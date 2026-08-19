@@ -18,7 +18,10 @@ interface IssueFormProps {
 }
 
 const SEVERITY_OPTIONS = ['low', 'medium', 'high', 'critical'];
-const CATEGORY_OPTIONS = ['defect', 'improvement', 'documentation', 'question'];
+// BUG-11 (Systemaudit 2026-08-18, §4): exported so IssueEditors' create
+// dialog can offer the same category choices as this edit form, instead of
+// duplicating the literal list.
+export const CATEGORY_OPTIONS = ['defect', 'improvement', 'documentation', 'question'];
 
 export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.Element {
   const { t } = useTranslation();

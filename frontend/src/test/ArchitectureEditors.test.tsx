@@ -415,6 +415,65 @@ describe("ArchitectureEditors — server validation errors are visible (#340)", 
   });
 });
 
+/**
+ * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — the quick create form only
+ * had a title input; `description` is an ordinary architectureApi.create()
+ * field the backend already accepts but had no editor here.
+ */
+describe("ArchitectureEditors — create form has a description field (BUG-11)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("sends the typed description alongside the title on create", async () => {
+    vi.mocked(architectureApi.create).mockResolvedValueOnce({
+      ...MOCK_ELEMENT,
+      id: "arch-new",
+    } as any);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-arch-btn"));
+    await user.type(screen.getByTestId("arch-new-title-input"), "New Element");
+    await user.type(
+      screen.getByTestId("arch-new-description-input"),
+      "Some description"
+    );
+    await user.click(screen.getByTestId("arch-new-save-btn"));
+
+    await waitFor(() =>
+      expect(architectureApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "New Element",
+          description: "Some description",
+        })
+      )
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Drag & drop reparenting of the decomposition hierarchy.
 //

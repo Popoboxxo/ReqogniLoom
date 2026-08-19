@@ -234,6 +234,39 @@ describe("IssueEditors Task 2.3 concept remodel (PageHeader / ArtifactRow / Dial
     });
   });
 
+  /**
+   * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — description/category are
+   * ordinary issuesApi.create() fields the backend already accepts but had
+   * no editor in this dialog.
+   */
+  it("sends the typed description and category alongside the title on create (BUG-11)", async () => {
+    vi.mocked(issuesApi.create).mockResolvedValue({ ...ISSUE, id: "issue-new-2" });
+    renderEditor("/issues");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-issue-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-issue-btn"));
+    await screen.findByTestId("issue-create-dialog");
+
+    await user.type(screen.getByTestId("issue-new-title-input"), "Session cookie not cleared");
+    await user.type(screen.getByTestId("issue-new-description-input"), "Repro: logout, inspect cookies");
+    await user.selectOptions(screen.getByTestId("issue-new-category-select"), "defect");
+    await user.click(screen.getByTestId("issue-new-save-btn"));
+
+    await waitFor(() => {
+      expect(issuesApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Session cookie not cleared",
+          description: "Repro: logout, inspect cookies",
+          category: "defect",
+        })
+      );
+    });
+  });
+
   it("relocates the trace-link creation action into TraceLinkPanel's own header, not a freestanding button under the form (Task 2.3)", async () => {
     renderEditor();
 

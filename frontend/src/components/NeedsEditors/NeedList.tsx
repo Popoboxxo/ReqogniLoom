@@ -21,6 +21,10 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+// F-04 (code review, 2026-08-19): shared create-form field styles (see
+// frontend/src/components/shared/FieldHints.module.css header comment) —
+// keeping them in one shared place instead of duplicating them per component.
+import fieldHints from '../shared/FieldHints.module.css';
 
 interface NeedListProps {
   needs: StakeholderNeed[];
@@ -29,6 +33,13 @@ interface NeedListProps {
   setShowCreateForm?: (show: boolean) => void;
   newTitle?: string;
   setNewTitle?: (val: string) => void;
+  // BUG-11 (Systemaudit 2026-08-18, §4): description/category are ordinary
+  // stakeholderNeedApi.create() fields the backend already accepts — they
+  // had no editor in this create form.
+  newDescription?: string;
+  setNewDescription?: (val: string) => void;
+  newCategory?: string;
+  setNewCategory?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
   onCreateClick?: () => void;
@@ -85,6 +96,10 @@ export function NeedList({
   setShowCreateForm,
   newTitle,
   setNewTitle,
+  newDescription,
+  setNewDescription,
+  newCategory,
+  setNewCategory,
   onSubmitCreate,
   createError,
   onCreateClick,
@@ -202,6 +217,44 @@ export function NeedList({
               color: 'var(--color-text)',
             }}
           />
+
+          {/* BUG-11: description/category — ordinary
+              stakeholderNeedApi.create() fields the backend already accepts,
+              previously missing here. */}
+          {setNewDescription && (
+            <>
+              {/* F-05 (code review, 2026-08-19): every other one of the 6
+                  create-form fields added this round pairs label/input via
+                  htmlFor/id — this one was the odd one out. */}
+              <label htmlFor="need-new-description" className={fieldHints.createLabelInline}>
+                {t('editor.description', 'Description')}
+              </label>
+              <textarea
+                id="need-new-description"
+                data-testid="need-new-description-input"
+                value={newDescription || ''}
+                onChange={(e) => setNewDescription(e.target.value)}
+                rows={3}
+                className={fieldHints.createInput}
+              />
+            </>
+          )}
+          {setNewCategory && (
+            <>
+              <label htmlFor="need-new-category" className={fieldHints.createLabelInline}>
+                {t('editor.category', 'Category')}
+              </label>
+              <input
+                id="need-new-category"
+                type="text"
+                data-testid="need-new-category-input"
+                value={newCategory || ''}
+                onChange={(e) => setNewCategory(e.target.value)}
+                className={fieldHints.createInput}
+              />
+            </>
+          )}
+
           {createError && (
             <p
               role="alert"

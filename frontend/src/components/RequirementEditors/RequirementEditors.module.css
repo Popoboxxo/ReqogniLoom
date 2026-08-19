@@ -53,3 +53,12 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/*
+ * F-04 (code review, 2026-08-19): the BUG-08 field-error styles
+ * (`.inputError`/`.fieldError`) and the BUG-11 create-form field styles
+ * (`.createLabel`/`.createInput`) belong in the shared
+ * `frontend/src/components/shared/FieldHints.module.css` instead — this
+ * component and `RequirementForm.tsx` both import it as `fieldHints`,
+ * keeping the declarations in one place rather than duplicating them here.
+ */

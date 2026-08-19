@@ -238,6 +238,39 @@ describe("RiskEditors Task 2.2 concept remodel (PageHeader / ArtifactRow / Dialo
     });
   });
 
+  /**
+   * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — description/category are
+   * ordinary risksApi.create() fields the backend already accepts but had
+   * no editor in this dialog.
+   */
+  it("sends the typed description and category alongside the title on create (BUG-11)", async () => {
+    vi.mocked(risksApi.create).mockResolvedValue({ ...RISK, id: "risk-new-2" });
+    renderEditor("/risks");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-risk-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-risk-btn"));
+    await screen.findByTestId("risk-create-dialog");
+
+    await user.type(screen.getByTestId("risk-new-title-input"), "Key supplier lock-in");
+    await user.type(screen.getByTestId("risk-new-description-input"), "Single-source dependency");
+    await user.selectOptions(screen.getByTestId("risk-new-category-select"), "operational");
+    await user.click(screen.getByTestId("risk-new-save-btn"));
+
+    await waitFor(() => {
+      expect(risksApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Key supplier lock-in",
+          description: "Single-source dependency",
+          category: "operational",
+        })
+      );
+    });
+  });
+
   it("relocates the trace-link creation action into TraceLinkPanel's own header, not a freestanding button under the form (Task 2.2)", async () => {
     renderEditor();
 

@@ -15,6 +15,10 @@ import { useTranslation } from "react-i18next";
 import { workspacesApi } from "../../api/workspaces";
 import { Dialog } from "../shared/Dialog";
 import type { TerminologyProfile, Workspace, WorkspacePreset } from "../../types";
+// F-04 (code review, 2026-08-19): `.inputError`/`.fieldError` live in the
+// shared module (see its own header comment) so this dialog doesn't
+// duplicate them in a component-local `.module.css`.
+import fieldHints from "../shared/FieldHints.module.css";
 
 export interface CreateWorkspaceModalProps {
   /** Controls modal visibility. */
@@ -94,6 +98,13 @@ export function CreateWorkspaceModal({
   const [formData, setFormData] = useState<CreateWorkspaceFormData>(DEFAULT_FORM_DATA);
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // BUG-08 (Systemaudit 2026-08-18, §4): the required-name check used to
+  // surface only as a text banner elsewhere in the dialog — the input itself
+  // never indicated it was the field at fault (no border, no icon, no
+  // aria-invalid). Tracked separately from `createError` (server-side
+  // rejections) so the field-level marker only reacts to *this* client-side
+  // check and clears the moment the user starts correcting it.
+  const [nameInvalid, setNameInvalid] = useState<boolean>(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset form state whenever the modal opens.
@@ -101,11 +112,13 @@ export function CreateWorkspaceModal({
     if (!isOpen) return;
     setFormData(DEFAULT_FORM_DATA);
     setCreateError(null);
+    setNameInvalid(false);
   }, [isOpen]);
 
   const handleClose = (): void => {
     if (isCreating) return;
     setCreateError(null);
+    setNameInvalid(false);
     onClose();
   };
 
@@ -114,7 +127,13 @@ export function CreateWorkspaceModal({
   ): Promise<void> => {
     event.preventDefault();
     if (!formData.name.trim()) {
-      setCreateError(t("workspaceCreate.errorRequired") || "Name is required");
+      // F-03 (code review, 2026-08-19): a client-side check surfaces at the
+      // field itself only — never duplicated into the page-level banner
+      // too (a screen reader must not announce the identical "Name is
+      // required" message twice). Any stale banner from a previous
+      // server-side rejection is cleared here as well.
+      setCreateError(null);
+      setNameInvalid(true);
       return;
     }
     setIsCreating(true);
@@ -212,12 +231,36 @@ export function CreateWorkspaceModal({
             data-testid="new-workspace-name"
             placeholder={t("workspaceCreate.namePlaceholder") || "Name"}
             value={formData.name}
-            onChange={(e) =>
-              setFormData((d) => ({ ...d, name: e.target.value }))
-            }
+            onChange={(e) => {
+              setFormData((d) => ({ ...d, name: e.target.value }));
+              // BUG-08: clear the field-level error the moment the user
+              // starts correcting it, same UX as the create-form hints
+              // elsewhere (#339/#412) — the message described the *previous*
+              // attempt, not the one they are now typing.
+              if (e.target.value.trim()) setNameInvalid(false);
+              // F-01 (code review, 2026-08-19): a stale banner from a
+              // previous *server-side* rejection must not keep contradicting
+              // a field the user is actively correcting — same pattern as
+              // RequirementEditors.tsx's create-form title input (#340).
+              if (createError) setCreateError(null);
+            }}
             disabled={isCreating}
             style={inputStyle}
+            className={nameInvalid ? fieldHints.inputError : undefined}
+            aria-invalid={nameInvalid}
+            aria-describedby={nameInvalid ? "new-workspace-name-error" : undefined}
           />
+          {nameInvalid && (
+            <p
+              id="new-workspace-name-error"
+              role="alert"
+              data-testid="new-workspace-name-field-error"
+              className={fieldHints.fieldError}
+            >
+              <span aria-hidden="true">⚠</span>
+              {t("workspaceCreate.errorRequired") || "Name is required"}
+            </p>
+          )}
         </div>
 
         <div>

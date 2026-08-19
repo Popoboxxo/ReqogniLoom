@@ -13,3 +13,10 @@
   color: var(--color-danger);
   font-size: var(--font-size-sm);
 }
+
+/*
+ * F-04 (code review, 2026-08-19): `.createLabel`/`.createInput` belong in the
+ * shared `frontend/src/components/shared/FieldHints.module.css` (imported
+ * here as `fieldHints`) instead, keeping the declarations in one place
+ * rather than duplicating them across every editor's own module.
+ */
