@@ -127,6 +127,17 @@ class AuditEntry(TenantScopedModel):
     OP_USER_CREATE = "user.create"
     OP_USER_ASSIGN_ROLE = "user.assign_role"
     OP_USER_DEACTIVATE = "user.deactivate"
+    # #573: LLM-backed analyses exposed as MCP tools. They have no REST
+    # pendant whose op could be reused, so they get their own namespace —
+    # consistent with the ``baseline.``/``workspace.``/``admin.``/
+    # ``permissions.``/``user.`` families above. The MCP soft-delete
+    # (``requirement.outdate`` / ``needs.outdate``) and restore
+    # (``*.reactivate``) deliberately do NOT appear here: they reuse the ops
+    # their REST pendants already write (``delete`` / ``transition``) so a
+    # single audit query answers "who deleted this" across both surfaces.
+    OP_AI_DECOMPOSE = "ai.decompose"
+    OP_AI_VALIDATE = "ai.validate"
+    OP_AI_CHECK_CONSISTENCY = "ai.check_consistency"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -142,6 +153,15 @@ class AuditEntry(TenantScopedModel):
     # undeclared op there silently produces zero audit rows instead of a
     # loud 500. The admin/user/permissions op values below were added for
     # that reason; any new MCP admin-style tool op must be added here too.
+    #
+    # NOTE (#573): the requirements/needs lifecycle + AI tools hit the same
+    # silent-drop path — ``requirement.outdate|reactivate|validate|
+    # check_consistency|decompose`` and ``needs.outdate|reactivate`` all
+    # returned 200 while writing zero audit rows. Two different remedies were
+    # applied, on purpose: operations with a REST pendant now emit that
+    # pendant's op (outdate -> ``delete``, reactivate -> ``transition``), and
+    # only the LLM analyses, which have no REST pendant, got new ``ai.*``
+    # choices below.
     OP_CHOICES = [
         (OP_CREATE, "Create"),
         (OP_UPDATE, "Update"),
@@ -160,6 +180,9 @@ class AuditEntry(TenantScopedModel):
         (OP_USER_CREATE, "User Create"),
         (OP_USER_ASSIGN_ROLE, "User Assign Role"),
         (OP_USER_DEACTIVATE, "User Deactivate"),
+        (OP_AI_DECOMPOSE, "AI Decompose"),
+        (OP_AI_VALIDATE, "AI Validate"),
+        (OP_AI_CHECK_CONSISTENCY, "AI Consistency Check"),
     ]
 
     SOURCE_REST = "rest"

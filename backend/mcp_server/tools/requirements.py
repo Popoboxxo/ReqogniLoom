@@ -494,7 +494,9 @@ class RequirementsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="outdate",
+            # #573: same op the REST pendant writes (DELETE /requirements/{id}/
+            # -> RequirementService.delete_requirement, operation="delete").
+            operation="delete",
             entity_type="Requirement",
             entity_id=req_id,
             tool_name="requirement.outdate",
@@ -538,7 +540,9 @@ class RequirementsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="reactivate",
+            # #573: same op the REST pendant writes
+            # (POST /requirements/{id}/reactivate/ -> WorkflowFacade.reactivate).
+            operation="transition",
             entity_type="Requirement",
             entity_id=req_id,
             tool_name="requirement.reactivate",
@@ -581,7 +585,7 @@ class RequirementsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="decompose",
+            operation="ai.decompose",
             entity_type="Requirement",
             entity_id=req_id,
             tool_name="requirement.decompose",
@@ -684,7 +688,7 @@ class RequirementsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="check_consistency",
+            operation="ai.check_consistency",
             entity_type="Workspace",
             entity_id=workspace_id,
             tool_name="requirement.check_consistency",
@@ -735,7 +739,7 @@ class RequirementsToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="validate",
+            operation="ai.validate",
             entity_type="Requirement",
             entity_id=req_id,
             tool_name="requirement.validate",

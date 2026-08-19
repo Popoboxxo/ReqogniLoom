@@ -24,15 +24,15 @@ the audit row while the MCP tool call still reports ``success=True``. The
 admin/user/permissions MCP tool groups fixed for #539 are covered below.
 
 Scope note: this second ratchet intentionally scans only the tool-group
-files fixed under #539 (``admin.py``, ``backup.py``, ``users.py``,
-``permissions.py``), not the whole ``mcp_server/tools/`` package. At the
-time of #539, ``ai_derivation.py`` and the ``requirement.outdate`` /
-``requirement.reactivate`` handlers in ``requirements.py`` were found to
-have the identical undeclared-op gap but were explicitly out of scope for
-this fix (see #539's "not necessarily exhaustive" affected-tools list) —
-widening the scan to all of ``mcp_server/tools/`` would make this ratchet
-fail on those pre-existing, not-yet-fixed gaps. Widen ``_MCP_TOOL_FILES``
-as each remaining tool group is fixed.
+files fixed so far, not the whole ``mcp_server/tools/`` package —
+``admin.py``, ``backup.py``, ``users.py``, ``permissions.py`` (#539) plus
+``requirements.py`` and ``needs.py`` (#573). Widening the scan to all of
+``mcp_server/tools/`` would make this ratchet fail on the gaps that are
+still open: ``ai_derivation.py`` (six undeclared ops), ``audit.py``
+(``"replay"``), ``architecture.py`` / ``diagram.py`` / ``tests.py``
+(``"outdate"`` / ``"reactivate"``) and ``review.py`` (``"approve"`` /
+``"reject"`` / ``"request_changes"``). Widen ``_MCP_TOOL_FILES`` as each
+remaining tool group is fixed.
 """
 from __future__ import annotations
 
@@ -54,6 +54,9 @@ _MCP_TOOL_FILES = (
     _BACKEND_ROOT / "mcp_server" / "tools" / "backup.py",
     _BACKEND_ROOT / "mcp_server" / "tools" / "users.py",
     _BACKEND_ROOT / "mcp_server" / "tools" / "permissions.py",
+    # #573
+    _BACKEND_ROOT / "mcp_server" / "tools" / "requirements.py",
+    _BACKEND_ROOT / "mcp_server" / "tools" / "needs.py",
 )
 
 
@@ -192,6 +195,49 @@ def test_regression_mcp_admin_operations_are_declared(operation: str) -> None:
     rows for exactly these operation values.
     """
     assert operation in {value for value, _label in AuditEntry.OP_CHOICES}
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["ai.decompose", "ai.validate", "ai.check_consistency"],
+)
+def test_regression_mcp_ai_operations_are_declared(operation: str) -> None:
+    """The three AI tool ops added for #573 must stay declared choices.
+
+    ``requirement.decompose`` / ``requirement.validate`` /
+    ``requirement.check_consistency`` used to pass the undeclared literals
+    ``"decompose"`` / ``"validate"`` / ``"check_consistency"``.
+    """
+    assert operation in {value for value, _label in AuditEntry.OP_CHOICES}
+
+
+@pytest.mark.parametrize(
+    ("tool_file", "operation"),
+    [
+        ("mcp_server/tools/requirements.py", "delete"),
+        ("mcp_server/tools/requirements.py", "transition"),
+        ("mcp_server/tools/needs.py", "delete"),
+        ("mcp_server/tools/needs.py", "transition"),
+    ],
+)
+def test_regression_mcp_lifecycle_ops_reuse_rest_vocabulary(
+    tool_file: str, operation: str
+) -> None:
+    """#573: MCP soft-delete/restore must audit under the REST pendant's op.
+
+    ``requirement.outdate`` / ``needs.outdate`` used to pass ``"outdate"`` and
+    ``*.reactivate`` used to pass ``"reactivate"`` — neither is a declared
+    choice, so both wrote zero rows. Reusing ``delete`` / ``transition``
+    (what ``RequirementService.delete_requirement`` and
+    ``WorkflowFacade.reactivate`` write for the REST path) keeps one audit
+    query able to answer "who removed this artifact" across both surfaces;
+    this guard fails if someone re-introduces a tool-name-shaped op there.
+    """
+    operations = _mcp_audited_operations()
+    assert tool_file in operations.get(operation, []), (
+        f"{tool_file} no longer emits write_mcp_audit(operation={operation!r}) "
+        f"— found: { {op: files for op, files in operations.items() if tool_file in files} }"
+    )
 
 
 def test_op_choices_fit_the_column_width() -> None:
