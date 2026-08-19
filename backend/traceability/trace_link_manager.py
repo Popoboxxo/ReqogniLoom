@@ -33,6 +33,7 @@ from collections import defaultdict
 from typing import Any, Optional
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from persistence.models import Artifact, TraceLink
 from persistence.tenancy import TenantContext
@@ -189,6 +190,37 @@ class TraceLinkManager:
     REQ-L2-TE-010 / REQ-L2-TE-011
     """
 
+    def _filtered_queryset(
+        self,
+        workspace_id: uuid.UUID | None = None,
+        filters: dict[str, Any] | None = None,
+        link_type: str | None = None,
+    ) -> "QuerySet[TraceLink]":
+        """Shared filter-building for get_trace_links()/get_trace_links_queryset().
+
+        Review fix (F7, follow-up to #571): ``embedding`` (1536-dim
+        VectorField) is deferred here — for *every* caller, not just the
+        paginated REST listing — because ``get_trace_links()`` is also called
+        eagerly, tenant-wide (no workspace filter), on every single
+        ``create()`` (cycle detection needs only ``source_id``/``target_id``
+        to build the adjacency list, never the embedding). Fetching the full
+        vector for every existing link on every write was the same OOM shape
+        as #571, just on the write path. No known caller of
+        ``get_trace_links()`` reads ``.embedding`` — the only two reads in
+        this codebase (``application/trace_link_service.py`` similarity
+        search) go through ``TraceLinkManager.get()``/an explicit
+        ``CosineDistance`` queryset, not this method. Pinned by
+        ``traceability/tests/test_trace_link_create_query_571.py``.
+        """
+        qs = TraceLink.objects.all()  # TenantManager applies tenant filter
+        if workspace_id is not None:
+            qs = qs.filter(source__workspace_id=workspace_id)
+        if link_type is not None:
+            qs = qs.filter(link_type=link_type)
+        if filters:
+            qs = qs.filter(**filters)
+        return qs.defer("embedding")
+
     # IF-TE-INT-001 / IF-TE-INT-002
     def get_trace_links(
         self,
@@ -200,15 +232,46 @@ class TraceLinkManager:
 
         IF-TE-INT-001 (QueryEngine): workspace_id + generic filters.
         IF-TE-INT-002 (CoverageCalculator): link_type shorthand.
+
+        Eager (materializes the full result set) — callers that need graph
+        traversal or cycle detection over the whole set. Paginated REST
+        listings must use :meth:`get_trace_links_queryset` instead (#571).
         """
-        qs = TraceLink.objects.all()  # TenantManager applies tenant filter
-        if workspace_id is not None:
-            qs = qs.filter(source__workspace_id=workspace_id)
-        if link_type is not None:
-            qs = qs.filter(link_type=link_type)
-        if filters:
-            qs = qs.filter(**filters)
+        qs = self._filtered_queryset(
+            workspace_id=workspace_id, filters=filters, link_type=link_type
+        )
         return list(qs.select_related("source", "target"))
+
+    # Fix #571: lazy variant for paginated listing endpoints.
+    def get_trace_links_queryset(
+        self,
+        workspace_id: uuid.UUID | None = None,
+        filters: dict[str, Any] | None = None,
+        link_type: str | None = None,
+    ) -> "QuerySet[TraceLink]":
+        """Lazy (un-evaluated) variant of :meth:`get_trace_links`.
+
+        Fix #571: ``GET /api/v1/tracelinks/?workspace_id=...`` used to call
+        ``get_trace_links()``, which materializes *every* matching row —
+        including ``select_related("source", "target")`` and the 1536-dim
+        ``embedding`` VectorField per row — before pagination ever gets a
+        chance to slice it. At ~2000 links in a workspace that OOM-killed the
+        worker (512 MB container limit) regardless of the requested
+        ``page_size``, since the whole set was already in memory by the time
+        pagination ran.
+
+        This method returns the queryset itself (no ``list()``) — ``embedding``
+        is already deferred by :meth:`_filtered_queryset` (F7) — so a caller
+        can pass it straight to DRF's paginator, which pushes ``LIMIT``/
+        ``OFFSET`` down to the database — memory cost becomes O(page_size),
+        not O(N). No ``select_related`` here either: dict-based list
+        serialization only needs the plain FK id columns (``source_id``/
+        ``target_id``), not the related Artifact rows.
+        """
+        qs = self._filtered_queryset(
+            workspace_id=workspace_id, filters=filters, link_type=link_type
+        )
+        return qs.order_by("created_at", "id")
 
     # IF-TE-EXT-IN-003: create
     def create(

@@ -36,6 +36,7 @@ import uuid
 from typing import Optional
 
 from django.core.cache import cache
+from django.db.models import QuerySet
 
 from traceability.coverage_calculator import CoverageCalculator
 from traceability.exceptions import (  # noqa: F401  (re-exported for callers)
@@ -250,6 +251,26 @@ def list_trace_links(
         List of TraceLink ORM instances (``source``/``target`` select_related).
     """
     return _manager.get_trace_links(
+        workspace_id=workspace_id,
+        filters=filters,
+        link_type=link_type,
+    )
+
+
+def list_trace_links_queryset(
+    workspace_id: Optional[uuid.UUID] = None,
+    filters: Optional[dict] = None,
+    link_type: Optional[str] = None,
+) -> QuerySet:
+    """Lazy variant of :func:`list_trace_links` for paginated REST listings.
+
+    Fix #571: unlike ``list_trace_links``, this does not materialize the
+    result set — it hands back the queryset itself so a caller (DRF's
+    paginator) can apply ``LIMIT``/``OFFSET`` at the database level instead
+    of loading every matching row (and its 1536-dim ``embedding`` vector)
+    into memory before pagination gets a chance to slice it.
+    """
+    return _manager.get_trace_links_queryset(
         workspace_id=workspace_id,
         filters=filters,
         link_type=link_type,

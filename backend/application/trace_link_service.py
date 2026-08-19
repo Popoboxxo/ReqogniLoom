@@ -904,6 +904,25 @@ class TraceLinkService(ServiceBase):
 
         return list_trace_links(workspace_id=workspace_id, link_type=link_type)
 
+    def list_links_for_workspace_queryset(
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        link_type: Optional[str] = None,
+    ):
+        """Lazy variant of :meth:`list_links_for_workspace` (fix #571).
+
+        Returns the queryset itself (not materialized) so the REST layer can
+        apply DB-level pagination instead of loading every TraceLink in the
+        workspace into memory before slicing — see
+        ``traceability.services.list_trace_links_queryset``.
+        """
+        self._set_tenant_context(ctx)
+
+        from traceability.services import list_trace_links_queryset
+
+        return list_trace_links_queryset(workspace_id=workspace_id, link_type=link_type)
+
     def list_incoming(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
         """List TraceLinks where *entity_id* is the target (MCP-05, Codeberg #117).
 

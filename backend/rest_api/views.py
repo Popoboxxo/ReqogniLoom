@@ -2241,6 +2241,15 @@ class TraceLinkViewSet(BaseEntityViewSet):
         every workspace no matter what was stored. Anyone verifying a freshly
         created trace link this way concluded the write had been silently
         dropped. TraceLinkService.list_links_for_workspace now backs it.
+
+        Fix #571: the workspace-level branch used to fetch *every* matching
+        TraceLink (via ``list_links_for_workspace``, ``select_related`` on
+        both endpoints, embedding vector included) and build a dict for each
+        one, all before pagination ever got a chance to slice the list. At
+        ~2000 links in a workspace that OOM-killed the worker regardless of
+        the requested ``page_size`` (512 MB container limit). Pagination now
+        runs on the lazy queryset first (``LIMIT``/``OFFSET`` pushed down to
+        the DB), and titles/dicts are only built for the current page.
         """
         lang = detect_lang(request)
         try:
@@ -2257,16 +2266,34 @@ class TraceLinkViewSet(BaseEntityViewSet):
             items: list = []
 
             if not artifact_id_str:
-                links = svc.list_links_for_workspace(
+                links_qs = svc.list_links_for_workspace_queryset(
                     workspace_id=workspace_id, ctx=ctx
                 )
+                page = self.paginator.paginate_queryset(
+                    links_qs, request, view=self
+                )
+                if page is not None:
+                    titles = _resolve_artifact_titles(
+                        [tl.source_id for tl in page]
+                        + [tl.target_id for tl in page]
+                    )
+                    results = [
+                        TraceLinkSerializer(_tracelink_to_dict(tl, titles)).data
+                        for tl in page
+                    ]
+                    return self.paginator.get_paginated_response(results)
+                # Pagination disabled for this request — still avoid the
+                # eager select_related/embedding fetch, but materialize the
+                # (still filtered) queryset only here.
+                links = list(links_qs)
                 titles = _resolve_artifact_titles(
                     [tl.source_id for tl in links] + [tl.target_id for tl in links]
                 )
-                return self._paginate(
-                    request,
-                    [_tracelink_to_dict(tl, titles) for tl in links],
-                    lambda item: TraceLinkSerializer(item).data,
+                return Response(
+                    [
+                        TraceLinkSerializer(_tracelink_to_dict(tl, titles)).data
+                        for tl in links
+                    ]
                 )
 
             artifact_id = UUID(artifact_id_str)
