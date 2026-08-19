@@ -71,6 +71,8 @@ from rest_api.prompt_variable_views import (
     PromptVariableListView,
 )
 from rest_api.settings_views import (
+    ContextGraphRebuildView,
+    ContextGraphSettingsView,
     LlmSettingsView,
     PromptTemplateResetView,
     PromptTemplateSlotDetailView,
@@ -335,6 +337,18 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/review-policy/",
         ReviewPolicyView.as_view(),
         name="workspace-review-policy",
+    ),
+    # Workspace Context Graph — per-workspace settings toggle (Issue #377,
+    # Task 9) — admin-only, mirrors the review-policy route above.
+    path(
+        "workspaces/<uuid:workspace_id>/context-graph-settings/",
+        ContextGraphSettingsView.as_view(),
+        name="workspace-context-graph-settings",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/context-graph-settings/rebuild/",
+        ContextGraphRebuildView.as_view(),
+        name="workspace-context-graph-rebuild",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.

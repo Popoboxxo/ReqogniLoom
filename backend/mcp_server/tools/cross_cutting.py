@@ -198,6 +198,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "workspace.llm_system_prompt": "_handle_llm_system_prompt",
         "context.test_coverage": "_handle_test_coverage",
         "context.change_impact": "_handle_change_impact",
+        "context.query": "_handle_context_query",
+        "context.related": "_handle_context_related",
     }
 
     _TOOL_SCHEMAS = [
@@ -501,6 +503,82 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["entity_id", "entity_type"],
+            },
+        },
+        {
+            "name": "context.query",
+            "description": (
+                "Returns context for a single artifact -- for workspace-level "
+                "orientation, use workspace.get_context instead. Combines "
+                "hard TraceLink edges (upstream/downstream, via the same "
+                "traversal traceability.query uses) with soft, "
+                "machine-derived semantic edges from the Workspace Context "
+                "Graph (Issue #377) -- hard and soft edges are always kept "
+                "in separate response fields, never merged. "
+                "``stale: true`` means the semantic portion is known-"
+                "incomplete (workspace has the feature off, unconfigured, "
+                "or its last background refresh failed)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {"type": "string", "description": "UUID of the artifact."},
+                    "depth": {
+                        "type": "integer",
+                        "description": "Hard-edge traversal depth, 1-20 (default 2).",
+                    },
+                    "include": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["upstream", "downstream", "semantic", "risks", "issues"],
+                        },
+                        "description": "Which sections to compute (default: all).",
+                    },
+                    "max_nodes": {
+                        "type": "integer",
+                        "description": "Hard cap per section (default 50, max 200).",
+                    },
+                },
+                "required": ["artifact_id"],
+            },
+        },
+        {
+            "name": "context.related",
+            "description": (
+                "Returns semantically related artifacts for a single "
+                "artifact from the Workspace Context Graph (Issue #377) -- "
+                "soft, machine-derived edges only, never TraceLinks. For "
+                "workspace-level orientation, use workspace.get_context "
+                "instead."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {"type": "string", "description": "UUID of the artifact."},
+                    "edge_kinds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional edge_kind filter (e.g. ['shares-term']).",
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence 0..1 (default 0.5).",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["workspace"],
+                        "description": (
+                            "Only 'workspace' is valid in v1 -- 'tenant' scope is "
+                            "explicitly rejected (Folge-Issue D), not silently narrowed."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results, default 10, max 50.",
+                    },
+                },
+                "required": ["artifact_id"],
             },
         },
     ]
@@ -1482,6 +1560,87 @@ class CrossCuttingToolGroup(BaseToolGroup):
             tenant_id=tenant_id,
             include_outdated=include_outdated,
         )
+
+    # ------------------------------------------------------------------
+    # context.query / context.related (Issue #377, context_graph Task 7)
+    #
+    # Both read-only -- neither is in tool_registry.py's
+    # _WRITE_TOOL_PREFIXES, no editor role required, no write_mcp_audit call
+    # (matches context.test_coverage/context.change_impact above, per this
+    # class's own docstring convention for read-only tools).
+    # ------------------------------------------------------------------
+
+    def _handle_context_query(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        from application.base import NotFoundError, ValidationError
+        from application.context_service import get_context
+
+        artifact_id = require_uuid(params, "artifact_id")
+        depth = int(params.get("depth", 2) or 2)
+        include = params.get("include")
+        max_nodes = int(params.get("max_nodes", 50) or 50)
+
+        try:
+            result = get_context(
+                artifact_id, auth_context, depth=depth, include=include, max_nodes=max_nodes
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        return ToolResult.ok({
+            "artifact": result.artifact,
+            "upstream": [n.__dict__ for n in result.upstream],
+            "downstream": [n.__dict__ for n in result.downstream],
+            "semantic": [s.__dict__ for s in result.semantic],
+            "open_risks": [
+                {**r, "id": str(r["id"])} for r in result.open_risks
+            ],
+            "open_issues": [
+                {**i, "id": str(i["id"])} for i in result.open_issues
+            ],
+            "stale": result.stale,
+            "generated_at": result.generated_at,
+            "truncated": result.truncated,
+        })
+
+    def _handle_context_related(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        from application.base import NotFoundError, ValidationError
+        from application.context_service import get_related
+
+        artifact_id = require_uuid(params, "artifact_id")
+        edge_kinds = params.get("edge_kinds")
+        min_confidence = float(params.get("min_confidence", 0.5) or 0.5)
+        scope = params.get("scope", "workspace") or "workspace"
+        limit = int(params.get("limit", 10) or 10)
+
+        try:
+            result = get_related(
+                artifact_id,
+                auth_context,
+                edge_kinds=edge_kinds,
+                min_confidence=min_confidence,
+                limit=limit,
+                scope=scope,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            # Covers UnsupportedScopeError (subclass) -- scope='tenant' is
+            # rejected with a clear error, never silently coerced to
+            # 'workspace' (§11.8-adjacent decision, see the schema
+            # description above).
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        return ToolResult.ok({
+            "related": [r.__dict__ for r in result.related],
+            "scope": result.scope,
+            "truncated": result.truncated,
+        })
 
 
 __all__ = ["CrossCuttingToolGroup"]

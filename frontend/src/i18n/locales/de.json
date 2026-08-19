@@ -595,6 +595,19 @@
       "providerUnsupportedOption": "{{provider}} (von dieser UI-Version nicht unterstützt)",
       "providerUnsupportedHint": "Provider \"{{provider}}\" wird von dieser UI-Version nicht unterstützt. Er bleibt beim Speichern unverändert, solange du keinen anderen Provider auswählst."
     },
+    "contextGraph": {
+      "title": "Semantischer Kontext-Graph",
+      "description": "Leitet zusätzliche, maschinell vorgeschlagene Beziehungen zwischen Artefakten ab (z.B. geteilte Glossarbegriffe), zusätzlich zu den manuell erstellten Trace-Links. Zählt niemals als Trace-Link und fließt niemals in Coverage-/Baseline-Berechnungen ein.",
+      "enabled": "Aktiviert",
+      "nodeCount": "Erfasste Artefakte",
+      "edgeCount": "Abgeleitete Kanten",
+      "lastProjectedAt": "Zuletzt aktualisiert",
+      "never": "Nie",
+      "lastError": "Letzter Fehler",
+      "rebuildNow": "Jetzt neu aufbauen",
+      "rebuilding": "Wird neu aufgebaut...",
+      "rebuildQueued": "Neuaufbau eingereiht"
+    },
     "customFields": {
       "title": "Benutzerdefinierte Felder",
       "description": "Definiere zusätzliche Felder für dieses Workspace. Definierte Felder erscheinen im Bearbeitungsformular jeder Anforderung (Requirement) und können dort ausgefüllt werden.",

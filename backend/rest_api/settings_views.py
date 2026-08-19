@@ -568,6 +568,123 @@ class ReviewPolicyView(APIView):
         return Response(ReviewPolicySerializer(obj).data)
 
 
+# ---------------------------------------------------------------------------
+# Workspace Context Graph — per-workspace settings toggle (Issue #377, Task 9)
+# ---------------------------------------------------------------------------
+
+
+class ContextGraphSettingsSerializer(serializers.Serializer):
+    """Read/write serializer for context_service.ContextGraphSettingsDTO."""
+
+    enabled = serializers.BooleanField()
+    enabled_generators = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    provider = serializers.CharField(read_only=True)
+    last_projected_at = serializers.CharField(read_only=True, allow_null=True)
+    last_refresh_at = serializers.CharField(read_only=True, allow_null=True)
+    last_error = serializers.CharField(read_only=True)
+    node_count = serializers.IntegerField(read_only=True)
+    edge_count = serializers.IntegerField(read_only=True)
+
+
+class ContextGraphSettingsView(APIView):
+    """GET/PUT /api/v1/workspaces/{workspace_id}/context-graph-settings/
+    (Issue #377, Task 9). Admin-only, mirrors :class:`ReviewPolicyView`.
+
+    GET never creates a row (missing row = feature off, defaults apply —
+    Global Constraints). PUT creates/updates it; enabling for the first time
+    (or False -> True) triggers an async rebuild.
+    """
+
+    def _forbidden(self, lang: str) -> Response:
+        return Response(
+            build_error_response(
+                "PERMISSION_DENIED",
+                lang,
+                message="Admin role required to access context graph settings.",
+            ),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def get(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
+        from application import context_service
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+        dto = context_service.get_settings(workspace_id, ctx)
+        return Response(ContextGraphSettingsSerializer(dto).data)
+
+    def put(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
+        from application import context_service
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+
+        ser = ContextGraphSettingsSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            dto = context_service.update_settings(
+                workspace_id,
+                ctx,
+                enabled=ser.validated_data["enabled"],
+                enabled_generators=ser.validated_data.get("enabled_generators"),
+            )
+        except context_service.NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ContextGraphSettingsSerializer(dto).data)
+
+
+class ContextGraphRebuildView(APIView):
+    """POST /api/v1/workspaces/{workspace_id}/context-graph-settings/rebuild/
+    (Issue #377, Task 9's "Rebuild now" button). Admin-only. Async — 202,
+    not a synchronous rebuild in the request/response cycle."""
+
+    def post(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
+        from application import context_service
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return Response(
+                build_error_response(
+                    "PERMISSION_DENIED",
+                    lang,
+                    message="Admin role required to rebuild the context graph.",
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            context_service.trigger_manual_rebuild(workspace_id, ctx)
+        except context_service.NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
+
+
 __all__ = [
     "LlmSettingsView",
     "LlmSettingsSerializer",
@@ -579,4 +696,7 @@ __all__ = [
     "PromptTemplateSerializer",
     "ReviewPolicyView",
     "ReviewPolicySerializer",
+    "ContextGraphSettingsView",
+    "ContextGraphSettingsSerializer",
+    "ContextGraphRebuildView",
 ]
