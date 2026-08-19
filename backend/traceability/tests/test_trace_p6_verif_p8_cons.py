@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from persistence.models import Requirement, RequirementLevel
+from persistence.models import Requirement, RequirementLevel, TestCase
 from traceability.audit import RuleEngine
 from traceability.audit.registry import (
     CONS_P9,
@@ -119,6 +119,46 @@ class TestTraceP6:
         findings = _findings(result, TRACE_P6)
         assert len(findings) == 1
         assert str(tc_artifact.id) in findings[0].artifact_ids
+
+    def test_outdated_testcase_is_not_flagged(self, tenant_a, workspace_a):
+        """GH-574: a soft-deleted TestCase must not keep blocking the workspace.
+
+        ``TestService.delete_test_case`` routes through
+        ``workflow.services.outdate()``, which mirrors ``"outdated"`` into
+        ``TestCase.status`` (REQ-165/REQ-166). TRACE-P6 used to audit every
+        row regardless, so deleting the offending TestCase left the finding —
+        and the id it named no longer resolved in any list view.
+        """
+        with active_tenant(tenant_a):
+            tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Deleted TC")
+            TestCase.objects.filter(pk=tc.pk).update(status="outdated")
+
+            result = _run(tenant_a, workspace_a, tier="standard")
+
+        assert _findings(result, TRACE_P6) == []
+
+    def test_outdated_testcase_does_not_count_as_verification_evidence(
+        self, tenant_a, workspace_a
+    ):
+        """VERIF-P8 side of the same helper: a deleted TestCase verifies nothing.
+
+        Deliberate consequence of the GH-574 fix — ``_active_test_cases`` feeds
+        both rules. Deleting the only TestCase covering a leaf Requirement
+        clears TRACE-P6 *and* re-opens VERIF-P8, instead of leaving the
+        Requirement silently "covered" by a removed artifact.
+        """
+        with active_tenant(tenant_a):
+            req_artifact, _ = make_requirement(tenant_a, workspace_a, title="Leaf Req")
+            tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Deleted TC")
+            make_trace_link(tc_artifact, req_artifact, tenant_a, "verifies")
+            TestCase.objects.filter(pk=tc.pk).update(status="outdated")
+
+            result = _run(tenant_a, workspace_a, tier="extended")
+
+        assert _findings(result, TRACE_P6) == []
+        verif = _findings(result, VERIF_P8)
+        assert len(verif) == 1
+        assert str(req_artifact.id) in verif[0].artifact_ids
 
 
 # ---------------------------------------------------------------------------
