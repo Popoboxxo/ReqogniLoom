@@ -813,6 +813,7 @@
     "traceability": "Traceability",
     "noTraceLinks": "No trace links connected to this ICD.",
     "noArtifacts": "No architecture elements available. Create elements first.",
+    "selectIcd": "Select an ICD from the list",
     "selectSource": "Select source element",
     "selectTarget": "Select target element",
     "nameRequired": "Please enter an ICD name.",
@@ -843,6 +844,7 @@
     "noItems": "No diagrams yet. Create one to get started.",
     "emptySource": "(no source content)",
     "notFound": "Diagram not found.",
+    "selectDiagram": "Select a diagram from the list",
     "traceability": "Traceability",
     "noTraceLinks": "No artifacts are linked to this diagram yet.",
     "viewMode": "View mode",
@@ -1011,7 +1013,14 @@
       "critical": "Critical",
       "neutral": "Info"
     },
-    "pageSummary": "SE process metrics: traceability coverage, volatility, workflow gaps and risks at a glance."
+    "pageSummary": "SE process metrics: traceability coverage, volatility, workflow gaps and risks at a glance.",
+    "help": {
+      "coverage": "Percentage of requirements with at least one trace link to test cases or architecture elements.",
+      "volatility": "Average number of changes per requirement over the project lifetime. Higher values indicate unstable requirements.",
+      "workflowGap": "Number of incomplete workflow steps. Shows the gap between planned and completed activities.",
+      "openRisks": "Total number of identified open risks in the workspace, regardless of severity.",
+      "openRisksCritical": "Number of critical-severity risks that require immediate attention."
+    }
   },
   "apiKeys": {
     "title": "Personal Access Tokens",
