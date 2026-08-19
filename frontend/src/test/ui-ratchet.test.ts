@@ -59,23 +59,39 @@ function countOccurrences(text: string, pattern: RegExp): number {
 }
 
 /**
- * Count `pattern` matches in `text`, skipping comment lines — mirroring
- * `_count_orm_lines` in `backend/rest_api/tests/test_architecture.py`,
- * which skips lines whose trimmed content starts with `#`. Here that means
- * skipping `//` line comments and `*`/`/*` JSDoc/block-comment lines.
+ * Strip `/* ... *\/` block comments before counting — including JSX-style
+ * `{/* ... *\/}` comments, since the `{` is just JSX syntax wrapping an
+ * ordinary block comment underneath. `[\s\S]*?` (not `.`) so the match
+ * spans newlines, because these routinely wrap across several lines (see
+ * e.g. `PageHeader.tsx`'s multi-line `{/* issue #314: ... *\/}`).
  *
- * Without this, a naive full-text scan for hex literals also matches
- * decimal GitHub issue references in comments (e.g. `// #135`,
- * `* ...(issue #173):`), since digits 0-9 are valid hex characters too.
- * That produced a materially inflated, wrong baseline in an earlier
- * revision of this file (see the comment on HEX_LITERAL_OCCURRENCE_BASELINE
- * below) — a real bug, not a scope/methodology quirk.
+ * Without this, a naive scan for hex literals also matches decimal GitHub
+ * issue references inside a JSX comment (e.g. `{/* #340: ... *\/}`), since
+ * digits 0-9 are valid hex characters too and a JSX comment's opening `{/*`
+ * doesn't start a line with `//`, `*`, or `/*` the way a JSDoc/line comment
+ * does — so a purely line-prefix-based skip (an earlier revision of this
+ * function) misses it. Verified against the current tree: fixing this drops
+ * the count from 36 files / 120 occurrences to 27 files / 90 occurrences,
+ * with zero files losing a *real* hex literal — see the lowered baselines
+ * below, updated in the same change per the ratchet rule.
+ */
+function stripBlockComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+/**
+ * Count `pattern` matches in `text`, skipping comments — mirroring
+ * `_count_orm_lines` in `backend/rest_api/tests/test_architecture.py`,
+ * which skips lines whose trimmed content starts with `#`. Block comments
+ * (including JSX-style `{/* ... *\/}`) are stripped first via
+ * `stripBlockComments`; what remains is scanned line by line, skipping any
+ * line that is itself a `//` line comment.
  */
 function countNonCommentOccurrences(text: string, pattern: RegExp): number {
   let count = 0;
-  for (const line of text.split("\n")) {
+  for (const line of stripBlockComments(text).split("\n")) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) {
+    if (trimmed.startsWith("//")) {
       continue;
     }
     count += countOccurrences(line, pattern);
@@ -229,9 +245,19 @@ const STYLE_BRACE_BASELINE = 1070;
 // the `rgba(...)`/`var(--color-warning, #f59e0b)` fallbacks in
 // `WorkspaceSettings/DefaultStatusBadge.tsx`. Re-measured: 128 occurrences
 // in 35 files. Baseline lowered in the same PR per the ratchet rule above.
+//
+// 2026-08-19 (CI fix): `countNonCommentOccurrences` didn't strip JSX-style
+// `{/* ... */}` block comments (see the function's docstring above), so
+// GitHub issue references inside them — e.g. `{/* #340: ... */}` in
+// `NeedList.tsx`, `NavigationShell.tsx`, `PageHeader.tsx`,
+// `DeriveRequirementForm.tsx` — were miscounted as hex color literals. That
+// inflated the true baseline from 35/128 to 36/120 and made CI flaky-red on
+// every branch. Fixed the scanner; re-measured on the corrected logic:
+// 27 files / 90 occurrences. Baseline lowered in the same change per the
+// ratchet rule above — every remaining match is a real hex literal.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 128;
-const HEX_LITERAL_FILE_BASELINE = 35;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 90;
+const HEX_LITERAL_FILE_BASELINE = 27;
 
 // --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
 //
