@@ -1145,6 +1145,7 @@
     "modifyHint": "Betroffenes Artefakt öffnen, um es manuell zu korrigieren.",
     "modifyNoTarget": "Dieses Finding verweist auf kein öffenbares Artefakt — korrigiere es über die oben gelisteten betroffenen Artefakte.",
     "actionLegend": "Übernehmen wendet die Korrektur an, die der Auditor automatisch abgeleitet hat. Anpassen öffnet das betroffene Artefakt zur manuellen Korrektur — Findings werden aus dem Trace-Graph neu berechnet und verschwinden, sobald das Artefakt korrigiert ist.",
+    "truncated": "{{shown}} von {{total}} Findings werden angezeigt — einige beheben und aktualisieren, um die restlichen zu sehen.",
     "pageSummary": "Automatisierte Regelprüfung für Requirements und Architektur, gruppiert nach Regel mit Blocker-/Warnungs-Einstufung."
   },
   "archDecompose": {

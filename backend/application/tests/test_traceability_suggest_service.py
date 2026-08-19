@@ -30,7 +30,7 @@ from typing import Iterator
 
 import pytest
 
-from application.audit_service import AuditService
+from application.audit_service import AuditFindingView, AuditReport, AuditService
 from application.traceability_suggest_service import TraceabilitySuggestService
 from auth_tenancy.context import AuthContext
 from persistence.models import (
@@ -42,6 +42,7 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from traceability.audit import Finding, RemediationProposal, Severity
 
 pytestmark = pytest.mark.django_db
 
@@ -441,6 +442,89 @@ class TestNoPgvectorDependency:
                 f"MockLlmProvider.complete()'s traceability_suggest_links branch "
                 f"must not contain a '{forbidden}' code path."
             )
+
+
+# ---------------------------------------------------------------------------
+# BUG-15 code review M2 — the truncation signal from AuditService.run_audit()
+# must survive this layer, not be silently dropped.
+# ---------------------------------------------------------------------------
+
+
+class _StubAuditServiceForReport:
+    """Duck-typed AuditService stand-in that returns a pre-built report.
+
+    TraceabilitySuggestService only ever calls ``run_audit()`` on its
+    injected ``audit_service`` — a plain stub avoids needing a real
+    >500-finding workspace just to prove the ``truncated`` flag propagates.
+    """
+
+    def __init__(self, report: AuditReport) -> None:
+        self._report = report
+
+    def run_audit(self, *args, **kwargs) -> AuditReport:
+        return self._report
+
+
+class TestSuggestLinksPropagatesTruncation:
+    def test_truncated_report_flag_survives_into_suggest_links_result(
+        self, tenant, workspace, ctx
+    ):
+        # An ineligible rule_id (not in _SUPPORTED_RULE_IDS) is enough to hit
+        # the "no eligible findings" early return — the simplest of
+        # suggest_links()'s three SuggestLinksResult construction sites, and
+        # sufficient to prove the flag isn't dropped at this layer.
+        finding = Finding(
+            rule_id="TRACE-P7",
+            severity=Severity.BLOCKER,
+            message="padding",
+            artifact_ids=(),
+        )
+        capped_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[
+                AuditFindingView(
+                    index=0,
+                    finding=finding,
+                    remediation=RemediationProposal(
+                        rule_id="TRACE-P7", automatic=False, reason="manual"
+                    ),
+                )
+            ],
+            truncated=True,
+            total_findings_available=4440,
+        )
+
+        with _active(tenant):
+            result = TraceabilitySuggestService(
+                audit_service=_StubAuditServiceForReport(capped_report)
+            ).suggest_links(workspace.id, ctx, tier="extended")
+
+        assert result.eligible_findings == 0
+        assert result.truncated is True
+        assert result.total_findings_available == 4440
+        # to_dict() must expose it too — the actual REST/MCP wire shape.
+        assert result.to_dict()["truncated"] is True
+        assert result.to_dict()["total_findings_available"] == 4440
+
+    def test_non_truncated_report_flag_is_false(self, tenant, workspace, ctx):
+        empty_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[],
+            truncated=False,
+            total_findings_available=0,
+        )
+
+        with _active(tenant):
+            result = TraceabilitySuggestService(
+                audit_service=_StubAuditServiceForReport(empty_report)
+            ).suggest_links(workspace.id, ctx, tier="extended")
+
+        assert result.truncated is False
+        assert result.total_findings_available == 0
 
 
 # ---------------------------------------------------------------------------

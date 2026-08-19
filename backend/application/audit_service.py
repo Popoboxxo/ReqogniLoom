@@ -77,12 +77,39 @@ class AuditFindingView:
 
 @dataclass
 class AuditReport:
-    """Full audit run for the API: tier, findings-with-remediation, counts."""
+    """Full audit run for the API: tier, findings-with-remediation, counts.
+
+    ``truncated`` / ``total_findings_available`` / ``total_blockers_available``
+    / ``total_warnings_available`` (BUG-15, SYSTEMAUDIT_2026-08-18 §4/§8): a
+    workspace with many untraced artifacts can produce a four-figure finding
+    count (4,440 in the audit's 300-requirement stress scenario) — returning
+    all of them in one response risks multi-MB payloads.
+    ``AuditService.run_audit`` caps the *returned* findings at
+    :data:`AuditService.MAX_REPORT_FINDINGS`; these fields tell the caller a
+    cap was applied and how many findings/blockers/warnings exist in total,
+    without changing the meaning of any pre-existing field (``counts.total``
+    /``counts.blockers``/``counts.warnings`` still describe the *returned*
+    (possibly capped) findings — additive-only change, see
+    AuditService.run_audit docstring for the compatibility rationale).
+
+    Code review finding (BUG-15 follow-up M3): the dashboard's count badges
+    used to be computed client-side from the (possibly capped) findings
+    array, so a workspace with 4,440 real blockers showed "500" with no
+    indication that was a partial count. ``total_blockers_available`` /
+    ``total_warnings_available`` give the frontend the true totals to show
+    instead, while ``counts.blockers``/``counts.warnings`` keep describing
+    what is actually in ``findings`` (e.g. for the Adopt-workflow's live,
+    shrink-on-resolve badge behaviour when the run was not truncated).
+    """
 
     tier: str
     scope: Optional[str]
     scope_artifact_id: Optional[str]
     findings: List[AuditFindingView] = field(default_factory=list)
+    truncated: bool = False
+    total_findings_available: int = 0
+    total_blockers_available: int = 0
+    total_warnings_available: int = 0
 
     def to_dict(self) -> dict:
         blockers = sum(
@@ -100,6 +127,10 @@ class AuditReport:
                 "blockers": blockers,
                 "warnings": warnings,
             },
+            "truncated": self.truncated,
+            "total_findings_available": self.total_findings_available,
+            "total_blockers_available": self.total_blockers_available,
+            "total_warnings_available": self.total_warnings_available,
             "findings": [fv.to_dict() for fv in self.findings],
         }
 
@@ -124,6 +155,27 @@ class RemediationResult:
 
 class AuditService(ServiceBase):
     """Single-Entry-Point facade over the SE-Auditor RuleEngine (Phase 3)."""
+
+    #: Hard cap on findings returned by a single run_audit() call (BUG-15,
+    #: SYSTEMAUDIT_2026-08-18 §4/§8). A workspace with many untraced
+    #: artifacts can produce a four-figure finding count (4,440 findings /
+    #: ~2.5 MB in the audit's 300-requirement stress scenario) — this bounds
+    #: both the JSON payload and the per-finding remediation-analysis cost
+    #: (one extra query pass per finding, see blocking_findings' docstring).
+    #:
+    #: Deliberately NOT DRF PageNumberPagination: the REST/MCP consumers of
+    #: this report (AuditDashboard.tsx, audit.ai_review) both need the *whole*
+    #: result set at once to group findings by rule id and compute live
+    #: blocker/warning counts — a page-based envelope would fragment rule
+    #: groups across pages and break that UX, and would be a breaking
+    #: response-shape change for every existing consumer (count/next/
+    #: previous/results wrapper instead of a bare "findings" list). A
+    #: truncation cap keeps the existing shape (additive-only fields, see
+    #: AuditReport) while still bounding worst-case payload size; 500
+    #: findings is ~280 KB at the audit's observed ~560 bytes/finding
+    #: average, which is workable for both a browser render and an LLM
+    #: prompt context (audit.ai_review).
+    MAX_REPORT_FINDINGS: int = 500
 
     def __init__(self, engine: Optional[RuleEngine] = None) -> None:
         # The RuleEngine is stateless; a single shared instance is fine, but an
@@ -154,6 +206,34 @@ class AuditService(ServiceBase):
             return "standard"
 
     # ---------- Gate support (SE-conformance lever 2) ----------
+
+    def _run_engine_uncapped(
+        self,
+        workspace_id: str | UUID,
+        ctx: AuthContext,
+        *,
+        tier: Optional[str] = None,
+        scopes: Optional[Sequence[AuditScope]] = None,
+    ):
+        """Run the RuleEngine directly and return the raw, uncapped result.
+
+        Shared by :meth:`blocking_findings` (gate decisions) and
+        :meth:`_finding_still_present` (Adopt re-verification) — both need a
+        definitive answer over the *complete* finding set, never the
+        :data:`MAX_REPORT_FINDINGS`-capped view :meth:`run_audit` returns for
+        the dashboard (BUG-15 follow-up H1: verifying "is this finding still
+        present?" against a truncated report can silently report a finding
+        as resolved when it still exists but fell outside the cap — exactly
+        the >500-finding workspaces BUG-15 is about). Also skips remediation
+        analysis (:meth:`_propose_for_finding`), which neither caller needs.
+        """
+        self._set_tenant_context(ctx)
+        return self._engine.run(
+            tier=tier or self.resolve_tier(workspace_id),
+            workspace_id=str(workspace_id),
+            tenant_id=str(ctx.tenant_id),
+            scopes=scopes,
+        )
 
     def blocking_findings(
         self,
@@ -187,12 +267,8 @@ class AuditService(ServiceBase):
             All findings whose tier-resolved severity is
             :attr:`Severity.BLOCKER`, in rule/scope order.
         """
-        self._set_tenant_context(ctx)
-        result = self._engine.run(
-            tier=tier or self.resolve_tier(workspace_id),
-            workspace_id=str(workspace_id),
-            tenant_id=str(ctx.tenant_id),
-            scopes=scopes,
+        result = self._run_engine_uncapped(
+            workspace_id, ctx, tier=tier, scopes=scopes
         )
         return [f for f in result.findings if f.severity is Severity.BLOCKER]
 
@@ -219,7 +295,17 @@ class AuditService(ServiceBase):
 
         Returns:
             :class:`AuditReport` with a remediation proposal attached to every
-            finding.
+            *returned* finding. When the run produces more than
+            :data:`MAX_REPORT_FINDINGS`, the report is capped
+            (``truncated=True``, ``total_findings_available`` /
+            ``total_blockers_available`` / ``total_warnings_available`` hold
+            the real, pre-cap counts) — see the class-level docstring on
+            ``MAX_REPORT_FINDINGS`` for the BUG-15 rationale. BLOCKER findings
+            are kept in preference to WARNING findings when a cap is applied
+            (blockers gate baseline creation and must stay visible even in a
+            truncated view); ``index`` stays a stable position within the
+            *full* (pre-cap) run so a finding's identity does not shift
+            across page-less re-runs.
         """
         self._set_tenant_context(ctx)
         resolved_tier = tier or self.resolve_tier(workspace_id)
@@ -234,14 +320,38 @@ class AuditService(ServiceBase):
         )
 
         primary_scope = scopes[0] if scopes else None
+        total_findings = len(result.findings)
+        truncated = total_findings > self.MAX_REPORT_FINDINGS
+        # Full (pre-cap) severity totals for the dashboard's count badges
+        # (BUG-15 follow-up M3) — computed once here over the uncapped
+        # engine result, not over the (possibly capped) report.findings.
+        total_blockers = sum(
+            1 for f in result.findings if f.severity is Severity.BLOCKER
+        )
+        total_warnings = total_findings - total_blockers
         report = AuditReport(
             tier=result.tier,
             scope=primary_scope.scope if primary_scope else None,
             scope_artifact_id=(
                 primary_scope.artifact_id if primary_scope else None
             ),
+            truncated=truncated,
+            total_findings_available=total_findings,
+            total_blockers_available=total_blockers,
+            total_warnings_available=total_warnings,
         )
-        for index, finding in enumerate(result.findings):
+
+        indexed = list(enumerate(result.findings))
+        if truncated:
+            # Stable-sort BLOCKER findings first (Python's sort is stable, so
+            # ties keep the engine's original rule/scope order), then cap.
+            # Re-sort the kept subset back to index order so display order
+            # still follows the engine's rule/scope grouping.
+            indexed.sort(key=lambda pair: pair[1].severity is not Severity.BLOCKER)
+            indexed = indexed[: self.MAX_REPORT_FINDINGS]
+            indexed.sort(key=lambda pair: pair[0])
+
+        for index, finding in indexed:
             proposal = self._propose_for_finding(finding, tenant_id, ws_id)
             report.findings.append(
                 AuditFindingView(index=index, finding=finding, remediation=proposal)
@@ -420,16 +530,22 @@ class AuditService(ServiceBase):
 
         A finding is considered "the same" when its rule id and artifact-id set
         match — the natural identity for a non-persisted finding.
+
+        Uses :meth:`_run_engine_uncapped`, NOT :meth:`run_audit` (BUG-15
+        follow-up H1): the Phase 3 "negative -> positive acceptance
+        guarantee" this backs (see :meth:`remediate`'s docstring) must hold
+        in every workspace, including the >500-finding ones run_audit()
+        truncates for the dashboard. Checking against the capped report
+        would let a still-present finding outside the cap read as resolved.
         """
         scopes = (
             [AuditScope(scope, artifact_id=scope_artifact_id)]
             if scope is not None
             else None
         )
-        report = self.run_audit(workspace_id, ctx, scopes=scopes)
+        result = self._run_engine_uncapped(workspace_id, ctx, scopes=scopes)
         target_ids = frozenset(finding.artifact_ids)
-        for fv in report.findings:
-            current = fv.finding
+        for current in result.findings:
             if current.rule_id != finding.rule_id:
                 continue
             if frozenset(current.artifact_ids) == target_ids:

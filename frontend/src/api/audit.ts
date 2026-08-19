@@ -60,6 +60,14 @@ export interface AuditReport {
   scope: AuditScopeKind | null;
   scope_artifact_id: string | null;
   counts: AuditCounts;
+  /** BUG-15: true when the backend capped the result set (AuditService.MAX_REPORT_FINDINGS). */
+  truncated: boolean;
+  /** Total findings the run actually produced, before any truncation. */
+  total_findings_available: number;
+  /** True blocker count before truncation (code review M3 — counts.blockers only covers the returned/capped subset). */
+  total_blockers_available: number;
+  /** True warning count before truncation (see total_blockers_available). */
+  total_warnings_available: number;
   findings: AuditFinding[];
 }
 
