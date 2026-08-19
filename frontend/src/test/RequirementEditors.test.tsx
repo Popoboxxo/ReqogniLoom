@@ -17,7 +17,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -558,6 +558,75 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     // Never an "[object Object]" dump — the container's own i18n key wins.
     expect(alert.textContent).not.toContain("object Object");
     expect(alert.textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // BUG-02 (SYSTEMAUDIT_2026-08-18 §4): the create dialog accepted an empty
+  // title. The form used to silently substitute the placeholder copy
+  // ("New Requirement" / "Neue Anforderung") for a blank/whitespace-only
+  // input and submit that — no error, no block, no way for the user to tell
+  // their (missing) input was ignored. Title is a required field; the form
+  // must refuse to submit instead of quietly inventing content.
+  // -----------------------------------------------------------------------
+
+  it("disables the save button while the title is empty (BUG-02)", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+    expect(requirementsApi.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the save button disabled for a whitespace-only title and never calls the API (BUG-02)", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    await user.type(screen.getByTestId("req-new-title-input"), "   ");
+
+    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+
+    // Guard against a future regression that removes `disabled` but still
+    // wires the click handler permissively: submitting the form directly
+    // must still be a no-op.
+    const form = screen.getByTestId("create-req-form");
+    fireEvent.submit(form);
+    expect(requirementsApi.create).not.toHaveBeenCalled();
+  });
+
+  it("enables the save button once a non-blank title is typed and creates with the typed title verbatim (BUG-02)", async () => {
+    vi.mocked(requirementsApi.create).mockResolvedValueOnce({
+      ...MOCK_REQUIREMENT,
+      id: "req-002",
+      title: "Real title",
+    } as any);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+
+    await user.type(screen.getByTestId("req-new-title-input"), "Real title");
+    expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
+
+    await user.click(screen.getByTestId("req-new-save-btn"));
+
+    await waitFor(() => {
+      expect(requirementsApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Real title" })
+      );
+    });
   });
 
   it("surfaces a refused list-level action in the page banner", async () => {

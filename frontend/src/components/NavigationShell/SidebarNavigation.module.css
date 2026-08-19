@@ -570,3 +570,16 @@
   color: var(--color-text-muted);
   opacity: 0.7;
 }
+
+/* F-02/F-04 (code review): visible feedback for the language quick-toggle —
+   a non-admin's session-local-only change, or a failed persist attempt for
+   an admin. Never silent. */
+.langNotice {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.langNoticeError {
+  color: var(--color-danger);
+}

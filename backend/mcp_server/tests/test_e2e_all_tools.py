@@ -1191,6 +1191,27 @@ def test_e2e_validation_error_for_missing_required_param(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_e2e_validation_error_for_whitespace_only_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """BUG-02 (SYSTEMAUDIT_2026-08-18 §4): ``requirement.create`` with a
+    whitespace-only ``title`` (present, non-empty string, but blank once
+    trimmed) must be rejected the same way as an entirely missing title —
+    not silently accepted as a "valid" non-null string. Verified here against
+    ``tools/base.require_param``, which already folds ``str.strip()``-empty
+    values into the same "missing or empty" rejection; this closes the gap
+    that only the fully-missing-key variant had explicit coverage.
+    """
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {"workspace_id": str(e2e_workspace.id), "title": "   "},
+    )
+    assert response.status_code == 400
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db(transaction=True)
 def test_e2e_validation_error_for_invalid_uuid(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):

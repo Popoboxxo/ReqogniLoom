@@ -15,12 +15,13 @@ import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { APP_NAME } from "../../config/app-name";
-import { useWorkspace } from "../../context/WorkspaceContext";
+import { useWorkspace, DEFAULT_WORKSPACE } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
 import { searchApi, type SearchHit } from "../../api/search";
 import { versionApi, type VersionInfo } from "../../api/version";
+import { workspacesApi } from "../../api/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
 import type { Workspace } from "../../types";
 import styles from "./SidebarNavigation.module.css";
@@ -112,8 +113,17 @@ export function SidebarNavigation(): JSX.Element {
     reloadWorkspaces,
     hideAllOptional,
     setHideAllOptional,
+    markLanguageOverrideActive,
+    clearLanguageOverride,
   } = useWorkspace();
-  const { logout } = useAuth();
+  const { logout, roles } = useAuth();
+  // F-02 (code review, High): the equivalent language radios on the
+  // Workspace Settings page are admin-only (`WorkspaceSettings.tsx`'s
+  // `isAdmin` gate). `workspace.language` is a workspace-wide field shared
+  // by every member, so this quick toggle must respect the same boundary —
+  // a non-admin flipping it here must not silently change the language for
+  // the whole workspace.
+  const isAdmin = roles.includes("admin");
   const { nextTheme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
@@ -288,10 +298,70 @@ export function SidebarNavigation(): JSX.Element {
     return () => document.removeEventListener("mousedown", handler);
   }, [isSwitcherOpen]);
 
+  // BUG-01 (SYSTEMAUDIT_2026-08-18 §4): this used to only flip the
+  // in-memory i18next instance, never persisting the choice to the
+  // workspace — unlike the language radios on the Workspace Settings page.
+  // Any real navigation/reload (i18n/index.ts re-seeds `lng` purely from
+  // the browser locale) silently reverted the UI to the browser default.
+  //
+  // F-02/F-04 (code review): persistence is admin-only (mirrors
+  // `WorkspaceSettings.handleLanguageChange`'s `isAdmin` gate) and a save
+  // failure is surfaced, not swallowed — a silent catch here would recreate
+  // BUG-01 the moment any later `reloadWorkspaces()` call (workspace switch,
+  // preset change, ...) re-applies the still-unsaved old value from the
+  // WorkspaceContext restore effect.
+  const [langNotice, setLangNotice] = React.useState<
+    { kind: "info" | "error"; text: string } | null
+  >(null);
+
   const handleLanguageToggle = (): void => {
     const next = i18n.language.startsWith("de") ? "en" : "de";
     void i18n.changeLanguage(next);
     document.documentElement.lang = next;
+    // Code-review F-04-Residual: mark this as a not-yet-(or-never-)persisted
+    // local choice *before* any PATCH is attempted — WorkspaceContext's
+    // restore effect fires on every `reloadWorkspaces()` call, not just ones
+    // caused by this toggle (preset change, name save, per-user visibility
+    // toggle, ... — see `WorkspaceSettings.tsx`/`WorkspaceAdminSection.tsx`),
+    // and would otherwise silently snap the language back to the still-old
+    // `activeWorkspace.language` if one of those fires while this toggle's
+    // own PATCH is in flight, has failed, or (non-admin) was never sent at
+    // all. Covers: the non-admin path (never persisted), the
+    // DEFAULT_WORKSPACE-placeholder path (nothing to persist against yet)
+    // and the in-flight window of an admin's own PATCH.
+    markLanguageOverrideActive();
+
+    if (!isAdmin) {
+      // Session-local only — never PATCHes the shared workspace setting.
+      // Explicit, visible notice so this limitation is never silent.
+      setLangNotice({ kind: "info", text: t("nav.languageSessionOnly") });
+      return;
+    }
+    // The DEFAULT_WORKSPACE placeholder's id is a fake UUID (or an E2E
+    // override) — PATCHing it would 404. Skip persistence until a real
+    // workspace has loaded; the local language switch above still applies.
+    if (!activeWorkspace || activeWorkspace === DEFAULT_WORKSPACE) return;
+    setLangNotice(null);
+    void workspacesApi
+      .update(activeWorkspace.id, { language: next })
+      // Code-review R-01: clear the override AFTER the reload lands, not
+      // before. `reloadWorkspaces` synchronously sets `isLoadingWorkspace`
+      // and only resolves `activeWorkspace.language === next` once its own
+      // `GET /workspaces/` completes; clearing the override first left a
+      // window where `hasLocalLanguageOverride` was already `false` but
+      // `activeWorkspace.language` was still the pre-toggle value — the
+      // restore effect could fire in that window and flash the UI back to
+      // the old language before flipping forward again once the reload
+      // finished. Clearing only after `reloadWorkspaces` resolves means the
+      // restore effect is a no-op the one time it's allowed to run again
+      // (`activeWorkspace.language` already equals `next` by then).
+      .then(() => reloadWorkspaces(activeWorkspace.id))
+      .then(() => {
+        clearLanguageOverride();
+      })
+      .catch(() => {
+        setLangNotice({ kind: "error", text: t("nav.languageSaveFailed") });
+      });
   };
 
   const visibleItems = NAV_ITEMS.filter((item) =>
@@ -565,11 +635,28 @@ export function SidebarNavigation(): JSX.Element {
         <button
           data-testid="lang-switch"
           onClick={handleLanguageToggle}
-          title="Toggle language DE/EN"
+          title={
+            isAdmin
+              ? t("nav.languageToggleTitleAdmin")
+              : t("nav.languageToggleTitleMember")
+          }
           className={styles.footerBtn}
         >
           {i18n.language.startsWith("de") ? "EN" : "DE"}
         </button>
+        {langNotice && (
+          <p
+            data-testid="lang-switch-notice"
+            role={langNotice.kind === "error" ? "alert" : "status"}
+            className={
+              langNotice.kind === "error"
+                ? `${styles.langNotice} ${styles.langNoticeError}`
+                : styles.langNotice
+            }
+          >
+            {langNotice.text}
+          </p>
+        )}
         <button
           data-testid="theme-toggle"
           onClick={toggleTheme}

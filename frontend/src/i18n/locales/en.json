@@ -55,7 +55,11 @@
     "groupRequirements": "Requirements Engineering",
     "groupArchitecture": "Architecture",
     "groupTest": "Test & Quality",
-    "groupAdmin": "Administration"
+    "groupAdmin": "Administration",
+    "languageToggleTitleAdmin": "Toggle language DE/EN (saves for the whole workspace)",
+    "languageToggleTitleMember": "Toggle language for your own view only — ask a workspace admin to change the shared setting",
+    "languageSessionOnly": "Language changed for your view only. Ask a workspace admin to change it for everyone.",
+    "languageSaveFailed": "Could not save the workspace language. Your view was updated, but the change was not saved."
   },
   "systemHealth": {
     "title": "System Health",

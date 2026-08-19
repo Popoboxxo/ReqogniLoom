@@ -44,6 +44,17 @@ import {
   type OptionalArtifactFeature,
 } from "../api/preferences";
 import { useAuth } from "./AuthContext";
+// Code-review F-01 (BLOCKER): import the raw `i18next` singleton, NOT
+// `../i18n/index` — that barrel eagerly runs `.use(initReactI18next)` at
+// module load (a side effect of importing `react-i18next`). WorkspaceContext
+// is a root provider transitively imported by nearly every component test;
+// pulling that side effect in broke every test file that partially mocks
+// `react-i18next` without exporting `initReactI18next` (import-time crash,
+// "0 tests collected" — 19 test files, ~154 tests). `i18next` itself has no
+// such dependency, and it is the very same singleton instance `../i18n/index`
+// configures (module resolution dedupes it), so reading/writing `.language`
+// here observes the identical state.
+import i18next from "i18next";
 
 // Normalize preset field: backend may return {name: "extended"}, {tier: "minimal", language, terminology_profile}, or "extended"
 function normalizePreset(ws: Workspace): Workspace {
@@ -85,6 +96,15 @@ export interface WorkspaceState {
   setHideAllOptional: (value: boolean) => Promise<void>;
   resetFeatureOverride: (feature: OptionalArtifactFeature) => Promise<void>;
   isFeatureOverridden: (feature: OptionalArtifactFeature) => boolean;
+  // Code-review F-04-Residual: a language choice that is NOT (yet, or ever
+  // going to be) reflected in `activeWorkspace.language` — a non-admin's
+  // session-local toggle, or an admin PATCH that failed. While active, the
+  // language-restore effect below must not overwrite `i18next.language`
+  // from `activeWorkspace.language` on some unrelated `reloadWorkspaces()`
+  // call (workspace switch aside — that one explicitly clears it via
+  // `setActiveWorkspace`).
+  markLanguageOverrideActive: () => void;
+  clearLanguageOverride: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +118,12 @@ const _storedWorkspaceId =
     ? sessionStorage.getItem("reqflow_workspace_id")
     : null;
 
-const DEFAULT_WORKSPACE: Workspace = {
+// Exported (not just module-local) so callers outside this file — e.g. the
+// sidebar language toggle (F-04) — can reliably detect "no real workspace
+// loaded yet" via reference equality, the same way the effect above does,
+// instead of PATCHing the placeholder's fake UUID and swallowing the
+// resulting 404.
+export const DEFAULT_WORKSPACE: Workspace = {
   id: _storedWorkspaceId ?? "00000000-0000-0000-0000-000000000000",
   name: "",
   preset: "standard",
@@ -160,8 +185,26 @@ export function WorkspaceProvider({
   const hideAllOptionalRef = useRef<boolean>(false);
   const overriddenKeysRef = useRef<Set<OptionalArtifactFeature>>(new Set());
 
+  // Code-review F-04-Residual (see `WorkspaceState.markLanguageOverrideActive`
+  // doc comment above): tracks an unpersisted/local-only language choice so
+  // the restore effect below can skip overwriting it on an unrelated
+  // `reloadWorkspaces()` call. Deliberately state (not just a ref) — its
+  // truthiness is read inside the restore effect's dependency array.
+  const [hasLocalLanguageOverride, setHasLocalLanguageOverride] =
+    useState<boolean>(false);
+  const markLanguageOverrideActive = useCallback((): void => {
+    setHasLocalLanguageOverride(true);
+  }, []);
+  const clearLanguageOverride = useCallback((): void => {
+    setHasLocalLanguageOverride(false);
+  }, []);
+
   const setActiveWorkspace = useCallback((ws: Workspace | null) => {
     setActiveWorkspaceState(ws);
+    // An explicit workspace switch is the one case where "the language
+    // should now follow the (new) workspace's persisted value" is exactly
+    // right — clear any override left over from the previous workspace.
+    setHasLocalLanguageOverride(false);
     if (ws && typeof sessionStorage !== "undefined") {
       sessionStorage.setItem("reqflow_workspace_id", ws.id);
     }
@@ -207,6 +250,13 @@ export function WorkspaceProvider({
       setWorkspaces([]);
       setIsWorkspaceReady(false);
       setIsLoadingWorkspace(false);
+      // Code-review R-02: WorkspaceProvider also wraps `/login`, and
+      // `AuthContext.logout()` does not reload the page — without this, a
+      // local/unpersisted language override left by the previous session
+      // (e.g. a non-admin's session-local toggle) survived a logout and
+      // silently overrode the *next* user's own persisted workspace
+      // language on the very same tab.
+      setHasLocalLanguageOverride(false);
       return;
     }
     let cancelled = false;
@@ -218,6 +268,59 @@ export function WorkspaceProvider({
       cancelled = true;
     };
   }, [isAuthenticated, reloadWorkspaces]);
+
+  // Restore the persisted UI language from the active workspace (BUG-01,
+  // REQ-133). `i18n/index.ts` only seeds the initial language from the
+  // browser locale — nothing re-applied the value already saved via
+  // `PATCH /workspaces/{id}/` after that. Without this, any language choice
+  // (whether made here or via the sidebar quick-toggle) survived only until
+  // the next real navigation/reload, which reset `i18n.language` back to
+  // the browser default — exactly the "falls back to German" symptom.
+  //
+  // Code-review F-03 (Medium): `isWorkspaceReady` alone is NOT sufficient to
+  // guard against the DEFAULT_WORKSPACE placeholder — `reloadWorkspaces`
+  // sets `isWorkspaceReady = true` in its `finally` block on *every* path,
+  // including the empty-list and network-failure branches that fall back to
+  // `DEFAULT_WORKSPACE` (whose `language` is hardcoded `"en"`). Without this
+  // extra check, a German-browser user whose `GET /workspaces/` fails (or
+  // who has no workspaces yet) would have their UI silently forced to
+  // English — a regression on the error path this fix must not introduce.
+  // `activeWorkspace === DEFAULT_WORKSPACE` is a reference-equality check on
+  // purpose: `reloadWorkspaces` assigns that exact object (not a copy) on
+  // both fallback branches, so this reliably distinguishes "no real
+  // workspace loaded" from "a real workspace whose id happens to match".
+  //
+  // Code-review F-04-Residual: this effect's dependency array includes
+  // `activeWorkspace`, and `reloadWorkspaces` assigns a *new* object on
+  // every call — including calls that have nothing to do with language
+  // (preset change, name save, per-user visibility toggle, switching to a
+  // *different* workspace's own settings tab, ...; see the various
+  // `reloadWorkspaces()` call sites in `WorkspaceSettings.tsx` and
+  // `WorkspaceAdminSection.tsx`). Before the `hasLocalLanguageOverride`
+  // guard, any of those unrelated reloads re-ran this effect and silently
+  // snapped `i18next.language` back to the persisted `activeWorkspace
+  // .language` — overwriting a non-admin's session-local toggle (F-02) or
+  // re-applying a value an admin's PATCH had actually failed to save (F-04)
+  // with zero indication to the user. That is BUG-01's original symptom
+  // class, reproduced by this fix itself in a new scenario.
+  useEffect(() => {
+    if (!isWorkspaceReady) return;
+    if (activeWorkspace === DEFAULT_WORKSPACE) return;
+    if (hasLocalLanguageOverride) return;
+    // `i18next.init()` (called once, from `i18n/index.ts`, at app bootstrap
+    // before anything renders) has not necessarily run in every test that
+    // mounts WorkspaceProvider without also loading that bootstrap module —
+    // `changeLanguage` on an uninitialized instance throws internally
+    // (`hasLanguageSomeTranslations` on an undefined resource store). In the
+    // real app this is always true by the time this effect can fire.
+    if (!i18next.isInitialized) return;
+    const lang = activeWorkspace?.language;
+    if (!lang || i18next.language === lang) return;
+    void i18next.changeLanguage(lang);
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = lang;
+    }
+  }, [isWorkspaceReady, activeWorkspace, hasLocalLanguageOverride]);
 
   // Fetch per-user preferences whenever the active workspace changes (REQ-L1-027).
   // Gated on ``isWorkspaceReady`` so we don't burn an API call for the
@@ -400,6 +503,8 @@ export function WorkspaceProvider({
       setHideAllOptional,
       resetFeatureOverride,
       isFeatureOverridden,
+      markLanguageOverrideActive,
+      clearLanguageOverride,
     }),
     [
       activeWorkspace,
@@ -415,6 +520,8 @@ export function WorkspaceProvider({
       setHideAllOptional,
       resetFeatureOverride,
       isFeatureOverridden,
+      markLanguageOverrideActive,
+      clearLanguageOverride,
     ]
   );
 

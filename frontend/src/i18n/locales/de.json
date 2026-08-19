@@ -55,7 +55,11 @@
     "groupRequirements": "Requirements Engineering",
     "groupArchitecture": "Architektur",
     "groupTest": "Test & Qualität",
-    "groupAdmin": "Verwaltung"
+    "groupAdmin": "Verwaltung",
+    "languageToggleTitleAdmin": "Sprache DE/EN umschalten (wird für den gesamten Workspace gespeichert)",
+    "languageToggleTitleMember": "Sprache nur für deine Ansicht umschalten — nur ein Workspace-Admin kann die geteilte Einstellung ändern",
+    "languageSessionOnly": "Sprache nur für deine Ansicht geändert. Nur ein Workspace-Admin kann sie für alle ändern.",
+    "languageSaveFailed": "Die Workspace-Sprache konnte nicht gespeichert werden. Deine Ansicht wurde geändert, die Änderung wurde aber nicht gesichert."
   },
   "systemHealth": {
     "title": "Systemstatus",
