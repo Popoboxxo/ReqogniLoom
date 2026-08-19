@@ -257,6 +257,16 @@ class TestAddResult:
                 "application.test_run_service.TestRunResult.objects.update_or_create",
                 return_value=(mock_result, True),
             ),
+            # GH-584: the derived-status sync issues a real locked re-read
+            # (``TestRun.objects.select_for_update()``); this module mocks the
+            # ORM wholesale and never sets a TenantContext, so the DB concern
+            # is stubbed here and covered for real by
+            # rest_api/tests/test_test_run_auto_completion_584.py.
+            patch.object(
+                TestRunService,
+                "_sync_run_status_from_results",
+                return_value="in_progress",
+            ) as sync,
             patch.object(svc, "_audit"),
         ):
             result = svc.add_result(
@@ -269,6 +279,9 @@ class TestAddResult:
 
         assert result is mock_result
         assert result.status == "passed"
+        # GH-584: the run status is re-derived from the run id, never from a
+        # caller-held instance that a parallel writer may already have staled.
+        sync.assert_called_once_with(RUN_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +323,12 @@ class TestAddResultsBulk:
                 "application.test_run_service.TestRunResult.objects.update_or_create",
                 return_value=(MagicMock(status="passed"), True),
             ),
+            # GH-584: see test_add_result_success.
+            patch.object(
+                TestRunService,
+                "_sync_run_status_from_results",
+                return_value="passed",
+            ) as sync,
             patch.object(svc, "_audit"),
         ):
             created = svc.add_results_bulk(
@@ -319,6 +338,7 @@ class TestAddResultsBulk:
             )
 
         assert len(created) == 10
+        sync.assert_called_once_with(RUN_ID)
 
     def test_invalid_status_in_bulk_raises(self):
         """ValidationError when any entry has invalid status."""

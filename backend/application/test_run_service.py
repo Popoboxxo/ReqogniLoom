@@ -140,6 +140,13 @@ class TestRunService(ServiceBase):
         """Close a TestRun: recalculate aggregate status, set finished_at.
 
         REQ-L2-AS-030: aggregate status computed from individual results.
+
+        Unlocked on purpose (GH-584 review): unlike
+        :meth:`_sync_run_status_from_results` this reads the run with a plain
+        ``SELECT``, so a close racing a concurrent result post can write a
+        status derived from a stale picture. Narrow window, and self-healing —
+        the next result post re-derives under ``select_for_update()``. Do not
+        treat the status this writes as authoritative under concurrent load.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -217,6 +224,18 @@ class TestRunService(ServiceBase):
             },
         )
 
+        # GH-584: may finalize the run as a side effect of this write — the
+        # derived status therefore belongs in the audit details, the same way
+        # close_test_run() records its "aggregate_status".
+        #
+        # Caveat, true for every ``details`` payload in this codebase today:
+        # ``audit.services.log_write`` drops the argument ("Reserved for v2
+        # field-level diff (ADR-10). Ignored in v1.") and never forwards it to
+        # ``AuditableOperationOccurred``. Recording it here is what makes the
+        # derived status visible the moment that wiring lands — it is not an
+        # audit-trail gain yet.
+        run_status = self._sync_run_status_from_results(test_run_id)
+
         self._audit(
             ctx=ctx,
             operation="update",
@@ -226,6 +245,7 @@ class TestRunService(ServiceBase):
                 "test_run_id": str(test_run_id),
                 "test_case_id": str(test_case_id),
                 "status": status,
+                "run_status": run_status,
             },
         )
         return result
@@ -303,12 +323,16 @@ class TestRunService(ServiceBase):
             )
             created.append(result)
 
+        # GH-584: see add_result() — the derived run status is part of the
+        # audit trail for this write, not an invisible side effect.
+        run_status = self._sync_run_status_from_results(test_run_id)
+
         self._audit(
             ctx=ctx,
             operation="update",
             entity_type="TestRun",
             entity_id=test_run_id,
-            details={"count": len(created)},
+            details={"count": len(created), "run_status": run_status},
         )
         return created
 
@@ -342,7 +366,135 @@ class TestRunService(ServiceBase):
     # ---------- Helpers ----------
 
     @staticmethod
-    def _compute_aggregate_status(test_run: TestRun, *, is_closing: bool = False) -> str:
+    def _sync_run_status_from_results(test_run_id: UUID) -> Optional[str]:
+        """Re-derive ``status``/``finished_at`` after a result write (GH-584).
+
+        A TestRun used to leave ``"in_progress"`` only when someone made a
+        second, explicit call to ``close_test_run()`` (``POST .../close/`` or
+        its GH-403 alias ``.../complete/``). A CI pipeline that reports its
+        results and stops — the normal case — therefore left every run
+        permanently unfinished: the audit found runs with 10 passed / 5 failed
+        results still reporting ``in_progress``, which leaves the V&V chain
+        Requirement -> TestCase -> TestRun without an observable end state
+        (ISO 15288 6.4.9).
+
+        The aggregate rule itself is unchanged — this only applies
+        :meth:`_compute_aggregate_status` at the moment the run actually
+        becomes complete:
+
+        * **complete** means at least one result and no ``"not_run"`` left.
+          ``"blocked"`` is a reported outcome ("we tried"), not an outstanding
+          one, and lands in ``"partial"`` via the aggregate rule.
+        * The transition is **reversible**: adding a TestCase to a finished run
+          (a fresh ``"not_run"`` row) returns it to ``"in_progress"`` and
+          clears ``finished_at``.
+        * A run explicitly finalized as ``"closed"`` is never touched again.
+          That status is only ever produced by ``close_test_run()`` on a run
+          with no results (REQ-012), i.e. a deliberate human verdict that a
+          late result must not silently undo.
+
+        **Intended, not a limitation:** ``passed`` / ``failed`` / ``partial``
+        are *derived* summaries, so a corrective result reported after the run
+        already finalized re-derives them — including one reported after an
+        explicit ``close_test_run()``, whose verdict for a non-empty run is
+        itself just the same derivation. GH-584 asks for the status to follow
+        the evidence, so a run whose last red result is re-reported green must
+        end up ``passed``; freezing the first verdict is what produced the
+        "partial run where everything is green" state in the first place.
+        Consequently a non-empty run has no permanent manual freeze, and the
+        frontend's "Close Run" button (gated on ``status == "in_progress"``)
+        disappears once the run finalizes itself. Both are wanted.
+
+        Note there is intentionally no ``"completed"`` status: the terminal
+        values ``passed`` / ``failed`` / ``partial`` already say *how* the run
+        ended, which is strictly more than "it ended".
+
+        Concurrency (GH-584 review H1): the run row is re-read under
+        ``select_for_update()`` and every decision is made from *that* read,
+        never from the caller's possibly-stale instance. Without the lock this
+        is a read-compute-write race: under Postgres' default READ COMMITTED
+        two parallel CI shards each writing their own ``TestRunResult`` cannot
+        see the other's uncommitted row, both conclude "still outstanding", and
+        the run stays ``in_progress`` with complete results — exactly the bug
+        this method exists to fix, reproduced under load. Same reasoning as the
+        ``Tenant``-row mutex in ``PromptTemplate.save`` (persistence/models.py).
+        The lock also makes the re-read see every result committed by a shard
+        that went first, so the last writer always decides on the full picture.
+        Callers must therefore be inside a transaction — both are, via
+        ``@atomic_transaction``.
+
+        Why this does not deadlock (verified by a two-connection probe in
+        review, so do not re-derive it from first principles): each writer
+        takes row locks on its own ``pl_test_run_result`` rows first and on the
+        parent ``pl_test_run`` row last. Taking them in the same order is
+        *not* the reason it is safe — a parent/child lock upgrade like this is
+        the textbook deadlock shape even under a consistent order, because the
+        child INSERT wants a lock on the parent for the FK check. It is safe
+        because Django declares its FK constraints ``DEFERRABLE INITIALLY
+        DEFERRED``, so the FK check happens at COMMIT rather than at INSERT
+        time and the two shards serialize on the explicit ``FOR UPDATE``
+        instead of blocking each other. The probe confirmed the deadlock does
+        appear once that deferral is switched off. Anything that makes these
+        constraints immediate (a hand-written ``SET CONSTRAINTS ... IMMEDIATE``,
+        a non-deferrable constraint added by migration) invalidates this.
+
+        Remaining asymmetry: :meth:`close_test_run` is now the only writer of
+        ``TestRun.status`` that does *not* take this lock — it reads via a
+        plain ``SELECT`` and can therefore overwrite a status derived by a
+        concurrent result post. The window is narrow and self-healing (the next
+        result post re-derives from the locked read), so it is deliberately
+        left as is rather than widening this change; worth knowing before
+        anyone treats ``close_test_run`` as authoritative under load.
+
+        Args:
+            test_run_id: The run to re-derive. Passed by id rather than as an
+                instance so the locked re-read is the single source of truth.
+
+        Returns:
+            The run's status after the sync, for the caller's audit details, or
+            ``None`` when the row no longer exists.
+        """
+        locked_run = TestRun.objects.select_for_update().filter(
+            pk=test_run_id
+        ).first()
+        if locked_run is None:
+            return None
+        if locked_run.status == "closed":
+            return locked_run.status
+
+        results = list(locked_run.results.all())
+        outstanding = not results or any(r.status == "not_run" for r in results)
+
+        if outstanding:
+            new_status: str = "in_progress"
+            new_finished_at: Optional[datetime] = None
+        else:
+            new_status = TestRunService._compute_aggregate_status(
+                locked_run, results=results
+            )
+            new_finished_at = datetime.now(timezone.utc)
+
+        # Nothing derived changed — do not touch the row. Without the
+        # finished_at half of this guard, re-reporting an unchanged result on
+        # an already-complete run would keep pushing finished_at forward.
+        finished_at_unchanged = (new_finished_at is None) == (
+            locked_run.finished_at is None
+        )
+        if locked_run.status == new_status and finished_at_unchanged:
+            return locked_run.status
+
+        locked_run.status = new_status
+        locked_run.finished_at = new_finished_at
+        locked_run.save(update_fields=["status", "finished_at", "modified_at"])
+        return new_status
+
+    @staticmethod
+    def _compute_aggregate_status(
+        test_run: TestRun,
+        *,
+        is_closing: bool = False,
+        results: Optional[List[TestRunResult]] = None,
+    ) -> str:
         """Compute the aggregate status from individual results.
 
         REQ-L2-AS-030:
@@ -354,8 +506,16 @@ class TestRunService(ServiceBase):
             any recorded results must reach a terminal status, otherwise
             close_test_run() is a no-op from the user's perspective (status
             stays 'in_progress' and the "Close Run" action reappears).
+
+        Args:
+            test_run: The run to summarise.
+            is_closing: See the no-results case above.
+            results: Already-materialised result rows, to avoid re-running the
+                query in callers that just fetched them
+                (:meth:`_sync_run_status_from_results`). ``None`` fetches them.
         """
-        results = list(test_run.results.all())
+        if results is None:
+            results = list(test_run.results.all())
         if not results:
             return "closed" if is_closing else "in_progress"
 
