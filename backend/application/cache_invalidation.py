@@ -208,6 +208,21 @@ def _resolve_workspace_id(instance) -> Optional[str]:
     if type(instance).__name__ == "TraceLink":
         source_id = getattr(instance, "source_id", None)
         if source_id is not None:
+            # #625: this handler serves both post_save and post_delete.
+            # On post_save the creating code path has almost always just
+            # assigned the source Artifact (TraceLinkManager.create builds
+            # ``TraceLink(source=source, ...)``), so the row is already in the
+            # instance's relation cache and reading it from there costs
+            # nothing. On post_delete — and for any link loaded from the DB
+            # without select_related — the cache is empty and the values_list
+            # fallback below runs, unchanged. Touching ``instance.source``
+            # unguarded would instead *fetch* the row, which is exactly what
+            # the comment above avoids; ``_state.fields_cache`` never does.
+            state = getattr(instance, "_state", None)
+            cached_source = getattr(state, "fields_cache", {}).get("source")
+            cached_workspace_id = getattr(cached_source, "workspace_id", None)
+            if cached_workspace_id is not None:
+                return str(cached_workspace_id)
             try:
                 from persistence.models import Artifact
 

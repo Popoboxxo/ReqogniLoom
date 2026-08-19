@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from django.conf import settings
@@ -50,6 +50,9 @@ from traceability.types import (  # REQ-L1-030: single source of truth
     MANUAL_LINK_TYPES,
     LinkType,
 )
+
+if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime
+    from persistence.models import Artifact
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +89,31 @@ class TraceLinkService(ServiceBase):
     def _resolve_artifact_id(self, entity_id: UUID) -> UUID:
         """Resolve a business-entity ID to its backing Artifact ID.
 
+        Thin wrapper around :meth:`_resolve_artifact` for callers that only
+        need the id and would throw the resolved instance away.
+        """
+        return self._resolve_artifact(entity_id)[0]
+
+    def _resolve_artifact(self, entity_id: UUID) -> tuple[UUID, Optional["Artifact"]]:
+        """Resolve a business-entity ID to its backing Artifact (id + row).
+
         The TraceabilityEngine stores links between Artifact IDs.  Callers may
         pass the more user-facing Requirement, ArchitectureElement, ADR, Goal
         or MainGoal IDs; this helper transparently maps those to their
         backing Artifact.
+
+        Returns the resolved Artifact id **and**, when this method happened to
+        read the Artifact row itself, that row — so the caller does not have to
+        re-SELECT a row that was just fetched and thrown away (#625).
+
+        The row is only returned for step 1, the "*entity_id* is already an
+        Artifact id" case, because that is the only probe that reads
+        ``pl_artifact`` at all; it is also the shape every bulk producer uses
+        (seeders, importers, and both Layer-3 transports, which resolve ids
+        before delegating). The remaining probes read a *business entity* and
+        would need an extra join to also produce its Artifact, so they return
+        ``None`` and the caller falls back to its own lookup — one query on a
+        single interactive request, versus a join on every resolution.
 
         Resolution order:
           1. If *entity_id* is already an Artifact ID, return it unchanged.
@@ -136,18 +160,19 @@ class TraceLinkService(ServiceBase):
         )
 
         # 1. Already an Artifact ID?
-        if Artifact.objects.filter(id=entity_id).first() is not None:
-            return entity_id
+        artifact = Artifact.objects.filter(id=entity_id).first()
+        if artifact is not None:
+            return entity_id, artifact
 
         # 2. Requirement -> Artifact
         req = Requirement.objects.filter(id=entity_id).first()
         if req is not None:
-            return UUID(str(req.artifact_id))
+            return UUID(str(req.artifact_id)), None
 
         # 3. ArchitectureElement -> Artifact
         arch = ArchitectureElement.objects.filter(id=entity_id).first()
         if arch is not None:
-            return UUID(str(arch.artifact_id))
+            return UUID(str(arch.artifact_id)), None
 
         # 4. ADR -> Artifact (REQ-L2-TE-020). Adr lives in the application app
         # and is not tenant-scoped, so it is imported locally to avoid a
@@ -156,17 +181,17 @@ class TraceLinkService(ServiceBase):
 
         adr = Adr.objects.filter(id=entity_id).first()
         if adr is not None and adr.artifact_id is not None:
-            return UUID(str(adr.artifact_id))
+            return UUID(str(adr.artifact_id)), None
 
         # 5. Goal -> Artifact (fix #237).
         goal = Goal.objects.filter(id=entity_id).first()
         if goal is not None:
-            return UUID(str(goal.artifact_id))
+            return UUID(str(goal.artifact_id)), None
 
         # 6. MainGoal -> Artifact (fix #237).
         main_goal = MainGoal.objects.filter(id=entity_id).first()
         if main_goal is not None:
-            return UUID(str(main_goal.artifact_id))
+            return UUID(str(main_goal.artifact_id)), None
 
         # 7./8. TestCase / StakeholderNeed -> Artifact (fix #264). Imported
         # locally to keep the module-level import list stable; both are
@@ -176,11 +201,11 @@ class TraceLinkService(ServiceBase):
 
         test_case = TestCase.objects.filter(id=entity_id).first()
         if test_case is not None:
-            return UUID(str(test_case.artifact_id))
+            return UUID(str(test_case.artifact_id)), None
 
         need = StakeholderNeed.objects.filter(id=entity_id).first()
         if need is not None:
-            return UUID(str(need.artifact_id))
+            return UUID(str(need.artifact_id)), None
 
         # 9./10. Risk / Issue -> Artifact (fix #407). Imported locally, same
         # rationale as Adr/Goal/MainGoal above: application.models imports
@@ -190,11 +215,11 @@ class TraceLinkService(ServiceBase):
 
         risk = Risk.objects.filter(id=entity_id).first()
         if risk is not None and risk.artifact_id is not None:
-            return UUID(str(risk.artifact_id))
+            return UUID(str(risk.artifact_id)), None
 
         issue = Issue.objects.filter(id=entity_id).first()
         if issue is not None and issue.artifact_id is not None:
-            return UUID(str(issue.artifact_id))
+            return UUID(str(issue.artifact_id)), None
 
         raise NotFoundError(f"Entity {entity_id} not found")
 
@@ -227,12 +252,24 @@ class TraceLinkService(ServiceBase):
         source_artifact_id: UUID,
         target_artifact_id: UUID,
         link_type: str,
+        source_artifact: Optional["Artifact"] = None,
+        target_artifact: Optional["Artifact"] = None,
     ) -> None:
         """Enforce SE endpoint semantics in se_mode workspaces (finding F1).
 
         Resolution failures (missing artifact/preset config, unit-test
         contexts) skip enforcement — same permissive fallback pattern as
         ArchitectureElementInvariantValidator.for_workspace().
+
+        Args:
+            source_artifact_id: Resolved source Artifact id.
+            target_artifact_id: Resolved target Artifact id.
+            link_type: The link type under validation.
+            source_artifact: Already-loaded source Artifact, if the caller has
+                one (:meth:`_resolve_artifact` returns it). Passing it skips a
+                redundant SELECT of a row the caller just read. Ignored (and
+                re-read) if it does not match *source_artifact_id* — see below.
+            target_artifact: Same for the target endpoint.
 
         Raises:
             ValidationError: If the workspace runs in se_mode and the
@@ -244,8 +281,23 @@ class TraceLinkService(ServiceBase):
             from persistence.models import Artifact
             from presets.models import WorkspacePresetConfig
 
-            source = Artifact.objects.filter(id=source_artifact_id).first()
-            target = Artifact.objects.filter(id=target_artifact_id).first()
+            # The id stays authoritative. A passed-in row is an optimisation,
+            # never a substitute for it: this is a validation gate, and a
+            # future caller handing over the wrong instance would silently
+            # check the wrong endpoints instead of failing. Mismatch -> drop
+            # the row and read the real one.
+            source = source_artifact
+            if source is not None and str(source.id) != str(source_artifact_id):
+                source = None
+            if source is None:
+                source = Artifact.objects.filter(id=source_artifact_id).first()
+
+            target = target_artifact
+            if target is not None and str(target.id) != str(target_artifact_id):
+                target = None
+            if target is None:
+                target = Artifact.objects.filter(id=target_artifact_id).first()
+
             if source is None or target is None:
                 return  # existence errors are raised downstream
 
@@ -323,13 +375,23 @@ class TraceLinkService(ServiceBase):
                 "cannot be created or updated manually."
             )
 
-        # Resolve Requirement/ArchitectureElement IDs to Artifact IDs
-        resolved_source = self._resolve_artifact_id(source_id)
-        resolved_target = self._resolve_artifact_id(target_id)
+        # Resolve Requirement/ArchitectureElement IDs to Artifact IDs. The
+        # Artifact rows come back with the ids so the checks below can reuse
+        # them instead of re-SELECTing the same two rows (see #625: seeding the
+        # E2E fixture workspace issued ~13k single-row pl_artifact SELECTs,
+        # because each link creation read its two endpoints up to six times).
+        resolved_source, source_artifact = self._resolve_artifact(source_id)
+        resolved_target, target_artifact = self._resolve_artifact(target_id)
 
         # SE endpoint semantics (se_mode workspaces only, permissive for
         # non-core artifact types — see docs/se/workspace_modes_er_model.md F1).
-        self._check_se_semantics(resolved_source, resolved_target, link_type)
+        self._check_se_semantics(
+            resolved_source,
+            resolved_target,
+            link_type,
+            source_artifact=source_artifact,
+            target_artifact=target_artifact,
+        )
 
         # REQ-L1-044 I4: allocated-to must not target an ancestor of the
         # source (Extended rigor only, gated inside the validator).
@@ -407,6 +469,13 @@ class TraceLinkService(ServiceBase):
         supplementary, so a provider/network failure must not fail the
         surrounding create transaction. Mirrors
         RequirementService._generate_and_store_embedding.
+
+        The embedding text is built from the two endpoint *titles*, which live
+        on the reverse OneToOne ``artifact.requirement`` /
+        ``artifact.architecture_element`` relations. On a freshly created link
+        none of those are cached, so ``get_tracelink_embedding_text`` used to
+        trigger up to four extra single-row SELECTs per link (#625). One
+        ``select_related`` re-read collapses them into a single joined query.
         """
         try:
             from persistence.models import TraceLink
@@ -417,7 +486,27 @@ class TraceLinkService(ServiceBase):
 
             if not getattr(trace_link, "id", None):
                 return
-            embedding = generate_embedding(get_tracelink_embedding_text(trace_link))
+            joined = (
+                TraceLink.objects.filter(id=trace_link.id)
+                .select_related(
+                    "source__requirement",
+                    "source__architecture_element",
+                    "target__requirement",
+                    "target__architecture_element",
+                )
+                # Neither the link's own vector nor the endpoints' are read
+                # here — only their titles. Leaving them in would drag three
+                # 1536-dim vectors per link through the ORM, the #571 shape.
+                .defer(
+                    "embedding",
+                    "source__requirement__embedding",
+                    "target__requirement__embedding",
+                )
+                .first()
+            )
+            embedding = generate_embedding(
+                get_tracelink_embedding_text(joined or trace_link)
+            )
             if embedding is not None:
                 TraceLink.objects.filter(id=trace_link.id).update(embedding=embedding)
         except Exception as exc:  # noqa: BLE001 — best-effort

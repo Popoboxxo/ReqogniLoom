@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.db import transaction
@@ -81,12 +82,29 @@ def _validate_cross_tenant_boundary(source: Artifact, target: Artifact) -> None:
 # ---------------------------------------------------------------------------
 
 def _build_adjacency(
-    workspace_links: list[TraceLink],
+    workspace_links: Iterable[TraceLink],
 ) -> dict[uuid.UUID, list[uuid.UUID]]:
     """Build an adjacency list from existing TraceLink rows."""
     adj: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
     for link in workspace_links:
         adj[link.source_id].append(link.target_id)
+    return adj
+
+
+def _build_adjacency_from_edges(
+    edges: Iterable[tuple[uuid.UUID, uuid.UUID]],
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """Build an adjacency list from bare ``(source_id, target_id)`` pairs.
+
+    Same result as :func:`_build_adjacency`, but without needing model
+    instances. Cycle detection only ever reads the two FK id columns (see
+    :func:`_dfs_has_cycle_to`), so the hot write path can feed this from a
+    ``values_list()`` query instead of materializing whole ``TraceLink``
+    objects — see :meth:`TraceLinkManager.create`.
+    """
+    adj: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    for source_id, target_id in edges:
+        adj[source_id].append(target_id)
     return adj
 
 
@@ -200,12 +218,14 @@ class TraceLinkManager:
 
         Review fix (F7, follow-up to #571): ``embedding`` (1536-dim
         VectorField) is deferred here — for *every* caller, not just the
-        paginated REST listing — because ``get_trace_links()`` is also called
-        eagerly, tenant-wide (no workspace filter), on every single
-        ``create()`` (cycle detection needs only ``source_id``/``target_id``
-        to build the adjacency list, never the embedding). Fetching the full
-        vector for every existing link on every write was the same OOM shape
-        as #571, just on the write path. No known caller of
+        paginated REST listing — because ``get_trace_links()`` used to also be
+        called eagerly, tenant-wide (no workspace filter), on every single
+        ``create()``. Fetching the full vector for every existing link on
+        every write was the same OOM shape as #571, just on the write path.
+        ``create()`` no longer calls this method at all (it builds the
+        cycle-detection adjacency from a bare ``values_list("source_id",
+        "target_id")``), but the ``defer`` stays: it is correct for every
+        remaining caller for the same reason. No known caller of
         ``get_trace_links()`` reads ``.embedding`` — the only two reads in
         this codebase (``application/trace_link_service.py`` similarity
         search) go through ``TraceLinkManager.get()``/an explicit
@@ -319,8 +339,19 @@ class TraceLinkManager:
         # decomposition pattern "derive a child requirement and allocate it to the
         # same ArchitectureElement that already implements its parent" falsely
         # rejected as a cycle).
-        existing = self.get_trace_links(link_type=link_type)
-        adj = _build_adjacency(existing)
+        #
+        # Only the two FK id columns are read (_build_adjacency_from_edges ->
+        # _dfs_has_cycle_to), so this uses values_list() rather than the eager
+        # get_trace_links(). That method adds select_related("source",
+        # "target"), which made every single link creation materialize *two
+        # joined Artifact rows per existing link of this type* — pure waste
+        # here, and quadratic over a bulk import or a demo seed (the #571 F7
+        # write-path shape, one layer deeper: F7 removed the embedding column,
+        # this removes the Artifact joins).
+        edges = TraceLink.objects.filter(link_type=link_type).values_list(
+            "source_id", "target_id"
+        )
+        adj = _build_adjacency_from_edges(edges)
         if _dfs_has_cycle_to(target_id, source_id, adj):
             raise CycleDetectedError(link_type)
 
