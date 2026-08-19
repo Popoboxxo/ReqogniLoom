@@ -630,7 +630,14 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   // PHASE 5 — Baselines über UI (mehrere)
   // ===========================================================================
   test('Phase 5a: Baseline RC1 (project scope) über UI', async ({ page }) => {
-    await createBaselineViaUI(page, { scope: 'project' });
+    // This scenario deliberately builds up the SE graph in stages, so by
+    // this phase several requirements are still missing
+    // derives-from/verifies/allocated-to links — the SE-Auditor gate
+    // (GH-490/GH-513) reliably reports BLOCKER findings and rejects a plain
+    // project-scope create. allowGateOverride mirrors what an admin
+    // snapshotting a WIP state would actually do (see wk-helpers.ts);
+    // without it the gate block is a loud failure, not a silent no-op.
+    await createBaselineViaUI(page, { scope: 'project', allowGateOverride: true });
     await page.goto(`${FRONTEND_URL}/baselines`);
     await expect(page.locator('[data-testid="baseline-list"]')).toBeVisible({ timeout: 10000 });
   });
@@ -650,7 +657,9 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     if (options > 1) {
       const value = await artifactSelect.locator('option').nth(1).getAttribute('value');
       if (value) {
-        await createBaselineViaUI(page, { scope: 'document', artifactId: value });
+        // See the allowGateOverride note in Phase 5a — the same partially-
+        // linked WIP state can trip the SE-Auditor gate for document scope too.
+        await createBaselineViaUI(page, { scope: 'document', artifactId: value, allowGateOverride: true });
       }
     }
     await page.goto(`${FRONTEND_URL}/baselines`);

@@ -412,11 +412,46 @@ export async function transitionTestRunViaUI(
 }
 
 /**
- * Erstellt eine Baseline über die UI.
+ * Creates a baseline via the UI.
+ *
+ * BUG-03 (SYSTEMAUDIT_2026-08-18 §4): in a realistic, partially-incomplete SE
+ * graph (which this bug-finding scenario deliberately builds up in stages),
+ * the SE-Auditor gate (GH-490/GH-513) rejects a `project`-scope baseline
+ * create with HTTP 400 `SE_AUDITOR_BLOCKED` as soon as individual
+ * requirements are still missing `derives-from`/`verifies`/`allocated-to`
+ * links — exactly the state this scenario is in between phases. That is
+ * intended governance behaviour (BaselinesView shows a waiver panel with a
+ * justification field for it), but this helper used to check success via
+ * the wrong selector (`tbody tr` — the list is a `<ul><li>`, not a table)
+ * and swallowed every failure in a `.catch(() => null)`. A blocked create
+ * therefore looked identical to a successful one — the list stayed empty
+ * without the test noticing (the real assertion in the calling test file
+ * then failed separately, later, with no apparent connection).
+ *
+ * Fix: after submit, explicitly check for the waiver panel and fail loudly
+ * (instead of swallowing) if neither the form closes nor the baseline shows
+ * up. The waiver itself is opt-in (`allowGateOverride`) — silently waiving
+ * a governance gate on every call would make it impossible to tell "gate
+ * passed cleanly" from "gate blocked and we clicked through it" (review
+ * finding F-4). Callers that expect a clean pass (no BLOCKER findings) get
+ * a hard failure with the blocked rule ids instead; callers that
+ * deliberately accept a WIP snapshot must opt in and get the waived rule
+ * ids logged so the override is visible in the test log, not silently
+ * absorbed.
  */
 export async function createBaselineViaUI(
   page: Page,
-  data: { scope: 'project' | 'document' | 'global'; artifactId?: string }
+  data: {
+    scope: 'project' | 'document' | 'global';
+    artifactId?: string;
+    /**
+     * Opt-in: if the SE-Auditor gate blocks the plain create, fill in the
+     * waiver justification and resubmit (the documented GH-513 admin
+     * override path) instead of failing. Defaults to false so a blocked
+     * gate is a loud test failure by default, not a silent waiver.
+     */
+    allowGateOverride?: boolean;
+  }
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/baselines`);
   await page.waitForLoadState('networkidle');
@@ -433,9 +468,53 @@ export async function createBaselineViaUI(
   await expect(submit).toBeEnabled({ timeout: 5000 });
   await submit.click();
   await page.waitForLoadState('networkidle');
-  // Erfolgs-Indikator: Liste enthält mindestens ein Item oder leerer State erscheint neu
-  await Promise.race([
-    page.locator('[data-testid="baseline-list"] tbody tr').first().waitFor({ timeout: 8000 }).catch(() => null),
-    page.locator('[data-testid="baselines-empty"]').waitFor({ timeout: 8000 }).catch(() => null),
-  ]);
+
+  // The SE-Auditor gate may have rejected the plain create.
+  //
+  // `.isVisible()` alone does not poll/wait — it is a single, immediate DOM
+  // check — so a plain `if (await panel.isVisible())` can race the React
+  // re-render that follows the create response (networkidle only tracks
+  // in-flight network requests, not render completion). `.waitFor()` is
+  // Playwright's polling primitive; a `false` result here means the panel
+  // genuinely never appeared within the window, not that the check ran too
+  // early.
+  const form = page.locator('[data-testid="create-baseline-form"]');
+  const overridePanel = form.locator('[data-testid="baseline-override-panel"]');
+  const overrideAppeared = await overridePanel
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (overrideAppeared) {
+    // The blocked-findings message (BaselinesView.tsx renders it as
+    // role="alert" inside the create form) names every rule id that
+    // tripped the gate — surface it in the test log either way, so a
+    // blocked gate is never silent, whether or not we're allowed to waive it.
+    const blockedMessage = await form.locator('[role="alert"]').first().innerText().catch(() => '(message unavailable)');
+
+    if (!data.allowGateOverride) {
+      throw new Error(
+        `createBaselineViaUI: SE-Auditor gate blocked the create and allowGateOverride was not set. ` +
+          `Blocked findings: ${blockedMessage}`
+      );
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`[createBaselineViaUI] SE-Auditor gate blocked (waiving via allowGateOverride): ${blockedMessage}`);
+
+    await page
+      .locator('[data-testid="baseline-override-reason"]')
+      .fill('Bug-finding scenario snapshot; upstream links land in a later phase.');
+    const overrideSubmit = page.locator('[data-testid="baseline-override-submit-btn"]');
+    await expect(overrideSubmit).toBeEnabled({ timeout: 5000 });
+    await overrideSubmit.click();
+    await page.waitForLoadState('networkidle');
+  }
+
+  // Success indicator: the create form closes (BaselinesView.tsx only calls
+  // setShowForm(false) on a successful create — the SE-Auditor-blocked path
+  // keeps the form open with createError/gateBlocked set). Fail loudly
+  // instead of silently continuing, so a genuine regression surfaces here
+  // rather than as an unrelated, delayed assertion failure in the caller.
+  await expect(form).toBeHidden({ timeout: 8000 });
 }

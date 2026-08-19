@@ -26,7 +26,7 @@
  *                        GET /api/v1/requirements/{id}/versions/
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -255,6 +255,11 @@ export function ArtifactDiff({
   const [diffResult, setDiffResult] = useState<ArtifactDiffResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Defensive hardening (see the longer note on fetchDiff below): a
+  // monotonically-increasing id identifying the "latest" fetchDiff call —
+  // lets an out-of-order/late response from a superseded request be ignored
+  // instead of appending a spurious error banner to fresher state.
+  const diffRequestIdRef = useRef(0);
 
   // Versions sorted ascending by version number — used for both the option
   // lists and the initial from/to selection.
@@ -292,7 +297,37 @@ export function ArtifactDiff({
 
   // Fetch diff only once both endpoints are chosen (guards the premature
   // from=0 fetch and any backwards from >= to selection).
+  //
+  // Hardening (not a fix for a confirmed production bug — see below):
+  // `currentVersion` seeds `toVersion`, and can change shortly after mount
+  // (e.g. right after the artifact's first save). That re-seed can fire a
+  // new diff fetch while a PREVIOUS one is still in flight. `diffResult` is
+  // never cleared on error (see the `{diffResult && !loading && ...}` render
+  // below), so a late, superseded rejection landing after a fresher success
+  // cannot hide `diff-fields` — it can only add a spurious error banner
+  // above an otherwise-correct diff. That is a real but cosmetic bug on its
+  // own; it does NOT explain the originally reported ">30s timeout" symptom
+  // (SYSTEMAUDIT_2026-08-18 §4, BUG-04), which needs `diffResult` to stay
+  // `null` or `loading` to stay `true` indefinitely — this component has no
+  // code path that does that. Live re-execution of
+  // e2e/tests/artifact-diff.spec.ts against a freshly booted dev backend +
+  // Vite server reproduced the exact `page.waitForResponse` 30000ms timeout
+  // once (in `saveWithChangeReason`, unrelated to version selection) and
+  // then passed cleanly 5/5 times afterward on warm re-runs — consistent
+  // with the compose/cold-start issues fixed the same day in #614 (890bfed:
+  // stale dev image, crash-loop, OOM-tuned limits), not a deterministic
+  // application defect. Root cause for BUG-04 could not be confirmed as
+  // application code; see the PR description for the full write-up.
+  //
+  // The `requestId` ref below still closes a genuine (if cosmetic) staleness
+  // gap — kept as defensive hardening, mirroring the `cancelled` flag the
+  // sibling `versionsFetcher` effect above already uses for the same class
+  // of problem. It is bumped unconditionally at the top of every call
+  // (including the early-return branch) so an in-flight request is always
+  // marked superseded the moment fetchDiff runs again, even when the new
+  // run turns out to have nothing to fetch.
   const fetchDiff = useCallback(async () => {
+    const requestId = ++diffRequestIdRef.current;
     if (fromVersion === null || toVersion === null || fromVersion >= toVersion) {
       return;
     }
@@ -300,11 +335,13 @@ export function ArtifactDiff({
     setError(null);
     try {
       const result = await diffFetcher(entityId, fromVersion, toVersion);
+      if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
       setDiffResult(result);
     } catch (err) {
+      if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (requestId === diffRequestIdRef.current) setLoading(false);
     }
   }, [entityId, fromVersion, toVersion, diffFetcher]);
 
