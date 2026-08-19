@@ -24,7 +24,7 @@ import { PageHeader } from "../shared/PageHeader";
 export default function DashboardViews(): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { setActiveWorkspace } = useWorkspace();
+  const { activeWorkspace, setActiveWorkspace } = useWorkspace();
   const { workspaces, isLoading, error } = useDashboardData();
 
   // REQ-L3-RF002-003: navigate to requirements when workspace selected
@@ -132,6 +132,7 @@ export default function DashboardViews(): JSX.Element {
               workspace={ws}
               onSelect={handleSelectWorkspace}
               onOpenSettings={handleOpenSettings}
+              isActive={ws.id === activeWorkspace?.id}
             />
           ))}
         </div>

@@ -191,7 +191,8 @@
     "preset": "Preset",
     "empty": "No workspace found.",
     "changeMode": "Change SE mode in workspace settings",
-    "summary": "{{count}} workspace(s) available."
+    "summary": "{{count}} workspace(s) available.",
+    "activeWorkspace": "Currently active"
   },
   "editor": {
     "title": "Title",
@@ -1382,7 +1383,7 @@
     "editTitle": "Edit goal",
     "untitled": "Untitled",
     "noDescription": "No description.",
-    "empty": "No goals yet",
+    "empty": "No goals yet.",
     "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal.",
     "editHint": "Editing creates a new version of the same goal. The previous version stays in the history.",
     "archiveConfirm": "\"{{title}}\" will be archived and disappear from the list. The version stays in the history.",
@@ -1403,7 +1404,7 @@
     "verification_other": "{{count}} test cases",
     "verificationOpen": "Show linked test cases",
     "stationOpen": "Show linked artifacts",
-    "empty": "No links yet",
+    "empty": "No links yet.",
     "emptyHint": "This artifact is not linked to any other one yet.",
     "loading": "Loading chain...",
     "error": "Could not load the derivation chain.",

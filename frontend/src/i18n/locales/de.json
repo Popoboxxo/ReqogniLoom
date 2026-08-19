@@ -191,7 +191,8 @@
     "preset": "Preset",
     "empty": "Kein Workspace gefunden.",
     "changeMode": "SE-Modus in Workspace-Einstellungen ändern",
-    "summary": "{{count}} Workspace(s) verfügbar."
+    "summary": "{{count}} Workspace(s) verfügbar.",
+    "activeWorkspace": "Aktuell aktiv"
   },
   "editor": {
     "title": "Titel",
@@ -1382,7 +1383,7 @@
     "editTitle": "Ziel bearbeiten",
     "untitled": "Ohne Titel",
     "noDescription": "Keine Beschreibung.",
-    "empty": "Noch keine Ziele",
+    "empty": "Noch keine Ziele.",
     "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe für das Haupt-Ziel.",
     "editHint": "Bearbeiten legt eine neue Version desselben Ziels an. Die bisherige Version bleibt in der Historie erhalten.",
     "archiveConfirm": "„{{title}}“ wird archiviert und verschwindet aus der Liste. Die Version bleibt in der Historie erhalten.",
@@ -1403,8 +1404,8 @@
     "verification_other": "{{count}} Testfaelle",
     "verificationOpen": "Verknuepfte Testfaelle anzeigen",
     "stationOpen": "Verknuepfte Artefakte anzeigen",
-    "empty": "Noch keine Verknuepfungen",
-    "emptyHint": "Dieses Artefakt ist noch mit keinem anderen verknuepft.",
+    "empty": "Noch keine Verknüpfungen.",
+    "emptyHint": "Dieses Artefakt ist noch mit keinem anderen verknüpft.",
     "loading": "Kette wird geladen...",
     "error": "Ableitungskette konnte nicht geladen werden.",
     "close": "Schliessen",
