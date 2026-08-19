@@ -23,10 +23,11 @@ from typing import Iterator
 import pytest
 
 from application.ai_review_service import AiReviewService
-from application.audit_service import AuditService
+from application.audit_service import AuditFindingView, AuditReport, AuditService
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, Requirement, Tenant, User, Workspace
 from persistence.tenancy import TenantContext
+from traceability.audit import Finding, RemediationProposal, Severity
 
 pytestmark = pytest.mark.django_db
 
@@ -180,6 +181,84 @@ class TestReviewReferentialIntegrity:
 
         assert result.packages == []
         assert result.total_findings == 0
+
+
+# ---------------------------------------------------------------------------
+# BUG-15 code review M2 — the truncation signal from AuditService.run_audit()
+# must survive this layer, not be silently dropped.
+# ---------------------------------------------------------------------------
+
+
+class _StubAuditServiceForReport:
+    """Duck-typed AuditService stand-in that returns a pre-built report.
+
+    AiReviewService only ever calls ``run_audit()`` on its injected
+    ``audit_service`` — a plain stub avoids needing a real >500-finding
+    workspace just to prove the ``truncated`` flag propagates.
+    """
+
+    def __init__(self, report: AuditReport) -> None:
+        self._report = report
+
+    def run_audit(self, *args, **kwargs) -> AuditReport:
+        return self._report
+
+
+class TestReviewPropagatesTruncation:
+    def test_truncated_report_flag_survives_into_ai_review_result(
+        self, tenant, workspace, ctx
+    ):
+        finding = Finding(
+            rule_id="TRACE-P4",
+            severity=Severity.BLOCKER,
+            message="padding",
+            artifact_ids=(),
+        )
+        capped_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[
+                AuditFindingView(
+                    index=0,
+                    finding=finding,
+                    remediation=RemediationProposal(
+                        rule_id="TRACE-P4", automatic=False, reason="manual"
+                    ),
+                )
+            ],
+            truncated=True,
+            total_findings_available=4440,
+        )
+
+        with _active(tenant):
+            result = AiReviewService(
+                audit_service=_StubAuditServiceForReport(capped_report)
+            ).review(workspace.id, ctx, tier="extended")
+
+        assert result.truncated is True
+        assert result.total_findings_available == 4440
+        # to_dict() must expose it too — the actual REST/MCP wire shape.
+        assert result.to_dict()["truncated"] is True
+        assert result.to_dict()["total_findings_available"] == 4440
+
+    def test_non_truncated_report_flag_is_false(self, tenant, workspace, ctx):
+        empty_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[],
+            truncated=False,
+            total_findings_available=0,
+        )
+
+        with _active(tenant):
+            result = AiReviewService(
+                audit_service=_StubAuditServiceForReport(empty_report)
+            ).review(workspace.id, ctx, tier="extended")
+
+        assert result.truncated is False
+        assert result.total_findings_available == 0
 
 
 # ---------------------------------------------------------------------------

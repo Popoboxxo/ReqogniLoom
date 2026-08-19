@@ -187,13 +187,25 @@ class LinkSuggestion:
 
 @dataclass
 class SuggestLinksResult:
-    """Full N3 run: tier/provider metadata plus the ranked suggestions."""
+    """Full N3 run: tier/provider metadata plus the ranked suggestions.
+
+    ``truncated`` / ``total_findings_available`` (BUG-15 follow-up M2):
+    ``suggest_links()`` reads ``report.findings`` from
+    ``AuditService.run_audit``, which caps at
+    ``AuditService.MAX_REPORT_FINDINGS`` — so ``total_findings`` here is the
+    *returned* (possibly capped) count, same convention as
+    ``AuditReport.counts.total``. Propagated straight from the underlying
+    ``AuditReport`` so an MCP/REST caller can tell a capped run apart from a
+    genuinely complete one instead of the signal being dropped at this layer.
+    """
 
     tier: str
     provider: str
     degraded: bool
     total_findings: int = 0
     eligible_findings: int = 0
+    truncated: bool = False
+    total_findings_available: int = 0
     suggestions: List[LinkSuggestion] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -202,6 +214,8 @@ class SuggestLinksResult:
             "provider": self.provider,
             "degraded": self.degraded,
             "suggestions": [s.to_dict() for s in self.suggestions],
+            "truncated": self.truncated,
+            "total_findings_available": self.total_findings_available,
             "counts": {
                 "total_findings": self.total_findings,
                 "eligible_findings": self.eligible_findings,
@@ -268,6 +282,8 @@ class TraceabilitySuggestService(ServiceBase):
                 degraded=False,
                 total_findings=len(findings),
                 eligible_findings=0,
+                truncated=report.truncated,
+                total_findings_available=report.total_findings_available,
             )
 
         tenant_id = str(ctx.tenant_id)
@@ -300,6 +316,8 @@ class TraceabilitySuggestService(ServiceBase):
                 degraded=False,
                 total_findings=len(findings),
                 eligible_findings=0,
+                truncated=report.truncated,
+                total_findings_available=report.total_findings_available,
             )
 
         raw, provider_name, degraded = self._complete(finding_payloads, workspace_id=ws_id)
@@ -314,6 +332,8 @@ class TraceabilitySuggestService(ServiceBase):
             degraded=degraded,
             total_findings=len(findings),
             eligible_findings=len(finding_payloads),
+            truncated=report.truncated,
+            total_findings_available=report.total_findings_available,
             suggestions=suggestions,
         )
 

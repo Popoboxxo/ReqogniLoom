@@ -114,12 +114,25 @@ class RefactoringPackage:
 
 @dataclass
 class AiReviewResult:
-    """Full N8 run: tier/provider metadata plus the generated packages."""
+    """Full N8 run: tier/provider metadata plus the generated packages.
+
+    ``truncated`` / ``total_findings_available`` (BUG-15 follow-up M2):
+    ``review()`` reads ``report.findings`` from ``AuditService.run_audit``,
+    which caps at ``AuditService.MAX_REPORT_FINDINGS`` — so ``total_findings``
+    here is the *returned* (possibly capped) count, same convention as
+    ``AuditReport.counts.total``. Without these two fields an MCP/REST
+    caller has no way to tell a genuinely-clean workspace apart from a
+    workspace whose findings were silently capped before packaging —
+    propagated straight from the underlying ``AuditReport`` so the signal
+    survives this layer instead of being dropped.
+    """
 
     tier: str
     provider: str
     degraded: bool
     total_findings: int = 0
+    truncated: bool = False
+    total_findings_available: int = 0
     packages: List[RefactoringPackage] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -129,6 +142,8 @@ class AiReviewResult:
             "provider": self.provider,
             "degraded": self.degraded,
             "packages": [p.to_dict() for p in self.packages],
+            "truncated": self.truncated,
+            "total_findings_available": self.total_findings_available,
             "counts": {
                 "total_findings": self.total_findings,
                 "packaged_findings": packaged,
@@ -175,7 +190,12 @@ class AiReviewService(ServiceBase):
 
         if not findings:
             return AiReviewResult(
-                tier=report.tier, provider="mock", degraded=False, total_findings=0
+                tier=report.tier,
+                provider="mock",
+                degraded=False,
+                total_findings=0,
+                truncated=report.truncated,
+                total_findings_available=report.total_findings_available,
             )
 
         findings_payload = [self._finding_payload(fv) for fv in findings]
@@ -191,6 +211,8 @@ class AiReviewService(ServiceBase):
             provider=provider_name,
             degraded=degraded,
             total_findings=len(findings),
+            truncated=report.truncated,
+            total_findings_available=report.total_findings_available,
             packages=packages,
         )
 

@@ -109,6 +109,19 @@ export function AuditDashboard(): JSX.Element {
   const [findings, setFindings] = useState<AuditFinding[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // BUG-15: the backend caps very large result sets (AuditService.
+  // MAX_REPORT_FINDINGS) instead of paginating — grouping findings by rule
+  // id and computing live blocker/warning counts needs the whole capped set
+  // at once, so a page-based UI would fragment rule groups. Surface the cap
+  // as a visible banner instead of silently hiding findings.
+  const [truncated, setTruncated] = useState<boolean>(false);
+  const [totalFindingsAvailable, setTotalFindingsAvailable] = useState<number>(0);
+  // Code review M3: the true (pre-cap) blocker/warning totals, so the count
+  // badges can show the real numbers instead of only counting the (possibly
+  // capped) `findings` array — a workspace with 4,440 real blockers must not
+  // show "500" with no indication that count is partial.
+  const [totalBlockersAvailable, setTotalBlockersAvailable] = useState<number>(0);
+  const [totalWarningsAvailable, setTotalWarningsAvailable] = useState<number>(0);
 
   const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
   const [actionState, setActionState] = useState<Record<number, ActionState>>({});
@@ -160,6 +173,10 @@ export function AuditDashboard(): JSX.Element {
       });
       setTier(report.tier);
       setFindings(report.findings);
+      setTruncated(report.truncated);
+      setTotalFindingsAvailable(report.total_findings_available);
+      setTotalBlockersAvailable(report.total_blockers_available);
+      setTotalWarningsAvailable(report.total_warnings_available);
       setActionState({});
     } catch (err) {
       setLoadError(resolveErrorMessage(err));
@@ -247,14 +264,28 @@ export function AuditDashboard(): JSX.Element {
   );
 
   // Counts are recomputed from the live findings list (not the initial
-  // report.counts) so the badges stay accurate after a finding is resolved.
+  // report.counts) so the badges stay accurate after a finding is resolved —
+  // but only when the run was NOT truncated: the client-side `findings`
+  // array only ever holds the (possibly capped) returned subset, so counting
+  // it directly would silently show "500" as if it were the true total
+  // (code review M3). When truncated, show the backend's real pre-cap
+  // totals instead; these are a snapshot from the last full run_audit() call
+  // and do not shrink live as findings are Adopted, but that is preferable
+  // to a badge that understates the real number of open findings.
   const counts = useMemo(
-    () => ({
-      total: findings.length,
-      blockers: findings.filter((f) => f.severity === "blocker").length,
-      warnings: findings.filter((f) => f.severity === "warning").length,
-    }),
-    [findings]
+    () =>
+      truncated
+        ? {
+            total: totalFindingsAvailable,
+            blockers: totalBlockersAvailable,
+            warnings: totalWarningsAvailable,
+          }
+        : {
+            total: findings.length,
+            blockers: findings.filter((f) => f.severity === "blocker").length,
+            warnings: findings.filter((f) => f.severity === "warning").length,
+          },
+    [findings, truncated, totalFindingsAvailable, totalBlockersAvailable, totalWarningsAvailable]
   );
 
   const grouped = useMemo(() => {
@@ -381,6 +412,23 @@ export function AuditDashboard(): JSX.Element {
           </span>
         )}
       </div>
+
+      {/* BUG-15: the run produced more findings than the backend returns in
+          one response — say so explicitly instead of silently showing a
+          partial list that looks complete. */}
+      {truncated && (
+        <div
+          role="status"
+          data-testid="audit-truncated-banner"
+          style={truncatedBannerStyle}
+        >
+          {t(
+            "audit.truncated",
+            "Showing {{shown}} of {{total}} findings — resolve some and refresh to see the rest.",
+            { shown: findings.length, total: totalFindingsAvailable },
+          )}
+        </div>
+      )}
 
       {/* GitHub #451: "Adopt" vs "Modify" is not a per-rule quirk (TRACE-P5
           showing "Adopt" while everything else showed "Modify" read like an
@@ -743,6 +791,16 @@ const toastStyle: CSSProperties = {
   color: "var(--color-badge-success-text)",
   border: "1px solid var(--color-success)",
   borderRadius: "var(--radius-md)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const truncatedBannerStyle: CSSProperties = {
+  padding: "var(--space-3) var(--space-4)",
+  marginBottom: "var(--space-4)",
+  background: "var(--color-badge-warning-bg)",
+  border: "1px solid var(--color-warning)",
+  borderRadius: "var(--radius-md)",
+  color: "var(--color-badge-warning-text)",
   fontSize: "var(--font-size-sm)",
 };
 

@@ -280,6 +280,16 @@ ungepaginierten Antwort.
 | Bald | Pagination für `/audit/` einführen, bevor Kunden mit realistischen Datenmengen arbeiten (BUG-15) |
 | Später | Bulk-Anlage-Endpunkte für Architecture/Testfälle/Baselines verifizieren, Empty-States vereinheitlichen |
 
+> **Nachtrag (BUG-15, behoben):** Bewusste Abweichung von "Pagination" — das Dashboard
+> gruppiert Findings nach Regel-ID und aggregiert Blocker-/Warnungs-Zähler über die
+> *gesamte* Ergebnismenge; eine Page-basierte Antwort (`count`/`next`/`previous`/`results`)
+> hätte Regel-Gruppen über Seiten fragmentiert und wäre zudem ein Breaking Change für den
+> bestehenden Bare-List-Konsumenten gewesen. Stattdessen: harter Cap
+> (`AuditService.MAX_REPORT_FINDINGS = 500`) plus additive Metadaten-Felder
+> (`truncated`, `total_findings_available`, `total_blockers_available`,
+> `total_warnings_available`) auf der bestehenden `AuditReport`-Struktur — siehe
+> `backend/application/audit_service.py`.
+
 ---
 
 *ReqogniLoom Systemrevision · erzeugt 2026-08-18 · 5 parallele Testagenten + manuelle

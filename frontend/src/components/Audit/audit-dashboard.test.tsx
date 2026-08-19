@@ -27,7 +27,18 @@ import type { Artifact, PaginatedResponse } from "../../types";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    // Mimics i18next's {{placeholder}} interpolation for the `truncated`
+    // banner (the only call site in this component that passes options).
+    t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
+      const text = fallback ?? key;
+      if (!options) return text;
+      return Object.entries(options).reduce(
+        // split/join instead of replaceAll: replaceAll is ES2021, but
+        // tsconfig.json's `lib` is pinned to ES2020 (see frontend/tsconfig.json).
+        (acc, [k, v]) => acc.split(`{{${k}}}`).join(String(v)),
+        text
+      );
+    },
   }),
 }));
 
@@ -55,6 +66,10 @@ const PROJECT_REPORT: AuditReport = {
   scope: "project",
   scope_artifact_id: null,
   counts: { total: 2, blockers: 1, warnings: 1 },
+  truncated: false,
+  total_findings_available: 2,
+  total_blockers_available: 1,
+  total_warnings_available: 1,
   findings: [
     {
       rule_id: "TRACE-P1",
@@ -106,6 +121,10 @@ const DANGLING_REPORT: AuditReport = {
   scope: "project",
   scope_artifact_id: null,
   counts: { total: 1, blockers: 1, warnings: 0 },
+  truncated: false,
+  total_findings_available: 1,
+  total_blockers_available: 1,
+  total_warnings_available: 0,
   findings: [
     {
       rule_id: "TRACE-P7",
@@ -132,7 +151,23 @@ const DOCUMENT_REPORT: AuditReport = {
   scope: "document",
   scope_artifact_id: "44444444-4444-4444-4444-444444444444",
   counts: { total: 0, blockers: 0, warnings: 0 },
+  truncated: false,
+  total_findings_available: 0,
+  total_blockers_available: 0,
+  total_warnings_available: 0,
   findings: [],
+};
+
+// BUG-15: the backend caps the returned findings when a run produces more
+// than AuditService.MAX_REPORT_FINDINGS — reuse PROJECT_REPORT's 2 findings
+// as the "shown" subset of a much larger run. Mirrors the audit's 300-req
+// stress scenario: 4,440 real findings, all severity blocker.
+const TRUNCATED_REPORT: AuditReport = {
+  ...PROJECT_REPORT,
+  truncated: true,
+  total_findings_available: 4440,
+  total_blockers_available: 4440,
+  total_warnings_available: 0,
 };
 
 function setupDefaultMocks(): void {
@@ -305,6 +340,40 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
       expect(screen.getByTestId("audit-refresh-btn")).not.toBeDisabled()
     );
     expect(scopeSelect).not.toBeDisabled();
+  });
+
+  // ---- BUG-15: truncated result set ----
+
+  it("shows a truncation banner with shown/total counts when the backend caps the result", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(TRUNCATED_REPORT);
+
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-truncated-banner");
+    expect(banner.textContent).toContain("2");
+    expect(banner.textContent).toContain("4440");
+  });
+
+  it("renders no truncation banner when the result set is not capped", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-finding-0");
+    expect(screen.queryByTestId("audit-truncated-banner")).not.toBeInTheDocument();
+  });
+
+  // Code review M3: the count badges must show the backend's true pre-cap
+  // totals when truncated, not the length of the (capped) findings array —
+  // otherwise a workspace with 4,440 real blockers shows "500" (or here, the
+  // 2-item fixture's "1") with no indication the number is partial.
+  it("shows the true pre-cap totals in the count badges when truncated, not the capped array length", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(TRUNCATED_REPORT);
+
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-truncated-banner");
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("4440");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("4440");
+    expect(screen.getByTestId("audit-count-warnings").textContent).toContain("0");
   });
 
   // ---- Adopt: success ----
