@@ -1,7 +1,15 @@
-export interface Disposable {
-  dispose(): void;
-}
-
+/**
+ * Internal runtime adapter interface (Issue #599 port).
+ *
+ * Not the real `@hermes/plugin-sdk` shape — `activate.ts` is the only file
+ * that talks to the real SDK (`ctx.register`/`ctx.storage`, see
+ * `hermes-sdk-types.ts`); it builds one of these from the SDK's `ctx`
+ * object plus the global `fetch`/`window.open`, and everything else in this
+ * package (`state.ts`, `mcpClient.ts`, `api.ts`, all views, all tests)
+ * continues to depend on this stable, host-agnostic shape unchanged.
+ * Keeping this indirection means a future SDK contract change only touches
+ * `activate.ts`.
+ */
 export interface PluginPanelProps {
   pluginId: string;
   panelId: string;
@@ -9,16 +17,7 @@ export interface PluginPanelProps {
 
 export interface HermesPluginAPI {
   ui: {
-    registerPanel(panelId: string, component: React.ComponentType<PluginPanelProps>): Disposable;
-    showPanel(panelId: string): void;
-    hidePanel(panelId: string): void;
-    togglePanel(panelId: string): void;
-    showToast(message: string, options?: { type?: "info" | "success" | "warning" | "error"; duration?: number }): void;
     updateStatusBarItem(itemId: string, update: { text?: string; tooltip?: string; visible?: boolean }): void;
-  };
-  commands: {
-    register(commandId: string, handler: () => void | Promise<void>): Disposable;
-    execute(commandId: string): Promise<void>;
   };
   storage: {
     get(key: string): Promise<string | null>;
@@ -31,5 +30,4 @@ export interface HermesPluginAPI {
   shell: {
     openExternal(url: string): Promise<void>;
   };
-  subscriptions: Disposable[];
 }

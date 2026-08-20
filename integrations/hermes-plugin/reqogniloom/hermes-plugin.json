@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Connect Hermes IDE to your ReqogniLoom workspace",
   "author": "ReqogniLoom",
-  "main": "dist/index.js",
+  "main": "dist/plugin.js",
   "activationEvents": [
     { "type": "onStartup" }
   ],
@@ -36,7 +36,7 @@
     ]
   },
   "engines": {
-    "hermes": ">=0.5.20"
+    "hermes": ">=3.0.0"
   },
   "permissions": ["network", "storage"]
 }
