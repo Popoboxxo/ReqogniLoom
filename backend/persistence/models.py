@@ -2276,12 +2276,27 @@ class InterviewSession(TenantScopedModel):
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="interview_sessions"
     )
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="interview_session",
+        null=True,
+        blank=True,
+        help_text="Backing Artifact — enables workflow-engine tracking and future TraceLink participation.",
+    )
     artifact_type = models.CharField(
         max_length=64,
         help_text="Which interview protocol applies (PascalCase, matches Artifact.artifact_type).",
     )
     status = models.CharField(
-        max_length=16, choices=STATUS_CHOICES, default=STATUS_IN_PROGRESS
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_IN_PROGRESS,
+        help_text=(
+            "Denormalized mirror of the workflow engine's current_state "
+            "(see workflow.lifecycle_manager._STATUS_MIRROR_MODELS) — read-only "
+            "projection, written only inside a workflow transition."
+        ),
     )
     target_artifact = models.ForeignKey(
         Artifact,

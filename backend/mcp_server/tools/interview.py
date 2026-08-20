@@ -44,6 +44,7 @@ class InterviewToolGroup(BaseToolGroup):
         "interview.grounding_context": "_handle_grounding_context",
         "interview.formalize": "_handle_formalize",
         "interview.set_target": "_handle_set_target",
+        "interview.abandon": "_handle_abandon",
     }
 
     _TOOL_SCHEMAS = [
@@ -190,6 +191,23 @@ class InterviewToolGroup(BaseToolGroup):
                 "required": ["session_id", "artifact_id"],
             },
         },
+        {
+            "name": "interview.abandon",
+            "description": (
+                "User-initiated cancel of an in_progress interview (write). "
+                "Before this tool existed, the only path to the 'abandoned' "
+                "state was a 30-day inactivity sweep -- a session the caller "
+                "actively wants to stop had no way to be marked as such and "
+                "kept showing up in in_progress lists indefinitely."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "UUID of the interview session."},
+                },
+                "required": ["session_id"],
+            },
+        },
     ]
 
     def __init__(self, service: Optional[InterviewService] = None) -> None:
@@ -312,6 +330,27 @@ class InterviewToolGroup(BaseToolGroup):
             entity_type="InterviewSession",
             entity_id=session_id,
             tool_name="interview.formalize",
+            api_key=api_key,
+        )
+        return ToolResult.ok(result)
+
+    def _handle_abandon(
+        self, *, params: Dict[str, Any], auth_context, api_key: str
+    ) -> ToolResult:
+        session_id = require_uuid(params, "session_id")
+        try:
+            result = self._service.abandon(auth_context, session_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="InterviewSession",
+            entity_id=session_id,
+            tool_name="interview.abandon",
             api_key=api_key,
         )
         return ToolResult.ok(result)

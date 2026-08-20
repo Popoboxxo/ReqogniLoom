@@ -55,6 +55,7 @@ WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = (
     ("GlossaryTerm", "glossary_term_default"),
     ("Goal", "goal_default"),
     ("MainGoal", "main_goal_default"),
+    ("Interview", "interview_default"),
 )
 
 

@@ -39,6 +39,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { goalsApi } from "../../api/goals";
@@ -72,6 +73,7 @@ interface PendingTransition {
 
 export default function GoalsPage(): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
 
@@ -364,6 +366,14 @@ export default function GoalsPage(): JSX.Element {
           disabled: Boolean(form),
           testId: "create-goal-btn",
         }}
+        secondaryActions={[
+          {
+            label: t("interviews.startCta"),
+            onClick: () => navigate("/interviews?start=Goal"),
+            disabled: !activeWorkspace,
+            testId: "interview-start-cta",
+          },
+        ]}
       />
       <div className={styles.splitHost}>
         <SplitView

@@ -1,0 +1,49 @@
+/* <Spinner> — inline "this action is in flight" indicator (2026-08-20
+   UI-feedback fix). Distinct from <EmptyState loading>: that one covers a
+   whole view/list not having loaded yet; this one covers a single
+   already-visible action (button click, chat send) waiting on a response. */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.sm {
+  width: 12px;
+  height: 12px;
+}
+
+.md {
+  width: 18px;
+  height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.5s;
+  }
+}
+
+.srOnly {
+  /* Visually hidden — only announced by screen readers (standard sr-only
+     recipe, same as DiffPanel.module.css's .liveRegion). */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

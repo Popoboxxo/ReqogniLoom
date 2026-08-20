@@ -166,6 +166,9 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # Issue #540: interview.set_target writes InterviewSession.target_artifact_id
     # -- gated the same way as interview.start/answer/formalize above.
     "interview.set_target",
+    # 2026-08-20 UI-visibility fix: interview.abandon writes a workflow
+    # transition (in_progress -> abandoned) -- same write gate as formalize.
+    "interview.abandon",
 )
 
 # ---------------------------------------------------------------------------

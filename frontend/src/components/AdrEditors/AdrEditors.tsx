@@ -140,6 +140,14 @@ export default function AdrEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-adr-btn',
         }}
+        secondaryActions={[
+          {
+            label: t('interviews.startCta'),
+            onClick: () => navigate('/interviews?start=Adr'),
+            disabled: !activeWorkspace,
+            testId: 'interview-start-cta',
+          },
+        ]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>

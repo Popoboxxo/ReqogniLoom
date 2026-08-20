@@ -41,6 +41,7 @@ import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from './MarkdownPreview';
 import { VersionBadge } from '../shared/VersionBadge';
+import { Spinner } from '../shared/Spinner/Spinner';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
 import styles from './RequirementEditors.module.css';
 // F-04 (code review, 2026-08-19): `.inputError`/`.fieldError` live in the
@@ -434,7 +435,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                 onClick={() => void handleSave()}
                 disabled={isSaving}
               >
-                {isSaving ? t('actions.saving') : t('actions.save')}
+                {isSaving ? <Spinner label={t('actions.saving')} /> : t('actions.save')}
               </button>
               {onCancel && (
                 <button

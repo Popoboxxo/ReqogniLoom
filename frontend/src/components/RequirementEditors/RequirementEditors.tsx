@@ -344,6 +344,12 @@ export default function RequirementEditors(): JSX.Element {
             disabled: !activeWorkspace,
             testId: 'csv-import-toolbar-btn',
           },
+          {
+            label: t('interviews.startCta'),
+            onClick: () => navigate('/interviews?start=Requirement'),
+            disabled: !activeWorkspace,
+            testId: 'interview-start-cta',
+          },
         ]}
       />
 

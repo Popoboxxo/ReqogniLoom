@@ -59,7 +59,8 @@
     "languageToggleTitleAdmin": "Sprache DE/EN umschalten (wird für den gesamten Workspace gespeichert)",
     "languageToggleTitleMember": "Sprache nur für deine Ansicht umschalten — nur ein Workspace-Admin kann die geteilte Einstellung ändern",
     "languageSessionOnly": "Sprache nur für deine Ansicht geändert. Nur ein Workspace-Admin kann sie für alle ändern.",
-    "languageSaveFailed": "Die Workspace-Sprache konnte nicht gespeichert werden. Deine Ansicht wurde geändert, die Änderung wurde aber nicht gesichert."
+    "languageSaveFailed": "Die Workspace-Sprache konnte nicht gespeichert werden. Deine Ansicht wurde geändert, die Änderung wurde aber nicht gesichert.",
+    "interviews": "Interviews"
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -1490,5 +1491,31 @@
   },
   "profile": {
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."
+  },
+  "interviews": {
+    "summary_one": "{{count}} Interview",
+    "summary_other": "{{count}} Interviews",
+    "newInterview": "Neues Interview",
+    "newInterviewDescription": "Wähle, was du erarbeiten willst — der Assistent befragt dich interaktiv dazu.",
+    "startCta": "Lieber im Dialog erstellen?",
+    "emptyTitle": "Noch keine Interviews",
+    "emptyDescription": "Ein Interview führt dich im Dialog statt per leerem Formular zu einem neuen Artefakt.",
+    "selectInterview": "Interview-Sitzung auswählen",
+    "detailTitle": "Interview",
+    "missingFields": "Noch offen",
+    "chat": "Gespräch",
+    "abandon": "Abbrechen",
+    "confirmAbandon": "Dieses Interview abbrechen?",
+    "sortType": "Artefakttyp",
+    "forType": {
+      "Requirement": "Interview → Anforderung",
+      "ArchitectureElement": "Interview → Architekturelement",
+      "StakeholderNeed": "Interview → Bedarf",
+      "Risk": "Interview → Risiko",
+      "TestCase": "Interview → Testfall",
+      "Adr": "Interview → ADR",
+      "Issue": "Interview → Problem",
+      "Goal": "Interview → Ziel"
+    }
   }
 }

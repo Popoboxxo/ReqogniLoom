@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.7.0-beta.2",
-  "tool_count": 161,
+  "tool_count": 162,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1965,6 +1965,24 @@
         },
         "required": [
           "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "interview.abandon",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "User-initiated cancel of an in_progress interview (write). Before this tool existed, the only path to the 'abandoned' state was a 30-day inactivity sweep -- a session the caller actively wants to stop had no way to be marked as such and kept showing up in in_progress lists indefinitely.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          }
+        },
+        "required": [
+          "session_id"
         ]
       }
     },

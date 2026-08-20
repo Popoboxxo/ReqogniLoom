@@ -62,36 +62,91 @@ class InterviewService(ServiceBase):
         # Fail fast if the protocol config is missing/broken rather than
         # creating a session that can never progress past get_state.
         get_protocol(ctx, artifact_type, workspace_id)
-        return InterviewSession.objects.create(
+        from persistence.models import Artifact
+        from workflow.services import initialize_workflow_states
+
+        artifact = Artifact.objects.create(
+            tenant_id=ctx.tenant_id,
             workspace_id=workspace_id,
+            artifact_type="Interview",
+            custom_fields={},
+        )
+        session = InterviewSession.objects.create(
+            workspace_id=workspace_id,
+            artifact=artifact,
             artifact_type=artifact_type,
             collected_fields=(seed_context or {}),
         )
+        # 2026-08-20 UI-visibility fix: register with the workflow engine so
+        # the session is discoverable/transitionable the same way every
+        # other tracked entity is (workspace-defaults 'interview_default'
+        # preset, see workflow/definition_store.py). Best-effort -- a
+        # missing/misconfigured definition must not block session creation
+        # (mirrors *_service.py's workflow-init try/except convention, e.g.
+        # RequirementService.create_requirement).
+        try:
+            initialize_workflow_states(
+                item_ids=[session.id],
+                item_type="Interview",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "InterviewService: workflow init skipped for session=%s", session.id
+            )
+        return session
 
     def _get_session(self, ctx, session_id: UUID) -> InterviewSession:
         self._set_tenant_context(ctx)
         session = InterviewSession.objects.filter(id=session_id).first()
         if session is None:
             raise NotFoundError(f"InterviewSession {session_id} not found")
-        self._lazily_abandon_if_stale(session)
+        self._lazily_abandon_if_stale(session, ctx)
         return session
 
     @staticmethod
-    def _lazily_abandon_if_stale(session: InterviewSession) -> None:
+    def _lazily_abandon_if_stale(session: InterviewSession, ctx) -> None:
         """spec §9: flip a stale in_progress session to abandoned on read.
 
-        Mutates and saves *session* in place when it fires, so callers that
-        already hold the returned object see the up-to-date status without
+        System-driven, TTL-based, not a user-permission-gated action -- uses
+        ``StateLifecycleManager.force_transition`` (the same escape hatch
+        ``workflow.services.outdate()`` uses) rather than the role-validated
+        ``transition()``, since this can fire on behalf of a viewer-level
+        ``ctx`` with no editor role. Mutates and saves *session* in place
+        when it fires (via the workflow engine's status-mirror write, see
+        ``lifecycle_manager._STATUS_MIRROR_MODELS``), so callers that already
+        hold the returned object see the up-to-date status without
         re-fetching.
         """
         if session.status != InterviewSession.STATUS_IN_PROGRESS:
             return
         if timezone.now() - session.modified_at < ABANDONED_TTL:
             return
-        session.status = InterviewSession.STATUS_ABANDONED
-        session.version = F("version") + 1
-        session.save(update_fields=["status", "modified_at", "version"])
-        session.refresh_from_db(fields=["version"])
+        from workflow.lifecycle_manager import StateLifecycleManager
+
+        try:
+            StateLifecycleManager().force_transition(
+                item_id=session.id,
+                item_type="Interview",
+                workspace_id=session.workspace_id,
+                target_state=InterviewSession.STATUS_ABANDONED,
+                change_reason=f"Inactive for {ABANDONED_TTL.days}+ days (auto-abandon)",
+                actor=str(getattr(ctx, "user_id", "") or "system"),
+            )
+        except Exception:
+            # No WorkflowItemState row (e.g. a session that predates this
+            # feature, or workflow init failed at creation) -- fall back to
+            # the direct field write so lazy-abandon still works instead of
+            # leaving the session stuck "in_progress" forever.
+            logger.debug(
+                "InterviewService: force_transition unavailable for session=%s, "
+                "falling back to direct status write", session.id
+            )
+            session.status = InterviewSession.STATUS_ABANDONED
+            session.version = F("version") + 1
+            session.save(update_fields=["status", "modified_at", "version"])
+        session.refresh_from_db()
 
     def _current_phase_and_missing(self, ctx, session: InterviewSession):
         protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
@@ -643,11 +698,74 @@ class InterviewService(ServiceBase):
             resulting_ids.append(str(created.artifact_id))
 
         session.resulting_artifact_ids = resulting_ids
-        session.status = InterviewSession.STATUS_COMPLETED
         session.version = F("version") + 1
-        session.save(update_fields=["resulting_artifact_ids", "status", "modified_at", "version"])
+        session.save(update_fields=["resulting_artifact_ids", "modified_at", "version"])
         session.refresh_from_db(fields=["version"])
+
+        from workflow.services import transition as workflow_transition
+
+        try:
+            workflow_transition(
+                item_id=session.id,
+                target_state=InterviewSession.STATUS_COMPLETED,
+                change_reason="Interview formalized into a real artifact",
+                ctx=ctx,
+                item_type="Interview",
+                workspace_id=session.workspace_id,
+            )
+            session.refresh_from_db()
+        except Exception:
+            # Same best-effort fallback as _lazily_abandon_if_stale -- a
+            # session created before this feature (or with a failed
+            # workflow init) has no WorkflowItemState row to transition.
+            logger.debug(
+                "InterviewService: workflow transition unavailable for session=%s, "
+                "falling back to direct status write", session.id
+            )
+            session.status = InterviewSession.STATUS_COMPLETED
+            session.version = F("version") + 1
+            session.save(update_fields=["status", "modified_at", "version"])
         return {"resulting_artifact_ids": resulting_ids, "status": session.status}
+
+    @atomic_transaction
+    def abandon(self, ctx, session_id: UUID) -> "dict[str, Any]":
+        """User-initiated cancel (2026-08-20 UI-visibility fix).
+
+        Before this, the only path to STATUS_ABANDONED was the 30-day lazy
+        sweep (spec §9) -- a user closing/cancelling an in-progress
+        interview (e.g. the Hermes plugin's ``cancelInterview()``/the web
+        widget's "Cancel" button) had no way to actually mark the session
+        abandoned server-side; it just silently stayed "in_progress"
+        forever and kept showing up in in-progress lists. Distinct from
+        formalize(): explicit user action, not a completion.
+        """
+        session = self._get_session(ctx, session_id)
+        if session.status != InterviewSession.STATUS_IN_PROGRESS:
+            raise ValidationError(
+                f"InterviewSession {session_id} is {session.status}, cannot abandon."
+            )
+
+        from workflow.services import transition as workflow_transition
+
+        try:
+            workflow_transition(
+                item_id=session.id,
+                target_state=InterviewSession.STATUS_ABANDONED,
+                change_reason="Cancelled by user",
+                ctx=ctx,
+                item_type="Interview",
+                workspace_id=session.workspace_id,
+            )
+            session.refresh_from_db()
+        except Exception:
+            logger.debug(
+                "InterviewService: workflow transition unavailable for session=%s, "
+                "falling back to direct status write", session.id
+            )
+            session.status = InterviewSession.STATUS_ABANDONED
+            session.version = F("version") + 1
+            session.save(update_fields=["status", "modified_at", "version"])
+        return {"status": session.status}
 
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
         """Server-generated conversational turn -- Web Widget spec §5.
@@ -777,15 +895,24 @@ class InterviewService(ServiceBase):
 
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
         self._set_tenant_context(ctx)
-        # Bulk-flip stale rows before filtering, so a "status=in_progress"
-        # list doesn't include sessions that are stale-but-not-yet-read
+        # Flip stale rows before filtering, so a "status=in_progress" list
+        # doesn't include sessions that are stale-but-not-yet-read
         # individually (list_sessions has no single row to lazily patch the
-        # way _get_session does).
-        InterviewSession.objects.filter(
-            workspace_id=workspace_id,
-            status=InterviewSession.STATUS_IN_PROGRESS,
-            modified_at__lt=timezone.now() - ABANDONED_TTL,
-        ).update(status=InterviewSession.STATUS_ABANDONED, version=F("version") + 1)
+        # way _get_session does). Per-row (not a bulk .update()) since each
+        # transition needs its own WorkflowItemState mutation + history
+        # entry -- an infrequent housekeeping sweep over a handful of stale
+        # rows, not a hot path.
+        stale_ids = list(
+            InterviewSession.objects.filter(
+                workspace_id=workspace_id,
+                status=InterviewSession.STATUS_IN_PROGRESS,
+                modified_at__lt=timezone.now() - ABANDONED_TTL,
+            ).values_list("id", flat=True)
+        )
+        for stale_id in stale_ids:
+            stale_session = InterviewSession.objects.filter(id=stale_id).first()
+            if stale_session is not None:
+                self._lazily_abandon_if_stale(stale_session, ctx)
 
         qs = InterviewSession.objects.filter(workspace_id=workspace_id)
         if status:

@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import type { DerivedRequirementDraft } from "../../api/stakeholder-need";
+import { Spinner } from "../shared/Spinner/Spinner";
 
 export interface DeriveRequirementsPanelProps {
   workspaceId: string;
@@ -205,9 +206,11 @@ export function DeriveRequirementsPanel({
           disabled={isAccepting || selectedCount === 0}
           data-testid="derive-requirements-accept"
         >
-          {isAccepting
-            ? t("deriveRequirements.accepting")
-            : t("deriveRequirements.accept")}
+          {isAccepting ? (
+            <Spinner label={t("deriveRequirements.accepting")} />
+          ) : (
+            t("deriveRequirements.accept")
+          )}
         </button>
         <button
           type="button"

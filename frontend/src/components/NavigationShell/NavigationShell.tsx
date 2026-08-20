@@ -94,6 +94,7 @@ const WorkflowEditorPage = lazy(
   () => import("../WorkflowEditor/WorkflowEditorPage")
 );
 const GoalsPage = lazy(() => import("../Goals/GoalsPage"));
+const InterviewEditors = lazy(() => import("../InterviewEditors/InterviewEditors"));
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -179,6 +180,8 @@ function AppShell(): JSX.Element {
                 element={<Navigate to="/audit" replace />}
               />
               <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/interviews" element={<InterviewEditors />} />
+              <Route path="/interviews/:id" element={<InterviewEditors />} />
               <Route path="/glossary" element={<GlossaryView />} />
               <Route path="/workflows" element={<WorkflowEditorPage />} />
               <Route

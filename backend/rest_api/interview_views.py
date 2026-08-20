@@ -168,6 +168,20 @@ class InterviewViewSet(viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @action(detail=True, methods=["post"], url_path="abandon")
+    def abandon(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/interviews/{id}/abandon/ -- user-initiated cancel."""
+        lang = detect_lang(request)
+        session_id, error = parse_uuid_param(pk, lang, name="id")
+        if error is not None:
+            return error
+        try:
+            ctx = get_auth_context(request)
+            result = InterviewService().abandon(ctx, session_id)
+        except _SERVICE_EXCEPTIONS as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
     @action(detail=True, methods=["post"], url_path="chat")
     def chat(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/chat/ {"message": ...} -- server-generated turn (spec §5)."""
