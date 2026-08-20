@@ -59,9 +59,9 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
     await page.locator('[data-testid="tracelink-create-btn"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    // Global mode (no fixed sourceId on /traceability) shows a plain source <select>...
-    await expect(page.locator('[data-testid="create-trace-link-source-select"]')).toBeVisible({ timeout: 6000 });
-    // ...and the target is a searchable ElementPicker (list), not a <select>.
+    // #53 Bug 2: global mode (no fixed sourceId on /traceability) shows the
+    // same searchable ElementPicker (list) for both source and target.
+    await expect(page.locator('[data-testid="create-trace-link-source-list"]')).toBeVisible({ timeout: 6000 });
     await expect(page.locator('[data-testid="create-trace-link-target-list"]')).toBeVisible({ timeout: 6000 });
     await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toBeVisible({ timeout: 6000 });
     await expect(page.locator('[data-testid="create-trace-link-submit"]')).toBeVisible({ timeout: 6000 });
@@ -111,12 +111,12 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
     await page.locator('[data-testid="tracelink-create-btn"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    // Global mode (no fixed sourceId on /traceability): source is a plain
-    // <select> keyed by element id; target is a searchable ElementPicker
-    // whose entries are addressable directly by id via data-testid.
-    const sourceSelect = page.locator('[data-testid="create-trace-link-source-select"]');
-    await expect(sourceSelect).toBeVisible({ timeout: 6000 });
-    await sourceSelect.selectOption(sourceReqId);
+    // #53 Bug 2: global mode (no fixed sourceId on /traceability) — source
+    // and target are both searchable ElementPickers whose entries are
+    // addressable directly by id via data-testid.
+    const sourceEl = page.locator(`[data-testid="create-trace-link-source-element-${sourceReqId}"]`);
+    await expect(sourceEl).toBeVisible({ timeout: 6000 });
+    await sourceEl.click();
 
     const targetEl = page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`);
     await expect(targetEl).toBeVisible({ timeout: 6000 });
