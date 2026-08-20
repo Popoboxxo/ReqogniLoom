@@ -589,6 +589,25 @@ class RequirementSerializer(
     change_reason = SanitizedCharField(required=False, allow_blank=True, max_length=2000)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    # #45 (IEEE 29148 §5.2.4): non-blocking hint — null when the title has no
+    # 'and'/'or' conjunction, otherwise the distinct conjunction words found.
+    atomicity_warning = serializers.SerializerMethodField(
+        help_text=(
+            "Non-blocking atomicity hint (#45). Lists 'and'/'or' conjunctions "
+            "found in the title, which often indicate a bundled, non-atomic "
+            "requirement (IEEE 29148 §5.2.4). Null when none are found."
+        )
+    )
+
+    def get_atomicity_warning(self, obj: Any) -> Optional[list[str]]:
+        from application.requirement_service import detect_non_atomic_terms
+
+        # `obj` is a plain dict from `_dto_from_orm()` on every real call site
+        # (see rest_api/views.py) rather than a model/DTO instance — dicts have
+        # no `.title` attribute, so `getattr` alone would silently always
+        # return "".
+        title = obj.get("title", "") if isinstance(obj, dict) else getattr(obj, "title", "")
+        return detect_non_atomic_terms(title or "") or None
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         """Render conditional fields based on requirement type."""

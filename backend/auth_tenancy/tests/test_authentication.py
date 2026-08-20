@@ -307,3 +307,26 @@ def test_max_active_keys_enforced(user_a):
         svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k")
     with pytest.raises(ValueError):
         svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="overflow")
+
+
+@pytest.mark.django_db
+def test_max_active_keys_is_configurable_via_settings(user_a, settings):
+    """#606: CI/CD environments can raise the cap without a code change."""
+    settings.MAX_ACTIVE_API_KEYS_PER_USER = 2
+    svc = _service()
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k1")
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k2")
+    with pytest.raises(ValueError, match="maximum of 2"):
+        svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k3")
+
+
+@pytest.mark.django_db
+def test_max_active_keys_does_not_count_revoked_keys(user_a, settings):
+    """Revoked keys never blocked creation (the count query already filters
+    them out) — pinned explicitly since #606's report conflated the two."""
+    settings.MAX_ACTIVE_API_KEYS_PER_USER = 1
+    svc = _service()
+    result = svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k1")
+    svc.revoke_api_key(user_id=user_a.id, api_key_id=result.api_key_id)
+    # Revoking freed the one active slot — a new key can be created.
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k2")

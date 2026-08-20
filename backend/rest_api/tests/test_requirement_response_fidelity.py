@@ -270,6 +270,40 @@ def test_explicit_null_still_clears_verification_method(fidelity_env):
     assert body.get("complexity_fibonacci") is None
 
 
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_create_response_includes_atomicity_warning_for_bundled_title(fidelity_env):
+    """#45: a title with 'and'/'or' surfaces a non-blocking hint on create."""
+    client = _client(fidelity_env)
+    resp = client.post(
+        "/api/v1/requirements/",
+        {
+            "workspace_id": str(fidelity_env["workspace"].id),
+            "title": "System shall handle login and logout",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["atomicity_warning"] == ["and"]
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_create_response_atomicity_warning_is_null_for_atomic_title(fidelity_env):
+    """#45: an atomic title reports no warning, not an empty list."""
+    client = _client(fidelity_env)
+    resp = client.post(
+        "/api/v1/requirements/",
+        {
+            "workspace_id": str(fidelity_env["workspace"].id),
+            "title": "System shall authenticate a user",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["atomicity_warning"] is None
+
+
 def test_serializer_choices_match_the_model():
     """Guard the seam itself: no choice list may drift from the model again."""
     from persistence.models import VerificationMethod

@@ -25,6 +25,7 @@ ADR-L3-AS002-03: LLM not configured → explicit LlmNotConfiguredError.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -53,6 +54,23 @@ logger = logging.getLogger(__name__)
 
 # Sentinel to distinguish "not provided" from "set to None" in update calls.
 _UNSET = object()
+
+# #45 (IEEE 29148 §5.2.4): "and"/"or" conjunctions in a requirement title
+# usually indicate it bundles more than one testable statement. Word-boundary
+# match so this doesn't false-positive on substrings ("Android", "Norway").
+_NON_ATOMIC_TERM_PATTERN = re.compile(r"\b(and|or)\b", re.IGNORECASE)
+
+
+def detect_non_atomic_terms(title: str) -> List[str]:
+    """Return the distinct conjunction words found in ``title``, lowercased.
+
+    Deliberately a lightweight, always-available heuristic (no LLM call) —
+    a non-blocking hint, not a validation gate. Empty list means "no
+    conjunctions found", not "confirmed atomic": the check cannot detect
+    every non-atomic phrasing (e.g. semicolon-joined clauses), only the
+    literal 'and'/'or' pattern IEEE 29148 §5.2.4 calls out.
+    """
+    return sorted({m.group(1).lower() for m in _NON_ATOMIC_TERM_PATTERN.finditer(title or "")})
 
 
 class PgVectorUnavailableError(RuntimeError):

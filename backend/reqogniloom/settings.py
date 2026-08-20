@@ -534,6 +534,14 @@ TENANT_TOKEN_LIMIT_PER_DAY: int | None = config(
     "TENANT_TOKEN_LIMIT_PER_DAY", default=None, cast=lambda v: int(v) if v else None
 )
 
+# #606: hard cap on a user's ACTIVE (non-revoked) API keys — was a fixed
+# constant (10), too low for CI/CD environments where multiple agents/QA
+# runs each create their own key for isolation. Configurable per-deployment
+# instead of requiring a code change; default unchanged (10).
+MAX_ACTIVE_API_KEYS_PER_USER: int = config(
+    "MAX_ACTIVE_API_KEYS_PER_USER", default=10, cast=int
+)
+
 # ---------------------------------------------------------------------------
 # Celery — ARCH-L1-016 ResilienceOrchestrator (async task queue)
 # REQ-057: Support Redis authentication. If REDIS_PASSWORD is set, both URLs

@@ -30,7 +30,8 @@ from django.conf import settings
 from ..context import AuthMethod, IdentityClaims
 from ..errors import AuthenticationFailed
 from ..jwt_tokens import decode_jwt
-from ..models import MAX_ACTIVE_API_KEYS_PER_USER, ApiKey
+from ..models import MAX_ACTIVE_API_KEYS_PER_USER as _DEFAULT_MAX_ACTIVE_API_KEYS_PER_USER
+from ..models import ApiKey
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only, avoids a hard app dep
     from persistence.models import User
@@ -282,13 +283,19 @@ class AuthenticationService:
             ValueError: If the user already has ``MAX_ACTIVE_API_KEYS_PER_USER``
                 active keys.
         """
+        # #606: configurable via settings (env var) so CI/CD environments that
+        # provision a key per agent/QA-run aren't stuck with the fixed default.
+        max_active = getattr(
+            settings,
+            "MAX_ACTIVE_API_KEYS_PER_USER",
+            _DEFAULT_MAX_ACTIVE_API_KEYS_PER_USER,
+        )
         active_count = ApiKey.unscoped.filter(
             user_id=user_id, revoked_at__isnull=True
         ).count()
-        if active_count >= MAX_ACTIVE_API_KEYS_PER_USER:
+        if active_count >= max_active:
             raise ValueError(
-                f"User already has the maximum of "
-                f"{MAX_ACTIVE_API_KEYS_PER_USER} active API keys."
+                f"User already has the maximum of {max_active} active API keys."
             )
 
         plaintext = generate_api_key_plaintext()

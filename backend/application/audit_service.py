@@ -110,6 +110,11 @@ class AuditReport:
     total_findings_available: int = 0
     total_blockers_available: int = 0
     total_warnings_available: int = 0
+    #: #622: starting position of `findings` within the full run. 0 for every
+    #: pre-#622 caller (default `run_audit(limit=None)`); only meaningful
+    #: together with `truncated` when a caller passed an explicit `limit`,
+    #: to compute the next window's offset (`offset + len(findings)`).
+    offset: int = 0
 
     def to_dict(self) -> dict:
         blockers = sum(
@@ -131,6 +136,7 @@ class AuditReport:
             "total_findings_available": self.total_findings_available,
             "total_blockers_available": self.total_blockers_available,
             "total_warnings_available": self.total_warnings_available,
+            "offset": self.offset,
             "findings": [fv.to_dict() for fv in self.findings],
         }
 
@@ -281,6 +287,8 @@ class AuditService(ServiceBase):
         *,
         tier: Optional[str] = None,
         scopes: Optional[Sequence[AuditScope]] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
     ) -> AuditReport:
         """Run the SE-Auditor for *workspace_id* and return findings + proposals.
 
@@ -292,6 +300,21 @@ class AuditService(ServiceBase):
                 findings are filtered by the workspace's active rigor preset).
             scopes: Baseline scopes for scope-aware rules. Defaults to the
                 workspace-wide ``project`` scope inside the RuleEngine.
+            limit: #622 — when given, returns a plain sequential window
+                (``result.findings[offset:offset+limit]``, in the engine's
+                own stable order) instead of the default BLOCKER-preferred
+                cap, so a caller can walk the *entire* result set in chunks
+                past :data:`MAX_REPORT_FINDINGS`. ``None`` (the default)
+                preserves the exact pre-#622 behaviour for every existing
+                caller (AuditDashboard.tsx, audit.ai_review) — see
+                ``MAX_REPORT_FINDINGS``'s docstring for why that single-shot,
+                grouped-by-rule shape is kept as the default. Capped at
+                ``MAX_REPORT_FINDINGS`` regardless of the requested value, for
+                the same payload-size reason.
+            offset: #622 — starting position within the full (pre-cap) run,
+                only meaningful when ``limit`` is given. Out-of-range values
+                (negative, or past the end) yield an empty ``findings`` list
+                rather than an error.
 
         Returns:
             :class:`AuditReport` with a remediation proposal attached to every
@@ -305,7 +328,10 @@ class AuditService(ServiceBase):
             (blockers gate baseline creation and must stay visible even in a
             truncated view); ``index`` stays a stable position within the
             *full* (pre-cap) run so a finding's identity does not shift
-            across page-less re-runs.
+            across page-less re-runs. When ``limit`` is given, ``truncated``
+            instead means "more findings exist past this window"
+            (``offset + len(findings) < total_findings_available``), so a
+            client can tell whether to request the next window.
         """
         self._set_tenant_context(ctx)
         resolved_tier = tier or self.resolve_tier(workspace_id)
@@ -321,7 +347,6 @@ class AuditService(ServiceBase):
 
         primary_scope = scopes[0] if scopes else None
         total_findings = len(result.findings)
-        truncated = total_findings > self.MAX_REPORT_FINDINGS
         # Full (pre-cap) severity totals for the dashboard's count badges
         # (BUG-15 follow-up M3) — computed once here over the uncapped
         # engine result, not over the (possibly capped) report.findings.
@@ -329,6 +354,28 @@ class AuditService(ServiceBase):
             1 for f in result.findings if f.severity is Severity.BLOCKER
         )
         total_warnings = total_findings - total_blockers
+
+        indexed = list(enumerate(result.findings))
+        report_offset = 0
+        if limit is not None:
+            # #622: plain sequential window, engine order preserved — lets a
+            # client page through the *entire* result set deterministically.
+            window_limit = min(max(limit, 0), self.MAX_REPORT_FINDINGS)
+            window_start = max(offset, 0)
+            indexed = indexed[window_start : window_start + window_limit]
+            truncated = (window_start + len(indexed)) < total_findings
+            report_offset = window_start
+        else:
+            truncated = total_findings > self.MAX_REPORT_FINDINGS
+            if truncated:
+                # Stable-sort BLOCKER findings first (Python's sort is stable,
+                # so ties keep the engine's original rule/scope order), then
+                # cap. Re-sort the kept subset back to index order so display
+                # order still follows the engine's rule/scope grouping.
+                indexed.sort(key=lambda pair: pair[1].severity is not Severity.BLOCKER)
+                indexed = indexed[: self.MAX_REPORT_FINDINGS]
+                indexed.sort(key=lambda pair: pair[0])
+
         report = AuditReport(
             tier=result.tier,
             scope=primary_scope.scope if primary_scope else None,
@@ -339,17 +386,8 @@ class AuditService(ServiceBase):
             total_findings_available=total_findings,
             total_blockers_available=total_blockers,
             total_warnings_available=total_warnings,
+            offset=report_offset,
         )
-
-        indexed = list(enumerate(result.findings))
-        if truncated:
-            # Stable-sort BLOCKER findings first (Python's sort is stable, so
-            # ties keep the engine's original rule/scope order), then cap.
-            # Re-sort the kept subset back to index order so display order
-            # still follows the engine's rule/scope grouping.
-            indexed.sort(key=lambda pair: pair[1].severity is not Severity.BLOCKER)
-            indexed = indexed[: self.MAX_REPORT_FINDINGS]
-            indexed.sort(key=lambda pair: pair[0])
 
         for index, finding in indexed:
             proposal = self._propose_for_finding(finding, tenant_id, ws_id)
