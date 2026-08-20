@@ -440,14 +440,20 @@ def test_migrate_table_format_imports_requirements_with_workflow_state(tmp_path)
 
     set_request_tenant(workspace.tenant_id)
     try:
-        WorkflowEngineDefinition.objects.create(
+        # #41: seed_demo now provisions a default Requirement workflow
+        # definition itself, so this test's fixture-specific states
+        # ("Backlog"/"Active"/"Done") must overwrite it rather than
+        # collide with it on the (tenant, workspace, item_type) constraint.
+        WorkflowEngineDefinition.objects.update_or_create(
             tenant=workspace.tenant,
             workspace_id=workspace.id,
             item_type="Requirement",
-            preset=WorkflowEngineDefinition.PRESET_STANDARD,
-            workflow_json={
-                "states": ["Backlog", "Active", "Done"],
-                "transitions": [],
+            defaults={
+                "preset": WorkflowEngineDefinition.PRESET_STANDARD,
+                "workflow_json": {
+                    "states": ["Backlog", "Active", "Done"],
+                    "transitions": [],
+                },
             },
         )
     finally:
