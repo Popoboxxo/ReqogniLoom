@@ -29,68 +29,75 @@ Iteration — nur eine feste, im Code definierte Menge benannter Paletten.
 - **Keine Settings-UI** für Theme-Wahl. `WorkspaceSettings.tsx` hat ein
   etabliertes Muster für Sprache (Radiobutton-Gruppe + `workspacesApi.update()`),
   das für Theme gespiegelt werden kann.
-- **Hex-Migration ist der eigentliche Rückstand — und größer als im Issue
-  dokumentiert.** Issue-Snapshot (16.08.): 356 Hex-Treffer / 60 Dateien / 207
-  Inline-Styles. Aktueller Stand (20.08.): **592 Hex-Treffer / 104 Dateien /
-  1074 `style={{...}}`-Vorkommen.** Die Codebase wächst schneller als sie
-  migriert wird.
-- **ESLint-Regel `local/no-hex-color-in-inline-style: 'error'` existiert,
-  greift aber nicht vollständig.** Verifiziert an
+- **KORREKTUR (20.08., nach tieferer Prüfung): Hex-Migration ist bereits ein
+  aktiv gepflegtes, mit Ratchet-Tests abgesichertes Projekt — kein
+  ungetrackter Rückstand.** Die erste Messung in diesem Dokument (592
+  Hex-Treffer / 104 Dateien via naivem `grep`) war falsch: dieselbe
+  Zählmethode hat dieselbe Codebase bereits einmal fälschlich auf "152
+  Treffer / 48 Dateien" taxiert (siehe `frontend/src/test/ui-ratchet.test.ts`
+  Kommentar-Historie), weil `/#[0-9a-fA-F]{3,8}/` auch dezimale
+  GitHub-Issue-Referenzen in Kommentaren matcht (`// #135`, `{/* #340 */}`).
+  Die tatsächliche, um Kommentare bereinigte Zahl — bereits als Ratchet in
+  `ui-ratchet.test.ts` eingefroren — ist **90 Hex-Treffer in 27 `.tsx`-Dateien**
+  (`HEX_LITERAL_OCCURRENCE_BASELINE`/`HEX_LITERAL_FILE_BASELINE`) plus **55
+  Treffer in 6 CSS-Dateien** (`HEX_LITERAL_CSS_OCCURRENCE_BASELINE`/
+  `HEX_LITERAL_CSS_FILE_BASELINE`). Beide Ratchets dürfen nur sinken, nicht
+  steigen, und ihre Historie zeigt aktive Migrationsarbeit (z. B. Task 8.1,
+  die bereits die Primitive/Semantic-Trennung aus §2 oben umgesetzt hat).
+  **Ein neuer Ratchet-Test ist daher NICHT nötig — er existiert schon.**
+- **ESLint-Regel `local/no-hex-color-in-inline-style: 'error'` hat eine
+  dokumentierte, absichtliche Scope-Grenze — kein Bug.** Verifiziert an
   `frontend/src/components/ArtifactDiff/ArtifactDiff.tsx`: `npx eslint`
-  meldet 0 Verstöße, obwohl die Datei eine als `React.CSSProperties`
-  typisierte Konstante mit klaren Hex-Werten enthält:
-  ```tsx
-  const STATUS_STYLES: Record<DiffFieldStatus, React.CSSProperties> = {
-    added: { background: "#c6f6d5", color: "#22543d", ... },
-    ...
-  };
-  ```
-  Arbeitshypothese: Die Regel matched nur Hex-Literale direkt innerhalb eines
-  JSX-`style={{...}}`-Attribut-Ausdrucks (AST-Knoten `JSXAttribute` mit
-  `ObjectExpression`), nicht Hex-Literale in separat deklarierten,
-  typisierten Objekt-Konstanten, die über `style={STATUS_STYLES[key]}`
-  referenziert werden. Gleiches Muster bestätigt in
-  `frontend/src/components/TestRuns/TestRunDetailEditor.tsx` (Zeilen 188,
-  193, 198). Diese Lücke muss vor der Massen-Migration geschlossen werden,
-  sonst wächst der Rückstand während der Migration weiter.
+  meldet 0 Verstöße für dessen `STATUS_STYLES`-Konstante
+  (`Record<DiffFieldStatus, React.CSSProperties>` mit Hex-Werten wie
+  `background: "#c6f6d5"`). Der Regel-Kopfkommentar
+  (`frontend/eslint-rules/no-hex-color-in-inline-style.js`) sagt das
+  ausdrücklich voraus: "A hoisted style constant referenced by identifier
+  ... is NOT inspected — there is no literal in the attribute's own
+  subtree. That is a known, accepted limitation." Außerdem existiert
+  bereits ein flankierender Mechanismus dafür: `LEGACY_INLINE_STYLE_HEX_FILES`
+  (`frontend/eslint-rules/legacy-inline-style-hex-files.js`) — eine
+  eingefrorene Ausnahmeliste von 21 Dateien (darunter `ArtifactDiff.tsx`
+  selbst), für die die Regel bewusst `'off'` ist, mit der Anweisung, jeden
+  Eintrag beim Migrieren zu löschen statt neue hinzuzufügen. Die
+  Lücken-Erweiterung der Regel (`VariableDeclarator`-Hex-Erkennung) wäre für
+  genau diese Dateien wirkungslos, solange sie auf der Legacy-Liste stehen —
+  eine Regel-Härtung bringt daher erst Wert, NACHDEM eine Datei von der
+  Liste migriert wurde, nicht vorher. **Phase 0 (separate ESLint-Härtung
+  vor der Migration) entfällt damit als eigener Schritt** — siehe §4.1.
 
 ## 3. Reihenfolge-Entscheidung
 
 Zwei naheliegende Reihenfolgen wurden abgewogen:
 
 - **Migration zuerst:** saubere Basis, aber lange Strecke ohne sichtbares
-  Feature (592 Treffer, 104 Dateien).
+  Feature.
 - **Registry/Settings-UI zuerst:** schnell sichtbar, aber eine neu
   freigeschaltete Palette würde an allen noch nicht migrierten Stellen
   falsch/inkonsistent aussehen — das Feature wirkt kaputt, bevor es fertig
   ist.
 
-**Entscheidung (User-genehmigt): Hybrid, vier Phasen.** ESLint-Lücke zuerst
-schließen (verhindert neue Lecks während der Migration läuft), dann
-Registry-Infrastruktur (sichtbarer Fortschritt, aber neue Paletten bleiben
-zunächst ungenutzt/intern), dann die eigentliche Migration verzeichnisweise,
-zuletzt Freischaltung zusätzlicher Paletten + WCAG-Kontrastprüfung.
+**Entscheidung (User-genehmigt): Hybrid, vier Phasen — Phase 0 entfällt
+nach der Korrektur in §2.** Registry-Infrastruktur zuerst (sichtbarer
+Fortschritt, aber neue Paletten bleiben zunächst ungenutzt/intern), dann
+die eigentliche Migration verzeichnisweise (im bereits existierenden
+Ratchet nachverfolgt), zuletzt Freischaltung zusätzlicher Paletten +
+WCAG-Kontrastprüfung.
 
 ## 4. Architektur
 
-### 4.1 ESLint-Regel-Härtung (Phase 0)
+### 4.1 ESLint/Ratchet-Infrastruktur (Phase 0 — bereits erledigt, kein Task)
 
-Die bestehende Custom-Regel (Implementierung vermutlich in einem lokalen
-ESLint-Plugin, referenziert über `local/...` in `frontend/eslint.config.js`)
-muss um einen zusätzlichen AST-Check erweitert werden: Hex-Literale in
-`VariableDeclarator`-Initialisierern, deren Typ-Annotation `React.CSSProperties`
-oder `Record<string, React.CSSProperties>` referenziert (bzw. pragmatischer:
-jede String-Property mit einem Wert, der auf `/^#[0-9a-fA-F]{3,6}$/` matched,
-innerhalb eines Objekt-Literals, das erkennbar CSS-Properties zuweist — z. B.
-Property-Namen wie `background`, `color`, `borderColor` etc.), muss ebenfalls
-als Verstoß gemeldet werden.
-
-Begleitend: ein Ratchet-Test nach dem Muster von
-`frontend/src/test/i18n-parity.test.ts` (`MISSING_KEY_BASELINE`) bzw.
-`ui-ratchet.test.ts` — zählt rohe Hex-Treffer im gesamten `src`-Baum
-(Regex-Scan, kein AST nötig, analog zu `collectReferencedKeys`), mit einer
-eingefrorenen Obergrenze (`RAW_HEX_BASELINE`), die nur sinken darf. Das macht
-den Fortschritt der Migration in Phase 2 messbar und verhindert Rückfall.
+Sowohl die Ratchet-Tests (`ui-ratchet.test.ts`, siehe §2) als auch die
+`LEGACY_INLINE_STYLE_HEX_FILES`-Ausnahmeliste existieren bereits und werden
+aktiv gepflegt. Dieser Abschnitt existiert nur noch als Dokumentation
+dessen, was schon da ist — kein Implementierungs-Task in
+`docs/superpowers/plans/`. Eine AST-Erweiterung der ESLint-Regel auf
+`VariableDeclarator`-Hex-Fälle (wie z. B. `ArtifactDiff.tsx`s
+`STATUS_STYLES`) bleibt eine sinnvolle spätere Härtung, aber erst
+NACHDEM die jeweilige Datei von der Legacy-Liste migriert wurde (siehe
+§2) — sie gehört inhaltlich zu Phase 2 (pro migrierter Datei: Eintrag aus
+`LEGACY_INLINE_STYLE_HEX_FILES` löschen), nicht zu einer eigenen Vorstufe.
 
 ### 4.2 Theme-Registry (Phase 1)
 
@@ -119,8 +126,14 @@ Verzeichnisweise, jeweils ein Commit/Checkpoint pro Verzeichnis:
 
 Migration bedeutet: rohe Hex-Werte durch passende `var(--color-*)`-Referenzen
 ersetzen; existiert kein passendes semantisches Token, wird eines ergänzt
-(nicht ad hoc ein neuer roher Hex-Wert). Jeder Schritt senkt den
-`RAW_HEX_BASELINE`-Wert aus Phase 0 entsprechend ab.
+(nicht ad hoc ein neuer roher Hex-Wert). Jeder Schritt senkt
+`HEX_LITERAL_OCCURRENCE_BASELINE`/`HEX_LITERAL_FILE_BASELINE` (aktuell
+90/27, `.tsx`) bzw. `HEX_LITERAL_CSS_OCCURRENCE_BASELINE`/
+`HEX_LITERAL_CSS_FILE_BASELINE` (aktuell 55/6, CSS) in
+`frontend/src/test/ui-ratchet.test.ts` entsprechend ab — beide bereits
+existierend, siehe §2. Wird eine Datei aus `LEGACY_INLINE_STYLE_HEX_FILES`
+(`frontend/eslint-rules/legacy-inline-style-hex-files.js`) dabei
+vollständig migriert, wird ihr Eintrag im selben Commit gelöscht.
 
 ### 4.4 Paletten-Freischaltung + WCAG (Phase 3)
 
@@ -136,9 +149,9 @@ ersetzen; existiert kein passendes semantisches Token, wird eines ergänzt
 
 | Phase | Inhalt | Checkpoint |
 |---|---|---|
-| 0 | ESLint-Regel-Lücke schließen + Hex-Ratchet-Test | 1 Commit |
-| 1 | Theme-Registry-Mechanik + Settings-UI + Persistenz | 1 Commit |
-| 2 | Hex-Migration, pro Verzeichnis | 1 Commit je Verzeichnis (4) |
+| 0 | ~~ESLint-Lücke + Ratchet-Test~~ — bereits vorhanden, kein Task | — |
+| 1 | Theme-Registry-Mechanik + Settings-UI + Persistenz | siehe `docs/superpowers/plans/2026-08-20-multi-palette-theming-phase1.md` |
+| 2 | Hex-Migration, pro Verzeichnis (bestehender Ratchet sinkt) | 1 Commit je Verzeichnis (4) |
 | 3 | Paletten-Freischaltung + WCAG-Kontrast-Tests | 1 Commit |
 
 Jede Phase wird laut Nutzer-Vorgabe als eigener Zwischenstand gesichert
@@ -146,16 +159,11 @@ Jede Phase wird laut Nutzer-Vorgabe als eigener Zwischenstand gesichert
 
 ## 6. Testing
 
-- Ratchet-Test für Hex-Treffer (Phase 0), analog `i18n-parity.test.ts`.
-- Bestehende ESLint-Suite muss die erweiterte Regel grün gegen den
-  *migrierten* Teil der Codebase laufen lassen (rot gegen den
-  noch-nicht-migrierten Teil ist in Phase 0–1 erwartet und ok, da die Regel
-  nur *neue* Verstöße hart blockt — bestehende werden über den Ratchet-Test
-  separat nachverfolgt, nicht über harte ESLint-Fehler in unberührten
-  Dateien).
+- Bestehender Hex-Ratchet (`ui-ratchet.test.ts`) sinkt mit jedem
+  Migrations-Commit in Phase 2 — kein neuer Test nötig.
 - Kontrast-Tests (Phase 3) pro Palette.
-- Bestehende `ui-ratchet.test.ts` / `design-tokens.test.ts` dürfen durch
-  keine Phase brechen.
+- Bestehende `ui-ratchet.test.ts` / `design-tokens.test.ts` /
+  `i18n-parity.test.ts` dürfen durch keine Phase brechen.
 
 ## 7. Offene Punkte für spätere Iterationen (bewusst nicht in Scope)
 
