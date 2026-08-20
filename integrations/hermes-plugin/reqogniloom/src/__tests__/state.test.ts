@@ -60,16 +60,7 @@ function createMockApi(storedValue: string | null = null): HermesPluginAPI {
 
   return {
     ui: {
-      registerPanel: vi.fn(),
-      showPanel: vi.fn(),
-      hidePanel: vi.fn(),
-      togglePanel: vi.fn(),
-      showToast: vi.fn(),
       updateStatusBarItem: vi.fn(),
-    },
-    commands: {
-      register: vi.fn(),
-      execute: vi.fn(),
     },
     storage: {
       get: vi.fn(async (key: string) => storage.get(key) ?? null),
@@ -86,7 +77,6 @@ function createMockApi(storedValue: string | null = null): HermesPluginAPI {
     shell: {
       openExternal: vi.fn(async () => {}),
     },
-    subscriptions: [],
   } as unknown as HermesPluginAPI;
 }
 
