@@ -47,18 +47,15 @@ function AppInner(): JSX.Element {
 }
 // ---------------------------------------------------------------------------
 
-// React Router v7 future flags (Codeberg #98): opt into the upcoming v7
-// defaults early so the console stays free of "future flag" warnings and the
-// eventual v7 upgrade is a no-op for these two behaviors.
-const ROUTER_FUTURE_FLAGS = {
-  v7_startTransition: true,
-  v7_relativeSplatPath: true,
-};
+// #261: react-router-dom 7.18.2 (up from 6.30.4, CVE fix) IS the v7 default
+// behavior these flags used to opt into early — `BrowserRouterProps` no
+// longer accepts a `future` prop at all, so it's simply removed rather than
+// replaced.
 
 export const App = (): JSX.Element => (
   <ThemeProvider>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
+      <BrowserRouter>
         <AppInner />
       </BrowserRouter>
     </QueryClientProvider>
