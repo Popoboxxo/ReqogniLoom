@@ -104,6 +104,11 @@ class WorkflowDowngradeBlockedError(Exception):
     """Raised when a preset downgrade is blocked by item states."""
 
 
+class WorkflowItemNotFoundError(Exception):
+    """Raised by ``outdate(..., allow_lazy_init=False)`` when no
+    ``WorkflowItemState`` exists yet for the given item (#577)."""
+
+
 # ---------------------------------------------------------------------------
 # Typed return value
 # ---------------------------------------------------------------------------
@@ -283,6 +288,7 @@ def outdate(
     ctx: AuthContext,
     *,
     reason: str = "",
+    allow_lazy_init: bool = True,
 ) -> TransitionResult:
     """Mark an item as outdated (soft-delete), regardless of its current
     workflow state or which preset it uses.
@@ -308,16 +314,36 @@ def outdate(
         workspace_id: Workspace UUID.
         ctx:          AuthContext (``user_id`` is recorded as the actor).
         reason:       Optional audit reason for the history entry.
+        allow_lazy_init: When ``False``, skip the self-healing above and raise
+            :class:`WorkflowItemNotFoundError` instead of creating a state row
+            for an item that was never registered with the workflow engine
+            (#577). Every ``<type>.outdate`` MCP tool relies on the default
+            ``True`` for its legacy-item self-healing; ``review.reject`` is
+            the one caller that must NOT treat "no state yet" as "silently
+            fine" — every item it is meant to act on was already surfaced by
+            ``review.list_pending``, which only lists items that already have
+            a registered state, so "no state" there means the caller passed
+            an ``item_id`` that was never real to begin with, not a
+            legitimate pre-workflow-engine item.
 
     Returns:
         TransitionResult with the transition details (``new_state`` ==
         "outdated").
+
+    Raises:
+        WorkflowItemNotFoundError: no state exists and ``allow_lazy_init`` is
+            ``False``.
     """
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
     lifecycle = _get_lifecycle()
     if lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid) is None:
+        if not allow_lazy_init:
+            raise WorkflowItemNotFoundError(
+                f"No workflow-tracked {item_type} {item_id_uuid} in workspace "
+                f"{workspace_uuid}."
+            )
         dto = _get_store().get_definition(workspace_uuid, item_type)
         lifecycle.ensure_item_state(
             item_id_uuid, item_type, workspace_uuid, dto.initial_state
