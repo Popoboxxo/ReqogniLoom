@@ -92,6 +92,29 @@ def _parse_scopes(request: Request) -> list[AuditScope] | None:
     return [AuditScope(scope, artifact_id=artifact_id)]
 
 
+def _parse_pagination(request: Request) -> tuple[int | None, int]:
+    """#622: optional ``?limit=&offset=`` to page past the findings cap.
+
+    Absent ``limit`` -> ``(None, 0)``, preserving the default BLOCKER-
+    preferred truncation exactly as before this was added. A present but
+    invalid (non-integer) value raises ValueError, mapped to a 400 by the
+    caller — same pattern as ``_parse_scopes``.
+    """
+    raw_limit = request.query_params.get("limit")
+    if raw_limit is None:
+        return None, 0
+    try:
+        limit = int(raw_limit)
+    except ValueError as exc:
+        raise ValueError("limit must be an integer.") from exc
+    raw_offset = request.query_params.get("offset", "0")
+    try:
+        offset = int(raw_offset)
+    except ValueError as exc:
+        raise ValueError("offset must be an integer.") from exc
+    return limit, offset
+
+
 class WorkspaceAuditView(APIView):
     """GET /api/v1/workspaces/<workspace_id>/audit/ — run the SE-Auditor."""
 
@@ -101,6 +124,7 @@ class WorkspaceAuditView(APIView):
         lang = detect_lang(request)
         try:
             scopes = _parse_scopes(request)
+            limit, offset = _parse_pagination(request)
         except ValueError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -108,7 +132,11 @@ class WorkspaceAuditView(APIView):
             )
         try:
             report = AuditService().run_audit(
-                workspace_id, get_auth_context(request), scopes=scopes
+                workspace_id,
+                get_auth_context(request),
+                scopes=scopes,
+                limit=limit,
+                offset=offset,
             )
             return Response(report.to_dict())
         except NotFoundError as exc:

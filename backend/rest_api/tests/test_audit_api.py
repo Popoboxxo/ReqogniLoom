@@ -129,6 +129,54 @@ class TestAuditGetEndpoint:
 
         assert resp.status_code == 400
 
+    def test_get_with_limit_returns_a_windowed_response(self, tenant, workspace, user):
+        """#622: ?limit=&offset= page past the default truncation cap."""
+        with _active(tenant):
+            _p5_scenario(tenant, workspace)
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project&limit=1&offset=0"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 200
+        body = resp.data
+        assert len(body["findings"]) == 1
+        assert body["offset"] == 0
+
+    def test_get_without_limit_omits_pagination_effect(self, tenant, workspace, user):
+        """No ?limit= must behave exactly as before #622 (offset always 0)."""
+        with _active(tenant):
+            _p5_scenario(tenant, workspace)
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 200
+        assert resp.data["offset"] == 0
+
+    def test_get_rejects_non_integer_limit(self, tenant, workspace, user):
+        with _active(tenant):
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project&limit=not-a-number"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 400
+
+    def test_get_rejects_non_integer_offset(self, tenant, workspace, user):
+        with _active(tenant):
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project&limit=10&offset=abc"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 400
+
 
 class TestAuditRemediateEndpoint:
     def test_post_adopts_trace_p5_and_returns_200(self, tenant, workspace, user):

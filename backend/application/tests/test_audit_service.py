@@ -333,6 +333,111 @@ class TestRunAuditTruncation:
 
 
 # ---------------------------------------------------------------------------
+# #622 — limit/offset lets a caller page past MAX_REPORT_FINDINGS instead of
+# only ever seeing the default BLOCKER-preferred truncated view.
+# ---------------------------------------------------------------------------
+
+
+class TestRunAuditPagination:
+    def _findings(self, count: int) -> list:
+        return [
+            Finding(
+                rule_id=TRACE_P4,
+                severity=Severity.BLOCKER,
+                message=f"finding {i}",
+                artifact_ids=(),
+            )
+            for i in range(count)
+        ]
+
+    def test_no_limit_preserves_default_truncation_behaviour(
+        self, tenant, workspace, ctx
+    ):
+        """limit=None (the default) must be byte-for-byte the pre-#622 shape."""
+        overflow_count = AuditService.MAX_REPORT_FINDINGS + 50
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(self._findings(overflow_count)))
+            report = svc.run_audit(workspace.id, ctx, tier="extended")
+
+        data = report.to_dict()
+        assert data["truncated"] is True
+        assert data["offset"] == 0
+        assert len(data["findings"]) == AuditService.MAX_REPORT_FINDINGS
+
+    def test_limit_returns_a_sequential_window(self, tenant, workspace, ctx):
+        overflow_count = AuditService.MAX_REPORT_FINDINGS + 50
+        findings = self._findings(overflow_count)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            report = svc.run_audit(
+                workspace.id, ctx, tier="extended", limit=10, offset=0
+            )
+
+        data = report.to_dict()
+        assert len(data["findings"]) == 10
+        assert data["offset"] == 0
+        assert data["truncated"] is True, "more findings exist past this window"
+        assert [f["message"] for f in data["findings"]] == [
+            f"finding {i}" for i in range(10)
+        ]
+
+    def test_limit_with_offset_returns_the_next_window(self, tenant, workspace, ctx):
+        overflow_count = AuditService.MAX_REPORT_FINDINGS + 50
+        findings = self._findings(overflow_count)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            report = svc.run_audit(
+                workspace.id, ctx, tier="extended", limit=10, offset=10
+            )
+
+        data = report.to_dict()
+        assert data["offset"] == 10
+        assert [f["message"] for f in data["findings"]] == [
+            f"finding {i}" for i in range(10, 20)
+        ]
+
+    def test_last_window_is_not_flagged_truncated(self, tenant, workspace, ctx):
+        findings = self._findings(25)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            report = svc.run_audit(
+                workspace.id, ctx, tier="extended", limit=10, offset=20
+            )
+
+        data = report.to_dict()
+        assert len(data["findings"]) == 5
+        assert data["truncated"] is False, "no more findings past this window"
+
+    def test_limit_is_capped_at_max_report_findings(self, tenant, workspace, ctx):
+        overflow_count = AuditService.MAX_REPORT_FINDINGS + 700
+        findings = self._findings(overflow_count)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            report = svc.run_audit(
+                workspace.id,
+                ctx,
+                tier="extended",
+                limit=AuditService.MAX_REPORT_FINDINGS + 500,
+                offset=0,
+            )
+
+        # An oversized limit request never bypasses the payload-size cap.
+        assert len(report.to_dict()["findings"]) == AuditService.MAX_REPORT_FINDINGS
+
+    def test_offset_past_the_end_returns_an_empty_window(self, tenant, workspace, ctx):
+        findings = self._findings(5)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            report = svc.run_audit(
+                workspace.id, ctx, tier="extended", limit=10, offset=100
+            )
+
+        data = report.to_dict()
+        assert data["findings"] == []
+        assert data["truncated"] is False
+
+
+# ---------------------------------------------------------------------------
 # BUG-15 code review H1 (blocker) — Adopt-verification must never consult the
 # capped run_audit() report; a finding outside the cap must not read as
 # resolved.
