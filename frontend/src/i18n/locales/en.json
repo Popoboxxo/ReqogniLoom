@@ -59,7 +59,8 @@
     "languageToggleTitleAdmin": "Toggle language DE/EN (saves for the whole workspace)",
     "languageToggleTitleMember": "Toggle language for your own view only — ask a workspace admin to change the shared setting",
     "languageSessionOnly": "Language changed for your view only. Ask a workspace admin to change it for everyone.",
-    "languageSaveFailed": "Could not save the workspace language. Your view was updated, but the change was not saved."
+    "languageSaveFailed": "Could not save the workspace language. Your view was updated, but the change was not saved.",
+    "interviews": "Interviews"
   },
   "systemHealth": {
     "title": "System Health",
@@ -1490,5 +1491,31 @@
   },
   "profile": {
     "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types."
+  },
+  "interviews": {
+    "summary_one": "{{count}} interview",
+    "summary_other": "{{count}} interviews",
+    "newInterview": "New Interview",
+    "newInterviewDescription": "Pick what you want to brainstorm — the assistant will interview you for it.",
+    "startCta": "Prefer to create it in a dialog?",
+    "emptyTitle": "No interviews yet",
+    "emptyDescription": "An interview walks you through a dialogue instead of a blank form to create a new artifact.",
+    "selectInterview": "Select an interview session",
+    "detailTitle": "Interview",
+    "missingFields": "Still missing",
+    "chat": "Conversation",
+    "abandon": "Abandon",
+    "confirmAbandon": "Abandon this interview?",
+    "sortType": "Artifact type",
+    "forType": {
+      "Requirement": "Interview → Requirement",
+      "ArchitectureElement": "Interview → Architecture Element",
+      "StakeholderNeed": "Interview → Stakeholder Need",
+      "Risk": "Interview → Risk",
+      "TestCase": "Interview → Test Case",
+      "Adr": "Interview → ADR",
+      "Issue": "Interview → Issue",
+      "Goal": "Interview → Goal"
+    }
   }
 }

@@ -12,25 +12,13 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { interviewsApi, type InterviewState } from "../../api/interviews";
+import { INTERVIEW_ARTIFACT_TYPES } from "../../constants/interviewArtifactTypes";
+import { Spinner } from "../shared/Spinner/Spinner";
 import { InterviewChatPane } from "./InterviewChatPane";
 import { InterviewArtifactPane } from "./InterviewArtifactPane";
 import styles from "./InterviewWidget.module.css";
 
 const STORAGE_KEY = "reqflow-interview-widget-open";
-
-/** In-scope artifact types for interviews -- fixed at design time, mirrors
- * the Hermes plugin's `InterviewListView` (spec §1 of the engine design).
- * Not fetched from an API. */
-const INTERVIEW_ARTIFACT_TYPES = [
-  "Requirement",
-  "ArchitectureElement",
-  "StakeholderNeed",
-  "Risk",
-  "TestCase",
-  "Adr",
-  "Issue",
-  "Goal",
-] as const;
 
 export function InterviewWidget(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
@@ -98,7 +86,7 @@ export function InterviewWidget(): JSX.Element {
                   disabled={starting}
                   onClick={() => void startInterview(type)}
                 >
-                  {type}
+                  {starting ? <Spinner /> : type}
                 </button>
               ))}
             </div>

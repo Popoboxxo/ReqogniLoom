@@ -11,7 +11,7 @@
  * choice over a premature shared-package abstraction.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type { UUID } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -85,6 +85,15 @@ export const interviewsApi = {
     return page.results;
   },
 
+  /**
+   * Fetch all interview sessions for a workspace, following pagination links
+   * until exhaustion (same issue #443-style truncation `adrsApi.listAll` and
+   * siblings already fix -- `list()` above only returns the first page).
+   */
+  async listAll(workspaceId: UUID): Promise<InterviewSummary[]> {
+    return getAllPages<InterviewSummary>("/interviews/", { workspace_id: workspaceId });
+  },
+
   /** Fetch a session's summary (id/workspace_id/artifact_type/status). */
   get(id: UUID): Promise<InterviewSummary> {
     return apiClient.get<InterviewSummary>(`/interviews/${id}/`);
@@ -124,5 +133,10 @@ export const interviewsApi = {
       `/interviews/${id}/chat/`,
       { message }
     );
+  },
+
+  /** User-initiated cancel of an in-progress session (workflow: -> abandoned). */
+  abandon(id: UUID): Promise<{ status: string }> {
+    return apiClient.post<{ status: string }>(`/interviews/${id}/abandon/`, {});
   },
 };

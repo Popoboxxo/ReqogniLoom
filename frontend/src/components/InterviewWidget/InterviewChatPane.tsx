@@ -9,6 +9,7 @@
  */
 import { useState } from "react";
 import { interviewsApi, type InterviewState } from "../../api/interviews";
+import { Spinner } from "../shared/Spinner/Spinner";
 import styles from "./InterviewChatPane.module.css";
 
 export function InterviewChatPane({
@@ -64,7 +65,7 @@ export function InterviewChatPane({
           onClick={() => void send()}
           disabled={sending}
         >
-          Send
+          {sending ? <Spinner label="Sending" /> : "Send"}
         </button>
       </div>
     </div>
