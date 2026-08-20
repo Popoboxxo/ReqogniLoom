@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to
 > implement this plan task-by-task. Full rationale, alternatives considered, and the answered
-> product decisions live in `docs/superpowers/plans/2026-08-07-diagram-node-graph-refactor-scoping.md`
+> product decisions live in `docs/superpowers/plans/Archive/2026-08-07-diagram-node-graph-refactor-scoping.md`
 > (revision 3) — this plan is the executable distillation of that document. Where a task brief
 > says "see scoping §X", that section is background/rationale, not a missing spec — every value
 > an implementer needs to write code is inlined in the task itself.

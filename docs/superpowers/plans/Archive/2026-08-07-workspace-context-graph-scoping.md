@@ -13,7 +13,7 @@
 > (`context.*`-Präfix wie im Issue benannt), und der v1-Zuschnitt aus §9 selbst ist bestätigt.
 > §11.3, §11.6, §11.7 bleiben offen, blockieren aber nur Folge-Issues, nicht v1. **Nächster
 > Schritt:** dieses Dokument in einen task-by-task-Plan im Stil von
-> `docs/superpowers/plans/2026-08-05-mcp-plugin-distribution.md` überführen, sobald die
+> `docs/superpowers/plans/Archive/2026-08-05-mcp-plugin-distribution.md` überführen, sobald die
 > Umsetzung angestoßen werden soll.
 
 **Goal:** Beantworten, was „Zusammenhangs- und Kontext-Speicher pro Workspace" in *dieser*

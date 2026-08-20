@@ -2016,7 +2016,7 @@ git commit -m "feat: add Goals and MainGoal frontend UI"
 
 ---
 
-Plan complete and saved to `docs/superpowers/plans/2026-07-30-ziele-und-hauptziel.md`. Two execution options:
+Plan complete and saved to `docs/superpowers/plans/Archive/2026-07-30-ziele-und-hauptziel.md`. Two execution options:
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 

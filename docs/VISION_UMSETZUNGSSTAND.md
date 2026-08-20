@@ -12,7 +12,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 0: Status-Modell-Vereinheitlichung (Fundament)
 
-**Plan:** `docs/superpowers/plans/2026-07-23-phase0-status-unification.md`  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-23-phase0-status-unification.md`  
 **Ziel:** Ersetze alle bespoken Soft-Delete-Mechanismen durch einen universellen, von `WorkflowEngine` gestützten `outdate()`/`reactivate()` Mechanismus; mache die Zuordnung „welche States gelten als outdated" konfigurierbar pro Preset und Workspace.
 
 **Kern-Features:**
@@ -29,7 +29,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 1: MCP-CRUD-Vervollständigung
 
-**Plan:** `docs/superpowers/plans/2026-07-24-phase1-mcp-crud-completion.md`  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-24-phase1-mcp-crud-completion.md`  
 **Ziel:** Exponiere `.outdate`/`.reactivate` als MCP-Tools auf jedem Entity-Typ; mache `.list`/`.query` MCP-Endpunkte standardmäßig outdated-ausschließend; wire 4 fehlende Entity-Typen (ChangeRequest, Diagram, CustomField read-only, Workspace-Preferences read-only).
 
 **Kern-Features:**
@@ -47,7 +47,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 2: Context-Generatoren
 
-**Plan:** `docs/superpowers/plans/2026-07-24-phase2-context-generators.md`  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-24-phase2-context-generators.md`  
 **Ziel:** Erweitere `workspace.get_context` mit `depth` (summary/normal/full), `include_outdated`, `role` (label-only); werte Tokens-Budgets. Neue Tools: `workspace.llm_system_prompt`, `context.test_coverage`, `context.change_impact`.
 
 **Kern-Features:**
@@ -65,7 +65,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 3: Derive-Modi (preview + write)
 
-**Plan:** `docs/superpowers/plans/2026-07-24-phase3-derive-write-mode.md`  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-24-phase3-derive-write-mode.md`  
 **Ziel:** Füge `mode` Parameter (preview/write) zu allen 4 existierenden Derive-Tools; ergänze 3 neue Derive-Paare (Architecture→Risk, Workspace→Glossary, Decision→ADR). `write`-Modus: erstelle Draft, trace Link, optional auto-approve via Review-Policy.
 
 **Kern-Features:**
@@ -83,7 +83,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 4: Prompt-Template-System
 
-**Plan:** `docs/superpowers/plans/2026-07-24-phase4-prompt-templates.md`  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-24-phase4-prompt-templates.md`  
 **Ziel:** Konvertiere `PromptTemplate` von Tenant-Singleton (3 feste Slots) zu benanntem, versioniertem, Multi-Template-Modell mit Global-Default + per-Workspace-Override. Wechsel alle 7 Derive-Methoden zur einheitlichen Lookup-Chain.
 
 **Kern-Features:**
@@ -101,7 +101,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 5: Review-Endpunkte
 
-**Plan:** `docs/superpowers/plans/2026-07-25-phase5-review-endpoints.md`  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-25-phase5-review-endpoints.md`  
 **Ziel:** Exponiere `review.*` MCP-Tool-Group (approve/reject/request_changes/list_pending) als dünner Wrapper über bestehenden WorkflowFacade. Introduziere per-Workspace `ReviewPolicy` (`mode` + `min_confidence`) die Auto-Approve-Gates steuert.
 
 **Implementierte Kern-Features:**
@@ -119,7 +119,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 6: Agenten-Templates für Downstream-Projekte
 
-**Plan:** `docs/superpowers/plans/2026-07-25-phase6-agent-templates.md`  
+**Plan:** `docs/superpowers/plans/2026-07-25-phase6-agent-templates.md` (not archived — one open item remains, see the plans index)  
 **Ziel:** Publikation von 5 provider-agnostischen, agent-meta-kompatiblen Agent-Template-Dateien + Bootstrap-Snippet unter `docs/agent-templates/`.
 
 **Implementierte Rollen (alle vollständig ausgearbeitet):**
@@ -180,7 +180,7 @@ Jede Rolle: YAML-Frontmatter (name, version, compatible_with, tools) + Prose Sys
 |---|---|
 | `.local/VISION_REQOGNILOOM.md` | Original-Vision (Abschnitt 10: Roadmap mit Prio 1–6) |
 | `docs/superpowers/specs/2026-07-23-reqogniloom-status-unification-design.md` | Design-Dokument (7 Phasen abgeleitet) |
-| `docs/superpowers/plans/2026-07-23-phase0-*.md` … `2026-07-25-phase6-*.md` | Implementierungs-Pläne (7 Dateien) |
+| `docs/superpowers/plans/Archive/2026-07-23-phase0-*.md` … `2026-07-25-phase5-*.md` (Archive) + `docs/superpowers/plans/2026-07-25-phase6-agent-templates.md` (nicht archiviert, ein offener Punkt) | Implementierungs-Pläne (7 Dateien) |
 | `.superpowers/sdd/progress*.md` | Ledger pro Phase (Commits, Findings, Verifikation) |
 | `docs/CODEBASE_OVERVIEW.md` | Code-API nach Umsetzung (Domäne des documenter-Agents) |
 

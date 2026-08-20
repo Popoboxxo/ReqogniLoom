@@ -4,7 +4,7 @@
 > requirements CRUD: `connect → list → detail → form`) was not carried
 > forward. `integrations/hermes-plugin/reqogniloom/` on `main` instead
 > implements the interview-management approach from
-> `docs/superpowers/plans/2026-08-14-interview-management-hermes-plugin.md`
+> `docs/superpowers/plans/Archive/2026-08-14-interview-management-hermes-plugin.md`
 > (MCP-backed structured interview form, merged via PR #546/#547/#548) — a
 > different problem (guided interview vs. direct artifact CRUD), not a
 > continuation of this plan. This plan's own unmerged branch

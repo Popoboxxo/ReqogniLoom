@@ -5,7 +5,7 @@ Owns the LLM/cache side of compressed bundle export ONLY. Data aggregation
 lives in RequirementBundleQueryService (Plan 1); this service takes an
 already-fetched BundleResult and produces a compressed text representation.
 
-Design: docs/superpowers/plans/2026-08-09-requirement-bundle-export-compression-plan.md
+Design: docs/superpowers/plans/Archive/2026-08-09-requirement-bundle-export-compression-plan.md
 (Requirement Bundle Export, Plan 2), sections on "Compressed mode" and
 "Caching".
 
