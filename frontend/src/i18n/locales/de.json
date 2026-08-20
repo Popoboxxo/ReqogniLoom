@@ -199,6 +199,8 @@
     "activeWorkspace": "Aktuell aktiv"
   },
   "editor": {
+    "expandNode": "Ausklappen",
+    "collapseNode": "Einklappen",
     "title": "Titel",
     "description": "Beschreibung",
     "acceptanceCriteria": "Abnahmekriterien",

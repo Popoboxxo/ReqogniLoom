@@ -32,7 +32,9 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { tracelinksApi } from "../../api/tracelinks";
 import { traceabilityApi } from "../../api/traceability";
 import { requirementsApi } from "../../api/requirements";
@@ -80,6 +82,14 @@ interface TraceabilityState {
   titles: Record<UUID, string>;
   /** Artifact-id keyed artifact types (#413). */
   types: Record<UUID, string>;
+  /**
+   * Artifact-id keyed entity ids (#425). A TraceLink endpoint is an
+   * Artifact.id; the editor routes take the entity's own id (e.g.
+   * Requirement.id), which differs for every type except TestCase (#414 —
+   * the two ID spaces the rest of the app conflates). Bridges that gap so
+   * trace-link entries can open the right editor instead of being inert text.
+   */
+  entityIds: Record<UUID, UUID>;
   artifacts: Artifact[];
   /** Workspace requirements, for the coverage surface (#413). */
   requirements: Requirement[];
@@ -92,6 +102,7 @@ const INITIAL_STATE: TraceabilityState = {
   links: [],
   titles: {},
   types: {},
+  entityIds: {},
   artifacts: [],
   requirements: [],
   cycles: [],
@@ -135,26 +146,34 @@ function EndpointCell({
   endpoint,
   titles,
   types,
+  entityIds,
   verifiedIds,
   testId,
   coveredLabel,
   uncoveredLabel,
+  onOpen,
 }: {
   endpoint: TraceEndpoint;
   titles: Record<UUID, string>;
   types: Record<UUID, string>;
+  entityIds: Record<UUID, UUID>;
   verifiedIds: ReadonlySet<UUID>;
   testId: string;
   coveredLabel: string;
   uncoveredLabel: string;
+  /** #425: undefined when the endpoint's entity id could not be resolved
+      (e.g. an artifact only ever seen as a link endpoint, never loaded via
+      its own list) — falls back to inert text instead of a dead link. */
+  onOpen?: (artifactType: string, entityId: UUID) => void;
 }): JSX.Element {
   const artifactType = endpoint.artifactType || types[endpoint.id] || "";
   const title = endpoint.title || titles[endpoint.id] || "";
   const isRequirement = artifactType === REQUIREMENT_ARTIFACT_TYPE;
   const isVerified = verifiedIds.has(endpoint.id);
+  const entityId = entityIds[endpoint.id];
 
-  return (
-    <span data-testid={testId} className={styles.endpoint}>
+  const content = (
+    <>
       {artifactType && (
         <span data-testid={`${testId}-type`} className={styles.endpointType}>
           {artifactType}
@@ -173,6 +192,25 @@ function EndpointCell({
           {isVerified ? `✓ ${coveredLabel}` : `⚠ ${uncoveredLabel}`}
         </span>
       )}
+    </>
+  );
+
+  if (onOpen && entityId && artifactType) {
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        className={`${styles.endpoint} ${styles.endpointButton}`}
+        onClick={() => onOpen(artifactType, entityId)}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span data-testid={testId} className={styles.endpoint}>
+      {content}
     </span>
   );
 }
@@ -197,6 +235,12 @@ function orderedGroupKeys(grouped: Record<string, TraceLink[]>): string[] {
 
 export default function TraceabilityView(): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  // #425: trace-link endpoints were plain text — not focusable, not
+  // operable — with no way to reach the artifact they describe.
+  const handleOpenEndpoint = (artifactType: string, entityId: UUID): void => {
+    navigate(getArtifactRoute(artifactType, entityId));
+  };
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const [state, setState] = useState<TraceabilityState>(INITIAL_STATE);
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
@@ -286,6 +330,7 @@ export default function TraceabilityView(): JSX.Element {
         // entry for an artifact that actually participates in a link.
         const titles: Record<UUID, string> = {};
         const types: Record<UUID, string> = {};
+        const entityIds: Record<UUID, UUID> = {};
         const requirements = reqResp as Requirement[];
         const indexEntity = (
           entityId: UUID,
@@ -295,6 +340,7 @@ export default function TraceabilityView(): JSX.Element {
         ): void => {
           titles[artifactId ?? entityId] = title || t("editor.untitled");
           types[artifactId ?? entityId] = artifactType;
+          entityIds[artifactId ?? entityId] = entityId;
         };
 
         for (const r of requirements) {
@@ -336,6 +382,7 @@ export default function TraceabilityView(): JSX.Element {
           links: linksResp,
           titles,
           types,
+          entityIds,
           artifacts: artifactsResp.results,
           requirements,
           cycles: cyclesResp.cycles,
@@ -719,10 +766,12 @@ export default function TraceabilityView(): JSX.Element {
                         endpoint={endpointOf(link, "source")}
                         titles={state.titles}
                         types={state.types}
+                        entityIds={state.entityIds}
                         verifiedIds={verifiedIds}
                         testId="tracelink-source"
                         coveredLabel={t("traceability.verified", "verifiziert")}
                         uncoveredLabel={t("traceability.notVerified", "kein Test")}
+                        onOpen={handleOpenEndpoint}
                       />
                       <span
                         aria-hidden="true"
@@ -759,10 +808,12 @@ export default function TraceabilityView(): JSX.Element {
                         endpoint={endpointOf(link, "target")}
                         titles={state.titles}
                         types={state.types}
+                        entityIds={state.entityIds}
                         verifiedIds={verifiedIds}
                         testId="tracelink-target"
                         coveredLabel={t("traceability.verified", "verifiziert")}
                         uncoveredLabel={t("traceability.notVerified", "kein Test")}
+                        onOpen={handleOpenEndpoint}
                       />
                     </li>
                   ))}

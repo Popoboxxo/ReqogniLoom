@@ -190,6 +190,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           onClick={() => void toggle()}
           disabled={toggleDisabled}
           aria-expanded={expanded}
+          aria-label={expanded ? t('editor.collapseNode', 'Collapse') : t('editor.expandNode', 'Expand')}
           title={
             isCycle
               ? t('traceability.cycleNode', 'Bereits im Pfad enthalten (Zyklus)')

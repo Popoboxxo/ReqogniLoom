@@ -329,10 +329,11 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label style={labelStyle}>
+            <label htmlFor="need-title" style={labelStyle}>
               {t('editor.title')}
             </label>
             <input
+              id="need-title"
               type="text"
               value={formData.title || ''}
               onChange={(e) => handleChange('title', e.target.value)}
@@ -368,10 +369,11 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             </div>
 
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>
+              <label htmlFor="need-category" style={labelStyle}>
                 {t('editor.category')}
               </label>
               <input
+                id="need-category"
                 type="text"
                 value={formData.category || ''}
                 onChange={(e) => handleChange('category', e.target.value)}
@@ -382,10 +384,11 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             <div style={{ flex: 1 }}>
               {attributeVisibility.moscow_priority !== false && (
                 <>
-                  <label style={labelStyle}>
+                  <label htmlFor="need-moscow-priority" style={labelStyle}>
                     {t('editor.moscowPriority')}
                   </label>
                   <select
+                    id="need-moscow-priority"
                     value={formData.moscow_priority || ''}
                     onChange={(e) => handleChange('moscow_priority', (e.target.value || undefined) as MoscowPriority | undefined)}
                     style={inputStyle}

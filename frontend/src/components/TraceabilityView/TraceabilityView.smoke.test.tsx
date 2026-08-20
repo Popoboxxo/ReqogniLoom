@@ -10,9 +10,10 @@
  *   - "Add Link" button is present
  *   - Error state renders when the API call fails
  *
- * TraceabilityView does not use react-router or TanStack Query — it fires
- * parallel fetch calls inside useEffect. All API modules are mocked so no
- * real network calls are made.
+ * TraceabilityView does not use TanStack Query — it fires parallel fetch
+ * calls inside useEffect. All API modules are mocked so no real network
+ * calls are made. #425: endpoints now navigate via useNavigate(), mocked
+ * below so tests don't need a real <Router>.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -23,6 +24,12 @@ import React from "react";
 // ---------------------------------------------------------------------------
 // Module mocks (must precede component import)
 // ---------------------------------------------------------------------------
+
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
+
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => mockNavigate,
+}));
 
 vi.mock("../../api/tracelinks");
 vi.mock("../../api/traceability");
@@ -293,6 +300,26 @@ describe("TraceabilityView — readable endpoints and coverage (#413)", () => {
     // Artifact type badge accompanies each endpoint
     expect(screen.getAllByTestId("tracelink-source-type")[0]).toHaveTextContent("TestCase");
     expect(screen.getAllByTestId("tracelink-target-type")[0]).toHaveTextContent("Requirement");
+  });
+
+  it("[#425] endpoint entries are keyboard-operable buttons that open the right entity route", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("tracelink-item").length).toBe(2);
+    });
+
+    const target = screen.getAllByTestId("tracelink-target")[0];
+    // A real <button>, not inert text — reachable via Tab, operable via Enter/click.
+    expect(target.tagName).toBe("BUTTON");
+
+    await user.click(target);
+
+    // target_id "art-req-001" (Artifact.id) resolves via COVERAGE_REQUIREMENTS
+    // to Requirement.id "req-001" (#414's artifact-id vs entity-id gap) — the
+    // route must use the entity id, not the artifact id.
+    expect(mockNavigate).toHaveBeenCalledWith("/requirements/req-001");
   });
 
   it("[#413] marks requirement endpoints as verified / not verified", async () => {
