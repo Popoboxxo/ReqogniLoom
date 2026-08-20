@@ -36,6 +36,11 @@ services:
       DEBUG: ${DEBUG:-True}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      # Issue #589: this stack has no TLS termination, so the `Secure` cookie
+      # flag must default off here or the browser silently drops the auth
+      # cookie and login never succeeds. Same override pattern as DEBUG above
+      # — an explicit AUTH_COOKIE_SECURE in .env still wins.
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-False}
     volumes:
       # Hot-reload: mount source code
       - ./backend:/app
