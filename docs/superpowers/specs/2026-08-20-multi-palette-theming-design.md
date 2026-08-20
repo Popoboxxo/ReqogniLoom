@@ -150,7 +150,7 @@ vollständig migriert, wird ihr Eintrag im selben Commit gelöscht.
 | Phase | Inhalt | Checkpoint |
 |---|---|---|
 | 0 | ~~ESLint-Lücke + Ratchet-Test~~ — bereits vorhanden, kein Task | — |
-| 1 | Theme-Registry-Mechanik + Settings-UI + Persistenz | siehe `docs/superpowers/plans/2026-08-20-multi-palette-theming-phase1.md` |
+| 1 | ~~Theme-Registry-Mechanik + Settings-UI + Persistenz~~ — **erledigt** | siehe `docs/superpowers/plans/2026-08-20-multi-palette-theming-phase1.md`, 6 Tasks, alle Reviews clean (2 Fix-Runden in Task 5), 2280/2281 Backend-Tests + 1096/1098 Frontend-Tests grün (2 vorbestehende, unabhängige Fails dokumentiert im Plan-Ledger) |
 | 2 | Hex-Migration, pro Verzeichnis (bestehender Ratchet sinkt) | 1 Commit je Verzeichnis (4) |
 | 3 | Paletten-Freischaltung + WCAG-Kontrast-Tests | 1 Commit |
 
