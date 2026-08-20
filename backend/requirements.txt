@@ -87,5 +87,5 @@ reqif>=0.0.53,<0.1
 # LLM provider SDKs (REQ-L3-LA002-001, fix #111) — without these every
 # LLM_PROVIDER=anthropic|openai call crashed with a raw RuntimeError; only
 # `mock` was actually usable. Pinned consistent with the other deps above.
-anthropic>=0.120.2,<1.0
+anthropic>=0.122.0,<1.0
 openai>=1.40,<2.0
