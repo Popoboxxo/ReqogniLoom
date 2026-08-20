@@ -22,7 +22,7 @@ from typing import Iterator
 
 import pytest
 
-from application.ai_review_service import AiReviewService
+from application.ai_review_service import AiReviewResponseError, AiReviewService
 from application.audit_service import AuditFindingView, AuditReport, AuditService
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, Requirement, Tenant, User, Workspace
@@ -336,3 +336,30 @@ class TestReviewDropsHallucinatedIndices:
             result = AiReviewService().review(workspace.id, ctx, tier="extended")
 
         assert result.packages == []
+
+
+# ---------------------------------------------------------------------------
+# #312 / #342 — a slow/unresponsive provider must fail fast with a clear
+# error, not hang indefinitely or leak an unhandled provider exception.
+# ---------------------------------------------------------------------------
+
+
+class TestReviewHandlesProviderTimeout:
+    def test_provider_timeout_raises_a_clean_ai_review_error(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+
+        class _HangingProvider:
+            def complete(self, prompt, *, purpose="", context=None, timeout=None):
+                raise TimeoutError("provider did not respond in time")
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda: _HangingProvider()
+        )
+
+        with _active(tenant), pytest.raises(AiReviewResponseError) as exc_info:
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        assert "did not answer" in str(exc_info.value)
