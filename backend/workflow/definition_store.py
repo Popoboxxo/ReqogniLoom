@@ -528,6 +528,31 @@ def _issue_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _interview_transitions() -> list[dict[str, Any]]:
+    # State values match persistence.models.InterviewSession.STATUS_CHOICES.
+    # No approval gate: an interview's completion/abandonment is a direct
+    # consequence of the chat flow (formalize() / the 30-day lazy-abandon
+    # sweep), not a business sign-off someone reviews and approves — every
+    # transition is editor-self-service, matching who is already allowed to
+    # run interview.* in the first place.
+    return [
+        {
+            "from_state": "in_progress",
+            "to_state": "completed",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_progress",
+            "to_state": "abandoned",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
 def _testcase_transitions() -> list[dict[str, Any]]:
     # State values match persistence.models.TestCase.Status VALUE strings.
     #
@@ -695,6 +720,16 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
             "Wontfix": {"is_outdated_equivalent": True},
             "Resolved": {"auto_approve_target": True},
         },
+    },
+    # 2026-08-20: Interview-Session UI-visibility fix. "abandoned" is the
+    # is_outdated_equivalent state (an abandoned session should be excluded
+    # from list views the same way every other type's terminal-reject state
+    # is) — "completed" is a genuine terminal success state, not equivalent
+    # to outdated.
+    "interview_default": {
+        "states": ["in_progress", "completed", "abandoned"],
+        "transitions": _interview_transitions(),
+        "state_meta": {"abandoned": {"is_outdated_equivalent": True}},
     },
     # GH-453: lowercase state values (was Title Case) so "draft"/"approved"
     # mean the same string here as for Requirement/StakeholderNeed/Need/

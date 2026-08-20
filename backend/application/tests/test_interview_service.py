@@ -759,3 +759,117 @@ class TestGenerateChatTurn:
 
         assert result["reply"] == "not json at all"
         assert result["state"]["collected_fields"] == {}
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-20 UI-visibility fix: workflow-engine integration
+# (Interview-Session as a first-class WorkflowEntity)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def workspace_with_interview_workflow(tenant, workspace):
+    """Same `workspace` fixture, plus a provisioned 'interview_default'
+    workflow -- the plain `workspace` fixture deliberately has none, so
+    every pre-existing test in this file exercises the best-effort fallback
+    path (no WorkflowItemState row), not the real integration. These tests
+    need the real thing provisioned."""
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="interview_default",
+            item_type="Interview",
+            tenant_id=tenant.id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+    return workspace
+
+
+class TestWorkflowIntegration:
+    def test_start_creates_backing_artifact(self, ctx, workspace):
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        assert session.artifact_id is not None
+        assert session.artifact.artifact_type == "Interview"
+        assert session.artifact.workspace_id == workspace.id
+
+    def test_start_registers_workflow_item_state_when_provisioned(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        from workflow.models import WorkflowItemState
+
+        session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
+
+        item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
+        assert item_state.current_state == "in_progress"
+
+    def test_start_without_provisioned_workflow_still_succeeds(self, ctx, workspace):
+        """The plain `workspace` fixture has no 'interview_default'
+        definition -- initialize_workflow_states must fail closed
+        (best-effort try/except) without blocking session creation."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        assert session.status == "in_progress"
+
+    def test_formalize_transitions_workflow_state_to_completed(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        from workflow.models import WorkflowItemState
+
+        session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login")
+        InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        assert result["status"] == "completed"
+        item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
+        assert item_state.current_state == "completed"
+        # status mirror (lifecycle_manager._STATUS_MIRROR_MODELS) kept in sync.
+        session.refresh_from_db()
+        assert session.status == "completed"
+
+    def test_formalize_records_workflow_history_entry(self, ctx, workspace_with_interview_workflow):
+        from workflow.models import WorkflowHistoryEntry, WorkflowItemState
+
+        session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login")
+        InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+        InterviewService().formalize(ctx, session.id)
+
+        item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
+        history = WorkflowHistoryEntry.objects.filter(item_state=item_state)
+        assert history.filter(from_state="in_progress", to_state="completed").exists()
+
+    def test_lazy_abandon_transitions_workflow_state(self, ctx, workspace_with_interview_workflow):
+        from workflow.models import WorkflowItemState
+
+        session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
+        stale_time = timezone.now() - ABANDONED_TTL - timedelta(days=1)
+        from persistence.models import InterviewSession as ISModel
+
+        ISModel.objects.filter(id=session.id).update(modified_at=stale_time)
+
+        state = InterviewService().get_state(ctx, session.id)
+
+        assert state["status"] == "abandoned"
+        item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
+        assert item_state.current_state == "abandoned"
+
+    def test_lazy_abandon_without_provisioned_workflow_falls_back(self, ctx, workspace):
+        """No WorkflowItemState row exists (workspace fixture has no
+        provisioned workflow) -- force_transition raises DoesNotExist, and
+        the direct-field-write fallback must still flip the status."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        from persistence.models import InterviewSession as ISModel
+
+        stale_time = timezone.now() - ABANDONED_TTL - timedelta(days=1)
+        ISModel.objects.filter(id=session.id).update(modified_at=stale_time)
+
+        InterviewService()._get_session(ctx, session.id)
+
+        session.refresh_from_db()
+        assert session.status == "abandoned"

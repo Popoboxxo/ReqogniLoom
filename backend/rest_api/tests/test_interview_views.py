@@ -111,6 +111,42 @@ class TestInterviewFormalize:
         assert response.status_code == 400
 
 
+class TestInterviewAbandon:
+    def test_abandon_marks_session_abandoned(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+
+        response = authed_client.post(f"/api/v1/interviews/{session_id}/abandon/")
+
+        assert response.status_code == 200, response.content
+        assert response.data["status"] == "abandoned"
+
+    def test_abandon_already_completed_session_returns_400(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/", {"field": "title", "value": "SSO login"}, format="json"
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "rationale", "value": "Users need single sign-on."},
+            format="json",
+        )
+        authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
+
+        response = authed_client.post(f"/api/v1/interviews/{session_id}/abandon/")
+
+        assert response.status_code == 400
+
+
 class TestInterviewChat:
     def test_chat_returns_reply_and_updated_state(self, authed_client, workspace):
         start = authed_client.post(
