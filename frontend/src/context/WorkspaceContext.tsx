@@ -150,7 +150,7 @@ export function WorkspaceProvider({
 }: {
   children: ReactNode;
 }): JSX.Element {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, status: authStatus } = useAuth();
 
   const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(
     DEFAULT_WORKSPACE
@@ -268,23 +268,26 @@ export function WorkspaceProvider({
       // silently overrode the *next* user's own persisted workspace
       // language on the very same tab.
       setHasLocalLanguageOverride(false);
-      // #568 final-review fix: theme is NOT reset here, unlike language.
-      // `isAuthenticated` starts `false` on every fresh mount (this effect
-      // fires once during AuthContext's "restoring" phase before the
-      // session check resolves — see AuthContext.tsx's AuthStatus), so an
-      // unconditional reset here ran on every page load, not just on a real
-      // logout, and clobbered the `hasStoredThemePreference()` seed
-      // (below) before the theme-restore effect ever saw it — silently
-      // reapplying the workspace default over a returning user's saved
-      // choice on every reload. R-02's rationale doesn't transfer: language
-      // overrides are deliberately session-local and never persisted
-      // anywhere (see `markLanguageOverrideActive`'s own doc comment), so
-      // clearing them on logout is exactly right — but theme overrides ARE
-      // persisted, to `localStorage["reqflow-theme"]`
-      // (ThemeContext.tsx), the same way a browser's or OS's own
-      // light/dark setting survives logging out of any one account on it.
-      // A real, valid stored theme preference should keep winning over the
-      // workspace default regardless of auth transitions.
+      // #568 final-review fix (2 rounds): the naive `!isAuthenticated`
+      // guard is TRUE both during the transient "restoring" phase (every
+      // fresh mount starts here, before the session check resolves — see
+      // AuthContext.tsx's `AuthStatus`) and on a confirmed "anonymous"
+      // logout. Resetting theme's override unconditionally here — like the
+      // very first fix attempt did by seeding-then-still-resetting, and
+      // like just deleting the reset outright (round 2) — is each wrong in
+      // its own way: seeding-then-resetting clobbers a returning user's
+      // `hasStoredThemePreference()` seed on every ordinary page load
+      // (round 1's bug); deleting the reset entirely lets a real, confirmed
+      // logout leak one user's local theme choice into the next different
+      // user's session on the same tab/browser (round 2's bug — the exact
+      // cross-user leak R-02 exists to prevent, proven via an adversarial
+      // two-user test). The fix is neither: gate the reset on the
+      // fine-grained `status === "anonymous"` (a *resolved*, confirmed
+      // logged-out state) instead of the coarse `!isAuthenticated`, so it
+      // fires on a real logout but not during the transient restore.
+      if (authStatus === "anonymous") {
+        setHasLocalThemeOverride(false);
+      }
       return;
     }
     let cancelled = false;
@@ -295,7 +298,7 @@ export function WorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, reloadWorkspaces]);
+  }, [isAuthenticated, authStatus, reloadWorkspaces]);
 
   // Restore the persisted UI language from the active workspace (BUG-01,
   // REQ-133). `i18n/index.ts` only seeds the initial language from the
