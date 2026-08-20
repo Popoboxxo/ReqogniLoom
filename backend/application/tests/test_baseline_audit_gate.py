@@ -94,6 +94,44 @@ class TestBaselineAuditGateWiring:
         assert "derives-from" in message
         mock_build.assert_not_called()
 
+    def test_many_blocker_findings_produce_a_bounded_error_message(self):
+        """#582: 1000+ BLOCKERs must not inflate the 400 body to 100s of KB.
+
+        ``_summarise_findings`` already caps the enumerated findings at
+        ``_MAX_LISTED_FINDINGS`` (see application/baseline_facade.py) — this
+        pins that behaviour so a future edit can't silently regress it back
+        to an unbounded per-finding dump.
+        """
+        facade = BaselineFacade()
+        ctx = _make_ctx()
+        many_findings = [_blocker(rule_id=f"TRACE-P{i}") for i in range(1000)]
+
+        with (
+            patch("application.baseline_facade.TenantContext"),
+            patch(
+                "application.baseline_facade.BaselineFacade._check_scope_allowed"
+            ),
+            patch.object(
+                AuditService, "blocking_findings", return_value=many_findings
+            ),
+            patch("baseline.services.build") as mock_build,
+            patch("application.baseline_facade.ServiceBase._audit"),
+            patch("application.baseline_facade.ServiceBase._emit_event"),
+        ):
+            with pytest.raises(BaselineGateBlockedError) as exc_info:
+                facade.create_baseline(
+                    scope="project", workspace_id=WS_ID, name="v1", ctx=ctx
+                )
+
+        message = str(exc_info.value)
+        assert len(message) < 5000, (
+            f"error message is {len(message)} chars — findings enumeration "
+            "is no longer bounded"
+        )
+        assert "1000 blocking finding(s)" in message
+        assert "990 more" in message
+        mock_build.assert_not_called()
+
     def test_clean_audit_allows_the_build(self):
         facade = BaselineFacade()
         ctx = _make_ctx()

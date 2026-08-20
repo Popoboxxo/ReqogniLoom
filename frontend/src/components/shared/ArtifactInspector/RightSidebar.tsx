@@ -71,6 +71,17 @@ const COLLAPSE_KEY = (kind: ArtifactKind): string => `reqflow_inspector_collapse
 const PIN_KEY = (kind: ArtifactKind): string => `reqflow_inspector_pinned_${kind}`;
 const WIDTH_KEY = (kind: ArtifactKind): string => `reqflow_inspector_width_${kind}`;
 
+/**
+ * #419: below this viewport width, the expanded inspector (plus its
+ * surrounding detail pane) leaves too little room for the editor — at
+ * 1366px the Save button and every "Classification & Properties" field
+ * became unreachable. Collapsing the aside by default on first load below
+ * this threshold restores a usable editor without removing the option to
+ * expand it again (collapsing the earlier 45%-width cap does not by itself
+ * fix this — the editor's *remaining* share still has to stay usable).
+ */
+const DEFAULT_COLLAPSE_BREAKPOINT_PX = 1600;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -85,6 +96,24 @@ function readBool(key: string, fallback: boolean): boolean {
     /* localStorage may be disabled (private mode, etc.) */
   }
   return fallback;
+}
+
+/**
+ * #419: like `readBool`, but when there is no stored preference yet, the
+ * fallback is viewport-aware instead of a fixed constant — collapsed on
+ * narrow viewports, expanded otherwise. An explicit prior choice (any
+ * stored "true"/"false") always wins over this heuristic.
+ */
+function readCollapsedDefault(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    /* localStorage may be disabled (private mode, etc.) */
+  }
+  return window.innerWidth < DEFAULT_COLLAPSE_BREAKPOINT_PX;
 }
 
 function writeBool(key: string, value: boolean): void {
@@ -134,7 +163,7 @@ export function RightSidebar({
   // State — collapsed / pinned / width (all per-kind, persisted)
   // -------------------------------------------------------------------------
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => readBool(COLLAPSE_KEY(kind), false));
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsedDefault(COLLAPSE_KEY(kind)));
   const [pinned, setPinned] = useState<boolean>(() => readBool(PIN_KEY(kind), false));
   const [width, setWidth] = useState<number>(() =>
     readNumber(WIDTH_KEY(kind), DEFAULT_WIDTH_PX)

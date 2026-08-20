@@ -189,6 +189,10 @@ function AppShell(): JSX.Element {
                 element={<WorkflowEditorPage />}
               />
               <Route path="/profile" element={<UserProfileSettings />} />
+              {/* #609: /prompts has no dedicated page yet — route to the
+                  Settings tab where prompt variables actually live instead of
+                  silently falling through to the "*" dashboard redirect. */}
+              <Route path="/prompts" element={<Navigate to="/settings?tab=llm" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

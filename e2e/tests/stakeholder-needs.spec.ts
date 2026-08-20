@@ -88,21 +88,21 @@ test.describe('[REQ-L0-003] Traceability — create TraceLink via UI', () => {
     await createBtn.click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    // Global mode (no fixed sourceId on /traceability) shows a plain source
-    // <select>; target is a searchable ElementPicker (list), not a <select>.
-    const sourceSelect = page.locator('[data-testid="create-trace-link-source-select"]');
+    // #53 Bug 2: global mode (no fixed sourceId on /traceability) shows the
+    // same searchable ElementPicker (list) for both source and target.
+    const sourceList = page.locator('[data-testid="create-trace-link-source-list"]');
     const targetList = page.locator('[data-testid="create-trace-link-target-list"]');
-    await expect(sourceSelect).toBeVisible({ timeout: 6000 });
+    await expect(sourceList).toBeVisible({ timeout: 6000 });
     await expect(targetList).toBeVisible({ timeout: 6000 });
 
-    const sourceOptions = await sourceSelect.locator('option').count();
+    const sourceEntries = await sourceList.locator('button[data-testid^="create-trace-link-source-element-"]').count();
     const targetEntries = await targetList.locator('button[data-testid^="create-trace-link-target-element-"]').count();
 
-    if (sourceOptions <= 1 || targetEntries === 0) {
+    if (sourceEntries === 0 || targetEntries === 0) {
       // No artifacts seeded — graceful skip
       test.skip(true, 'Dropdowns empty — no artifacts seeded for this workspace');
     }
-    expect(sourceOptions).toBeGreaterThan(1);
+    expect(sourceEntries).toBeGreaterThan(0);
     expect(targetEntries).toBeGreaterThan(0);
   });
 });

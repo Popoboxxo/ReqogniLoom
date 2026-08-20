@@ -17,8 +17,13 @@ vi.mock("react-i18next", () => {
   return { useTranslation: () => ({ t }) };
 });
 
+const { mockSearchParams } = vi.hoisted(() => ({
+  mockSearchParams: { current: new URLSearchParams() },
+}));
+
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
+  useSearchParams: () => [mockSearchParams.current],
 }));
 
 const activeWorkspace = {
@@ -87,6 +92,7 @@ vi.mock("./McpConnectionSection", () => ({
 describe("WorkspaceSettings tabs (REQ-015)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearchParams.current = new URLSearchParams();
   });
 
   it("renders the workspace-scoped tabs and shows the General tab by default", () => {
@@ -101,6 +107,21 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("workspace-name-input")).toBeInTheDocument();
     // A control from another tab is not mounted.
     expect(screen.queryByTestId("decomposition-link-type-select")).not.toBeInTheDocument();
+  });
+
+  it("#609: opens directly on the LLM tab when deep-linked via ?tab=llm", () => {
+    mockSearchParams.current = new URLSearchParams("tab=llm");
+    render(<WorkspaceSettings />);
+
+    expect(screen.getByTestId("settings-tab-llm")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
+  });
+
+  it("#609: falls back to the General tab for an unknown ?tab= value", () => {
+    mockSearchParams.current = new URLSearchParams("tab=not-a-real-tab");
+    render(<WorkspaceSettings />);
+
+    expect(screen.getByTestId("settings-tab-general")).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows the rebuilt Workflows & Permissions tab (SCR-202)", async () => {

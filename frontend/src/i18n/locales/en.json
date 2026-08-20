@@ -60,7 +60,10 @@
     "languageToggleTitleMember": "Toggle language for your own view only — ask a workspace admin to change the shared setting",
     "languageSessionOnly": "Language changed for your view only. Ask a workspace admin to change it for everyone.",
     "languageSaveFailed": "Could not save the workspace language. Your view was updated, but the change was not saved.",
-    "interviews": "Interviews"
+    "interviews": "Interviews",
+    "searchPlaceholder": "Search...",
+    "optionalArtifacts": "Optional Artifacts",
+    "searching": "Searching..."
   },
   "systemHealth": {
     "title": "System Health",
@@ -548,7 +551,10 @@
     "cycleBadge": "cycle",
     "cycleDetected": "Already on this path (cycle)",
     "maxDepthReached": "Maximum depth reached",
-    "load": "Load Artifact"
+    "load": "Load Artifact",
+    "searchPlaceholder": "Search starting artifact (name or ID)…",
+    "noLinks": "No further links.",
+    "onlyActive": "Active links only"
   },
   "issues": {
     "selectIssue": "Select an issue from the list to view details.",

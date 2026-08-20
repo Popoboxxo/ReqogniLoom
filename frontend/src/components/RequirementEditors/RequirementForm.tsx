@@ -411,7 +411,20 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             border: '1px solid var(--color-border)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 'var(--space-3)',
+              // #419: without wrap + minWidth:0, a long title and the fixed-
+              // width Save/Cancel buttons fought for the same row and the
+              // buttons overlapped the title at every viewport width. Wrapping
+              // lets the actions drop to their own line instead.
+              flexWrap: 'wrap',
+              gap: 'var(--space-2)',
+            }}
+          >
             <h2
               style={{
                 fontSize: 'var(--font-size-xl)',
@@ -421,6 +434,8 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
+                minWidth: 0,
+                overflowWrap: 'anywhere',
               }}
             >
               {requirement.suspect && <span title="Needs review due to upstream changes">⚠️</span>}
@@ -428,7 +443,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             </h2>
             {/* REQ: primary actions live in the header for consistency across
                 all artifact forms (P1-f). */}
-            <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', flexShrink: 0 }}>
               <button
                 data-testid="save-btn"
                 className="btn-primary"

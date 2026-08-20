@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CreateTraceLinkDialog } from './create-trace-link-dialog';
 import * as requirementsApi from '../../../api/requirements';
@@ -353,20 +353,20 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
   // ---- Global mode (no sourceId) ----
 
   describe('global mode (no sourceId)', () => {
-    it('shows source select when sourceId is not provided', async () => {
+    it('shows source picker when sourceId is not provided', async () => {
       renderDialog({ sourceId: undefined });
 
       await waitFor(() => {
-        expect(screen.getByTestId('create-trace-link-source-select')).toBeInTheDocument();
+        expect(screen.getByTestId('create-trace-link-source-list')).toBeInTheDocument();
       });
     });
 
-    it('does not show source select when sourceId is provided', async () => {
+    it('does not show source picker when sourceId is provided', async () => {
       renderDialog({ sourceId: SOURCE_ID });
 
       await waitFor(() => {
-        // Give it time to load — source select should never appear
-        expect(screen.queryByTestId('create-trace-link-source-select')).not.toBeInTheDocument();
+        // Give it time to load — source picker should never appear
+        expect(screen.queryByTestId('create-trace-link-source-list')).not.toBeInTheDocument();
       });
     });
 
@@ -383,20 +383,33 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
      * "source dropdown stays empty, 60s timeout after 116 retries" in
      * tracelink-creation.spec.ts:73. This test proves the widget's own
      * logic is not at fault: given API data resolving normally, the source
-     * <select> populates with a real, selectable <option> for every loaded
+     * picker populates with a real, selectable entry for every loaded
      * element. Root-cause analysis (see the e2e spec's own comment) traced
      * the actual timeout to loadElements() eagerly fetching all six
      * artifact types against an unbounded, ever-growing shared seed
      * workspace — an environment/data-volume issue, not a defect here.
      */
-    it('populates the source select with a real option per loaded element', async () => {
+    it('populates the source picker with a real entry per loaded element', async () => {
       renderDialog({ sourceId: undefined });
 
-      const select = await screen.findByTestId('create-trace-link-source-select');
       await waitFor(() => {
-        const option = within(select).getByText((_, el) => el?.tagName === 'OPTION' && el.textContent === `REQ: ${MOCK_REQUIREMENTS[0].title}`);
-        expect(option).toBeInTheDocument();
-        expect(option).toHaveValue(MOCK_REQUIREMENTS[0].id);
+        expect(
+          screen.getByTestId(`create-trace-link-source-element-${MOCK_REQUIREMENTS[0].id}`)
+        ).toHaveTextContent(MOCK_REQUIREMENTS[0].title);
+      });
+    });
+
+    /**
+     * #53 Bug 2: source used to be a plain unfiltered <select> while target
+     * used the searchable ElementPicker — an inconsistent pattern. Both
+     * sides must now expose the same search input.
+     */
+    it('#53: source picker has the same search input as the target picker', async () => {
+      renderDialog({ sourceId: undefined });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('create-trace-link-source-search')).toBeInTheDocument();
+        expect(screen.getByTestId('create-trace-link-target-search')).toBeInTheDocument();
       });
     });
   });

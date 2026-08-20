@@ -461,6 +461,16 @@ export function CreateTraceLinkDialog({
   const isGlobalMode = sourceId === undefined;
   const formId = 'create-trace-link-form';
 
+  // #53 Bug 3: the submit button used to disable silently with no
+  // explanation. Surface the concrete missing piece as a tooltip.
+  const submitDisabledReason = isSubmitting
+    ? undefined
+    : isGlobalMode && !selectedSourceId
+      ? t('traceability.sourceRequired', 'Please select a source artifact.')
+      : !selectedTargetId
+        ? t('traceability.targetRequired', 'Please select a target artifact.')
+        : undefined;
+
   return (
     <Dialog
       title={t('createTraceLinkDialog.title', 'Create Trace Link')}
@@ -484,6 +494,7 @@ export function CreateTraceLinkDialog({
             data-testid="create-trace-link-submit"
             className="btn-primary"
             disabled={isSubmitting || !selectedTargetId || (isGlobalMode && !selectedSourceId)}
+            title={submitDisabledReason}
           >
             {isSubmitting
               ? t('traceability.submitting', 'Creating...')
@@ -493,33 +504,28 @@ export function CreateTraceLinkDialog({
       }
     >
       <form id={formId} onSubmit={(e) => void handleSubmit(e)} style={bodyStyle}>
-        {/* Source picker — only shown in global mode (no fixed sourceId) */}
+        {/* Source picker — only shown in global mode (no fixed sourceId).
+            #53 Bug 2: uses the same searchable ElementPicker as the target
+            list instead of a plain unfiltered <select>, for a consistent
+            pattern on both sides of the dialog. */}
         {isGlobalMode && (
           <div>
             <label style={labelStyle}>
               {t('traceability.source', 'Source')}{' '}
               <span style={{ color: 'var(--color-danger)' }}>*</span>
             </label>
-            <select
-              data-testid="create-trace-link-source-select"
-              value={selectedSourceId}
-              onChange={(e) => {
-                setSelectedSourceId(e.target.value);
+            <ElementPicker
+              elements={sourceElements}
+              isLoading={isLoadingElements}
+              selectedId={selectedSourceId}
+              onSelect={(id) => {
+                setSelectedSourceId(id);
                 // Reset target if it happens to be the same as new source
-                if (e.target.value === selectedTargetId) setSelectedTargetId('');
+                if (id === selectedTargetId) setSelectedTargetId('');
               }}
-              disabled={isSubmitting}
-              style={inputStyle}
-            >
-              <option value="">
-                {isLoadingElements ? t('loading', 'Loading…') : '—'}
-              </option>
-              {sourceElements.map((el) => (
-                <option key={el.id} value={el.id}>
-                  {TYPE_DISPLAY_LABELS[el.artifactType]}: {el.title}
-                </option>
-              ))}
-            </select>
+              testIdPrefix="create-trace-link-source"
+              visibleTypeFilters={visibleTypeFilters}
+            />
           </div>
         )}
 
