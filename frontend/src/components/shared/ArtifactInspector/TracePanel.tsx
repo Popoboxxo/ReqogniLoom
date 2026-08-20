@@ -289,7 +289,10 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
         <button
           type="button"
           className={styles.rowButton}
-          onClick={(): void => navigate(link.otherArtifact.route)}
+          // #261: react-router 7's navigate() returns void | Promise<void>
+          // (async view-transition support) — an explicit `: void` return
+          // annotation here no longer type-checks against that.
+          onClick={() => { void navigate(link.otherArtifact.route); }}
         >
           <span className={styles.linkType}>{getLinkTypeLabel(link.linkType)}</span>
           <span className={styles.artifactTitle}>{link.otherArtifact.title}</span>
