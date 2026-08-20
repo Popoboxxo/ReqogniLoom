@@ -119,6 +119,7 @@ export function SidebarNavigation(): JSX.Element {
     setHideAllOptional,
     markLanguageOverrideActive,
     clearLanguageOverride,
+    markThemeOverrideActive,
   } = useWorkspace();
   const { logout, roles } = useAuth();
   // F-02 (code review, High): the equivalent language radios on the
@@ -663,7 +664,10 @@ export function SidebarNavigation(): JSX.Element {
         )}
         <button
           data-testid="theme-toggle"
-          onClick={toggleTheme}
+          onClick={() => {
+            markThemeOverrideActive();
+            toggleTheme();
+          }}
           title={t("nav.toggleTheme")}
           className={styles.footerBtn}
         >

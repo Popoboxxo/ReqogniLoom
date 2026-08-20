@@ -73,6 +73,15 @@ function isRegistered(id: string | null): id is Theme {
   return id !== null && THEMES.some((t) => t.id === id);
 }
 
+/** True if a real, registered theme preference is already stored — i.e. this
+ * is not the user's first visit with an opinion on theme. Used by
+ * WorkspaceContext to decide whether the workspace-default restore effect
+ * should apply on load (first-ever visit) or defer to the stored choice
+ * (returning visit — #568 override-seeding fix). */
+export function hasStoredThemePreference(): boolean {
+  return isRegistered(window.localStorage.getItem(STORAGE_KEY));
+}
+
 function nextThemeOf(current: Theme): ThemeDefinition {
   const index = THEMES.findIndex((t) => t.id === current);
   return THEMES[(index + 1) % THEMES.length];
@@ -95,7 +104,10 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
     window.localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
-  const setTheme = useCallback((next: Theme): void => setThemeState(next), []);
+  const setTheme = useCallback(
+    (next: Theme): void => setThemeState(isRegistered(next) ? next : FALLBACK_THEME),
+    []
+  );
   const toggleTheme = useCallback(
     (): void => setThemeState((prev) => nextThemeOf(prev).id),
     []

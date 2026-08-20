@@ -44,6 +44,7 @@ import {
   type OptionalArtifactFeature,
 } from "../api/preferences";
 import { useAuth } from "./AuthContext";
+import { useTheme, hasStoredThemePreference } from "./ThemeContext";
 // Code-review F-01 (BLOCKER): import the raw `i18next` singleton, NOT
 // `../i18n/index` — that barrel eagerly runs `.use(initReactI18next)` at
 // module load (a side effect of importing `react-i18next`). WorkspaceContext
@@ -105,6 +106,7 @@ export interface WorkspaceState {
   // `setActiveWorkspace`).
   markLanguageOverrideActive: () => void;
   clearLanguageOverride: () => void;
+  markThemeOverrideActive: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,7 @@ export const DEFAULT_WORKSPACE: Workspace = {
   preset: "standard",
   terminology_profile: "se_mode",
   language: "en",
+  theme: "dark",
   is_active: true,
   closed_at: null,
   closed_by: null,
@@ -147,7 +150,7 @@ export function WorkspaceProvider({
 }: {
   children: ReactNode;
 }): JSX.Element {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, status: authStatus } = useAuth();
 
   const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(
     DEFAULT_WORKSPACE
@@ -199,12 +202,20 @@ export function WorkspaceProvider({
     setHasLocalLanguageOverride(false);
   }, []);
 
+  const [hasLocalThemeOverride, setHasLocalThemeOverride] =
+    useState<boolean>(hasStoredThemePreference);
+  const markThemeOverrideActive = useCallback((): void => {
+    setHasLocalThemeOverride(true);
+  }, []);
+  const { setTheme } = useTheme();
+
   const setActiveWorkspace = useCallback((ws: Workspace | null) => {
     setActiveWorkspaceState(ws);
     // An explicit workspace switch is the one case where "the language
     // should now follow the (new) workspace's persisted value" is exactly
     // right — clear any override left over from the previous workspace.
     setHasLocalLanguageOverride(false);
+    setHasLocalThemeOverride(false);
     if (ws && typeof sessionStorage !== "undefined") {
       sessionStorage.setItem("reqflow_workspace_id", ws.id);
     }
@@ -257,6 +268,26 @@ export function WorkspaceProvider({
       // silently overrode the *next* user's own persisted workspace
       // language on the very same tab.
       setHasLocalLanguageOverride(false);
+      // #568 final-review fix (2 rounds): the naive `!isAuthenticated`
+      // guard is TRUE both during the transient "restoring" phase (every
+      // fresh mount starts here, before the session check resolves — see
+      // AuthContext.tsx's `AuthStatus`) and on a confirmed "anonymous"
+      // logout. Resetting theme's override unconditionally here — like the
+      // very first fix attempt did by seeding-then-still-resetting, and
+      // like just deleting the reset outright (round 2) — is each wrong in
+      // its own way: seeding-then-resetting clobbers a returning user's
+      // `hasStoredThemePreference()` seed on every ordinary page load
+      // (round 1's bug); deleting the reset entirely lets a real, confirmed
+      // logout leak one user's local theme choice into the next different
+      // user's session on the same tab/browser (round 2's bug — the exact
+      // cross-user leak R-02 exists to prevent, proven via an adversarial
+      // two-user test). The fix is neither: gate the reset on the
+      // fine-grained `status === "anonymous"` (a *resolved*, confirmed
+      // logged-out state) instead of the coarse `!isAuthenticated`, so it
+      // fires on a real logout but not during the transient restore.
+      if (authStatus === "anonymous") {
+        setHasLocalThemeOverride(false);
+      }
       return;
     }
     let cancelled = false;
@@ -267,7 +298,7 @@ export function WorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, reloadWorkspaces]);
+  }, [isAuthenticated, authStatus, reloadWorkspaces]);
 
   // Restore the persisted UI language from the active workspace (BUG-01,
   // REQ-133). `i18n/index.ts` only seeds the initial language from the
@@ -321,6 +352,17 @@ export function WorkspaceProvider({
       document.documentElement.lang = lang;
     }
   }, [isWorkspaceReady, activeWorkspace, hasLocalLanguageOverride]);
+
+  // Theme mirror of the language-restore effect immediately above — same
+  // BUG-01/F-04-Residual shape, applied to `theme` (#568 phase 1).
+  useEffect(() => {
+    if (!isWorkspaceReady) return;
+    if (activeWorkspace === DEFAULT_WORKSPACE) return;
+    if (hasLocalThemeOverride) return;
+    const nextTheme = activeWorkspace?.theme;
+    if (!nextTheme) return;
+    setTheme(nextTheme);
+  }, [isWorkspaceReady, activeWorkspace, hasLocalThemeOverride, setTheme]);
 
   // Fetch per-user preferences whenever the active workspace changes (REQ-L1-027).
   // Gated on ``isWorkspaceReady`` so we don't burn an API call for the
@@ -525,6 +567,7 @@ export function WorkspaceProvider({
       isFeatureOverridden,
       markLanguageOverrideActive,
       clearLanguageOverride,
+      markThemeOverrideActive,
     }),
     [
       activeWorkspace,
@@ -542,6 +585,7 @@ export function WorkspaceProvider({
       isFeatureOverridden,
       markLanguageOverrideActive,
       clearLanguageOverride,
+      markThemeOverrideActive,
     ]
   );
 

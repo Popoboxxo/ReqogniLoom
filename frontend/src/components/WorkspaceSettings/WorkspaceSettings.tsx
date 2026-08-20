@@ -26,6 +26,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme, THEMES } from "../../context/ThemeContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
@@ -134,6 +135,22 @@ export default function WorkspaceSettings(): JSX.Element {
       setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
     }
   }, [activeWorkspace, reloadWorkspaces]);
+
+  const { setTheme } = useTheme();
+
+  const handleThemeChange = useCallback(async (nextTheme: string): Promise<void> => {
+    setTheme(nextTheme);
+    if (!activeWorkspace || nextTheme === activeWorkspace.theme) return;
+    setSaveError(null);
+    setSavedOk(false);
+    try {
+      await workspacesApi.update(activeWorkspace.id, { theme: nextTheme });
+      await reloadWorkspaces(activeWorkspace.id);
+      setSavedOk(true);
+    } catch (err: unknown) {
+      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+    }
+  }, [activeWorkspace, reloadWorkspaces, setTheme]);
 
   const handleSaveName = useCallback(async (): Promise<void> => {
     if (!activeWorkspace || !name.trim() || name === activeWorkspace.name) return;
@@ -428,6 +445,24 @@ export default function WorkspaceSettings(): JSX.Element {
                     data-testid={`language-option-${lang}`}
                   />
                   {lang === "de" ? "Deutsch" : "English"}
+                </label>
+              ))}
+            </section>
+
+            {/* Theme (#568 phase 1) */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.theme")}</h3>
+              {THEMES.map((themeDef) => (
+                <label key={themeDef.id} style={labelStyle}>
+                  <input
+                    type="radio"
+                    name="theme"
+                    value={themeDef.id}
+                    checked={(activeWorkspace.theme ?? "dark") === themeDef.id}
+                    onChange={() => void handleThemeChange(themeDef.id)}
+                    data-testid={`theme-option-${themeDef.id}`}
+                  />
+                  {t(themeDef.labelKey)}
                 </label>
               ))}
             </section>

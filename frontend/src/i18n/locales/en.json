@@ -593,6 +593,7 @@
     "preset": "Preset",
     "terminologyProfile": "Terminology Profile",
     "language": "Language",
+    "theme": "Theme",
     "devMode": "Dev Mode",
     "seMode": "SE Mode",
     "saved": "Saved.",

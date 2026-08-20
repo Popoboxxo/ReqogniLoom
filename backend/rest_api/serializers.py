@@ -1105,6 +1105,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         required=False, default="se_mode", max_length=32
     )
     language = serializers.CharField(required=False, default="en", max_length=8)
+    theme = serializers.CharField(required=False, default="dark", max_length=32)
     is_active = serializers.BooleanField(read_only=True, default=True)
     closed_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
     closed_by = serializers.UUIDField(read_only=True, allow_null=True, default=None)

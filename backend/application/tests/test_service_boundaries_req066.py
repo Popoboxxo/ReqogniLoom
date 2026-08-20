@@ -392,6 +392,13 @@ class TestWorkspaceMetadata:
         result = WorkspaceService().update_metadata(ctx, ws.id, language="en")
         assert result.preset.get("language") == "en"
 
+    def test_theme_stored_on_preset_blob(self):
+        tenant, user = _tenant_user("ws")
+        ws = _workspace(tenant)
+        ctx = _make_ctx(tenant_id=tenant.id, user_id=user.id)
+        result = WorkspaceService().update_metadata(ctx, ws.id, theme="light")
+        assert result.preset.get("theme") == "light"
+
     def test_switch_preset_tier_invalid_raises_validation(self):
         tenant, user = _tenant_user("ws")
         ws = _workspace(tenant)

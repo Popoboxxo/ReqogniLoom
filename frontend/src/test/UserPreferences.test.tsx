@@ -15,7 +15,25 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import type { Workspace } from "../types";
+
+// jsdom in this test runtime does not provide window.localStorage (Node's
+// --localstorage-file experimental flag is not set), which ThemeProvider
+// (now a WorkspaceProvider dependency, #568 phase 1) reads synchronously on
+// mount. Polyfill a minimal in-memory implementation so it does not throw.
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Mock preferences API
@@ -213,6 +231,7 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
     nextGetReturn = wrapPref({}); // default: no overrides
     nextUpdateReturn = null;
     sessionStorage.clear();
+    installLocalStorageStub();
     // AuthProvider restores the session via GET /auth/me/ (httpOnly cookie,
     // REQ-052). Return a user so isAuthenticated becomes true and the
     // WorkspaceContext bootstrap/preference effects run. Non-auth API calls in
@@ -237,9 +256,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <ControlledWorkspace preset="standard" />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -261,9 +282,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <ControlledWorkspace preset="standard" />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -281,9 +304,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <ControlledWorkspace preset="minimal" />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -315,9 +340,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <Harness />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -361,9 +388,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <Harness />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -385,9 +414,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <MasterToggle />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -419,9 +450,11 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <OverrideHarness feature="adr" />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -477,10 +510,12 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
 
     render(
       <AuthProvider>
-        <WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
           <OverrideHarness feature="adr" />
           <OverrideHarness feature="risk" />
-        </WorkspaceProvider>
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 

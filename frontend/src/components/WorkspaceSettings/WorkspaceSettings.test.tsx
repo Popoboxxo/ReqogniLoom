@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import WorkspaceSettings from "./WorkspaceSettings";
+import { workspacesApi } from "../../api/workspaces";
 
 vi.mock("react-i18next", () => {
   const t = (_key: string, fallback?: unknown): string =>
@@ -32,6 +33,7 @@ const activeWorkspace = {
   preset: "standard",
   terminology_profile: "dev_mode",
   language: "de",
+  theme: "dark",
   decomposition_link_type: "parent-child",
   is_active: true,
 };
@@ -46,6 +48,14 @@ vi.mock("../../context/WorkspaceContext", () => ({
 
 vi.mock("../../context/AuthContext", () => ({
   useAuth: () => ({ roles: ["admin"] }),
+}));
+
+vi.mock("../../context/ThemeContext", () => ({
+  useTheme: () => ({ setTheme: vi.fn() }),
+  THEMES: [
+    { id: "dark", labelKey: "nav.darkMode" },
+    { id: "light", labelKey: "nav.lightMode" },
+  ],
 }));
 
 vi.mock("../../api/workspaces", () => ({
@@ -122,6 +132,12 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     render(<WorkspaceSettings />);
 
     expect(screen.getByTestId("settings-tab-general")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("lets an admin change the workspace-default theme (#568)", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("theme-option-light"));
+    expect(workspacesApi.update).toHaveBeenCalledWith("ws-1", { theme: "light" });
   });
 
   it("shows the rebuilt Workflows & Permissions tab (SCR-202)", async () => {

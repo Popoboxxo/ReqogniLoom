@@ -13,7 +13,26 @@ import userEvent from "@testing-library/user-event";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { AuthProvider } from "../../context/AuthContext";
 import { WorkspaceProvider } from "../../context/WorkspaceContext";
+import { ThemeProvider } from "../../context/ThemeContext";
 import type { ArchitectureElement } from "../../types";
+
+// jsdom in this test runtime does not provide window.localStorage (Node's
+// --localstorage-file experimental flag is not set), which ThemeProvider
+// (now a WorkspaceProvider dependency, #568 phase 1) reads synchronously on
+// mount. Polyfill a minimal in-memory implementation so it does not throw.
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+installLocalStorageStub();
 
 vi.mock("react-i18next", () => {
   const t = (key: string): string => key;
@@ -65,7 +84,9 @@ vi.mock("../../api/client", () => ({
 function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> {
   return render(
     <AuthProvider>
-      <WorkspaceProvider>{ui}</WorkspaceProvider>
+      <ThemeProvider>
+        <WorkspaceProvider>{ui}</WorkspaceProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }
