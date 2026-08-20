@@ -333,6 +333,34 @@ def test_reject_transitions_to_outdated(
     assert result.data["new_state"] == "outdated"
 
 
+def test_reject_unknown_item_id_returns_not_found(
+    review_tool_group, auth_context, api_key, workspace, adr_workflow
+):
+    """#577: a nonexistent item_id used to return 200 {"new_state": "outdated"}
+    -- outdate()'s self-healing (built for legacy items that predate workflow
+    tracking) silently created a WorkflowItemState for ANY UUID, ghost item or
+    not. review.reject must 404 for an id with no registered state, same as
+    review.approve/request_changes already do (via WorkflowFacade)."""
+    bogus_id = "00000000-0000-0000-0000-000000000000"
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        result = review_tool_group.execute_tool(
+            "review.reject",
+            {
+                "item_id": bogus_id,
+                "item_type": "Adr",
+                "workspace_id": str(workspace.id),
+                "reason": "does not exist",
+            },
+            auth_context,
+            api_key,
+        )
+    finally:
+        TenantContext.clear_tenant()
+    assert result.success is False
+    assert result.error_code == "NOT_FOUND"
+
+
 # ---------------------------------------------------------------------------
 # review.request_changes
 # ---------------------------------------------------------------------------

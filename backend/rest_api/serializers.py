@@ -793,6 +793,26 @@ class TestCaseSerializer(
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject unknown keys with 400 instead of silently dropping them (#580).
+
+        The ``TestCase`` model has no ``acceptance_criteria``/``category``
+        columns (unlike Requirement/StakeholderNeed, which do), so a client
+        sending them previously got a 201 with the fields simply absent from
+        both the response and the persisted row — indistinguishable from a
+        successful save. Same QIRK-002/#73 pattern as UserProfileSerializer:
+        an unrecognised key is a client error, not silent no-op data loss.
+        """
+        supplied = getattr(self, "initial_data", None)
+        if not isinstance(supplied, dict):
+            return attrs
+        errors = {
+            key: ["Unknown field."] for key in supplied if key not in self.fields
+        }
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
 
 class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for TraceLink entity (REQ-L2-RA-001, REQ-002).

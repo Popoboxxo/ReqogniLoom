@@ -192,16 +192,28 @@ class ReviewToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         reason = params.get("reason", "")
 
-        from workflow.services import outdate
+        from workflow.services import WorkflowItemNotFoundError, outdate
 
         try:
+            # #577: allow_lazy_init=False -- an item reachable via
+            # review.reject was supposed to come from review.list_pending,
+            # which only surfaces items that already have a registered
+            # WorkflowItemState. Unlike every <type>.outdate MCP tool (which
+            # keep the lazy-init default True for legitimate pre-workflow-
+            # engine legacy items), a caller-supplied item_id with no
+            # existing state here means "does not exist", not "predates
+            # workflow tracking" -- silently creating one produced a ghost
+            # 200 for any random UUID instead of 404.
             result = outdate(
                 item_id=item_id,
                 item_type=item_type,
                 workspace_id=workspace_id,
                 ctx=auth_context,
                 reason=reason,
+                allow_lazy_init=False,
             )
+        except WorkflowItemNotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
         except Exception as exc:  # noqa: BLE001 -- surface as a structured error
             return ToolResult.error("INTERNAL_ERROR", str(exc))
 
