@@ -60,7 +60,10 @@
     "languageToggleTitleMember": "Sprache nur für deine Ansicht umschalten — nur ein Workspace-Admin kann die geteilte Einstellung ändern",
     "languageSessionOnly": "Sprache nur für deine Ansicht geändert. Nur ein Workspace-Admin kann sie für alle ändern.",
     "languageSaveFailed": "Die Workspace-Sprache konnte nicht gespeichert werden. Deine Ansicht wurde geändert, die Änderung wurde aber nicht gesichert.",
-    "interviews": "Interviews"
+    "interviews": "Interviews",
+    "searchPlaceholder": "Suchen...",
+    "optionalArtifacts": "Optional-Artefakte",
+    "searching": "Suche läuft..."
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -548,7 +551,10 @@
     "cycleBadge": "Zyklus",
     "cycleDetected": "Bereits im Pfad enthalten (Zyklus)",
     "maxDepthReached": "Maximale Tiefe erreicht",
-    "load": "Artefakt laden"
+    "load": "Artefakt laden",
+    "searchPlaceholder": "Start-Artefakt suchen (Name oder ID)…",
+    "noLinks": "Keine weiteren Verknüpfungen.",
+    "onlyActive": "Nur aktive Verknüpfungen"
   },
   "issues": {
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
