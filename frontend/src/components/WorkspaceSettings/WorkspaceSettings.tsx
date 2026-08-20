@@ -22,7 +22,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
@@ -59,6 +59,18 @@ type SettingsTabId =
   | "llm"
   | "workflows-permissions";
 
+const SETTINGS_TAB_IDS: SettingsTabId[] = [
+  "general",
+  "traceability",
+  "visibility",
+  "llm",
+  "workflows-permissions",
+];
+
+function isSettingsTabId(value: string | null): value is SettingsTabId {
+  return value !== null && (SETTINGS_TAB_IDS as string[]).includes(value);
+}
+
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -72,7 +84,13 @@ export default function WorkspaceSettings(): JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-  const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  // #609: allow deep-linking a tab via ?tab=llm (e.g. the /prompts redirect)
+  // instead of always landing on "general".
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
+    const requested = searchParams.get("tab");
+    return isSettingsTabId(requested) ? requested : "general";
+  });
 
   const isAdmin = roles.includes("admin");
 
