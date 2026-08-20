@@ -338,9 +338,74 @@ const STYLE_BRACE_BASELINE = 1070;
 // theme before migration. Re-measured (same script as above): 16 files /
 // 49 occurrences. Baseline lowered in the same change per the ratchet rule
 // above.
+//
+// Multi-palette theming Phase 2, Checkpoint 4 — final checkpoint of the plan
+// (2026-08-21, docs/superpowers/plans/2026-08-21-multi-palette-theming-phase2.md):
+// migrated the 14 settings/admin/dashboard files this checkpoint targeted.
+// The large majority (WorkspaceAdminSection.tsx 6, EnforcementModePanel.tsx
+// 5, SystemHealthDialog.tsx 3, ApiKeysSection.tsx 2, CreateWorkspaceModal.tsx
+// 1, PermissionDefaultsTab.tsx 1, BackupRestoreSection.tsx 1,
+// WorkspaceSettings.tsx 1, plus 2 of MetricsDashboard.tsx's 6) turned out to
+// be `var(--color-success/-warning/-danger, #hexfallback)` CSS `var()`
+// fallback values, not real color choices — since all three tokens are
+// unconditionally defined in both `tokens.css` theme blocks, the fallback is
+// dead code regardless of its value (same finding as checkpoint 3's
+// `PermissionMatrixEditor.tsx`, generalized here across many more call
+// sites); every fallback was simply dropped, including
+// `CreateWorkspaceModal.tsx`'s (whose fallback hex, `#f87171`, didn't even
+// match either theme's actual `--color-danger` value — still provably dead
+// code either way). `MetricsDashboard.tsx`'s remaining 4 occurrences
+// (STATUS_COLORS healthy/warning/critical/neutral) were real, hardcoded-
+// regardless-of-theme color choices moved onto new `--color-metric-*`
+// tokens — `-healthy`/`-warning`/`-critical` are exact primitive matches
+// (incidentally the same primitives as checkpoint 3's
+// `--color-summary-passed`/`-failed`, kept as separate tokens since the
+// semantic domain differs); `-neutral` is a closest-primitive match (~7.4%,
+// gray-600, same primitive as checkpoint 3's `-notrun`/`-default`).
+// `AttributeVisibilityAdmin.tsx`'s 3 and `BaselinesView.tsx`'s 1 `#ffffff`
+// button/banner-text-on-colored-background spots reused the existing
+// `--color-on-primary` token (established convention from checkpoint 3).
+// `ErrorBoundary.tsx`'s crash-fallback message color (`#666`, the file uses
+// no other design tokens either, being the top-level crash fallback) moved
+// onto a new `--color-errorboundary-text` token (~7.4%, gray-600 again).
+// `global.css`'s 4 occurrences: 3 `#ffffff` button-text-on-primary spots
+// (`.btn-primary`, `.btn-danger:hover`, `.btn-tab[aria-selected="true"]`)
+// reused `--color-on-primary`; the `a:hover` color (`#818cf8`, commented
+// "Indigo 400" in the source) moved onto a new `--color-link-hover` token
+// (exact match, kept distinct from `--color-focus` despite the same
+// dark-theme value — different UI role, link hover vs. focus ring).
+// `MermaidEditor.module.css`'s `.errorBanner` background (`#fef2f2`) moved
+// onto a new `--color-danger-banner-bg` token (~8.6%, rose-100 — the same
+// primitive as checkpoint 3's `--color-diff-removed-bg`, given its own
+// token here since this is a different component/file, not the diff view).
+// `GraphEdge.tsx`'s "containment" edge color (`#64748b`) was re-verified
+// per this checkpoint's task brief rather than assumed unmigratable: still
+// no `--palette-*` primitive close enough without visually colliding with
+// the "association" edge's slate-600 (both slate-600 and the next-closest
+// candidate, gray-600, render as near-identical grays, ~12.1-12.3% distant
+// either way) — checkpoint 2's original judgment holds, left as raw hex.
+// `SidebarNavigation.tsx`'s single counted "occurrence" was investigated
+// and found to be a scanner false positive, not a real color: line 47 is
+// `group: NavGroupId; // issue #317 — section grouping`, a trailing `//`
+// comment *after* code on the same line. `countNonCommentOccurrences` only
+// skips a line when it *starts* with `//` (see its docstring's own
+// documented history of comment-related false positives, e.g. the
+// 2026-08-19 JSX-comment fix above) — a trailing same-line comment isn't
+// covered by that check, so `#317` matches the hex pattern. No hex color
+// exists anywhere in this file; left untouched (rewording the comment
+// purely to dodge the regex was rejected as out of scope for a color
+// migration checkpoint and inconsistent with this codebase's established
+// "issue #NNN" comment convention used everywhere else). `CanvasEditor.tsx`
+// (15, checkpoint 2) and `workspace-tree.tsx` (1, checkpoint 1) are
+// unchanged, still out of scope per those checkpoints' findings.
+// Re-measured (same script as above): 4 files / 18 occurrences — the lowest
+// this checkpoint could reach given the 3 genuinely unmigratable/
+// false-positive cases above; every other target file dropped to 0. This
+// closes out the plan's `.tsx` scope. Baseline lowered in the same change
+// per the ratchet rule above.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 49;
-const HEX_LITERAL_FILE_BASELINE = 16;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 18;
+const HEX_LITERAL_FILE_BASELINE = 4;
 
 // --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
 //
@@ -379,8 +444,23 @@ const HEX_LITERAL_FILE_BASELINE = 16;
 // ratchet always tolerated silently; not treated as part of this
 // checkpoint's delta. Baseline lowered in the same change per the ratchet
 // rule above.
-const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 45;
-const HEX_LITERAL_CSS_FILE_BASELINE = 3;
+//
+// Multi-palette theming Phase 2, Checkpoint 4 — final checkpoint of the plan
+// (2026-08-21, see the .tsx baseline comment above for the full writeup):
+// fully migrated `global.css` (3 `#ffffff` button-text-on-primary spots onto
+// the existing `--color-on-primary` token; the `a:hover` `#818cf8` onto a
+// new `--color-link-hover` token) and `MermaidEditor.module.css` (the
+// `.errorBanner` background `#fef2f2` onto a new `--color-danger-banner-bg`
+// token) — 0 raw hex remaining in either file. `tokens.css`'s own ~40
+// primitive-layer hex values are, as throughout this whole plan, excluded
+// from every checkpoint by design (UI concept ch. 8.6 — they are the
+// intentional, permanent bottom of the two-layer token architecture, not a
+// migration target). Re-measured with the same script used for the .tsx
+// baseline: 1 file / 40 occurrences — every non-`tokens.css` CSS hex literal
+// in the project is now gone, closing out the plan's CSS scope. Baseline
+// lowered in the same change per the ratchet rule above.
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 40;
+const HEX_LITERAL_CSS_FILE_BASELINE = 1;
 
 // --- (c) Duplicate tree implementations ------------------------------------
 //

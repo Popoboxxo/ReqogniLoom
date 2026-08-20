@@ -27,19 +27,8 @@
  * via `npx eslint src` with the rule temporarily unscoped: 43 violations / 21 files.
  */
 export const LEGACY_INLINE_STYLE_HEX_FILES = [
-  "src/components/AdminDialog/AttributeVisibilityAdmin.tsx",
-  "src/components/BaselinesView/BaselinesView.tsx",
   "src/components/ImpactView/ImpactView.tsx",
-  "src/components/MetricsDashboard/MetricsDashboard.tsx",
-  "src/components/NavigationShell/CreateWorkspaceModal.tsx",
-  "src/components/NavigationShell/ErrorBoundary.tsx",
   "src/components/Reviews/ReviewsView.tsx",
-  "src/components/SystemSettings/EnforcementModePanel.tsx",
-  "src/components/SystemSettings/PermissionDefaultsTab.tsx",
-  "src/components/SystemSettings/WorkspaceAdminSection.tsx",
-  "src/components/UserProfileSettings/ApiKeysSection.tsx",
-  "src/components/WorkspaceSettings/BackupRestoreSection.tsx",
-  "src/components/WorkspaceSettings/WorkspaceSettings.tsx",
   // #568 Phase 2 checkpoint 1: TraceLinkPanel.tsx and
   // shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx entries
   // removed here — both fully migrated onto design tokens, no remaining
@@ -51,4 +40,16 @@ export const LEGACY_INLINE_STYLE_HEX_FILES = [
   // TraceabilityView/TraceabilityView.tsx entries removed here — all six
   // fully migrated onto design tokens, no remaining hex literals. The rule
   // now guards them permanently.
+  // #568 Phase 2 checkpoint 4 (2026-08-21, final checkpoint of the plan):
+  // AttributeVisibilityAdmin.tsx, BaselinesView.tsx, MetricsDashboard.tsx,
+  // NavigationShell/CreateWorkspaceModal.tsx, NavigationShell/ErrorBoundary.tsx,
+  // SystemSettings/EnforcementModePanel.tsx,
+  // SystemSettings/PermissionDefaultsTab.tsx,
+  // SystemSettings/WorkspaceAdminSection.tsx, ApiKeysSection.tsx,
+  // WorkspaceSettings/BackupRestoreSection.tsx and
+  // WorkspaceSettings/WorkspaceSettings.tsx entries removed here — all 11
+  // fully migrated onto design tokens, no remaining hex literals in their
+  // inline styles. The rule now guards them permanently. The two remaining
+  // entries above (ImpactView.tsx, ReviewsView.tsx) were out of this
+  // checkpoint's scope and are untouched.
 ];

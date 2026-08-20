@@ -310,7 +310,7 @@ export function CreateWorkspaceModal({
             role="alert"
             data-testid="create-workspace-error"
             style={{
-              color: "var(--color-danger, #f87171)",
+              color: "var(--color-danger)",
               fontSize: "0.75rem",
             }}
           >

@@ -210,7 +210,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             onClick={() => void handleCloseWorkspace()}
             disabled={isClosing}
             style={{
-              background: "var(--color-warning, #f59e0b)",
+              background: "var(--color-warning)",
               color: "white",
               border: "none",
               borderRadius: "var(--radius-md)",
@@ -263,7 +263,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             data-testid="reactivate-workspace-btn"
             onClick={() => void handleReactivateWorkspace()}
             style={{
-              background: "var(--color-success, #16a34a)",
+              background: "var(--color-success)",
               color: "white",
               border: "none",
               borderRadius: "var(--radius-md)",
@@ -283,7 +283,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           data-testid="delete-workspace-btn"
           onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
           style={{
-            background: "var(--color-danger, #dc2626)",
+            background: "var(--color-danger)",
             color: "white",
             border: "none",
             borderRadius: "var(--radius-md)",
@@ -326,7 +326,7 @@ export function WorkspaceAdminSection(): JSX.Element {
                   onClick={() => void handleDeleteWorkspace()}
                   disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
                   style={{
-                    background: "var(--color-danger, #dc2626)",
+                    background: "var(--color-danger)",
                     color: "white",
                     border: "none",
                     borderRadius: "var(--radius-md)",
@@ -364,7 +364,7 @@ export function WorkspaceAdminSection(): JSX.Element {
               }}
             />
             {deleteError && (
-              <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger, #dc2626)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
+              <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
                 {deleteError}
               </div>
             )}
@@ -378,7 +378,7 @@ export function WorkspaceAdminSection(): JSX.Element {
         </div>
       )}
       {savedOk && (
-        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success, #16a34a)", padding: "var(--space-3)" }}>
+        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
           {t("settings.saved")}
         </div>
       )}

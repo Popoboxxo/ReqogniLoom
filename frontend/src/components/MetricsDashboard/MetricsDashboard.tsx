@@ -140,10 +140,10 @@ function classify(spec: MetricTileSpec, value: number): Status {
 }
 
 const STATUS_COLORS: Record<Status, { fg: string; bg: string; labelKey: string }> = {
-  healthy: { fg: "#10b981", bg: "rgba(16,185,129,0.12)", labelKey: "metrics.status.healthy" },
-  warning: { fg: "#f59e0b", bg: "rgba(245,158,11,0.14)", labelKey: "metrics.status.warning" },
-  critical: { fg: "#ef4444", bg: "rgba(239,68,68,0.14)", labelKey: "metrics.status.critical" },
-  neutral: { fg: "#6b7280", bg: "rgba(107,114,128,0.12)", labelKey: "metrics.status.neutral" },
+  healthy: { fg: "var(--color-metric-healthy)", bg: "rgba(16,185,129,0.12)", labelKey: "metrics.status.healthy" },
+  warning: { fg: "var(--color-metric-warning)", bg: "rgba(245,158,11,0.14)", labelKey: "metrics.status.warning" },
+  critical: { fg: "var(--color-metric-critical)", bg: "rgba(239,68,68,0.14)", labelKey: "metrics.status.critical" },
+  neutral: { fg: "var(--color-metric-neutral)", bg: "rgba(107,114,128,0.12)", labelKey: "metrics.status.neutral" },
 };
 
 // ---------------------------------------------------------------------------
@@ -538,9 +538,9 @@ export default function MetricsDashboard(): JSX.Element {
             padding: "var(--space-3) var(--space-4)",
             marginBottom: "var(--space-4)",
             background: "rgba(239,68,68,0.10)",
-            border: "1px solid var(--color-danger, #ef4444)",
+            border: "1px solid var(--color-danger)",
             borderRadius: "var(--radius-md)",
-            color: "var(--color-danger, #ef4444)",
+            color: "var(--color-danger)",
             fontSize: "var(--font-size-sm)",
           }}
         >

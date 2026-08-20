@@ -317,6 +317,45 @@
   --color-linktype-badge-bg: var(--palette-slate-50);
   --color-linktype-badge-text: var(--palette-sky-800);
 
+  /* Settings/admin/dashboard surfaces, theming phase 2, checkpoint 4.
+     MetricsDashboard.tsx's STATUS_COLORS ramp (healthy/warning/critical/
+     neutral tile dot + sparkline stroke) was hardcoded, theme-independent
+     before this migration, so frozen like the tokens above rather than
+     pointed at the theme-reactive --color-success/-warning/-danger (which
+     would have shifted the light-theme value away from the original hex).
+     -healthy/-warning/-critical are exact-value primitive matches
+     (emerald-500/amber-500/red-500 — incidentally the same primitives
+     already backing checkpoint 3's --color-summary-passed/-failed, but
+     kept as distinct tokens here since the semantic domain — SE metric
+     health, not test-run result — is different, matching this codebase's
+     convention of not conflating same-value-different-role tokens).
+     -neutral has no close primitive (~7.4% RGB distance) but reuses
+     gray-600, the same "neutral/muted" primitive already established in
+     checkpoint 3's -notrun/-default tokens. ErrorBoundary.tsx's crash-
+     fallback message text (`color: "#666"`, hardcoded, no theme awareness
+     — this component deliberately doesn't use any other design tokens
+     either, being the top-level crash fallback) has no close primitive
+     (~7.4% distance, same gray-600 primitive, kept as its own token rather
+     than reusing -metric-neutral since the roles are unrelated).
+     global.css's `a:hover` color (`#818cf8`, commented "Indigo 400" in the
+     source) is an exact match to the indigo-400 primitive; kept as its own
+     token rather than reused from --color-focus (dark-theme-only exact
+     match; also a different UI role — link hover vs. focus ring — so
+     conflating them would be a coincidence of value, not a shared
+     semantic). MermaidEditor.module.css's `.errorBanner` background
+     (`#fef2f2`) has no exact primitive; closest pastel-red-family primitive
+     is rose-100 (~8.6% distance) — the same primitive already backing
+     checkpoint 3's --color-diff-removed-bg (reused there for ArtifactDiff's
+     own error banner), but given its own token here since it's a
+     genuinely different file/component, not the diff view. */
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-rose-100);
+
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
   --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
@@ -517,6 +556,13 @@
   --color-reqtype-default: var(--palette-gray-600);
   --color-linktype-badge-bg: var(--palette-slate-50);
   --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-rose-100);
 
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
