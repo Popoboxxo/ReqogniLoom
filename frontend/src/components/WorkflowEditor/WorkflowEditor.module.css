@@ -36,6 +36,11 @@
 .header {
   display: flex;
   align-items: center;
+  /* Issue #596: no wrap meant the title/badge/toggle/export group was
+     clipped past the viewport edge on narrow screens with no way to reach
+     it (no horizontal scroll on the page). Same fix as PageHeader.module.css
+     — wrap lets the action group drop to its own line instead. */
+  flex-wrap: wrap;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--color-border);
