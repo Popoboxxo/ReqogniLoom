@@ -8,7 +8,7 @@
 
 **Tech Stack:** Django `django.core.cache` (Redis-backed in prod, `LocMemCache` in tests — matches `AiDerivationService`'s existing REQ-105 cache), Celery (existing `AsyncTaskDispatcher`/`llm_adapter.tasks.run_capability`), the existing 4-provider `complete()` free-form completion method, the existing Phase-4 `PromptTemplate` lookup chain.
 
-**Design source:** `docs/superpowers/specs/2026-08-08-requirement-bundle-export-design.md` (branch `docs/requirement-bundle-export-design`) §5 (Compressed mode) and §6 (Caching). Depends on Plan 1 (merged to `main` via PR #435): `RequirementBundleQueryService`, `BundleResult`/`BundleItem`, `format_bundle_markdown`.
+**Design source:** `docs/superpowers/specs/Archive/2026-08-08-requirement-bundle-export-design.md` (branch `docs/requirement-bundle-export-design`) §5 (Compressed mode) and §6 (Caching). Depends on Plan 1 (merged to `main` via PR #435): `RequirementBundleQueryService`, `BundleResult`/`BundleItem`, `format_bundle_markdown`.
 
 ## Global Constraints
 
@@ -176,7 +176,7 @@ Owns the LLM/cache side of compressed bundle export ONLY. Data aggregation
 lives in RequirementBundleQueryService (Plan 1); this service takes an
 already-fetched BundleResult and produces a compressed text representation.
 
-Design: docs/superpowers/specs/2026-08-08-requirement-bundle-export-design.md
+Design: docs/superpowers/specs/Archive/2026-08-08-requirement-bundle-export-design.md
 section 5 (Compressed mode) and section 6 (Caching).
 
 Reuses AiDerivationService's static prompt-template lookup/render helpers

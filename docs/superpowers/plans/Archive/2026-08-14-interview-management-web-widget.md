@@ -8,7 +8,7 @@
 
 **Tech Stack:** Django REST Framework, `llm_adapter` provider abstraction, React 18 + TypeScript, Vitest + React Testing Library.
 
-**Spec:** `docs/superpowers/specs/2026-08-14-interview-management-web-widget-design.md` (Spec 3 of 3).
+**Spec:** `docs/superpowers/specs/Archive/2026-08-14-interview-management-web-widget-design.md` (Spec 3 of 3).
 
 ## Global Constraints
 

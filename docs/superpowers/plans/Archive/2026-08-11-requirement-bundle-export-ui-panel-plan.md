@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 18 + TypeScript (strict), `react-i18next` (DE/EN parity-enforced), `react-markdown` (already a dependency, already used by `MarkdownPreview.tsx` — reused as-is for compressed/markdown output), inline `CSSProperties` objects reading `var(--color-*)`/`var(--space-*)`/`var(--radius-*)` tokens (the `ArchitectureDecomposePanel` convention), `vitest` + `@testing-library/react` + `@testing-library/user-event` for the component test, Playwright for the one E2E invariant this feature requires.
 
-**Design source:** `docs/superpowers/specs/2026-08-08-requirement-bundle-export-design.md` §7 (UI subsection) and §9 (Testing-Strategie, E2E bullet). Depends on Plan 1 (raw modes, merged via PR #435) and Plan 2 (compression, merged via PR #436 + the REQ-106 token-accounting fix in PR #462) — both already deployed on `main`. The design doc's REST sketch (`architecture-elements/{id}/...`, `?format=`) predates Plan 2's actual implementation (`architecture/{pk}/requirement-bundle/`, `?output_format=`) — this plan follows the *implemented* contract, not the original sketch.
+**Design source:** `docs/superpowers/specs/Archive/2026-08-08-requirement-bundle-export-design.md` §7 (UI subsection) and §9 (Testing-Strategie, E2E bullet). Depends on Plan 1 (raw modes, merged via PR #435) and Plan 2 (compression, merged via PR #436 + the REQ-106 token-accounting fix in PR #462) — both already deployed on `main`. The design doc's REST sketch (`architecture-elements/{id}/...`, `?format=`) predates Plan 2's actual implementation (`architecture/{pk}/requirement-bundle/`, `?output_format=`) — this plan follows the *implemented* contract, not the original sketch.
 
 **Backend contract this plan drives (already implemented, not part of this plan's scope):**
 ```

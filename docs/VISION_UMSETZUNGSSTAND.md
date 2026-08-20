@@ -179,7 +179,7 @@ Jede Rolle: YAML-Frontmatter (name, version, compatible_with, tools) + Prose Sys
 | Dokument | Zweck |
 |---|---|
 | `.local/VISION_REQOGNILOOM.md` | Original-Vision (Abschnitt 10: Roadmap mit Prio 1–6) |
-| `docs/superpowers/specs/2026-07-23-reqogniloom-status-unification-design.md` | Design-Dokument (7 Phasen abgeleitet) |
+| `docs/superpowers/specs/Archive/2026-07-23-reqogniloom-status-unification-design.md` | Design-Dokument (7 Phasen abgeleitet) |
 | `docs/superpowers/plans/Archive/2026-07-23-phase0-*.md` … `2026-07-25-phase5-*.md` (Archive) + `docs/superpowers/plans/2026-07-25-phase6-agent-templates.md` (nicht archiviert, ein offener Punkt) | Implementierungs-Pläne (7 Dateien) |
 | `.superpowers/sdd/progress*.md` | Ledger pro Phase (Commits, Findings, Verifikation) |
 | `docs/CODEBASE_OVERVIEW.md` | Code-API nach Umsetzung (Domäne des documenter-Agents) |

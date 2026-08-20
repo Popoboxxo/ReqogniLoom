@@ -986,7 +986,7 @@ git commit -m "feat: add REST endpoint for per-workspace ReviewPolicy configurat
 
 **Files:**
 - Modify: `docs/REQUIREMENTS.md` (register new REQ-IDs for Phase 5, following the same REQ-L2-RV-001-style convention used in `review.py`'s docstrings above — pick the next free REQ number)
-- Modify: `docs/superpowers/specs/2026-07-23-reqogniloom-status-unification-design.md` (mark Phase 5 section 8 as implemented, note the `review_changes`/`review_high_risk` scope decisions from this plan's Global Constraints)
+- Modify: `docs/superpowers/specs/Archive/2026-07-23-reqogniloom-status-unification-design.md` (mark Phase 5 section 8 as implemented, note the `review_changes`/`review_high_risk` scope decisions from this plan's Global Constraints)
 
 - [ ] **Step 1: Run the full backend test suite, record baseline-diffed results**
 
@@ -998,7 +998,7 @@ Expected: only the already-known pre-existing failures/errors from `progress-pha
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/REQUIREMENTS.md docs/superpowers/specs/2026-07-23-reqogniloom-status-unification-design.md
+git add docs/REQUIREMENTS.md docs/superpowers/specs/Archive/2026-07-23-reqogniloom-status-unification-design.md
 git commit -m "docs: mark Phase 5 review endpoints implemented, register REQ-IDs"
 ```
 

@@ -441,7 +441,7 @@ Ein neuer Endpunkt löst `artifact_id ↔ (entity_type, entity_id)` für alle Ar
 >
 > **Nutzerentscheidung 2026-08-15:** Umhängen per Drag & Drop soll es geben. Die
 > Notiz von 2026-07-13 ging auf TODO-004 aus
-> `docs/superpowers/specs/2026-07-12-frontend-feedback-strategie-design.md` zurück,
+> `docs/superpowers/specs/Archive/2026-07-12-frontend-feedback-strategie-design.md` zurück,
 > das *„kein Hierarchie-Tree für **Diagramme**"* festhielt — die Übertragung auf das
 > Architektur-Umhängen war eine Ausweitung, die so nicht entschieden worden war.
 >

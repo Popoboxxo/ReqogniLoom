@@ -93,7 +93,7 @@ phases:
 ```
 
 `type` ist ausschließlich für strukturierte Formular-Clients relevant (siehe
-Spec 2, `docs/superpowers/specs/2026-08-14-interview-management-hermes-plugin-design.md`
+Spec 2, `docs/superpowers/specs/Archive/2026-08-14-interview-management-hermes-plugin-design.md`
 Abschnitt 4) — Host-Agenten, die den Dialog frei über die Skill-Datei führen
 (Claude Code, Opencode, Antigravity), ignorieren `type` und lesen nur `name`.
 
@@ -166,7 +166,7 @@ nie über API-Key/MCP. `/api/v1/interviews/...` spiegelt dieselben sieben
 Operationen als dünne REST-Endpoints auf derselben Facade/den Services —
 gleiches Dual-Protokoll-Muster wie `requirement_bundle` (REST-Action +
 MCP-Tool über denselben Service). Details in
-`docs/superpowers/specs/2026-08-14-interview-management-web-widget-design.md`
+`docs/superpowers/specs/Archive/2026-08-14-interview-management-web-widget-design.md`
 Abschnitt 3.
 
 ## 5. Formalisierungs-Logik

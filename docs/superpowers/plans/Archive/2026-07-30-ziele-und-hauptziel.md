@@ -1997,7 +1997,7 @@ git commit -m "feat: add Goals and MainGoal frontend UI"
 
 ## Self-Review
 
-**1. Spec coverage** (against `docs/superpowers/specs/2026-07-30-ziele-und-hauptziel-design.md`):
+**1. Spec coverage** (against `docs/superpowers/specs/Archive/2026-07-30-ziele-und-hauptziel-design.md`):
 - Goal as new workspace artifact, governed by the generic WorkflowEngine → Tasks 1, 3, 4.
 - LLM-aggregated MainGoal, versioned, driven by the same WorkflowEngine → Tasks 1, 3, 5.
 - Explicit user approval required before a MainGoal becomes valid; previous approved version (or none) remains authoritative until then → Task 5 (`approve`, `get_current`), Task 9 (UI draft/approve flow).

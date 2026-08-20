@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, React (Hermes plugin panel API), Vitest.
 
-**Spec:** `docs/superpowers/specs/2026-08-14-interview-management-hermes-plugin-design.md` (Spec 2 of 3).
+**Spec:** `docs/superpowers/specs/Archive/2026-08-14-interview-management-hermes-plugin-design.md` (Spec 2 of 3).
 
 ## Global Constraints
 
