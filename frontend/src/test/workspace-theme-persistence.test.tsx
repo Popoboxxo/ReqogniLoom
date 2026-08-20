@@ -16,7 +16,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
-import { ThemeProvider } from "../context/ThemeContext";
+import { ThemeProvider, useTheme } from "../context/ThemeContext";
 import { SidebarNavigation } from "../components/NavigationShell/SidebarNavigation";
 import { workspacesApi } from "../api/workspaces";
 import type { Workspace } from "../types";
@@ -183,6 +183,37 @@ describe("Workspace theme restore on load (#568)", () => {
   });
 });
 
+describe("Returning visitor's stored theme preference is not overwritten by the workspace default (#568 final-review fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["viewer"]);
+  });
+
+  it("keeps an existing localStorage theme preference after the workspace list resolves with a different default", async () => {
+    // Seed the stub's underlying store BEFORE renderApp() so ThemeProvider's
+    // initial mount (resolveInitialTheme) actually reads it.
+    window.localStorage.setItem("reqflow-theme", "light");
+    setListWorkspace("dark");
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(workspacesApi.list).toHaveBeenCalled();
+    });
+
+    // Give the theme-restore effect a chance to (wrongly) fire if the bug
+    // were still present.
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe("light");
+    });
+    expect(window.localStorage.getItem("reqflow-theme")).toBe("light");
+  });
+});
+
 describe("Local theme toggle survives an unrelated reloadWorkspaces() call (#568)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -234,5 +265,40 @@ describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)"
     await waitFor(() => {
       expect(document.documentElement.dataset.theme).toBe("light");
     });
+  });
+});
+
+describe("ThemeContext.setTheme falls back on an unregistered theme id (#568 final-review fix)", () => {
+  beforeEach(() => {
+    installLocalStorageStub();
+  });
+
+  function SetBogusThemeHarness(): JSX.Element {
+    const { theme, setTheme } = useTheme();
+    return (
+      <button
+        data-testid="set-bogus-theme"
+        onClick={() => setTheme("bogus-unregistered-id")}
+      >
+        current: {theme}
+      </button>
+    );
+  }
+
+  it("resolves an unregistered theme id to FALLBACK_THEME (dark) instead of applying it verbatim", async () => {
+    render(
+      <ThemeProvider>
+        <SetBogusThemeHarness />
+      </ThemeProvider>
+    );
+
+    fireEvent.click(screen.getByTestId("set-bogus-theme"));
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe("dark");
+    });
+    expect(screen.getByTestId("set-bogus-theme").textContent).toBe(
+      "current: dark"
+    );
   });
 });

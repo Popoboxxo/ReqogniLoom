@@ -44,7 +44,7 @@ import {
   type OptionalArtifactFeature,
 } from "../api/preferences";
 import { useAuth } from "./AuthContext";
-import { useTheme } from "./ThemeContext";
+import { useTheme, hasStoredThemePreference } from "./ThemeContext";
 // Code-review F-01 (BLOCKER): import the raw `i18next` singleton, NOT
 // `../i18n/index` — that barrel eagerly runs `.use(initReactI18next)` at
 // module load (a side effect of importing `react-i18next`). WorkspaceContext
@@ -203,7 +203,7 @@ export function WorkspaceProvider({
   }, []);
 
   const [hasLocalThemeOverride, setHasLocalThemeOverride] =
-    useState<boolean>(false);
+    useState<boolean>(hasStoredThemePreference);
   const markThemeOverrideActive = useCallback((): void => {
     setHasLocalThemeOverride(true);
   }, []);
