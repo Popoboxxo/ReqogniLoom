@@ -67,6 +67,7 @@ _UNSET: object = object()
 _NAME_MAX_LENGTH = 255
 _LINK_TYPE_MAX_LENGTH = 50
 _LANGUAGE_MAX_LENGTH = 8
+_THEME_MAX_LENGTH = 32
 
 
 def _sanitize_and_cap(value: str, *, max_length: int, field_name: str) -> str:
@@ -572,6 +573,7 @@ class WorkspaceService(ServiceBase):
         *,
         name: object = _UNSET,
         language: object = _UNSET,
+        theme: object = _UNSET,
         decomposition_link_type: object = _UNSET,
         default_link_type: object = _UNSET,
         terminology_profile: object = _UNSET,
@@ -616,6 +618,15 @@ class WorkspaceService(ServiceBase):
                 str(language), max_length=_LANGUAGE_MAX_LENGTH, field_name="language"
             )
             preset_blob["language"] = clean_language
+            ws.preset = preset_blob
+            if "preset" not in update_fields:
+                update_fields.append("preset")
+
+        if theme is not _UNSET:
+            clean_theme = _sanitize_and_cap(
+                str(theme), max_length=_THEME_MAX_LENGTH, field_name="theme"
+            )
+            preset_blob["theme"] = clean_theme
             ws.preset = preset_blob
             if "preset" not in update_fields:
                 update_fields.append("preset")
