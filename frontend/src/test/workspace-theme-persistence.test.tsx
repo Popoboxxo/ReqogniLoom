@@ -211,6 +211,17 @@ describe("Returning visitor's stored theme preference is not overwritten by the 
       expect(document.documentElement.dataset.theme).toBe("light");
     });
     expect(window.localStorage.getItem("reqflow-theme")).toBe("light");
+
+    // Re-review finding: the first waitFor success above can be a false
+    // positive if a later effect (e.g. the bootstrap effect's own
+    // auth-resolution re-run) still overwrites the value shortly after —
+    // exactly how this test passed once before against unfixed code that
+    // reset the override, then the restore effect reapplied the workspace
+    // default a tick later. Flush pending effects and assert the value is
+    // still correct afterward, not just at first success.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(window.localStorage.getItem("reqflow-theme")).toBe("light");
   });
 });
 
@@ -240,14 +251,24 @@ describe("Local theme toggle survives an unrelated reloadWorkspaces() call (#568
   });
 });
 
-describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)", () => {
+describe("A persisted theme choice survives a logout/re-login cycle (#568 final-review fix)", () => {
+  // Originally written mirroring language's R-02 test (which asserts the
+  // OPPOSITE: an override is cleared by logout). That assertion was wrong
+  // for theme once ported verbatim: language's override is deliberately
+  // session-local and never persisted anywhere, so clearing it on logout
+  // correctly stops it leaking to the next user on the same tab. Theme's
+  // override instead gates an ALREADY-persisted `localStorage` value (see
+  // WorkspaceContext.tsx's bootstrap-effect comment, #568 final-review
+  // fix) — the same way a browser's own light/dark setting isn't reset by
+  // logging out of one account on it. This test now asserts the behavior
+  // that's actually correct for a persisted, device-level preference.
   beforeEach(() => {
     vi.clearAllMocks();
     installLocalStorageStub();
     sessionStorage.clear();
   });
 
-  it("a re-login in the same tab follows the newly loaded workspace's theme, not a stale override", async () => {
+  it("a re-login in the same tab keeps the toggled-and-persisted theme, not the newly loaded workspace's default", async () => {
     stubAuthFetch(["viewer"]);
     setListWorkspace("light");
     renderAppWithAuthSwitch();
@@ -255,6 +276,7 @@ describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)"
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
     fireEvent.click(await screen.findByTestId("theme-toggle"));
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(window.localStorage.getItem("reqflow-theme")).toBe("dark");
 
     fireEvent.click(screen.getByTestId("test-logout-trigger"));
     fireEvent.click(screen.getByTestId("test-login-trigger"));
@@ -263,8 +285,16 @@ describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)"
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(workspacesApi.list).toHaveBeenCalledTimes(2);
     });
+
+    // The new session's workspace default is "light" (same mock), but the
+    // browser's own persisted "dark" choice must win — settle-and-recheck,
+    // not just a first waitFor success (see the "Returning visitor" test
+    // above for why that matters).
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(window.localStorage.getItem("reqflow-theme")).toBe("dark");
   });
 });
 

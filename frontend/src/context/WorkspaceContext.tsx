@@ -268,7 +268,23 @@ export function WorkspaceProvider({
       // silently overrode the *next* user's own persisted workspace
       // language on the very same tab.
       setHasLocalLanguageOverride(false);
-      setHasLocalThemeOverride(false);
+      // #568 final-review fix: theme is NOT reset here, unlike language.
+      // `isAuthenticated` starts `false` on every fresh mount (this effect
+      // fires once during AuthContext's "restoring" phase before the
+      // session check resolves — see AuthContext.tsx's AuthStatus), so an
+      // unconditional reset here ran on every page load, not just on a real
+      // logout, and clobbered the `hasStoredThemePreference()` seed
+      // (below) before the theme-restore effect ever saw it — silently
+      // reapplying the workspace default over a returning user's saved
+      // choice on every reload. R-02's rationale doesn't transfer: language
+      // overrides are deliberately session-local and never persisted
+      // anywhere (see `markLanguageOverrideActive`'s own doc comment), so
+      // clearing them on logout is exactly right — but theme overrides ARE
+      // persisted, to `localStorage["reqflow-theme"]`
+      // (ThemeContext.tsx), the same way a browser's or OS's own
+      // light/dark setting survives logging out of any one account on it.
+      // A real, valid stored theme preference should keep winning over the
+      // workspace default regardless of auth transitions.
       return;
     }
     let cancelled = false;
