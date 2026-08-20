@@ -104,6 +104,16 @@ const mockTransitions = (
 describe("GoalsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #419: RightSidebar now defaults to collapsed on narrow viewports, and
+    // jsdom's default innerWidth (1024) is below that breakpoint. These
+    // tests assert on the *expanded* inspector's panel wiring, which is a
+    // separate concern from the collapse-default heuristic (covered by its
+    // own RightSidebar.test.tsx) — force a wide viewport here.
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1920,
+    });
     activeWorkspace = { id: "w1", name: "WS", goals_ai_enabled: false };
     vi.mocked(mainGoalModule.mainGoalApi.current).mockResolvedValue(null);
     vi.mocked(goalsModule.goalsApi.versions).mockResolvedValue([]);
