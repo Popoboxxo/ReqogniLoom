@@ -81,26 +81,16 @@ def _validate_cross_tenant_boundary(source: Artifact, target: Artifact) -> None:
 # Cycle detection helpers
 # ---------------------------------------------------------------------------
 
-def _build_adjacency(
-    workspace_links: Iterable[TraceLink],
-) -> dict[uuid.UUID, list[uuid.UUID]]:
-    """Build an adjacency list from existing TraceLink rows."""
-    adj: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
-    for link in workspace_links:
-        adj[link.source_id].append(link.target_id)
-    return adj
-
-
 def _build_adjacency_from_edges(
     edges: Iterable[tuple[uuid.UUID, uuid.UUID]],
 ) -> dict[uuid.UUID, list[uuid.UUID]]:
     """Build an adjacency list from bare ``(source_id, target_id)`` pairs.
 
-    Same result as :func:`_build_adjacency`, but without needing model
-    instances. Cycle detection only ever reads the two FK id columns (see
-    :func:`_dfs_has_cycle_to`), so the hot write path can feed this from a
+    Cycle detection only ever reads the two FK id columns (see
+    :func:`_dfs_has_cycle_to`), so every write-path caller (create(),
+    batch_create(), validate_graph_integrity() — #629) feeds this from a
     ``values_list()`` query instead of materializing whole ``TraceLink``
-    objects — see :meth:`TraceLinkManager.create`.
+    objects (with their 1536-dim embedding vector) per existing link.
     """
     adj: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
     for source_id, target_id in edges:
@@ -456,9 +446,13 @@ class TraceLinkManager:
             link.save()
             created.append(link)
 
-        # Tarjan SCC on the full tenant graph at transaction end (REQ-L2-TE-003)
-        all_links = list(TraceLink.objects.all())
-        adj = _build_adjacency(all_links)
+        # Tarjan SCC on the full tenant graph at transaction end (REQ-L2-TE-003).
+        # #629: values_list(), not list(TraceLink.objects.all()) -- cycle
+        # detection only reads the two FK id columns, so materializing full
+        # TraceLink rows (with their 1536-dim embedding vector) here was the
+        # same OOM shape as #571, on every batch_create() call.
+        edges = TraceLink.objects.all().values_list("source_id", "target_id")
+        adj = _build_adjacency_from_edges(edges)
         cycle = _tarjan_find_cycle(adj)
         if cycle:
             path = _format_cycle_path(cycle)
@@ -487,8 +481,9 @@ class TraceLinkManager:
 
         IF-TE-INT-003. Returns a dict with 'valid' bool and optional 'cycle_path'.
         """
-        all_links = list(TraceLink.objects.all())
-        adj = _build_adjacency(all_links)
+        # #629: see the identical values_list() note in batch_create() above.
+        edges = TraceLink.objects.all().values_list("source_id", "target_id")
+        adj = _build_adjacency_from_edges(edges)
         cycle = _tarjan_find_cycle(adj)
         if cycle:
             return {"valid": False, "cycle_path": _format_cycle_path(cycle)}
