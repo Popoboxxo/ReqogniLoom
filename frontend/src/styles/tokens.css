@@ -184,6 +184,28 @@
   /* Keyboard focus ring (issue #158 — WCAG 2.4.7 Focus Visible) */
   --color-focus: var(--palette-indigo-400);
 
+  /* Architecture level badge ramp (L0-L4), WorkspaceTree showLevelBadge
+     (design ref: docs/architecture/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md §6:
+     "L0=dunkelblau, L1=blau, L2=cyan, L3=grün, L4=grau"). Theming phase 2,
+     checkpoint 1: was a hardcoded 5-value hex map in workspace-tree.tsx,
+     always rendered the same regardless of theme, so both theme blocks
+     declare identical values here (same pattern as the nav tokens above).
+     L2 (cyan) has no close --palette-* primitive (nearest, emerald-400, is
+     a very different hue) and was left as a raw hex literal in
+     workspace-tree.tsx rather than force a visibly-wrong match — see the
+     checkpoint-1 report and the ui-ratchet.test.ts history comment. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+
+  /* AI-derive action gradient (TraceLinkPanel "Ableiten" button). Theming
+     phase 2, checkpoint 1: was a hardcoded gradient literal, always the
+     same regardless of theme, so fixed across themes like the tokens
+     above. */
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
   --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
@@ -336,6 +358,17 @@
 
   /* Keyboard focus ring (issue #158) — darker for AA contrast on white */
   --color-focus: var(--palette-indigo-600);
+
+  /* Level badge ramp + AI-derive gradient — identical to the dark block
+     above by design (theming phase 2, checkpoint 1): both were fixed,
+     theme-independent hex literals before this migration. See the dark
+     block's comment for the full rationale, including the L2 exception. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
 
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);

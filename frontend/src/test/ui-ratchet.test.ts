@@ -255,9 +255,24 @@ const STYLE_BRACE_BASELINE = 1070;
 // every branch. Fixed the scanner; re-measured on the corrected logic:
 // 27 files / 90 occurrences. Baseline lowered in the same change per the
 // ratchet rule above — every remaining match is a real hex literal.
+//
+// Multi-palette theming Phase 2, Checkpoint 1 (2026-08-21,
+// docs/superpowers/plans/2026-08-21-multi-palette-theming-phase2.md):
+// migrated `shared/WorkspaceTree/workspace-tree.tsx` (L0/L1/L3/L4 of the
+// LEVEL_BADGE_COLORS ramp onto the new `--color-level-l0/l1/l3/l4` tokens),
+// `shared/TraceLinkPanel.tsx` (the "Ableiten" button's gradient onto the new
+// `--color-gradient-ai-start`/`-end` tokens) and
+// `shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx` (the selected
+// badge's `#fff` text color onto the existing `--color-on-primary` token).
+// `workspace-tree.tsx`'s L2 (cyan, `#06B6D4`) was intentionally left as a
+// raw hex literal — no existing `--palette-*` primitive is a close match
+// (nearest, emerald-400, is a visibly different hue) — see the checkpoint-1
+// report for the color-distance analysis. Re-measured: 25 files / 83
+// occurrences. Baseline lowered in the same change per the ratchet rule
+// above.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 90;
-const HEX_LITERAL_FILE_BASELINE = 27;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 83;
+const HEX_LITERAL_FILE_BASELINE = 25;
 
 // --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
 //

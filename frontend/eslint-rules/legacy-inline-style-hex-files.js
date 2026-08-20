@@ -46,6 +46,8 @@ export const LEGACY_INLINE_STYLE_HEX_FILES = [
   "src/components/UserProfileSettings/ApiKeysSection.tsx",
   "src/components/WorkspaceSettings/BackupRestoreSection.tsx",
   "src/components/WorkspaceSettings/WorkspaceSettings.tsx",
-  "src/components/shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx",
-  "src/components/shared/TraceLinkPanel.tsx",
+  // #568 Phase 2 checkpoint 1: TraceLinkPanel.tsx and
+  // shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx entries
+  // removed here — both fully migrated onto design tokens, no remaining
+  // hex literals. The rule now guards them permanently.
 ];
