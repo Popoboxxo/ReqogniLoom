@@ -594,8 +594,6 @@
     "terminologyProfile": "Terminologie-Profil",
     "language": "Sprache",
     "theme": "Theme",
-    "themeDark": "Dunkel",
-    "themeLight": "Hell",
     "devMode": "Entwickler-Modus",
     "seMode": "SE-Modus",
     "saved": "Gespeichert.",

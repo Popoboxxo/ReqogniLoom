@@ -462,7 +462,7 @@ export default function WorkspaceSettings(): JSX.Element {
                     onChange={() => void handleThemeChange(themeDef.id)}
                     data-testid={`theme-option-${themeDef.id}`}
                   />
-                  {themeDef.id === "dark" ? t("settings.themeDark") : t("settings.themeLight")}
+                  {t(themeDef.labelKey)}
                 </label>
               ))}
             </section>
