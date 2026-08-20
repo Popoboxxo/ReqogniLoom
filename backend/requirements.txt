@@ -82,7 +82,7 @@ python-json-logger>=4.1.0,<5.0
 
 # ReqIF 1.2 export (REQ-146) — DOORS/Polarion interoperability.
 # StrictDoc project, Apache-2.0 license (verified via `pip show reqif`).
-reqif>=0.0.53,<0.1
+reqif>=0.1.0,<0.2
 
 # LLM provider SDKs (REQ-L3-LA002-001, fix #111) — without these every
 # LLM_PROVIDER=anthropic|openai call crashed with a raw RuntimeError; only
