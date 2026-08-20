@@ -28,8 +28,8 @@ All planned features are implemented.
 - Both `goal_service.py` and `main_goal_service.py` (and their respective test files) were successfully found in `backend/application/`.
 
 ## [2026-08-01-ui-konzept-vollrollout.md](file:///c:/Repositories/ai-native-reqflow-POC/docs/superpowers/plans/2026-08-01-ui-konzept-vollrollout.md)
-Most of the features are implemented, but there is one pending item:
-- **Not implemented item 1**: Task 4.3 specified `RequirementTreeNode` ablösen (replacing and deleting `RequirementTreeNode`). While `RequirementList.tsx` has been migrated to use `WorkspaceTree`, `RequirementTreeNode.tsx` was not deleted. A `grep_search` reveals that it is still present and actively used in `frontend/src/components/RequirementEditors/ReqTraceLinkPanel.tsx` (e.g., `import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';`).
+All planned features are implemented. The one apparent gap is resolved, not open:
+- **Resolved (was flagged "not implemented")**: Task 4.3 investigated deleting `RequirementTreeNode.tsx` per the plan's "1 tree implementation after Phase 4" goal, found it is NOT dead code and NOT an accidental duplicate of the artifact-tree pattern — it is a lazy, per-node-fetching explorer over the `derives-from`/`derived-by` trace-link graph that `WorkspaceTree`'s synchronous flat-`nodes[]` contract cannot express. It was deliberately kept as a documented, permanent exception (2026-08-03). Proof: `docs/UI_KONZEPT.md` §16.3 "Dokumentierte Ausnahmen vom Standard" (`RequirementTreeNode.tsx` entry) and `frontend/src/test/ui-ratchet.test.ts:305-327` (`KNOWN_TREE_IMPLEMENTATIONS` baseline lowered 3→2 in the same PR, ratchet-gated against re-adding it). Deleting it now would be a regression, not a cleanup — do not re-flag this item.
 
 (Other tasks like `EmptyState`, `Dialog`, `ArtifactRow`, missing `de.json` keys, ESLint rules, and UI updates on routes like ADR/Diagram/etc. were checked and are successfully implemented).
 
