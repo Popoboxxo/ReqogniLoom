@@ -14,6 +14,30 @@
   min-width: 0;
 }
 
+/* #425: source/target endpoints are now real <button>s so they're keyboard-
+   focusable and operable, not just visually clickable — reset the browser's
+   default button chrome to keep the existing text-row appearance. */
+.endpointButton {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-sm);
+}
+
+.endpointButton:hover {
+  text-decoration: underline;
+}
+
+.endpointButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .endpointType {
   font-size: var(--font-size-xs);
   background: var(--color-surface-raised);
