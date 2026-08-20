@@ -18,6 +18,8 @@
  * `i18n.init({...})` call) — the same convention the nested JSON resources
  * are already authored against.
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import de from "../i18n/locales/de.json";
 import en from "../i18n/locales/en.json";
@@ -54,5 +56,86 @@ describe("i18n key parity (Task 7.2)", () => {
     // report clearly labels which file each missing key belongs to.
     expect(missingFromEn, "keys present in de.json but missing from en.json").toEqual([]);
     expect(missingFromDe, "keys present in en.json but missing from de.json").toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #619 — code-to-locale coverage: keys used in source but absent from BOTH
+// locale files. de/en parity alone is blind to this — a key missing from
+// both files still "matches" (both sides agree it's absent), while i18next
+// falls back to the `t("key", "default")` call's own default string
+// regardless of the active language. When that default is German (the
+// author's working language), German text leaks into the English UI.
+//
+// A full backlog (174 keys at discovery time) can't be translated in one
+// change, so this follows the same ratchet pattern as `ui-ratchet.test.ts`:
+// frozen ceiling, fails only if the count *increases*. Lower
+// `MISSING_KEY_BASELINE` in the same change whenever new gaps get fixed;
+// never raise it to make this pass.
+// ---------------------------------------------------------------------------
+
+const SRC_DIR = resolve(__dirname, "..");
+
+/** Recursively collect `.ts`/`.tsx` source files, excluding tests. */
+function collectSourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const stat = statSync(full);
+    if (stat.isDirectory()) {
+      out.push(...collectSourceFiles(full));
+    } else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+// Matches `t("literal.key", ...)` / `t('literal.key', ...)` — first-argument
+// string literals only. A dynamic first argument (a variable, a template
+// literal, a computed expression) cannot be resolved statically and is
+// intentionally NOT matched — those keys need a different verification
+// approach (e.g. a runtime i18next `missingKeyHandler`), not a source scan.
+const T_CALL_PATTERN = /\bt\(\s*["']([a-zA-Z0-9_.]+)["']/g;
+
+/** All statically-resolvable `t("key", ...)` key literals referenced in `dir`. */
+function collectReferencedKeys(dir: string): Set<string> {
+  const keys = new Set<string>();
+  for (const file of collectSourceFiles(dir)) {
+    const text = readFileSync(file, "utf-8");
+    for (const match of text.matchAll(T_CALL_PATTERN)) {
+      keys.add(match[1]!);
+    }
+  }
+  return keys;
+}
+
+// Ratchet baseline — see the file-level comment above. Measured on this
+// branch (189) after fixing the 9 keys this same change could concretely
+// confirm leak German text into the English UI (settings.traceabilityHint,
+// settings.attributeVisibilityHint, settings.visibilityHint,
+// settings.visibilityOverridden, settings.visibilityReset,
+// needs/adrs/risks/issues.deleteFailed — see #619), bringing it down to 180.
+// The remainder is real but unverified backlog (#619's own scan found 174 at
+// a different point in time; source has grown since), not immediately
+// actionable without confirming each one's actual rendered-language impact.
+const MISSING_KEY_BASELINE = 180;
+
+describe("i18n code-to-locale coverage (#619)", () => {
+  it("does not reference more undefined translation keys than the frozen baseline", () => {
+    const referenced = collectReferencedKeys(SRC_DIR);
+    const deKeys = new Set(flattenKeys(de as LocaleValue));
+    const enKeys = new Set(flattenKeys(en as LocaleValue));
+
+    const missing = [...referenced]
+      .filter((key) => !deKeys.has(key) && !enKeys.has(key))
+      .sort();
+
+    expect(
+      missing.length,
+      missing.length > MISSING_KEY_BASELINE
+        ? `New missing i18n key(s) beyond the ${MISSING_KEY_BASELINE}-key baseline: ${missing.join(", ")}`
+        : undefined
+    ).toBeLessThanOrEqual(MISSING_KEY_BASELINE);
   });
 });
