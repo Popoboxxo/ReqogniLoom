@@ -33,10 +33,40 @@ from application.requirement_service import (
     DecompositionResultDTO,
     RequirementDTO,
     RequirementService,
+    detect_non_atomic_terms,
 )
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db
+
+
+class TestDetectNonAtomicTerms:
+    """#45 (IEEE 29148 §5.2.4): 'and'/'or' conjunctions hint a bundled title."""
+
+    def test_atomic_title_returns_empty_list(self):
+        assert detect_non_atomic_terms("The system shall log in a user") == []
+
+    def test_and_conjunction_is_detected(self):
+        assert detect_non_atomic_terms(
+            "System shall handle login and logout"
+        ) == ["and"]
+
+    def test_or_conjunction_is_detected(self):
+        assert detect_non_atomic_terms(
+            "System shall accept a username or an email"
+        ) == ["or"]
+
+    def test_both_conjunctions_are_deduplicated_and_sorted(self):
+        assert detect_non_atomic_terms(
+            "Handle login and logout and password reset or profile management"
+        ) == ["and", "or"]
+
+    def test_substring_matches_do_not_false_positive(self):
+        # "and"/"or" inside other words must not trigger (word-boundary match).
+        assert detect_non_atomic_terms("Support Android and Norway timezones") == ["and"]
+
+    def test_empty_title_returns_empty_list(self):
+        assert detect_non_atomic_terms("") == []
 
 
 # ---------------------------------------------------------------------------
