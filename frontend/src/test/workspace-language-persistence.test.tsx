@@ -571,6 +571,7 @@ describe("Local/unpersisted language survives an unrelated reloadWorkspaces() ca
       preset: "standard",
       terminology_profile: "se_mode",
       language: "de",
+      theme: "dark",
       is_active: true,
       closed_at: null,
       closed_by: null,

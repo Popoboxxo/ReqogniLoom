@@ -43,6 +43,7 @@ export const workspacesApi = {
     data: Partial<{
       name: string;
       language: string;
+      theme: string;
       terminology_profile: TerminologyProfile;
       decomposition_link_type: string;
       default_link_type: string;

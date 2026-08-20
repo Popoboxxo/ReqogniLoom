@@ -129,6 +129,7 @@ export const DEFAULT_WORKSPACE: Workspace = {
   preset: "standard",
   terminology_profile: "se_mode",
   language: "en",
+  theme: "dark",
   is_active: true,
   closed_at: null,
   closed_by: null,

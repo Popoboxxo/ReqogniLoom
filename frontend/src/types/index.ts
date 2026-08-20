@@ -39,6 +39,10 @@ export interface Workspace {
   preset: WorkspacePreset;
   terminology_profile: TerminologyProfile;
   language: string;
+  /** Workspace-default theme id (multi-palette theming, #568). Matches a
+   *  `ThemeDefinition.id` from `context/ThemeContext.tsx`'s `THEMES`
+   *  registry; defaults to `"dark"` server-side. */
+  theme: string;
   /**
    * @deprecated Legacy free-form prompt blob, no longer read or written by the
    * UI (issue #119). Prompt templates live in the `PromptTemplate` model and
