@@ -3989,6 +3989,7 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "goals_ai_enabled": getattr(ws, "goals_ai_enabled", False),
         "terminology_profile": terminology_profile,
         "language": (ws.preset or {}).get("language", "de"),  # REQ-013: language stored in preset blob
+        "theme": (ws.preset or {}).get("theme", "dark"),  # #568: theme stored in preset blob, mirrors language
         "is_active": getattr(ws, "is_active", True),
         "closed_at": ws.closed_at.isoformat() if getattr(ws, "closed_at", None) else None,
         "closed_by": str(ws.closed_by_id) if getattr(ws, "closed_by_id", None) else None,
@@ -4257,6 +4258,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 for key in (
                     "name",
                     "language",
+                    "theme",
                     "decomposition_link_type",
                     "default_link_type",
                     "terminology_profile",
