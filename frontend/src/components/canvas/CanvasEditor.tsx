@@ -56,6 +56,21 @@ const SNAP_GRID = 10;
 const VISUAL_GRID = 20;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
+// Theming phase 2, checkpoint 2: investigated migrating this (and
+// TOOLBAR_COLORS/FILL_COLORS/CONTROL_STYLE.cornerColor below) onto
+// var(--color-*) tokens, per the checkpoint's plan. NOT done — every one of
+// these values is consumed by Fabric.js, which sets them as Canvas 2D
+// `fillStyle`/`strokeStyle`. The Canvas 2D API does not resolve CSS custom
+// properties (a `var(...)` string is simply an invalid color to
+// `ctx.fillStyle`/`ctx.strokeStyle`, silently ignored), so replacing these
+// with var() references would break the actual canvas rendering — not a
+// pure refactor. TOOLBAR_COLORS/FILL_COLORS are also read by the DOM swatch
+// buttons' inline background style below (where var() would work fine on
+// its own) and by the `<input type="color" value={color}>` picker below
+// (which requires a literal `#rrggbb` string per the HTML spec and rejects
+// anything else, including var()) — a three-way consumer split where every
+// value needs to stay a concrete hex string. Left as raw hex; see the
+// checkpoint-2 report.
 const HIGHLIGHT_COLOR = "#4f6ef7";
 
 const TOOLBAR_COLORS = [

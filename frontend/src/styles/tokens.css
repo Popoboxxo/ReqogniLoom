@@ -151,6 +151,16 @@
   --color-success: var(--palette-emerald-500);
   --color-warning: var(--palette-amber-500);
   --color-danger: var(--palette-red-500);
+  /* Darker danger shade for hover/active feedback (mirrors --color-primary/
+     --color-primary-dark). Theming phase 2, checkpoint 2: was a hardcoded
+     #dc2626 literal in WorkflowEditor.module.css's .btnDanger:hover, always
+     the same value regardless of theme, so declared identically in both
+     theme blocks below like the level-badge/gradient-ai tokens. Note: in the
+     light theme --color-danger already resolves to this same primitive
+     (--palette-red-600), so the hover state is a no-op color change there —
+     a pre-existing quirk of the original hardcoded value, preserved as-is
+     by this pure refactor, not introduced by it. */
+  --color-danger-dark: var(--palette-red-600);
 
   /* Badge Colors */
   --color-badge-draft: var(--palette-white-a10);
@@ -205,6 +215,37 @@
      above. */
   --color-gradient-ai-start: var(--palette-royal-500);
   --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors (GraphEdge.tsx, TransitionEdge.tsx),
+     theming phase 2, checkpoint 2. Both files carried a pre-existing code
+     comment claiming "SVG stroke cannot resolve CSS custom properties
+     reliably" and kept raw hex mirroring these tokens' values by hand.
+     Investigated for this checkpoint: found no evidence the claim holds for
+     this codebase's actual usage (a plain style prop setting `stroke` to a
+     CSS custom property reference on a React-rendered `<path>`, standard,
+     well-supported CSS) — the
+     react-flow marker (arrowhead) does not inherit from this stroke value
+     either way (no `color` is set on `markerEnd`, so it always uses
+     react-flow's own default), and the only SVG *export* path in this app
+     (POST /diagrams/{id}/export?format=svg) regenerates SVG server-side
+     from the stored node_graph JSON, never serializing this component's
+     live DOM — so no consumer reads a resolved CSS value out of it. var()
+     was substituted; the full test suite was re-run to confirm no
+     regression. Declared theme-independent (identical in both blocks,
+     matching the level-badge/gradient-ai pattern above) purely because the
+     source hex values were, not because of the resolution claim — so even
+     if that claim turns out to be right after all in some browser this
+     wasn't tested against, the visual result is unchanged either way. All
+     three are exact-value matches to their source hex. GraphEdge's
+     "containment" edge type (#64748b) has no exact or acceptably-close
+     --palette-* primitive without colliding with the "association" edge's
+     slate-600 (its closest candidate, dist 12.3%, was rejected for exactly
+     that collision reason) and was left as raw hex — see the checkpoint-2
+     report, which also flags this whole substitution as a judgment call
+     worth a manual visual check in a real browser before merge. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
 
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
@@ -326,6 +367,10 @@
   --color-success: var(--palette-emerald-600);
   --color-warning: var(--palette-amber-700);
   --color-danger: var(--palette-red-600);
+  /* Same primitive as --color-danger in this theme — see the dark block's
+     comment above for why (pre-existing hardcoded-hover quirk, preserved
+     as-is). */
+  --color-danger-dark: var(--palette-red-600);
 
   --color-badge-draft: var(--palette-slate-900-a08);
   --color-badge-draft-text: var(--palette-slate-700);
@@ -369,6 +414,14 @@
   --color-level-l4: var(--palette-slate-400);
   --color-gradient-ai-start: var(--palette-royal-500);
   --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — identical to the dark block above by
+     design (theming phase 2, checkpoint 2): fixed, theme-independent hex
+     literals before this migration. See the dark block's comment for the
+     full rationale, including the containment exception. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
 
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);

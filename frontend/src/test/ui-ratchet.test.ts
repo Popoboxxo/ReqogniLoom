@@ -270,9 +270,40 @@ const STYLE_BRACE_BASELINE = 1070;
 // report for the color-distance analysis. Re-measured: 25 files / 83
 // occurrences. Baseline lowered in the same change per the ratchet rule
 // above.
+//
+// Multi-palette theming Phase 2, Checkpoint 2 (2026-08-21,
+// docs/superpowers/plans/2026-08-21-multi-palette-theming-phase2.md):
+// migrated `WorkflowEditor/TransitionEdge.tsx` (both edge-stroke colors) and
+// 4 of 5 hex values in `DiagramGraphEditor/GraphEdge.tsx` (flow/association/
+// dependency edge-type colors + the active-state stroke) onto new,
+// deliberately theme-independent `--color-diagram-edge-*` tokens — both
+// files previously kept raw hex by hand, citing an SVG-stroke CSS-custom-
+// property resolution concern that did not hold up on investigation (see
+// tokens.css's comment); the tokens are frozen at the same value in both
+// themes regardless, so the rendered result is unchanged either way, but
+// this substitution is flagged as worth a manual visual check.
+// `GraphEdge.tsx`'s "containment" edge type (`#64748b`) had no
+// `--palette-*` primitive close enough without colliding with the
+// "association" edge's color and was left as raw hex.
+// `canvas/CanvasEditor.tsx` (15 occurrences) was investigated and
+// deliberately NOT migrated: every one of its hex values is consumed by
+// Fabric.js as Canvas 2D `fillStyle`/`strokeStyle` (which does not resolve
+// CSS custom properties — a `var(...)` string is simply an invalid color to
+// the Canvas 2D API) and/or an `<input type="color">` value (which requires a
+// literal `#rrggbb` string per the HTML spec), so replacing them with
+// `var()` references would have broken the actual canvas rendering, not
+// been a pure refactor — see the checkpoint-2 report.
+// `CanvasEditor.module.css` (4 occurrences) and `WorkflowEditor.module.css`
+// (5 occurrences) were fully migrated onto existing tokens
+// (`--color-on-primary`, `--color-danger`) and one new one
+// (`--color-danger-dark`, added to tokens.css) — see the CSS baseline
+// comment below.
+// Re-measured (script mirroring this file's own collectNonTestTsxFiles/
+// countNonCommentOccurrences logic exactly): 24 files / 77 occurrences.
+// Baseline lowered in the same change per the ratchet rule above.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 83;
-const HEX_LITERAL_FILE_BASELINE = 25;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 77;
+const HEX_LITERAL_FILE_BASELINE = 24;
 
 // --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
 //
@@ -294,8 +325,25 @@ const HEX_LITERAL_FILE_BASELINE = 25;
 // primitive pool, so tokens.css dropped 51 -> 40 occurrences and the total
 // went 66 -> 55 across the same 6 files. Baseline lowered in the same PR per
 // the ratchet rule above.
-const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 55;
-const HEX_LITERAL_CSS_FILE_BASELINE = 6;
+//
+// Multi-palette theming Phase 2, Checkpoint 2 (2026-08-21, see the .tsx
+// baseline comment above for the full writeup): fully migrated
+// `CanvasEditor.module.css` (the `.swatchTransparent` "no fill" diagonal
+// stripe, 2 white stops onto `--color-on-primary`, 2 red stops onto
+// `--color-danger`) and `WorkflowEditor.module.css` (4 `#ffffff` button-
+// text-on-primary spots onto `--color-on-primary`, 1 `.btnDanger:hover`
+// `#dc2626` onto the new `--color-danger-dark`, added to tokens.css's
+// semantic block referencing the existing `--palette-red-600` primitive) —
+// 0 raw hex remaining in either file. Re-measured with the same script used
+// for the .tsx baseline: 3 files / 45 occurrences. Also newly confirmed
+// (unrelated to this checkpoint's edits): `EmptyState.module.css`, one of
+// the 6 files this baseline's history names, already had 0 raw hex before
+// this checkpoint started — a harmless pre-existing drift the `<=`-based
+// ratchet always tolerated silently; not treated as part of this
+// checkpoint's delta. Baseline lowered in the same change per the ratchet
+// rule above.
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 45;
+const HEX_LITERAL_CSS_FILE_BASELINE = 3;
 
 // --- (c) Duplicate tree implementations ------------------------------------
 //
