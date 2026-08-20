@@ -183,7 +183,11 @@ export function PermissionMatrixEditor({
         <p
           data-testid={`${testIdPrefix}-saved`}
           style={{
-            color: "var(--color-success, #16a34a)",
+            // Theming phase 2, checkpoint 3: dropped the raw-hex var()
+            // fallback that used to sit here — --color-success is always
+            // defined in tokens.css, so the fallback was unreachable dead
+            // code, not a real color choice.
+            color: "var(--color-success)",
             fontSize: "var(--font-size-sm)",
             marginTop: "var(--space-2)",
           }}

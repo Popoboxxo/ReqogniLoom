@@ -301,9 +301,46 @@ const STYLE_BRACE_BASELINE = 1070;
 // Re-measured (script mirroring this file's own collectNonTestTsxFiles/
 // countNonCommentOccurrences logic exactly): 24 files / 77 occurrences.
 // Baseline lowered in the same change per the ratchet rule above.
+//
+// Multi-palette theming Phase 2, Checkpoint 3 (2026-08-21,
+// docs/superpowers/plans/2026-08-21-multi-palette-theming-phase2.md):
+// migrated all 8 requirement/architecture/traceability/test-run editor
+// files this checkpoint targeted. `ArtifactDiff.tsx`'s STATUS_STYLES
+// (added/removed/modified/unchanged) plus its error and note banners (12
+// occurrences) moved onto new `--color-diff-*` tokens — exact-value
+// primitive matches except `-added-text` (~5.2% RGB distance, closest
+// primitive already used for the same role elsewhere). `TestRunDetailEditor.tsx`'s
+// result-summary tile colors (3) moved onto new `--color-summary-*`
+// tokens — `-failed` exact, `-passed` and `-notrun` are closest-primitive
+// matches (~9.3%/~12.1% distance) flagged as lower-confidence judgment
+// calls in the checkpoint-3 report. `RequirementList.tsx`'s
+// `getTypeColor` ramp (4) moved onto new `--color-reqtype-*` tokens —
+// `-syreq`/`-featurereq` exact, `-usecase`/`-default` closest-primitive
+// matches (~6.8%/~11.3%). `ReqTraceLinkPanel.tsx`'s AI-derive gradient (2)
+// reused the existing `--color-gradient-ai-start`/`-end` tokens from
+// Checkpoint 1 (identical source value, previously flagged as a known
+// duplicate in that checkpoint's report). `ArchitectureEditors.tsx`'s two
+// `#ffffff` button-text spots (one on a `--color-primary` background, one
+// on `--color-danger`) both reused the existing `--color-on-primary`
+// token — confirmed against `WorkflowEditor.module.css`'s `.btnPrimary`/
+// `.btnDanger` pairing, which already uses `--color-on-primary` as the
+// text color for both button variants, so this isn't a new convention.
+// `TraceLinksForm.tsx` and `TraceabilityView.tsx` each carried an
+// identical link-type pill (`background: "#eef", color: "#2c5282"`, 2
+// occurrences each); both moved onto new, shared `--color-linktype-badge-*`
+// tokens — `-text` exact, `-bg` a closest-primitive match (~3.6%).
+// `PermissionMatrixEditor.tsx`'s single occurrence was a raw-hex fallback
+// value tacked onto an existing --color-success reference — not a real
+// color choice, since --color-success is always defined; the fallback was
+// simply dropped. All new tokens are
+// declared identically in both theme blocks (frozen), matching every prior
+// checkpoint's pattern for hex values that were hardcoded regardless of
+// theme before migration. Re-measured (same script as above): 16 files /
+// 49 occurrences. Baseline lowered in the same change per the ratchet rule
+// above.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 77;
-const HEX_LITERAL_FILE_BASELINE = 24;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 49;
+const HEX_LITERAL_FILE_BASELINE = 16;
 
 // --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
 //

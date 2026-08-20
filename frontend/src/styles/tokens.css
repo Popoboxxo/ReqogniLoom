@@ -247,6 +247,76 @@
   --color-diagram-edge-default: var(--palette-slate-600);
   --color-diagram-edge-dependency: var(--palette-amber-500);
 
+  /* Diff status badges (ArtifactDiff.tsx STATUS_STYLES + the error/note
+     banners), theming phase 2, checkpoint 3. All were hardcoded pastel
+     bg/text pairs, always the same regardless of theme, so frozen here
+     exactly like the level-badge/gradient-ai/diagram-edge tokens above.
+     added/removed/modified/unchanged map to green/rose/yellow/slate — all
+     exact-value primitive matches except -added-text (#22543d in the
+     source, ~5.2% RGB distance from the closest primitive, green-800,
+     already used elsewhere for the same "success text on pastel bg" role
+     in --color-badge-success-text's light-theme mapping). The error banner
+     reuses -removed-bg/-text (identical source values, same rose family,
+     "error" semantically parallel to "removed"/danger). See the
+     checkpoint-3 report for the full distance table. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+
+  /* TestRun result-summary tile colors (TestRunDetailEditor.tsx), theming
+     phase 2, checkpoint 3. Hardcoded, theme-independent before this
+     migration, so frozen like the tokens above rather than pointed at the
+     already theme-reactive --color-success/--color-danger (which would
+     have shifted the light-theme value away from the original hex).
+     -failed is an exact match (red-500); -passed is the closest primitive
+     to the source's plain Tailwind green (~9.3% RGB distance — the
+     codebase's own "success" semantic is already emerald-family
+     everywhere else, e.g. StatusBadge's passed->success mapping in
+     utils/statusBadge.ts, so this also aligns the one remaining outlier);
+     -notrun has no close primitive (~12.1% distance) but reuses gray-600,
+     which is already the primitive backing --color-badge-neutral-text —
+     the same "neutral" semantic this tile represents. Flagged in the
+     checkpoint-3 report as a lower-confidence judgment call. */
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+
+  /* Requirement-type badge ramp (RequirementList.tsx getTypeColor), theming
+     phase 2, checkpoint 3. Same fixed-badge-with-white-text role as the
+     architecture level ramp above (badge={ bg: getTypeColor(type), color:
+     'white' }), always rendered the same regardless of theme, so frozen
+     here too. -syreq and -featurereq are exact matches; -usecase is the
+     closest primitive (purple-500, ~6.8% distance) to the source's
+     indigo-leaning violet; -default (the "unknown type" fallback) has no
+     close primitive (~11.3% distance) but reuses gray-600, same reasoning
+     as -notrun above. See the checkpoint-3 report for the full distance
+     table. */
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+
+  /* Trace-link-type inline badge (TraceLinksForm.tsx and
+     TraceabilityView.tsx both carry an identical `background: "#eef",
+     color: "#2c5282"` pill around the link_type label), theming phase 2,
+     checkpoint 3. Frozen like the tokens above — hardcoded, theme-
+     independent before this migration. -text is an exact match
+     (sky-800, already the --color-badge-info-text light-theme primitive
+     and the --color-level-l0 primitive). -bg has no close saturated-blue
+     primitive for the source's near-white "#eef" lavender tint; the
+     closest overall is slate-50 (~3.6% distance), which is otherwise only
+     used as the light theme's --color-surface — reused here as a raw
+     primitive reference, not implying any --color-surface relationship. */
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
   --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
@@ -422,6 +492,31 @@
   --color-diagram-edge-primary: var(--palette-indigo-500);
   --color-diagram-edge-default: var(--palette-slate-600);
   --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — identical to the dark block above by design
+     (theming phase 2, checkpoint 3): all were fixed, theme-independent hex
+     literals before this migration. See the dark block's comments for the
+     full rationale and distance table. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
 
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);

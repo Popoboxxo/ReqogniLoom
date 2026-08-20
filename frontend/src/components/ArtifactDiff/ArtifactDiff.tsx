@@ -94,32 +94,32 @@ interface ArtifactDiffProps {
 
 const STATUS_STYLES: Record<DiffFieldStatus, React.CSSProperties> = {
   added: {
-    background: "#c6f6d5",
-    color: "#22543d",
+    background: "var(--color-diff-added-bg)",
+    color: "var(--color-diff-added-text)",
     padding: "2px 8px",
     borderRadius: "4px",
     fontSize: "12px",
     fontWeight: 600,
   },
   removed: {
-    background: "#fed7d7",
-    color: "#9b2c2c",
+    background: "var(--color-diff-removed-bg)",
+    color: "var(--color-diff-removed-text)",
     padding: "2px 8px",
     borderRadius: "4px",
     fontSize: "12px",
     fontWeight: 600,
   },
   modified: {
-    background: "#fefcbf",
-    color: "#744210",
+    background: "var(--color-diff-modified-bg)",
+    color: "var(--color-diff-modified-text)",
     padding: "2px 8px",
     borderRadius: "4px",
     fontSize: "12px",
     fontWeight: 600,
   },
   unchanged: {
-    background: "#e2e8f0",
-    color: "#4a5568",
+    background: "var(--color-diff-unchanged-bg)",
+    color: "var(--color-diff-unchanged-text)",
     padding: "2px 8px",
     borderRadius: "4px",
     fontSize: "12px",
@@ -482,8 +482,8 @@ export function ArtifactDiff({
           data-testid="diff-error"
           style={{
             padding: "12px",
-            background: "#fed7d7",
-            color: "#9b2c2c",
+            background: "var(--color-diff-removed-bg)",
+            color: "var(--color-diff-removed-text)",
             borderRadius: "4px",
             fontSize: "13px",
           }}
@@ -498,8 +498,8 @@ export function ArtifactDiff({
           data-testid="diff-note"
           style={{
             padding: "8px 12px",
-            background: "#bee3f8",
-            color: "#2c5282",
+            background: "var(--color-diff-note-bg)",
+            color: "var(--color-diff-note-text)",
             borderRadius: "4px",
             fontSize: "12px",
             marginBottom: "12px",

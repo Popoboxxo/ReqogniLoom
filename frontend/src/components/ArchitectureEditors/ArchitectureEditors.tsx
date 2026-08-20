@@ -359,7 +359,7 @@ export default function ArchitectureEditors(): JSX.Element {
           onClick={refresh}
           style={{
             background: "var(--color-primary)",
-            color: "#ffffff",
+            color: "var(--color-on-primary)",
             border: "none",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-2) var(--space-4)",
@@ -638,7 +638,7 @@ export default function ArchitectureEditors(): JSX.Element {
                 }}
                 style={{
                   background: "var(--color-danger)",
-                  color: "#ffffff",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   padding: "var(--space-2) var(--space-4)",

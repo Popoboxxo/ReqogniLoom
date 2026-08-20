@@ -786,10 +786,10 @@ export default function TraceabilityView(): JSX.Element {
                         data-testid="tracelink-type"
                         style={{
                           fontSize: "var(--font-size-sm)",
-                          background: "#eef",
+                          background: "var(--color-linktype-badge-bg)",
                           padding: "2px 8px",
                           borderRadius: "var(--radius-full)",
-                          color: "#2c5282",
+                          color: "var(--color-linktype-badge-text)",
                           fontWeight: 500,
                         }}
                       >

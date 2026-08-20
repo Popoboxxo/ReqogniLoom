@@ -28,21 +28,15 @@
  */
 export const LEGACY_INLINE_STYLE_HEX_FILES = [
   "src/components/AdminDialog/AttributeVisibilityAdmin.tsx",
-  "src/components/ArchitectureEditors/ArchitectureEditors.tsx",
-  "src/components/ArtifactDiff/ArtifactDiff.tsx",
   "src/components/BaselinesView/BaselinesView.tsx",
   "src/components/ImpactView/ImpactView.tsx",
   "src/components/MetricsDashboard/MetricsDashboard.tsx",
   "src/components/NavigationShell/CreateWorkspaceModal.tsx",
   "src/components/NavigationShell/ErrorBoundary.tsx",
-  "src/components/PermissionMatrix/PermissionMatrixEditor.tsx",
-  "src/components/RequirementEditors/ReqTraceLinkPanel.tsx",
   "src/components/Reviews/ReviewsView.tsx",
   "src/components/SystemSettings/EnforcementModePanel.tsx",
   "src/components/SystemSettings/PermissionDefaultsTab.tsx",
   "src/components/SystemSettings/WorkspaceAdminSection.tsx",
-  "src/components/TraceabilityView/TraceLinksForm.tsx",
-  "src/components/TraceabilityView/TraceabilityView.tsx",
   "src/components/UserProfileSettings/ApiKeysSection.tsx",
   "src/components/WorkspaceSettings/BackupRestoreSection.tsx",
   "src/components/WorkspaceSettings/WorkspaceSettings.tsx",
@@ -50,4 +44,11 @@ export const LEGACY_INLINE_STYLE_HEX_FILES = [
   // shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx entries
   // removed here — both fully migrated onto design tokens, no remaining
   // hex literals. The rule now guards them permanently.
+  // #568 Phase 2 checkpoint 3: ArchitectureEditors.tsx, ArtifactDiff.tsx,
+  // PermissionMatrix/PermissionMatrixEditor.tsx,
+  // RequirementEditors/ReqTraceLinkPanel.tsx,
+  // TraceabilityView/TraceLinksForm.tsx and
+  // TraceabilityView/TraceabilityView.tsx entries removed here — all six
+  // fully migrated onto design tokens, no remaining hex literals. The rule
+  // now guards them permanently.
 ];
