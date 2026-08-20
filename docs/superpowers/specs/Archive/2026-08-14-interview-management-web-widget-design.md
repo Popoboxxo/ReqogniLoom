@@ -4,7 +4,7 @@
 **Scope:** Spec 3 von 3. Baut auf Spec 1
 (`docs/superpowers/specs/2026-08-14-interview-management-engine-design.md`,
 PR #530) und Spec 2
-(`docs/superpowers/specs/2026-08-14-interview-management-hermes-plugin-design.md`,
+(`docs/superpowers/specs/Archive/2026-08-14-interview-management-hermes-plugin-design.md`,
 PR #531) auf. Mit diesem Spec ist die Dekomposition des
 Interview-Management-Features vollständig — alle drei Teilprojekte haben
 eine geschriebene Spec, Umsetzung folgt danach separat je Teilprojekt.

@@ -1,7 +1,7 @@
 /**
  * UI-Konzept Kapitel 16.1 — dynamically checkable structural gates.
  *
- * Task 7.5 (docs/superpowers/plans/2026-08-01-ui-konzept-vollrollout.md):
+ * Task 7.5 (docs/superpowers/plans/Archive/2026-08-01-ui-konzept-vollrollout.md):
  * two of the gates listed in chapter 16.1 cannot be enforced statically
  * (ESLint / a plain grep) and are checked here, parametrized across every
  * route defined in `NavigationShell.tsx`:

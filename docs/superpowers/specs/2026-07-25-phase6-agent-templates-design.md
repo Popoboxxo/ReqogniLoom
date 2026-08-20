@@ -1,6 +1,6 @@
 # Phase 6 — Agenten-Templates für Downstream-Projekte (Design)
 
-> Spec zu Phase 6 aus `docs/superpowers/specs/2026-07-23-reqogniloom-status-unification-design.md` §9.
+> Spec zu Phase 6 aus `docs/superpowers/specs/Archive/2026-07-23-reqogniloom-status-unification-design.md` §9.
 
 ## 1. Ziel und Abgrenzung
 

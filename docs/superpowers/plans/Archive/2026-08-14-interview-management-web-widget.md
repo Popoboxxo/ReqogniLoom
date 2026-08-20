@@ -8,11 +8,11 @@
 
 **Tech Stack:** Django REST Framework, `llm_adapter` provider abstraction, React 18 + TypeScript, Vitest + React Testing Library.
 
-**Spec:** `docs/superpowers/specs/2026-08-14-interview-management-web-widget-design.md` (Spec 3 of 3).
+**Spec:** `docs/superpowers/specs/Archive/2026-08-14-interview-management-web-widget-design.md` (Spec 3 of 3).
 
 ## Global Constraints
 
-- **Hard dependency on the engine plan** (`docs/superpowers/plans/2026-08-14-interview-management-engine.md`, PR #534): `InterviewService`, `InterviewSession` (including its `transcript` field), and `interview_protocol.get_protocol` must exist before this plan's Task 1 can be written against real code. Confirmed already correct in that plan: the model has `transcript`, and its Global Constraints explicitly exclude the REST facade and `interview.chat_turn` capability as this plan's responsibility — no changes needed to the engine plan for this plan to build on it.
+- **Hard dependency on the engine plan** (`docs/superpowers/plans/Archive/2026-08-14-interview-management-engine.md`, PR #534): `InterviewService`, `InterviewSession` (including its `transcript` field), and `interview_protocol.get_protocol` must exist before this plan's Task 1 can be written against real code. Confirmed already correct in that plan: the model has `transcript`, and its Global Constraints explicitly exclude the REST facade and `interview.chat_turn` capability as this plan's responsibility — no changes needed to the engine plan for this plan to build on it.
 - The web app authenticates via httpOnly cookie (`reqflow_access`) + CSRF only — no API key, no MCP. All access goes through the new REST facade, never `interview.*` MCP tools directly (spec §2).
 - `missing_fields` from `InterviewService.get_state()` is `list[{"name": str, "type": str, "choices": list[str] | None}]` (confirmed against the engine plan's corrected Task 3, commit `bb7647c`) — the frontend types in this plan match that shape exactly.
 - `interview.chat_turn` generation is NOT fail-open — without a working LLM provider it cannot function (spec §5), unlike grounding. The existing mock-provider fallback still lets it run in dev, with lower extraction quality.

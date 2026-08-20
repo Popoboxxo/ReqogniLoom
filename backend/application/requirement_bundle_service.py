@@ -2,7 +2,7 @@
 architecture element via ALLOCATED_TO trace links (Requirement Bundle
 Export, Plan 1 Task 1).
 
-Design: docs/superpowers/specs/2026-08-08-requirement-bundle-export-design.md
+Design: docs/superpowers/specs/Archive/2026-08-08-requirement-bundle-export-design.md
 
 Walks the ALLOCATED_TO trace-link graph (Requirement->ArchitectureElement and
 ArchitectureElement->ArchitectureElement) starting at a root

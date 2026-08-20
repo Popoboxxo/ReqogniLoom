@@ -13,7 +13,7 @@
 > **No decision still blocks implementation start.** §9.5-§9.7 can be answered during
 > implementation without changing what has already been designed. This document should now be
 > turned into a task-by-task plan in the style of
-> `docs/superpowers/plans/2026-08-05-mcp-plugin-distribution.md`.
+> `docs/superpowers/plans/Archive/2026-08-05-mcp-plugin-distribution.md`.
 
 **Issue:** Popoboxxo/ReqogniLoom#353 — *refactor: replace freehand `canvas_stroke` diagram model with a structured node/edge graph*
 **Date:** 2026-08-07 (rev 2)
