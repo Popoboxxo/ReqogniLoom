@@ -554,7 +554,9 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="outdate",
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "outdate", silently rejected by full_clean()).
+            operation="delete",
             entity_type="ArchitectureElement",
             entity_id=arch_id,
             tool_name="architecture.outdate",
@@ -595,7 +597,9 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="reactivate",
+            # #626: reuse "transition" (was the undeclared "reactivate",
+            # silently rejected by full_clean()) -- same convention as #573.
+            operation="transition",
             entity_type="ArchitectureElement",
             entity_id=arch_id,
             tool_name="architecture.reactivate",

@@ -968,7 +968,10 @@ class McpTestToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="derive_from_requirement",
+            # #626: this tool creates exactly one new TestCase -- reuse
+            # "create", the REST pendant (was the undeclared
+            # "derive_from_requirement", silently rejected by full_clean()).
+            operation="create",
             entity_type="TestCase",
             entity_id=UUID(result["id"]),
             tool_name="test.derive_from_requirement",
@@ -1010,7 +1013,9 @@ class McpTestToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="outdate",
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "outdate", silently rejected by full_clean()).
+            operation="delete",
             entity_type="TestCase",
             entity_id=tc_id,
             tool_name="test.outdate",
@@ -1051,7 +1056,9 @@ class McpTestToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="reactivate",
+            # #626: reuse "transition" (was the undeclared "reactivate",
+            # silently rejected by full_clean()) -- same convention as #573.
+            operation="transition",
             entity_type="TestCase",
             entity_id=tc_id,
             tool_name="test.reactivate",

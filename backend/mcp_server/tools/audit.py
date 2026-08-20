@@ -646,7 +646,10 @@ class AuditToolGroup(BaseToolGroup):
         # MCP-level audit (REQ-L2-MC-012): record the agent identity.
         write_mcp_audit(
             ctx=auth_context,
-            operation="replay",
+            # #626: new "events.replay" choice -- DLQ replay has no REST
+            # pendant to reuse (was the undeclared "replay", silently
+            # rejected by full_clean()).
+            operation="events.replay",
             entity_type="DomainEventDLQ",
             entity_id=event_id,
             tool_name="events.dlq_replay",
