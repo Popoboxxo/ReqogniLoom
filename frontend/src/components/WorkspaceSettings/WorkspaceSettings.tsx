@@ -453,7 +453,7 @@ export default function WorkspaceSettings(): JSX.Element {
             <section style={cardStyle}>
               <h3 style={headingStyle}>{t("settings.theme")}</h3>
               {THEMES.map((themeDef) => (
-                <label key={themeDef.id} style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
+                <label key={themeDef.id} style={labelStyle}>
                   <input
                     type="radio"
                     name="theme"
