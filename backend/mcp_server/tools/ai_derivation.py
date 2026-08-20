@@ -200,7 +200,8 @@ def derive_requirements_from_need(
         written.append(result)
         write_mcp_audit(
             ctx=auth_context,
-            operation="derive_requirements_from_need",
+            # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
+            operation="create",
             entity_type="Requirement",
             entity_id=UUID(result["id"]),
             tool_name="ai_derivation.derive_requirements_from_need",
@@ -467,7 +468,8 @@ class AiDerivationToolGroup(BaseToolGroup):
             )
         write_mcp_audit(
             ctx=auth_context,
-            operation="suggest_architecture_for_requirement",
+            # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
+            operation="create",
             entity_type="TraceLink",
             entity_id=link.id,
             tool_name="ai_derivation.suggest_architecture_for_requirement",
@@ -543,7 +545,8 @@ class AiDerivationToolGroup(BaseToolGroup):
             written.append(result)
             write_mcp_audit(
                 ctx=auth_context,
-                operation="decompose_requirement_next_level",
+                # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
+                operation="create",
                 entity_type="Requirement",
                 entity_id=UUID(result["id"]),
                 tool_name="ai_derivation.decompose_requirement_next_level",
@@ -617,7 +620,8 @@ class AiDerivationToolGroup(BaseToolGroup):
             written.append(result)
             write_mcp_audit(
                 ctx=auth_context,
-                operation="derive_risks_from_architecture",
+                # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
+                operation="create",
                 entity_type="Risk",
                 entity_id=UUID(result["id"]),
                 tool_name="ai_derivation.derive_risks_from_architecture",
@@ -685,7 +689,8 @@ class AiDerivationToolGroup(BaseToolGroup):
             written.append(result)
             write_mcp_audit(
                 ctx=auth_context,
-                operation="derive_glossary_from_workspace",
+                # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
+                operation="create",
                 entity_type="GlossaryTerm",
                 entity_id=UUID(result["id"]),
                 tool_name="ai_derivation.derive_glossary_from_workspace",
@@ -750,7 +755,8 @@ class AiDerivationToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="derive_adr_from_decision",
+            # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
+            operation="create",
             entity_type="Adr",
             entity_id=UUID(result["id"]),
             tool_name="ai_derivation.derive_adr_from_decision",

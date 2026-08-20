@@ -579,7 +579,9 @@ class TestAuditToolGroup:
         mock_audit.assert_called_once()
         audit_kwargs = mock_audit.call_args.kwargs
         assert audit_kwargs["tool_name"] == "events.dlq_replay"
-        assert audit_kwargs["operation"] == "replay"
+        # #626: "replay" was an undeclared op, silently swallowed by
+        # write_mcp_audit -- now "events.replay", a real declared choice.
+        assert audit_kwargs["operation"] == "events.replay"
         assert audit_kwargs["entity_type"] == "DomainEventDLQ"
         assert audit_kwargs["entity_id"] == EVENT_UUID
         assert audit_kwargs["details"]["previous_retry_count"] == 5

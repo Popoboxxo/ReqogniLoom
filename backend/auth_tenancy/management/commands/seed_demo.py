@@ -30,6 +30,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
+from application.workspace_provisioning import provision_workspace_defaults_scoped
 from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_EMAIL,
     DEFAULT_ADMIN_USERNAME,
@@ -37,6 +38,12 @@ from auth_tenancy.provisioning import (
 )
 
 _DEFAULT_ADMIN_PASSWORD = "admin12345"
+
+# provision_admin()'s base workspace is always created with active_tier
+# "extended" (see auth_tenancy.provisioning._ensure_workspace) -- matches
+# application.self_init._DEFAULT_WORKSPACE_TIER, the same constant for the
+# same reason.
+_WORKSPACE_TIER = "extended"
 
 
 class Command(BaseCommand):
@@ -74,6 +81,19 @@ class Command(BaseCommand):
             email=email,
             password=password,
             reset_password=bool(options.get("reset_password")),
+        )
+
+        # Issue #41: provision_admin() creates the tenant/workspace/user but
+        # never seeded workflow definitions -- a workspace it provisions was
+        # left with `states: []`/`transitions: []` (initialized=true, but
+        # empty) until someone separately called POST
+        # /api/v1/workflows/definition/initialize/ per entity type. Same fix
+        # application.self_init.run_self_init() already applies after its own
+        # provision_admin() call, for the same reason.
+        provision_workspace_defaults_scoped(
+            workspace_id=result.workspace.id,
+            tenant_id=result.tenant.id,
+            requirement_preset=_WORKSPACE_TIER,
         )
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))

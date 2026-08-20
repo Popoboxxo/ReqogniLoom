@@ -218,7 +218,12 @@ class ReviewToolGroup(BaseToolGroup):
             return ToolResult.error("INTERNAL_ERROR", str(exc))
 
         write_mcp_audit(
-            ctx=auth_context, operation="reject", entity_type=item_type,
+            ctx=auth_context,
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "reject", silently rejected by full_clean()) --
+            # the outdate() call above is the same escape hatch every
+            # <type>.outdate MCP tool uses, already mapped to "delete".
+            operation="delete", entity_type=item_type,
             entity_id=item_id, tool_name="review.reject", api_key=api_key,
             details={"reason": reason},
         )
@@ -262,7 +267,11 @@ class ReviewToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         write_mcp_audit(
-            ctx=auth_context, operation="request_changes", entity_type=item_type,
+            ctx=auth_context,
+            # #626: reuse "transition" (was the undeclared "request_changes",
+            # silently rejected by full_clean()) -- WorkflowFacade.transition()
+            # was just called above, same convention as #573.
+            operation="transition", entity_type=item_type,
             entity_id=item_id, tool_name="review.request_changes", api_key=api_key,
             details={"reason": reason},
         )
@@ -350,7 +359,13 @@ class ReviewToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         write_mcp_audit(
-            ctx=auth_context, operation=operation, entity_type=item_type,
+            ctx=auth_context,
+            # #626: reuse "transition" (was the undeclared "approve",
+            # silently rejected by full_clean()) -- WorkflowFacade.transition()
+            # was just called above, same as #573's outdate->delete/
+            # reactivate->transition convention. `operation` (still "approve",
+            # this method's only caller) stays as-is for tool_name below.
+            operation="transition", entity_type=item_type,
             entity_id=item_id, tool_name=f"review.{operation}", api_key=api_key,
             details={reason_param: reason},
         )

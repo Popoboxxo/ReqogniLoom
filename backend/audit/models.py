@@ -138,6 +138,10 @@ class AuditEntry(TenantScopedModel):
     OP_AI_DECOMPOSE = "ai.decompose"
     OP_AI_VALIDATE = "ai.validate"
     OP_AI_CHECK_CONSISTENCY = "ai.check_consistency"
+    # #626: DLQ event replay has no REST pendant (it is admin/ops machinery
+    # over a DomainEventDLQ row, not a CRUD op on a business entity), so it
+    # gets its own namespace — same reasoning as the ``ai.*`` family above.
+    OP_EVENTS_REPLAY = "events.replay"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -162,6 +166,23 @@ class AuditEntry(TenantScopedModel):
     # pendant's op (outdate -> ``delete``, reactivate -> ``transition``), and
     # only the LLM analyses, which have no REST pendant, got new ``ai.*``
     # choices below.
+    #
+    # NOTE (#626): the remaining 17 call-sites from the #573 follow-up list
+    # (ai_derivation.py's 6 derive/suggest tools, review.py's
+    # approve/reject/request_changes, tests.py's outdate/reactivate/
+    # derive_from_requirement, architecture.py's outdate/reactivate,
+    # diagram.py's outdate/reactivate, audit.py's replay) hit the identical
+    # gap. All but one reuse an existing pendant: the 6 ai_derivation.py
+    # tools plus tests.py's derive_from_requirement each write exactly one
+    # audit entry for the ONE entity they just created (a Requirement/Adr/
+    # GlossaryTerm/Risk/TraceLink/TestCase row) -> ``create``, same
+    # "who created this" query as their REST siblings. outdate/reactivate on
+    # architecture.py/diagram.py/tests.py -> ``delete``/``transition``, same
+    # convention as #573. review.py's approve/request_changes call
+    # WorkflowFacade.transition() directly -> ``transition``; reject calls
+    # the outdate() escape hatch -> ``delete``. Only audit.py's DLQ replay
+    # has no REST pendant (it is admin/ops machinery, not a CRUD op on a
+    # business entity) -> the new ``events.replay`` above.
     OP_CHOICES = [
         (OP_CREATE, "Create"),
         (OP_UPDATE, "Update"),
@@ -183,6 +204,7 @@ class AuditEntry(TenantScopedModel):
         (OP_AI_DECOMPOSE, "AI Decompose"),
         (OP_AI_VALIDATE, "AI Validate"),
         (OP_AI_CHECK_CONSISTENCY, "AI Consistency Check"),
+        (OP_EVENTS_REPLAY, "Events Replay"),
     ]
 
     SOURCE_REST = "rest"

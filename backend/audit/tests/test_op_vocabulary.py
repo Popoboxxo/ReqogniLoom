@@ -25,14 +25,12 @@ admin/user/permissions MCP tool groups fixed for #539 are covered below.
 
 Scope note: this second ratchet intentionally scans only the tool-group
 files fixed so far, not the whole ``mcp_server/tools/`` package —
-``admin.py``, ``backup.py``, ``users.py``, ``permissions.py`` (#539) plus
-``requirements.py`` and ``needs.py`` (#573). Widening the scan to all of
-``mcp_server/tools/`` would make this ratchet fail on the gaps that are
-still open: ``ai_derivation.py`` (six undeclared ops), ``audit.py``
-(``"replay"``), ``architecture.py`` / ``diagram.py`` / ``tests.py``
-(``"outdate"`` / ``"reactivate"``) and ``review.py`` (``"approve"`` /
-``"reject"`` / ``"request_changes"``). Widen ``_MCP_TOOL_FILES`` as each
-remaining tool group is fixed.
+``admin.py``, ``backup.py``, ``users.py``, ``permissions.py`` (#539),
+``requirements.py`` and ``needs.py`` (#573), plus ``ai_derivation.py``,
+``review.py``, ``tests.py``, ``architecture.py``, ``diagram.py`` and
+``audit.py`` (#626, the 17 call-sites #573 left open). Every known gap is
+now covered; widen ``_MCP_TOOL_FILES`` (and this note) if a future MCP tool
+group repeats the pattern.
 """
 from __future__ import annotations
 
@@ -57,6 +55,13 @@ _MCP_TOOL_FILES = (
     # #573
     _BACKEND_ROOT / "mcp_server" / "tools" / "requirements.py",
     _BACKEND_ROOT / "mcp_server" / "tools" / "needs.py",
+    # #626
+    _BACKEND_ROOT / "mcp_server" / "tools" / "ai_derivation.py",
+    _BACKEND_ROOT / "mcp_server" / "tools" / "review.py",
+    _BACKEND_ROOT / "mcp_server" / "tools" / "tests.py",
+    _BACKEND_ROOT / "mcp_server" / "tools" / "architecture.py",
+    _BACKEND_ROOT / "mcp_server" / "tools" / "diagram.py",
+    _BACKEND_ROOT / "mcp_server" / "tools" / "audit.py",
 )
 
 
@@ -218,12 +223,21 @@ def test_regression_mcp_ai_operations_are_declared(operation: str) -> None:
         ("mcp_server/tools/requirements.py", "transition"),
         ("mcp_server/tools/needs.py", "delete"),
         ("mcp_server/tools/needs.py", "transition"),
+        # #626
+        ("mcp_server/tools/tests.py", "delete"),
+        ("mcp_server/tools/tests.py", "transition"),
+        ("mcp_server/tools/architecture.py", "delete"),
+        ("mcp_server/tools/architecture.py", "transition"),
+        ("mcp_server/tools/diagram.py", "delete"),
+        ("mcp_server/tools/diagram.py", "transition"),
+        ("mcp_server/tools/review.py", "delete"),
+        ("mcp_server/tools/review.py", "transition"),
     ],
 )
 def test_regression_mcp_lifecycle_ops_reuse_rest_vocabulary(
     tool_file: str, operation: str
 ) -> None:
-    """#573: MCP soft-delete/restore must audit under the REST pendant's op.
+    """#573/#626: MCP soft-delete/restore must audit under the REST pendant's op.
 
     ``requirement.outdate`` / ``needs.outdate`` used to pass ``"outdate"`` and
     ``*.reactivate`` used to pass ``"reactivate"`` — neither is a declared
@@ -232,12 +246,51 @@ def test_regression_mcp_lifecycle_ops_reuse_rest_vocabulary(
     ``WorkflowFacade.reactivate`` write for the REST path) keeps one audit
     query able to answer "who removed this artifact" across both surfaces;
     this guard fails if someone re-introduces a tool-name-shaped op there.
+
+    #626 extends the same convention to ``tests.py``/``architecture.py``/
+    ``diagram.py``'s outdate/reactivate and ``review.py``'s
+    reject->``delete`` / approve+request_changes->``transition``.
     """
     operations = _mcp_audited_operations()
     assert tool_file in operations.get(operation, []), (
         f"{tool_file} no longer emits write_mcp_audit(operation={operation!r}) "
         f"— found: { {op: files for op, files in operations.items() if tool_file in files} }"
     )
+
+
+@pytest.mark.parametrize(
+    ("tool_file", "operation"),
+    [
+        ("mcp_server/tools/ai_derivation.py", "create"),
+        ("mcp_server/tools/tests.py", "create"),
+    ],
+)
+def test_regression_mcp_derive_ops_reuse_create(tool_file: str, operation: str) -> None:
+    """#626: AI-derivation tools that create exactly one new entity must
+    audit under "create", the REST pendant — same "reuse the pendant" logic
+    as outdate->delete/reactivate->transition, just for the creation case.
+
+    ``ai_derivation.py``'s six derive/suggest tools and
+    ``test.derive_from_requirement`` used to pass their own tool-name-shaped
+    literal (e.g. ``"derive_requirements_from_need"``), none of which were
+    declared choices.
+    """
+    operations = _mcp_audited_operations()
+    assert tool_file in operations.get(operation, []), (
+        f"{tool_file} no longer emits write_mcp_audit(operation={operation!r}) "
+        f"— found: { {op: files for op, files in operations.items() if tool_file in files} }"
+    )
+
+
+def test_regression_mcp_events_replay_operation_is_declared() -> None:
+    """#626: ``events.dlq_replay`` used to pass the undeclared ``"replay"``.
+
+    DLQ replay has no REST pendant to reuse (admin/ops machinery, not a CRUD
+    op on a business entity), so it got the new ``events.replay`` choice.
+    """
+    assert "events.replay" in {value for value, _label in AuditEntry.OP_CHOICES}
+    operations = _mcp_audited_operations()
+    assert "mcp_server/tools/audit.py" in operations.get("events.replay", [])
 
 
 def test_op_choices_fit_the_column_width() -> None:

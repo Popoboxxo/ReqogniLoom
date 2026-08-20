@@ -147,7 +147,10 @@ WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
         "entity_type": "BackupMetadata",
     },
     "admin.restore": {"op": "admin.restore", "entity_type": "BackupRestore"},
-    "events.dlq_replay": {"op": "replay", "entity_type": "DomainEventDLQ"},
+    # #626: "replay" was undeclared and silently swallowed by write_mcp_audit
+    # (relaxed in the fixture below to mask it); now "events.replay", a real
+    # declared choice with no REST pendant to reuse.
+    "events.dlq_replay": {"op": "events.replay", "entity_type": "DomainEventDLQ"},
     "user.create": {"op": "user.create", "entity_type": "User"},
     "user.assign_role": {"op": "user.assign_role", "entity_type": "UserRole"},
     "user.deactivate": {"op": "user.deactivate", "entity_type": "User"},
@@ -193,8 +196,13 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
     while writing zero audit rows in production. The requirements/needs tool
     groups now emit declared ops only (migration
     ``0009_alter_auditentry_op``), so nothing from those groups is relaxed.
-    ``"replay"`` (events.dlq_replay) and the ``ai_derivation.*`` ops are the
-    remaining known gaps — deliberately out of #573's scope, still relaxed.
+
+    #626: ``"replay"`` (events.dlq_replay) is fixed too — it now emits
+    ``"events.replay"``, a real declared choice (migration
+    ``0010_alter_auditentry_op``), so it is no longer relaxed here either.
+    The ``ai_derivation.*``/``review.*``/lifecycle tools #626 also fixed are
+    not in ``WRITE_TOOL_AUDIT_OPS`` at all (never covered by this harness);
+    see ``audit/tests/test_op_vocabulary.py`` for their static coverage.
     """
     from audit import models as audit_models
 
@@ -204,7 +212,6 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
         ("workspace.close", "Workspace Close"),
         ("workspace.reactivate", "Workspace Reactivate"),
         ("workspace.delete", "Workspace Delete"),
-        ("replay", "DLQ Replay"),
     ]
     op_field.choices = relaxed
     yield

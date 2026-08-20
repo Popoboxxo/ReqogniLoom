@@ -495,7 +495,9 @@ class DiagramToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="outdate",
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "outdate", silently rejected by full_clean()).
+            operation="delete",
             entity_type="Diagram",
             entity_id=diagram_id,
             tool_name="diagram.outdate",
@@ -545,7 +547,9 @@ class DiagramToolGroup(BaseToolGroup):
 
         write_mcp_audit(
             ctx=auth_context,
-            operation="reactivate",
+            # #626: reuse "transition" (was the undeclared "reactivate",
+            # silently rejected by full_clean()) -- same convention as #573.
+            operation="transition",
             entity_type="Diagram",
             entity_id=diagram_id,
             tool_name="diagram.reactivate",

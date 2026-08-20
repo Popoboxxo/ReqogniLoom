@@ -64,6 +64,9 @@ vi.mock("mermaid", () => ({
     render: vi.fn().mockResolvedValue({
       svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Mock</text></svg>',
     }),
+    // #259: the status bar's diagram-type label is derived from this, not
+    // from the (possibly stale) fetchMermaidPreview response.
+    detectType: vi.fn().mockReturnValue("flowchart"),
   },
 }));
 
@@ -151,6 +154,29 @@ describe("MermaidEditor", () => {
 
     expect(screen.getByTestId("mermaid-status-bar")).toBeInTheDocument();
     expect(screen.getByTestId("mermaid-save-status")).toBeInTheDocument();
+  });
+
+  it("#259: status bar type reflects the client-side mermaid.js parse, not the stale server preview", async () => {
+    // The server-side preview fetch is mocked to answer with an EMPTY
+    // diagram_type, simulating the reported bug's stale/unsaved-content
+    // mismatch. If the status bar still read `preview.diagram_type` this
+    // assertion would fail with "No preview" instead of "flowchart".
+    mockFetchMermaidPreview.mockResolvedValueOnce({
+      diagram_id: "test-id",
+      source: "",
+      diagram_type: "",
+      render_hints: null,
+      fallback_mode: false,
+      error_message: "",
+    });
+
+    render(
+      <MermaidEditor diagramId="test-diagram-id" initialSource="flowchart TD\n  A --> B" />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mermaid-status-bar")).toHaveTextContent("flowchart");
+    });
   });
 
   it("loads initial source from props", async () => {
