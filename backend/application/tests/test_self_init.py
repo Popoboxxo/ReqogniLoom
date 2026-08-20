@@ -92,7 +92,13 @@ def test_run_self_init_on_empty_database_provisions_admin_and_workflows(monkeypa
     workspace = Workspace.unscoped.get(name="Demo Workspace")
     item_types = _workflow_item_types_for(workspace.id)
     assert item_types == _EXPECTED_WORKFLOW_ITEM_TYPES
-    assert len(item_types) == 13
+    # Pre-existing staleness found while working on #41: this used to be a
+    # hardcoded `== 13`, which silently drifted out of sync with
+    # WORKFLOW_ENTITY_TYPES once "Interview" was added there (14 entries now)
+    # -- the set-equality assert above already covers this correctly since
+    # _EXPECTED_WORKFLOW_ITEM_TYPES is derived from the same tuple; deriving
+    # the count from it too means this can't go stale again the same way.
+    assert len(item_types) == len(_EXPECTED_WORKFLOW_ITEM_TYPES)
 
 
 def test_run_self_init_is_idempotent_on_repeated_runs(monkeypatch):

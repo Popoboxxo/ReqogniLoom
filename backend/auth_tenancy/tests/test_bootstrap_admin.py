@@ -41,6 +41,32 @@ def test_bootstrap_creates_base_data_and_is_idempotent(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_bootstrap_initializes_workflow_definitions(monkeypatch):
+    """#41: bootstrap_admin left workflow definitions empty (states=[],
+    transitions=[], initialized=True) until a separate POST
+    /workflows/definition/initialize/ per entity type -- this is the
+    *mandatory* bootstrap (see module docstring), so the gap hit every fresh
+    deployment, not just local dev via seed_demo."""
+    from workflow.services import get_definition
+    from auth_tenancy.provisioning import DEFAULT_WORKSPACE_ID
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3cure-bootstrap-pw")
+    call_command("bootstrap_admin")
+
+    set_request_tenant(Tenant.objects.get(slug="demo").id)
+    try:
+        # Raises WorkflowDefinitionError if unconfigured -- the bug this
+        # regression guards against.
+        definition = get_definition(
+            workspace_id=DEFAULT_WORKSPACE_ID, item_type="Requirement"
+        )
+        assert definition.states, "Requirement workflow has no states"
+        assert definition.transitions, "Requirement workflow has no transitions"
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
 def test_bootstrap_is_create_only_on_password(monkeypatch):
     """A password changed after creation must survive later bootstrap runs."""
     monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "initial-pw")
