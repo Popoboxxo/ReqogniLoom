@@ -456,7 +456,77 @@ class TraceLinkService(ServiceBase):
             entity_type="TraceLink",
             entity_id=result.id if hasattr(result, "id") else source_id,
         )
+        self._emit_trace_link_event(
+            event_type_name="TRACE_LINK_CREATED",
+            link_id=getattr(result, "id", None),
+            source_artifact_id=resolved_source,
+            target_artifact_id=resolved_target,
+            source_artifact=source_artifact,
+        )
         return result
+
+    def _emit_trace_link_event(
+        self,
+        *,
+        event_type_name: str,
+        link_id: Optional[UUID],
+        source_artifact_id: UUID,
+        target_artifact_id: UUID,
+        source_artifact: Optional["Artifact"] = None,
+    ) -> None:
+        """Emit a TraceLink* domain event (Issue #377, context_graph Task 2).
+
+        A link has a source AND a target artifact, so unlike every other
+        producer's ``payload["artifact_id"]``, TraceLink events carry
+        ``source_artifact_id``/``target_artifact_id`` — the projector
+        re-derives both endpoints (Task 4). ``entity_id`` is the TraceLink's
+        own id (falls back to the source artifact id if the link row is
+        unavailable, e.g. a caller that only has the ids post-delete).
+
+        Best-effort, like :meth:`_generate_and_store_embedding` below: event
+        emission is additive and must never fail (or need an active tenant
+        context in unit tests, most of which mock ``_set_tenant_context``
+        away entirely per this file's own test suite convention) the
+        surrounding create/delete it's attached to — see Task 2's "Must not
+        break" clause.
+        """
+        try:
+            from application.models import DomainEventOutbox
+            from persistence.models import Artifact
+
+            workspace_id = None
+            if source_artifact is not None:
+                workspace_id = source_artifact.workspace_id
+            if workspace_id is None:
+                workspace_id = (
+                    Artifact.objects.filter(id=source_artifact_id)
+                    .values_list("workspace_id", flat=True)
+                    .first()
+                )
+            if workspace_id is None:
+                # Source artifact already gone (hard-delete cascade) — nothing
+                # left to scope the event to; skip rather than emit a
+                # malformed event with no workspace.
+                return
+
+            self._emit_event(
+                self._make_event(
+                    event_type=getattr(DomainEventOutbox.EventType, event_type_name),
+                    entity_id=link_id or source_artifact_id,
+                    workspace_id=workspace_id,
+                    payload={
+                        "source_artifact_id": str(source_artifact_id),
+                        "target_artifact_id": str(target_artifact_id),
+                    },
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
+            logger.debug(
+                "TraceLinkService: %s event emission skipped for link=%s: %s",
+                event_type_name,
+                link_id,
+                exc,
+            )
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 
@@ -624,7 +694,29 @@ class TraceLinkService(ServiceBase):
         if not link_ids:
             return 0
 
+        # Snapshot endpoints before delete (Issue #377 Task 2) — batch paths
+        # emit one event per affected link, not one batched event, so the
+        # projector's per-artifact re-derivation stays simple (Task 4).
+        # Best-effort like _emit_trace_link_event itself (see its docstring):
+        # this must never block the actual deletion.
+        from persistence.models import TraceLink
+
+        try:
+            endpoints = list(
+                TraceLink.objects.filter(id__in=link_ids).values("id", "source_id", "target_id")
+            )
+        except Exception:  # noqa: BLE001 — best-effort, see comment above
+            endpoints = []
+
         deleted = batch_delete_trace_links(link_ids)
+
+        for row in endpoints:
+            self._emit_trace_link_event(
+                event_type_name="TRACE_LINK_DELETED",
+                link_id=row["id"],
+                source_artifact_id=row["source_id"],
+                target_artifact_id=row["target_id"],
+            )
         return deleted
 
     def delete_trace_link(self, link_id: UUID, ctx: AuthContext) -> None:
@@ -643,10 +735,26 @@ class TraceLinkService(ServiceBase):
 
         self._set_tenant_context(ctx)
 
+        # Snapshot endpoints before delete (Issue #377 Task 2) — gone once
+        # TraceLinkManager().delete() removes the row. Best-effort, same as
+        # above: must never block the actual deletion.
+        try:
+            row = TraceLink.objects.filter(id=link_id).values("source_id", "target_id").first()
+        except Exception:  # noqa: BLE001 — best-effort, see comment above
+            row = None
+
         try:
             TraceLinkManager().delete(link_id)
         except TraceLink.DoesNotExist as exc:
             raise NotFoundError(f"TraceLink {link_id} not found") from exc
+
+        if row is not None:
+            self._emit_trace_link_event(
+                event_type_name="TRACE_LINK_DELETED",
+                link_id=link_id,
+                source_artifact_id=row["source_id"],
+                target_artifact_id=row["target_id"],
+            )
 
     # ---------- Allocation (REQ-L1-042, REQ-L1-044) ----------
 

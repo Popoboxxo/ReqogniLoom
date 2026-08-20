@@ -183,6 +183,7 @@ REQFLOW_APPS = [
     "mcp_server",          # ARCH-L1-003 McpServer (ADR-01 Dual-Interface, Single Domain-Core)
     "diagram",             # ARCH-L1-013 DiagramService
     "icd",                 # ARCH-L1-014 IcdManagement
+    "context_graph",       # Workspace Context Graph — derived soft-edge layer (Issue #377)
     "se_metrics",          # ARCH-L1-015 SeMetrics
     "resilience",          # ARCH-L1-016 ResilienceOrchestrator
     "admin_ops",           # AdminOps — Disaster Recovery foundation (REQ-L1-046)

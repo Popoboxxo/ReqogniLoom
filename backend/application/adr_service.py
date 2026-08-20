@@ -222,7 +222,8 @@ class AdrService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.ADR_CREATED,
                 entity_id=adr.id,
                 workspace_id=workspace_id,
-                payload={"title": title},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"title": title, "artifact_id": str(artifact.id)},
             )
         )
         return adr
@@ -301,7 +302,12 @@ class AdrService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.ADR_UPDATED,
                 entity_id=adr_id,
                 workspace_id=adr.workspace_id,
-                payload={"change_reason": change_reason, "version": adr.version},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={
+                    "change_reason": change_reason,
+                    "version": adr.version,
+                    "artifact_id": str(adr.artifact_id),
+                },
             )
         )
         return adr

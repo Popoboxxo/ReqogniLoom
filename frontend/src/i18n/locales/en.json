@@ -595,6 +595,19 @@
       "providerUnsupportedOption": "{{provider}} (not supported by this UI version)",
       "providerUnsupportedHint": "Provider \"{{provider}}\" is not supported by this UI version. It stays unchanged on save unless you pick a different provider."
     },
+    "contextGraph": {
+      "title": "Semantic Context Graph",
+      "description": "Derives additional, machine-suggested relationships between artifacts (e.g. shared glossary terms) alongside the manually-authored trace links. Never counted as a trace link and never used in coverage/baseline calculations.",
+      "enabled": "Enabled",
+      "nodeCount": "Artifacts covered",
+      "edgeCount": "Derived edges",
+      "lastProjectedAt": "Last updated",
+      "never": "Never",
+      "lastError": "Last error",
+      "rebuildNow": "Rebuild now",
+      "rebuilding": "Rebuilding...",
+      "rebuildQueued": "Rebuild queued"
+    },
     "customFields": {
       "title": "Custom Fields",
       "description": "Define additional fields for this workspace. Defined fields appear on every requirement's edit form, where they can be filled in.",
