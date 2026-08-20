@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.3] — 2026-08-20
+
+### Added
+- **Interview Workflow Integration:** Interview sessions are now workflow-tracked and reachable from the UI via a new `/interviews` route, sidebar entry, and CTA buttons on artifact list pages (#590 area work, PR #641)
+- **Non-Atomic Requirement Hint:** Requirement titles containing "and"/"or" now surface a non-blocking `atomicity_warning` on the REST response, per IEEE 29148 §5.2.4 (#45)
+- **API-Key Hygiene:** `MAX_ACTIVE_API_KEYS_PER_USER` is now environment-configurable instead of a fixed constant; new `cleanup_revoked_api_keys` management command purges old revoked keys (dry-run by default) (#606)
+- **i18n Coverage Ratchet:** New source-scanning test catches translation keys referenced in code but missing from both locale files, frozen at the current baseline so the gap can only shrink (#619)
+- **Audit Findings Pagination:** `GET /api/v1/workspaces/<id>/audit/` now accepts `?limit=&offset=` to page through findings past the existing 500-finding cap (backend/REST only — dashboard UI consumption is a follow-up) (#622)
+- **Hermes IDE Plugin Port:** Ported to the current `@hermes/plugin-sdk` contract (ESM `dist/plugin.js`, `{id, name, register(ctx)}`) — code-complete and merged; a live load-test in a real Hermes desktop app is still outstanding (#599, PR #633)
+
+### Fixed
+- **Login over HTTP:** `AUTH_COOKIE_SECURE` now defaults to `False` for the local/dev docker-compose path, fixing every fresh quickstart login being silently rejected by the browser over plain HTTP (#589)
+- **Trace-Link Query Performance:** Removed an N+1 query in `trace_link_manager`'s cycle/adjacency checks (#629)
+- **MCP Audit Vocabulary:** Closed 17 call sites where an undeclared `operation` value caused `write_mcp_audit()` to silently write zero audit rows (#626)
+- **Mermaid Editor:** Status bar now reflects the live client-side parse instead of a stale server-side preview (#259)
+- **Workflow Seeding:** `seed_demo` and `bootstrap_admin` now provision default workflow definitions, matching `self_init`'s existing behavior (#41)
+- **Workflow Editor Responsive Layout:** Header no longer overflows horizontally on narrow viewports (#596, partial — the `/audit` large-DOM concern in the same report is a deliberate cap-vs-pagination trade-off, not a regression)
+- **`/prompts` Route:** Redirects into the Settings LLM tab instead of silently bouncing to the dashboard (#609)
+- **i18n Locale Gaps:** Added missing `impact.*`/`nav.*` keys so English UI no longer falls back to German placeholder text (#54); 9 further confirmed leaks fixed under the new coverage ratchet (settings hints, needs/adrs/risks/issues delete-failure messages) (#619)
+- **Artifact Inspector Layout:** Defaults to collapsed below 1600px viewport width (applies to all 10 artifact types sharing the component); Save-button/title-heading overlap fixed in the requirement editor header (#419)
+- **Trace-Link Create Dialog:** Source picker unified with the target picker's searchable list instead of a plain unfiltered `<select>`; disabled submit button now has a tooltip explaining what's missing (#53)
+- **Accessibility:** Need-form field labels linked via `htmlFor`/`id`; trace-link entries in the Traceability view are now keyboard-focusable `<button>`s that navigate to the linked artifact instead of inert text; tree-expand/collapse toggle buttons have `aria-label` (#425)
+- **AI Review Timeout:** `audit.ai_review` already converted a hung/slow LLM provider into a clean error (#342) — added a regression test pinning that behavior (#312)
+
+### Security
+- **react-router-dom 6.30.4 → 7.18.2:** Resolves 2 moderate CVEs (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg) (#261)
+
+### Known Issues
+- #414: Traceability/Impact views still expose both Artifact-id and entity-id inconsistently in most places; the trace-link navigation fix in this release (#425) resolves one instance of the pattern, not the underlying architectural issue
+- #504: Two pre-existing E2E shard failures (`review-workflow.spec.ts`, `stakeholder-needs.spec.ts`) could not be re-verified live in the environment this release was prepared in (seeded admin credentials rejected at the API level, unrelated to application code); static review confirms the referenced #412 fix is present in source
+- Baseline on 1.7.0-beta.2; no new regressions identified against it
+
 ## [1.7.0-beta.2] — 2026-08-17
 
 ### Fixed
