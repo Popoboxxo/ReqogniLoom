@@ -196,6 +196,8 @@
     "activeWorkspace": "Currently active"
   },
   "editor": {
+    "expandNode": "Expand",
+    "collapseNode": "Collapse",
     "title": "Title",
     "description": "Description",
     "acceptanceCriteria": "Acceptance Criteria",
