@@ -253,7 +253,9 @@ class RequirementService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.REQUIREMENT_CREATED,
                 entity_id=requirement.id,
                 workspace_id=workspace_id,
-                payload={"title": title},
+                # artifact_id: additive, for context_graph.projector (Issue
+                # #377) — entity_id above is Requirement.id, not Artifact.id.
+                payload={"title": title, "artifact_id": str(requirement.artifact_id)},
             )
         )
         return requirement
@@ -424,7 +426,8 @@ class RequirementService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.REQUIREMENT_UPDATED,
                 entity_id=requirement_id,
                 workspace_id=workspace_id,
-                payload={"change_reason": change_reason},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"change_reason": change_reason, "artifact_id": str(requirement.artifact_id)},
             )
         )
 

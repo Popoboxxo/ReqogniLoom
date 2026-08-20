@@ -198,7 +198,8 @@ class ArchitectureService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_CREATED,
                 entity_id=arch_el.id,
                 workspace_id=workspace_id,
-                payload={"title": title, "element_type": element_type},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"title": title, "element_type": element_type, "artifact_id": str(artifact.id)},
             )
         )
         return arch_el
@@ -334,6 +335,8 @@ class ArchitectureService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_UPDATED,
                 entity_id=arch_el_id,
                 workspace_id=arch_el.artifact.workspace_id,
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"artifact_id": str(arch_el.artifact_id)},
             )
         )
         return arch_el

@@ -61,6 +61,21 @@ class DomainEventOutbox(models.Model):
         CHANGE_REQUEST_CREATED = "ChangeRequestCreated"
         CHANGE_REQUEST_UPDATED = "ChangeRequestUpdated"
         CHANGE_REQUEST_DELETED = "ChangeRequestDeleted"
+        # Issue #377 (context_graph, Task 2): TraceLink domain events — were
+        # never emitted before this. See trace_link_service.py.
+        TRACE_LINK_CREATED = "TraceLinkCreated"
+        TRACE_LINK_UPDATED = "TraceLinkUpdated"
+        TRACE_LINK_DELETED = "TraceLinkDeleted"
+        # Issue #377 Task 2: these three were already being written to the
+        # outbox as bare strings (goal_service.py / main_goal_service.py /
+        # stakeholder_need_service.py) that matched no EventType.choices
+        # entry — purely additive, declares what already happens at runtime,
+        # no behavior change.
+        STAKEHOLDER_NEED_CREATED = "StakeholderNeedCreated"
+        STAKEHOLDER_NEED_UPDATED = "StakeholderNeedUpdated"
+        STAKEHOLDER_NEED_DELETED = "StakeholderNeedDeleted"
+        GOAL_CREATED = "GoalCreated"
+        MAIN_GOAL_CREATED = "MainGoalCreated"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)

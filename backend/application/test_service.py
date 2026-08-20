@@ -138,7 +138,8 @@ class TestService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.TEST_CASE_CREATED,
                 entity_id=test_case.id,
                 workspace_id=workspace_id,
-                payload={"title": title, "test_type": test_type},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"title": title, "test_type": test_type, "artifact_id": str(artifact.id)},
             )
         )
         return test_case
@@ -200,6 +201,8 @@ class TestService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.TEST_CASE_UPDATED,
                 entity_id=test_case_id,
                 workspace_id=test_case.artifact.workspace_id,
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"artifact_id": str(test_case.artifact_id)},
             )
         )
         return test_case

@@ -129,7 +129,8 @@ class StakeholderNeedService(ServiceBase):
                 event_type="StakeholderNeedCreated",
                 entity_id=need.id,
                 workspace_id=workspace.id,
-                payload={"title": need.title},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"title": need.title, "artifact_id": str(artifact.id)},
             )
         )
         return StakeholderNeedDTO.from_orm(need)
@@ -250,7 +251,12 @@ class StakeholderNeedService(ServiceBase):
                     event_type="StakeholderNeedUpdated",
                     entity_id=need.id,
                     workspace_id=need.artifact.workspace_id,
-                    payload={"changes": list(changes.keys()), "change_reason": change_reason},
+                    # artifact_id: additive, for context_graph.projector (Issue #377).
+                    payload={
+                        "changes": list(changes.keys()),
+                        "change_reason": change_reason,
+                        "artifact_id": str(need.artifact_id),
+                    },
                 )
             )
 
