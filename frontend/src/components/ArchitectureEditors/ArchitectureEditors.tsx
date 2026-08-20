@@ -709,6 +709,14 @@ export default function ArchitectureEditors(): JSX.Element {
             disabled: showCreateForm,
             testId: "create-arch-btn",
           }}
+          secondaryActions={[
+            {
+              label: t("interviews.startCta"),
+              onClick: () => navigate("/interviews?start=ArchitectureElement"),
+              disabled: !activeWorkspace,
+              testId: "interview-start-cta",
+            },
+          ]}
           overflowActions={[
             {
               label: t("archDecompose.trigger", "KI-Zerlegung"),

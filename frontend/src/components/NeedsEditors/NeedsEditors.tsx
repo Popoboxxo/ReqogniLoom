@@ -185,6 +185,14 @@ export default function NeedsEditors(): JSX.Element {
           disabled: showCreate,
           testId: 'create-need-btn',
         }}
+        secondaryActions={[
+          {
+            label: t('interviews.startCta'),
+            onClick: () => navigate('/interviews?start=StakeholderNeed'),
+            disabled: !activeWorkspace,
+            testId: 'interview-start-cta',
+          },
+        ]}
       />
       <SplitView
       leftPanel={

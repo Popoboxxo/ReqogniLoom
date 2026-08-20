@@ -146,6 +146,14 @@ export default function TestCaseEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-tc-btn',
         }}
+        secondaryActions={[
+          {
+            label: t('interviews.startCta'),
+            onClick: () => navigate('/interviews?start=TestCase'),
+            disabled: !activeWorkspace,
+            testId: 'interview-start-cta',
+          },
+        ]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>

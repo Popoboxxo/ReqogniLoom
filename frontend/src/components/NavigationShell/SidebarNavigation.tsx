@@ -67,6 +67,10 @@ const NAV_ITEMS: NavItem[] = [
   // `visibleItems` against `activeWorkspace.goals_enabled`.
   { path: "/goals", labelKey: "nav.goals", feature: "dashboard", group: "overview" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics", group: "overview" },
+  // Always visible (like glossary/workflows/audit below) — the interview flow
+  // itself is the entry point for brainstorming any artifact type, so it must
+  // not disappear behind a preset that hides one of its target types.
+  { path: "/interviews", labelKey: "nav.interviews", feature: "dashboard", group: "overview" },
 
   { path: "/needs", labelKey: "nav.needs", feature: "requirements", group: "requirements" },
   { path: "/requirements", labelKey: "nav.requirements", feature: "requirements", group: "requirements" },

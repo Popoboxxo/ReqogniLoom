@@ -137,6 +137,14 @@ export default function RiskEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-risk-btn',
         }}
+        secondaryActions={[
+          {
+            label: t('interviews.startCta'),
+            onClick: () => navigate('/interviews?start=Risk'),
+            disabled: !activeWorkspace,
+            testId: 'interview-start-cta',
+          },
+        ]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
