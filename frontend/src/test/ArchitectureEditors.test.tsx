@@ -100,6 +100,25 @@ import { tracelinksApi } from "../api/tracelinks";
 import { requirementsApi } from "../api/requirements";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
+import { ThemeProvider } from "../context/ThemeContext";
+
+// jsdom in this test runtime does not provide window.localStorage (Node's
+// --localstorage-file experimental flag is not set), which ThemeProvider
+// (now a WorkspaceProvider dependency, #568 phase 1) reads synchronously on
+// mount. Polyfill a minimal in-memory implementation so it does not throw.
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+installLocalStorageStub();
 
 // ---------------------------------------------------------------------------
 // Mock data
@@ -133,12 +152,14 @@ function renderEditor(elementId?: string): ReturnType<typeof render> {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
-          <WorkspaceProvider>
-            <Routes>
-              <Route path="/architecture" element={<ArchitectureEditors />} />
-              <Route path="/architecture/:id" element={<ArchitectureEditors />} />
-            </Routes>
-          </WorkspaceProvider>
+          <ThemeProvider>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/architecture" element={<ArchitectureEditors />} />
+                <Route path="/architecture/:id" element={<ArchitectureEditors />} />
+              </Routes>
+            </WorkspaceProvider>
+          </ThemeProvider>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>

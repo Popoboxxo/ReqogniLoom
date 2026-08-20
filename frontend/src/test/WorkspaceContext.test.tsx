@@ -14,7 +14,25 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import type { Workspace } from "../types";
+
+// jsdom in this test runtime does not provide window.localStorage (Node's
+// --localstorage-file experimental flag is not set), which ThemeProvider (now
+// a WorkspaceProvider dependency, #568 phase 1) reads synchronously on mount.
+// Polyfill a minimal in-memory implementation so ThemeProvider does not throw.
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Test component that reads terminology labels
@@ -62,6 +80,7 @@ function ControlledWorkspace({
 beforeEach(() => {
   sessionStorage.clear();
   vi.clearAllMocks();
+  installLocalStorageStub();
   // Auth is restored via GET /auth/me/ (httpOnly cookie, REQ-052). These tests
   // drive the workspace directly via setActiveWorkspace, so a 401 (anonymous)
   // is sufficient and keeps the bootstrap effect from hitting the network.
@@ -75,9 +94,11 @@ describe("WorkspaceContext / Terminology Profile (REQ-L2-RF-008)", () => {
   it("SE-Modus: requirement label is 'Requirement'", () => {
     render(
       <AuthProvider>
-        <WorkspaceProvider>
-          <ControlledWorkspace preset="standard" profile="se_mode" />
-        </WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <ControlledWorkspace preset="standard" profile="se_mode" />
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -88,9 +109,11 @@ describe("WorkspaceContext / Terminology Profile (REQ-L2-RF-008)", () => {
   it("Dev-Modus: requirement label is 'Story'", () => {
     render(
       <AuthProvider>
-        <WorkspaceProvider>
-          <ControlledWorkspace preset="standard" profile="dev_mode" />
-        </WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <ControlledWorkspace preset="standard" profile="dev_mode" />
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
 
@@ -141,9 +164,11 @@ describe("WorkspaceContext / Preset visibility (REQ-L2-RF-007)", () => {
   it("Minimal preset: baselines are hidden", () => {
     render(
       <AuthProvider>
-        <WorkspaceProvider>
-          <ControlledPreset preset="minimal" feature="baselines" />
-        </WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <ControlledPreset preset="minimal" feature="baselines" />
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("hidden");
@@ -152,9 +177,11 @@ describe("WorkspaceContext / Preset visibility (REQ-L2-RF-007)", () => {
   it("Extended preset: baselines are visible", () => {
     render(
       <AuthProvider>
-        <WorkspaceProvider>
-          <ControlledPreset preset="extended" feature="baselines" />
-        </WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <ControlledPreset preset="extended" feature="baselines" />
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("visible");
@@ -163,9 +190,11 @@ describe("WorkspaceContext / Preset visibility (REQ-L2-RF-007)", () => {
   it("Standard preset: requirements are visible", () => {
     render(
       <AuthProvider>
-        <WorkspaceProvider>
-          <ControlledPreset preset="standard" feature="requirements" />
-        </WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <ControlledPreset preset="standard" feature="requirements" />
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("visible");

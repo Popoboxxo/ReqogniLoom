@@ -1,0 +1,238 @@
+/**
+ * ARCH-L1-001 ReactFrontend — Workspace theme persistence (#568 phase 1).
+ *
+ * Mirrors workspace-language-persistence.test.tsx's BUG-01/F-04-Residual/R-02
+ * coverage, applied to `theme` instead of `language`. Unlike language, the
+ * sidebar's quick theme toggle is deliberately NOT admin-gated and does NOT
+ * PATCH the backend — a personal, client-only preference (unchanged from its
+ * pre-#568 behavior) — so the F-02/F-04 notice-and-admin-gate machinery the
+ * language toggle needed does not apply here. What DOES apply, and is
+ * covered below: the workspace-default theme is restored on load (BUG-01),
+ * a session-local toggle choice survives an unrelated reloadWorkspaces()
+ * call (F-04-Residual), and it is cleared on logout (R-02).
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { AuthProvider, useAuth } from "../context/AuthContext";
+import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
+import { ThemeProvider } from "../context/ThemeContext";
+import { SidebarNavigation } from "../components/NavigationShell/SidebarNavigation";
+import { workspacesApi } from "../api/workspaces";
+import type { Workspace } from "../types";
+
+vi.mock("../api/preferences", () => ({
+  preferencesApi: {
+    get: vi.fn(async () => null),
+    update: vi.fn(async () => ({})),
+  },
+  OPTIONAL_FEATURES: ["adr", "risk", "issue", "diagrams", "icds", "metrics"] as const,
+}));
+
+vi.mock("../api/search", () => ({
+  searchApi: { search: vi.fn(async () => ({ results: [], total_count: 0, page: 1, limit: 10, query: "" })) },
+}));
+
+vi.mock("../api/version", () => ({
+  versionApi: { getVersion: vi.fn(async () => ({ app_version: "0.0.0", commit_short: "abc" })) },
+}));
+
+let nextListResult: unknown = { count: 0, next: null, previous: null, results: [] };
+
+vi.mock("../api/workspaces", () => ({
+  workspacesApi: {
+    list: vi.fn(async () => nextListResult),
+    create: vi.fn(),
+    update: vi.fn(),
+    setPreset: vi.fn(),
+    closeWorkspace: vi.fn(),
+    reactivateWorkspace: vi.fn(),
+    deleteWorkspace: vi.fn(),
+  },
+}));
+
+function stubAuthFetch(roles: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles },
+        tenant_id: null,
+        roles,
+      }),
+    }) as unknown as Response)
+  );
+}
+
+function setListWorkspace(theme: string): void {
+  const ws: Partial<Workspace> = {
+    id: "ws-test",
+    name: "Test",
+    preset: "standard",
+    terminology_profile: "se_mode",
+    language: "en",
+    theme,
+    is_active: true,
+    closed_at: null,
+    closed_by: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+  nextListResult = { count: 1, next: null, previous: null, results: [ws] };
+}
+
+function renderApp(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <SidebarNavigation />
+          </WorkspaceProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </MemoryRouter>
+  );
+}
+
+function IndependentReloadTrigger(): JSX.Element {
+  const { activeWorkspace, reloadWorkspaces } = useWorkspace();
+  return (
+    <button
+      data-testid="independent-reload-trigger"
+      onClick={() => void reloadWorkspaces(activeWorkspace?.id)}
+    >
+      trigger unrelated reload
+    </button>
+  );
+}
+
+function renderAppWithIndependentReloadTrigger(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <SidebarNavigation />
+            <IndependentReloadTrigger />
+          </WorkspaceProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </MemoryRouter>
+  );
+}
+
+function AuthSwitchHarness(): JSX.Element {
+  const { logout, login } = useAuth();
+  return (
+    <>
+      <button data-testid="test-logout-trigger" onClick={() => logout()}>logout</button>
+      <button data-testid="test-login-trigger" onClick={() => void login({ username: "user-b", password: "irrelevant" })}>login</button>
+    </>
+  );
+}
+
+function renderAppWithAuthSwitch(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <SidebarNavigation />
+            <AuthSwitchHarness />
+          </WorkspaceProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </MemoryRouter>
+  );
+}
+
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+
+describe("Workspace theme restore on load (#568)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["viewer"]);
+  });
+
+  it("applies the workspace-default theme even though the local default is dark", async () => {
+    setListWorkspace("light");
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe("light");
+    });
+  });
+});
+
+describe("Local theme toggle survives an unrelated reloadWorkspaces() call (#568)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["viewer"]);
+  });
+
+  it("keeps a manually-toggled theme after an unrelated reload re-fetches the workspace-default", async () => {
+    setListWorkspace("light");
+    renderAppWithIndependentReloadTrigger();
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+
+    fireEvent.click(await screen.findByTestId("theme-toggle"));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+
+    fireEvent.click(screen.getByTestId("independent-reload-trigger"));
+    await waitFor(() => {
+      expect(workspacesApi.list).toHaveBeenCalledTimes(2);
+    });
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+  });
+
+  it("a re-login in the same tab follows the newly loaded workspace's theme, not a stale override", async () => {
+    stubAuthFetch(["viewer"]);
+    setListWorkspace("light");
+    renderAppWithAuthSwitch();
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+    fireEvent.click(await screen.findByTestId("theme-toggle"));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+
+    fireEvent.click(screen.getByTestId("test-logout-trigger"));
+    fireEvent.click(screen.getByTestId("test-login-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe("light");
+    });
+  });
+});
