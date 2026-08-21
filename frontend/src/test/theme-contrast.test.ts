@@ -282,20 +282,11 @@ function contrastRatio(a: Rgba, b: Rgba): number {
  * fixed pair fails until its entry is deleted here.
  */
 const KNOWN_AA_SHORTFALLS: Record<string, { ratio: number; note: string }> = {
-  // #ffffff on --palette-indigo-500 (#6366f1). Pre-existing since the
-  // original single-layer palette (long before theming Phase 1-3, which only
-  // moved this value between files without changing it) and, until this test
-  // file existed, never measured — nothing in the codebase had ever verified
-  // any theme's contrast. 0.03 short of AA: white text on a primary button in
-  // the default dark theme. Surfaced in the Phase 3 Task 3 report rather than
-  // patched here: fixing it means repointing the DEFAULT theme's brand color
-  // (indigo-500 -> indigo-600, which measures 6.29:1 and is already what the
-  // `light` theme uses for exactly this reason), a visible change to the
-  // app's default identity and out of scope for a test-only task.
-  "dark|--color-on-primary|--color-primary": {
-    ratio: 4.47,
-    note: "pre-existing: white on indigo-500 is 4.47:1, 0.03 short of AA (see Phase 3 Task 3 report)",
-  },
+  // 2026-08-21 fix: `dark`'s --color-primary now points at indigo-600 (was
+  // indigo-500), the same darkening `light` already used for this exact
+  // reason. white-on-indigo-600 measures 6.29:1 — the "dark|on-primary|
+  // primary" entry that used to live here is gone; see tokens.css's own
+  // comment at --color-primary (dark block) for the fix's history.
 };
 
 /* ==========================================================================

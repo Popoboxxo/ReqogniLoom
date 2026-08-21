@@ -319,12 +319,18 @@
  * ========================================================================== */
 :root {
   /* Colors - Premium Deep Dark/Slate Theme */
-  --color-primary: var(--palette-indigo-500);
-  --color-primary-dark: var(--palette-indigo-600);
+  /* #568 Phase 3 follow-up fix (2026-08-21): was --palette-indigo-500,
+     which only reaches 4.47:1 white-text contrast — 0.03 under WCAG AA's
+     4.5:1, caught by the new theme-contrast.test.ts. Darkened one ramp
+     step, exactly mirroring how the light theme below already handles the
+     identical case ("darker for AA contrast on white"): white-on-indigo-600
+     measures 6.29:1. */
+  --color-primary: var(--palette-indigo-600);
+  --color-primary-dark: var(--palette-indigo-700);
   /* Comma-separated R,G,B triplet (not a #hex/rgb() string) for call sites
      that build rgba(var(--color-primary-rgb), alpha) themselves — always
      kept in sync with --color-primary above. */
-  --color-primary-rgb: var(--palette-indigo-500-rgb);
+  --color-primary-rgb: var(--palette-indigo-600-rgb);
   --color-surface: var(--palette-slate-900);
   --color-surface-raised: var(--palette-slate-800);
   --color-border: var(--palette-slate-700);
