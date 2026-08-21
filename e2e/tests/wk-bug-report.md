@@ -1,6 +1,6 @@
 # WK-FULL-BLOWN Bug-Report
 
-Generiert: 2026-08-18T20:20:18.507Z
+Generiert: 2026-08-21T14:56:16.944Z
 Total: 2 unique Bug(s) (aus 2 Funde)
 
 # Bug 1: [B-SRCH-001] Globale Suche findet keine WK-Requirements
