@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import threading
+
+import pytest
+from django.db import connection, transaction
+
+from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
+from auth_tenancy.services.authorization import (
+    AuthorizationService,
+    LastAdminError,
+)
+from persistence.models import Tenant, User, Workspace
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture(autouse=True)
+def _clear_tenant_context():
+    TenantContext.clear_tenant()
+    yield
+    TenantContext.clear_tenant()
+
+
+def _make_workspace_with_admin(username_suffix: str):
+    tenant = Tenant.objects.create(name="LA-T", slug=f"la-t-{username_suffix}")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="WS")
+    admin = User.objects.create(
+        username=f"admin-{username_suffix}", email=f"a-{username_suffix}@t.test", tenant=tenant
+    )
+    role = UserRole.objects.create(tenant=tenant, user=admin, workspace=ws, role=ROLE_ADMIN)
+    return tenant, ws, admin, role
+
+
+@pytest.mark.django_db
+def test_revoke_role_blocks_removing_the_last_workspace_admin():
+    tenant, ws, admin, _role = _make_workspace_with_admin("solo")
+    service = AuthorizationService()
+
+    with pytest.raises(LastAdminError):
+        service.revoke_role(
+            actor_roles=(ROLE_ADMIN,),
+            target_user_id=admin.id,
+            workspace_id=ws.id,
+            role=ROLE_ADMIN,
+        )
+    assert UserRole.objects.filter(
+        user=admin, workspace=ws, role=ROLE_ADMIN, suspended_at__isnull=True
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_revoke_role_allowed_when_another_admin_remains():
+    tenant, ws, admin, _role = _make_workspace_with_admin("two-a")
+    second_admin = User.objects.create(
+        username="admin-two-b", email="two-b@t.test", tenant=tenant
+    )
+    UserRole.objects.create(tenant=tenant, user=second_admin, workspace=ws, role=ROLE_ADMIN)
+    service = AuthorizationService()
+
+    service.revoke_role(
+        actor_roles=(ROLE_ADMIN,), target_user_id=admin.id, workspace_id=ws.id, role=ROLE_ADMIN
+    )
+    assert not UserRole.objects.filter(user=admin, workspace=ws, role=ROLE_ADMIN).exists()
+
+
+@pytest.mark.django_db
+def test_revoke_role_non_admin_role_never_blocked():
+    tenant, ws, admin, _role = _make_workspace_with_admin("editor-ok")
+    editor = User.objects.create(username="editor-x", email="editor-x@t.test", tenant=tenant)
+    UserRole.objects.create(tenant=tenant, user=editor, workspace=ws, role=ROLE_EDITOR)
+    service = AuthorizationService()
+
+    service.revoke_role(
+        actor_roles=(ROLE_ADMIN,), target_user_id=editor.id, workspace_id=ws.id, role=ROLE_EDITOR
+    )
+    assert not UserRole.objects.filter(user=editor, workspace=ws, role=ROLE_EDITOR).exists()
+
+
+@pytest.mark.django_db
+def test_suspend_role_blocks_suspending_the_last_workspace_admin():
+    tenant, ws, admin, _role = _make_workspace_with_admin("suspend-solo")
+    service = AuthorizationService()
+
+    with pytest.raises(LastAdminError):
+        service.suspend_role(
+            actor_roles=(ROLE_ADMIN,), target_user_id=admin.id, workspace_id=ws.id, role=ROLE_ADMIN
+        )
+    role = UserRole.objects.get(user=admin, workspace=ws, role=ROLE_ADMIN)
+    assert role.suspended_at is None
+
+
+@pytest.mark.django_db
+def test_reactivate_role_has_no_last_admin_check():
+    tenant, ws, admin, role = _make_workspace_with_admin("reactivate")
+    role.suspended_at = role.created_at
+    role.save(update_fields=["suspended_at"])
+    service = AuthorizationService()
+
+    service.reactivate_role(
+        actor_roles=(ROLE_ADMIN,), target_user_id=admin.id, workspace_id=ws.id, role=ROLE_ADMIN
+    )
+    role.refresh_from_db()
+    assert role.suspended_at is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_revoke_of_last_two_admins_only_one_succeeds():
+    """Race-condition guard: two threads try to revoke the last two admins
+    of the same workspace simultaneously. select_for_update() must ensure
+    only one succeeds and the workspace never drops to zero admins."""
+    tenant = Tenant.objects.create(name="Race-T", slug="race-t")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="Race-WS")
+    admin_a = User.objects.create(username="race-a", email="race-a@t.test", tenant=tenant)
+    admin_b = User.objects.create(username="race-b", email="race-b@t.test", tenant=tenant)
+    UserRole.objects.create(tenant=tenant, user=admin_a, workspace=ws, role=ROLE_ADMIN)
+    UserRole.objects.create(tenant=tenant, user=admin_b, workspace=ws, role=ROLE_ADMIN)
+    tenant_id, ws_id, a_id, b_id = tenant.id, ws.id, admin_a.id, admin_b.id
+    TenantContext.clear_tenant()
+
+    results = {}
+
+    def _revoke(target_user_id, key):
+        connection.close()  # force a fresh connection per thread
+        TenantContext.set_tenant(tenant_id)
+        service = AuthorizationService()
+        try:
+            service.revoke_role(
+                actor_roles=(ROLE_ADMIN,),
+                target_user_id=target_user_id,
+                workspace_id=ws_id,
+                role=ROLE_ADMIN,
+            )
+            results[key] = "ok"
+        except LastAdminError:
+            results[key] = "blocked"
+        finally:
+            TenantContext.clear_tenant()
+            connection.close()
+
+    t1 = threading.Thread(target=_revoke, args=(a_id, "a"))
+    t2 = threading.Thread(target=_revoke, args=(b_id, "b"))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    TenantContext.set_tenant(tenant_id)
+    remaining = UserRole.objects.filter(
+        workspace_id=ws_id, role=ROLE_ADMIN, suspended_at__isnull=True
+    ).count()
+    assert remaining == 1, "workspace must retain exactly one admin, not zero"
+    assert sorted(results.values()) == ["blocked", "ok"]

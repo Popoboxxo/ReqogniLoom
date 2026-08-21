@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 
+from django.db import transaction
+
 from ..errors import PermissionDenied
 from ..models import (
     ROLE_ADMIN,
@@ -41,6 +43,20 @@ class Operation(str, Enum):
     WORKFLOW_APPROVAL = "workflow_approval"
     WORKSPACE_CONFIG = "workspace_config"
     ASSIGN_ROLE = "assign_role"
+
+
+class LastAdminError(Exception):
+    """Raised when a mutation would leave a workspace or tenant with zero
+    active admins (multi-user management invariant).
+    """
+
+    def __init__(self, scope: str, identifier: str) -> None:
+        self.scope = scope  # "workspace" or "tenant"
+        self.identifier = identifier
+        super().__init__(
+            f"Cannot complete this action: it would leave {scope} "
+            f"{identifier} with no active admin."
+        )
 
 
 # Hard-coded RBAC matrix (ADR-L3-AT002-01). role -> set of allowed operations.
@@ -359,12 +375,95 @@ class AuthorizationService:
         workspace_id: UUID,
         role: str,
     ) -> None:
-        """Remove a role assignment (admin-guarded)."""
+        """Remove a role assignment (admin-guarded, last-admin protected)."""
+        if ROLE_ADMIN not in {r.lower() for r in actor_roles}:
+            raise PermissionDenied(required_role=ROLE_ADMIN)
+        normalized = role.lower()
+        with transaction.atomic():
+            if normalized == ROLE_ADMIN:
+                self._assert_not_last_workspace_admin(
+                    workspace_id=workspace_id, excluding_user_id=target_user_id
+                )
+            UserRole.objects.filter(
+                user_id=target_user_id, workspace_id=workspace_id, role=normalized
+            ).delete()
+
+    def suspend_role(
+        self,
+        *,
+        actor_roles: tuple[str, ...],
+        target_user_id: UUID,
+        workspace_id: UUID,
+        role: str,
+    ) -> None:
+        """Soft-suspend a role assignment (admin-guarded, last-admin protected).
+
+        Reversible via :meth:`reactivate_role`, unlike :meth:`revoke_role`
+        which deletes the row.
+        """
+        if ROLE_ADMIN not in {r.lower() for r in actor_roles}:
+            raise PermissionDenied(required_role=ROLE_ADMIN)
+        normalized = role.lower()
+        with transaction.atomic():
+            if normalized == ROLE_ADMIN:
+                self._assert_not_last_workspace_admin(
+                    workspace_id=workspace_id, excluding_user_id=target_user_id
+                )
+            UserRole.objects.filter(
+                user_id=target_user_id,
+                workspace_id=workspace_id,
+                role=normalized,
+                suspended_at__isnull=True,
+            ).update(suspended_at=datetime.now(timezone.utc))
+
+    def reactivate_role(
+        self,
+        *,
+        actor_roles: tuple[str, ...],
+        target_user_id: UUID,
+        workspace_id: UUID,
+        role: str,
+    ) -> None:
+        """Clear ``suspended_at`` on a role assignment (admin-guarded).
+
+        No last-admin check: reactivating only ever adds an admin back.
+        """
         if ROLE_ADMIN not in {r.lower() for r in actor_roles}:
             raise PermissionDenied(required_role=ROLE_ADMIN)
         UserRole.objects.filter(
             user_id=target_user_id, workspace_id=workspace_id, role=role.lower()
-        ).delete()
+        ).update(suspended_at=None)
+
+    @staticmethod
+    def _assert_not_last_workspace_admin(
+        *, workspace_id: UUID, excluding_user_id: UUID
+    ) -> None:
+        """Raise LastAdminError if removing ``excluding_user_id`` would leave
+        ``workspace_id`` with zero active admins.
+
+        MUST be called inside an already-open ``transaction.atomic()`` block
+        (see callers above) — ``select_for_update()`` only takes effect
+        inside a transaction, and the caller's atomic block is what makes
+        the count-then-mutate sequence race-safe.
+
+        The lock is taken on *every* active admin row of the workspace
+        (target included), not just the "other" admins: two concurrent
+        revokes of different admins in the same workspace must contend on
+        an overlapping row set to serialize, otherwise each thread only
+        locks the other's row and both checks pass concurrently, letting
+        the workspace drop to zero admins. Excluding the target only
+        happens in the Python-side count, after the lock is held.
+        """
+        locked_admin_user_ids = list(
+            UserRole.objects.select_for_update()
+            .filter(workspace_id=workspace_id, role=ROLE_ADMIN, suspended_at__isnull=True)
+            .values_list("user_id", flat=True)
+        )
+        remaining = sum(
+            1 for user_id in locked_admin_user_ids if user_id != excluding_user_id
+        )
+        if remaining == 0:
+            raise LastAdminError(scope="workspace", identifier=str(workspace_id))
 
     def suspend_approver_assignments(self, *, workspace_id: UUID) -> int:
         """Suspend all Approver assignments in a workspace (preset downgrade).
@@ -380,6 +479,7 @@ class AuthorizationService:
 __all__ = [
     "AuthorizationService",
     "AuthorizationDecision",
+    "LastAdminError",
     "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
