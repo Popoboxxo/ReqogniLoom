@@ -133,7 +133,13 @@ describe("NeedsEditors — create form sends description/category to the API (BU
     );
     await user.type(screen.getByTestId("need-new-category-input"), "security");
 
-    await user.click(screen.getByRole("button", { name: /create|erstellen/i }));
+    // Anchored (^...$), not a bare substring match: an unrelated button
+    // elsewhere on the page ("Prefer to create it in a dialog?",
+    // interview-start-cta) also contains the word "create" and was matching
+    // the previous unanchored /create|erstellen/i, making this query
+    // ambiguous (found 2 elements) and the test flaky/broken depending on
+    // what else renders on the page.
+    await user.click(screen.getByRole("button", { name: /^(create|erstellen)$/i }));
 
     await waitFor(() =>
       expect(stakeholderNeedApi.create).toHaveBeenCalledWith(
