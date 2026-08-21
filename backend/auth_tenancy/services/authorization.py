@@ -30,6 +30,7 @@ from ..models import (
     ROLE_APPROVER,
     ROLE_EDITOR,
     ROLE_VIEWER,
+    TenantRole,
     UserRole,
 )
 
@@ -433,6 +434,84 @@ class AuthorizationService:
         UserRole.objects.filter(
             user_id=target_user_id, workspace_id=workspace_id, role=role.lower()
         ).update(suspended_at=None)
+
+    # -- Tenant-level admin (multi-user management) -----------------------
+
+    def is_tenant_admin(self, *, user_id: UUID, tenant_id: UUID) -> bool:
+        """Return whether ``user_id`` holds an active tenant-admin role."""
+        return TenantRole.objects.filter(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            role=TenantRole.ROLE_ADMIN,
+            suspended_at__isnull=True,
+        ).exists()
+
+    def assign_tenant_admin(
+        self,
+        *,
+        actor_is_tenant_admin: bool,
+        target_user_id: UUID,
+        tenant_id: UUID,
+        assigned_by_user_id: UUID,
+    ) -> TenantRole:
+        """Grant tenant-admin to a user (tenant-admin-guarded)."""
+        if not actor_is_tenant_admin:
+            raise PermissionDenied(required_role="tenant-admin")
+        role, _created = TenantRole.objects.update_or_create(
+            user_id=target_user_id,
+            tenant_id=tenant_id,
+            role=TenantRole.ROLE_ADMIN,
+            defaults={"assigned_by_id": assigned_by_user_id, "suspended_at": None},
+        )
+        return role
+
+    def revoke_tenant_admin(
+        self, *, actor_is_tenant_admin: bool, target_user_id: UUID, tenant_id: UUID
+    ) -> None:
+        """Revoke tenant-admin from a user (tenant-admin-guarded, last-admin
+        protected)."""
+        if not actor_is_tenant_admin:
+            raise PermissionDenied(required_role="tenant-admin")
+        with transaction.atomic():
+            self._assert_not_last_tenant_admin(
+                tenant_id=tenant_id, excluding_user_id=target_user_id
+            )
+            TenantRole.objects.filter(
+                user_id=target_user_id, tenant_id=tenant_id, role=TenantRole.ROLE_ADMIN
+            ).delete()
+
+    @staticmethod
+    def _assert_not_last_tenant_admin(
+        *, tenant_id: UUID, excluding_user_id: UUID
+    ) -> None:
+        """Raise LastAdminError if removing ``excluding_user_id`` would leave
+        ``tenant_id`` with zero active tenant-admins.
+
+        Tenant-level twin of :meth:`_assert_not_last_workspace_admin` — same
+        race-safe shape: lock ALL active tenant-admin rows first via
+        ``select_for_update()``, THEN exclude/count the target in Python.
+        Excluding the target user in the queryset *before* locking would let
+        two concurrent revokes of two different tenant-admins lock
+        non-overlapping rows and both incorrectly succeed, dropping the
+        tenant to zero admins.
+
+        MUST be called inside an already-open ``transaction.atomic()`` block
+        (see caller above).
+        """
+        locked_admin_user_ids = list(
+            TenantRole.objects.select_for_update()
+            .filter(
+                tenant_id=tenant_id,
+                role=TenantRole.ROLE_ADMIN,
+                suspended_at__isnull=True,
+            )
+            .values_list("user_id", flat=True)
+        )
+        remaining = sum(
+            1 for user_id in locked_admin_user_ids if user_id != excluding_user_id
+        )
+        if remaining == 0:
+            raise LastAdminError(scope="tenant", identifier=str(tenant_id))
 
     @staticmethod
     def _assert_not_last_workspace_admin(

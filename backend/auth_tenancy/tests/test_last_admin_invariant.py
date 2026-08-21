@@ -5,7 +5,8 @@ import threading
 import pytest
 from django.db import connection, transaction
 
-from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
+from auth_tenancy.errors import PermissionDenied
+from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, TenantRole, UserRole
 from auth_tenancy.services.authorization import (
     AuthorizationService,
     LastAdminError,
@@ -152,3 +153,85 @@ def test_concurrent_revoke_of_last_two_admins_only_one_succeeds():
     ).count()
     assert remaining == 1, "workspace must retain exactly one admin, not zero"
     assert sorted(results.values()) == ["blocked", "ok"]
+
+
+def _make_tenant_with_admin(slug_suffix: str):
+    tenant = Tenant.objects.create(name="TA-T", slug=f"ta-t-{slug_suffix}")
+    TenantContext.set_tenant(tenant.id)
+    admin = User.objects.create(
+        username=f"ta-{slug_suffix}", email=f"ta-{slug_suffix}@t.test", tenant=tenant
+    )
+    role = TenantRole.objects.create(tenant=tenant, user=admin, role=TenantRole.ROLE_ADMIN)
+    return tenant, admin, role
+
+
+@pytest.mark.django_db
+def test_is_tenant_admin_true_for_active_row():
+    tenant, admin, _role = _make_tenant_with_admin("is-admin")
+    service = AuthorizationService()
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is True
+
+
+@pytest.mark.django_db
+def test_is_tenant_admin_false_for_no_row():
+    tenant = Tenant.objects.create(name="TA-none", slug="ta-none")
+    TenantContext.set_tenant(tenant.id)
+    non_admin = User.objects.create(username="ta-none-u", email="ta-none@t.test", tenant=tenant)
+    service = AuthorizationService()
+    assert service.is_tenant_admin(user_id=non_admin.id, tenant_id=tenant.id) is False
+
+
+@pytest.mark.django_db
+def test_assign_tenant_admin_requires_tenant_admin_actor():
+    tenant, admin, _role = _make_tenant_with_admin("assign-guard")
+    target = User.objects.create(username="ta-target", email="ta-target@t.test", tenant=tenant)
+    service = AuthorizationService()
+
+    with pytest.raises(PermissionDenied):
+        service.assign_tenant_admin(
+            actor_is_tenant_admin=False,
+            target_user_id=target.id,
+            tenant_id=tenant.id,
+            assigned_by_user_id=admin.id,
+        )
+
+
+@pytest.mark.django_db
+def test_assign_tenant_admin_succeeds_for_tenant_admin_actor():
+    tenant, admin, _role = _make_tenant_with_admin("assign-ok")
+    target = User.objects.create(username="ta-target2", email="ta-target2@t.test", tenant=tenant)
+    service = AuthorizationService()
+
+    result = service.assign_tenant_admin(
+        actor_is_tenant_admin=True,
+        target_user_id=target.id,
+        tenant_id=tenant.id,
+        assigned_by_user_id=admin.id,
+    )
+    assert result.user_id == target.id
+    assert service.is_tenant_admin(user_id=target.id, tenant_id=tenant.id) is True
+
+
+@pytest.mark.django_db
+def test_revoke_tenant_admin_blocks_removing_the_last_one():
+    tenant, admin, _role = _make_tenant_with_admin("revoke-solo")
+    service = AuthorizationService()
+
+    with pytest.raises(LastAdminError):
+        service.revoke_tenant_admin(
+            actor_is_tenant_admin=True, target_user_id=admin.id, tenant_id=tenant.id
+        )
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is True
+
+
+@pytest.mark.django_db
+def test_revoke_tenant_admin_allowed_when_another_remains():
+    tenant, admin, _role = _make_tenant_with_admin("revoke-two")
+    second = User.objects.create(username="ta-second", email="ta-second@t.test", tenant=tenant)
+    TenantRole.objects.create(tenant=tenant, user=second, role=TenantRole.ROLE_ADMIN)
+    service = AuthorizationService()
+
+    service.revoke_tenant_admin(
+        actor_is_tenant_admin=True, target_user_id=admin.id, tenant_id=tenant.id
+    )
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is False
