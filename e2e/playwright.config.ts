@@ -4,6 +4,12 @@ export default defineConfig({
   timeout: 60000,
   expect: {
     timeout: 15000,
+    // Visual regression (visual-regression.spec.ts): tolerate minor
+    // font-rendering/anti-aliasing noise across machines/CI runners instead
+    // of failing on single-pixel differences. `animations: 'disabled'` is
+    // already Playwright's default for toHaveScreenshot (finishes/cancels
+    // CSS animations+transitions before capture).
+    toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   testDir: './tests',
   fullyParallel: false,
