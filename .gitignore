@@ -87,3 +87,5 @@ backups/
 docker-compose.local-e2e.yml
 .projectatlas/
 .agents/
+.test-reports/
+docs/test-reports/
