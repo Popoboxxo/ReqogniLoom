@@ -31,6 +31,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -42,6 +43,7 @@ from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService, Operation
 from auth_tenancy.services.authorization import LastAdminError, WorkspaceMember
+from presets.services import get_preset
 
 
 def _member_to_dict(member: WorkspaceMember) -> dict[str, Any]:
@@ -67,9 +69,29 @@ class WorkspaceMembersView(APIView):
     """
 
     permission_classes = [HasOperationPermission]
-    # RBAC: READ is the least-privilege operation; the service adds the
-    # workspace-membership gate on top (REQ-014 AC#1).
-    required_operation = Operation.READ
+
+    @property
+    def required_operation(self) -> Operation | None:
+        """RBAC gate: READ-only for ``GET`` (REQ-014 AC#1); ``None`` for ``POST``.
+
+        Fix round 1 (C-1): ``HasOperationPermission`` resolves
+        ``active_roles`` from ``AuthTenancyAuthentication`` WORKSPACE-SCOPED
+        for any URL naming a ``workspace_id`` — a pure tenant-admin (a
+        ``TenantRole(admin)`` holder with no workspace-level ``UserRole``)
+        therefore resolves to ``active_roles=()`` and was denied here before
+        the view body (and its tenant-admin elevation branch, wired into
+        :meth:`AuthorizationService.assign_role`) ever ran. Declaring no
+        ``required_operation`` for ``POST`` mirrors the precedent in
+        ``rest_api.user_management_views.UserViewSet``: ``HasOperationPermission``
+        becomes an authentication-only gate for the mutating action, and
+        :meth:`AuthorizationService.assign_role` performs its own
+        admin/tenant-admin re-check — no defense is lost. ``GET`` (listing
+        members) keeps the least-privilege READ gate; the service's
+        workspace-membership check on top is unaffected either way.
+        """
+        if self.request is not None and self.request.method == "GET":
+            return Operation.READ
+        return None
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -140,6 +162,16 @@ class WorkspaceMembersView(APIView):
         own tenant, resolved from the authenticated JWT/tenant context — see
         ``TenantContextService``), so a caller cannot smuggle in a
         cross-tenant workspace id even as a tenant-admin of their own tenant.
+
+        Fix round 1 (C-2): the workspace's preset tier is resolved
+        SERVER-SIDE via :func:`presets.services.get_preset`, not read from
+        the request body. A client-supplied ``preset`` field would let a
+        workspace-admin lie about the tier (e.g. claim ``"extended"`` for a
+        Standard workspace) to bypass
+        :meth:`PresetPolicyValidator.is_role_allowed_in_preset`'s gate on the
+        Approver role — demonstrated: a spoofed preset created a live
+        ``UserRole(role="approver")`` in a Standard-tier workspace. Any
+        ``preset`` field still sent by older clients is now ignored.
         """
         ctx = self._auth_context(request)
         try:
@@ -149,13 +181,21 @@ class WorkspaceMembersView(APIView):
 
         target_user_id = (request.data or {}).get("user_id")
         role = (request.data or {}).get("role")
-        preset = (request.data or {}).get("preset")
-        if not target_user_id or not role or not preset:
-            return _err("VALIDATION_ERROR", "user_id, role and preset are required.", status.HTTP_400_BAD_REQUEST)
+        if not target_user_id or not role:
+            return _err("VALIDATION_ERROR", "user_id and role are required.", status.HTTP_400_BAD_REQUEST)
 
         actor_is_tenant_admin = self._service.is_tenant_admin(
             user_id=ctx.user_id, tenant_id=ctx.tenant_id
         )
+
+        # Resolve the REAL preset tier server-side (C-2). If the workspace
+        # doesn't exist at all (e.g. a cross-tenant id), fall back to None —
+        # `assign_role`'s own workspace-existence check below raises
+        # NotFoundError (-> 404) before the preset value would ever matter.
+        try:
+            real_preset = get_preset(str(workspace_id)).preset
+        except ObjectDoesNotExist:
+            real_preset = None
 
         try:
             self._service.assign_role(
@@ -165,7 +205,7 @@ class WorkspaceMembersView(APIView):
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
                 role=role,
-                preset=preset,
+                preset=real_preset,
                 assigned_by_user_id=ctx.user_id,
                 target_is_member=False,
             )
@@ -184,10 +224,20 @@ class WorkspaceMemberRoleTransitionView(APIView):
 
     URL: ``/api/v1/workspaces/<uuid:workspace_id>/members/<uuid:user_id>/suspend/``
          ``/api/v1/workspaces/<uuid:workspace_id>/members/<uuid:user_id>/reactivate/``
+
+    Deliberately declares no ``required_operation`` (fix round 1, C-1): both
+    actions target a specific ``workspace_id`` in the URL, so
+    ``AuthTenancyAuthentication`` resolves ``active_roles`` WORKSPACE-SCOPED —
+    a pure tenant-admin (no workspace-level ``UserRole``) would resolve to
+    ``active_roles=()`` and be denied by ``HasOperationPermission`` before the
+    view body (and the tenant-admin elevation branch already wired into
+    :meth:`AuthorizationService.suspend_role`/``reactivate_role``) ever ran.
+    ``HasOperationPermission`` is kept purely as an authentication gate here
+    (mirrors ``rest_api.user_management_views.UserViewSet``); the service
+    layer's own admin/tenant-admin re-check is the real authorization.
     """
 
     permission_classes = [HasOperationPermission]
-    required_operation = Operation.ASSIGN_ROLE
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

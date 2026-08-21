@@ -448,10 +448,16 @@ class AuthorizationService:
             PermissionDenied: Caller lacks the Admin role and is not a
                 tenant-admin.
             NotFoundError: No ``UserRole`` row exists at all for
-                ``target_user_id``/``workspace_id``/``role`` (fix round 1:
-                I-2). A row that exists but is already suspended is a
-                legitimate no-op and does NOT raise — only a row that
-                genuinely does not exist does.
+                ``target_user_id``/``workspace_id``/``role`` — checked FIRST,
+                before the last-admin invariant (fix round 1: I-1; a row
+                that's simply invisible under the current tenant scope, e.g.
+                a cross-tenant ``workspace_id``, or that plain doesn't exist,
+                used to hit ``_assert_not_last_workspace_admin`` first and
+                surface a misleading ``409 LastAdminError`` instead of this
+                404 — not exploitable since no mutation occurred either way,
+                but the wrong status code). A row that exists but is already
+                suspended is a legitimate no-op and does NOT raise — only a
+                row that genuinely does not exist does.
         """
         if (
             ROLE_ADMIN not in {r.lower() for r in actor_roles}
@@ -460,6 +466,20 @@ class AuthorizationService:
             raise PermissionDenied(required_role=ROLE_ADMIN)
         normalized = role.lower()
         with transaction.atomic():
+            # Fix round 1 (I-1): confirm the assignment exists at all BEFORE
+            # running the last-admin invariant check. Without this, a
+            # workspace the caller cannot see (cross-tenant, invisible under
+            # the tenant-scoped manager) or a role that was never assigned
+            # would make `_assert_not_last_workspace_admin` see zero locked
+            # admin rows and incorrectly raise LastAdminError (409) instead
+            # of the correct NotFoundError (404).
+            if not UserRole.objects.filter(
+                user_id=target_user_id, workspace_id=workspace_id, role=normalized
+            ).exists():
+                raise NotFoundError(
+                    f"No role assignment found for user {target_user_id} "
+                    f"in workspace {workspace_id} with role {normalized!r}."
+                )
             if normalized == ROLE_ADMIN:
                 self._assert_not_last_workspace_admin(
                     workspace_id=workspace_id, excluding_user_id=target_user_id
@@ -470,23 +490,10 @@ class AuthorizationService:
                 role=normalized,
                 suspended_at__isnull=True,
             ).update(suspended_at=datetime.now(timezone.utc))
-            if updated_count == 0:
-                # 0 rows affected is ambiguous at the DB level: either the
-                # role assignment doesn't exist at all (error), or it
-                # exists but is already suspended (legitimate no-op,
-                # excluded by the suspended_at__isnull=True filter above).
-                # Disambiguate with an unfiltered existence check.
-                already_exists = UserRole.objects.filter(
-                    user_id=target_user_id,
-                    workspace_id=workspace_id,
-                    role=normalized,
-                ).exists()
-                if not already_exists:
-                    raise NotFoundError(
-                        f"No role assignment found for user {target_user_id} "
-                        f"in workspace {workspace_id} with role {normalized!r}."
-                    )
-                # else: already suspended — no-op, not an error.
+            # Existence was already confirmed above, so `updated_count == 0`
+            # here is now unambiguous: the row exists but was already
+            # suspended (the `suspended_at__isnull=True` filter excluded it)
+            # — a legitimate no-op, not an error.
 
     def reactivate_role(
         self,
