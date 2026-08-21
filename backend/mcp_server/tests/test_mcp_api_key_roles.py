@@ -45,10 +45,31 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 # Stack base URLs — match docker-compose port mapping
 # ---------------------------------------------------------------------------
-# Inside the container, use 'backend' hostname; from host use 'localhost'.
-# We try localhost first (host-side run) — works for both host and container
-# because the stack exposes port 8000 externally.
-BACKEND_URL = "http://localhost:8000"
+# Inside the `backend` container itself, or from the host (with the dev
+# override's port publishing), 'localhost:8000' reaches the live stack
+# directly. From any OTHER container merely attached to the compose network
+# (e.g. an ad-hoc test runner, docker-compose service-to-service calls),
+# 'localhost' is that container itself, not the backend service — the
+# docker-network hostname 'backend' is what resolves there instead. This
+# used to be a hardcoded 'localhost' constant with a comment claiming it
+# "works for both host and container" — it never actually tried a second
+# host, so it silently only ever worked in the two cases named above. Probes
+# each candidate's /health/ endpoint (fast, unauthenticated, no side
+# effects) and uses whichever answers first.
+def _resolve_backend_url() -> str:
+    for candidate in ("http://localhost:8000", "http://backend:8000"):
+        try:
+            with urllib.request.urlopen(f"{candidate}/health/", timeout=2):
+                return candidate
+        except (urllib.error.URLError, OSError):
+            continue
+    # Neither reachable — keep the original default so the resulting
+    # connection-refused error still names a concrete, debuggable URL
+    # instead of failing this resolution step itself.
+    return "http://localhost:8000"
+
+
+BACKEND_URL = _resolve_backend_url()
 MCP_URL = f"{BACKEND_URL}/mcp/"
 REST_URL = f"{BACKEND_URL}/api/v1"
 
@@ -86,13 +107,29 @@ def _http_request(
 
 
 def _get_bearer_token() -> str:
-    """Obtain JWT for the seeded admin user."""
+    """Obtain JWT for the seeded admin user.
+
+    Credentials come from the same env vars the live stack was actually
+    seeded with (SYSTEM_ADMIN_USERNAME/SYSTEM_ADMIN_PASSWORD — see
+    application.self_init, which creates this account on first migrate),
+    not a hardcoded guess: "admin12345" only ever worked against whichever
+    .env the test was originally authored/verified on, and silently fails
+    a 401 against any other stack the moment SYSTEM_ADMIN_PASSWORD differs
+    (as it does by default — .env.example's own placeholder is
+    "CHANGE-ME-strong-admin-password", not "admin12345").
+    """
+    username = os.environ.get("SYSTEM_ADMIN_USERNAME", "admin")
+    password = os.environ.get("SYSTEM_ADMIN_PASSWORD", "admin12345")
     status, data = _http_request(
         f"{REST_URL}/auth/login/",
         method="POST",
-        data={"username": "admin", "password": "admin12345"},
+        data={"username": username, "password": password},
     )
-    assert status == 200, f"Login failed: {status} {data}"
+    assert status == 200, (
+        f"Login failed: {status} {data}. Set SYSTEM_ADMIN_USERNAME/"
+        f"SYSTEM_ADMIN_PASSWORD to match the live stack's actual seeded "
+        f"admin account if this isn't the default 'admin'/'admin12345'."
+    )
     token = data.get("token") or data.get("access") or data.get("access_token")
     assert token, f"No token in response: {data}"
     return token
