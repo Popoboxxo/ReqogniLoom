@@ -16,7 +16,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
-import { ThemeProvider, useTheme } from "../context/ThemeContext";
+import { ThemeProvider, useTheme, THEMES } from "../context/ThemeContext";
 import { SidebarNavigation } from "../components/NavigationShell/SidebarNavigation";
 import { workspacesApi } from "../api/workspaces";
 import type { Workspace } from "../types";
@@ -149,6 +149,18 @@ function renderAppWithAuthSwitch(): ReturnType<typeof render> {
   );
 }
 
+/**
+ * #568 Phase 3: `THEMES` now has 5 entries (dark/light/bauhaus/nordic/sepia),
+ * not just 2 — `toggleTheme()` advances to the NEXT registered theme, it does
+ * not alternate between exactly two values. Compute the real next id from the
+ * live registry instead of hardcoding "dark", so this test doesn't silently
+ * re-break the next time a theme is added or reordered.
+ */
+function nextThemeIdAfter(currentId: string): string {
+  const index = THEMES.findIndex((t) => t.id === currentId);
+  return THEMES[(index + 1) % THEMES.length].id;
+}
+
 function installLocalStorageStub(): void {
   const store = new Map<string, string>();
   Object.defineProperty(window, "localStorage", {
@@ -239,15 +251,16 @@ describe("Local theme toggle survives an unrelated reloadWorkspaces() call (#568
 
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
 
+    const toggledTo = nextThemeIdAfter("light");
     fireEvent.click(await screen.findByTestId("theme-toggle"));
-    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe(toggledTo));
 
     fireEvent.click(screen.getByTestId("independent-reload-trigger"));
     await waitFor(() => {
       expect(workspacesApi.list).toHaveBeenCalledTimes(2);
     });
 
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe(toggledTo);
   });
 });
 
@@ -277,8 +290,9 @@ describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)"
     renderAppWithAuthSwitch();
 
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+    const toggledTo = nextThemeIdAfter("light");
     fireEvent.click(await screen.findByTestId("theme-toggle"));
-    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe(toggledTo));
 
     fireEvent.click(screen.getByTestId("test-logout-trigger"));
     fireEvent.click(screen.getByTestId("test-login-trigger"));

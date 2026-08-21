@@ -122,6 +122,194 @@
   --palette-green-800: #276749;
   --palette-yellow-100: #fefcbf;
   --palette-yellow-800: #744210;
+
+  /* Bauhaus Enterprise palette primitives (#568 Phase 3) */
+  --palette-bauhaus-navy: #1A2B4C;
+  --palette-bauhaus-mustard-50: #fbf9f4;
+  --palette-bauhaus-mustard-100: #f7f2e8;
+  --palette-bauhaus-mustard-200: #eee3ce;
+  --palette-bauhaus-mustard-300: #f3d495;
+  --palette-bauhaus-mustard-400: #edbd5e;
+  --palette-bauhaus-mustard-500: #EBB54A; /* user-specified anchor, kept exact */
+  --palette-bauhaus-mustard-600: #cf9117;
+  --palette-bauhaus-mustard-700: #aa7713;
+  --palette-bauhaus-mustard-800: #855d0f;
+  --palette-bauhaus-mustard-900: #5c420f;
+  --palette-bauhaus-terracotta-50: #faf5f5;
+  --palette-bauhaus-terracotta-100: #f4eceb;
+  --palette-bauhaus-terracotta-200: #e8d6d4;
+  --palette-bauhaus-terracotta-300: #e2ada7;
+  --palette-bauhaus-terracotta-400: #d38279;
+  --palette-bauhaus-terracotta-500: #C55A4E; /* user-specified anchor, kept exact */
+  --palette-bauhaus-terracotta-600: #ad4439;
+  --palette-bauhaus-terracotta-700: #8e382f;
+  --palette-bauhaus-terracotta-800: #6f2c25;
+  --palette-bauhaus-terracotta-900: #4e221d;
+  --palette-bauhaus-amber-50: #faf8f4;
+  --palette-bauhaus-amber-100: #f6f1ea;
+  --palette-bauhaus-amber-200: #ebe0d1;
+  --palette-bauhaus-amber-300: #eacc9e;
+  --palette-bauhaus-amber-400: #e0b16c;
+  --palette-bauhaus-amber-500: #C98A2B; /* controller-derived warning, distinct hue-step from mustard-500 */
+  --palette-bauhaus-amber-600: #bd8228;
+  --palette-bauhaus-amber-700: #9b6b21;
+  --palette-bauhaus-amber-800: #7a541a;
+  --palette-bauhaus-amber-900: #553c16;
+  --palette-bauhaus-teal-50: #f6f9f8;
+  --palette-bauhaus-teal-100: #edf2f1;
+  --palette-bauhaus-teal-200: #d9e3e1;
+  --palette-bauhaus-teal-300: #b6d3cd;
+  --palette-bauhaus-teal-400: #8fbcb3;
+  --palette-bauhaus-teal-500: #4A7C72; /* user-specified anchor, kept exact */
+  --palette-bauhaus-teal-600: #569084;
+  --palette-bauhaus-teal-700: #47766d;
+  --palette-bauhaus-teal-800: #375d55;
+  --palette-bauhaus-teal-900: #29423d;
+  --palette-bauhaus-slate-50: #f7f8f8;
+  --palette-bauhaus-slate-100: #eff0f1;
+  --palette-bauhaus-slate-200: #dcdfe0;
+  --palette-bauhaus-slate-300: #bec6ca;
+  --palette-bauhaus-slate-400: #9da9af;
+  --palette-bauhaus-slate-500: #8E9CA3; /* user-specified anchor, kept exact */
+  --palette-bauhaus-slate-600: #67777f;
+  --palette-bauhaus-slate-700: #556268;
+  --palette-bauhaus-slate-800: #424c52;
+  --palette-bauhaus-slate-900: #31373a;
+  --palette-bauhaus-alabaster: #F4F4F0; /* user-specified surface anchor */
+
+  /* Nordic Frost palette primitives (#568 Phase 3) */
+  --palette-nordic-frost-50: #f6f7f9;
+  --palette-nordic-frost-100: #edeff3;
+  --palette-nordic-frost-200: #d7dde4;
+  --palette-nordic-frost-300: #b2c2d7;
+  --palette-nordic-frost-400: #89a3c2;
+  --palette-nordic-frost-500: #6183ad;
+  --palette-nordic-frost-600: #4e6f97; /* WCAG-adjusted primary, see plan header note 1 */
+  --palette-nordic-frost-700: #405b7d;
+  --palette-nordic-frost-800: #324862;
+  --palette-nordic-frost-900: #263445;
+  --palette-nordic-aurora-red-50: #f9f5f6;
+  --palette-nordic-aurora-red-100: #f4eced;
+  --palette-nordic-aurora-red-200: #e6d5d7;
+  --palette-nordic-aurora-red-300: #ddacb0;
+  --palette-nordic-aurora-red-400: #cc8087;
+  --palette-nordic-aurora-red-500: #BF616A; /* Nord nord11, anchor */
+  --palette-nordic-aurora-red-600: #a3424b;
+  --palette-nordic-aurora-red-700: #86363e;
+  --palette-nordic-aurora-red-800: #692b31;
+  --palette-nordic-aurora-red-900: #4a2125;
+  --palette-nordic-aurora-orange-50: #faf6f5;
+  --palette-nordic-aurora-orange-100: #f4edeb;
+  --palette-nordic-aurora-orange-200: #e8d9d4;
+  --palette-nordic-aurora-orange-300: #e2b5a7;
+  --palette-nordic-aurora-orange-400: #d38e79;
+  --palette-nordic-aurora-orange-500: #D08770; /* Nord nord12, anchor */
+  --palette-nordic-aurora-orange-600: #ad5539;
+  --palette-nordic-aurora-orange-700: #8e462f;
+  --palette-nordic-aurora-orange-800: #6f3625;
+  --palette-nordic-aurora-orange-900: #4e291d;
+  --palette-nordic-aurora-green-50: #f7f9f6;
+  --palette-nordic-aurora-green-100: #eff2ed;
+  --palette-nordic-aurora-green-200: #dde3d8;
+  --palette-nordic-aurora-green-300: #c3d5b4;
+  --palette-nordic-aurora-green-400: #a4bf8d;
+  --palette-nordic-aurora-green-500: #A3BE8C; /* Nord nord14, anchor */
+  --palette-nordic-aurora-green-600: #709353;
+  --palette-nordic-aurora-green-700: #5c7944;
+  --palette-nordic-aurora-green-800: #485e35;
+  --palette-nordic-aurora-green-900: #344328;
+  --palette-nordic-polar-50: #f7f7f8;
+  --palette-nordic-polar-100: #eeeff1;
+  --palette-nordic-polar-200: #dbdde1;
+  --palette-nordic-polar-300: #bbc1ce;
+  --palette-nordic-polar-400: #97a1b4;
+  --palette-nordic-polar-500: #73819b;
+  --palette-nordic-polar-600: #606c86;
+  --palette-nordic-polar-700: #4f596e;
+  --palette-nordic-polar-800: #3e4656;
+  --palette-nordic-polar-900: #2e333d;
+  --palette-nordic-night: #1B2430; /* surface anchor */
+  --palette-nordic-night-raised: #263344; /* surface-raised */
+  --palette-nordic-snow: #E5E9F0; /* text anchor */
+  --palette-nordic-frost-600-rgb: 78, 111, 151;
+  --palette-nordic-frost-500-a15: rgba(97, 131, 173, 0.15); /* card-active-bg */
+  --palette-nordic-frost-500-a20: rgba(97, 131, 173, 0.2); /* badge-info-bg */
+  --palette-nordic-aurora-green-500-a20: rgba(163, 190, 140, 0.2); /* badge-success-bg */
+  --palette-nordic-aurora-orange-500-a20: rgba(208, 135, 112, 0.2); /* badge-warning-bg */
+  --palette-nordic-aurora-red-500-a20: rgba(191, 97, 106, 0.2); /* badge-danger-bg */
+  --palette-nordic-polar-500-a20: rgba(115, 129, 155, 0.2); /* badge-neutral-bg, badge-draft */
+
+  /* Sepia Archive palette primitives (#568 Phase 3) */
+  --palette-sepia-orange-50: #faf7f5;
+  --palette-sepia-orange-100: #f5efeb;
+  --palette-sepia-orange-200: #e9ddd3;
+  --palette-sepia-orange-300: #e5c1a3;
+  --palette-sepia-orange-400: #d8a073;
+  --palette-sepia-orange-500: #cb7f43;
+  --palette-sepia-orange-600: #b46b32;
+  --palette-sepia-orange-700: #945829; /* WCAG-adjusted primary, see plan header note 1 */
+  --palette-sepia-orange-800: #744520;
+  --palette-sepia-orange-900: #51321a;
+  --palette-sepia-brick-50: #faf5f5;
+  --palette-sepia-brick-100: #f5ebeb;
+  --palette-sepia-brick-200: #e9d3d3;
+  --palette-sepia-brick-300: #e4a5a5;
+  --palette-sepia-brick-400: #d67575;
+  --palette-sepia-brick-500: #A83232; /* user-adjacent proposal anchor */
+  --palette-sepia-brick-600: #b13535;
+  --palette-sepia-brick-700: #912b2b;
+  --palette-sepia-brick-800: #722222;
+  --palette-sepia-brick-900: #501b1b;
+  --palette-sepia-gold-50: #faf8f5;
+  --palette-sepia-gold-100: #f4f1eb;
+  --palette-sepia-gold-200: #e8e0d4;
+  --palette-sepia-gold-300: #e2caa7;
+  --palette-sepia-gold-400: #d3af78;
+  --palette-sepia-gold-500: #B8863C;
+  --palette-sepia-gold-600: #ad7e38;
+  --palette-sepia-gold-700: #8e682e;
+  --palette-sepia-gold-800: #705124;
+  --palette-sepia-gold-900: #4e3a1d;
+  --palette-sepia-forest-50: #f6f8f7;
+  --palette-sepia-forest-100: #eef2ef;
+  --palette-sepia-forest-200: #d9e2db;
+  --palette-sepia-forest-300: #b7d2bd;
+  --palette-sepia-forest-400: #91ba9b;
+  --palette-sepia-forest-500: #4E7C59; /* controller proposal anchor */
+  --palette-sepia-forest-600: #598d65;
+  --palette-sepia-forest-700: #497453;
+  --palette-sepia-forest-800: #395b41;
+  --palette-sepia-forest-900: #2b4130;
+  --palette-sepia-taupe-50: #f8f7f6;
+  --palette-sepia-taupe-100: #f2f0ed;
+  --palette-sepia-taupe-200: #e3ded9;
+  --palette-sepia-taupe-300: #d3c6b6;
+  --palette-sepia-taupe-400: #bca990;
+  --palette-sepia-taupe-500: #B8A48A; /* controller proposal anchor */
+  --palette-sepia-taupe-600: #8f7657;
+  --palette-sepia-taupe-700: #756147;
+  --palette-sepia-taupe-800: #5c4c38;
+  --palette-sepia-taupe-900: #41372a;
+  --palette-sepia-cream: #F7F1E3; /* surface anchor */
+  --palette-sepia-espresso: #3B2F2F; /* text anchor */
+  --palette-sepia-orange-700-rgb: 148, 88, 41;
+
+  /* #568 Phase 3 fix (post-review): alpha variants for the 3 new palettes'
+     gradient-primary/gradient-body/shadow-glow tokens — the 9 non-`--color-*`
+     theme tokens (glass/gradient/shadow) that Tasks 1-2 missed. shadow-sm/
+     md/card and gradient-surface/glass-bg/glass-border reuse the existing
+     generic neutral alphas already defined above (they are mode-generic,
+     not hue-specific, exactly like `light`'s own definitions), so no new
+     primitives were needed for those 6 — only these 9 hue-specific ones. */
+  --palette-bauhaus-mustard-500-a30: rgba(235, 181, 74, 0.3);
+  --palette-bauhaus-mustard-500-a08: rgba(235, 181, 74, 0.08);
+  --palette-bauhaus-terracotta-500-a08: rgba(197, 90, 78, 0.08);
+  --palette-nordic-frost-600-a25: rgba(78, 111, 151, 0.25);
+  --palette-nordic-frost-600-a08: rgba(78, 111, 151, 0.08);
+  --palette-nordic-aurora-green-500-a08: rgba(163, 190, 140, 0.08);
+  --palette-sepia-orange-700-a25: rgba(148, 88, 41, 0.25);
+  --palette-sepia-orange-700-a08: rgba(148, 88, 41, 0.08);
+  --palette-sepia-gold-500-a08: rgba(184, 134, 60, 0.08);
 }
 
 /* ==========================================================================
@@ -131,12 +319,18 @@
  * ========================================================================== */
 :root {
   /* Colors - Premium Deep Dark/Slate Theme */
-  --color-primary: var(--palette-indigo-500);
-  --color-primary-dark: var(--palette-indigo-600);
+  /* #568 Phase 3 follow-up fix (2026-08-21): was --palette-indigo-500,
+     which only reaches 4.47:1 white-text contrast — 0.03 under WCAG AA's
+     4.5:1, caught by the new theme-contrast.test.ts. Darkened one ramp
+     step, exactly mirroring how the light theme below already handles the
+     identical case ("darker for AA contrast on white"): white-on-indigo-600
+     measures 6.29:1. */
+  --color-primary: var(--palette-indigo-600);
+  --color-primary-dark: var(--palette-indigo-700);
   /* Comma-separated R,G,B triplet (not a #hex/rgb() string) for call sites
      that build rgba(var(--color-primary-rgb), alpha) themselves — always
      kept in sync with --color-primary above. */
-  --color-primary-rgb: var(--palette-indigo-500-rgb);
+  --color-primary-rgb: var(--palette-indigo-600-rgb);
   --color-surface: var(--palette-slate-900);
   --color-surface-raised: var(--palette-slate-800);
   --color-border: var(--palette-slate-700);
@@ -590,6 +784,340 @@
   --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-indigo-600-a06), transparent 25%),
     radial-gradient(circle at 85% 30%, var(--palette-purple-600-a06), transparent 25%);
 
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `bauhaus` (Bauhaus Enterprise, light, #568
+ * Phase 3). User-approved exact-hex anchors: alabaster surface, deep-navy
+ * text, mustard primary, terracotta danger, muted-teal success, slate-gray
+ * muted/border (see plan header). The 41 "frozen" tokens below are copied
+ * verbatim from the `dark` block above (theming phase 2's design decision
+ * that these status/branding constants are theme-independent — not
+ * revisited by this phase).
+ * ========================================================================== */
+:root[data-theme="bauhaus"] {
+  --color-primary: var(--palette-bauhaus-mustard-500);
+  --color-primary-dark: var(--palette-bauhaus-mustard-600);
+  --color-primary-rgb: 235, 181, 74;
+  --color-surface: var(--palette-bauhaus-alabaster);
+  --color-surface-raised: var(--palette-white);
+  --color-border: var(--palette-bauhaus-slate-300);
+  --color-border-hover: var(--palette-bauhaus-slate-400);
+  --color-border-subtle: var(--palette-bauhaus-slate-300);
+  --color-text: var(--palette-bauhaus-navy);
+  --color-text-muted: var(--palette-bauhaus-slate-600);
+  --color-on-primary: var(--palette-bauhaus-navy);
+
+  --color-success: var(--palette-bauhaus-teal-500);
+  --color-warning: var(--palette-bauhaus-amber-500);
+  --color-danger: var(--palette-bauhaus-terracotta-500);
+  --color-danger-dark: var(--palette-bauhaus-terracotta-700);
+
+  --color-badge-draft: var(--palette-bauhaus-slate-100);
+  --color-badge-draft-text: var(--palette-bauhaus-slate-800);
+  --color-badge-approved: var(--palette-bauhaus-teal-100);
+  --color-badge-approved-text: var(--palette-bauhaus-teal-800);
+
+  --color-badge-info-bg: var(--palette-bauhaus-mustard-100);
+  --color-badge-info-text: var(--palette-bauhaus-mustard-800);
+  --color-badge-danger-bg: var(--palette-bauhaus-terracotta-100);
+  --color-badge-danger-text: var(--palette-bauhaus-terracotta-800);
+  --color-badge-success-bg: var(--palette-bauhaus-teal-100);
+  --color-badge-success-text: var(--palette-bauhaus-teal-800);
+  --color-badge-warning-bg: var(--palette-bauhaus-amber-100);
+  --color-badge-warning-text: var(--palette-bauhaus-amber-800);
+  --color-badge-neutral-bg: var(--palette-bauhaus-slate-100);
+  --color-badge-neutral-text: var(--palette-bauhaus-slate-800);
+
+  --color-card-active-bg: var(--palette-bauhaus-mustard-100);
+
+  /* Sidebar navigation — frozen, same permanently-dark chrome as every theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+
+  --color-focus: var(--palette-bauhaus-mustard-600);
+
+  /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — frozen, identical to `dark`. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — frozen, identical to `dark`. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
+     shadow/glass values copied verbatim from the `light` block; gradient
+     accents mapped onto bauhaus's own mustard/terracotta hue pair
+     instead of indigo/purple. */
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-bauhaus-mustard-500-a30);
+  --gradient-primary: linear-gradient(135deg, var(--palette-bauhaus-mustard-500) 0%, var(--palette-bauhaus-terracotta-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-bauhaus-mustard-500-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-bauhaus-terracotta-500-a08), transparent 25%);
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `nordic` (Nordic Frost, dark, #568 Phase 3).
+ * Controller-proposed, user-approved anchors (Nord-inspired): night-blue
+ * surface, snow text, frost-blue primary (WCAG-adjusted, see plan header
+ * note 1), aurora red/orange/green status colors, polar-gray muted/border.
+ * The 41 "frozen" tokens below are copied verbatim from the `dark` block.
+ * ========================================================================== */
+:root[data-theme="nordic"] {
+  --color-primary: var(--palette-nordic-frost-600);
+  --color-primary-dark: var(--palette-nordic-frost-700);
+  --color-primary-rgb: var(--palette-nordic-frost-600-rgb);
+  --color-surface: var(--palette-nordic-night);
+  --color-surface-raised: var(--palette-nordic-night-raised);
+  --color-border: var(--palette-nordic-polar-700);
+  --color-border-hover: var(--palette-nordic-polar-600);
+  --color-border-subtle: var(--palette-nordic-polar-700);
+  --color-text: var(--palette-nordic-snow);
+  --color-text-muted: var(--palette-nordic-polar-400);
+  --color-on-primary: var(--palette-white);
+
+  --color-success: var(--palette-nordic-aurora-green-500);
+  --color-warning: var(--palette-nordic-aurora-orange-500);
+  --color-danger: var(--palette-nordic-aurora-red-500);
+  --color-danger-dark: var(--palette-nordic-aurora-red-400);
+
+  --color-badge-draft: var(--palette-nordic-polar-500-a20);
+  --color-badge-draft-text: var(--palette-nordic-polar-300);
+  --color-badge-approved: var(--palette-nordic-aurora-green-500-a20);
+  --color-badge-approved-text: var(--palette-nordic-aurora-green-300);
+
+  --color-badge-info-bg: var(--palette-nordic-frost-500-a20);
+  --color-badge-info-text: var(--palette-nordic-frost-300);
+  --color-badge-danger-bg: var(--palette-nordic-aurora-red-500-a20);
+  --color-badge-danger-text: var(--palette-nordic-aurora-red-300);
+  --color-badge-success-bg: var(--palette-nordic-aurora-green-500-a20);
+  --color-badge-success-text: var(--palette-nordic-aurora-green-300);
+  --color-badge-warning-bg: var(--palette-nordic-aurora-orange-500-a20);
+  --color-badge-warning-text: var(--palette-nordic-aurora-orange-300);
+  --color-badge-neutral-bg: var(--palette-nordic-polar-500-a20);
+  --color-badge-neutral-text: var(--palette-nordic-polar-300);
+
+  --color-card-active-bg: var(--palette-nordic-frost-500-a15);
+
+  /* Sidebar navigation — frozen, same permanently-dark chrome as every theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+
+  --color-focus: var(--palette-nordic-frost-400);
+
+  /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — frozen, identical to `dark`. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — frozen, identical to `dark`. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — dark-style, mode-generic
+     shadow/glass values copied verbatim from the `dark` block; gradient
+     accents mapped onto nordic's own frost-blue/aurora-green hue pair
+     instead of indigo/purple. */
+  --shadow-sm: 0 1px 2px var(--palette-black-a30);
+  --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
+  --shadow-card: 0 10px 15px -3px var(--palette-black-a50), 0 4px 6px -2px var(--palette-black-a30);
+  --shadow-glow: 0 0 15px var(--palette-nordic-frost-600-a25);
+  --gradient-primary: linear-gradient(135deg, var(--palette-nordic-frost-600) 0%, var(--palette-nordic-aurora-green-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-slate-800-a80) 0%, var(--palette-slate-900-a80) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-nordic-frost-600-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-nordic-aurora-green-500-a08), transparent 25%);
+  --glass-bg: var(--palette-slate-800-a65);
+  --glass-border: var(--palette-white-a08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `sepia` (Sepia Archive, light, #568 Phase 3).
+ * Controller-proposed, user-approved anchors: cream surface, espresso text,
+ * burnt-orange primary (WCAG-adjusted, see plan header note 1), brick/gold/
+ * forest status colors, taupe muted/border. The 41 "frozen" tokens below are
+ * copied verbatim from the `dark` block.
+ * ========================================================================== */
+:root[data-theme="sepia"] {
+  --color-primary: var(--palette-sepia-orange-700);
+  --color-primary-dark: var(--palette-sepia-orange-800);
+  --color-primary-rgb: var(--palette-sepia-orange-700-rgb);
+  --color-surface: var(--palette-sepia-cream);
+  --color-surface-raised: var(--palette-white);
+  --color-border: var(--palette-sepia-taupe-300);
+  --color-border-hover: var(--palette-sepia-taupe-400);
+  --color-border-subtle: var(--palette-sepia-taupe-300);
+  --color-text: var(--palette-sepia-espresso);
+  --color-text-muted: var(--palette-sepia-taupe-600);
+  --color-on-primary: var(--palette-white);
+
+  --color-success: var(--palette-sepia-forest-500);
+  --color-warning: var(--palette-sepia-gold-500);
+  --color-danger: var(--palette-sepia-brick-500);
+  --color-danger-dark: var(--palette-sepia-brick-700);
+
+  --color-badge-draft: var(--palette-sepia-taupe-100);
+  --color-badge-draft-text: var(--palette-sepia-taupe-800);
+  --color-badge-approved: var(--palette-sepia-forest-100);
+  --color-badge-approved-text: var(--palette-sepia-forest-800);
+
+  --color-badge-info-bg: var(--palette-sepia-orange-100);
+  --color-badge-info-text: var(--palette-sepia-orange-800);
+  --color-badge-danger-bg: var(--palette-sepia-brick-100);
+  --color-badge-danger-text: var(--palette-sepia-brick-800);
+  --color-badge-success-bg: var(--palette-sepia-forest-100);
+  --color-badge-success-text: var(--palette-sepia-forest-800);
+  --color-badge-warning-bg: var(--palette-sepia-gold-100);
+  --color-badge-warning-text: var(--palette-sepia-gold-800);
+  --color-badge-neutral-bg: var(--palette-sepia-taupe-100);
+  --color-badge-neutral-text: var(--palette-sepia-taupe-800);
+
+  --color-card-active-bg: var(--palette-sepia-orange-100);
+
+  /* Sidebar navigation — frozen, same permanently-dark chrome as every theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+
+  --color-focus: var(--palette-sepia-orange-800);
+
+  /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — frozen, identical to `dark`. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — frozen, identical to `dark`. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
+     shadow/glass values copied verbatim from the `light` block; gradient
+     accents mapped onto sepia's own orange/gold hue pair instead of indigo. */
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-sepia-orange-700-a25);
+  --gradient-primary: linear-gradient(135deg, var(--palette-sepia-orange-700) 0%, var(--palette-sepia-gold-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-sepia-orange-700-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-sepia-gold-500-a08), transparent 25%);
   --glass-bg: var(--palette-white-a70);
   --glass-border: var(--palette-slate-900-a08);
 }

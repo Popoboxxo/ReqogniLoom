@@ -467,7 +467,21 @@ const HEX_LITERAL_FILE_BASELINE = 4;
 // baseline: 1 file / 40 occurrences — every non-`tokens.css` CSS hex literal
 // in the project is now gone, closing out the plan's CSS scope. Baseline
 // lowered in the same change per the ratchet rule above.
-const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 40;
+//
+// #568 Phase 3 Task 1 (2026-08-21): this baseline's "40" was, in hindsight,
+// only ever a coincidental snapshot of tokens.css's primitive-layer size at
+// Phase 2's close, not an intentional cap on it — the two-layer architecture
+// (UI concept ch. 8.6) explicitly allows the primitive block to keep growing
+// forever as more themes are added, since that's the one place raw hex is
+// supposed to live. Adding bauhaus/nordic/sepia's ~50 primitives each is
+// correct, expected growth, not a leak — re-measured with the same script:
+// still 1 file (only tokens.css has any raw hex anywhere in the project),
+// 197 occurrences. Baseline RAISED here, deliberately, for exactly this one
+// reason — the monotonic-only rule this file states above still holds for
+// every other CSS file (there are none left) and would still catch a real
+// leak (a second file appearing, or tokens.css's SEMANTIC blocks gaining raw
+// hex, which the primitive-only exemption above does not cover).
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 197;
 const HEX_LITERAL_CSS_FILE_BASELINE = 1;
 
 // --- (c) Duplicate tree implementations ------------------------------------

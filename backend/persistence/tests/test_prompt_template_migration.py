@@ -70,7 +70,19 @@ def test_split_singleton_rows_is_idempotent() -> None:
     _split_singleton_rows = _load_split_singleton_rows()
 
     executor = MigrationExecutor(connection)
-    latest_target = executor.loader.graph.leaf_nodes(_APP_LABEL)
+    # Leaf nodes across ALL apps, not just `persistence` (issue found
+    # auditing the #568 theming branch): rolling `persistence` back to 0043
+    # below forces Django to unapply every migration in the dependency
+    # graph that transitively depends on it first — including apps outside
+    # `persistence`. `context_graph.0001_initial` declares a dependency on
+    # `persistence.0063_migrate_need_to_sysreq_n_placeholder`, so the
+    # rollback silently drops `cg_workspace_context_settings`/
+    # `cg_context_edge` too. Restoring only `persistence`'s own leaf in the
+    # `finally` block below left those collaterally-unapplied tables gone
+    # for the rest of the pytest session whenever this test ran before
+    # rest_api's context-graph-settings tests — reproducing only in
+    # full-suite runs, never in isolation.
+    latest_target = executor.loader.graph.leaf_nodes()
 
     try:
         # Roll the `persistence` app's schema back to right after 0043: the

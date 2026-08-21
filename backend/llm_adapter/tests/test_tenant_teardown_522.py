@@ -182,18 +182,29 @@ class TestReadPathsDoNotPoisonCallerTransaction:
                 )
                 cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
 
-            # Both swallow their own failure by contract ...
-            assert get_daily_usage(days=1) == 0
-            assert aggregate_usage(days=30)["total_tokens"] == 0
+            try:
+                # Both swallow their own failure by contract ...
+                assert get_daily_usage(days=1) == 0
+                assert aggregate_usage(days=30)["total_tokens"] == 0
+            finally:
+                # RESET ROLE unconditionally. SET ROLE is session-level and
+                # is NOT undone by the transaction ROLLBACK below, so an
+                # AssertionError from either assert above would otherwise
+                # leave this shared connection permanently downgraded to
+                # the low-privilege app role for every test that runs
+                # after this one in the same pytest session — the exact
+                # test-order-dependent failure this class exists to guard
+                # against (discovered auditing the #568 theming branch).
+                with connection.cursor() as cursor:
+                    cursor.execute("RESET ROLE")
 
-            with connection.cursor() as cursor:
-                cursor.execute("RESET ROLE")
-
-            # ... and must leave the caller able to keep querying. Without the
-            # savepoints this raises TransactionManagementError.
-            assert TokenUsageRecord.unscoped.filter(tenant_id=tenant.id).count() == 0
-
-            # Undo the REVOKE: with django_db(transaction=True) this atomic
-            # block is the outermost one and would otherwise COMMIT the
-            # privilege change into the shared test database.
-            transaction.set_rollback(True)
+            try:
+                # ... and must leave the caller able to keep querying. Without the
+                # savepoints this raises TransactionManagementError.
+                assert TokenUsageRecord.unscoped.filter(tenant_id=tenant.id).count() == 0
+            finally:
+                # Undo the REVOKE unconditionally too, for the same reason:
+                # with django_db(transaction=True) this atomic block is the
+                # outermost one and would otherwise COMMIT the privilege
+                # change into the shared test database on any failure here.
+                transaction.set_rollback(True)

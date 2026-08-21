@@ -51,6 +51,9 @@ export interface ThemeDefinition {
 export const THEMES: readonly ThemeDefinition[] = [
   { id: DEFAULT_DARK, labelKey: "nav.darkMode" },
   { id: DEFAULT_LIGHT, labelKey: "nav.lightMode" },
+  { id: "bauhaus", labelKey: "nav.bauhausTheme" },
+  { id: "nordic", labelKey: "nav.nordicTheme" },
+  { id: "sepia", labelKey: "nav.sepiaTheme" },
 ];
 
 /** Theme applied when neither storage nor the OS expresses a preference. */
