@@ -495,6 +495,12 @@ class AuthorizationService:
         non-overlapping rows and both incorrectly succeed, dropping the
         tenant to zero admins.
 
+        Filters on ``user__is_active=True`` so an already-deactivated
+        admin's leftover role row never counts as a usable admin (fix
+        round 1: a row surviving ``User.is_active=False`` used to still
+        satisfy this invariant, letting a tenant drop to zero *usable*
+        admins).
+
         MUST be called inside an already-open ``transaction.atomic()`` block
         (see caller above).
         """
@@ -504,6 +510,7 @@ class AuthorizationService:
                 tenant_id=tenant_id,
                 role=TenantRole.ROLE_ADMIN,
                 suspended_at__isnull=True,
+                user__is_active=True,
             )
             .values_list("user_id", flat=True)
         )
@@ -532,10 +539,20 @@ class AuthorizationService:
         locks the other's row and both checks pass concurrently, letting
         the workspace drop to zero admins. Excluding the target only
         happens in the Python-side count, after the lock is held.
+
+        Filters on ``user__is_active=True`` so an already-deactivated
+        admin's leftover role row never counts as a usable admin (fix
+        round 1: see :meth:`_assert_not_last_tenant_admin` for the same
+        note).
         """
         locked_admin_user_ids = list(
             UserRole.objects.select_for_update()
-            .filter(workspace_id=workspace_id, role=ROLE_ADMIN, suspended_at__isnull=True)
+            .filter(
+                workspace_id=workspace_id,
+                role=ROLE_ADMIN,
+                suspended_at__isnull=True,
+                user__is_active=True,
+            )
             .values_list("user_id", flat=True)
         )
         remaining = sum(
