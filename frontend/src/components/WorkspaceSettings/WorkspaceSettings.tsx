@@ -643,7 +643,7 @@ export default function WorkspaceSettings(): JSX.Element {
         </div>
       )}
       {savedOk && (
-        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success, #16a34a)", padding: "var(--space-3)" }}>
+        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
           {t("settings.saved")}
         </div>
       )}

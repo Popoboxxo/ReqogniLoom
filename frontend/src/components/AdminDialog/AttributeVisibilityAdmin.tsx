@@ -491,7 +491,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
           style={{
             padding: 'var(--space-3)',
             background: 'var(--color-danger)',
-            color: '#ffffff',
+            color: 'var(--color-on-primary)',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-sm)',
           }}
@@ -506,7 +506,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
           style={{
             padding: 'var(--space-3)',
             background: 'var(--color-success)',
-            color: '#ffffff',
+            color: 'var(--color-on-primary)',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-sm)',
           }}
@@ -521,7 +521,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
         disabled={isSaving}
         style={{
           background: 'var(--color-primary)',
-          color: '#ffffff',
+          color: 'var(--color-on-primary)',
           border: 'none',
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-2) var(--space-4)',

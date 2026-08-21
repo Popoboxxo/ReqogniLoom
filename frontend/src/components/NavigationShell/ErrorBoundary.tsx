@@ -75,7 +75,7 @@ export class ErrorBoundary extends Component<
         }}
       >
         <h2>{errorTitle}</h2>
-        <p style={{ color: "#666", marginBottom: "1.5rem" }}>
+        <p style={{ color: "var(--color-errorboundary-text)", marginBottom: "1.5rem" }}>
           {this.state.error?.message ?? "Unknown error"}
         </p>
         <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>

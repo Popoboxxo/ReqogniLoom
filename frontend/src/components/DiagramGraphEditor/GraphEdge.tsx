@@ -20,15 +20,21 @@ import type { GraphEdgeType } from "../../types";
 import styles from "./DiagramGraphEditor.module.css";
 
 // Canonical edge-type colors (mirrors the accent tokens used elsewhere in the
-// concept). SVG `stroke` cannot resolve CSS custom properties reliably across
-// the whole matrix of themes here, so the hex values mirror the tokens.
+// concept). Theming phase 2, checkpoint 2: migrated onto the new,
+// theme-independent --color-diagram-edge-* tokens in tokens.css (see that
+// file's comment — a prior version of this comment claimed SVG `stroke`
+// couldn't resolve CSS custom properties reliably; that wasn't borne out on
+// investigation, but the new tokens are frozen at the same value in both
+// themes regardless, so the rendered color is unchanged either way).
+// "containment" (#64748b) has no --palette-* primitive close enough without
+// colliding with "association"'s slate-600 and was left as raw hex.
 const STROKE_BY_TYPE: Record<GraphEdgeType, string> = {
-  flow: "#6366f1", // --color-primary (indigo 500)
-  association: "#475569", // --color-border-hover (slate 600)
-  dependency: "#f59e0b", // --color-warning (amber 500)
-  containment: "#64748b", // --color-text-muted (slate 500)
+  flow: "var(--color-diagram-edge-primary)", // indigo 500
+  association: "var(--color-diagram-edge-default)", // slate 600
+  dependency: "var(--color-diagram-edge-dependency)", // amber 500
+  containment: "#64748b", // no adequately close token — see tokens.css comment
 };
-const STROKE_ACTIVE = "#6366f1";
+const STROKE_ACTIVE = "var(--color-diagram-edge-primary)";
 
 // Edge types whose default line style is dashed when `style.line` is absent.
 const DEFAULT_DASHED_TYPES = new Set<GraphEdgeType>(["dependency", "containment"]);

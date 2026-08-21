@@ -27,25 +27,35 @@
  * via `npx eslint src` with the rule temporarily unscoped: 43 violations / 21 files.
  */
 export const LEGACY_INLINE_STYLE_HEX_FILES = [
-  "src/components/AdminDialog/AttributeVisibilityAdmin.tsx",
-  "src/components/ArchitectureEditors/ArchitectureEditors.tsx",
-  "src/components/ArtifactDiff/ArtifactDiff.tsx",
-  "src/components/BaselinesView/BaselinesView.tsx",
-  "src/components/ImpactView/ImpactView.tsx",
-  "src/components/MetricsDashboard/MetricsDashboard.tsx",
-  "src/components/NavigationShell/CreateWorkspaceModal.tsx",
-  "src/components/NavigationShell/ErrorBoundary.tsx",
-  "src/components/PermissionMatrix/PermissionMatrixEditor.tsx",
-  "src/components/RequirementEditors/ReqTraceLinkPanel.tsx",
-  "src/components/Reviews/ReviewsView.tsx",
-  "src/components/SystemSettings/EnforcementModePanel.tsx",
-  "src/components/SystemSettings/PermissionDefaultsTab.tsx",
-  "src/components/SystemSettings/WorkspaceAdminSection.tsx",
-  "src/components/TraceabilityView/TraceLinksForm.tsx",
-  "src/components/TraceabilityView/TraceabilityView.tsx",
-  "src/components/UserProfileSettings/ApiKeysSection.tsx",
-  "src/components/WorkspaceSettings/BackupRestoreSection.tsx",
-  "src/components/WorkspaceSettings/WorkspaceSettings.tsx",
-  "src/components/shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx",
-  "src/components/shared/TraceLinkPanel.tsx",
+  // #568 Phase 2 checkpoint 1: TraceLinkPanel.tsx and
+  // shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx entries
+  // removed here — both fully migrated onto design tokens, no remaining
+  // hex literals. The rule now guards them permanently.
+  // #568 Phase 2 checkpoint 3: ArchitectureEditors.tsx, ArtifactDiff.tsx,
+  // PermissionMatrix/PermissionMatrixEditor.tsx,
+  // RequirementEditors/ReqTraceLinkPanel.tsx,
+  // TraceabilityView/TraceLinksForm.tsx and
+  // TraceabilityView/TraceabilityView.tsx entries removed here — all six
+  // fully migrated onto design tokens, no remaining hex literals. The rule
+  // now guards them permanently.
+  // #568 Phase 2 checkpoint 4 (2026-08-21, final checkpoint of the plan):
+  // AttributeVisibilityAdmin.tsx, BaselinesView.tsx, MetricsDashboard.tsx,
+  // NavigationShell/CreateWorkspaceModal.tsx, NavigationShell/ErrorBoundary.tsx,
+  // SystemSettings/EnforcementModePanel.tsx,
+  // SystemSettings/PermissionDefaultsTab.tsx,
+  // SystemSettings/WorkspaceAdminSection.tsx, ApiKeysSection.tsx,
+  // WorkspaceSettings/BackupRestoreSection.tsx and
+  // WorkspaceSettings/WorkspaceSettings.tsx entries removed here — all 11
+  // fully migrated onto design tokens, no remaining hex literals in their
+  // inline styles. The rule now guards them permanently.
+  // #568 Phase 2 checkpoint 4 fix round (2026-08-21, post-commit review):
+  // ImpactView.tsx and ReviewsView.tsx entries removed here too — both were
+  // never actually in scope for any of the 4 checkpoints, but re-verified
+  // directly (same countNonCommentOccurrences-style scan the ratchet test
+  // uses) and confirmed to contain zero real hex literals anywhere in the
+  // file, inline-style or otherwise — every grep hit in either file is a
+  // decimal GitHub issue number (`#372`, `#415`, `#184`, `#216`) inside a
+  // `//` or block comment. Provably no-op exemptions; removed per the
+  // list's own maintenance rule ("never keep an entry that isn't guarding a
+  // real violation"). The list is now empty.
 ];

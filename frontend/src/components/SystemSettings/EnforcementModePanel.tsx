@@ -146,18 +146,18 @@ export function EnforcementModePanel(): JSX.Element {
                     ? "rgba(22,163,74,0.12)"
                     : "var(--color-surface-raised)",
                   color: isAuthoritative
-                    ? "var(--color-success, #16a34a)"
+                    ? "var(--color-success)"
                     : "var(--color-text-muted)",
                 }}
               >
                 {isAuthoritative ? "Authoritative" : "Shadow"}
               </span>
               {status.ready_for_authoritative ? (
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-success, #16a34a)" }}>
+                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-success)" }}>
                   0 pending mismatches — ready to flip
                 </span>
               ) : (
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-warning, #f59e0b)" }}>
+                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-warning)" }}>
                   {status.pending_mismatch_count} pending — review recommended before flipping
                 </span>
               )}
@@ -190,8 +190,8 @@ export function EnforcementModePanel(): JSX.Element {
                   disabled={rollingBack}
                   style={{
                     background: "transparent",
-                    color: "var(--color-warning, #f59e0b)",
-                    border: "1px solid var(--color-warning, #f59e0b)",
+                    color: "var(--color-warning)",
+                    border: "1px solid var(--color-warning)",
                     borderRadius: "var(--radius-md)",
                     padding: "var(--space-2) var(--space-4)",
                     fontSize: "var(--font-size-sm)",

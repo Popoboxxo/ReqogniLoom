@@ -223,7 +223,7 @@ export function ApiKeysSection(): JSX.Element {
           role="alert"
           style={{
             background: "var(--color-surface-raised)",
-            border: "1px solid var(--color-warning, #f59e0b)",
+            border: "1px solid var(--color-warning)",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-3)",
             marginBottom: "var(--space-4)",
@@ -369,7 +369,7 @@ export function ApiKeysSection(): JSX.Element {
                       : "rgba(22,163,74,0.12)",
                     color: key.revoked
                       ? "var(--color-text-muted)"
-                      : "var(--color-success, #16a34a)",
+                      : "var(--color-success)",
                     whiteSpace: "nowrap",
                   }}
                 >

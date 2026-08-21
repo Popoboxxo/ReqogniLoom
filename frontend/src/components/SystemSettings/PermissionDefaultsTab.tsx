@@ -120,7 +120,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
                 data-testid="global-matrix-propagated-toast"
                 role="status"
                 style={{
-                  color: "var(--color-success, #16a34a)",
+                  color: "var(--color-success)",
                   fontSize: "var(--font-size-sm)",
                   marginBottom: "var(--space-2)",
                 }}

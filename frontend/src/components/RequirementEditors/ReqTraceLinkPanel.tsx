@@ -454,7 +454,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 className="btn-primary"
                 onClick={onAiDerive}
                 disabled={isAiDeriving}
-                style={{ background: 'linear-gradient(135deg, #4f6ef7, #8e2de2)' }}
+                style={{ background: 'linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))' }}
               >
                 ✨ {isAiDeriving ? t('actions.deriving', 'Leitet ab...') : t('actions.derive', 'Ableiten')}
               </button>

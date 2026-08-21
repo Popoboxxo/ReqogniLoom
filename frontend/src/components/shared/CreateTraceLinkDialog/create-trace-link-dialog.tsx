@@ -278,7 +278,7 @@ function ElementPicker({
                       style={{
                         fontSize: '0.7rem',
                         background: isSelected ? 'rgba(255,255,255,0.25)' : 'var(--color-badge-draft)',
-                        color: isSelected ? '#fff' : 'var(--color-badge-draft-text)',
+                        color: isSelected ? 'var(--color-on-primary)' : 'var(--color-badge-draft-text)',
                         padding: '1px 6px',
                         borderRadius: 'var(--radius-full)',
                         flexShrink: 0,

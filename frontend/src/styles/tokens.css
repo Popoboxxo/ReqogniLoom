@@ -151,6 +151,16 @@
   --color-success: var(--palette-emerald-500);
   --color-warning: var(--palette-amber-500);
   --color-danger: var(--palette-red-500);
+  /* Darker danger shade for hover/active feedback (mirrors --color-primary/
+     --color-primary-dark). Theming phase 2, checkpoint 2: was a hardcoded
+     #dc2626 literal in WorkflowEditor.module.css's .btnDanger:hover, always
+     the same value regardless of theme, so declared identically in both
+     theme blocks below like the level-badge/gradient-ai tokens. Note: in the
+     light theme --color-danger already resolves to this same primitive
+     (--palette-red-600), so the hover state is a no-op color change there —
+     a pre-existing quirk of the original hardcoded value, preserved as-is
+     by this pure refactor, not introduced by it. */
+  --color-danger-dark: var(--palette-red-600);
 
   /* Badge Colors */
   --color-badge-draft: var(--palette-white-a10);
@@ -183,6 +193,181 @@
 
   /* Keyboard focus ring (issue #158 — WCAG 2.4.7 Focus Visible) */
   --color-focus: var(--palette-indigo-400);
+
+  /* Architecture level badge ramp (L0-L4), WorkspaceTree showLevelBadge
+     (design ref: docs/architecture/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md §6:
+     "L0=dunkelblau, L1=blau, L2=cyan, L3=grün, L4=grau"). Theming phase 2,
+     checkpoint 1: was a hardcoded 5-value hex map in workspace-tree.tsx,
+     always rendered the same regardless of theme, so both theme blocks
+     declare identical values here (same pattern as the nav tokens above).
+     L2 (cyan) has no close --palette-* primitive (nearest, emerald-400, is
+     a very different hue) and was left as a raw hex literal in
+     workspace-tree.tsx rather than force a visibly-wrong match — see the
+     checkpoint-1 report and the ui-ratchet.test.ts history comment. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+
+  /* AI-derive action gradient (TraceLinkPanel "Ableiten" button). Theming
+     phase 2, checkpoint 1: was a hardcoded gradient literal, always the
+     same regardless of theme, so fixed across themes like the tokens
+     above. */
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors (GraphEdge.tsx, TransitionEdge.tsx),
+     theming phase 2, checkpoint 2. Both files carried a pre-existing code
+     comment claiming "SVG stroke cannot resolve CSS custom properties
+     reliably" and kept raw hex mirroring these tokens' values by hand.
+     Investigated for this checkpoint: found no evidence the claim holds for
+     this codebase's actual usage (a plain style prop setting `stroke` to a
+     CSS custom property reference on a React-rendered `<path>`, standard,
+     well-supported CSS) — the
+     react-flow marker (arrowhead) does not inherit from this stroke value
+     either way (no `color` is set on `markerEnd`, so it always uses
+     react-flow's own default), and the only SVG *export* path in this app
+     (POST /diagrams/{id}/export?format=svg) regenerates SVG server-side
+     from the stored node_graph JSON, never serializing this component's
+     live DOM — so no consumer reads a resolved CSS value out of it. var()
+     was substituted; the full test suite was re-run to confirm no
+     regression. Declared theme-independent (identical in both blocks,
+     matching the level-badge/gradient-ai pattern above) purely because the
+     source hex values were, not because of the resolution claim — so even
+     if that claim turns out to be right after all in some browser this
+     wasn't tested against, the visual result is unchanged either way. All
+     three are exact-value matches to their source hex. GraphEdge's
+     "containment" edge type (#64748b) has no exact or acceptably-close
+     --palette-* primitive without colliding with the "association" edge's
+     slate-600 (its closest candidate, dist 12.3%, was rejected for exactly
+     that collision reason) and was left as raw hex — see the checkpoint-2
+     report, which also flags this whole substitution as a judgment call
+     worth a manual visual check in a real browser before merge. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges (ArtifactDiff.tsx STATUS_STYLES + the error/note
+     banners), theming phase 2, checkpoint 3. All were hardcoded pastel
+     bg/text pairs, always the same regardless of theme, so frozen here
+     exactly like the level-badge/gradient-ai/diagram-edge tokens above.
+     added/removed/modified/unchanged map to green/rose/yellow/slate — all
+     exact-value primitive matches except -added-text (#22543d in the
+     source, ~5.2% RGB distance from the closest primitive, green-800,
+     already used elsewhere for the same "success text on pastel bg" role
+     in --color-badge-success-text's light-theme mapping). The error banner
+     reuses -removed-bg/-text (identical source values, same rose family,
+     "error" semantically parallel to "removed"/danger). See the
+     checkpoint-3 report for the full distance table. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+
+  /* TestRun result-summary tile colors (TestRunDetailEditor.tsx), theming
+     phase 2, checkpoint 3. Hardcoded, theme-independent before this
+     migration, so frozen like the tokens above rather than pointed at the
+     already theme-reactive --color-success/--color-danger (which would
+     have shifted the light-theme value away from the original hex).
+     -failed is an exact match (red-500); -passed is the closest primitive
+     to the source's plain Tailwind green (~9.3% RGB distance — the
+     codebase's own "success" semantic is already emerald-family
+     everywhere else, e.g. StatusBadge's passed->success mapping in
+     utils/statusBadge.ts, so this also aligns the one remaining outlier);
+     -notrun has no close primitive (~12.1% distance) but reuses gray-600,
+     which is already the primitive backing --color-badge-neutral-text —
+     the same "neutral" semantic this tile represents. Flagged in the
+     checkpoint-3 report as a lower-confidence judgment call. */
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+
+  /* Requirement-type badge ramp (RequirementList.tsx getTypeColor), theming
+     phase 2, checkpoint 3. Same fixed-badge-with-white-text role as the
+     architecture level ramp above (badge={ bg: getTypeColor(type), color:
+     'white' }), always rendered the same regardless of theme, so frozen
+     here too. -syreq and -featurereq are exact matches; -usecase is the
+     closest primitive (purple-500, ~6.8% distance) to the source's
+     indigo-leaning violet; -default (the "unknown type" fallback) has no
+     close primitive (~11.3% distance) but reuses gray-600, same reasoning
+     as -notrun above. See the checkpoint-3 report for the full distance
+     table. */
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+
+  /* Trace-link-type inline badge (TraceLinksForm.tsx and
+     TraceabilityView.tsx both carry an identical `background: "#eef",
+     color: "#2c5282"` pill around the link_type label), theming phase 2,
+     checkpoint 3. Frozen like the tokens above — hardcoded, theme-
+     independent before this migration. -text is an exact match
+     (sky-800, already the --color-badge-info-text light-theme primitive
+     and the --color-level-l0 primitive). -bg has no close saturated-blue
+     primitive for the source's near-white "#eef" lavender tint; the
+     closest overall is slate-50 (~3.6% distance), which is otherwise only
+     used as the light theme's --color-surface — reused here as a raw
+     primitive reference, not implying any --color-surface relationship. */
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+
+  /* Settings/admin/dashboard surfaces, theming phase 2, checkpoint 4.
+     MetricsDashboard.tsx's STATUS_COLORS ramp (healthy/warning/critical/
+     neutral tile dot + sparkline stroke) was hardcoded, theme-independent
+     before this migration, so frozen like the tokens above rather than
+     pointed at the theme-reactive --color-success/-warning/-danger (which
+     would have shifted the light-theme value away from the original hex).
+     -healthy/-warning/-critical are exact-value primitive matches
+     (emerald-500/amber-500/red-500 — incidentally the same primitives
+     already backing checkpoint 3's --color-summary-passed/-failed, but
+     kept as distinct tokens here since the semantic domain — SE metric
+     health, not test-run result — is different, matching this codebase's
+     convention of not conflating same-value-different-role tokens).
+     -neutral has no close primitive (~11.3% RGB distance — the same
+     figure, and the same gray-600 primitive, as checkpoint 3's
+     -notrun/-default tokens; NOT ~7.4%, which is ErrorBoundary.tsx's
+     distance below — a copy-paste error in an earlier draft of this
+     comment, caught in post-commit review and corrected here) but reuses
+     gray-600, the same "neutral/muted" primitive already established in
+     checkpoint 3's -notrun/-default tokens. ErrorBoundary.tsx's crash-
+     fallback message text (`color: "#666"`, hardcoded, no theme awareness
+     — this component deliberately doesn't use any other design tokens
+     either, being the top-level crash fallback) has no close primitive
+     (~7.4% distance, same gray-600 primitive, kept as its own token rather
+     than reusing -metric-neutral since the roles are unrelated).
+     global.css's `a:hover` color (`#818cf8`, commented "Indigo 400" in the
+     source) is an exact match to the indigo-400 primitive; kept as its own
+     token rather than reused from --color-focus (dark-theme-only exact
+     match; also a different UI role — link hover vs. focus ring — so
+     conflating them would be a coincidence of value, not a shared
+     semantic). MermaidEditor.module.css's `.errorBanner` background
+     (`#fef2f2`) maps to **white**, not the nearer-in-hue rose-100 (a
+     post-commit review caught this): the banner already carries 3
+     independent error signals (red border, red text, an error icon), so
+     the background is a decorative 4th cue, not load-bearing — meaning
+     accessibility and raw distance should decide it, not hue-matching.
+     White is ~4.17% RGB distance and keeps the light-theme banner text
+     (var(--color-danger) = red-600 #dc2626) at 4.83:1 contrast, passing
+     WCAG AA's 4.5:1 minimum per this file's own header requirement.
+     rose-100 — the primitive originally picked here, and still the one
+     backing checkpoint 3's --color-diff-removed-bg — is actually farther
+     by distance (~8.65%) AND drops that same text-on-background contrast
+     to 3.66:1, failing AA. Given its own token rather than reusing
+     --color-diff-removed-bg regardless, since this is a genuinely
+     different file/component, not the diff view. */
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
 
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
@@ -304,6 +489,10 @@
   --color-success: var(--palette-emerald-600);
   --color-warning: var(--palette-amber-700);
   --color-danger: var(--palette-red-600);
+  /* Same primitive as --color-danger in this theme — see the dark block's
+     comment above for why (pre-existing hardcoded-hover quirk, preserved
+     as-is). */
+  --color-danger-dark: var(--palette-red-600);
 
   --color-badge-draft: var(--palette-slate-900-a08);
   --color-badge-draft-text: var(--palette-slate-700);
@@ -336,6 +525,57 @@
 
   /* Keyboard focus ring (issue #158) — darker for AA contrast on white */
   --color-focus: var(--palette-indigo-600);
+
+  /* Level badge ramp + AI-derive gradient — identical to the dark block
+     above by design (theming phase 2, checkpoint 1): both were fixed,
+     theme-independent hex literals before this migration. See the dark
+     block's comment for the full rationale, including the L2 exception. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — identical to the dark block above by
+     design (theming phase 2, checkpoint 2): fixed, theme-independent hex
+     literals before this migration. See the dark block's comment for the
+     full rationale, including the containment exception. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — identical to the dark block above by design
+     (theming phase 2, checkpoint 3): all were fixed, theme-independent hex
+     literals before this migration. See the dark block's comments for the
+     full rationale and distance table. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
 
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);

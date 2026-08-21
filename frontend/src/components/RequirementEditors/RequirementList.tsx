@@ -41,10 +41,10 @@ import {
 
 function getTypeColor(type?: RequirementType): string {
   switch (type) {
-    case 'SyReq': return '#10B981';
-    case 'UseCase': return '#8B5CF6';
-    case 'FeatureReq': return '#F59E0B';
-    default:      return '#6B7280';
+    case 'SyReq': return 'var(--color-reqtype-syreq)';
+    case 'UseCase': return 'var(--color-reqtype-usecase)';
+    case 'FeatureReq': return 'var(--color-reqtype-featurereq)';
+    default:      return 'var(--color-reqtype-default)';
   }
 }
 

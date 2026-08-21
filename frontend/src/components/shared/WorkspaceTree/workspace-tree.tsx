@@ -41,12 +41,18 @@ import styles from './workspace-tree.module.css';
 // Level badge colors — design doc section 6
 // ---------------------------------------------------------------------------
 
+// Theming phase 2, checkpoint 1: migrated onto the --color-level-* design
+// tokens (tokens.css) where an existing --palette-* primitive was a close
+// enough match. L2 (cyan) has no close primitive in the current palette
+// (nearest, emerald-400, is a visibly different hue) and is intentionally
+// left as a raw hex literal here rather than force a wrong-looking match —
+// see the checkpoint-1 report for the full color-distance analysis.
 const LEVEL_BADGE_COLORS: Record<number, string> = {
-  0: '#1E3A8A', // L0 dark blue
-  1: '#3B82F6', // L1 blue
-  2: '#06B6D4', // L2 cyan
-  3: '#10B981', // L3 green
-  4: '#9CA3AF', // L4 gray
+  0: 'var(--color-level-l0)', // L0 dark blue
+  1: 'var(--color-level-l1)', // L1 blue
+  2: '#06B6D4', // L2 cyan — no matching token yet, see comment above
+  3: 'var(--color-level-l3)', // L3 green
+  4: 'var(--color-level-l4)', // L4 gray
 };
 
 function levelBadgeColor(levelStr: string): string {

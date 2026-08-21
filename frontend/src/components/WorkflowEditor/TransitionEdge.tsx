@@ -18,10 +18,14 @@ import { Lock } from "lucide-react";
 import type { TransitionFlowEdge } from "./layout";
 import styles from "./WorkflowEditor.module.css";
 
-// Canonical edge colors (design brief §11) — resolved from tokens at runtime is
-// not possible for SVG stroke, so the hex values mirror the token definitions.
-const STROKE_DEFAULT = "#475569"; // --color-border-hover (slate 600)
-const STROKE_ACTIVE = "#6366f1"; // --color-primary (indigo 500)
+// Canonical edge colors (design brief §11). Theming phase 2, checkpoint 2:
+// migrated onto the new, theme-independent --color-diagram-edge-* tokens in
+// tokens.css (see that file's comment — this used to be raw hex mirroring
+// token definitions by hand, citing an SVG-stroke resolution concern that
+// didn't hold up on investigation; the tokens are frozen at the same value
+// in both themes regardless, so the rendered color is unchanged either way).
+const STROKE_DEFAULT = "var(--color-diagram-edge-default)"; // slate 600
+const STROKE_ACTIVE = "var(--color-diagram-edge-primary)"; // indigo 500
 
 export function TransitionEdge({
   id,

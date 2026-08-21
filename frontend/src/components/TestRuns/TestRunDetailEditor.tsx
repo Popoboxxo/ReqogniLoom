@@ -185,17 +185,17 @@ export function TestRunDetailEditor({
             {
               label: "Passed",
               value: testRun.result_summary.passed,
-              color: "#22c55e",
+              color: "var(--color-summary-passed)",
             },
             {
               label: "Failed",
               value: testRun.result_summary.failed,
-              color: "#ef4444",
+              color: "var(--color-summary-failed)",
             },
             {
               label: "Not Run",
               value: testRun.result_summary.not_run,
-              color: "#64748b",
+              color: "var(--color-summary-notrun)",
             },
           ].map((s) => (
             <div

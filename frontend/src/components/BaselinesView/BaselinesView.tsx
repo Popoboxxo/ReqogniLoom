@@ -755,7 +755,7 @@ export default function BaselinesView(): JSX.Element {
               onClick={() => void handleDelete(selectedBaseline.id)}
               style={{
                 background: "var(--color-danger)",
-                color: "#ffffff",
+                color: "var(--color-on-primary)",
                 border: "none",
                 borderRadius: "var(--radius-md)",
                 padding: "var(--space-2) var(--space-4)",

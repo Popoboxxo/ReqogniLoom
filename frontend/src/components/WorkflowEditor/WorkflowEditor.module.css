@@ -151,7 +151,7 @@
 .iconButtonPrimary {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
 }
 
 .iconButtonPrimary:hover:not(:disabled) {
@@ -872,7 +872,7 @@
 .toggleThumbOn {
   left: auto;
   right: 2px;
-  background: #ffffff;
+  background: var(--color-on-primary);
 }
 
 .toggleTextOn {
@@ -989,7 +989,7 @@
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
-  color: #ffffff;
+  color: var(--color-on-primary);
   padding: 8px 16px;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -1209,7 +1209,7 @@
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
-  color: #ffffff;
+  color: var(--color-on-primary);
   padding: 8px 16px;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -1233,7 +1233,7 @@
 }
 
 .btnDanger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--color-danger-dark);
 }
 
 .btnGhost {

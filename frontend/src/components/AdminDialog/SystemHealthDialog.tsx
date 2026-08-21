@@ -45,9 +45,9 @@ function formatDate(iso: string | null): string {
 }
 
 const STATUS_COLORS: Record<SystemHealthStatus, string> = {
-  ok: "var(--color-success, #16a34a)",
-  degraded: "var(--color-warning, #f59e0b)",
-  down: "var(--color-danger, #dc2626)",
+  ok: "var(--color-success)",
+  degraded: "var(--color-warning)",
+  down: "var(--color-danger)",
   unknown: "var(--color-text-muted)",
 };
 

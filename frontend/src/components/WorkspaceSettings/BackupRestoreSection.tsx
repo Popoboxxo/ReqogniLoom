@@ -233,7 +233,7 @@ export function BackupRestoreSection(): JSX.Element {
           role="status"
           style={{
             background: "rgba(22,163,74,0.08)",
-            border: "1px solid var(--color-success, #16a34a)",
+            border: "1px solid var(--color-success)",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-3)",
             marginBottom: "var(--space-4)",

@@ -223,7 +223,8 @@ export function TraceLinkPanel({
               onClick={onDerive}
               disabled={isDeriving}
               style={{
-                background: "linear-gradient(135deg, #4f6ef7, #8e2de2)",
+                background:
+                  "linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))",
               }}
             >
               ✨ {isDeriving ? t("actions.deriving", "Ableiten...") : t("actions.derive", "Ableiten")}
