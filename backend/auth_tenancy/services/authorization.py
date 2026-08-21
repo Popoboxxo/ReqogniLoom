@@ -24,6 +24,9 @@ from uuid import UUID
 
 from django.db import transaction
 
+from application.base import NotFoundError
+from persistence.models import Workspace
+
 from ..errors import PermissionDenied
 from ..models import (
     ROLE_ADMIN,
@@ -337,6 +340,9 @@ class AuthorizationService:
             PermissionDenied: Caller lacks the Admin role, is not a
                 tenant-admin, and does not qualify for the first-admin
                 bootstrap exception.
+            NotFoundError: ``workspace_id`` does not exist under
+                ``tenant_id`` (fix round 1: the service now self-enforces
+                this instead of relying solely on upstream callers).
             ValueError: Role unknown, or invalid for the preset.
         """
         del target_is_member  # no longer a rejection gate (SEC-05)
@@ -360,6 +366,19 @@ class AuthorizationService:
             and ROLE_ADMIN not in {r.lower() for r in actor_roles}
         ):
             raise PermissionDenied(required_role=ROLE_ADMIN)
+
+        # Fix round 1 (I-1): self-enforce that the workspace actually
+        # belongs to the given tenant instead of trusting the caller.
+        # Without this, a caller could supply a workspace_id from a
+        # DIFFERENT tenant and — if they happened to be a tenant-admin of
+        # ``tenant_id`` — assign roles into a workspace they have no
+        # standing over at all (the row would simply be written with the
+        # wrong ``tenant_id``, corrupting tenant isolation).
+        if not Workspace.objects.filter(id=workspace_id, tenant_id=tenant_id).exists():
+            raise NotFoundError(
+                f"Workspace {workspace_id} does not exist under tenant "
+                f"{tenant_id}."
+            )
 
         if not PresetPolicyValidator.is_role_allowed_in_preset(normalized, preset):
             raise ValueError(
@@ -424,6 +443,15 @@ class AuthorizationService:
             target_user_id: User whose role is suspended.
             workspace_id: Target workspace.
             role: Role name to suspend.
+
+        Raises:
+            PermissionDenied: Caller lacks the Admin role and is not a
+                tenant-admin.
+            NotFoundError: No ``UserRole`` row exists at all for
+                ``target_user_id``/``workspace_id``/``role`` (fix round 1:
+                I-2). A row that exists but is already suspended is a
+                legitimate no-op and does NOT raise — only a row that
+                genuinely does not exist does.
         """
         if (
             ROLE_ADMIN not in {r.lower() for r in actor_roles}
@@ -436,12 +464,29 @@ class AuthorizationService:
                 self._assert_not_last_workspace_admin(
                     workspace_id=workspace_id, excluding_user_id=target_user_id
                 )
-            UserRole.objects.filter(
+            updated_count = UserRole.objects.filter(
                 user_id=target_user_id,
                 workspace_id=workspace_id,
                 role=normalized,
                 suspended_at__isnull=True,
             ).update(suspended_at=datetime.now(timezone.utc))
+            if updated_count == 0:
+                # 0 rows affected is ambiguous at the DB level: either the
+                # role assignment doesn't exist at all (error), or it
+                # exists but is already suspended (legitimate no-op,
+                # excluded by the suspended_at__isnull=True filter above).
+                # Disambiguate with an unfiltered existence check.
+                already_exists = UserRole.objects.filter(
+                    user_id=target_user_id,
+                    workspace_id=workspace_id,
+                    role=normalized,
+                ).exists()
+                if not already_exists:
+                    raise NotFoundError(
+                        f"No role assignment found for user {target_user_id} "
+                        f"in workspace {workspace_id} with role {normalized!r}."
+                    )
+                # else: already suspended — no-op, not an error.
 
     def reactivate_role(
         self,
@@ -467,15 +512,33 @@ class AuthorizationService:
             target_user_id: User whose role is reactivated.
             workspace_id: Target workspace.
             role: Role name to reactivate.
+
+        Raises:
+            PermissionDenied: Caller lacks the Admin role and is not a
+                tenant-admin.
+            NotFoundError: No ``UserRole`` row exists at all for
+                ``target_user_id``/``workspace_id``/``role`` (fix round 1:
+                I-2). Unlike :meth:`suspend_role`, the update filter below
+                does NOT restrict on ``suspended_at``, so it matches an
+                already-active row too — reactivating an already-active
+                role updates 1 row (a harmless no-op write) and never hits
+                the 0-row branch. 0 rows affected is therefore unambiguous
+                here: it can only mean the assignment doesn't exist at all.
         """
         if (
             ROLE_ADMIN not in {r.lower() for r in actor_roles}
             and not actor_is_tenant_admin
         ):
             raise PermissionDenied(required_role=ROLE_ADMIN)
-        UserRole.objects.filter(
-            user_id=target_user_id, workspace_id=workspace_id, role=role.lower()
+        normalized = role.lower()
+        updated_count = UserRole.objects.filter(
+            user_id=target_user_id, workspace_id=workspace_id, role=normalized
         ).update(suspended_at=None)
+        if updated_count == 0:
+            raise NotFoundError(
+                f"No role assignment found for user {target_user_id} in "
+                f"workspace {workspace_id} with role {normalized!r}."
+            )
 
     # -- Tenant-level admin (multi-user management) -----------------------
 

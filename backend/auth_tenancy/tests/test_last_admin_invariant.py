@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from django.db import connection, transaction
 
+from application.base import NotFoundError
 from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, TenantRole, UserRole
 from auth_tenancy.services.authorization import (
@@ -341,10 +342,13 @@ def test_assign_role_allowed_for_pure_tenant_admin_with_no_workspace_role():
         username="ta-assign-target", email="ta-assign-target@t.test", tenant=tenant
     )
     service = AuthorizationService()
+    actor_is_tenant_admin = service.is_tenant_admin(
+        user_id=tenant_admin.id, tenant_id=tenant.id
+    )
 
     ur = service.assign_role(
         actor_roles=(),
-        actor_is_tenant_admin=True,
+        actor_is_tenant_admin=actor_is_tenant_admin,
         target_user_id=target.id,
         workspace_id=ws.id,
         tenant_id=tenant.id,
@@ -392,10 +396,13 @@ def test_suspend_role_allowed_for_pure_tenant_admin_with_no_workspace_role():
     )
     TenantRole.objects.create(tenant=tenant, user=tenant_admin, role=TenantRole.ROLE_ADMIN)
     service = AuthorizationService()
+    actor_is_tenant_admin = service.is_tenant_admin(
+        user_id=tenant_admin.id, tenant_id=tenant.id
+    )
 
     service.suspend_role(
         actor_roles=(),
-        actor_is_tenant_admin=True,
+        actor_is_tenant_admin=actor_is_tenant_admin,
         target_user_id=admin.id,
         workspace_id=ws.id,
         role=ROLE_ADMIN,
@@ -431,10 +438,13 @@ def test_reactivate_role_allowed_for_pure_tenant_admin_with_no_workspace_role():
     )
     TenantRole.objects.create(tenant=tenant, user=tenant_admin, role=TenantRole.ROLE_ADMIN)
     service = AuthorizationService()
+    actor_is_tenant_admin = service.is_tenant_admin(
+        user_id=tenant_admin.id, tenant_id=tenant.id
+    )
 
     service.reactivate_role(
         actor_roles=(),
-        actor_is_tenant_admin=True,
+        actor_is_tenant_admin=actor_is_tenant_admin,
         target_user_id=admin.id,
         workspace_id=ws.id,
         role=ROLE_ADMIN,
@@ -460,3 +470,134 @@ def test_reactivate_role_denied_for_actor_with_neither_workspace_admin_nor_tenan
         )
     role.refresh_from_db()
     assert role.suspended_at is not None
+
+
+# -- Fix round 1 (code review): I-1 workspace/tenant integrity, I-2 --------
+# suspend_role/reactivate_role must not silently no-op on a mismatch -------
+
+
+@pytest.mark.django_db
+def test_assign_role_rejects_workspace_from_a_different_tenant():
+    """I-1: a workspace_id from a DIFFERENT tenant than tenant_id must be
+    rejected, even for a caller who genuinely IS a tenant-admin of
+    ``tenant_id`` — tenant-admin elevation is scoped to that tenant's own
+    workspaces, not to any workspace_id the caller happens to supply."""
+    tenant_a = Tenant.objects.create(name="I1-A", slug="i1-tenant-a")
+    tenant_b = Tenant.objects.create(name="I1-B", slug="i1-tenant-b")
+
+    TenantContext.set_tenant(tenant_b.id)
+    foreign_ws = Workspace.objects.create(tenant=tenant_b, name="Foreign WS")
+
+    TenantContext.set_tenant(tenant_a.id)
+    tenant_admin = User.objects.create(
+        username="i1-admin", email="i1-admin@t.test", tenant=tenant_a
+    )
+    TenantRole.objects.create(tenant=tenant_a, user=tenant_admin, role=TenantRole.ROLE_ADMIN)
+    target = User.objects.create(username="i1-target", email="i1-target@t.test", tenant=tenant_a)
+    service = AuthorizationService()
+    actor_is_tenant_admin = service.is_tenant_admin(
+        user_id=tenant_admin.id, tenant_id=tenant_a.id
+    )
+    assert actor_is_tenant_admin is True
+
+    with pytest.raises(NotFoundError):
+        service.assign_role(
+            actor_roles=(),
+            actor_is_tenant_admin=actor_is_tenant_admin,
+            target_user_id=target.id,
+            workspace_id=foreign_ws.id,
+            tenant_id=tenant_a.id,
+            role=ROLE_EDITOR,
+            preset="extended",
+            assigned_by_user_id=tenant_admin.id,
+            target_is_member=False,
+        )
+    assert not UserRole.objects.filter(user=target, role=ROLE_EDITOR).exists()
+
+
+@pytest.mark.django_db
+def test_suspend_role_raises_not_found_for_nonexistent_assignment():
+    tenant, ws, _admin, _role = _make_workspace_with_admin("i2-suspend-missing")
+    other = User.objects.create(
+        username="i2-suspend-other", email="i2-suspend-other@t.test", tenant=tenant
+    )
+    service = AuthorizationService()
+
+    with pytest.raises(NotFoundError):
+        service.suspend_role(
+            actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
+            target_user_id=other.id,
+            workspace_id=ws.id,
+            role=ROLE_EDITOR,
+        )
+
+
+@pytest.mark.django_db
+def test_suspend_role_already_suspended_is_a_noop_not_an_error():
+    """A role that IS suspended already must be a legitimate no-op, distinct
+    from a role that doesn't exist at all (which raises NotFoundError)."""
+    tenant, ws, _admin, _role = _make_workspace_with_admin("i2-suspend-noop")
+    editor = User.objects.create(
+        username="i2-suspend-noop-editor",
+        email="i2-suspend-noop-editor@t.test",
+        tenant=tenant,
+    )
+    editor_role = UserRole.objects.create(
+        tenant=tenant, user=editor, workspace=ws, role=ROLE_EDITOR
+    )
+    editor_role.suspended_at = editor_role.created_at
+    editor_role.save(update_fields=["suspended_at"])
+    service = AuthorizationService()
+
+    service.suspend_role(
+        actor_roles=(ROLE_ADMIN,),
+        actor_is_tenant_admin=False,
+        target_user_id=editor.id,
+        workspace_id=ws.id,
+        role=ROLE_EDITOR,
+    )
+    editor_role.refresh_from_db()
+    assert editor_role.suspended_at is not None
+
+
+@pytest.mark.django_db
+def test_reactivate_role_raises_not_found_for_nonexistent_assignment():
+    tenant, ws, _admin, _role = _make_workspace_with_admin("i2-reactivate-missing")
+    other = User.objects.create(
+        username="i2-reactivate-other", email="i2-reactivate-other@t.test", tenant=tenant
+    )
+    service = AuthorizationService()
+
+    with pytest.raises(NotFoundError):
+        service.reactivate_role(
+            actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
+            target_user_id=other.id,
+            workspace_id=ws.id,
+            role=ROLE_EDITOR,
+        )
+
+
+@pytest.mark.django_db
+def test_reactivate_role_already_active_is_a_noop_not_an_error():
+    """A role that is already active must be a legitimate no-op, distinct
+    from a role that doesn't exist at all (which raises NotFoundError)."""
+    tenant, ws, _admin, _role = _make_workspace_with_admin("i2-reactivate-noop")
+    editor = User.objects.create(
+        username="i2-reactivate-noop-editor",
+        email="i2-reactivate-noop-editor@t.test",
+        tenant=tenant,
+    )
+    UserRole.objects.create(tenant=tenant, user=editor, workspace=ws, role=ROLE_EDITOR)
+    service = AuthorizationService()
+
+    service.reactivate_role(
+        actor_roles=(ROLE_ADMIN,),
+        actor_is_tenant_admin=False,
+        target_user_id=editor.id,
+        workspace_id=ws.id,
+        role=ROLE_EDITOR,
+    )
+    role = UserRole.objects.get(user=editor, workspace=ws, role=ROLE_EDITOR)
+    assert role.suspended_at is None
