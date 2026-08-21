@@ -329,3 +329,42 @@ def test_create_rejects_too_short_password():
             email="short-pw@t.test",
             password="short1",
         )
+
+
+# -- Fix Round 2: overlong username/email -> clean ValueError, not a 500 -----
+
+
+@pytest.mark.django_db
+def test_create_rejects_username_over_max_length():
+    """Fix round 2 / Fix 1: an overlong username must be rejected with a
+    clean ValueError before it ever reaches the DB insert (Postgres'
+    varchar(150) column would otherwise raise an uncaught DataError)."""
+    tenant = Tenant.objects.create(name="UA-LongUser", slug="ua-longuser")
+    service = UserAccountService()
+
+    with pytest.raises(ValueError):
+        service.create(
+            actor_is_tenant_admin=True,
+            tenant_id=tenant.id,
+            username="u" * 151,
+            email="long-username@t.test",
+            password="a-real-password-123",
+        )
+
+
+@pytest.mark.django_db
+def test_create_rejects_email_over_max_length():
+    """Fix round 2 / Fix 1: an overlong email must be rejected with a clean
+    ValueError before it ever reaches the DB insert (the EmailField column
+    is varchar(254))."""
+    tenant = Tenant.objects.create(name="UA-LongEmail", slug="ua-longemail")
+    service = UserAccountService()
+
+    with pytest.raises(ValueError):
+        service.create(
+            actor_is_tenant_admin=True,
+            tenant_id=tenant.id,
+            username="long-email-user",
+            email=("a" * 250) + "@t.test",
+            password="a-real-password-123",
+        )

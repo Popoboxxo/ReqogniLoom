@@ -22,6 +22,16 @@ from persistence.models import Tenant, User
 # enforce sane defaults regardless of which caller (REST/MCP) reaches it.
 _PASSWORD_MIN_LENGTH: int = 8
 
+# Mirrors ``persistence.models.User.username``'s ``max_length=150`` and
+# ``.email``'s (an ``EmailField``, whose default ``max_length`` is 254).
+# Without this check, an overlong value passes the empty-check above
+# unharmed and reaches ``User.objects.create(...)`` below, where Postgres
+# raises an uncaught ``django.db.utils.DataError`` on insert (500) instead
+# of the clean 400 every other validation failure in this method produces
+# (fix round 2 / Fix 1).
+_USERNAME_MAX_LENGTH: int = 150
+_EMAIL_MAX_LENGTH: int = 254
+
 
 class UserAccountService:
     """Tenant-admin-guarded account lifecycle: create / activate / deactivate."""
@@ -60,10 +70,19 @@ class UserAccountService:
         username = (username or "").strip()
         if not username:
             raise ValueError("Parameter 'username' must be a non-empty string.")
+        if len(username) > _USERNAME_MAX_LENGTH:
+            raise ValueError(
+                f"Parameter 'username' must be at most {_USERNAME_MAX_LENGTH} "
+                "characters."
+            )
 
         email = (email or "").strip()
         if not email:
             raise ValueError("Parameter 'email' must be a non-empty string.")
+        if len(email) > _EMAIL_MAX_LENGTH:
+            raise ValueError(
+                f"Parameter 'email' must be at most {_EMAIL_MAX_LENGTH} characters."
+            )
 
         if not password or len(password) < _PASSWORD_MIN_LENGTH:
             raise ValueError(

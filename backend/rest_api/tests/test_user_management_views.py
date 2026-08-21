@@ -217,4 +217,15 @@ def test_list_users_requires_tenant_admin(tenant, workspace):
     assert resp.status_code == 403, resp.content
 
 
+@pytest.mark.django_db
+def test_grant_tenant_admin_returns_404_for_unknown_user(tenant, workspace):
+    """Fix round 2 / Fix 2: an unknown target user id on the grant endpoint
+    must return a clean 404, not an unhandled 500 (User.DoesNotExist)."""
+    client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+    unknown_id = "00000000-0000-0000-0000-000000000000"
+    resp = client.post(f"/api/v1/users/{unknown_id}/tenant-admin/")
+    assert resp.status_code == 404, resp.content
+    assert resp.json()["error"] == "NOT_FOUND"
+
+
 from auth_tenancy.services import AuthorizationService  # noqa: E402 (used above)

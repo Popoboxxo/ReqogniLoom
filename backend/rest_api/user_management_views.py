@@ -207,6 +207,8 @@ class UserViewSet(ViewSet):
                 )
             except PermissionDenied:
                 return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
+            except ObjectDoesNotExist:
+                return _err("NOT_FOUND", "User not found.", status.HTTP_404_NOT_FOUND)
             return Response({"granted": True}, status=status.HTTP_200_OK)
 
         try:
