@@ -85,15 +85,26 @@ export default [
       ],
     },
   },
-  {
-    // Frozen exemption list for the hex-in-inline-style rule — see
-    // `eslint-rules/legacy-inline-style-hex-files.js` for why these files are
-    // exempt and how the list is meant to shrink.
-    files: LEGACY_INLINE_STYLE_HEX_FILES,
-    rules: {
-      'local/no-hex-color-in-inline-style': 'off',
-    },
-  },
+  // Frozen exemption list for the hex-in-inline-style rule — see
+  // `eslint-rules/legacy-inline-style-hex-files.js` for why these files are
+  // exempt and how the list is meant to shrink. ESLint 9's flat config
+  // rejects an empty `files` array (`Expected value to be a non-empty
+  // array`), so this whole block is conditionally spread in only while the
+  // list still has entries — checkpoint 4's fix round (2026-08-21) emptied
+  // it, since `ImpactView.tsx`/`ReviewsView.tsx` (the last 2 entries) turned
+  // out to have zero real hex literals. If the list is ever non-empty again
+  // (a future file gaining a legacy exemption), this block reactivates
+  // automatically with no further config change needed.
+  ...(LEGACY_INLINE_STYLE_HEX_FILES.length > 0
+    ? [
+        {
+          files: LEGACY_INLINE_STYLE_HEX_FILES,
+          rules: {
+            'local/no-hex-color-in-inline-style': 'off',
+          },
+        },
+      ]
+    : []),
   {
     files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
     rules: {

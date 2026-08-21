@@ -27,8 +27,6 @@
  * via `npx eslint src` with the rule temporarily unscoped: 43 violations / 21 files.
  */
 export const LEGACY_INLINE_STYLE_HEX_FILES = [
-  "src/components/ImpactView/ImpactView.tsx",
-  "src/components/Reviews/ReviewsView.tsx",
   // #568 Phase 2 checkpoint 1: TraceLinkPanel.tsx and
   // shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx entries
   // removed here — both fully migrated onto design tokens, no remaining
@@ -49,7 +47,15 @@ export const LEGACY_INLINE_STYLE_HEX_FILES = [
   // WorkspaceSettings/BackupRestoreSection.tsx and
   // WorkspaceSettings/WorkspaceSettings.tsx entries removed here — all 11
   // fully migrated onto design tokens, no remaining hex literals in their
-  // inline styles. The rule now guards them permanently. The two remaining
-  // entries above (ImpactView.tsx, ReviewsView.tsx) were out of this
-  // checkpoint's scope and are untouched.
+  // inline styles. The rule now guards them permanently.
+  // #568 Phase 2 checkpoint 4 fix round (2026-08-21, post-commit review):
+  // ImpactView.tsx and ReviewsView.tsx entries removed here too — both were
+  // never actually in scope for any of the 4 checkpoints, but re-verified
+  // directly (same countNonCommentOccurrences-style scan the ratchet test
+  // uses) and confirmed to contain zero real hex literals anywhere in the
+  // file, inline-style or otherwise — every grep hit in either file is a
+  // decimal GitHub issue number (`#372`, `#415`, `#184`, `#216`) inside a
+  // `//` or block comment. Provably no-op exemptions; removed per the
+  // list's own maintenance rule ("never keep an entry that isn't guarding a
+  // real violation"). The list is now empty.
 ];

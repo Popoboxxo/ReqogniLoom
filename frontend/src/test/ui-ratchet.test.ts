@@ -360,8 +360,11 @@ const STYLE_BRACE_BASELINE = 1070;
 // tokens — `-healthy`/`-warning`/`-critical` are exact primitive matches
 // (incidentally the same primitives as checkpoint 3's
 // `--color-summary-passed`/`-failed`, kept as separate tokens since the
-// semantic domain differs); `-neutral` is a closest-primitive match (~7.4%,
-// gray-600, same primitive as checkpoint 3's `-notrun`/`-default`).
+// semantic domain differs); `-neutral` is a closest-primitive match (~11.3%,
+// gray-600, same primitive AND same distance as checkpoint 3's
+// `-notrun`/`-default` — an earlier draft of this comment said ~7.4% here,
+// which was actually ErrorBoundary.tsx's distance below, copy-pasted by
+// mistake; corrected in post-commit review).
 // `AttributeVisibilityAdmin.tsx`'s 3 and `BaselinesView.tsx`'s 1 `#ffffff`
 // button/banner-text-on-colored-background spots reused the existing
 // `--color-on-primary` token (established convention from checkpoint 3).
@@ -375,9 +378,14 @@ const STYLE_BRACE_BASELINE = 1070;
 // (exact match, kept distinct from `--color-focus` despite the same
 // dark-theme value — different UI role, link hover vs. focus ring).
 // `MermaidEditor.module.css`'s `.errorBanner` background (`#fef2f2`) moved
-// onto a new `--color-danger-banner-bg` token (~8.6%, rose-100 — the same
-// primitive as checkpoint 3's `--color-diff-removed-bg`, given its own
-// token here since this is a different component/file, not the diff view).
+// onto a new `--color-danger-banner-bg` token — **white**, not rose-100
+// (post-commit review caught this): the banner already has 3 independent
+// error signals (red border, red text, an error icon), so the background is
+// a decorative 4th cue, not load-bearing, meaning distance/accessibility
+// should decide, not hue. White is closer by RGB distance (~4.2% vs.
+// rose-100's ~8.6%) and keeps the light-theme banner text
+// (`var(--color-danger)` = red-600) at 4.83:1 contrast, passing WCAG AA's
+// 4.5:1 minimum; rose-100 drops that same pairing to 3.66:1, failing AA.
 // `GraphEdge.tsx`'s "containment" edge color (`#64748b`) was re-verified
 // per this checkpoint's task brief rather than assumed unmigratable: still
 // no `--palette-*` primitive close enough without visually colliding with
@@ -385,7 +393,7 @@ const STYLE_BRACE_BASELINE = 1070;
 // candidate, gray-600, render as near-identical grays, ~12.1-12.3% distant
 // either way) — checkpoint 2's original judgment holds, left as raw hex.
 // `SidebarNavigation.tsx`'s single counted "occurrence" was investigated
-// and found to be a scanner false positive, not a real color: line 47 is
+// and found to be a scanner false positive, not a real color: line 58 is
 // `group: NavGroupId; // issue #317 — section grouping`, a trailing `//`
 // comment *after* code on the same line. `countNonCommentOccurrences` only
 // skips a line when it *starts* with `//` (see its docstring's own

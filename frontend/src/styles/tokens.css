@@ -329,7 +329,11 @@
      kept as distinct tokens here since the semantic domain — SE metric
      health, not test-run result — is different, matching this codebase's
      convention of not conflating same-value-different-role tokens).
-     -neutral has no close primitive (~7.4% RGB distance) but reuses
+     -neutral has no close primitive (~11.3% RGB distance — the same
+     figure, and the same gray-600 primitive, as checkpoint 3's
+     -notrun/-default tokens; NOT ~7.4%, which is ErrorBoundary.tsx's
+     distance below — a copy-paste error in an earlier draft of this
+     comment, caught in post-commit review and corrected here) but reuses
      gray-600, the same "neutral/muted" primitive already established in
      checkpoint 3's -notrun/-default tokens. ErrorBoundary.tsx's crash-
      fallback message text (`color: "#666"`, hardcoded, no theme awareness
@@ -343,18 +347,27 @@
      match; also a different UI role — link hover vs. focus ring — so
      conflating them would be a coincidence of value, not a shared
      semantic). MermaidEditor.module.css's `.errorBanner` background
-     (`#fef2f2`) has no exact primitive; closest pastel-red-family primitive
-     is rose-100 (~8.6% distance) — the same primitive already backing
-     checkpoint 3's --color-diff-removed-bg (reused there for ArtifactDiff's
-     own error banner), but given its own token here since it's a
-     genuinely different file/component, not the diff view. */
+     (`#fef2f2`) maps to **white**, not the nearer-in-hue rose-100 (a
+     post-commit review caught this): the banner already carries 3
+     independent error signals (red border, red text, an error icon), so
+     the background is a decorative 4th cue, not load-bearing — meaning
+     accessibility and raw distance should decide it, not hue-matching.
+     White is ~4.17% RGB distance and keeps the light-theme banner text
+     (var(--color-danger) = red-600 #dc2626) at 4.83:1 contrast, passing
+     WCAG AA's 4.5:1 minimum per this file's own header requirement.
+     rose-100 — the primitive originally picked here, and still the one
+     backing checkpoint 3's --color-diff-removed-bg — is actually farther
+     by distance (~8.65%) AND drops that same text-on-background contrast
+     to 3.66:1, failing AA. Given its own token rather than reusing
+     --color-diff-removed-bg regardless, since this is a genuinely
+     different file/component, not the diff view. */
   --color-metric-healthy: var(--palette-emerald-500);
   --color-metric-warning: var(--palette-amber-500);
   --color-metric-critical: var(--palette-red-500);
   --color-metric-neutral: var(--palette-gray-600);
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
-  --color-danger-banner-bg: var(--palette-rose-100);
+  --color-danger-banner-bg: var(--palette-white);
 
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
@@ -562,7 +575,7 @@
   --color-metric-neutral: var(--palette-gray-600);
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
-  --color-danger-banner-bg: var(--palette-rose-100);
+  --color-danger-banner-bg: var(--palette-white);
 
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
