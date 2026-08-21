@@ -151,7 +151,7 @@ vollständig migriert, wird ihr Eintrag im selben Commit gelöscht.
 |---|---|---|
 | 0 | ~~ESLint-Lücke + Ratchet-Test~~ — bereits vorhanden, kein Task | — |
 | 1 | ~~Theme-Registry-Mechanik + Settings-UI + Persistenz~~ — **erledigt** | siehe `docs/superpowers/plans/2026-08-20-multi-palette-theming-phase1.md`, 6 Tasks, alle Reviews clean (2 Fix-Runden in Task 5), 2280/2281 Backend-Tests + 1096/1098 Frontend-Tests grün (2 vorbestehende, unabhängige Fails dokumentiert im Plan-Ledger) |
-| 2 | Hex-Migration, pro Verzeichnis (bestehender Ratchet sinkt) | 1 Commit je Verzeichnis (4) |
+| 2 | ~~Hex-Migration, pro Verzeichnis~~ — **erledigt** | siehe `docs/superpowers/plans/2026-08-21-multi-palette-theming-phase2.md`, 4 Checkpoints, alle Reviews clean (1 Fix-Runde in Checkpoint 4), Ratchet 90→18 Treffer (.tsx), 55→40 (CSS, davon 40 = `tokens.css`-Primitives, permanent), `LEGACY_INLINE_STYLE_HEX_FILES` leer. Verbleibende 4 `.tsx`-Treffer bewusst unmigriert (Fabric.js/Color-Input-Kontext, kein CSS `var()` möglich, oder kein kollisionsfreies Primitive) — je einzeln begründet im Plan-Ledger. 2280/2281 Backend + 1099/1100 Frontend grün (bekannte, unabhängige Vorbestandsfehler) |
 | 3 | Paletten-Freischaltung + WCAG-Kontrast-Tests | 1 Commit |
 
 Jede Phase wird laut Nutzer-Vorgabe als eigener Zwischenstand gesichert
