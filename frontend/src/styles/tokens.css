@@ -122,6 +122,177 @@
   --palette-green-800: #276749;
   --palette-yellow-100: #fefcbf;
   --palette-yellow-800: #744210;
+
+  /* Bauhaus Enterprise palette primitives (#568 Phase 3) */
+  --palette-bauhaus-navy: #1A2B4C;
+  --palette-bauhaus-mustard-50: #fbf9f4;
+  --palette-bauhaus-mustard-100: #f7f2e8;
+  --palette-bauhaus-mustard-200: #eee3ce;
+  --palette-bauhaus-mustard-300: #f3d495;
+  --palette-bauhaus-mustard-400: #edbd5e;
+  --palette-bauhaus-mustard-500: #EBB54A; /* user-specified anchor, kept exact */
+  --palette-bauhaus-mustard-600: #cf9117;
+  --palette-bauhaus-mustard-700: #aa7713;
+  --palette-bauhaus-mustard-800: #855d0f;
+  --palette-bauhaus-mustard-900: #5c420f;
+  --palette-bauhaus-terracotta-50: #faf5f5;
+  --palette-bauhaus-terracotta-100: #f4eceb;
+  --palette-bauhaus-terracotta-200: #e8d6d4;
+  --palette-bauhaus-terracotta-300: #e2ada7;
+  --palette-bauhaus-terracotta-400: #d38279;
+  --palette-bauhaus-terracotta-500: #C55A4E; /* user-specified anchor, kept exact */
+  --palette-bauhaus-terracotta-600: #ad4439;
+  --palette-bauhaus-terracotta-700: #8e382f;
+  --palette-bauhaus-terracotta-800: #6f2c25;
+  --palette-bauhaus-terracotta-900: #4e221d;
+  --palette-bauhaus-amber-50: #faf8f4;
+  --palette-bauhaus-amber-100: #f6f1ea;
+  --palette-bauhaus-amber-200: #ebe0d1;
+  --palette-bauhaus-amber-300: #eacc9e;
+  --palette-bauhaus-amber-400: #e0b16c;
+  --palette-bauhaus-amber-500: #C98A2B; /* controller-derived warning, distinct hue-step from mustard-500 */
+  --palette-bauhaus-amber-600: #bd8228;
+  --palette-bauhaus-amber-700: #9b6b21;
+  --palette-bauhaus-amber-800: #7a541a;
+  --palette-bauhaus-amber-900: #553c16;
+  --palette-bauhaus-teal-50: #f6f9f8;
+  --palette-bauhaus-teal-100: #edf2f1;
+  --palette-bauhaus-teal-200: #d9e3e1;
+  --palette-bauhaus-teal-300: #b6d3cd;
+  --palette-bauhaus-teal-400: #8fbcb3;
+  --palette-bauhaus-teal-500: #4A7C72; /* user-specified anchor, kept exact */
+  --palette-bauhaus-teal-600: #569084;
+  --palette-bauhaus-teal-700: #47766d;
+  --palette-bauhaus-teal-800: #375d55;
+  --palette-bauhaus-teal-900: #29423d;
+  --palette-bauhaus-slate-50: #f7f8f8;
+  --palette-bauhaus-slate-100: #eff0f1;
+  --palette-bauhaus-slate-200: #dcdfe0;
+  --palette-bauhaus-slate-300: #bec6ca;
+  --palette-bauhaus-slate-400: #9da9af;
+  --palette-bauhaus-slate-500: #8E9CA3; /* user-specified anchor, kept exact */
+  --palette-bauhaus-slate-600: #67777f;
+  --palette-bauhaus-slate-700: #556268;
+  --palette-bauhaus-slate-800: #424c52;
+  --palette-bauhaus-slate-900: #31373a;
+  --palette-bauhaus-alabaster: #F4F4F0; /* user-specified surface anchor */
+
+  /* Nordic Frost palette primitives (#568 Phase 3) */
+  --palette-nordic-frost-50: #f6f7f9;
+  --palette-nordic-frost-100: #edeff3;
+  --palette-nordic-frost-200: #d7dde4;
+  --palette-nordic-frost-300: #b2c2d7;
+  --palette-nordic-frost-400: #89a3c2;
+  --palette-nordic-frost-500: #6183ad;
+  --palette-nordic-frost-600: #4e6f97; /* WCAG-adjusted primary, see plan header note 1 */
+  --palette-nordic-frost-700: #405b7d;
+  --palette-nordic-frost-800: #324862;
+  --palette-nordic-frost-900: #263445;
+  --palette-nordic-aurora-red-50: #f9f5f6;
+  --palette-nordic-aurora-red-100: #f4eced;
+  --palette-nordic-aurora-red-200: #e6d5d7;
+  --palette-nordic-aurora-red-300: #ddacb0;
+  --palette-nordic-aurora-red-400: #cc8087;
+  --palette-nordic-aurora-red-500: #BF616A; /* Nord nord11, anchor */
+  --palette-nordic-aurora-red-600: #a3424b;
+  --palette-nordic-aurora-red-700: #86363e;
+  --palette-nordic-aurora-red-800: #692b31;
+  --palette-nordic-aurora-red-900: #4a2125;
+  --palette-nordic-aurora-orange-50: #faf6f5;
+  --palette-nordic-aurora-orange-100: #f4edeb;
+  --palette-nordic-aurora-orange-200: #e8d9d4;
+  --palette-nordic-aurora-orange-300: #e2b5a7;
+  --palette-nordic-aurora-orange-400: #d38e79;
+  --palette-nordic-aurora-orange-500: #D08770; /* Nord nord12, anchor */
+  --palette-nordic-aurora-orange-600: #ad5539;
+  --palette-nordic-aurora-orange-700: #8e462f;
+  --palette-nordic-aurora-orange-800: #6f3625;
+  --palette-nordic-aurora-orange-900: #4e291d;
+  --palette-nordic-aurora-green-50: #f7f9f6;
+  --palette-nordic-aurora-green-100: #eff2ed;
+  --palette-nordic-aurora-green-200: #dde3d8;
+  --palette-nordic-aurora-green-300: #c3d5b4;
+  --palette-nordic-aurora-green-400: #a4bf8d;
+  --palette-nordic-aurora-green-500: #A3BE8C; /* Nord nord14, anchor */
+  --palette-nordic-aurora-green-600: #709353;
+  --palette-nordic-aurora-green-700: #5c7944;
+  --palette-nordic-aurora-green-800: #485e35;
+  --palette-nordic-aurora-green-900: #344328;
+  --palette-nordic-polar-50: #f7f7f8;
+  --palette-nordic-polar-100: #eeeff1;
+  --palette-nordic-polar-200: #dbdde1;
+  --palette-nordic-polar-300: #bbc1ce;
+  --palette-nordic-polar-400: #97a1b4;
+  --palette-nordic-polar-500: #73819b;
+  --palette-nordic-polar-600: #606c86;
+  --palette-nordic-polar-700: #4f596e;
+  --palette-nordic-polar-800: #3e4656;
+  --palette-nordic-polar-900: #2e333d;
+  --palette-nordic-night: #1B2430; /* surface anchor */
+  --palette-nordic-night-raised: #263344; /* surface-raised */
+  --palette-nordic-snow: #E5E9F0; /* text anchor */
+  --palette-nordic-frost-600-rgb: 78, 111, 151;
+  --palette-nordic-frost-500-a15: rgba(97, 131, 173, 0.15); /* card-active-bg */
+  --palette-nordic-frost-500-a20: rgba(97, 131, 173, 0.2); /* badge-info-bg */
+  --palette-nordic-aurora-green-500-a20: rgba(163, 190, 140, 0.2); /* badge-success-bg */
+  --palette-nordic-aurora-orange-500-a20: rgba(208, 135, 112, 0.2); /* badge-warning-bg */
+  --palette-nordic-aurora-red-500-a20: rgba(191, 97, 106, 0.2); /* badge-danger-bg */
+  --palette-nordic-polar-500-a20: rgba(115, 129, 155, 0.2); /* badge-neutral-bg, badge-draft */
+
+  /* Sepia Archive palette primitives (#568 Phase 3) */
+  --palette-sepia-orange-50: #faf7f5;
+  --palette-sepia-orange-100: #f5efeb;
+  --palette-sepia-orange-200: #e9ddd3;
+  --palette-sepia-orange-300: #e5c1a3;
+  --palette-sepia-orange-400: #d8a073;
+  --palette-sepia-orange-500: #cb7f43;
+  --palette-sepia-orange-600: #b46b32;
+  --palette-sepia-orange-700: #945829; /* WCAG-adjusted primary, see plan header note 1 */
+  --palette-sepia-orange-800: #744520;
+  --palette-sepia-orange-900: #51321a;
+  --palette-sepia-brick-50: #faf5f5;
+  --palette-sepia-brick-100: #f5ebeb;
+  --palette-sepia-brick-200: #e9d3d3;
+  --palette-sepia-brick-300: #e4a5a5;
+  --palette-sepia-brick-400: #d67575;
+  --palette-sepia-brick-500: #A83232; /* user-adjacent proposal anchor */
+  --palette-sepia-brick-600: #b13535;
+  --palette-sepia-brick-700: #912b2b;
+  --palette-sepia-brick-800: #722222;
+  --palette-sepia-brick-900: #501b1b;
+  --palette-sepia-gold-50: #faf8f5;
+  --palette-sepia-gold-100: #f4f1eb;
+  --palette-sepia-gold-200: #e8e0d4;
+  --palette-sepia-gold-300: #e2caa7;
+  --palette-sepia-gold-400: #d3af78;
+  --palette-sepia-gold-500: #B8863C;
+  --palette-sepia-gold-600: #ad7e38;
+  --palette-sepia-gold-700: #8e682e;
+  --palette-sepia-gold-800: #705124;
+  --palette-sepia-gold-900: #4e3a1d;
+  --palette-sepia-forest-50: #f6f8f7;
+  --palette-sepia-forest-100: #eef2ef;
+  --palette-sepia-forest-200: #d9e2db;
+  --palette-sepia-forest-300: #b7d2bd;
+  --palette-sepia-forest-400: #91ba9b;
+  --palette-sepia-forest-500: #4E7C59; /* controller proposal anchor */
+  --palette-sepia-forest-600: #598d65;
+  --palette-sepia-forest-700: #497453;
+  --palette-sepia-forest-800: #395b41;
+  --palette-sepia-forest-900: #2b4130;
+  --palette-sepia-taupe-50: #f8f7f6;
+  --palette-sepia-taupe-100: #f2f0ed;
+  --palette-sepia-taupe-200: #e3ded9;
+  --palette-sepia-taupe-300: #d3c6b6;
+  --palette-sepia-taupe-400: #bca990;
+  --palette-sepia-taupe-500: #B8A48A; /* controller proposal anchor */
+  --palette-sepia-taupe-600: #8f7657;
+  --palette-sepia-taupe-700: #756147;
+  --palette-sepia-taupe-800: #5c4c38;
+  --palette-sepia-taupe-900: #41372a;
+  --palette-sepia-cream: #F7F1E3; /* surface anchor */
+  --palette-sepia-espresso: #3B2F2F; /* text anchor */
+  --palette-sepia-orange-700-rgb: 148, 88, 41;
 }
 
 /* ==========================================================================
