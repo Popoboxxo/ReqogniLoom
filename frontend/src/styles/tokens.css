@@ -293,6 +293,23 @@
   --palette-sepia-cream: #F7F1E3; /* surface anchor */
   --palette-sepia-espresso: #3B2F2F; /* text anchor */
   --palette-sepia-orange-700-rgb: 148, 88, 41;
+
+  /* #568 Phase 3 fix (post-review): alpha variants for the 3 new palettes'
+     gradient-primary/gradient-body/shadow-glow tokens — the 9 non-`--color-*`
+     theme tokens (glass/gradient/shadow) that Tasks 1-2 missed. shadow-sm/
+     md/card and gradient-surface/glass-bg/glass-border reuse the existing
+     generic neutral alphas already defined above (they are mode-generic,
+     not hue-specific, exactly like `light`'s own definitions), so no new
+     primitives were needed for those 6 — only these 9 hue-specific ones. */
+  --palette-bauhaus-mustard-500-a30: rgba(235, 181, 74, 0.3);
+  --palette-bauhaus-mustard-500-a08: rgba(235, 181, 74, 0.08);
+  --palette-bauhaus-terracotta-500-a08: rgba(197, 90, 78, 0.08);
+  --palette-nordic-frost-600-a25: rgba(78, 111, 151, 0.25);
+  --palette-nordic-frost-600-a08: rgba(78, 111, 151, 0.08);
+  --palette-nordic-aurora-green-500-a08: rgba(163, 190, 140, 0.08);
+  --palette-sepia-orange-700-a25: rgba(148, 88, 41, 0.25);
+  --palette-sepia-orange-700-a08: rgba(148, 88, 41, 0.08);
+  --palette-sepia-gold-500-a08: rgba(184, 134, 60, 0.08);
 }
 
 /* ==========================================================================
@@ -861,6 +878,21 @@
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
+     shadow/glass values copied verbatim from the `light` block; gradient
+     accents mapped onto bauhaus's own mustard/terracotta hue pair
+     instead of indigo/purple. */
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-bauhaus-mustard-500-a30);
+  --gradient-primary: linear-gradient(135deg, var(--palette-bauhaus-mustard-500) 0%, var(--palette-bauhaus-terracotta-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-bauhaus-mustard-500-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-bauhaus-terracotta-500-a08), transparent 25%);
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
 }
 
 /* ==========================================================================
@@ -957,6 +989,21 @@
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — dark-style, mode-generic
+     shadow/glass values copied verbatim from the `dark` block; gradient
+     accents mapped onto nordic's own frost-blue/aurora-green hue pair
+     instead of indigo/purple. */
+  --shadow-sm: 0 1px 2px var(--palette-black-a30);
+  --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
+  --shadow-card: 0 10px 15px -3px var(--palette-black-a50), 0 4px 6px -2px var(--palette-black-a30);
+  --shadow-glow: 0 0 15px var(--palette-nordic-frost-600-a25);
+  --gradient-primary: linear-gradient(135deg, var(--palette-nordic-frost-600) 0%, var(--palette-nordic-aurora-green-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-slate-800-a80) 0%, var(--palette-slate-900-a80) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-nordic-frost-600-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-nordic-aurora-green-500-a08), transparent 25%);
+  --glass-bg: var(--palette-slate-800-a65);
+  --glass-border: var(--palette-white-a08);
 }
 
 /* ==========================================================================
@@ -1053,4 +1100,18 @@
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
+     shadow/glass values copied verbatim from the `light` block; gradient
+     accents mapped onto sepia's own orange/gold hue pair instead of indigo. */
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-sepia-orange-700-a25);
+  --gradient-primary: linear-gradient(135deg, var(--palette-sepia-orange-700) 0%, var(--palette-sepia-gold-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-sepia-orange-700-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-sepia-gold-500-a08), transparent 25%);
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
 }
