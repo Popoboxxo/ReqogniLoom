@@ -137,3 +137,117 @@ describe("design token existence (Task 7.1)", () => {
     expect(undefinedReferences).toEqual([]);
   });
 });
+
+/**
+ * Per-theme key-set parity (multi-palette theming Phase 3, Task 2, issue
+ * #568). The single generic scanner above only confirms every `var(--x)`
+ * *reference* resolves to *some* declaration somewhere in the file — it does
+ * not confirm that each named theme block (`:root[data-theme="..."]`)
+ * defines the SAME set of `--color-*` semantic tokens as the others. A theme
+ * block that is missing a token would not be caught by the scanner above
+ * (the token is still "defined" elsewhere, e.g. in the `dark` block), but
+ * would silently fall back to an unstyled/inherited value for that token
+ * whenever the theme is active — exactly the bug class Task 7.1 was
+ * written to catch, just one layer down (per-theme instead of global).
+ */
+
+interface CssBlock {
+  /** `null` for a bare `:root {}` block, else the `data-theme` value. */
+  theme: string | null;
+  body: string;
+}
+
+/**
+ * Split `tokensCss` into its top-level `:root {...}` /
+ * `:root[data-theme="id"] {...}` blocks. Declaration values never contain a
+ * literal `{`/`}`, but doc comments occasionally do (e.g. a `{id}` path
+ * placeholder in a code example inside a comment) — a naive non-greedy match
+ * up to the first `}` would stop early on those. Comments are stripped first
+ * so only real block-boundary braces remain, then a simple depth counter
+ * finds each top-level block's true extent.
+ */
+function collectCssBlocks(tokensCss: string): CssBlock[] {
+  const withoutComments = tokensCss.replace(/\/\*[\s\S]*?\*\//g, (comment) =>
+    // Preserve line count (for debuggability) and non-brace length roughly,
+    // while removing any brace characters the comment body might contain.
+    comment.replace(/[{}]/g, " "),
+  );
+
+  const blocks: CssBlock[] = [];
+  const selectorPattern = /:root(?:\[data-theme="([a-zA-Z0-9_-]+)"\])?\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = selectorPattern.exec(withoutComments)) !== null) {
+    const bodyStart = selectorPattern.lastIndex;
+    let depth = 1;
+    let i = bodyStart;
+    while (i < withoutComments.length && depth > 0) {
+      if (withoutComments[i] === "{") depth++;
+      else if (withoutComments[i] === "}") depth--;
+      i++;
+    }
+    const bodyEnd = i - 1; // position of the matching closing brace
+    blocks.push({ theme: match[1] ?? null, body: withoutComments.slice(bodyStart, bodyEnd) });
+    selectorPattern.lastIndex = i;
+  }
+  return blocks;
+}
+
+/** `--color-*` token names (not `--palette-*`, `--space-*`, etc.) defined directly in `body`. */
+function collectColorTokenNames(body: string): Set<string> {
+  const names = new Set<string>();
+  const pattern = /^\s*(--color-[a-zA-Z0-9-]+)\s*:/gm;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(body)) !== null) {
+    names.add(match[1]);
+  }
+  return names;
+}
+
+describe("per-theme --color-* key-set parity (theming phase 3, Task 2, #568)", () => {
+  const tokensCss = readFileSync(TOKENS_FILE, "utf-8");
+  const blocks = collectCssBlocks(tokensCss);
+
+  // The `dark` theme has no `data-theme` attribute (it lives on bare
+  // `:root {}` so it also applies before ThemeContext writes data-theme onto
+  // <html>) — tokens.css has multiple bare `:root {}` blocks (primitives,
+  // dark semantics, theme-independent spacing/typography), so the reference
+  // key set is the union of `--color-*` names across all of them; only the
+  // dark-semantics block actually contains any.
+  const darkColorTokens = new Set<string>();
+  for (const block of blocks) {
+    if (block.theme === null) {
+      for (const name of collectColorTokenNames(block.body)) {
+        darkColorTokens.add(name);
+      }
+    }
+  }
+
+  it("the dark (bare :root) block defines a non-trivial set of --color-* tokens", () => {
+    expect(darkColorTokens.size).toBeGreaterThan(0);
+  });
+
+  it.each(["bauhaus", "nordic", "sepia"])(
+    "theme '%s' defines the same --color-* key set as the dark theme",
+    (themeId) => {
+      const themeBlock = blocks.find((b) => b.theme === themeId);
+      expect(themeBlock, `expected a :root[data-theme="${themeId}"] block in tokens.css`).toBeDefined();
+
+      const themeColorTokens = collectColorTokenNames(themeBlock!.body);
+      const darkList = Array.from(darkColorTokens).sort();
+      const themeList = Array.from(themeColorTokens).sort();
+
+      const missing = darkList.filter((name) => !themeColorTokens.has(name));
+      const extra = themeList.filter((name) => !darkColorTokens.has(name));
+
+      expect(
+        missing,
+        `theme '${themeId}' is missing --color-* tokens present in dark: ${missing.join(", ")}`,
+      ).toEqual([]);
+      expect(
+        extra,
+        `theme '${themeId}' defines --color-* tokens not present in dark: ${extra.join(", ")}`,
+      ).toEqual([]);
+      expect(themeList).toEqual(darkList);
+    },
+  );
+});
