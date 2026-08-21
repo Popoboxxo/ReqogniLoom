@@ -190,5 +190,26 @@ class UserAccountService:
 
             User.objects.filter(id=target_user_id).update(is_active=False)
 
+    def get(self, *, user_id: UUID) -> User:
+        """Return the user by id.
+
+        Read-only lookup seam for callers (REST/MCP) that need a fresh
+        ``User`` row without reaching for the ORM directly (ADR-01 /
+        REQ-066) — e.g. building a response body after ``activate``/
+        ``deactivate`` has already mutated the row.
+
+        Raises:
+            User.DoesNotExist: No user with this id exists.
+        """
+        return User.objects.get(id=user_id)
+
+    def list_for_tenant(self, *, tenant_id: UUID) -> list[User]:
+        """Return every user of ``tenant_id``, ordered by username.
+
+        Read-only listing seam (ADR-01 / REQ-066) backing the tenant-admin
+        user directory (``GET /api/v1/users/``).
+        """
+        return list(User.objects.filter(tenant_id=tenant_id).order_by("username"))
+
 
 __all__ = ["UserAccountService"]

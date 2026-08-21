@@ -66,6 +66,7 @@ from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
 from rest_api.preference_views import UserPreferenceView
+from rest_api.user_management_views import UserViewSet
 from rest_api.prompt_variable_views import (
     PromptVariableDetailView,
     PromptVariableListView,
@@ -262,6 +263,28 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/members/",
         WorkspaceMembersView.as_view(),
         name="workspace-members",
+    ),
+    # Multi-user management (multi-user management design spec) — tenant-admin-guarded
+    # user lifecycle CRUD + activation + tenant-admin role grant/revoke.
+    path(
+        "users/",
+        UserViewSet.as_view({"get": "list", "post": "create"}),
+        name="user-list-create",
+    ),
+    path(
+        "users/<uuid:pk>/activate/",
+        UserViewSet.as_view({"post": "activate"}),
+        name="user-activate",
+    ),
+    path(
+        "users/<uuid:pk>/deactivate/",
+        UserViewSet.as_view({"post": "deactivate"}),
+        name="user-deactivate",
+    ),
+    path(
+        "users/<uuid:pk>/tenant-admin/",
+        UserViewSet.as_view({"post": "tenant_admin", "delete": "tenant_admin"}),
+        name="user-tenant-admin",
     ),
     # Disaster Recovery (REQ-L1-046) — admin-only.
     # /admin/backups/  -> GET list, POST create
