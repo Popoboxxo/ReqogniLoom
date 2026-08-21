@@ -107,7 +107,13 @@ class UserViewSet(ViewSet):
             )
         except PermissionDenied:
             return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
-        except Exception as exc:
+        except ValueError as exc:
+            # `UserAccountService.create` documents `ValueError` as its
+            # validation-failure contract (bad/duplicate username/email,
+            # weak password). Anything else (DB errors, `Tenant.DoesNotExist`,
+            # programming bugs) is NOT masked as a 400 here (fix round 1 /
+            # I-3) — it propagates to the framework's normal 500 handler
+            # instead of leaking raw internal exception text to the client.
             return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         return Response(_user_to_dict(user), status=status.HTTP_201_CREATED)

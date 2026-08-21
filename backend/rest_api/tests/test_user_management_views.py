@@ -169,4 +169,52 @@ def test_deactivate_rejects_cross_tenant_target(tenant, workspace):
     assert foreign_user.is_active is True
 
 
+@pytest.mark.django_db
+def test_grant_tenant_admin_rejects_cross_tenant_target(tenant, workspace):
+    """Critical IDOR guard: a tenant-admin of tenant A must not be able to
+    grant tenant-admin to a user belonging to tenant B via the REST endpoint
+    (403, not 200) — and no cross-tenant TenantRole row must be created."""
+    client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+
+    other_tenant = Tenant.objects.create(name="UMV-OTHER3", slug="umv-other3", is_active=True)
+    set_request_tenant(other_tenant.id)
+    try:
+        foreign_user = User.objects.create(
+            username="umv-foreign-target",
+            email="umv-foreign-target@t.test",
+            tenant=other_tenant,
+            is_active=True,
+        )
+    finally:
+        clear_request_tenant()
+
+    resp = client.post(f"/api/v1/users/{foreign_user.id}/tenant-admin/")
+    assert resp.status_code == 403, resp.content
+    assert resp.json()["error"] == "PERMISSION_DENIED"
+
+    set_request_tenant(tenant.id)
+    try:
+        assert not TenantRole.objects.filter(
+            tenant_id=tenant.id, user_id=foreign_user.id
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_list_users_succeeds_for_tenant_admin(tenant, workspace):
+    client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+    resp = client.get("/api/v1/users/")
+    assert resp.status_code == 200, resp.content
+    usernames = {u["username"] for u in resp.json()}
+    assert "umv-True-False" in usernames
+
+
+@pytest.mark.django_db
+def test_list_users_requires_tenant_admin(tenant, workspace):
+    client = _make_authed_client(tenant, workspace, is_tenant_admin=False, is_workspace_admin=True)
+    resp = client.get("/api/v1/users/")
+    assert resp.status_code == 403, resp.content
+
+
 from auth_tenancy.services import AuthorizationService  # noqa: E402 (used above)

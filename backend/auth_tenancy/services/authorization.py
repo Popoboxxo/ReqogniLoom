@@ -25,7 +25,7 @@ from uuid import UUID
 from django.db import transaction
 
 from application.base import NotFoundError
-from persistence.models import Workspace
+from persistence.models import User, Workspace
 
 from ..errors import PermissionDenied
 from ..models import (
@@ -559,9 +559,26 @@ class AuthorizationService:
         tenant_id: UUID,
         assigned_by_user_id: UUID,
     ) -> TenantRole:
-        """Grant tenant-admin to a user (tenant-admin-guarded)."""
+        """Grant tenant-admin to a user (tenant-admin-guarded).
+
+        Raises :class:`PermissionDenied` if the actor is not a tenant-admin,
+        or if ``target_user_id`` does not belong to ``tenant_id`` (fix round
+        1 / Critical IDOR: without this check, a tenant-admin of tenant A
+        could grant tenant-admin to a user of tenant B — the ``TenantRole``
+        row would still be written with ``tenant_id=A``, satisfying the
+        last-admin count for tenant A even though the granted user has no
+        real standing there, letting tenant A be walked down to zero usable
+        admins). Mirrors the same guard in
+        :meth:`~auth_tenancy.services.user_account.UserAccountService.activate`
+        / ``.deactivate``.
+        """
         if not actor_is_tenant_admin:
             raise PermissionDenied(required_role="tenant-admin")
+
+        target = User.objects.get(id=target_user_id)
+        if target.tenant_id != tenant_id:
+            raise PermissionDenied(required_role="tenant-admin")
+
         role, _created = TenantRole.objects.update_or_create(
             user_id=target_user_id,
             tenant_id=tenant_id,
@@ -574,7 +591,20 @@ class AuthorizationService:
         self, *, actor_is_tenant_admin: bool, target_user_id: UUID, tenant_id: UUID
     ) -> None:
         """Revoke tenant-admin from a user (tenant-admin-guarded, last-admin
-        protected)."""
+        protected).
+
+        No explicit cross-tenant target check here (unlike
+        :meth:`assign_tenant_admin`): this method only ever *removes* a
+        ``TenantRole(tenant_id=tenant_id, role=admin)`` row, it never writes
+        one, and the query is already scoped to ``tenant_id`` in its
+        ``filter(...)``/``_assert_not_last_tenant_admin`` call. Now that
+        ``assign_tenant_admin`` refuses to create a cross-tenant row in the
+        first place, no such row can exist to revoke — a foreign
+        ``target_user_id`` simply matches zero rows here (harmless no-op),
+        not a privilege escalation. Adding a defensive fetch-and-compare
+        would only reject an already-harmless no-op earlier, so it is
+        skipped to keep this method a straightforward tenant-scoped delete.
+        """
         if not actor_is_tenant_admin:
             raise PermissionDenied(required_role="tenant-admin")
         with transaction.atomic():
