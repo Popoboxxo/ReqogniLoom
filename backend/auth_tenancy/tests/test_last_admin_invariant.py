@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 
 import pytest
 from django.db import connection, transaction
@@ -234,4 +235,74 @@ def test_revoke_tenant_admin_allowed_when_another_remains():
     service.revoke_tenant_admin(
         actor_is_tenant_admin=True, target_user_id=admin.id, tenant_id=tenant.id
     )
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_revoke_of_last_two_tenant_admins_only_one_succeeds():
+    """Tenant-level race-condition guard: two threads try to revoke the last
+    two tenant-admins of the same tenant simultaneously. select_for_update()
+    must ensure only one succeeds and the tenant never drops to zero admins."""
+    tenant = Tenant.objects.create(name="Race-TA-T", slug="race-ta-t")
+    TenantContext.set_tenant(tenant.id)
+    admin_a = User.objects.create(username="race-ta-a", email="race-ta-a@t.test", tenant=tenant)
+    admin_b = User.objects.create(username="race-ta-b", email="race-ta-b@t.test", tenant=tenant)
+    TenantRole.objects.create(tenant=tenant, user=admin_a, role=TenantRole.ROLE_ADMIN)
+    TenantRole.objects.create(tenant=tenant, user=admin_b, role=TenantRole.ROLE_ADMIN)
+    tenant_id, a_id, b_id = tenant.id, admin_a.id, admin_b.id
+    TenantContext.clear_tenant()
+
+    results = {}
+
+    def _revoke(target_user_id, key):
+        connection.close()  # force a fresh connection per thread
+        TenantContext.set_tenant(tenant_id)
+        service = AuthorizationService()
+        try:
+            service.revoke_tenant_admin(
+                actor_is_tenant_admin=True,
+                target_user_id=target_user_id,
+                tenant_id=tenant_id,
+            )
+            results[key] = "ok"
+        except LastAdminError:
+            results[key] = "blocked"
+        finally:
+            TenantContext.clear_tenant()
+            connection.close()
+
+    t1 = threading.Thread(target=_revoke, args=(a_id, "a"))
+    t2 = threading.Thread(target=_revoke, args=(b_id, "b"))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    TenantContext.set_tenant(tenant_id)
+    remaining = TenantRole.objects.filter(
+        tenant_id=tenant_id, role=TenantRole.ROLE_ADMIN, suspended_at__isnull=True
+    ).count()
+    assert remaining == 1, "tenant must retain exactly one admin, not zero"
+    assert sorted(results.values()) == ["blocked", "ok"]
+
+
+@pytest.mark.django_db
+def test_revoke_tenant_admin_requires_tenant_admin_actor():
+    tenant, admin, _role = _make_tenant_with_admin("revoke-guard")
+    service = AuthorizationService()
+
+    with pytest.raises(PermissionDenied):
+        service.revoke_tenant_admin(
+            actor_is_tenant_admin=False, target_user_id=admin.id, tenant_id=tenant.id
+        )
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is True
+
+
+@pytest.mark.django_db
+def test_is_tenant_admin_false_for_suspended_row():
+    tenant, admin, role = _make_tenant_with_admin("suspended")
+    role.suspended_at = datetime.now(timezone.utc)
+    role.save(update_fields=["suspended_at"])
+    service = AuthorizationService()
+
     assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is False
