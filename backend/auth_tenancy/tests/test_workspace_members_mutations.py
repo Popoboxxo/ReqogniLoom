@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import pytest
 from rest_framework.test import APIClient
 
-from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.models import ROLE_ADMIN, TenantRole, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
@@ -369,3 +369,283 @@ def test_reactivate_nonexistent_role_assignment_returns_404(admin_client, tenant
         f"/api/v1/workspaces/{workspace.id}/members/{target.id}/reactivate/", {"role": "editor"}, format="json"
     )
     assert resp.status_code == 404, resp.content
+
+
+# ---------------------------------------------------------------------------
+# Fix Round 2 — Task A: SEC-05 first-admin-bootstrap scope pinning
+#
+# The re-review confirmed (and the controller ruled acceptable/intentional)
+# that a role-less-in-that-workspace but authenticated-in-the-tenant caller
+# can self-assign admin in a workspace with zero active admins, via REST,
+# for the first time. This is NOT a bug to fix — these tests only pin the
+# CORRECT, NARROW scope of that behaviour so it can't silently widen later.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def admin_less_workspace(tenant: Tenant) -> Workspace:
+    """A workspace in ``tenant`` with ZERO active admin ``UserRole`` rows."""
+    set_request_tenant(tenant.id)
+    try:
+        return Workspace.objects.create(
+            tenant=tenant, name="WSM-WS-NOADMIN", preset={"name": "extended"}
+        )
+    finally:
+        clear_request_tenant()
+
+
+@pytest.fixture
+def roleless_client(tenant: Tenant):
+    """An authenticated caller with NO ``UserRole`` and NO ``TenantRole``
+    anywhere. Returns ``(authenticated APIClient, User)``.
+    """
+    set_request_tenant(tenant.id)
+    try:
+        user = User.objects.create(
+            username="wsm-roleless", email="wsm-roleless@t.test", tenant=tenant
+        )
+        user.set_password("hunter2pass")
+        user.save(update_fields=["password"])
+    finally:
+        clear_request_tenant()
+    client = APIClient()
+    login = client.post(
+        "/api/v1/auth/login/", {"username": "wsm-roleless", "password": "hunter2pass"}, format="json"
+    )
+    assert login.status_code == 200, login.content
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+    return authed, user
+
+
+@pytest.mark.django_db
+def test_sec05_bootstrap_allows_self_assign_admin_in_own_tenant_admin_less_workspace(
+    roleless_client, tenant, admin_less_workspace
+):
+    """SEC-05 pinning: the intended, accepted case. A role-less-everywhere
+    caller CAN self-assign ``admin`` in a workspace of THEIR OWN tenant that
+    has zero active admins. Fix round 2 leaves this branch untouched — this
+    test only pins its scope.
+    """
+    authed, user = roleless_client
+    resp = authed.post(
+        f"/api/v1/workspaces/{admin_less_workspace.id}/members/",
+        {"user_id": str(user.id), "role": "admin"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    set_request_tenant(tenant.id)
+    try:
+        assert UserRole.objects.filter(
+            user=user, workspace=admin_less_workspace, role="admin", suspended_at__isnull=True
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_sec05_bootstrap_rejects_different_tenant_workspace(roleless_client, tenant):
+    """SEC-05 pinning: the SAME caller CANNOT bootstrap-self-assign admin in
+    a workspace of a DIFFERENT tenant (even one with zero admins there too).
+    """
+    authed, user = roleless_client
+    tenant_b = Tenant.objects.create(name="WSM-SEC05-B", slug="wsm-sec05-b", is_active=True)
+    set_request_tenant(tenant_b.id)
+    try:
+        workspace_b = Workspace.objects.create(
+            tenant=tenant_b, name="WSM-SEC05-WS-B", preset={"name": "extended"}
+        )
+    finally:
+        clear_request_tenant()
+
+    resp = authed.post(
+        f"/api/v1/workspaces/{workspace_b.id}/members/",
+        {"user_id": str(user.id), "role": "admin"},
+        format="json",
+    )
+    # Matches this file's existing cross-tenant precedent
+    # (test_assign_role_rejects_cross_tenant_workspace): the tenant-scoped
+    # bootstrap existence check technically passes (workspace_b's rows are
+    # invisible under the caller's own tenant scope), but assign_role's own
+    # workspace-belongs-to-tenant check catches it and raises
+    # NotFoundError -> 404.
+    assert resp.status_code == 404, resp.content
+    assert not UserRole.unscoped.filter(workspace_id=workspace_b.id, user_id=user.id).exists()
+
+
+@pytest.mark.django_db
+def test_sec05_bootstrap_rejects_when_workspace_already_has_admin(roleless_client, tenant, workspace):
+    """SEC-05 pinning: the SAME caller CANNOT bootstrap-self-assign admin in
+    a workspace of their own tenant that already HAS an active admin —
+    exercises ``is_first_admin_bootstrap``'s
+    ``not UserRole.objects.filter(...).exists()`` condition.
+
+    Creates its own active admin directly (does NOT rely on the
+    ``admin_client`` fixture's side effect — that fixture is not requested
+    here, so its ``UserRole(admin)`` creation would never run).
+    """
+    authed, user = roleless_client
+    set_request_tenant(tenant.id)
+    try:
+        existing_admin = User.objects.create(
+            username="wsm-existing-admin", email="wsm-existing-admin@t.test", tenant=tenant
+        )
+        UserRole.objects.create(tenant=tenant, user=existing_admin, workspace=workspace, role=ROLE_ADMIN)
+    finally:
+        clear_request_tenant()
+
+    resp = authed.post(
+        f"/api/v1/workspaces/{workspace.id}/members/",
+        {"user_id": str(user.id), "role": "admin"},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.content
+    set_request_tenant(tenant.id)
+    try:
+        assert not UserRole.objects.filter(user=user, workspace=workspace, role="admin").exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_sec05_bootstrap_rejects_non_admin_role(roleless_client, tenant, admin_less_workspace):
+    """SEC-05 pinning: the SAME caller CANNOT self-assign a role OTHER than
+    ``admin`` (e.g. ``editor``) via this bootstrap path in an admin-less
+    workspace — bootstrap only ever applies to ``role="admin"``.
+    """
+    authed, user = roleless_client
+    resp = authed.post(
+        f"/api/v1/workspaces/{admin_less_workspace.id}/members/",
+        {"user_id": str(user.id), "role": "editor"},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.content
+    set_request_tenant(tenant.id)
+    try:
+        assert not UserRole.objects.filter(
+            user=user, workspace=admin_less_workspace, role="editor"
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_sec05_bootstrap_rejects_assigning_admin_to_a_different_user(
+    roleless_client, tenant, admin_less_workspace
+):
+    """SEC-05 pinning: the SAME caller CANNOT assign ``admin`` to a
+    DIFFERENT user via this bootstrap path — bootstrap requires
+    ``target_user_id == assigned_by_user_id`` (self-assignment only).
+    """
+    authed, user = roleless_client
+    set_request_tenant(tenant.id)
+    try:
+        other = User.objects.create(
+            username="wsm-other-target", email="wsm-other-target@t.test", tenant=tenant
+        )
+    finally:
+        clear_request_tenant()
+
+    resp = authed.post(
+        f"/api/v1/workspaces/{admin_less_workspace.id}/members/",
+        {"user_id": str(other.id), "role": "admin"},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.content
+    set_request_tenant(tenant.id)
+    try:
+        assert not UserRole.objects.filter(
+            user=other, workspace=admin_less_workspace, role="admin"
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Fix Round 2 — Task D: remaining small test-coverage gaps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_reactivate_denies_non_admin_caller(tenant, workspace):
+    """Task D(1): ``reactivate`` had no non-admin-403 test yet (``assign``
+    and ``suspend`` already did) — matches the existing pattern.
+    """
+    set_request_tenant(tenant.id)
+    try:
+        editor = User.objects.create(username="wsm-editor3", email="wsm-editor3@t.test", tenant=tenant)
+        editor.set_password("hunter2pass")
+        editor.save(update_fields=["password"])
+        UserRole.objects.create(tenant=tenant, user=editor, workspace=workspace, role="editor")
+        target = User.objects.create(username="wsm-target9", email="wsm-target9@t.test", tenant=tenant)
+        UserRole.objects.create(
+            tenant=tenant,
+            user=target,
+            workspace=workspace,
+            role="editor",
+            suspended_at=datetime.now(timezone.utc),
+        )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    login = client.post("/api/v1/auth/login/", {"username": "wsm-editor3", "password": "hunter2pass"}, format="json")
+    assert login.status_code == 200, login.content
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+
+    resp = authed.post(
+        f"/api/v1/workspaces/{workspace.id}/members/{target.id}/reactivate/", {"role": "editor"}, format="json"
+    )
+    assert resp.status_code == 403, resp.content
+    set_request_tenant(tenant.id)
+    try:
+        role = UserRole.objects.get(user=target, workspace=workspace, role="editor")
+        assert role.suspended_at is not None  # untouched by the denied request
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_suspend_nonexistent_admin_role_assignment_returns_404(tenant, admin_less_workspace):
+    """Task D(2): I-1's existing 404 regression test only ever exercised
+    ``role="editor"``, which never reaches
+    ``_assert_not_last_workspace_admin`` at all (only ``role="admin"``
+    does) — so it never actually exercised the reordering I-1 fixed.
+
+    Uses a workspace with ZERO active admin ``UserRole`` rows (so, without
+    I-1's fix, ``_assert_not_last_workspace_admin`` would see zero locked
+    admin rows and misfire ``LastAdminError`` / 409) and a tenant-admin
+    caller (so the request passes the admin gate without the workspace
+    itself needing a ``UserRole(admin)`` row). Suspending ``role="admin"``
+    for a target who was never assigned it must return 404, not 409.
+    """
+    set_request_tenant(tenant.id)
+    try:
+        tenant_admin_user = User.objects.create(
+            username="wsm-tadmin", email="wsm-tadmin@t.test", tenant=tenant
+        )
+        tenant_admin_user.set_password("hunter2pass")
+        tenant_admin_user.save(update_fields=["password"])
+        TenantRole.objects.create(
+            tenant=tenant, user=tenant_admin_user, role=TenantRole.ROLE_ADMIN
+        )
+        target = User.objects.create(
+            username="wsm-target-noadmin", email="wsm-target-noadmin@t.test", tenant=tenant
+        )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    login = client.post("/api/v1/auth/login/", {"username": "wsm-tadmin", "password": "hunter2pass"}, format="json")
+    assert login.status_code == 200, login.content
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+
+    resp = authed.post(
+        f"/api/v1/workspaces/{admin_less_workspace.id}/members/{target.id}/suspend/",
+        {"role": "admin"},
+        format="json",
+    )
+    assert resp.status_code == 404, resp.content
+    assert resp.json()["error"] == "NOT_FOUND"

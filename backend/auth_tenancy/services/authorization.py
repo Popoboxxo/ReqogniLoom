@@ -26,6 +26,7 @@ from django.db import transaction
 
 from application.base import NotFoundError
 from persistence.models import User, Workspace
+from presets.models import WorkspacePresetConfig
 
 from ..errors import PermissionDenied
 from ..models import (
@@ -328,7 +329,15 @@ class AuthorizationService:
             workspace_id: Target workspace.
             tenant_id: Owning tenant (for the new row).
             role: Role name to assign.
-            preset: Active workspace preset (gates Approver).
+            preset: Active workspace preset (gates Approver). Fix round 2
+                (N-3): for an Approver assignment this value is IGNORED in
+                favour of a fresh, uncached DB read of the workspace's real
+                tier (see :meth:`_uncached_approver_gate_tier`) — a
+                multi-worker deployment cannot rely on a caller-supplied or
+                per-process-cached tier for this specific security decision.
+                For every other role the value is irrelevant either way
+                (:meth:`PresetPolicyValidator.is_role_allowed_in_preset`
+                only branches on ``preset`` for Approver).
             assigned_by_user_id: Caller user id (audit trail).
             target_is_member: Retained for call-site/audit compatibility;
                 no longer gates the assignment (see above).
@@ -380,6 +389,22 @@ class AuthorizationService:
                 f"{tenant_id}."
             )
 
+        if normalized == ROLE_APPROVER:
+            # Fix round 2 (N-3): resolve the tier fresh from the DB for this
+            # one security-relevant decision, bypassing
+            # `presets.services.get_preset`'s per-process cache
+            # (`presets/gate.py`'s `_tier_cache`). The cache is invalidated
+            # only within the SAME worker process; in this project's
+            # multi-worker deployment (Dockerfile: `gunicorn --workers 4`),
+            # a tier downgrade handled by one worker would otherwise leave
+            # every OTHER worker serving a stale, more-permissive cached (or
+            # caller-supplied) tier for an unbounded window, incorrectly
+            # ALLOWING an Approver assignment the current tier should
+            # forbid. Every other preset read in the codebase still goes
+            # through the cached facade on purpose (REQ-L2-PC-013, <10ms
+            # reads) — only this specific gate needs freshness over speed.
+            preset = self._uncached_approver_gate_tier(workspace_id=workspace_id)
+
         if not PresetPolicyValidator.is_role_allowed_in_preset(normalized, preset):
             raise ValueError(
                 f"Role '{normalized}' is not available in preset '{preset}'."
@@ -396,6 +421,72 @@ class AuthorizationService:
             },
         )
         return user_role
+
+    @staticmethod
+    def _uncached_approver_gate_tier(*, workspace_id: UUID) -> str | None:
+        """Read a workspace's preset tier straight from the DB (fix round 2, N-3).
+
+        Used ONLY by :meth:`assign_role`'s Approver preset gate — see the
+        call site for why this one decision needs freshness over the
+        `FeatureGateService` cache's speed guarantee.
+
+        Uses the tenant-scoped ``WorkspacePresetConfig.objects`` manager
+        (not ``.unscoped``): :meth:`assign_role` only reaches this point
+        after its own tenant-membership check on ``workspace_id`` has
+        already passed, so the row — if any — is visible under the
+        caller's own (already-active) tenant context, consistent with
+        every other query in this class.
+
+        Falls back to the workspace's own ``preset`` JSONField (the same
+        source ``presets.gate._get_or_create_preset_config`` bootstraps
+        from) when no :class:`~presets.models.WorkspacePresetConfig` row
+        exists yet — e.g. a workspace created directly via the ORM in a
+        test, or via any path that hasn't called
+        ``presets.services.get_preset``/``application.workspace_service``
+        yet. This keeps a legitimate Approver assignment working for a
+        workspace whose config row simply hasn't been lazily created, while
+        still reading LIVE from the DB either way — neither branch touches
+        the process-local ``_tier_cache``. Both reads are direct model
+        reads, not a cache, so N-3 is fixed regardless of which branch is
+        taken.
+
+        Returns:
+            The resolved tier string, or ``None`` if neither source yields
+            one. ``None`` fails closed: it is not a member of
+            ``_APPROVER_ENABLED_PRESETS``, so Approver is denied exactly as
+            the cached path's ``TIER_MINIMAL`` default would deny it. This
+            method deliberately does NOT lazily create a config row (unlike
+            `presets.gate._get_or_create_preset_config`), since a security
+            gate has no business creating persistent state as a side
+            effect.
+        """
+        config = (
+            WorkspacePresetConfig.objects.filter(workspace_id=workspace_id)
+            .only("active_tier")
+            .first()
+        )
+        if config is not None:
+            return config.active_tier
+
+        workspace = Workspace.objects.filter(id=workspace_id).only("preset").first()
+        if workspace is not None and isinstance(workspace.preset, dict):
+            return workspace.preset.get("name")
+        return None
+
+    def workspace_exists_in_tenant(self, *, workspace_id: UUID, tenant_id: UUID) -> bool:
+        """Return whether ``workspace_id`` belongs to ``tenant_id`` (fix round 2, N-2).
+
+        A cheap, side-effect-free read exposed so REST call-sites can check
+        the caller's basic standing BEFORE triggering a side-effecting
+        operation like ``presets.services.get_preset`` (which
+        ``get_or_create``s a ``WorkspacePresetConfig`` row). Mirrors the
+        same tenant-membership check :meth:`assign_role` performs
+        internally as part of its own authorization gate, so a caller who
+        passes this pre-check but is still denied by ``assign_role`` incurs
+        no additional exposure — they were already going to reach the same
+        DB row's existence check either way.
+        """
+        return Workspace.objects.filter(id=workspace_id, tenant_id=tenant_id).exists()
 
     def revoke_role(
         self,

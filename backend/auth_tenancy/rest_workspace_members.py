@@ -172,6 +172,27 @@ class WorkspaceMembersView(APIView):
         Approver role — demonstrated: a spoofed preset created a live
         ``UserRole(role="approver")`` in a Standard-tier workspace. Any
         ``preset`` field still sent by older clients is now ignored.
+
+        Fix round 2 (N-2): :func:`presets.services.get_preset` is not a
+        pure read — it internally ``get_or_create``s a
+        ``WorkspacePresetConfig`` row. Calling it unconditionally meant
+        EVERY POST, including one that will ultimately be denied (e.g. a
+        cross-tenant workspace id), created a real DB row as an
+        unauthorized side effect for a workspace the caller has no
+        standing over at all. It is now resolved only AFTER a cheap,
+        side-effect-free pre-check — :meth:`AuthorizationService.
+        workspace_exists_in_tenant` — confirms the caller is at least an
+        authenticated member of the workspace's OWN tenant (the same
+        tenant-membership check :meth:`AuthorizationService.assign_role`
+        performs as part of its real authorization gate below). A caller
+        who fails this pre-check still gets the correct 404 from
+        ``assign_role``'s own tenant check further down, just without the
+        side effect ever firing. This pre-check is deliberately narrower
+        than full authorization (it does not check admin/tenant-admin
+        standing) — a same-tenant caller who is ultimately denied by the
+        admin gate still triggers the ``get_or_create``, matching this
+        endpoint's pre-existing behaviour for that case; only the
+        previously-uncovered cross-tenant case is fixed here.
         """
         ctx = self._auth_context(request)
         try:
@@ -188,13 +209,22 @@ class WorkspaceMembersView(APIView):
             user_id=ctx.user_id, tenant_id=ctx.tenant_id
         )
 
-        # Resolve the REAL preset tier server-side (C-2). If the workspace
-        # doesn't exist at all (e.g. a cross-tenant id), fall back to None —
-        # `assign_role`'s own workspace-existence check below raises
-        # NotFoundError (-> 404) before the preset value would ever matter.
-        try:
-            real_preset = get_preset(str(workspace_id)).preset
-        except ObjectDoesNotExist:
+        # Resolve the REAL preset tier server-side (C-2) — but only AFTER
+        # confirming the caller has at least plausible tenant-level standing
+        # (N-2, fix round 2): `get_preset` get_or_creates a
+        # WorkspacePresetConfig row, and that side effect must not fire for
+        # a caller who has no standing over this workspace at all (e.g. a
+        # cross-tenant id). A caller who fails this pre-check still gets the
+        # correct NotFoundError -> 404 from `assign_role` below; only the
+        # unauthorized side effect is skipped.
+        if self._service.workspace_exists_in_tenant(
+            workspace_id=workspace_id, tenant_id=ctx.tenant_id
+        ):
+            try:
+                real_preset = get_preset(str(workspace_id)).preset
+            except ObjectDoesNotExist:
+                real_preset = None
+        else:
             real_preset = None
 
         try:

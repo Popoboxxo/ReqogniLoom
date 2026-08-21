@@ -21,7 +21,7 @@ from auth_tenancy.services.authorization import (
     Operation,
     PresetPolicyValidator,
 )
-from persistence.models import User
+from persistence.models import User, Workspace
 
 from .conftest import active_tenant
 
@@ -84,20 +84,34 @@ def test_non_approver_roles_allowed_in_any_preset():
 
 
 @pytest.mark.django_db
-def test_assign_approver_in_standard_preset_fails(tenant_a, user_a, workspace_a):
+def test_assign_approver_in_standard_preset_fails(tenant_a, user_a):
+    """Fix round 2 (N-3): ``assign_role`` now resolves the Approver gate's
+    tier from a fresh, uncached DB read (see
+    ``AuthorizationService._uncached_approver_gate_tier``) rather than
+    trusting the caller-supplied ``preset`` kwarg — a caller-supplied value
+    is no longer authoritative for this decision (that was precisely the
+    class of staleness/spoofing risk the fix closes). This test therefore
+    creates a workspace whose REAL preset is ``"standard"`` and asserts the
+    rejection follows the real state, independent of whatever ``preset``
+    string is passed in.
+    """
     svc = AuthorizationService()
-    with active_tenant(tenant_a), pytest.raises(ValueError):
-        svc.assign_role(
-            actor_roles=(ROLE_ADMIN,),
-            actor_is_tenant_admin=False,
-            target_user_id=user_a.id,
-            workspace_id=workspace_a.id,
-            tenant_id=tenant_a.id,
-            role=ROLE_APPROVER,
-            preset="standard",
-            assigned_by_user_id=user_a.id,
-            target_is_member=True,
+    with active_tenant(tenant_a):
+        workspace_standard = Workspace.objects.create(
+            tenant=tenant_a, name="WS-A-STD", preset={"name": "standard"}
         )
+        with pytest.raises(ValueError):
+            svc.assign_role(
+                actor_roles=(ROLE_ADMIN,),
+                actor_is_tenant_admin=False,
+                target_user_id=user_a.id,
+                workspace_id=workspace_standard.id,
+                tenant_id=tenant_a.id,
+                role=ROLE_APPROVER,
+                preset="extended",  # deliberately spoofed; must be ignored
+                assigned_by_user_id=user_a.id,
+                target_is_member=True,
+            )
 
 
 @pytest.mark.django_db
