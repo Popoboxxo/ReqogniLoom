@@ -561,6 +561,7 @@ class PermissionDecisionMismatch(TenantScopedModel):
 __all__ = [
     "ApiKey",
     "UserRole",
+    "TenantRole",
     "ItemPermission",
     "GlobalPermissionDefinition",
     "WorkspacePermissionDefinition",

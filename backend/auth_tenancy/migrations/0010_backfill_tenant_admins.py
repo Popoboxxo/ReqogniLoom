@@ -25,14 +25,18 @@ ROLE_ADMIN = "admin"
 
 def backfill_tenant_admins(apps, schema_editor):
     """Promote each tenant's earliest workspace admin to tenant-admin."""
-    from auth_tenancy.models import TenantRole, UserRole
-    from persistence.models import Tenant
+    Tenant = apps.get_model("persistence", "Tenant")
+    TenantRole = apps.get_model("auth_tenancy", "TenantRole")
+    UserRole = apps.get_model("auth_tenancy", "UserRole")
 
+    # Historical models expose plain managers, so no tenant context is needed
+    # (and must not be assumed) inside a migration — see 0008 for the same
+    # pattern.
     for tenant_id in Tenant.objects.values_list("id", flat=True):
-        if TenantRole.unscoped.filter(tenant_id=tenant_id, role=ROLE_ADMIN).exists():
+        if TenantRole.objects.filter(tenant_id=tenant_id, role=ROLE_ADMIN).exists():
             continue
         earliest_admin_role = (
-            UserRole.unscoped.filter(
+            UserRole.objects.filter(
                 tenant_id=tenant_id, role=ROLE_ADMIN, suspended_at__isnull=True
             )
             .order_by("created_at")
@@ -40,7 +44,7 @@ def backfill_tenant_admins(apps, schema_editor):
         )
         if earliest_admin_role is None:
             continue
-        TenantRole.unscoped.create(
+        TenantRole.objects.create(
             tenant_id=tenant_id,
             user_id=earliest_admin_role.user_id,
             role=ROLE_ADMIN,
