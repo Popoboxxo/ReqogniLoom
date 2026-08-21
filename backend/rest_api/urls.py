@@ -40,7 +40,10 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from auth_tenancy.rest_item_permission import ItemPermissionViewSet
-from auth_tenancy.rest_workspace_members import WorkspaceMembersView
+from auth_tenancy.rest_workspace_members import (
+    WorkspaceMemberRoleTransitionView,
+    WorkspaceMembersView,
+)
 from admin_ops.health_rest import SystemHealthView
 from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
@@ -263,6 +266,20 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/members/",
         WorkspaceMembersView.as_view(),
         name="workspace-members",
+    ),
+    # Workspace member role suspend/reactivate (multi-user management design
+    # spec) — admin-guarded soft-suspend / reversal of a single role.
+    path(
+        "workspaces/<uuid:workspace_id>/members/<uuid:user_id>/suspend/",
+        WorkspaceMemberRoleTransitionView.as_view(),
+        {"action": "suspend"},
+        name="workspace-member-suspend",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/members/<uuid:user_id>/reactivate/",
+        WorkspaceMemberRoleTransitionView.as_view(),
+        {"action": "reactivate"},
+        name="workspace-member-reactivate",
     ),
     # Multi-user management (multi-user management design spec) — tenant-admin-guarded
     # user lifecycle CRUD + activation + tenant-admin role grant/revoke.
