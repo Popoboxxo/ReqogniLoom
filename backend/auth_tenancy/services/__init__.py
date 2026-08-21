@@ -36,6 +36,7 @@ from .permission_cache import (
 from .preference_service import PreferenceService
 from .profile_service import UserProfileService
 from .tenant_context import TenantContextService
+from .user_account import UserAccountService
 
 __all__ = [
     "AuthenticationService",
@@ -56,4 +57,5 @@ __all__ = [
     "CacheEntry",
     "PreferenceService",
     "UserProfileService",
+    "UserAccountService",
 ]
