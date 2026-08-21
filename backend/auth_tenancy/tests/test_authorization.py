@@ -89,6 +89,7 @@ def test_assign_approver_in_standard_preset_fails(tenant_a, user_a, workspace_a)
     with active_tenant(tenant_a), pytest.raises(ValueError):
         svc.assign_role(
             actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -105,6 +106,7 @@ def test_assign_approver_in_extended_preset_ok(tenant_a, user_a, workspace_a):
     with active_tenant(tenant_a):
         ur = svc.assign_role(
             actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -123,6 +125,7 @@ def test_preset_downgrade_suspends_approver(tenant_a, user_a, workspace_a):
     with active_tenant(tenant_a):
         svc.assign_role(
             actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -146,6 +149,7 @@ def test_non_admin_cannot_assign_role(tenant_a, user_a, workspace_a):
     with active_tenant(tenant_a), pytest.raises(PermissionDenied):
         svc.assign_role(
             actor_roles=(ROLE_EDITOR,),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -163,6 +167,7 @@ def test_non_member_target_onboarded_by_admin(tenant_a, user_a, workspace_a):
     with active_tenant(tenant_a):
         ur = svc.assign_role(
             actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -185,6 +190,7 @@ def test_first_admin_bootstrap_self_assignment_allowed(tenant_a, user_a, workspa
     with active_tenant(tenant_a):
         ur = svc.assign_role(
             actor_roles=(),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -208,6 +214,7 @@ def test_bootstrap_exception_does_not_apply_once_admin_exists(
     with active_tenant(tenant_a):
         svc.assign_role(
             actor_roles=(),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,
@@ -222,6 +229,7 @@ def test_bootstrap_exception_does_not_apply_once_admin_exists(
         with pytest.raises(PermissionDenied):
             svc.assign_role(
                 actor_roles=(),
+                actor_is_tenant_admin=False,
                 target_user_id=second_user.id,
                 workspace_id=workspace_a.id,
                 tenant_id=tenant_a.id,
@@ -238,6 +246,7 @@ def test_admin_assignment_persists(tenant_a, user_a, workspace_a):
     with active_tenant(tenant_a):
         svc.assign_role(
             actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
             tenant_id=tenant_a.id,

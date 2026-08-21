@@ -516,6 +516,18 @@ class UsersToolGroup(BaseToolGroup):
         role anywhere can still reach the service, which is the one place
         that knows whether the workspace actually has zero active admins.
         Every other combination still needs an admin caller up front.
+
+        KNOWN GAP (tracked for a follow-up task): the ``_check_admin``
+        pre-gate below only ever checks ``auth_context.active_roles``
+        (workspace-scoped ``UserRole``), so a pure tenant-admin (a caller
+        holding only ``TenantRole(admin)``, no workspace-level role
+        anywhere) is still denied here even though
+        ``AuthorizationService.assign_role`` now has a tenant-admin
+        elevation branch. Rewiring this pre-gate to also accept
+        tenant-admins (matching ``workspace.assign_role`` in the shared
+        permission matrix, ``auth_tenancy/tests/user_management_matrix.py``)
+        is out of scope for this fix and left for the task that wires the
+        MCP/REST layers to the corrected service signature.
         """
         target_user_id = require_uuid(params, "user_id")
         workspace_id = require_uuid(params, "workspace_id")
@@ -541,8 +553,20 @@ class UsersToolGroup(BaseToolGroup):
         preset = preset.strip().lower()
 
         # Tenant context must be set so that AuthorizationService's
-        # UserRole queries (which use the tenant-scoped manager) work.
+        # UserRole/TenantRole queries (which use the tenant-scoped manager)
+        # work.
         TenantContext.set_tenant(auth_context.tenant_id)
+
+        # A pure tenant-admin (TenantRole(admin), no workspace-level role)
+        # may assign roles in any workspace of their own tenant (multi-user
+        # management design spec §3). Resolved via self._authz_service (the
+        # injected AuthorizationService, real in production / a test double
+        # in unit tests) rather than a fresh AuthorizationService() — this
+        # keeps the same dependency-injection seam the rest of this handler
+        # already relies on for testability.
+        actor_is_tenant_admin = self._authz_service.is_tenant_admin(
+            user_id=auth_context.user_id, tenant_id=auth_context.tenant_id
+        )
 
         # target_is_member: a user is "a member of the workspace" iff
         # they have at least one active (non-suspended) role in that
@@ -557,6 +581,7 @@ class UsersToolGroup(BaseToolGroup):
         try:
             user_role = self._authz_service.assign_role(
                 actor_roles=auth_context.active_roles,
+                actor_is_tenant_admin=actor_is_tenant_admin,
                 target_user_id=target_user_id,
                 workspace_id=workspace_id,
                 tenant_id=auth_context.tenant_id,

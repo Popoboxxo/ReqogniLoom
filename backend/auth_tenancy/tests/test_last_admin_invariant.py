@@ -86,7 +86,11 @@ def test_suspend_role_blocks_suspending_the_last_workspace_admin():
 
     with pytest.raises(LastAdminError):
         service.suspend_role(
-            actor_roles=(ROLE_ADMIN,), target_user_id=admin.id, workspace_id=ws.id, role=ROLE_ADMIN
+            actor_roles=(ROLE_ADMIN,),
+            actor_is_tenant_admin=False,
+            target_user_id=admin.id,
+            workspace_id=ws.id,
+            role=ROLE_ADMIN,
         )
     role = UserRole.objects.get(user=admin, workspace=ws, role=ROLE_ADMIN)
     assert role.suspended_at is None
@@ -100,7 +104,11 @@ def test_reactivate_role_has_no_last_admin_check():
     service = AuthorizationService()
 
     service.reactivate_role(
-        actor_roles=(ROLE_ADMIN,), target_user_id=admin.id, workspace_id=ws.id, role=ROLE_ADMIN
+        actor_roles=(ROLE_ADMIN,),
+        actor_is_tenant_admin=False,
+        target_user_id=admin.id,
+        workspace_id=ws.id,
+        role=ROLE_ADMIN,
     )
     role.refresh_from_db()
     assert role.suspended_at is None
@@ -306,3 +314,149 @@ def test_is_tenant_admin_false_for_suspended_row():
     service = AuthorizationService()
 
     assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is False
+
+
+# -- Tenant-admin elevation on workspace-scoped role mutations -------------
+#
+# Interstitial fix (2026-08-21): AuthorizationService.assign_role/
+# suspend_role/reactivate_role previously only ever checked the caller's
+# workspace-scoped actor_roles, so a caller holding ONLY a tenant-wide
+# TenantRole(admin) (no UserRole in any workspace) was incorrectly denied,
+# contradicting the shared REST/MCP permission matrix
+# (auth_tenancy/tests/user_management_matrix.py: "workspace.assign_role" /
+# "workspace.suspend_role" / "workspace.reactivate_role" all list
+# tenant-admin: True). These tests prove the elevation now works, and that
+# a caller with neither a workspace-admin role nor tenant-admin is still
+# correctly denied.
+
+
+@pytest.mark.django_db
+def test_assign_role_allowed_for_pure_tenant_admin_with_no_workspace_role():
+    tenant, ws, _existing_admin, _role = _make_workspace_with_admin("ta-assign")
+    tenant_admin = User.objects.create(
+        username="ta-assign-caller", email="ta-assign-caller@t.test", tenant=tenant
+    )
+    TenantRole.objects.create(tenant=tenant, user=tenant_admin, role=TenantRole.ROLE_ADMIN)
+    target = User.objects.create(
+        username="ta-assign-target", email="ta-assign-target@t.test", tenant=tenant
+    )
+    service = AuthorizationService()
+
+    ur = service.assign_role(
+        actor_roles=(),
+        actor_is_tenant_admin=True,
+        target_user_id=target.id,
+        workspace_id=ws.id,
+        tenant_id=tenant.id,
+        role=ROLE_EDITOR,
+        preset="extended",
+        assigned_by_user_id=tenant_admin.id,
+        target_is_member=False,
+    )
+    assert ur.role == ROLE_EDITOR
+    assert UserRole.objects.filter(user=target, workspace=ws, role=ROLE_EDITOR).exists()
+
+
+@pytest.mark.django_db
+def test_assign_role_denied_for_actor_with_neither_workspace_admin_nor_tenant_admin():
+    tenant, ws, _admin, _role = _make_workspace_with_admin("ta-assign-deny")
+    target = User.objects.create(
+        username="ta-assign-deny-target", email="ta-assign-deny@t.test", tenant=tenant
+    )
+    service = AuthorizationService()
+
+    with pytest.raises(PermissionDenied):
+        service.assign_role(
+            actor_roles=(ROLE_EDITOR,),
+            actor_is_tenant_admin=False,
+            target_user_id=target.id,
+            workspace_id=ws.id,
+            tenant_id=tenant.id,
+            role=ROLE_EDITOR,
+            preset="extended",
+            assigned_by_user_id=target.id,
+            target_is_member=False,
+        )
+    assert not UserRole.objects.filter(user=target, workspace=ws, role=ROLE_EDITOR).exists()
+
+
+@pytest.mark.django_db
+def test_suspend_role_allowed_for_pure_tenant_admin_with_no_workspace_role():
+    tenant, ws, admin, _role = _make_workspace_with_admin("ta-suspend")
+    second_admin = User.objects.create(
+        username="ta-suspend-second", email="ta-suspend-second@t.test", tenant=tenant
+    )
+    UserRole.objects.create(tenant=tenant, user=second_admin, workspace=ws, role=ROLE_ADMIN)
+    tenant_admin = User.objects.create(
+        username="ta-suspend-caller", email="ta-suspend-caller@t.test", tenant=tenant
+    )
+    TenantRole.objects.create(tenant=tenant, user=tenant_admin, role=TenantRole.ROLE_ADMIN)
+    service = AuthorizationService()
+
+    service.suspend_role(
+        actor_roles=(),
+        actor_is_tenant_admin=True,
+        target_user_id=admin.id,
+        workspace_id=ws.id,
+        role=ROLE_ADMIN,
+    )
+    role = UserRole.objects.get(user=admin, workspace=ws, role=ROLE_ADMIN)
+    assert role.suspended_at is not None
+
+
+@pytest.mark.django_db
+def test_suspend_role_denied_for_actor_with_neither_workspace_admin_nor_tenant_admin():
+    tenant, ws, admin, _role = _make_workspace_with_admin("ta-suspend-deny")
+    service = AuthorizationService()
+
+    with pytest.raises(PermissionDenied):
+        service.suspend_role(
+            actor_roles=(ROLE_EDITOR,),
+            actor_is_tenant_admin=False,
+            target_user_id=admin.id,
+            workspace_id=ws.id,
+            role=ROLE_ADMIN,
+        )
+    role = UserRole.objects.get(user=admin, workspace=ws, role=ROLE_ADMIN)
+    assert role.suspended_at is None
+
+
+@pytest.mark.django_db
+def test_reactivate_role_allowed_for_pure_tenant_admin_with_no_workspace_role():
+    tenant, ws, admin, role = _make_workspace_with_admin("ta-reactivate")
+    role.suspended_at = role.created_at
+    role.save(update_fields=["suspended_at"])
+    tenant_admin = User.objects.create(
+        username="ta-reactivate-caller", email="ta-reactivate-caller@t.test", tenant=tenant
+    )
+    TenantRole.objects.create(tenant=tenant, user=tenant_admin, role=TenantRole.ROLE_ADMIN)
+    service = AuthorizationService()
+
+    service.reactivate_role(
+        actor_roles=(),
+        actor_is_tenant_admin=True,
+        target_user_id=admin.id,
+        workspace_id=ws.id,
+        role=ROLE_ADMIN,
+    )
+    role.refresh_from_db()
+    assert role.suspended_at is None
+
+
+@pytest.mark.django_db
+def test_reactivate_role_denied_for_actor_with_neither_workspace_admin_nor_tenant_admin():
+    tenant, ws, admin, role = _make_workspace_with_admin("ta-reactivate-deny")
+    role.suspended_at = role.created_at
+    role.save(update_fields=["suspended_at"])
+    service = AuthorizationService()
+
+    with pytest.raises(PermissionDenied):
+        service.reactivate_role(
+            actor_roles=(ROLE_EDITOR,),
+            actor_is_tenant_admin=False,
+            target_user_id=admin.id,
+            workspace_id=ws.id,
+            role=ROLE_ADMIN,
+        )
+    role.refresh_from_db()
+    assert role.suspended_at is not None

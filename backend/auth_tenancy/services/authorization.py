@@ -290,6 +290,7 @@ class AuthorizationService:
         self,
         *,
         actor_roles: tuple[str, ...],
+        actor_is_tenant_admin: bool,
         target_user_id: UUID,
         workspace_id: UUID,
         tenant_id: UUID,
@@ -305,15 +306,21 @@ class AuthorizationService:
         case, not an error (SEC-05: the previous membership gate made it
         impossible for anyone to ever join a workspace for the first time).
 
-        Two admin-guard paths exist:
+        Three admin-guard paths exist (any one is sufficient):
         - Normal path: caller must hold ``admin`` in ``actor_roles``.
         - First-admin bootstrap: a caller with no admin role anywhere may
           self-assign ``admin`` in a workspace that currently has zero active
           admin holders (SEC-05 deadlock — otherwise a brand-new tenant could
           never produce its first admin).
+        - Tenant-admin elevation: a caller holding only a tenant-wide
+          ``TenantRole(admin)`` (no workspace-level role) may assign roles in
+          any workspace of their own tenant (multi-user management design
+          spec §3).
 
         Args:
             actor_roles: Active roles of the caller.
+            actor_is_tenant_admin: Whether the caller holds an active
+                tenant-admin role for ``tenant_id`` (elevation path above).
             target_user_id: User receiving the role.
             workspace_id: Target workspace.
             tenant_id: Owning tenant (for the new row).
@@ -327,8 +334,9 @@ class AuthorizationService:
             The created (or reactivated) :class:`UserRole`.
 
         Raises:
-            PermissionDenied: Caller lacks the Admin role and does not
-                qualify for the first-admin bootstrap exception.
+            PermissionDenied: Caller lacks the Admin role, is not a
+                tenant-admin, and does not qualify for the first-admin
+                bootstrap exception.
             ValueError: Role unknown, or invalid for the preset.
         """
         del target_is_member  # no longer a rejection gate (SEC-05)
@@ -346,9 +354,11 @@ class AuthorizationService:
                 suspended_at__isnull=True,
             ).exists()
         )
-        if not is_first_admin_bootstrap and ROLE_ADMIN not in {
-            r.lower() for r in actor_roles
-        }:
+        if (
+            not is_first_admin_bootstrap
+            and not actor_is_tenant_admin
+            and ROLE_ADMIN not in {r.lower() for r in actor_roles}
+        ):
             raise PermissionDenied(required_role=ROLE_ADMIN)
 
         if not PresetPolicyValidator.is_role_allowed_in_preset(normalized, preset):
@@ -393,6 +403,7 @@ class AuthorizationService:
         self,
         *,
         actor_roles: tuple[str, ...],
+        actor_is_tenant_admin: bool,
         target_user_id: UUID,
         workspace_id: UUID,
         role: str,
@@ -401,8 +412,23 @@ class AuthorizationService:
 
         Reversible via :meth:`reactivate_role`, unlike :meth:`revoke_role`
         which deletes the row.
+
+        Admin gate: caller must hold ``admin`` in ``actor_roles`` for this
+        workspace, OR be a tenant-admin of the owning tenant (multi-user
+        management design spec §3).
+
+        Args:
+            actor_roles: Active roles of the caller.
+            actor_is_tenant_admin: Whether the caller holds an active
+                tenant-admin role for the owning tenant.
+            target_user_id: User whose role is suspended.
+            workspace_id: Target workspace.
+            role: Role name to suspend.
         """
-        if ROLE_ADMIN not in {r.lower() for r in actor_roles}:
+        if (
+            ROLE_ADMIN not in {r.lower() for r in actor_roles}
+            and not actor_is_tenant_admin
+        ):
             raise PermissionDenied(required_role=ROLE_ADMIN)
         normalized = role.lower()
         with transaction.atomic():
@@ -421,6 +447,7 @@ class AuthorizationService:
         self,
         *,
         actor_roles: tuple[str, ...],
+        actor_is_tenant_admin: bool,
         target_user_id: UUID,
         workspace_id: UUID,
         role: str,
@@ -428,8 +455,23 @@ class AuthorizationService:
         """Clear ``suspended_at`` on a role assignment (admin-guarded).
 
         No last-admin check: reactivating only ever adds an admin back.
+
+        Admin gate: caller must hold ``admin`` in ``actor_roles`` for this
+        workspace, OR be a tenant-admin of the owning tenant (multi-user
+        management design spec §3).
+
+        Args:
+            actor_roles: Active roles of the caller.
+            actor_is_tenant_admin: Whether the caller holds an active
+                tenant-admin role for the owning tenant.
+            target_user_id: User whose role is reactivated.
+            workspace_id: Target workspace.
+            role: Role name to reactivate.
         """
-        if ROLE_ADMIN not in {r.lower() for r in actor_roles}:
+        if (
+            ROLE_ADMIN not in {r.lower() for r in actor_roles}
+            and not actor_is_tenant_admin
+        ):
             raise PermissionDenied(required_role=ROLE_ADMIN)
         UserRole.objects.filter(
             user_id=target_user_id, workspace_id=workspace_id, role=role.lower()
