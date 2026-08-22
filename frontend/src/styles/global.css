@@ -108,13 +108,27 @@ input, select, textarea {
   gap: var(--space-1);
 }
 
+/* Task 14 (GESAMTTEST_BERICHT_2026-08-21.md §6 Top-1): the header "Neue X"
+ * button (PageHeader's primaryAction, via this class) and the empty-state
+ * CTA button (EmptyState's own `.primaryButton` module class) rendered as
+ * two visually divergent implementations of the same "primary button"
+ * concept despite sharing `--color-primary` — this class used
+ * `--radius-md` (12px) and only a `brightness` hover filter (no real
+ * darken), while EmptyState used `--radius-sm` (6px) with an actual
+ * `--color-primary-dark` hover background. EmptyState's behavior is the
+ * correct one (real hover feedback); reconciled here by overriding this
+ * class's own radius/hover rather than duplicating a second implementation,
+ * since `.btn-primary` is already the single canonical primary-button style
+ * for the whole app (see NOTE below) — fixing it here fixes every call
+ * site, including all 6 list-page headers, in one place. */
 .btn-primary {
   background: var(--color-primary);
   color: var(--color-on-primary);
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.15));
 }
 .btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
+  background: var(--color-primary-dark);
   transform: translateY(-1px);
 }
 
