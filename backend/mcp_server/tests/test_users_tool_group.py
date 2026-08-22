@@ -1650,7 +1650,14 @@ class TestE2EUserList:
             list_qs,
         ]
 
-        registry, _, _ = _build_registry()
+        # user.list (fix round 3, I-1) gates purely on
+        # ``AuthorizationService.is_tenant_admin(...)``, not on the
+        # ``roles=("admin",)`` workspace-scoped default `_build_registry`
+        # sets up. Without this override the handler denies the call
+        # before ever reaching ``User.objects.filter(...)`` above.
+        authz = MagicMock()
+        authz.is_tenant_admin.return_value = True
+        registry, _, _ = _build_registry(authz=authz)
         handler = _handler(registry)
 
         response = _post(

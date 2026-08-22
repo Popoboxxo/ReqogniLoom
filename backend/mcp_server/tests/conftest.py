@@ -41,6 +41,7 @@ from auth_tenancy.models import (
     ROLE_ADMIN,
     ROLE_EDITOR,
     ROLE_VIEWER,
+    TenantRole,
     UserRole,
 )
 from auth_tenancy.services.authentication import (
@@ -282,6 +283,39 @@ def e2e_userrole_viewer(
 
 
 # ---------------------------------------------------------------------------
+# TenantRole fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def e2e_tenantrole_admin(e2e_user_admin: User, e2e_tenant: Tenant) -> TenantRole:
+    """Tenant-wide admin role for the admin user in the E2E tenant.
+
+    Distinct from :func:`e2e_userrole_admin` (a workspace-scoped
+    ``UserRole(admin)``): several ``mcp_server.tools.users`` handlers
+    (``user.create``, ``user.deactivate``, ``user.activate``, ``user.list``,
+    ``user.assign_tenant_admin``, ``user.revoke_tenant_admin``) gate on
+    ``AuthorizationService.is_tenant_admin(...)``, a tenant-wide role that a
+    plain workspace-scoped ``UserRole(admin)`` does NOT satisfy. In
+    practice, the admin who bootstraps a tenant (``provision_admin`` /
+    ``bootstrap_admin``) IS also its first tenant-admin, so ``admin_client``
+    (see below) is wired to hold both roles — this fixture, on its own, is
+    also directly usable by tests that need a *pure* tenant-admin (no
+    workspace-level role at all).
+
+    Uses the ``unscoped`` manager for the same reason as
+    :func:`_make_user_role`: no active tenant context is guaranteed at
+    fixture-setup time.
+    """
+    return TenantRole.unscoped.create(
+        tenant=e2e_tenant,
+        user=e2e_user_admin,
+        role=TenantRole.ROLE_ADMIN,
+        suspended_at=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # API key fixtures
 # ---------------------------------------------------------------------------
 
@@ -347,8 +381,23 @@ def _make_client(api_key: str) -> Client:
 
 
 @pytest.fixture
-def admin_client(e2e_api_key_admin: str) -> Client:
-    """``Client`` authenticated as the admin user."""
+def admin_client(
+    e2e_api_key_admin: str, e2e_tenantrole_admin: TenantRole
+) -> Client:
+    """``Client`` authenticated as the admin user.
+
+    Holds BOTH the workspace-scoped ``UserRole(admin)`` (via
+    ``e2e_userrole_admin``, requested independently by tests that need it)
+    AND a tenant-wide ``TenantRole(admin)`` (via ``e2e_tenantrole_admin``,
+    forced here as a fixture dependency so every ``admin_client`` consumer
+    gets it automatically). This mirrors the real-world bootstrap admin
+    (``provision_admin``/``bootstrap_admin``), who is simultaneously the
+    tenant's first tenant-admin — without this, tools gated purely on
+    ``AuthorizationService.is_tenant_admin(...)`` (``user.create``,
+    ``user.list``, ``user.deactivate``, ``user.activate``,
+    ``user.assign_tenant_admin``, ``user.revoke_tenant_admin``) would
+    always deny ``admin_client``, regardless of any workspace-level role.
+    """
     return _make_client(e2e_api_key_admin)
 
 
