@@ -93,6 +93,11 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "user.create",
     "user.assign_role",
     "user.deactivate",
+    "user.activate",
+    "user.suspend_role",
+    "user.reactivate_role",
+    "user.assign_tenant_admin",
+    "user.revoke_tenant_admin",
     "needs.create",
     "needs.update",
     "needs.delete",
@@ -289,6 +294,46 @@ _INSTANCE_LEVEL_TOOLS: frozenset[str] = frozenset(
         "admin.backup_create",
         "admin.backup_list",
         "admin.restore",
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Tenant-admin-elevated user.* tools (multi-user management design spec §3).
+#
+# Step 3's blanket write-RBAC gate (``_check_rbac``) below decides purely
+# from ``ctx.active_roles`` — which is resolved WORKSPACE-scoped (via
+# ``_resolve_roles``) whenever the call carries a ``workspace_id`` param, or
+# tenant-wide-but-still-``UserRole``-only (``_resolve_global_roles``)
+# otherwise. Neither path ever looks at ``TenantRole``, so a pure
+# tenant-admin (a caller holding only ``TenantRole(admin)``, zero
+# workspace-level ``UserRole`` anywhere) resolves to ``active_roles=()`` and
+# was denied here BEFORE the request ever reached a tool group — even for
+# tools whose own handler (and the ``AuthorizationService`` method it calls)
+# already has a tenant-admin elevation branch built in. This is the
+# registry-level twin of the ``UsersToolGroup._check_admin`` gap fixed in
+# the same change (see that class's docstring) — mirrors how the REST layer
+# dropped its own coarse ``HasOperationPermission`` pre-gate for these exact
+# actions (``rest_api.user_management_views.UserViewSet``,
+# ``auth_tenancy.rest_workspace_members.WorkspaceMemberRoleTransitionView``)
+# and let the service layer's own admin/tenant-admin re-check be the sole
+# authority instead.
+#
+# Every tool listed here performs its OWN tenant-admin-aware authorization
+# inside its handler (``UsersToolGroup``) or the ``AuthorizationService``
+# method it delegates to — bypassing this coarse gate for a genuine
+# tenant-admin loses no defense, it only removes a false negative. A caller
+# who is NOT a tenant-admin still falls through to the normal
+# ``_check_rbac`` check below unchanged.
+_TENANT_ADMIN_ELEVATED_USER_TOOLS: frozenset[str] = frozenset(
+    {
+        "user.create",
+        "user.deactivate",
+        "user.activate",
+        "user.assign_role",
+        "user.suspend_role",
+        "user.reactivate_role",
+        "user.assign_tenant_admin",
+        "user.revoke_tenant_admin",
     }
 )
 
@@ -670,8 +715,12 @@ class ToolRegistry:
                 return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
 
             # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
-            if self._is_write_tool(tool_name) and not self._is_bootstrap_candidate(
-                tool_name, params, auth_ctx  # type: ignore[arg-type]
+            if (
+                self._is_write_tool(tool_name)
+                and not self._is_bootstrap_candidate(
+                    tool_name, params, auth_ctx  # type: ignore[arg-type]
+                )
+                and not self._is_tenant_admin_exempt(tool_name, auth_ctx)  # type: ignore[arg-type]
             ):
                 rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
                 if rbac_error:
@@ -870,6 +919,29 @@ class ToolRegistry:
         try:
             return UUID(str(params.get("user_id"))) == ctx.user_id
         except (ValueError, TypeError):
+            return False
+
+    def _is_tenant_admin_exempt(self, tool_name: str, ctx: AuthContext) -> bool:
+        """Let a pure tenant-admin caller past the blanket write-RBAC gate.
+
+        Only applies to :data:`_TENANT_ADMIN_ELEVATED_USER_TOOLS`, whose
+        handlers/services already re-check tenant-admin standing themselves
+        (defense in depth is not lost). Fails closed (returns ``False``) on
+        any lookup error, matching :meth:`_resolve_global_roles`'s own
+        fail-closed default.
+        """
+        if tool_name not in _TENANT_ADMIN_ELEVATED_USER_TOOLS:
+            return False
+        try:
+            return self._authz_service.is_tenant_admin(
+                user_id=ctx.user_id, tenant_id=ctx.tenant_id
+            )
+        except Exception:
+            logger.debug(
+                "Tenant-admin lookup failed for user=%s tool=%s",
+                ctx.user_id,
+                tool_name,
+            )
             return False
 
     def _check_rbac(self, ctx: AuthContext) -> Optional[str]:

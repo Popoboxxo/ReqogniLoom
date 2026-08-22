@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.7.0-beta.2",
-  "tool_count": 162,
+  "generated_from": "reqogniloom==unknown",
+  "tool_count": 167,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -4137,6 +4137,24 @@
       }
     },
     {
+      "name": "user.activate",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Activate a user (is_active=True), tenant-admin-only, write, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the user to activate."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
       "name": "user.assign_role",
       "prefix": "user",
       "is_write": true,
@@ -4164,7 +4182,7 @@
           },
           "preset": {
             "type": "string",
-            "description": "Active workspace preset (gates the approver role)."
+            "description": "Active workspace preset. NOTE: no longer authoritative for the Approver-role gate — AuthorizationService.assign_role now resolves the workspace's real preset tier itself, straight from the database, and ignores any value supplied here. Kept for backward compatibility with existing callers only."
           }
         },
         "required": [
@@ -4172,6 +4190,24 @@
           "workspace_id",
           "role",
           "preset"
+        ]
+      }
+    },
+    {
+      "name": "user.assign_tenant_admin",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Grant tenant-admin to a user, tenant-admin-only, write, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the target user."
+          }
+        },
+        "required": [
+          "user_id"
         ]
       }
     },
@@ -4219,7 +4255,7 @@
       "name": "user.deactivate",
       "prefix": "user",
       "is_write": true,
-      "description": "Deactivate a user (is_active=False), admin-only, write, audited.",
+      "description": "Deactivate a user (is_active=False), tenant-admin-only, write, audited.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4254,6 +4290,92 @@
             "description": "Page size (1..500, default 100)."
           }
         }
+      }
+    },
+    {
+      "name": "user.reactivate_role",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Reactivate a suspended workspace role, admin-only, write, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the target user."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer",
+              "approver"
+            ],
+            "description": "Role to reactivate."
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_id",
+          "role"
+        ]
+      }
+    },
+    {
+      "name": "user.revoke_tenant_admin",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Revoke tenant-admin from a user, tenant-admin-only, write, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the target user."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "user.suspend_role",
+      "prefix": "user",
+      "is_write": true,
+      "description": "Suspend a user's workspace role (reversible), admin-only, write, audited.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "UUID of the target user."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer",
+              "approver"
+            ],
+            "description": "Role to suspend."
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_id",
+          "role"
+        ]
       }
     },
     {
