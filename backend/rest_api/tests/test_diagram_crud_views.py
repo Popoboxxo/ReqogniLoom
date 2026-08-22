@@ -66,8 +66,8 @@ class TestDiagramViewSetCreateValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 with patch(
                     "rest_api.diagram_views.create_diagram",
@@ -112,8 +112,8 @@ class TestDiagramViewSetCreateValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 with patch(
                     "rest_api.diagram_views.create_diagram",
@@ -139,7 +139,7 @@ class TestDiagramViewSetCreateValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.User"):
+            with patch("rest_api.diagram_views.get_user"):
                 with patch(
                     "rest_api.diagram_views.update_diagram",
                     side_effect=DiagramValidationError(
@@ -179,8 +179,8 @@ class TestDiagramViewSetTraceLinkErrorMapping:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 with patch(
                     "rest_api.diagram_views.create_diagram",
@@ -210,7 +210,7 @@ class TestDiagramViewSetTraceLinkErrorMapping:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.User"):
+            with patch("rest_api.diagram_views.get_user"):
                 with patch(
                     "rest_api.diagram_views.update_diagram",
                     side_effect=TraceLinkError(
@@ -259,8 +259,8 @@ class TestDiagramViewSetCanvasStrokeTypeValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 return view(req)
 
@@ -361,8 +361,8 @@ class TestDiagramViewSetNodeGraphValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 return view(req)
 
@@ -496,8 +496,8 @@ class TestDiagramViewSetInternalErrorMasking:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 with patch(
                     "rest_api.diagram_views.create_diagram",

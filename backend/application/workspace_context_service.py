@@ -361,10 +361,56 @@ def get_workspace(*, workspace_id: UUID, tenant_id: UUID) -> Optional[Any]:
     return Workspace.objects.filter(id=workspace_id).first()
 
 
+def get_tenant(*, tenant_id: UUID) -> Any:
+    """Return the ``Tenant`` row for *tenant_id*.
+
+    Thin identity lookup so REST views can resolve the ORM object needed for
+    Layer-1 service calls (e.g. ``diagram.services``, ``icd.services``)
+    without importing ``persistence.models`` directly, which would bypass
+    ADR-01's Single-Entry-Point rule. Behaves exactly like the
+    ``Tenant.objects.get(id=...)`` call it replaces: raises
+    ``Tenant.DoesNotExist`` if the row is missing.
+
+    Args:
+        tenant_id: Tenant primary key.
+
+    Returns:
+        The ``Tenant`` instance.
+    """
+    from persistence.models import Tenant
+
+    return Tenant.objects.get(id=tenant_id)
+
+
+def get_user(*, user_id: Optional[UUID]) -> Optional[Any]:
+    """Return the ``User`` row for *user_id*, or ``None``.
+
+    Thin identity lookup, counterpart to :func:`get_tenant`. Mirrors the
+    previous direct ``User.objects.filter(id=...).first()`` calls in REST
+    views: a missing or absent user resolves to ``None`` rather than
+    raising, since callers only use the result for optional audit fields
+    (e.g. API-key-only contexts have no user).
+
+    Args:
+        user_id: User primary key, or ``None``.
+
+    Returns:
+        The ``User`` instance, or ``None``.
+    """
+    if user_id is None:
+        return None
+
+    from persistence.models import User
+
+    return User.objects.filter(id=user_id).first()
+
+
 __all__ = [
     "count_open_requirements",
     "entity_counts",
     "entity_lists",
+    "get_tenant",
+    "get_user",
     "get_workspace",
     "recent_changes",
 ]

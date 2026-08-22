@@ -6,8 +6,7 @@
  *
  * All REST calls go through this module.
  * - Auth travels as the httpOnly ``reqflow_access`` cookie (REQ-052); requests
- *   are sent with credentials so the browser attaches it automatically. A
- *   legacy in-memory Bearer token is still supported for non-browser callers.
+ *   are sent with credentials so the browser attaches it automatically.
  * - Sends X-CSRFToken (from the ``csrftoken`` cookie) on unsafe methods, as the
  *   cookie auth path is CSRF-protected server-side.
  * - On 401 → attempts a single-flight silent refresh (POST /auth/refresh/,
@@ -37,22 +36,13 @@ export function readCookie(name: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Token storage (IF-RF-INT — NavigationShell.TokenManager owns the token)
+// Unauthorized-notification state
 // ---------------------------------------------------------------------------
 
-let _token: string | null = null;
 let _onUnauthorized: (() => void) | null = null;
 // Guards against firing the unauthorized handler more than once for a burst
 // of parallel requests that all 401 around the same time (GitHub #135).
 let _unauthorizedNotified = false;
-
-export function setAuthToken(token: string | null): void {
-  _token = token;
-}
-
-export function getAuthToken(): string | null {
-  return _token;
-}
 
 export function setUnauthorizedHandler(handler: () => void): void {
   _onUnauthorized = handler;
@@ -218,12 +208,6 @@ async function apiFetch<T>(
     !(options.headers instanceof Headers)
   ) {
     Object.assign(headers, options.headers as Record<string, string>);
-  }
-
-  // Legacy in-memory Bearer token (non-browser callers). Browser auth flows
-  // rely on the httpOnly cookie instead (REQ-052), so _token is normally null.
-  if (_token) {
-    headers["Authorization"] = `Bearer ${_token}`;
   }
 
   // Attach CSRF token on unsafe methods for the cookie auth path (REQ-052).

@@ -240,9 +240,6 @@ class AuthenticationService:
             .first()
         )
         if api_key is None:
-            # Still perform a constant-time compare against a dummy to reduce the
-            # timing difference between "unknown" and "known" keys.
-            hmac.compare_digest(computed_hash, computed_hash)
             raise AuthenticationFailed("invalid_api_key")
 
         # Defensive re-verification in constant time (REQ-L3-AT001-002).

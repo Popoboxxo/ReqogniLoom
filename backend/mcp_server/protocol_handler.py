@@ -518,7 +518,6 @@ class ProtocolHandler:
         if result.success:
             # Wrap the result in MCP standard content blocks if it was a standard call
             if method == "tools/call":
-                import json
                 text_content = result.data if isinstance(result.data, str) else json.dumps(result.data, indent=2)
                 response_data = {
                     "content": [

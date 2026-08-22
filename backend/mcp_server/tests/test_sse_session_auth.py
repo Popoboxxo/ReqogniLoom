@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, List, Optional, Tuple
 from unittest import mock
 
+import pytest
 from asgiref.sync import async_to_sync
 from django.test import RequestFactory
 
@@ -82,8 +83,16 @@ def test_sse_endpoint_url_excludes_api_key() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 def test_messages_valid_session_is_accepted_without_api_key_in_url() -> None:
-    """A valid ``session_id`` authorises the POST via the server-side binding."""
+    """A valid ``session_id`` authorises the POST via the server-side binding.
+
+    Marked ``django_db`` (D-6): the executor is mocked to run the background
+    ``_process`` closure synchronously so the test can assert on it, which
+    means this test's thread is the one that now calls
+    ``close_old_connections()`` at the top/bottom of that closure — a real,
+    if trivial, Django DB-connection-lifecycle touch, not just an ORM read.
+    """
     session_id = "11111111-1111-1111-1111-111111111111"
     request = RequestFactory().post(
         f"/mcp/messages/?session_id={session_id}",

@@ -32,6 +32,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from application.workspace_context_service import get_tenant, get_user
 from diagram.models import Diagram
 from diagram.services import (
     canvas_auto_save,
@@ -40,7 +41,6 @@ from diagram.services import (
     update_mermaid_source,
 )
 from diagram.validator import DiagramValidationError
-from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 from rest_api.serializers_diagram import (
@@ -59,16 +59,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _resolve_tenant(request: Request) -> Tenant:
+def _resolve_tenant(request: Request) -> Any:
     """Resolve the Tenant ORM object from the request auth context."""
     ctx = get_auth_context(request)
-    return Tenant.objects.get(id=ctx.tenant_id)
+    return get_tenant(tenant_id=ctx.tenant_id)
 
 
-def _resolve_user(request: Request) -> User | None:
+def _resolve_user(request: Request) -> Any | None:
     """Resolve the User ORM object from the request auth context."""
     ctx = get_auth_context(request)
-    return User.objects.filter(id=ctx.user_id).first()
+    return get_user(user_id=ctx.user_id)
 
 
 def _as_uuid(value: str | UUID) -> UUID:
