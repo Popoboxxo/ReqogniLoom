@@ -228,4 +228,114 @@ def test_grant_tenant_admin_returns_404_for_unknown_user(tenant, workspace):
     assert resp.json()["error"] == "NOT_FOUND"
 
 
+@pytest.mark.django_db
+class TestC4RealAuditPersistence:
+    """Fix round 3, C-4: prove REST user-management actions write a real,
+    unmocked ``AuditEntry`` row (queried from the DB, not a patched call) —
+    mirrors ``mcp_server/tests/test_users_tool_group.py::
+    TestE2ERealAuditPersistence``'s "don't just assert the call happened"
+    fix for the identical MCP-side gap. Before this fix round, the REST
+    transport — the one the shipped UI actually uses — wrote zero audit
+    rows for any of these actions.
+    """
+
+    def test_create_user_writes_audit_row(self, tenant, workspace):
+        from audit.models import AuditEntry
+
+        client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+        resp = client.post(
+            "/api/v1/users/",
+            {"username": "audit-created", "email": "audit-created@t.test", "password": "a-real-password-123"},
+            format="json",
+        )
+        assert resp.status_code == 201, resp.content
+        user_id = resp.json()["id"]
+
+        rows = list(AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_CREATE, entity_id=user_id))
+        assert len(rows) == 1, f"expected 1 AuditEntry for user.create/{user_id}, found {len(rows)}"
+        assert rows[0].entity_type == "User"
+        assert rows[0].source == AuditEntry.SOURCE_REST
+
+    def test_activate_writes_audit_row(self, tenant, workspace):
+        from audit.models import AuditEntry
+
+        client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+        set_request_tenant(tenant.id)
+        try:
+            target = User.objects.create(
+                username="audit-activate", email="audit-activate@t.test", tenant=tenant, is_active=False
+            )
+        finally:
+            clear_request_tenant()
+
+        resp = client.post(f"/api/v1/users/{target.id}/activate/")
+        assert resp.status_code == 200, resp.content
+
+        rows = list(AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_ACTIVATE, entity_id=target.id))
+        assert len(rows) == 1, f"expected 1 AuditEntry for user.activate/{target.id}, found {len(rows)}"
+        assert rows[0].entity_type == "User"
+
+    def test_deactivate_writes_audit_row(self, tenant, workspace):
+        from audit.models import AuditEntry
+
+        client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+        set_request_tenant(tenant.id)
+        try:
+            target = User.objects.create(
+                username="audit-deactivate", email="audit-deactivate@t.test", tenant=tenant, is_active=True
+            )
+        finally:
+            clear_request_tenant()
+
+        resp = client.post(f"/api/v1/users/{target.id}/deactivate/")
+        assert resp.status_code == 200, resp.content
+
+        rows = list(AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_DEACTIVATE, entity_id=target.id))
+        assert len(rows) == 1, f"expected 1 AuditEntry for user.deactivate/{target.id}, found {len(rows)}"
+        assert rows[0].entity_type == "User"
+
+    def test_grant_tenant_admin_writes_audit_row(self, tenant, workspace):
+        from audit.models import AuditEntry
+
+        client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+        set_request_tenant(tenant.id)
+        try:
+            target = User.objects.create(username="audit-grant", email="audit-grant@t.test", tenant=tenant)
+        finally:
+            clear_request_tenant()
+
+        resp = client.post(f"/api/v1/users/{target.id}/tenant-admin/")
+        assert resp.status_code == 200, resp.content
+
+        rows = list(
+            AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_ASSIGN_TENANT_ADMIN, entity_id=target.id)
+        )
+        assert len(rows) == 1, (
+            f"expected 1 AuditEntry for user.assign_tenant_admin/{target.id}, found {len(rows)}"
+        )
+        assert rows[0].entity_type == "TenantRole"
+
+    def test_revoke_tenant_admin_writes_audit_row(self, tenant, workspace):
+        from audit.models import AuditEntry
+
+        client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
+        set_request_tenant(tenant.id)
+        try:
+            target = User.objects.create(username="audit-revoke", email="audit-revoke@t.test", tenant=tenant)
+            TenantRole.objects.create(tenant=tenant, user=target, role=TenantRole.ROLE_ADMIN)
+        finally:
+            clear_request_tenant()
+
+        resp = client.delete(f"/api/v1/users/{target.id}/tenant-admin/")
+        assert resp.status_code == 200, resp.content
+
+        rows = list(
+            AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_REVOKE_TENANT_ADMIN, entity_id=target.id)
+        )
+        assert len(rows) == 1, (
+            f"expected 1 AuditEntry for user.revoke_tenant_admin/{target.id}, found {len(rows)}"
+        )
+        assert rows[0].entity_type == "TenantRole"
+
+
 from auth_tenancy.services import AuthorizationService  # noqa: E402 (used above)

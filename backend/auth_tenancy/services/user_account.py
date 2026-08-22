@@ -32,6 +32,13 @@ _PASSWORD_MIN_LENGTH: int = 8
 _USERNAME_MAX_LENGTH: int = 150
 _EMAIL_MAX_LENGTH: int = 254
 
+# Fix round 3 (I-4): mirrors ``mcp_server/tools/users.py``'s
+# ``_LIST_MAX_LIMIT`` — ``GET /api/v1/users/`` (``UserViewSet.list``) called
+# this method with no bound at all, unlike MCP's ``user.list`` which has
+# always capped at 500. A tenant with a very large user roster could make
+# this endpoint return an unbounded response / run an unbounded query.
+_LIST_DEFAULT_LIMIT: int = 500
+
 
 class UserAccountService:
     """Tenant-admin-guarded account lifecycle: create / activate / deactivate."""
@@ -222,13 +229,21 @@ class UserAccountService:
         """
         return User.objects.get(id=user_id)
 
-    def list_for_tenant(self, *, tenant_id: UUID) -> list[User]:
-        """Return every user of ``tenant_id``, ordered by username.
+    def list_for_tenant(
+        self, *, tenant_id: UUID, limit: int = _LIST_DEFAULT_LIMIT
+    ) -> list[User]:
+        """Return up to ``limit`` users of ``tenant_id``, ordered by username.
 
         Read-only listing seam (ADR-01 / REQ-066) backing the tenant-admin
         user directory (``GET /api/v1/users/``).
+
+        Fix round 3 (I-4): capped at :data:`_LIST_DEFAULT_LIMIT` (500) by
+        default — mirrors MCP's ``user.list`` cap, which this REST call
+        site previously had no equivalent of at all.
         """
-        return list(User.objects.filter(tenant_id=tenant_id).order_by("username"))
+        return list(
+            User.objects.filter(tenant_id=tenant_id).order_by("username")[:limit]
+        )
 
 
 __all__ = ["UserAccountService"]

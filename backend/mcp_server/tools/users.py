@@ -13,7 +13,9 @@ Tools implemented (write tools are audited):
   user.create             (write)  — create a new user (tenant-admin-only)
   user.assign_role        (write)  — assign a role to a user in a workspace
                                       (workspace-admin or tenant-admin)
-  user.list               (read)   — list users (tenant-scoped, admin-only)
+  user.list               (read)   — list users (tenant-scoped, tenant-admin-
+                                      only — fix round 3, I-1: aligned with
+                                      REST's `GET /api/v1/users/`)
   user.deactivate         (write)  — deactivate a user (tenant-admin-only,
                                       last-admin protected)
   user.activate           (write)  — reactivate a user (tenant-admin-only)
@@ -36,10 +38,12 @@ Architecture
 * Admin gates come in two shapes:
   - Workspace-scoped: ``_check_admin`` checks
     ``auth_context.has_role("admin")`` (workspace-scoped ``UserRole``).
-    ``user.list`` calls it first but, since Fix Round 1 (I-4), falls
-    through instead of returning the denial when the caller is a pure
-    tenant-admin (``is_tenant_admin(...)`` true) — matching every other
-    tool in this group, which all accept EITHER standing.
+    Fix round 3 (I-1): ``user.list`` no longer calls it — a workspace-admin
+    is no longer sufficient to list every user of the whole tenant via MCP,
+    matching REST's `GET /api/v1/users/` (``UserViewSet.list``), which has
+    always required tenant-admin only. ``_check_admin`` is unused elsewhere
+    in this module (kept in place, harmless dead code, to keep this fix
+    minimal).
   - Tenant-scoped: ``self._authz_service.is_tenant_admin(...)`` (a
     ``TenantRole`` check) — used directly by every tool that is
     tenant-admin-exclusive (``user.create``/``.deactivate``/``.activate``/
@@ -157,7 +161,6 @@ from application.base import (
 )
 
 from persistence.models import User
-from persistence.tenancy import TenantContext
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -676,10 +679,15 @@ class UsersToolGroup(BaseToolGroup):
             )
         preset = preset.strip().lower()
 
-        # Tenant context must be set so that AuthorizationService's
-        # UserRole/TenantRole queries (which use the tenant-scoped manager)
-        # work.
-        TenantContext.set_tenant(auth_context.tenant_id)
+        # Fix round 3 (I-3): the redundant `TenantContext.set_tenant(...)`
+        # call that used to live here is removed. `ToolRegistry
+        # .dispatch_request` already arms the tenant context via
+        # `set_request_tenant` before any handler runs — the correct call
+        # (issue #110), which also sets the DB-level RLS session variable
+        # that a bare `TenantContext.set_tenant` does not. Calling the bare
+        # variant here was a latent reintroduction of the exact anti-pattern
+        # #110 removed elsewhere; the sibling `_handle_user_suspend_role`/
+        # `_handle_user_reactivate_role` handlers correctly never call it.
 
         # A pure tenant-admin (TenantRole(admin), no workspace-level role)
         # may assign roles in any workspace of their own tenant (multi-user
@@ -763,7 +771,7 @@ class UsersToolGroup(BaseToolGroup):
     def _handle_user_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """user.list — list users (workspace-admin or tenant-admin, read).
+        """user.list — list users (tenant-admin-only, read).
 
         Optional params:
             tenant_id : tenant to scope to. Defaults to
@@ -773,22 +781,25 @@ class UsersToolGroup(BaseToolGroup):
                         foreign tenant id is rejected.
             is_active : bool filter; if None, returns both.
             limit     : page size, 1..500, default 100.
+
+        Fix round 3 (I-1): tightened to tenant-admin-only, matching REST's
+        ``GET /api/v1/users/`` (``UserViewSet.list``). Previously (Fix
+        Round 1, I-4) a plain workspace-admin (no tenant-admin standing)
+        could also list every user of the ENTIRE TENANT via this tool —
+        strictly more permissive than the equivalent REST endpoint, and a
+        cross-workspace user-enumeration/IDOR-adjacent gap: a workspace-admin
+        of one small workspace should not see the tenant's full user
+        roster. No other tool in this group used the old ``_check_admin``
+        workspace-scoped gate, so tightening it here does not affect any
+        other tool.
         """
-        denied = self._check_admin(auth_context)
-        if denied is not None:
-            # Fix Round 1 (I-4): `_check_admin` only recognises a
-            # workspace-scoped ``UserRole(admin)``. A pure tenant-admin
-            # (``TenantRole(admin)`` only, zero workspace-level ``UserRole``)
-            # can now create/deactivate/activate/grant-tenant-admin via the
-            # other tools in this group but was still denied here — the only
-            # tool in this group left on the old workspace-only gate.
-            # Fall through instead of returning the denial if the caller is
-            # a tenant-admin of their own tenant.
-            is_tenant_admin = self._authz_service.is_tenant_admin(
-                user_id=auth_context.user_id, tenant_id=auth_context.tenant_id
+        if not self._authz_service.is_tenant_admin(
+            user_id=auth_context.user_id, tenant_id=auth_context.tenant_id
+        ):
+            return ToolResult.error(
+                "PERMISSION_DENIED",
+                "Permission denied: tenant-admin role required.",
             )
-            if not is_tenant_admin:
-                return denied
 
         # Tenant resolution: superuser can override, non-superuser forced.
         is_superuser = self._caller_is_superuser(auth_context.user_id)

@@ -64,6 +64,7 @@ _ACTION_TO_REQUEST = {
     "workspace.reactivate_role": lambda ids: ("post", f"/api/v1/workspaces/{ids['workspace'].id}/members/{ids['target'].id}/reactivate/", {"role": "editor"}),
     "tenant.assign_admin": lambda ids: ("post", f"/api/v1/users/{ids['target'].id}/tenant-admin/", {}),
     "tenant.revoke_admin": lambda ids: ("delete", f"/api/v1/users/{ids['target'].id}/tenant-admin/", {}),
+    "user.list": lambda ids: ("get", "/api/v1/users/", {}),
 }
 
 

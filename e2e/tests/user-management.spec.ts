@@ -102,7 +102,11 @@ test.describe('[Multi-user management] Tenant-admin full flow', () => {
     );
     expect(assignResp.ok()).toBeTruthy();
 
-    await page.goto(`${FRONTEND_URL}/settings`);
+    // C-3 fix round 3: WorkspaceSettings defaults to the "general" tab;
+    // the workspace-member-* testids only render under "workflows-permissions"
+    // (PermissionsSection). Deep-link via ?tab= (see #609 / isSettingsTabId
+    // in WorkspaceSettings.tsx) instead of landing on the wrong tab.
+    await page.goto(`${FRONTEND_URL}/settings?tab=workflows-permissions`);
     const memberRow = page.locator(`[data-testid="workspace-member-row-${userId}"]`);
     await expect(memberRow).toBeVisible({ timeout: 10000 });
     const roleChip = page.locator(`[data-testid="workspace-member-role-${userId}-editor"]`);

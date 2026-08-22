@@ -256,6 +256,17 @@ class AuthenticationService:
             # Key valid but user has no tenant -> resolution will fail downstream.
             raise AuthenticationFailed("invalid_api_key")
 
+        if not api_key.user.is_active:
+            # Fix round 3 (C-2): a deactivated user's API key must stop
+            # authenticating immediately, mirroring `resolve_active_user`
+            # (bearer-token refresh path) and the login path, both of which
+            # already reject inactive users. Without this, deactivation had
+            # no effect on MCP access: the key kept validating, and
+            # `is_tenant_admin()`/role resolution still (before this same
+            # fix round) returned True for the deactivated admin, letting
+            # them undo their own deactivation via MCP.
+            raise AuthenticationFailed("invalid_api_key")
+
         return IdentityClaims(
             user_id=api_key.user_id,
             tenant_id=api_key.user.tenant_id,

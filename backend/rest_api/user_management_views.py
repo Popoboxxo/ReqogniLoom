@@ -24,6 +24,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from application.base import ServiceBase
+from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.rest import HasOperationPermission
@@ -132,6 +134,19 @@ class UserViewSet(ViewSet):
             # instead of leaking raw internal exception text to the client.
             return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
+        # Fix round 3 (C-4): the REST transport writes zero audit rows for
+        # user-management actions, unlike MCP's `write_mcp_audit` calls in
+        # `mcp_server/tools/users.py` — mirrors that tool's op/entity shape
+        # exactly so a single audit query answers "who did this" across both
+        # surfaces.
+        ServiceBase._audit(
+            ctx,
+            operation=AuditEntry.OP_USER_CREATE,
+            entity_type="User",
+            entity_id=user.id,
+            details={"username": user.username, "email": user.email},
+        )
+
         return Response(_user_to_dict(user), status=status.HTTP_201_CREATED)
 
     def _resolve_user_pk(self, pk: "str | UUID | None") -> UUID | None:
@@ -170,6 +185,12 @@ class UserViewSet(ViewSet):
             return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
         except ObjectDoesNotExist:
             return _err("NOT_FOUND", "User not found.", status.HTTP_404_NOT_FOUND)
+        ServiceBase._audit(
+            ctx,
+            operation=AuditEntry.OP_USER_ACTIVATE,
+            entity_type="User",
+            entity_id=target_id,
+        )
         try:
             user = self._accounts.get(user_id=target_id)
         except ObjectDoesNotExist:
@@ -197,6 +218,12 @@ class UserViewSet(ViewSet):
             return _err("LAST_ADMIN", str(exc), status.HTTP_409_CONFLICT)
         except ObjectDoesNotExist:
             return _err("NOT_FOUND", "User not found.", status.HTTP_404_NOT_FOUND)
+        ServiceBase._audit(
+            ctx,
+            operation=AuditEntry.OP_USER_DEACTIVATE,
+            entity_type="User",
+            entity_id=target_id,
+        )
         try:
             user = self._accounts.get(user_id=target_id)
         except ObjectDoesNotExist:
@@ -227,6 +254,12 @@ class UserViewSet(ViewSet):
                 return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
             except ObjectDoesNotExist:
                 return _err("NOT_FOUND", "User not found.", status.HTTP_404_NOT_FOUND)
+            ServiceBase._audit(
+                ctx,
+                operation=AuditEntry.OP_USER_ASSIGN_TENANT_ADMIN,
+                entity_type="TenantRole",
+                entity_id=target_id,
+            )
             return Response({"granted": True}, status=status.HTTP_200_OK)
 
         try:
@@ -237,6 +270,12 @@ class UserViewSet(ViewSet):
             return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
         except LastAdminError as exc:
             return _err("LAST_ADMIN", str(exc), status.HTTP_409_CONFLICT)
+        ServiceBase._audit(
+            ctx,
+            operation=AuditEntry.OP_USER_REVOKE_TENANT_ADMIN,
+            entity_type="TenantRole",
+            entity_id=target_id,
+        )
         return Response({"revoked": True}, status=status.HTTP_200_OK)
 
 

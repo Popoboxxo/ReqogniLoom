@@ -389,6 +389,23 @@ class AuthorizationService:
                 f"{tenant_id}."
             )
 
+        # Fix round 3 (C-1): self-enforce that the TARGET user also belongs
+        # to the caller's tenant, mirroring the workspace check just above
+        # and the identical guard in `assign_tenant_admin`/`UserAccountService
+        # .activate`/`.deactivate`. Without this, a plain workspace-admin
+        # (no tenant-admin standing needed) could grant `role=admin` to a
+        # foreign-tenant user — the resulting `UserRole` row is still
+        # counted by `_assert_not_last_workspace_admin` (which only filters
+        # `user__is_active`, not tenant), letting the actor then remove the
+        # workspace's real last admin and strand the workspace with zero
+        # usable admins, plus leaking the foreign user's identity via
+        # `list_workspace_members`.
+        if not User.objects.filter(id=target_user_id, tenant_id=tenant_id).exists():
+            raise NotFoundError(
+                f"User {target_user_id} does not exist under tenant "
+                f"{tenant_id}."
+            )
+
         if normalized == ROLE_APPROVER:
             # Fix round 2 (N-3): resolve the tier fresh from the DB for this
             # one security-relevant decision, bypassing
@@ -641,12 +658,22 @@ class AuthorizationService:
     # -- Tenant-level admin (multi-user management) -----------------------
 
     def is_tenant_admin(self, *, user_id: UUID, tenant_id: UUID) -> bool:
-        """Return whether ``user_id`` holds an active tenant-admin role."""
+        """Return whether ``user_id`` holds an active tenant-admin role.
+
+        Filters on ``user__is_active=True`` (fix round 3, C-2) so a
+        deactivated user's leftover ``TenantRole`` row never grants MCP/REST
+        access — mirroring the same filter already applied by
+        :meth:`_assert_not_last_tenant_admin`. Without this, deactivating a
+        tenant-admin left their API key evaluating this check as ``True``
+        for the rest of the key's lifetime, letting them undo their own
+        deactivation.
+        """
         return TenantRole.objects.filter(
             user_id=user_id,
             tenant_id=tenant_id,
             role=TenantRole.ROLE_ADMIN,
             suspended_at__isnull=True,
+            user__is_active=True,
         ).exists()
 
     def assign_tenant_admin(

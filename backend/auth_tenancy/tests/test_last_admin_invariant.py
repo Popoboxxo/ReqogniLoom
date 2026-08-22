@@ -192,6 +192,21 @@ def test_is_tenant_admin_false_for_no_row():
 
 
 @pytest.mark.django_db
+def test_is_tenant_admin_false_for_deactivated_user():
+    """C-2 regression: a deactivated user's TenantRole row is still
+    ``suspended_at=None`` (deactivation doesn't touch the role row), so
+    ``is_tenant_admin`` must reject on ``user.is_active`` explicitly —
+    otherwise a deactivated admin's still-valid API key keeps evaluating
+    tenant-admin checks as True, letting them undo their own deactivation.
+    """
+    tenant, admin, _role = _make_tenant_with_admin("deactivated")
+    admin.is_active = False
+    admin.save(update_fields=["is_active"])
+    service = AuthorizationService()
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is False
+
+
+@pytest.mark.django_db
 def test_assign_tenant_admin_requires_tenant_admin_actor():
     tenant, admin, _role = _make_tenant_with_admin("assign-guard")
     target = User.objects.create(username="ta-target", email="ta-target@t.test", tenant=tenant)

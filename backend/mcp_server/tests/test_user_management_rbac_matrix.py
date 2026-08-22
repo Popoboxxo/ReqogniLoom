@@ -28,6 +28,7 @@ _ACTION_TO_TOOL_CALL = {
     "workspace.reactivate_role": ("user.reactivate_role", lambda ids: {"user_id": str(ids["target"]), "workspace_id": str(ids["workspace"]), "role": "editor"}),
     "tenant.assign_admin": ("user.assign_tenant_admin", lambda ids: {"user_id": str(ids["target"])}),
     "tenant.revoke_admin": ("user.revoke_tenant_admin", lambda ids: {"user_id": str(ids["target"])}),
+    "user.list": ("user.list", lambda ids: {}),
 }
 
 

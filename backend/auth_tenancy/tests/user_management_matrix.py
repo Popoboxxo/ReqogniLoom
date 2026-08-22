@@ -85,6 +85,17 @@ USER_MANAGEMENT_MATRIX: dict[str, dict[str, bool]] = {
         "approver": False,
         "no-role": False,
     },
+    "user.list": {
+        # Fix round 3 (I-1): tightened to tenant-admin-only on both
+        # transports (previously MCP also accepted a plain workspace-admin,
+        # strictly more permissive than REST's GET /api/v1/users/).
+        "tenant-admin": True,
+        "workspace-admin": False,
+        "editor": False,
+        "viewer": False,
+        "approver": False,
+        "no-role": False,
+    },
 }
 
 ACTIONS = tuple(USER_MANAGEMENT_MATRIX.keys())

@@ -144,6 +144,69 @@ def test_suspended_workspace_admin_is_not_used_as_backfill_source(historical_app
 
 
 @pytest.mark.django_db
+def test_deactivated_workspace_admin_is_not_used_as_backfill_source(historical_apps):
+    """Fix round 3 (I-2): a deactivated user's active, non-suspended
+    ``UserRole(admin)`` row must never become the backfill source — the
+    role row survives deactivation (only ``User.is_active`` flips), so
+    without the ``user__is_active`` filter the migration could promote a
+    user who can no longer even authenticate."""
+    backfill_tenant_admins = _load_backfill_tenant_admins()
+
+    tenant = Tenant.objects.create(name="Deactivated Admin T", slug="backfill-t3b")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="WS")
+    deactivated_admin = User.objects.create(
+        username="deactivated-admin",
+        email="deactivated@t.test",
+        tenant=tenant,
+        is_active=False,
+    )
+    UserRole.objects.create(
+        tenant=tenant, user=deactivated_admin, workspace=ws, role=ROLE_ADMIN
+    )
+
+    backfill_tenant_admins(historical_apps, None)
+
+    assert TenantRole.unscoped.filter(tenant=tenant).count() == 0
+
+
+@pytest.mark.django_db
+def test_deactivated_earliest_admin_is_skipped_for_next_active_one(historical_apps):
+    """When the earliest-created admin role belongs to a deactivated user,
+    the backfill must fall through to the next active-user admin role,
+    not just skip the tenant entirely."""
+    backfill_tenant_admins = _load_backfill_tenant_admins()
+
+    tenant = Tenant.objects.create(name="Mixed Admin T", slug="backfill-t3c")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="WS")
+    deactivated_admin = User.objects.create(
+        username="mixed-deactivated",
+        email="mixed-deactivated@t.test",
+        tenant=tenant,
+        is_active=False,
+    )
+    active_admin = User.objects.create(
+        username="mixed-active", email="mixed-active@t.test", tenant=tenant
+    )
+    deactivated_role = UserRole.objects.create(
+        tenant=tenant, user=deactivated_admin, workspace=ws, role=ROLE_ADMIN
+    )
+    UserRole.objects.filter(pk=deactivated_role.pk).update(
+        created_at=deactivated_role.created_at - timedelta(days=1)
+    )
+    UserRole.objects.create(
+        tenant=tenant, user=active_admin, workspace=ws, role=ROLE_ADMIN
+    )
+
+    backfill_tenant_admins(historical_apps, None)
+
+    tenant_admins = TenantRole.unscoped.filter(tenant=tenant, role=ROLE_ADMIN)
+    assert tenant_admins.count() == 1
+    assert tenant_admins.first().user_id == active_admin.id
+
+
+@pytest.mark.django_db
 def test_backfill_is_idempotent_on_second_run(historical_apps):
     """Running the backfill twice must not create a duplicate or replace
     the already-promoted admin."""

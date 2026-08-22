@@ -8,8 +8,11 @@ Covers the nine MCP tools exposed under the ``user.*`` namespace:
 * user.assign_role         — write, workspace-admin OR tenant-admin gated,
                               audited, error mapping, delegates to
                               AuthorizationService.assign_role
-* user.list                — read,  workspace-admin OR tenant-admin gated
-                              (Fix Round 1, I-4), error mapping
+* user.list                — read,  tenant-admin-only gated (fix round 3,
+                              I-1: tightened from the workspace-admin OR
+                              tenant-admin gate of Fix Round 1, I-4, to
+                              match REST's `GET /api/v1/users/`), error
+                              mapping
 * user.deactivate           — write, tenant-admin-gated, audited, error
                               mapping, last-admin protected
 * user.activate             — write, tenant-admin-gated, audited
@@ -183,8 +186,9 @@ def _configure_caller_not_superuser(mock_user_objects: MagicMock) -> None:
 class TestPermissionDeniedMapping:
     """Every write handler maps a service-layer PermissionDenied to
     ``PERMISSION_DENIED`` — ``user.list`` is the only tool that still has
-    its own workspace-scoped pre-gate (``_check_admin``), which since Fix
-    Round 1 (I-4) also falls through for a tenant-admin caller."""
+    its own pre-gate, now tenant-admin-only (fix round 3, I-1; previously
+    workspace-scoped ``_check_admin`` with a tenant-admin fallback, Fix
+    Round 1 I-4)."""
 
     def test_user_create_maps_service_permission_denied(self):
         group, authz, accounts = _group()
@@ -208,9 +212,9 @@ class TestPermissionDeniedMapping:
 
     def test_user_list_with_viewer_role_returns_permission_denied(self):
         group, authz, _ = _group()
-        # Fix Round 1 (I-4): user.list now falls through to a
-        # tenant-admin check when _check_admin denies. Must also be false
-        # here so this stays a "no standing at all" scenario.
+        # Fix round 3 (I-1): user.list is tenant-admin-only now, so a
+        # Viewer with no tenant-admin standing is denied regardless of
+        # workspace role.
         authz.is_tenant_admin.return_value = False
         result = group.execute_tool(
             tool_name="user.list",
@@ -239,9 +243,8 @@ class TestPermissionDeniedMapping:
         assert result.error_code == "PERMISSION_DENIED"
 
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_user_assign_role_maps_service_permission_denied(
-        self, mock_set_tenant, mock_userrole_objects
+        self, mock_userrole_objects
     ):
         group, authz, _ = _group()
         authz.assign_role.side_effect = AuthTenancyPermissionDenied()
@@ -466,9 +469,8 @@ class TestUserCreate:
 class TestUserAssignRole:
     @patch("mcp_server.tools.users.write_mcp_audit")
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_user_assign_role_calls_authorization_service_and_audits(
-        self, mock_set_tenant, mock_userrole_objects, mock_audit
+        self, mock_userrole_objects, mock_audit
     ):
         group, authz, _ = _group()
         authz.assign_role.return_value = _mock_user_role()
@@ -500,8 +502,10 @@ class TestUserAssignRole:
         assert call_kwargs["target_is_member"] is True
         # actor_is_tenant_admin is forwarded (resolved via authz.is_tenant_admin)
         assert "actor_is_tenant_admin" in call_kwargs
-        # Tenant context was set so the userrole query worked
-        mock_set_tenant.assert_called_once_with(ADMIN_CTX.tenant_id)
+        # Fix round 3 (I-3): the handler no longer calls
+        # `TenantContext.set_tenant` directly — `ToolRegistry
+        # .dispatch_request` already arms it via `set_request_tenant`
+        # before the handler runs, so there is nothing left to assert here.
         # Audit was written
         mock_audit.assert_called_once()
         audit_kwargs = mock_audit.call_args.kwargs
@@ -512,9 +516,8 @@ class TestUserAssignRole:
         assert "preset" not in audit_kwargs["details"]
 
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_user_assign_role_non_member_target_reaches_service_with_false(
-        self, mock_set_tenant, mock_userrole_objects
+        self, mock_userrole_objects
     ):
         group, authz, _ = _group()
         # AuthorizationService raises ValueError for non-member target
@@ -590,9 +593,8 @@ class TestUserAssignRole:
         authz.assign_role.assert_not_called()
 
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_user_assign_role_service_raises_not_found(
-        self, mock_set_tenant, mock_userrole_objects
+        self, mock_userrole_objects
     ):
         group, authz, _ = _group()
         authz.assign_role.side_effect = NotFoundError("user not found")
@@ -613,9 +615,8 @@ class TestUserAssignRole:
         assert result.error_code == "NOT_FOUND"
 
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_user_assign_role_service_raises_permission_denied(
-        self, mock_set_tenant, mock_userrole_objects
+        self, mock_userrole_objects
     ):
         group, authz, _ = _group()
         authz.assign_role.side_effect = PermissionDeniedError("admin required")
@@ -636,9 +637,8 @@ class TestUserAssignRole:
         assert result.error_code == "PERMISSION_DENIED"
 
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_user_assign_role_does_not_audit_on_failure(
-        self, mock_set_tenant, mock_userrole_objects
+        self, mock_userrole_objects
     ):
         group, authz, _ = _group()
         authz.assign_role.side_effect = NotFoundError("user not found")
@@ -834,6 +834,27 @@ class TestUserList:
 
         assert result.success is True, result.message
         assert result.data["count"] == 1
+
+    def test_user_list_denies_workspace_admin_without_tenant_admin(self):
+        """Fix round 3 (I-1) regression: a plain workspace-admin (no
+        tenant-admin standing) must be DENIED — this is the exact gap that
+        made MCP strictly more permissive than REST's `GET /api/v1/users/`
+        (tenant-admin-only). ``ADMIN_CTX`` carries a workspace-scoped
+        ``ROLE_ADMIN`` only, so the old ``_check_admin`` gate used to admit
+        it; the new tenant-admin-only gate must not.
+        """
+        group, authz, _ = _group()
+        authz.is_tenant_admin.return_value = False
+
+        result = group.execute_tool(
+            tool_name="user.list",
+            params={},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
 
 
 # ---------------------------------------------------------------------------
@@ -1734,9 +1755,8 @@ class TestE2EUserCreate:
 class TestE2EUserAssignRole:
     @patch("mcp_server.tools.users.write_mcp_audit")
     @patch("mcp_server.tools.users.UserRole.objects")
-    @patch("mcp_server.tools.users.TenantContext.set_tenant")
     def test_successful_assign_role_returns_jsonrpc_result(
-        self, mock_set_tenant, mock_userrole_objects, mock_audit
+        self, mock_userrole_objects, mock_audit
     ):
         authz = MagicMock()
         authz.assign_role.return_value = _mock_user_role(role="editor")

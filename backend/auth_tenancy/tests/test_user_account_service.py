@@ -368,3 +368,26 @@ def test_create_rejects_email_over_max_length():
             email=("a" * 250) + "@t.test",
             password="a-real-password-123",
         )
+
+
+@pytest.mark.django_db
+def test_list_for_tenant_is_bounded_by_limit():
+    """Fix round 3 (I-4): ``list_for_tenant`` must respect a ``limit`` cap
+    (default 500, mirroring MCP's ``user.list`` ``_LIST_MAX_LIMIT``) rather
+    than returning every row of the tenant unbounded. Uses an explicit
+    small ``limit`` rather than creating 501+ rows to keep the test cheap.
+    """
+    tenant = Tenant.objects.create(name="UA-Bounded", slug="ua-bounded")
+    TenantContext.set_tenant(tenant.id)
+    try:
+        for i in range(5):
+            User.objects.create(username=f"ua-bounded-{i}", email=f"ua-bounded-{i}@t.test", tenant=tenant)
+    finally:
+        TenantContext.clear_tenant()
+
+    service = UserAccountService()
+    result = service.list_for_tenant(tenant_id=tenant.id, limit=3)
+    assert len(result) == 3
+
+    unbounded = service.list_for_tenant(tenant_id=tenant.id)
+    assert len(unbounded) == 5

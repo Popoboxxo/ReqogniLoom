@@ -158,6 +158,39 @@ def test_assign_role_rejects_cross_tenant_workspace(admin_client, tenant, worksp
 
 
 @pytest.mark.django_db
+def test_assign_role_rejects_cross_tenant_target(admin_client, tenant, workspace):
+    """C-1 regression: the WORKSPACE is correct (tenant A's own), but the
+    TARGET user belongs to a different tenant. ``AuthorizationService
+    .assign_role`` must reject this with ``NotFoundError`` (404) before
+    writing the ``UserRole`` row — otherwise a plain workspace-admin (no
+    tenant-admin standing needed) could grant `role=admin` to a foreign
+    user, inflating the workspace's admin count with a phantom row that
+    ``_assert_not_last_workspace_admin`` would still count, letting the
+    real last admin then be removed and stranding the workspace.
+    """
+    tenant_c = Tenant.objects.create(name="WSM-T-C", slug="wsm-t-c", is_active=True)
+    set_request_tenant(tenant_c.id)
+    try:
+        target_c = User.objects.create(username="wsm-target-c", email="wsm-target-c@t.test", tenant=tenant_c)
+    finally:
+        clear_request_tenant()
+
+    resp = admin_client.post(
+        f"/api/v1/workspaces/{workspace.id}/members/",
+        {"user_id": str(target_c.id), "role": "admin", "preset": "extended"},
+        format="json",
+    )
+    assert resp.status_code == 404, resp.content
+
+    set_request_tenant(tenant.id)
+    try:
+        assert not UserRole.objects.filter(workspace=workspace, user_id=target_c.id).exists()
+    finally:
+        clear_request_tenant()
+    assert not UserRole.unscoped.filter(workspace_id=workspace.id, user_id=target_c.id).exists()
+
+
+@pytest.mark.django_db
 def test_assign_role_rejects_spoofed_preset_for_approver(admin_client, tenant, workspace):
     """C-2 regression: a workspace-admin cannot bypass the Approver
     preset gate by lying about ``preset`` in the request body.
@@ -649,3 +682,74 @@ def test_suspend_nonexistent_admin_role_assignment_returns_404(tenant, admin_les
     )
     assert resp.status_code == 404, resp.content
     assert resp.json()["error"] == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+class TestC4RealAuditPersistence:
+    """Fix round 3, C-4: prove ``POST /members/`` and the suspend/reactivate
+    transition endpoints write a real, unmocked ``AuditEntry`` row — mirrors
+    ``mcp_server/tests/test_users_tool_group.py::TestE2ERealAuditPersistence``'s
+    approach for the identical MCP-side gap (query the DB, don't patch
+    ``ServiceBase._audit``).
+    """
+
+    def test_assign_role_writes_audit_row(self, admin_client, tenant, workspace):
+        from audit.models import AuditEntry
+
+        set_request_tenant(tenant.id)
+        try:
+            target = User.objects.create(username="wsm-audit-assign", email="wsm-audit-assign@t.test", tenant=tenant)
+        finally:
+            clear_request_tenant()
+
+        resp = admin_client.post(
+            f"/api/v1/workspaces/{workspace.id}/members/",
+            {"user_id": str(target.id), "role": "editor", "preset": "extended"},
+            format="json",
+        )
+        assert resp.status_code == 201, resp.content
+
+        set_request_tenant(tenant.id)
+        try:
+            role = UserRole.objects.get(user=target, workspace=workspace, role="editor")
+        finally:
+            clear_request_tenant()
+
+        rows = list(AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_ASSIGN_ROLE, entity_id=role.id))
+        assert len(rows) == 1, f"expected 1 AuditEntry for user.assign_role/{role.id}, found {len(rows)}"
+        assert rows[0].entity_type == "UserRole"
+        assert rows[0].source == AuditEntry.SOURCE_REST
+
+    def test_suspend_and_reactivate_role_write_audit_rows(self, admin_client, tenant, workspace):
+        from audit.models import AuditEntry
+
+        set_request_tenant(tenant.id)
+        try:
+            target = User.objects.create(username="wsm-audit-suspend", email="wsm-audit-suspend@t.test", tenant=tenant)
+            UserRole.objects.create(tenant=tenant, user=target, workspace=workspace, role="editor")
+        finally:
+            clear_request_tenant()
+
+        suspend = admin_client.post(
+            f"/api/v1/workspaces/{workspace.id}/members/{target.id}/suspend/", {"role": "editor"}, format="json"
+        )
+        assert suspend.status_code == 200, suspend.content
+        suspend_rows = list(
+            AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_SUSPEND_ROLE, entity_id=target.id)
+        )
+        assert len(suspend_rows) == 1, (
+            f"expected 1 AuditEntry for user.suspend_role/{target.id}, found {len(suspend_rows)}"
+        )
+        assert suspend_rows[0].entity_type == "UserRole"
+
+        reactivate = admin_client.post(
+            f"/api/v1/workspaces/{workspace.id}/members/{target.id}/reactivate/", {"role": "editor"}, format="json"
+        )
+        assert reactivate.status_code == 200, reactivate.content
+        reactivate_rows = list(
+            AuditEntry.unscoped.filter(op=AuditEntry.OP_USER_REACTIVATE_ROLE, entity_id=target.id)
+        )
+        assert len(reactivate_rows) == 1, (
+            f"expected 1 AuditEntry for user.reactivate_role/{target.id}, found {len(reactivate_rows)}"
+        )
+        assert reactivate_rows[0].entity_type == "UserRole"

@@ -37,7 +37,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
+from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.rest import HasOperationPermission
@@ -228,7 +229,7 @@ class WorkspaceMembersView(APIView):
             real_preset = None
 
         try:
-            self._service.assign_role(
+            user_role = self._service.assign_role(
                 actor_roles=ctx.active_roles,
                 actor_is_tenant_admin=actor_is_tenant_admin,
                 target_user_id=UUID(str(target_user_id)),
@@ -245,6 +246,18 @@ class WorkspaceMembersView(APIView):
             return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
         except (ValueError, ValidationError) as exc:
             return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+
+        # Fix round 3 (C-4): mirror `mcp_server.tools.users._handle_user_
+        # assign_role`'s `write_mcp_audit` call — this REST surface is the
+        # one the shipped UI actually uses, and it previously wrote zero
+        # audit rows for any user-management action.
+        ServiceBase._audit(
+            ctx,
+            operation=AuditEntry.OP_USER_ASSIGN_ROLE,
+            entity_type="UserRole",
+            entity_id=user_role.id,
+            details={"target_user_id": str(target_user_id), "role": role},
+        )
 
         return Response({"assigned": True}, status=status.HTTP_201_CREATED)
 
@@ -311,6 +324,19 @@ class WorkspaceMemberRoleTransitionView(APIView):
             return _err("LAST_ADMIN", str(exc), status.HTTP_409_CONFLICT)
         except NotFoundError as exc:
             return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+
+        # Fix round 3 (C-4): mirror the MCP `user.suspend_role` /
+        # `user.reactivate_role` audit calls (entity_id=target user id,
+        # same as `write_mcp_audit` uses there).
+        ServiceBase._audit(
+            ctx,
+            operation=(
+                AuditEntry.OP_USER_SUSPEND_ROLE if suspend else AuditEntry.OP_USER_REACTIVATE_ROLE
+            ),
+            entity_type="UserRole",
+            entity_id=user_uuid,
+            details={"workspace_id": str(ws_uuid), "role": role},
+        )
 
         return Response({"suspend" if suspend else "reactivate": True}, status=status.HTTP_200_OK)
 
