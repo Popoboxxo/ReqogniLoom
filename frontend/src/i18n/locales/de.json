@@ -725,6 +725,21 @@
       "copyHttpEndpoint": "HTTP-Endpunkt kopieren",
       "copySseEndpoint": "SSE-Endpunkt kopieren",
       "copyConfigExample": "Beispiel-Konfiguration kopieren"
+    },
+    "userManagement": {
+      "title": "Benutzerverwaltung",
+      "createUser": "User anlegen",
+      "username": "Benutzername",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "activate": "Aktivieren",
+      "deactivate": "Deaktivieren",
+      "tenantAdmin": "Tenant-Admin",
+      "grantTenantAdmin": "Tenant-Admin zuweisen",
+      "revokeTenantAdmin": "Tenant-Admin entziehen",
+      "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr."
     }
   },
   "categories": {

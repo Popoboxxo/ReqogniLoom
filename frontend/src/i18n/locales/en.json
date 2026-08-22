@@ -725,6 +725,21 @@
       "copyHttpEndpoint": "Copy HTTP endpoint",
       "copySseEndpoint": "Copy SSE endpoint",
       "copyConfigExample": "Copy example configuration"
+    },
+    "userManagement": {
+      "title": "User Management",
+      "createUser": "Create user",
+      "username": "Username",
+      "email": "Email",
+      "password": "Password",
+      "active": "Active",
+      "inactive": "Inactive",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "tenantAdmin": "Tenant Admin",
+      "grantTenantAdmin": "Grant tenant admin",
+      "revokeTenantAdmin": "Revoke tenant admin",
+      "lastAdminError": "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left."
     }
   },
   "categories": {
