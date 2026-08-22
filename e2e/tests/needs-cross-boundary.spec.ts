@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { getAuthToken, createIsolatedWorkspace, setWorkspaceId, loginAsAdmin } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
   let workspaceId: string;
@@ -102,7 +102,7 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
     // text input -> submit button; see frontend/src/components/NeedsEditors/
     // NeedList.tsx). No browser dialog is involved anymore.
     await page.click('[data-testid="create-need-btn"]');
-    const titleInput = page.locator('form input[type="text"]');
+    const titleInput = page.locator('[data-testid="need-new-title-input"]');
     await expect(titleInput).toBeVisible({ timeout: 5000 });
     await titleInput.fill(uiTitle);
     await page.click('form button[type="submit"]');

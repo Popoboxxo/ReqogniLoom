@@ -87,12 +87,8 @@ backups/
 docker-compose.local-e2e.yml
 .projectatlas/
 .agents/
-<<<<<<< HEAD
 .test-reports/
 docs/test-reports/
-=======
-
 docs/test-reports/design-audit-populated/
 docs/test-reports/design-audit-screenshots/
 docs/test-reports/e2e/
->>>>>>> ef129d76 (Deep Dive Review)

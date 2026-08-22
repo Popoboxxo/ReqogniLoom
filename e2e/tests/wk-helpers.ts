@@ -9,7 +9,7 @@
 import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
 
-export const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+export const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /**
@@ -390,6 +390,15 @@ export async function createTestRunViaUI(
 
 /**
  * Schließt einen TestRun über die UI.
+ *
+ * GH-690: seit der Backend-Auto-Completion (GH-584, `_recompute_status`)
+ * ist ein TestRun bereits terminal (passed/failed/partial), sobald alle
+ * Ergebnisse gemeldet wurden — der Close-Button rendert dann gar nicht
+ * mehr (`TestRunDetailEditor.tsx`, nur bei `status === "in_progress"`
+ * sichtbar). Blindes `waitFor` auf den Button lief daher nach Seed aller
+ * Results in ein 8s-Timeout. Der Button wird jetzt nur noch erwartet,
+ * wenn er tatsächlich erscheint; ist der Run bereits terminal, wird die
+ * manuelle Close-Interaktion übersprungen.
  */
 export async function transitionTestRunViaUI(
   page: Page,
@@ -401,12 +410,19 @@ export async function transitionTestRunViaUI(
   const item = page.locator(`[data-testid="testrun-item-${runId}"]`);
   await item.waitFor({ timeout: 8000 });
   await item.click();
-  await page.locator('[data-testid="testrun-close-btn"]').waitFor({ timeout: 8000 });
-  if (toStatus === 'closed' || toStatus === 'failed' || toStatus === 'passed' || toStatus === 'partial') {
+  const closeBtn = page.locator('[data-testid="testrun-close-btn"]');
+  const alreadyTerminal = !(await closeBtn
+    .waitFor({ timeout: 8000, state: 'visible' })
+    .then(() => true)
+    .catch(() => false));
+  if (
+    !alreadyTerminal &&
+    (toStatus === 'closed' || toStatus === 'failed' || toStatus === 'passed' || toStatus === 'partial')
+  ) {
     // Two-step inline confirmation replaced the window.confirm dialog.
-    await page.locator('[data-testid="testrun-close-btn"]').click();
+    await closeBtn.click();
     await page.locator('[data-testid="testrun-confirm-close-btn"]').click();
-    await expect(page.locator('[data-testid="testrun-close-btn"]')).toHaveCount(0, { timeout: 8000 });
+    await expect(closeBtn).toHaveCount(0, { timeout: 8000 });
   }
   await page.waitForLoadState('networkidle');
 }

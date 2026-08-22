@@ -8,7 +8,7 @@ import {
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // ---------------------------------------------------------------------------
@@ -167,6 +167,7 @@ test.describe('[REQ-L0-005] Configurable lifecycle — workflow states', () => {
     // the WorkflowStatusEditor) only renders after Save navigates to the
     // detail route.
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-title-input"]').fill('E2E Workflow Status Requirement');
     await page.locator('[data-testid="req-new-save-btn"]').click();
 
     // REQ-161: current state is always shown read-only via the
@@ -317,6 +318,7 @@ test.describe('[REQ-L0-011] Audit trail', () => {
     // "+ New" only opens an inline quick-create form; the full editor (with
     // req-title) only renders after Save navigates to the detail route.
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-title-input"]').fill('E2E Audit Trail Requirement');
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 

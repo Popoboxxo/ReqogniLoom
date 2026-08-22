@@ -1,6 +1,6 @@
 import { Page, request } from '@playwright/test';
 
-const BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BASE_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Review finding F-05 (docs/SYSTEMAUDIT_2026-08-18.md follow-up, BUG-17):

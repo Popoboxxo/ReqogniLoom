@@ -30,7 +30,7 @@ import {
 } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 // ---------------------------------------------------------------------------
 // Helper: inject Bearer token into all /api/** requests so the Vite dev-proxy

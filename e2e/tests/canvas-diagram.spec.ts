@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
@@ -166,7 +166,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await expect(page.locator('[data-testid="canvas-undo"]')).toBeEnabled({ timeout: 3000 });
 
     // Save status should show "Unsaved changes" (isDirty = true)
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 3000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 3000 });
   });
 
   // -------------------------------------------------------------------------
@@ -205,7 +205,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await expect(page.locator('[data-testid="canvas-undo"]')).toBeDisabled({ timeout: 3000 });
 
     // After undo, the save status still shows unsaved (handleUndo sets isDirty = true)
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 2000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 2000 });
   });
 
   // -------------------------------------------------------------------------
@@ -233,7 +233,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await page.mouse.up();
 
     // Wait for dirty state
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 3000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 3000 });
 
     // Set up PUT request interceptor
     const putPromise = page.waitForResponse(
@@ -251,7 +251,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     expect(response.status()).toBe(200);
 
     // Save status should show "Saved"
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Saved', { timeout: 5000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Saved|Gespeichert/, { timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------
@@ -279,7 +279,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await page.mouse.up();
 
     // Wait for dirty state
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 3000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 3000 });
 
     // Wait for auto-save (fires every 5s when dirty)
     const putPromise = page.waitForResponse(
@@ -293,6 +293,6 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     expect(response.status()).toBe(200);
 
     // After auto-save, the dirty flag is cleared and status shows "Saved"
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Saved', { timeout: 5000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Saved|Gespeichert/, { timeout: 5000 });
   });
 });

@@ -3,7 +3,7 @@
 import { test, expect } from '@playwright/test';
 import { getAuthToken, setWorkspacePreset, createIsolatedWorkspace, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 test.describe('[REQ-L0-012] REST API Completeness', () => {
   // The REQ-L0-002 preset switcher test mutates the seeded workspace's preset

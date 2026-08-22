@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { getAuthToken, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 test.describe('[REQ-L2-SM-001] SeMetrics API', () => {
   test('[REQ-L2-SM-001] GET /api/v1/metrics/ returns coverage metrics', async ({ request }) => {

@@ -9,13 +9,14 @@ import {
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form; the full editor only
 // renders after Save/Create navigates to the created artifact's detail route.
-async function createRequirementViaQuickForm(page: Page): Promise<void> {
+async function createRequirementViaQuickForm(page: Page, title = 'E2E Requirement'): Promise<void> {
   await page.locator('[data-testid="create-req-btn"]').click();
+  await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
   await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 }
