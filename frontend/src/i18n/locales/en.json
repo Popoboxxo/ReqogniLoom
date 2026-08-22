@@ -1534,6 +1534,17 @@
   "profile": {
     "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types."
   },
+  "permissions": {
+    "members": {
+      "title": "Workspace Members",
+      "empty": "No workspace members.",
+      "member": "Member",
+      "roles": "Roles",
+      "suspend": "Suspend",
+      "reactivate": "Reactivate",
+      "lastAdminError": "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left."
+    }
+  },
   "interviews": {
     "summary_one": "{{count}} interview",
     "summary_other": "{{count}} interviews",

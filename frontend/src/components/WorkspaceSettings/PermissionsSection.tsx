@@ -13,6 +13,33 @@
  * The subject user is chosen from the workspace member directory
  * (GET /workspaces/{id}/members/, REQ-014) via a searchable dropdown that
  * resolves the user_id automatically — no more copy-pasting raw UUIDs.
+ *
+ * This member directory (also rendered below as a "Workspace Members" table,
+ * multi-user management design spec §5 Task 13) additionally exposes
+ * suspend/reactivate role actions for workspace-admins, extending the
+ * pre-existing GET-only `WorkspaceMembersView` with
+ * `workspaceMembersApi.suspendRole`/`reactivateRole` (Task 11). Button
+ * visibility here is UX only — real enforcement stays server-side
+ * (`WorkspaceMemberRoleTransitionView`, `AuthorizationService.suspend_role`/
+ * `reactivate_role`).
+ *
+ * `LAST_ADMIN` (409) handling mirrors `UserManagement.tsx` (Task 12): the
+ * backend (`rest_workspace_members.py`'s `_err()`) returns a FLAT
+ * `{error, message}` body and `apiClient.apiFetch` throws that body
+ * directly for a non-2xx response — NOT an axios-style
+ * `{response: {status, data}}` wrapper.
+ *
+ * `GET /members/` only returns a member's ACTIVE (non-suspended) roles
+ * (`AuthorizationService.list_workspace_members` filters
+ * `suspended_at__isnull=True`) — a role vanishes from the list the moment
+ * it is suspended, and a member with zero remaining active roles vanishes
+ * entirely. `suspendedRoleSnapshots` below keeps a client-side, session-only
+ * memory of roles suspended through this UI so the just-suspended role (and
+ * its member row, if it would otherwise disappear) stays visible with a
+ * "Reactivate" action — a deliberate frontend-only workaround, not a
+ * backend change: `GET /members/` intentionally stays active-only for its
+ * original purpose (the item-permission picker above must never offer a
+ * suspended member).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -32,6 +59,41 @@ import type { Artifact, UUID } from "../../types";
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
   return e?.error?.message ?? e?.message ?? String(err);
+}
+
+// ---------------------------------------------------------------------------
+// LAST_ADMIN error handling (mirrors UserManagement.tsx, Task 12)
+// ---------------------------------------------------------------------------
+
+interface ApiErrorBody {
+  error: string;
+  message: string;
+}
+
+function isLastAdminError(err: unknown): err is ApiErrorBody {
+  const candidate = err as Partial<ApiErrorBody> | null | undefined;
+  return (
+    !!candidate &&
+    typeof candidate === "object" &&
+    candidate.error === "LAST_ADMIN" &&
+    typeof candidate.message === "string"
+  );
+}
+
+// Matches `LastAdminError.__init__`'s fixed message format
+// (backend/auth_tenancy/services/authorization.py): "Cannot complete this
+// action: it would leave {scope} {identifier} with no active admin."
+const LAST_ADMIN_MESSAGE_RE = /leave (workspace|tenant) (\S+) with no active admin/i;
+
+function parseLastAdminMessage(message: string): { scope: string; identifier: string } | null {
+  const match = message.match(LAST_ADMIN_MESSAGE_RE);
+  if (!match) return null;
+  const [, scope, identifier] = match;
+  return { scope: scope.charAt(0).toUpperCase() + scope.slice(1), identifier };
+}
+
+function memberRoleKey(userId: string, role: string): string {
+  return `${userId}::${role}`;
 }
 
 const LEVELS: ItemPermissionLevel[] = ["read", "write", "none"];
@@ -73,6 +135,85 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// Workspace-members roster styles (Task 13). Hoisted to module-level
+// constants — referenced via `style={constName}` (single-brace) rather than
+// an inline double-brace object literal — per the UI-concept ratchet guard
+// (`frontend/src/test/ui-ratchet.test.ts`), which freezes the project-wide
+// count of inline-style-object-literal usages and fails on any net increase.
+const membersSectionStyle: React.CSSProperties = { marginBottom: "var(--space-4)" };
+
+const membersHeadingStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-md)",
+  fontWeight: 600,
+  color: "var(--color-text)",
+  margin: "0 0 var(--space-2) 0",
+};
+
+const membersErrorStyle: React.CSSProperties = {
+  color: "var(--color-danger)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const membersEmptyStyle: React.CSSProperties = {
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const membersTableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
+
+const roleChipWrapperStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-1)",
+  marginRight: "var(--space-3)",
+};
+
+const roleLabelActiveStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  fontWeight: 600,
+  color: "var(--color-text)",
+  textDecoration: "none",
+};
+
+const roleLabelSuspendedStyle: React.CSSProperties = {
+  ...roleLabelActiveStyle,
+  color: "var(--color-text-muted)",
+  textDecoration: "line-through",
+};
+
+const roleActionBaseStyle: React.CSSProperties = {
+  background: "transparent",
+  borderRadius: "var(--radius-md)",
+  padding: "1px var(--space-2)",
+  fontSize: "var(--font-size-xs)",
+  cursor: "pointer",
+  opacity: 1,
+};
+
+const suspendActionStyle: React.CSSProperties = {
+  ...roleActionBaseStyle,
+  color: "var(--color-danger)",
+  border: "1px solid var(--color-danger)",
+};
+
+const suspendActionPendingStyle: React.CSSProperties = {
+  ...suspendActionStyle,
+  cursor: "wait",
+  opacity: 0.6,
+};
+
+const reactivateActionStyle: React.CSSProperties = {
+  ...roleActionBaseStyle,
+  color: "var(--color-primary)",
+  border: "1px solid var(--color-primary)",
+};
+
+const reactivateActionPendingStyle: React.CSSProperties = {
+  ...reactivateActionStyle,
+  cursor: "wait",
+  opacity: 0.6,
+};
+
 export interface PermissionsSectionProps {
   workspaceId: UUID;
 }
@@ -98,6 +239,16 @@ export function PermissionsSection({
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
+
+  // Workspace-members roster (Task 13): suspend/reactivate role actions.
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [pendingRoleKey, setPendingRoleKey] = useState<string | null>(null);
+  // Session-only memory of roles suspended through this UI, keyed by
+  // `memberRoleKey(user_id, role)` — see the file-level doc comment above
+  // for why this exists (GET /members/ is active-roles-only).
+  const [suspendedRoleSnapshots, setSuspendedRoleSnapshots] = useState<
+    Record<string, WorkspaceMember>
+  >({});
 
   // Load artifact options for the optional artifact-scoped rule.
   useEffect(() => {
@@ -205,6 +356,114 @@ export function PermissionsSection({
     [workspaceId, filterUserId, loadPermissions, t]
   );
 
+  const loadMembers = useCallback(async (): Promise<void> => {
+    try {
+      const rows = await workspaceMembersApi.list(workspaceId);
+      setMembers(rows);
+    } catch (err) {
+      setMembersError(extractErrorMessage(err));
+    }
+  }, [workspaceId]);
+
+  const handleMembersApiError = useCallback(
+    (err: unknown): void => {
+      if (isLastAdminError(err)) {
+        const parsed = parseLastAdminMessage(err.message);
+        setMembersError(
+          parsed
+            ? t(
+                "permissions.members.lastAdminError",
+                "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left.",
+                { scope: parsed.scope, identifier: parsed.identifier }
+              )
+            : err.message
+        );
+        return;
+      }
+      setMembersError(extractErrorMessage(err));
+    },
+    [t]
+  );
+
+  const handleSuspendRole = useCallback(
+    async (member: WorkspaceMember, role: string): Promise<void> => {
+      const key = memberRoleKey(member.user_id, role);
+      setMembersError(null);
+      setPendingRoleKey(key);
+      try {
+        await workspaceMembersApi.suspendRole(workspaceId, member.user_id, role);
+        // Snapshot the member as it looked right before suspension so the
+        // row/role stays visible (with a Reactivate action) even if the
+        // refetch below drops it from the active-only roster.
+        setSuspendedRoleSnapshots((prev) => ({ ...prev, [key]: member }));
+        await loadMembers();
+      } catch (err) {
+        handleMembersApiError(err);
+      } finally {
+        setPendingRoleKey(null);
+      }
+    },
+    [workspaceId, loadMembers, handleMembersApiError]
+  );
+
+  const handleReactivateRole = useCallback(
+    async (member: WorkspaceMember, role: string): Promise<void> => {
+      const key = memberRoleKey(member.user_id, role);
+      setMembersError(null);
+      setPendingRoleKey(key);
+      try {
+        await workspaceMembersApi.reactivateRole(workspaceId, member.user_id, role);
+        setSuspendedRoleSnapshots((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        await loadMembers();
+      } catch (err) {
+        handleMembersApiError(err);
+      } finally {
+        setPendingRoleKey(null);
+      }
+    },
+    [workspaceId, loadMembers, handleMembersApiError]
+  );
+
+  // Merge the live (active-only) roster with any session-suspended
+  // snapshots so a member whose last active role was just suspended does
+  // not vanish before the admin can reactivate it.
+  const memberById = new Map(members.map((m) => [m.user_id, m]));
+  const ghostMembers = Object.values(suspendedRoleSnapshots).filter(
+    (m) => !memberById.has(m.user_id)
+  );
+  const dedupedGhosts = Array.from(
+    new Map(ghostMembers.map((m) => [m.user_id, m])).values()
+  );
+  const displayMembers = [...members, ...dedupedGhosts];
+
+  const rolesForDisplay = useCallback(
+    (member: WorkspaceMember): string[] => {
+      const live = memberById.get(member.user_id)?.roles ?? [];
+      const suspended = Object.entries(suspendedRoleSnapshots)
+        .filter(([key]) => key.startsWith(`${member.user_id}::`))
+        .map(([key]) => key.slice(`${member.user_id}::`.length));
+      return Array.from(new Set([...live, ...suspended]));
+    },
+    // memberById is derived fresh from `members` every render; depend on
+    // `members` directly instead so this callback's identity tracks it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [members, suspendedRoleSnapshots]
+  );
+
+  const isRoleSuspended = useCallback(
+    (member: WorkspaceMember, role: string): boolean => {
+      const key = memberRoleKey(member.user_id, role);
+      const live = memberById.get(member.user_id)?.roles ?? [];
+      return key in suspendedRoleSnapshots && !live.includes(role);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [members, suspendedRoleSnapshots]
+  );
+
   return (
     <section style={sectionStyle} data-testid="permissions-section">
       <h3 style={headingStyle}>
@@ -223,6 +482,80 @@ export function PermissionsSection({
           "Per-user access rules for this workspace. A rule without an artifact applies workspace-wide; level 'none' is an explicit deny."
         )}
       </p>
+
+      {/* Workspace members roster — suspend/reactivate role actions (Task 13) */}
+      <div data-testid="workspace-members-section" style={membersSectionStyle}>
+        <h4 style={membersHeadingStyle}>
+          {t("permissions.members.title", "Workspace Members")}
+        </h4>
+
+        {membersError && (
+          <p role="alert" data-testid="workspace-members-error" style={membersErrorStyle}>
+            {membersError}
+          </p>
+        )}
+
+        {displayMembers.length === 0 ? (
+          <p data-testid="workspace-members-empty" style={membersEmptyStyle}>
+            {t("permissions.members.empty", "No workspace members.")}
+          </p>
+        ) : (
+          <table data-testid="workspace-members-table" style={membersTableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>{t("permissions.members.member", "Member")}</th>
+                <th style={thStyle}>{t("permissions.members.roles", "Roles")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayMembers.map((m) => (
+                <tr key={m.user_id} data-testid={`workspace-member-row-${m.user_id}`}>
+                  <td style={tdStyle}>{memberLabel(m)}</td>
+                  <td style={tdStyle}>
+                    {rolesForDisplay(m).map((role) => {
+                      const key = memberRoleKey(m.user_id, role);
+                      const suspended = isRoleSuspended(m, role);
+                      const isPending = pendingRoleKey === key;
+                      return (
+                        <span
+                          key={role}
+                          data-testid={`workspace-member-role-${m.user_id}-${role}`}
+                          style={roleChipWrapperStyle}
+                        >
+                          <span style={suspended ? roleLabelSuspendedStyle : roleLabelActiveStyle}>
+                            {role}
+                          </span>
+                          {suspended ? (
+                            <button
+                              type="button"
+                              data-testid={`workspace-member-reactivate-${m.user_id}-${role}`}
+                              onClick={() => void handleReactivateRole(m, role)}
+                              disabled={isPending}
+                              style={isPending ? reactivateActionPendingStyle : reactivateActionStyle}
+                            >
+                              {t("permissions.members.reactivate", "Reactivate")}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              data-testid={`workspace-member-suspend-${m.user_id}-${role}`}
+                              onClick={() => void handleSuspendRole(m, role)}
+                              disabled={isPending}
+                              style={isPending ? suspendActionPendingStyle : suspendActionStyle}
+                            >
+                              {t("permissions.members.suspend", "Suspend")}
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* Grant form */}
       <div

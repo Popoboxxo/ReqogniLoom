@@ -1534,6 +1534,17 @@
   "profile": {
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."
   },
+  "permissions": {
+    "members": {
+      "title": "Workspace-Mitglieder",
+      "empty": "Keine Workspace-Mitglieder.",
+      "member": "Mitglied",
+      "roles": "Rollen",
+      "suspend": "Sperren",
+      "reactivate": "Reaktivieren",
+      "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr."
+    }
+  },
   "interviews": {
     "summary_one": "{{count}} Interview",
     "summary_other": "{{count}} Interviews",

@@ -2,12 +2,23 @@
  * ARCH-L1-001 ReactFrontend — PermissionsSection user-picker tests.
  *
  * leaf_id: COMP-RF-001 (WorkspaceSettings scope)
- * req_id:  REQ-014 (Item-Permission user picker replaces UUID free-text)
+ * req_id:  REQ-014 (Item-Permission user picker replaces UUID free-text),
+ *          multi-user management design spec Task 13 (workspace members
+ *          suspend/reactivate UI)
  *
  * Tests:
  * 1. The subject picker is a dropdown populated from the workspace member
  *    directory (display name + email), not a free-text UUID input.
  * 2. Granting a rule uses the selected member's user_id automatically.
+ * 3. The workspace-members table (Task 13) renders a Suspend action per
+ *    member role, calls `workspaceMembersApi.suspendRole` and reloads the
+ *    roster; the just-suspended role then shows a Reactivate action (the
+ *    live `GET /members/` roster is active-roles-only, so a suspended role
+ *    — or an entirely suspended member — would otherwise vanish before it
+ *    could be reactivated from this UI).
+ * 4. A `LAST_ADMIN` 409 (flat `{error, message}` body — see
+ *    `UserManagement.tsx`'s doc comment for the real `apiClient` error
+ *    shape) surfaces as a specific inline error, not a generic failure.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -17,7 +28,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import i18next from "i18next";
 
 vi.mock("../api/workspace-members", () => ({
-  workspaceMembersApi: { list: vi.fn() },
+  workspaceMembersApi: { list: vi.fn(), suspendRole: vi.fn(), reactivateRole: vi.fn() },
 }));
 vi.mock("../api/item-permissions", () => ({
   itemPermissionsApi: { list: vi.fn(), grant: vi.fn(), revoke: vi.fn() },
@@ -76,6 +87,8 @@ describe("PermissionsSection user picker (REQ-014)", () => {
     );
     (itemPermissionsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (itemPermissionsApi.grant as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (workspaceMembersApi.suspendRole as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (workspaceMembersApi.reactivateRole as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   });
 
   it("populates the picker with workspace members from the directory", async () => {
@@ -127,5 +140,87 @@ describe("PermissionsSection user picker (REQ-014)", () => {
     await waitFor(() => {
       expect(itemPermissionsApi.list).toHaveBeenCalledWith("ws-1", CAROL_ID);
     });
+  });
+});
+
+describe("PermissionsSection workspace members suspend/reactivate (Task 13)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (artifactsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      results: [],
+    });
+    (itemPermissionsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (itemPermissionsApi.grant as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (workspaceMembersApi.suspendRole as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (workspaceMembersApi.reactivateRole as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  });
+
+  it("renders a Suspend action per member role and calls suspendRole, then reloads the roster", async () => {
+    (workspaceMembersApi.list as ReturnType<typeof vi.fn>).mockResolvedValue(MEMBERS);
+    renderSection();
+    const user = userEvent.setup();
+
+    const suspendBtn = await screen.findByTestId(`workspace-member-suspend-${BOB_ID}-editor`);
+    await user.click(suspendBtn);
+
+    await waitFor(() => {
+      expect(workspaceMembersApi.suspendRole).toHaveBeenCalledWith("ws-1", BOB_ID, "editor");
+    });
+    // Reloads the member list after a successful suspend (initial load + reload).
+    await waitFor(() => {
+      expect(workspaceMembersApi.list).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("shows a Reactivate action for a just-suspended role and calls reactivateRole", async () => {
+    // Bob holds only the "editor" role, so once it is suspended he drops out
+    // of the active-only roster entirely on the next fetch — the row must
+    // still render (via the session-local suspended-role memory) with a
+    // Reactivate action.
+    (workspaceMembersApi.list as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(MEMBERS)
+      .mockResolvedValueOnce([MEMBERS[1]]);
+    renderSection();
+    const user = userEvent.setup();
+
+    const suspendBtn = await screen.findByTestId(`workspace-member-suspend-${BOB_ID}-editor`);
+    await user.click(suspendBtn);
+
+    const reactivateBtn = await screen.findByTestId(
+      `workspace-member-reactivate-${BOB_ID}-editor`
+    );
+    await user.click(reactivateBtn);
+
+    await waitFor(() => {
+      expect(workspaceMembersApi.reactivateRole).toHaveBeenCalledWith("ws-1", BOB_ID, "editor");
+    });
+    // Initial load + reload-after-suspend + reload-after-reactivate.
+    await waitFor(() => {
+      expect(workspaceMembersApi.list).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it("surfaces a LAST_ADMIN error inline, naming the blocking scope", async () => {
+    (workspaceMembersApi.list as ReturnType<typeof vi.fn>).mockResolvedValue(MEMBERS);
+    // Real production shape thrown by `apiClient` for a non-2xx JSON error
+    // body (see `apiFetch`'s `throw body` in client.ts) — flat, not
+    // axios-style `{response: {status, data}}`.
+    (workspaceMembersApi.suspendRole as ReturnType<typeof vi.fn>).mockRejectedValue({
+      error: "LAST_ADMIN",
+      message: "Cannot complete this action: it would leave workspace ws-1 with no active admin.",
+    });
+    renderSection();
+    const user = userEvent.setup();
+
+    const suspendBtn = await screen.findByTestId(`workspace-member-suspend-${BOB_ID}-editor`);
+    await user.click(suspendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-members-error")).toHaveTextContent(
+        /no active admin/i
+      );
+    });
+    expect(screen.getByTestId("workspace-members-error")).toHaveTextContent(/Workspace/);
+    expect(screen.getByTestId("workspace-members-error")).toHaveTextContent(/ws-1/);
   });
 });
