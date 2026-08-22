@@ -976,8 +976,8 @@ class ArchitectureElement(TenantScopedModel):
     """Architecture element derived from an artifact (REQ-L1-002).
 
     REQ-L1-041: Supports hierarchical parent-child relationships via parent_id.
-    Level is derived from tree depth (0=root, 1=child of root, etc.) via CTE
-    annotation in manager.get_with_level() (REQ-L1-058 AC2).
+    Level is derived from tree depth (0=root, 1=child of root, etc.) via the
+    ``annotate_levels()`` classmethod (recursive-CTE, bulk, REQ-L1-058 AC2).
 
     REQ-L3-RF004-004: Supports SE mask fields (asil_level, make_or_buy, uid).
     REQ-L2-RF-025 AC3: Includes uid for stable identification.
@@ -1056,11 +1056,11 @@ class ArchitectureElement(TenantScopedModel):
     def level(self) -> int:
         """Return tree depth of this element (from annotation or fallback).
 
-        REQ-L1-058 AC2: Prefer .get_with_level() for bulk fetches (CTE-based).
+        REQ-L1-058 AC2: Prefer ``annotate_levels()`` for bulk fetches (CTE-based).
         This property provides compatibility for single-instance access
         and falls back to Python recursion if not annotated.
         """
-        # Check if level was annotated by get_with_level()
+        # Check if level was annotated by annotate_levels()
         if hasattr(self, '_level_annotated'):
             return self._level_annotated
         # Fallback: compute via recursive get_level()
