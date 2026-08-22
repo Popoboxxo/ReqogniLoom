@@ -255,14 +255,21 @@ class TransportAdapter(ABC):
     def write_response(self, response: Dict[str, Any]) -> None:
         """Serialise and write a JSON-RPC response frame to the transport."""
 
-    @staticmethod
-    def extract_api_key(frame: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Optional[str]:
+    def extract_api_key(self, frame: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Optional[str]:
         """Extract API key from request frame or headers (ADR-L3-MC001-03).
 
         Priority:
           1. Authorization: Bearer <key> header
           2. X-API-Key HTTP header (HTTP/SSE transports)
-          3. params.api_key (all transports — used by stdio clients)
+          3. params.api_key (stdio transport only — see below)
+
+        ``params.api_key`` is only honoured on the stdio transport. stdio has
+        no header mechanism, so it legitimately needs the JSON-RPC body as
+        its key channel. HTTP/SSE transports *do* have a header mechanism,
+        and accepting the key from the request body there would expose it to
+        the same logging/proxy/tracing risk the query-string fallback is
+        already rejected for (REQ-018 / SYSTEM_AUDIT P-05) — so for those
+        transports a body-only key is treated as no key at all.
         """
         if headers:
             auth_header = headers.get("HTTP_AUTHORIZATION") or headers.get("Authorization")
@@ -272,8 +279,10 @@ class TransportAdapter(ABC):
             key = headers.get("HTTP_X_API_KEY") or headers.get("X-API-Key")
             if key:
                 return key
-        params = frame.get("params") or {}
-        return params.get("api_key")
+        if isinstance(self, StdioTransportAdapter):
+            params = frame.get("params") or {}
+            return params.get("api_key")
+        return None
 
 
 class StdioTransportAdapter(TransportAdapter):
@@ -482,9 +491,9 @@ class ProtocolHandler:
                 response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
             except McpAuthenticationError as exc:
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "AUTH_FAILED", str(exc))
-            except Exception as exc:
+            except Exception:
                 logger.exception("Error listing tools")
-                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR", str(exc))
+                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR")
             adapter.write_response(response)
             return response
 
@@ -518,7 +527,6 @@ class ProtocolHandler:
         if result.success:
             # Wrap the result in MCP standard content blocks if it was a standard call
             if method == "tools/call":
-                import json
                 text_content = result.data if isinstance(result.data, str) else json.dumps(result.data, indent=2)
                 response_data = {
                     "content": [

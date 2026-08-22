@@ -86,6 +86,15 @@ def store_session_api_key(
     directly expose usable API keys — unlike a bare HMAC signature, the
     ciphertext cannot be read without the encryption key. The auth flow
     still receives the plaintext key on read.
+
+    Raises:
+        Exception: whatever the Redis client / encryption layer raises. A
+            session whose key binding failed to persist is unusable — every
+            subsequent ``GET /mcp/messages/`` for it would fail server-side
+            lookup and dead-end in ``SESSION_EXPIRED`` anyway, so it is more
+            honest to fail session creation immediately here than to hand
+            the caller a session id that is already dead (deep-dive review
+            D-5b).
     """
     try:
         r = _get_redis_client()
@@ -93,6 +102,7 @@ def store_session_api_key(
         r.set(_session_auth_key(session_id), encrypted, ex=ttl)
     except Exception:
         logger.exception(f"Failed to store session api key for {session_id}")
+        raise
 
 def get_session_api_key(session_id: str) -> Optional[str]:
     """Return the API key bound to an SSE session, or None if unknown/expired."""

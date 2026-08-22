@@ -77,6 +77,21 @@ function StateNodeComponent({
             }
           : undefined
       }
+      // WCAG 2.1.1 — role="button" must be Enter/Space-operable. Mirrors
+      // onDoubleClick above exactly: only active in edit mode, opens the
+      // inline rename input.
+      onKeyDown={
+        editMode
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                setDraft(state.name);
+                setEditing(true);
+              }
+            }
+          : undefined
+      }
     >
       <Handle
         type="target"

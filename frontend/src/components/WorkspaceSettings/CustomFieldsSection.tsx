@@ -55,6 +55,22 @@ const buttonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// Visually-hidden but screen-reader-accessible label — the inline create-form
+// below has no room for a visible "Type" caption next to the select (the
+// column header above the table already conveys it visually), but the
+// control still needs a programmatic accessible name (WCAG 4.1.2).
+const visuallyHiddenStyle: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 interface CustomFieldsSectionProps {
   workspaceId: UUID;
 }
@@ -250,7 +266,11 @@ export function CustomFieldsSection({
             onChange={(e) => setName(e.target.value)}
             style={{ ...inputStyle, flex: "1 1 160px" }}
           />
+          <label htmlFor="custom-field-type-select" style={visuallyHiddenStyle}>
+            {t("settings.customFields.type", "Typ")}
+          </label>
           <select
+            id="custom-field-type-select"
             data-testid="custom-field-type-select"
             value={fieldType}
             onChange={(e) => setFieldType(e.target.value as CustomFieldType)}

@@ -614,6 +614,17 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                   style={inputStyle}
                 >
                   <option value="">{t('editor.categoryPlaceholder')} --</option>
+                  {/* Legacy-value passthrough: the backend `category` field is a
+                      free-form CharField with no DB-level choices constraint, so an
+                      existing requirement (CSV/ReqIF import, manual DB edit) may carry
+                      a value no longer in REQ_CATEGORIES (e.g. a removed category).
+                      Without this, the select would show no matching option, and the
+                      unknown value would be silently discarded on the next save. */}
+                  {category && !(REQ_CATEGORIES as readonly string[]).includes(category) && (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  )}
                   {REQ_CATEGORIES.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}

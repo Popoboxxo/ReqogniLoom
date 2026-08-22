@@ -37,6 +37,37 @@ import styles from "./GlossaryView.module.css";
 
 type FilterMode = "" | "workspace" | "global";
 
+// GESAMTTEST_BERICHT_2026-08-21.md §6 "Glossar-Toolbar-Lücke": every sibling
+// artifact list (Adr/Risk/Issue/...) offers a lifecycle-status filter and a
+// sort dropdown via ListToolbar — Glossary only had the workspace/global
+// filter. Mirrors ArchitectureEditors.tsx's ARCH_LIFECYCLE_STATUSES (same
+// GlossaryTerm.lifecycle_status vocabulary, "deleted" excluded since deleted
+// terms are already hidden from the loaded list — see the type's own
+// comment in types/index.ts).
+const GLOSSARY_LIFECYCLE_STATUSES = ["active", "outdated", "deprecated"] as const;
+
+type SortKey = "default" | "term" | "status" | "updated";
+
+function sortTerms(list: GlossaryTerm[], sortKey: SortKey): GlossaryTerm[] {
+  const sorted = [...list];
+  switch (sortKey) {
+    case "term":
+      sorted.sort((a, b) => a.term.localeCompare(b.term));
+      break;
+    case "status":
+      sorted.sort(
+        (a, b) =>
+          (a.lifecycle_status ?? "active").localeCompare(b.lifecycle_status ?? "active") ||
+          a.term.localeCompare(b.term),
+      );
+      break;
+    case "updated":
+      sorted.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+      break;
+  }
+  return sorted;
+}
+
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -47,6 +78,8 @@ export default function GlossaryView(): JSX.Element {
   const [rowError, setRowError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("workspace");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("default");
 
   // Detail-pane selection (view mode) — independent from `editingId` (the
   // edit-form target), so selecting a row for viewing never surfaces the
@@ -206,28 +239,30 @@ export default function GlossaryView(): JSX.Element {
   const resetFilters = (): void => {
     setSearchTerm("");
     setFilterMode("workspace");
+    setStatusFilter("");
   };
 
-  const filteredTerms = useMemo(
-    () =>
-      terms.filter((term) => {
-        const matchesSearch =
-          term.term.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          term.definition.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredTerms = useMemo(() => {
+    const filtered = terms.filter((term) => {
+      const matchesSearch =
+        term.term.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        term.definition.toLowerCase().includes(searchTerm.toLowerCase());
 
-        let matchesMode = true;
-        if (filterMode === "workspace") {
-          matchesMode = term.workspace_id === activeWorkspace?.id;
-        } else if (filterMode === "global") {
-          matchesMode = term.workspace_id === null;
-        }
+      let matchesMode = true;
+      if (filterMode === "workspace") {
+        matchesMode = term.workspace_id === activeWorkspace?.id;
+      } else if (filterMode === "global") {
+        matchesMode = term.workspace_id === null;
+      }
 
-        return matchesSearch && matchesMode;
-      }),
-    [terms, searchTerm, filterMode, activeWorkspace?.id],
-  );
+      const matchesStatus = !statusFilter || (term.lifecycle_status ?? "active") === statusFilter;
 
-  const hasActiveListControls = Boolean(searchTerm || filterMode !== "workspace");
+      return matchesSearch && matchesMode && matchesStatus;
+    });
+    return sortTerms(filtered, sortKey);
+  }, [terms, searchTerm, filterMode, statusFilter, sortKey, activeWorkspace?.id]);
+
+  const hasActiveListControls = Boolean(searchTerm || filterMode !== "workspace" || statusFilter);
 
   if (!activeWorkspace) return <div className={styles.workspacePrompt}>{t("workspace.selectFirst")}</div>;
 
@@ -340,7 +375,28 @@ export default function GlossaryView(): JSX.Element {
             ],
             onChange: (v) => setFilterMode(v as FilterMode),
           },
+          {
+            // GESAMTTEST_BERICHT_2026-08-21.md §6: status filter, matching
+            // every sibling artifact list's ListToolbar.
+            id: "status",
+            allLabel: t("editor.allStatuses", "All Statuses"),
+            value: statusFilter,
+            options: GLOSSARY_LIFECYCLE_STATUSES.map((s) => ({
+              value: s,
+              label: t(`glossary.lifecycleStatus.${s}`, s),
+            })),
+            onChange: setStatusFilter,
+          },
         ]}
+        sortValue={sortKey}
+        sortOptions={[
+          { value: "default", label: t("editor.sortDefault", "Default") },
+          { value: "term", label: t("editor.sortTitleAsc", "Title (A-Z)") },
+          { value: "status", label: t("editor.sortStatus", "Status") },
+          { value: "updated", label: t("editor.sortUpdatedDesc", "Recently Updated") },
+        ]}
+        onSortChange={(v) => setSortKey(v as SortKey)}
+        sortLabel={t("editor.sortLabel", "Sort by")}
         countLabel={hasActiveListControls ? t("editor.filteredCount", { shown: filteredTerms.length, total: terms.length }) : String(terms.length)}
       />
 
@@ -444,28 +500,28 @@ export default function GlossaryView(): JSX.Element {
       </h2>
       <div className={styles.formGrid}>
         <div>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-term-input">
             {t("glossary.term")} *
           </label>
-          <input required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
+          <input id="glossary-term-input" required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
         </div>
         <div>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-abbreviation-input">
             {t("glossary.abbreviation")}
           </label>
-          <input className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
+          <input id="glossary-abbreviation-input" className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
         </div>
         <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-definition-input">
             {t("glossary.definition")} *
           </label>
-          <textarea required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
+          <textarea id="glossary-definition-input" required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
         </div>
         <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-synonyms-input">
             {t("glossary.synonyms")}
           </label>
-          <input className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
+          <input id="glossary-synonyms-input" className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
         </div>
       </div>
 

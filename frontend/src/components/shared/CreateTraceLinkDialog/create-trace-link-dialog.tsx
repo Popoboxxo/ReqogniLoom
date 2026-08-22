@@ -29,7 +29,7 @@ import { adrsApi } from '../../../api/adrs';
 import { risksApi } from '../../../api/risks';
 import { issuesApi } from '../../../api/issues';
 import { tracelinksApi } from '../../../api/tracelinks';
-import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../../constants/traceLinkLabels';
+import { ALL_LINK_TYPES, getTriLabel } from '../../../constants/traceLinkLabels';
 import { Dialog } from '../Dialog';
 import type { LinkType } from '../../../types';
 
@@ -326,7 +326,16 @@ export function CreateTraceLinkDialog({
   allowedTypes,
   defaultLinkType = 'derives-from',
 }: CreateTraceLinkDialogProps): JSX.Element | null {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Link-type neutral labels come from the dedicated Tri-Label table
+  // (constants/traceLinkLabels.ts), not from the i18next locale JSON — that
+  // table already carries real DE/EN pairs per link type, but the
+  // now-replaced `getLinkTypeLabel()` helper always returned the EN neutral
+  // form regardless of the active UI language (e.g. "Derivation" for
+  // `derives-from`, shown even with a German UI). Resolve against the
+  // active language instead, matching the `i18n.language.startsWith("de")`
+  // convention used elsewhere (e.g. SidebarNavigation.tsx).
+  const triLabelLang = i18n?.language?.startsWith('de') ? 'de' : 'en';
 
   // Keep the latest `t` in a ref so data-loading callbacks can read it without
   // taking a dependency on it. react-i18next normally returns a referentially
@@ -560,7 +569,7 @@ export function CreateTraceLinkDialog({
           >
             {ALL_LINK_TYPES.map((lt) => (
               <option key={lt} value={lt}>
-                {getLinkTypeLabel(lt)}
+                {getTriLabel(lt, triLabelLang, 'neutral')}
               </option>
             ))}
           </select>

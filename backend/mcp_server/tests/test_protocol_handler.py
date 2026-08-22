@@ -25,6 +25,8 @@ from mcp_server.protocol_handler import (
     HttpTransportAdapter,
     JsonRpcValidator,
     ProtocolHandler,
+    SseTransportAdapter,
+    StdioTransportAdapter,
     ToolResult,
 )
 
@@ -129,14 +131,83 @@ class TestHttpTransportAdapter:
         frame = adapter.read_request()
         assert adapter.extract_api_key(frame, headers) == "reqlo_testkey"
 
-    def test_extract_api_key_from_params(self):
+    def test_extract_api_key_from_params_is_rejected_on_http(self):
+        """HTTP transport must NOT honour ``params.api_key`` (D-1 / REQ-018).
+
+        Accepting the key from the JSON-RPC body on a transport that has a
+        header mechanism available exposes it to the same logging/proxy
+        risk the ``?api_key=`` query-string fallback is already rejected
+        for. Only stdio (no header channel) may use ``params.api_key``.
+        """
         body = json.dumps({
             "jsonrpc": "2.0", "method": "x", "id": 1,
             "params": {"api_key": "reqlo_fromparams"}
         }).encode()
         adapter = HttpTransportAdapter(body=body)
         frame = adapter.read_request()
-        assert adapter.extract_api_key(frame, {}) == "reqlo_fromparams"
+        assert adapter.extract_api_key(frame, {}) is None
+
+
+# ---------------------------------------------------------------------------
+# Transport restriction on ``params.api_key`` (D-1 / REQ-018)
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyTransportRestriction:
+    """``params.api_key`` is a valid key source only on stdio.
+
+    stdio has no header mechanism, so it legitimately needs the JSON-RPC
+    body as its key channel (existing behaviour, preserved). HTTP and SSE
+    both have a header mechanism (``Authorization`` / ``X-API-Key``), so a
+    body-only key on those transports is now treated as absent — the same
+    policy the query-string ``?api_key=`` fallback is already held to.
+    """
+
+    def test_stdio_extracts_key_from_params_without_header(self):
+        frame = {
+            "jsonrpc": "2.0", "method": "x", "id": 1,
+            "params": {"api_key": "reqlo_stdiokey"},
+        }
+        adapter = StdioTransportAdapter()
+        assert adapter.extract_api_key(frame, {}) == "reqlo_stdiokey"
+
+    def test_http_does_not_extract_key_from_params_without_header(self):
+        frame = {
+            "jsonrpc": "2.0", "method": "x", "id": 1,
+            "params": {"api_key": "reqlo_httpkey"},
+        }
+        adapter = HttpTransportAdapter(body=b"{}")
+        assert adapter.extract_api_key(frame, {}) is None
+
+    def test_sse_does_not_extract_key_from_params_without_header(self):
+        frame = {
+            "jsonrpc": "2.0", "method": "x", "id": 1,
+            "params": {"api_key": "reqlo_ssekey"},
+        }
+        adapter = SseTransportAdapter(body=b"{}")
+        assert adapter.extract_api_key(frame, {}) is None
+
+    def test_http_request_with_only_params_api_key_fails_like_missing_key(self):
+        """End-to-end: HTTP body-only key must fail the same way a
+        genuinely-missing key does — no new error code (task constraint)."""
+        registry = _make_registry_mock(ToolResult.ok({}))
+        handler = ProtocolHandler(tool_registry=registry)
+
+        body_with_params_key = json.dumps({
+            "jsonrpc": "2.0", "method": "requirement.get", "id": 1,
+            "params": {"api_key": "reqlo_httpkey"},
+        }).encode()
+        body_missing_key = json.dumps({
+            "jsonrpc": "2.0", "method": "requirement.get", "id": 1,
+            "params": {},
+        }).encode()
+
+        response_with_params_key = handler.handle_http_request(body=body_with_params_key)
+        response_missing_key = handler.handle_http_request(body=body_missing_key)
+
+        assert response_with_params_key["error"]["code"] == response_missing_key["error"]["code"]
+        assert response_with_params_key["error"]["code"] == -32000  # AUTH_FAILED
+        registry.dispatch_request.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +227,12 @@ def _make_valid_body(method: str = "requirement.get", request_id: int = 1, extra
         params.update(extra_params)
     frame = {"jsonrpc": "2.0", "method": method, "id": request_id, "params": params}
     return json.dumps(frame).encode()
+
+
+# HTTP transport no longer honours ``params.api_key`` (stdio-only, see
+# TestApiKeyTransportRestriction below) — HTTP-based ProtocolHandler tests
+# that exercise the post-auth dispatch path must supply the key via header.
+_AUTH_HEADERS = {"HTTP_AUTHORIZATION": "Bearer reqlo_validkey"}
 
 
 class TestProtocolHandler:
@@ -188,7 +265,7 @@ class TestProtocolHandler:
         registry = _make_registry_mock(ToolResult.ok({"requirement": {"id": "abc"}}))
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body("requirement.get", request_id=99)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert "result" in response
         assert response["id"] == 99
         assert response["result"]["requirement"]["id"] == "abc"
@@ -197,7 +274,7 @@ class TestProtocolHandler:
         registry = _make_registry_mock(ToolResult.error("NOT_FOUND", "Requirement not found"))
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body("requirement.get", request_id=3)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert "error" in response
         assert response["error"]["code"] == -32004  # JSON-RPC server error: NOT_FOUND
         assert response["id"] == 3
@@ -206,7 +283,7 @@ class TestProtocolHandler:
         registry = _make_registry_mock(ToolResult.ok({}))
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body("requirement.get", extra_params={"id": "some-uuid"})
-        handler.handle_http_request(body=body)
+        handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         call_kwargs = registry.dispatch_request.call_args
         dispatched_params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
         assert "api_key" not in dispatched_params
@@ -215,7 +292,7 @@ class TestProtocolHandler:
         registry = _make_registry_mock(ToolResult.ok({"x": 1}))
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body(request_id="string-id-42")
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert response["id"] == "string-id-42"
 
     def test_registry_exception_returns_internal_error(self):
@@ -223,8 +300,32 @@ class TestProtocolHandler:
         registry.dispatch_request.side_effect = RuntimeError("DB down")
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body()
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert response["error"]["code"] == -32603  # JSON-RPC Internal error
+
+    def test_tools_list_exception_masks_detail_but_logs_it(self, caplog):
+        """CWE-209 regression: an unexpected exception from ``list_tools``
+        must reach the client as the generic INTERNAL_ERROR message, never
+        as ``str(exc)`` — the real exception must still be logged for
+        operators (same pattern as Task 5's REST/MCP fixes elsewhere)."""
+        sensitive_detail = (
+            "psycopg2.OperationalError: FATAL: password authentication "
+            "failed for user \"reqogniloom\" (host=10.0.0.5)"
+        )
+        registry = MagicMock()
+        registry.list_tools.side_effect = RuntimeError(sensitive_detail)
+        handler = ProtocolHandler(tool_registry=registry)
+        body = json.dumps(
+            {"jsonrpc": "2.0", "method": "tools/list", "id": 5, "params": {}}
+        ).encode()
+
+        with caplog.at_level("ERROR"):
+            response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
+
+        assert response["error"]["code"] == -32603  # JSON-RPC Internal error
+        assert sensitive_detail not in response["error"]["message"]
+        assert response["error"]["message"] == "An internal server error occurred."
+        assert sensitive_detail in caplog.text
 
 
 def _make_tools_call_body(
@@ -253,7 +354,7 @@ class TestToolsCallIsError:
         )
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_tools_call_body("requirement.get", {"id": "x"}, request_id=7)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
 
         # Successful JSON-RPC response, error carried inside the result.
         assert "error" not in response
@@ -269,7 +370,7 @@ class TestToolsCallIsError:
         )
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_tools_call_body("requirement.create", {}, request_id=8)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert "error" not in response
         assert response["result"]["isError"] is True
 
@@ -279,7 +380,7 @@ class TestToolsCallIsError:
         )
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_tools_call_body("requirement.create", {}, request_id=9)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         # Protocol-level error remains a JSON-RPC error.
         assert "result" not in response
         assert response["error"]["code"] == -32001  # PERMISSION_DENIED
@@ -288,7 +389,7 @@ class TestToolsCallIsError:
         registry = _make_registry_mock(ToolResult.ok({"requirement": {"id": "abc"}}))
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_tools_call_body("requirement.get", {"id": "abc"}, request_id=10)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert "error" not in response
         assert "isError" not in response["result"]
 
@@ -299,6 +400,6 @@ class TestToolsCallIsError:
         )
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body("requirement.get", request_id=11)
-        response = handler.handle_http_request(body=body)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert "result" not in response
         assert response["error"]["code"] == -32004  # NOT_FOUND

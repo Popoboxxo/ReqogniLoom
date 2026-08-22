@@ -113,9 +113,9 @@ _MODEL_IMPORT_RE = re.compile(r"^\s*from persistence\.models import")
 # Per-file ceiling of tolerated direct-ORM lines. Files not listed must be 0.
 # NEVER raise a value here — REQ-066 only lowers them.
 MAX_ORM_LINES: dict[str, int] = {
-    "icd_views.py": 3,
-    "diagram_views.py": 3,
-    "diagram_canvas_views.py": 3,
+    "icd_views.py": 1,
+    "diagram_views.py": 1,
+    "diagram_canvas_views.py": 1,
 }
 
 # Files still permitted to ``from persistence.models import`` directly. Shrinks
@@ -137,7 +137,7 @@ MODEL_IMPORT_ALLOWLIST: set[str] = {
 # call-sites are migrated into application/ services.
 MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
     "cross_cutting.py": 4,
-    "users.py": 10,
+    "users.py": 8,
 }
 
 # Issue #124 follow-up: frozen baseline for the transport/dispatch modules

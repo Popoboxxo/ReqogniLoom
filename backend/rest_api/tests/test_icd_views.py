@@ -65,7 +65,7 @@ class TestIcdViewSetCreateValidation:
         with patch(
             "rest_api.icd_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.icd_views.Tenant"), patch("rest_api.icd_views.User"):
+            with patch("rest_api.icd_views.get_tenant"), patch("rest_api.icd_views.get_user"):
                 with patch(
                     "rest_api.icd_views.create_icd",
                     side_effect=ValueError(
@@ -112,7 +112,7 @@ class TestIcdViewSetCreateValidation:
         with patch(
             "rest_api.icd_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.icd_views.Tenant"), patch("rest_api.icd_views.User"):
+            with patch("rest_api.icd_views.get_tenant"), patch("rest_api.icd_views.get_user"):
                 with patch(
                     "rest_api.icd_views.create_icd", return_value=fake_result
                 ):
@@ -136,7 +136,7 @@ class TestIcdViewSetCreateValidation:
         with patch(
             "rest_api.icd_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.icd_views.User"):
+            with patch("rest_api.icd_views.get_user"):
                 with patch(
                     "rest_api.icd_views.update_icd",
                     side_effect=ValueError(

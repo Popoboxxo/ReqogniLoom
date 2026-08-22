@@ -678,8 +678,8 @@ class ArchitectureElementSerializer(
     provides ``context={"element_id": pk}`` so the validator can resolve
     the element and its workspace.
 
-    REQ-L1-058 AC2: level annotation via CTE manager (get_with_level())
-    avoids N+1 queries. Expects pre-annotated 'level' field from queryset.
+    REQ-L1-058 AC2: level annotation via ``ArchitectureElement.annotate_levels()``
+    (recursive-CTE, bulk) avoids N+1 queries. Expects pre-annotated 'level' field.
 
     REQ-L3-RF004-004: Includes ASIL level and Make-or-Buy decision fields.
     REQ-L2-RF-025 AC3: Includes uid for stable identification.

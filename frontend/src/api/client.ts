@@ -6,8 +6,7 @@
  *
  * All REST calls go through this module.
  * - Auth travels as the httpOnly ``reqflow_access`` cookie (REQ-052); requests
- *   are sent with credentials so the browser attaches it automatically. A
- *   legacy in-memory Bearer token is still supported for non-browser callers.
+ *   are sent with credentials so the browser attaches it automatically.
  * - Sends X-CSRFToken (from the ``csrftoken`` cookie) on unsafe methods, as the
  *   cookie auth path is CSRF-protected server-side.
  * - On 401 → attempts a single-flight silent refresh (POST /auth/refresh/,
@@ -37,22 +36,13 @@ export function readCookie(name: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Token storage (IF-RF-INT — NavigationShell.TokenManager owns the token)
+// Unauthorized-notification state
 // ---------------------------------------------------------------------------
 
-let _token: string | null = null;
 let _onUnauthorized: (() => void) | null = null;
 // Guards against firing the unauthorized handler more than once for a burst
 // of parallel requests that all 401 around the same time (GitHub #135).
 let _unauthorizedNotified = false;
-
-export function setAuthToken(token: string | null): void {
-  _token = token;
-}
-
-export function getAuthToken(): string | null {
-  return _token;
-}
 
 export function setUnauthorizedHandler(handler: () => void): void {
   _onUnauthorized = handler;
@@ -218,12 +208,6 @@ async function apiFetch<T>(
     !(options.headers instanceof Headers)
   ) {
     Object.assign(headers, options.headers as Record<string, string>);
-  }
-
-  // Legacy in-memory Bearer token (non-browser callers). Browser auth flows
-  // rely on the httpOnly cookie instead (REQ-052), so _token is normally null.
-  if (_token) {
-    headers["Authorization"] = `Bearer ${_token}`;
   }
 
   // Attach CSRF token on unsafe methods for the cookie auth path (REQ-052).
@@ -524,5 +508,18 @@ export async function getAllPages<T extends { id: string }>(
     collect(nextResp);
     nextUrl = nextResp.next;
   }
+
+  // Deep-Dive E-1: the 100-page cap above is intentional (out of scope to
+  // change), but exiting the loop while `nextUrl` is still non-null means
+  // more pages existed and were silently dropped. Surface that in the
+  // console so a truncated list is at least visible/debuggable instead of
+  // being mistaken for "this is the complete list".
+  if (nextUrl && pageCount >= 100) {
+    console.warn(
+      `getAllPages(${path}): stopped after ${pageCount} pages (cap reached) — ` +
+        "further pages exist but were not fetched; the returned list is incomplete."
+    );
+  }
+
   return all;
 }

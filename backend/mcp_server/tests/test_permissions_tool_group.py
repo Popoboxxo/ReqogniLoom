@@ -595,15 +595,22 @@ def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
 
 
 def _post(handler, method, params, *, request_id: int = 1, api_key: str = VALID_API_KEY):
+    """Build a JSON-RPC body and run it through ProtocolHandler.
+
+    The key is supplied via the ``Authorization`` header, not the JSON-RPC
+    body: the HTTP transport no longer honours ``params.api_key`` (D-1 /
+    REQ-018 — see TestApiKeyTransportRestriction in test_protocol_handler.py).
+    """
     import json
 
     body = json.dumps({
         "jsonrpc": "2.0",
         "method": method,
         "id": request_id,
-        "params": {"api_key": api_key, **params},
+        "params": params,
     }).encode()
-    return handler.handle_http_request(body=body)
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {api_key}"}
+    return handler.handle_http_request(body=body, headers=headers)
 
 
 # ``django_db``: these E2E classes drive the real

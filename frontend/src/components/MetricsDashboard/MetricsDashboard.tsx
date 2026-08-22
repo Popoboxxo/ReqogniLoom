@@ -277,6 +277,13 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
             background: palette.fg,
             boxShadow: `0 0 0 4px ${palette.bg}`,
           }}
+          // GESAMTTEST_BERICHT_2026-08-21.md §5 finding 7: aria-label on a
+          // roleless <span> is not reliably exposed by all screen readers.
+          // This is a purely visual status-dot icon (color-coded ok/warning/
+          // critical), not a live-updating ARIA live region — role="img"
+          // (with the existing aria-label as its accessible name) is the
+          // correct semantic role, matching the icon-like status pattern.
+          role="img"
           aria-label={t(palette.labelKey, status)}
         />
       </div>
@@ -583,7 +590,18 @@ export default function MetricsDashboard(): JSX.Element {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            // GESAMTTEST_BERICHT_2026-08-21.md §6 "SE-Metrics orphaned grid
+            // row": with `1fr` tracks, `auto-fit` collapses the unused
+            // column tracks on a partially-filled last row and stretches
+            // the remaining item(s) to fill the freed space — at widths
+            // that fit exactly 4 of the 5 TILES per row, the 5th tile alone
+            // on row 2 stretched to the FULL row width instead of matching
+            // row 1's card size. Capping the track max width keeps every
+            // card the same size regardless of row fill, and
+            // `justify-content: center` centers a short last row instead of
+            // leaving it pinned to the left with a large empty gap.
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 320px))",
+            justifyContent: "center",
             gap: "var(--space-4)",
           }}
         >

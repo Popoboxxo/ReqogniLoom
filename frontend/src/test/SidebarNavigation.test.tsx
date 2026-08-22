@@ -39,6 +39,10 @@ let nextListResult: unknown = { count: 0, next: null, previous: null, results: [
 vi.mock("../api/workspaces", () => ({
   workspacesApi: {
     list: vi.fn(async () => nextListResult),
+    // reloadWorkspaces (Task 1 fix) now calls listAll() instead of list() to
+    // avoid silently truncating the workspace switcher to page 1 — mirror
+    // the same single-page `nextListResult.results` here for these tests.
+    listAll: vi.fn(async () => (nextListResult as { results?: unknown[] }).results ?? []),
     create: vi.fn(),
     update: vi.fn(),
     setPreset: vi.fn(),

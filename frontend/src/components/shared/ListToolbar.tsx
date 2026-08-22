@@ -76,6 +76,20 @@ const controlStyle: React.CSSProperties = {
   outline: "none",
 };
 
+/*
+ * GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: the native <select>'s caret
+ * icon needs extra reserved space on the right beyond the symmetric
+ * controlStyle padding, otherwise long option labels run underneath the
+ * browser-drawn arrow once the select shrinks (flex: 1 1 0, minWidth: 0)
+ * below its content width. Applied only to <select> elements (filters +
+ * sort), not the free-text search input, which has no caret.
+ */
+const selectStyle: React.CSSProperties = {
+  ...controlStyle,
+  paddingRight: "calc(var(--space-2) + 16px)",
+  textOverflow: "ellipsis",
+};
+
 export function ListToolbar({
   searchValue,
   onSearchChange,
@@ -131,7 +145,7 @@ export function ListToolbar({
                 value={filter.value}
                 onChange={(e) => filter.onChange(e.target.value)}
                 aria-label={filter.allLabel}
-                style={{ ...controlStyle, flex: "1 1 0", minWidth: 0 }}
+                style={{ ...selectStyle, flex: "1 1 0", minWidth: 0 }}
               >
                 <option value="">{filter.allLabel}</option>
                 {filter.options.map((opt) => (
@@ -148,7 +162,7 @@ export function ListToolbar({
                 value={sortValue ?? ""}
                 onChange={(e) => onSortChange(e.target.value)}
                 aria-label={sortLabel ?? "Sort"}
-                style={{ ...controlStyle, flex: "1 1 0", minWidth: 0 }}
+                style={{ ...selectStyle, flex: "1 1 0", minWidth: 0 }}
               >
                 {sortOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>

@@ -804,9 +804,14 @@ class ToolRegistry:
         except AuthenticationFailed as exc:
             logger.debug("MCP API key validation failed: %s", exc.code)
             return None, f"Authentication failed: {exc.code}"
-        except Exception as exc:
+        except Exception:
+            # D-3 (CWE-209): mirror the masking already used at the outer
+            # dispatch_request safety net (see "An internal error occurred."
+            # above) — the raw exception must not reach the caller under
+            # AUTH_FAILED, since that can leak infra details (DSN fragments
+            # etc.) to an unauthenticated-or-wrongly-authenticated caller.
             logger.exception("Unexpected auth error")
-            return None, str(exc)
+            return None, "An internal error occurred."
 
         # Build a partial AuthContext (roles resolved separately)
         ctx = AuthContext(
@@ -990,7 +995,7 @@ class ToolRegistry:
                 features = preset_rules.features
                 self._preset_cache.set(workspace_id, features)
             except Exception:
-                logger.debug("Preset lookup failed for workspace=%s", workspace_id)
+                logger.warning("Preset lookup failed for workspace=%s", workspace_id)
                 # On failure, allow (fail-open for preset; auth is the hard gate)
                 return False
 

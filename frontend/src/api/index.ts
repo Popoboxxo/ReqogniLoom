@@ -6,8 +6,6 @@
 export {
   apiClient,
   getList,
-  setAuthToken,
-  getAuthToken,
   setUnauthorizedHandler,
   resetUnauthorizedGuard,
 } from "./client";

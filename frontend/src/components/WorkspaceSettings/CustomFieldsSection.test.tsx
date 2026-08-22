@@ -107,6 +107,17 @@ describe("CustomFieldsSection (REQ-016)", () => {
     expect(screen.getByTestId("custom-field-add-button")).toBeDisabled();
   });
 
+  // Regression test for the WCAG 4.1.2/3.3.2 fix: the type select must be
+  // queryable via its accessible name (a visually-hidden <label htmlFor>),
+  // not just via its data-testid.
+  it("a11y: the field-type select is queryable by its accessible name", async () => {
+    render(<CustomFieldsSection workspaceId={WS} />);
+    await screen.findByTestId("custom-field-create-form");
+    expect(screen.getByLabelText("Typ")).toBe(
+      screen.getByTestId("custom-field-type-select")
+    );
+  });
+
   it("deletes a definition", async () => {
     render(<CustomFieldsSection workspaceId={WS} />);
     const delBtn = await screen.findByTestId("custom-field-delete-def-1");

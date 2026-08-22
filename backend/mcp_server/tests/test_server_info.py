@@ -12,6 +12,11 @@ SSE was removed from the list under REQ-131 while ``GET /mcp/sse/`` answered
 500 on every request (a hop-by-hop ``Connection: keep-alive`` response header
 tripped wsgiref's PEP-3333 assertion). That header is gone, so SSE is declared
 again.
+
+``stdio`` is deliberately not declared here (deep-dive review D-7a): it is a
+separate, non-HTTP-routed transport — ``mcp_server/urls.py`` has no path for
+it — so advertising it on this HTTP discovery endpoint would itself violate
+the "actually routed" rule above.
 """
 from __future__ import annotations
 
@@ -29,7 +34,7 @@ def test_server_info_declares_every_routed_transport() -> None:
 
     payload = json.loads(response.content)
     transports = payload["transports"]
-    assert transports == ["http", "sse", "stdio"]
+    assert transports == ["http", "sse"]
 
 
 @pytest.mark.django_db

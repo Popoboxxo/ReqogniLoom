@@ -3,6 +3,28 @@
     "title": "ReqogniLoom",
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
   },
+  "adminOps": {
+    "title": "Sicherung & Wiederherstellung (Disaster Recovery)",
+    "hint": "Instanzweite Sicherungen. Eine Wiederherstellung überschreibt die aktuellen Daten — der Bestätigungstext ist erforderlich.",
+    "reasonPlaceholder": "Grund (optional)",
+    "backupTypeLabel": "Backup-Typ",
+    "typeFull": "vollständig",
+    "typePartial": "partiell",
+    "createBackup": "Backup erstellen",
+    "creatingBackup": "Backup wird erstellt...",
+    "restoringNow": "Wird wiederhergestellt...",
+    "restoreDone": "Wiederherstellung abgeschlossen",
+    "tablesRestored": "Tabellen wiederhergestellt",
+    "empty": "Noch keine Backups vorhanden.",
+    "id": "ID",
+    "type": "Typ",
+    "status": "Status",
+    "size": "Größe",
+    "created": "Erstellt",
+    "restore": "Wiederherstellen",
+    "restoreCaptchaPrompt": "\"{{captcha}}\" eingeben, um zu bestätigen — die aktuellen Daten werden überschrieben.",
+    "restoreConfirm": "Jetzt wiederherstellen"
+  },
   "customFields": {
     "section": "Benutzerdefinierte Felder",
     "workspaceSection": "Workspace-Felder",
@@ -168,6 +190,7 @@
     "copy": "Kopieren",
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
+    "reset": "Zurücksetzen",
     "derive": "Ableiten",
     "deriving": "Leitet ab...",
     "deleting": "Löscht...",
@@ -306,7 +329,9 @@
     "summary_one": "{{count}} Element",
     "summary_other": "{{count}} Elemente",
     "activeSuffix": "{{count}} aktiv",
-    "newElement": "Neues Architekturelement"
+    "newElement": "Neues Architekturelement",
+    "emptyTitle": "Noch keine Architekturelemente",
+    "emptyDescription": "Architekturelemente bilden System, Subsysteme und Komponenten in der V-Modell-Hierarchie ab."
   },
   "traceability": {
     "upstream": "Upstream-Links",
@@ -447,7 +472,10 @@
     "artifactRequired": "Bitte ein Artefakt auswählen.",
     "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
     "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 10 Zeichen).",
-    "overrideSubmit": "Baseline mit Ausnahme erstellen"
+    "overrideSubmit": "Baseline mit Ausnahme erstellen",
+    "compare": "Vergleichen",
+    "compareTitle": "Baselines vergleichen",
+    "compareRun": "Vergleichen"
   },
   "glossary": {
     "searchPlaceholder": "Glossar durchsuchen...",
@@ -479,7 +507,12 @@
     "emptyDescription": "Glossarbegriffe halten Definitionen, Synonyme und Abkürzungen konsistent.",
     "selectTitle": "Kein Begriff ausgewählt",
     "selectTerm": "Wähle einen Begriff aus der Liste, um Details anzuzeigen.",
-    "usages": "Verwendungen"
+    "usages": "Verwendungen",
+    "lifecycleStatus": {
+      "active": "Aktiv",
+      "outdated": "Veraltet",
+      "deprecated": "Abgekündigt"
+    }
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
@@ -587,6 +620,7 @@
     "saveFailed": "Testfall konnte nicht gespeichert werden.",
     "deleteFailed": "Testfall konnte nicht gelöscht werden.",
     "newTestCase": "Neuer Testfall",
+    "titlePlaceholder": "z.B. Testfalltitel...",
     "summary_one": "{{count}} Testfall",
     "summary_other": "{{count}} Testfälle",
     "emptyTitle": "Noch keine Testfälle",
@@ -839,7 +873,23 @@
     "success": "{{count}} Zeilen erfolgreich importiert",
     "failed": "Import fehlgeschlagen",
     "errorGeneric": "Import fehlgeschlagen",
-    "pageSummary": "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren."
+    "pageSummary": "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren.",
+    "reqifTitle": "ReqIF-Import",
+    "reqifSelectFile": "ReqIF-Datei auswählen",
+    "reqifDropHint": "Klicken, um eine .reqif- oder .xml-Datei auszuwählen",
+    "reqifDryRun": "Testlauf (Bericht anzeigen, ohne Änderungen zu speichern)",
+    "reqifPreview": "Vorschau anzeigen",
+    "reqifUpload": "ReqIF importieren",
+    "reqifDryRunBadge": "Testlauf — es wurde nichts gespeichert",
+    "reqifNeeds": "Stakeholder-Bedarfe",
+    "reqifRequirements": "Anforderungen",
+    "reqifRelations": "TraceLinks",
+    "reqifCreated": "erstellt",
+    "reqifUpdated": "aktualisiert",
+    "reqifSkipped": "übersprungen",
+    "reqifWarnings": "Warnungen",
+    "reqifMoreErrors": "… und {{count}} weitere Fehler",
+    "reqifMoreWarnings": "… und {{count}} weitere Warnungen"
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
@@ -863,6 +913,7 @@
     "selectInterfaceType": "Schnittstellentyp auswählen",
     "contract": "Vertragsspezifikation",
     "contractPlaceholder": "Semantische Beschreibung des Schnittstellenvertrags",
+    "onePerLinePlaceholder": "Eine pro Zeile",
     "preconditions": "Vorbedingungen",
     "postconditions": "Nachbedingungen",
     "invariants": "Invarianten",
@@ -1529,7 +1580,22 @@
     "spineEmpty": "Auf dieser Station fehlt eine Verknüpfung — eine Lücke in der Nachverfolgbarkeit."
   },
   "systemSettings": {
-    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards."
+    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
+    "enforcementFlip": {
+      "title": "Wechsel zu autoritativer Durchsetzung",
+      "loadingCount": "Aktuelle Anzahl ausstehender Abweichungen wird geladen…",
+      "message": "Es gibt aktuell {{count}} ausstehende Abweichungen in den letzten {{days}} Tagen. Der Wechsel zu autoritativer Durchsetzung macht das neue Berechtigungsmodell zur alleinigen Instanz für Zugriffskontrolle.",
+      "message_one": "Es gibt aktuell {{count}} ausstehende Abweichung in den letzten {{days}} Tagen. Der Wechsel zu autoritativer Durchsetzung macht das neue Berechtigungsmodell zur alleinigen Instanz für Zugriffskontrolle.",
+      "message_other": "Es gibt aktuell {{count}} ausstehende Abweichungen in den letzten {{days}} Tagen. Der Wechsel zu autoritativer Durchsetzung macht das neue Berechtigungsmodell zur alleinigen Instanz für Zugriffskontrolle.",
+      "confirmLabel": "Bestätigen & wechseln",
+      "viewMismatches": "{{count}} Abweichungen anzeigen",
+      "viewMismatches_one": "{{count}} Abweichung anzeigen",
+      "viewMismatches_other": "{{count}} Abweichungen anzeigen",
+      "acknowledgeLabel": "Ich habe die ausstehenden Abweichungen geprüft und akzeptiere die aktuelle Anzahl von {{count}} vor dem Wechsel zu autoritativer Durchsetzung.",
+      "acknowledgeLabel_one": "Ich habe die ausstehende Abweichung geprüft und akzeptiere die aktuelle Anzahl von {{count}} vor dem Wechsel zu autoritativer Durchsetzung.",
+      "acknowledgeLabel_other": "Ich habe die ausstehenden Abweichungen geprüft und akzeptiere die aktuelle Anzahl von {{count}} vor dem Wechsel zu autoritativer Durchsetzung.",
+      "staleCountError": "Die Anzahl ausstehender Abweichungen hat sich während der Prüfung auf {{count}} geändert. Bitte erneut prüfen und die neue Anzahl bestätigen."
+    }
   },
   "profile": {
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."

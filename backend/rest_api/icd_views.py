@@ -29,6 +29,7 @@ from rest_framework.viewsets import ViewSet
 
 from application.artifact_diff_service import creation_baseline_entry
 from application.base import NotFoundError
+from application.workspace_context_service import get_tenant, get_user
 from icd.models import Icd, IcdDirection, IcdParameter, IcdVersion
 from icd.services import (
     create_icd,
@@ -48,7 +49,6 @@ from icd.services import (
     IcdPgVectorUnavailableError,
     IcdUpdateDTO,
 )
-from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.query_params import parse_workspace_id
@@ -84,13 +84,13 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             return self.paginator.get_paginated_response(page)
         return Response(data)
 
-    def _resolve_tenant(self, request: Request) -> Tenant:
+    def _resolve_tenant(self, request: Request) -> Any:
         ctx = get_auth_context(request)
-        return Tenant.objects.get(id=ctx.tenant_id)
+        return get_tenant(tenant_id=ctx.tenant_id)
 
-    def _resolve_user(self, request: Request) -> User | None:
+    def _resolve_user(self, request: Request) -> Any | None:
         ctx = get_auth_context(request)
-        return User.objects.filter(id=ctx.user_id).first()
+        return get_user(user_id=ctx.user_id)
 
     def _icd_to_dict(self, icd: Icd) -> dict[str, Any]:
         return {

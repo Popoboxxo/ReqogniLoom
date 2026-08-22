@@ -1,3 +1,21 @@
+> **STATUS: RESOLVED** — findings addressed via `docs/superpowers/plans/2026-08-22-review-findings-remediation.md`
+> (Tasks 1-16), merged in PR(s) #<fill in after merge>. Deferred (not fixed, tracked separately):
+> - C-3 (bearer-token-in-login-response-body) — Task 9, filed as issue #696, not fixed inline.
+> - C-1 / D-3 (`str(exc)` info leaks in REST + MCP auth path) — fixed at the 14 highest-risk sites (Task 5);
+>   ~40 further `str(exc)`-in-500-handler sites remain (`icd_views.py`, `traceability_suggest_views.py`,
+>   `global_default_views.py`, `metrics_views.py`, `protocol_handler.py`, most of `mcp_server/tools/*.py`),
+>   deliberately out of this plan's scope (not cited as blocking by either source review), no tracking issue filed.
+> - D-7 (batch-frame documentation note only) — informational (⚪), excluded as a remediation target by design.
+>
+> Related Gesamttest-Bericht follow-ups (see that document's own resolution header for detail): the
+> Glossary-toolbar "create in dialog" toggle (§6 item 7) was deliberately left unwired (no backend support),
+> the EnforcementFlipDialog parent panel remains untranslated, and one orphaned `categories.stakeholder`
+> i18n key was left in place after the dead filter option itself was removed.
+>
+> Resolved on 2026-08-22.
+
+---
+
 # Deep-Dive Code Review — ReqogniLoom (2026-08-22)
 
 **Umfang:** Backend (Layer 0–3), REST API, MCP Server, Frontend (React/TS)

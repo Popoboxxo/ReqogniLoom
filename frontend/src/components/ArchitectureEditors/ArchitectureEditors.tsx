@@ -14,13 +14,14 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
+import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
@@ -190,6 +191,18 @@ export default function ArchitectureEditors(): JSX.Element {
     if (!newTitle.trim()) return;
     await handleCreate(undefined, newTitle.trim(), newDescription);
   }, [newTitle, newDescription, handleCreate]);
+
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreateForm(false);
+    setNewTitle('');
+    setNewDescription('');
+  }, []);
+
+  // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
+  // defaults to the first focusable element (its own × close button).
+  const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   /**
    * Drag & drop reparenting from the tree (user decision 2026-08-15).
@@ -422,8 +435,15 @@ export default function ArchitectureEditors(): JSX.Element {
         </p>
       )}
 
-      {/* Inline create form */}
+      {/* Inline create form — F-08: wrapped in the shared Dialog primitive
+          (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged. */}
       {showCreateForm && (
+        <Dialog
+          title={t('arch.newElementTitle')}
+          onClose={handleCancelCreate}
+          initialFocusRef={newTitleInputRef}
+          testId="arch-new-dialog"
+        >
         <form
           onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
           style={{
@@ -438,6 +458,7 @@ export default function ArchitectureEditors(): JSX.Element {
           </label>
           <input
             data-testid="arch-new-title-input"
+            ref={newTitleInputRef}
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('arch.newElementTitle')}
             style={{
@@ -461,7 +482,7 @@ export default function ArchitectureEditors(): JSX.Element {
           />
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button data-testid="arch-new-cancel-btn" type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); setNewDescription(''); }}
+            <button data-testid="arch-new-cancel-btn" type="button" onClick={handleCancelCreate}
               style={{
                 background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
@@ -477,6 +498,7 @@ export default function ArchitectureEditors(): JSX.Element {
             >{t('actions.create', 'Create')}</button>
           </div>
         </form>
+        </Dialog>
       )}
 
       {/* WorkspaceTree — unified navigation panel (REQ-003).
@@ -487,20 +509,50 @@ export default function ArchitectureEditors(): JSX.Element {
           the root dropzone to detach it to L0. Reinstated on 2026-08-15,
           reversing the 2026-07-13 "won't do" note that stood here before. */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <WorkspaceTree
-          data-testid="arch-tree"
-          nodes={archTreeNodes}
-          selectedId={selectedId}
-          onSelect={(id) => navigate(`/architecture/${id}`)}
-          onAddChild={(parentId) => void handleCreate(parentId)}
-          onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
-          rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
-          showLevelBadge={true}
-          showSearch={false}
-          virtualize
-          emptyLabel={t('editor.empty')}
-          noMatchesLabel={t('editor.noMatches')}
-        />
+        {/* GESAMTTEST_BERICHT_2026-08-21.md §6 "Architecture empty-state":
+            this route used to fall through to WorkspaceTree's built-in plain
+            muted-text emptyLabel/noMatchesLabel instead of the shared
+            <EmptyState> headline+description+CTA pattern every sibling list
+            page (Needs, ADRs, Risks, ...) already uses — see NeedList.tsx's
+            identical wiring, which this mirrors (#179 / ch. 13.3: "nothing
+            exists" wants a create action, "nothing matches the filter"
+            only wants a filter reset). */}
+        {elements.length === 0 ? (
+          <EmptyState
+            variant="empty"
+            testId="arch-tree-empty"
+            title={t('arch.emptyTitle', 'No architecture elements yet')}
+            description={t(
+              'arch.emptyDescription',
+              'Architecture elements map system, subsystems and components onto the V-model hierarchy.',
+            )}
+            actions={[
+              { label: t('arch.newElement', 'New Architecture Element'), onClick: () => setShowCreateForm(true), testId: 'arch-tree-empty-create' },
+            ]}
+          />
+        ) : archTreeNodes.length === 0 ? (
+          <EmptyState
+            variant="no-match"
+            testId="arch-tree-no-match"
+            onResetFilters={() => {
+              setListSearch('');
+              setStatusFilter('');
+            }}
+          />
+        ) : (
+          <WorkspaceTree
+            data-testid="arch-tree"
+            nodes={archTreeNodes}
+            selectedId={selectedId}
+            onSelect={(id) => navigate(`/architecture/${id}`)}
+            onAddChild={(parentId) => void handleCreate(parentId)}
+            onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
+            rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
+            showLevelBadge={true}
+            showSearch={false}
+            virtualize
+          />
+        )}
       </div>
     </div>
   );

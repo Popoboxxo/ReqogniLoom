@@ -13,11 +13,12 @@
  * are the DiagramCreateForm / DiagramDetailView presenters.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
+import { Dialog } from "../shared/Dialog";
 import { DiagramCreateForm } from "./DiagramCreateForm";
 import { DiagramDetailView } from "./DiagramDetailView";
 import { DiagramList } from "./DiagramList";
@@ -31,6 +32,9 @@ export default function DiagramView(): JSX.Element {
   const { items, isLoading, refresh, deleteDiagram } = useDiagramList();
   const [showCreate, setShowCreate] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // F-08 (Dialog migration): without this, Dialog's focus trap would default
+  // to its own × close button on open — point it at the name field instead.
+  const diagramNameInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleDelete = useCallback(
     async (diagramId: string): Promise<void> => {
@@ -107,6 +111,15 @@ export default function DiagramView(): JSX.Element {
         }
         rightPanel={
           showCreate ? (
+          // F-08 (Dialog migration): wrapped in the shared Dialog primitive
+          // (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged.
+          <Dialog
+            title={t("diagrams.create", "New Diagram")}
+            onClose={() => setShowCreate(false)}
+            initialFocusRef={diagramNameInputRef}
+            size="lg"
+            testId="create-diagram-dialog"
+          >
           <DiagramCreateForm
             onCreated={async (newId) => {
               setShowCreate(false);
@@ -114,7 +127,9 @@ export default function DiagramView(): JSX.Element {
               navigate(`/diagrams/${newId}`);
             }}
             onCancel={() => setShowCreate(false)}
+            nameInputRef={diagramNameInputRef}
           />
+          </Dialog>
         ) : id ? (
           <DiagramDetailView
             diagramId={id}

@@ -11,7 +11,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
@@ -198,5 +198,124 @@ describe("WorkspaceContext / Preset visibility (REQ-L2-RF-007)", () => {
       </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("visible");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 1 regression: workspace-switcher pagination
+// (GESAMTTEST_BERICHT_2026-08-21.md §10.2, Critical)
+//
+// `reloadWorkspaces` used to call `workspacesApi.list()`, which only fetches
+// page 1 of the paginated `/api/v1/workspaces/` response — a tenant with
+// more than one page of workspaces could never reach entries beyond the
+// first page through the UI switcher. The fix wires `reloadWorkspaces` to
+// `workspacesApi.listAll()`, which follows `next` via the shared
+// `getAllPages` helper. This test exercises the real (unmocked)
+// `workspacesApi`/`client` code paths against a stubbed `fetch` returning a
+// genuinely 2-page paginated response, so it proves the real pagination
+// logic — not just that `reloadWorkspaces` trusts whatever a mock hands it.
+// ---------------------------------------------------------------------------
+
+function WorkspaceCountDisplay(): JSX.Element {
+  const { workspaces } = useWorkspace();
+  return (
+    <div data-testid="ws-count">{workspaces.length}</div>
+  );
+}
+
+function makeWorkspace(id: string, name: string): Workspace {
+  return {
+    id,
+    name,
+    preset: "standard",
+    terminology_profile: "se_mode",
+    language: "en",
+    theme: "dark",
+    is_active: true,
+    closed_at: null,
+    closed_by: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+}
+
+describe("WorkspaceContext / reloadWorkspaces pagination (Task 1, GESAMTTEST_BERICHT §10.2)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.clearAllMocks();
+    installLocalStorageStub();
+  });
+
+  it("fetches all pages of the workspace list, not just page 1", async () => {
+    const page1 = [makeWorkspace("ws-1", "WS 1"), makeWorkspace("ws-2", "WS 2")];
+    const page2 = [makeWorkspace("ws-3", "WS 3")];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/auth/me/")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              user: {
+                id: "u-1",
+                username: "tester",
+                email: "t@x",
+                first_name: "",
+                last_name: "",
+                is_active: true,
+                tenant_id: null,
+                roles: ["admin"],
+              },
+              tenant_id: null,
+              roles: ["admin"],
+            }),
+          } as unknown as Response;
+        }
+        if (url.includes("/workspaces/") && url.includes("page=2")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              count: 3,
+              next: null,
+              previous: "/api/v1/workspaces/?page_size=100",
+              results: page2,
+            }),
+          } as unknown as Response;
+        }
+        if (url.includes("/workspaces/")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              count: 3,
+              next: "/api/v1/workspaces/?page_size=100&page=2",
+              previous: null,
+              results: page1,
+            }),
+          } as unknown as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      })
+    );
+
+    render(
+      <AuthProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <WorkspaceCountDisplay />
+          </WorkspaceProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    );
+
+    // Regression: with the pre-fix `workspacesApi.list()` call, this would
+    // stop at 2 (page 1 only). The fix must surface all 3 across both pages.
+    await waitFor(() => {
+      expect(screen.getByTestId("ws-count").textContent).toBe("3");
+    });
   });
 });

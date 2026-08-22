@@ -111,12 +111,37 @@ def test_sse_get_without_api_key_returns_401() -> None:
 
 
 def test_sse_options_returns_cors_headers() -> None:
-    """[REQ-085] OPTIONS /mcp/sse/ returns CORS headers for preflight."""
+    """[REQ-085] OPTIONS /mcp/sse/ returns CORS headers for preflight.
+
+    Must send an allowlisted Origin: since the CORS fallback for a
+    non-allowlisted (or missing) Origin now omits Access-Control-Allow-Origin
+    entirely (rather than mirroring an arbitrary allowlist entry), a
+    preflight without a real cross-origin Origin header would no longer
+    carry the header.
+    """
     client = Client()
-    response = client.options("/mcp/sse/")
+    response = client.options("/mcp/sse/", HTTP_ORIGIN="http://localhost:3000")
     assert response.status_code == 200
     assert "Access-Control-Allow-Origin" in response, (
         "OPTIONS must include CORS headers so browsers can make SSE connections."
+    )
+
+
+def test_sse_options_non_allowlisted_origin_omits_cors_header() -> None:
+    """[REQ-081] OPTIONS /mcp/sse/ with a non-allowlisted Origin must not
+    carry Access-Control-Allow-Origin at all.
+
+    Previously the CORS fallback mirrored the first configured allowlist
+    entry for any non-allowlisted origin, which is misleading metadata (the
+    origin was never actually allowed). The header must now be omitted
+    entirely.
+    """
+    client = Client()
+    response = client.options("/mcp/sse/", HTTP_ORIGIN="https://evil.example.com")
+    assert response.status_code == 200
+    assert "Access-Control-Allow-Origin" not in response, (
+        "A non-allowlisted Origin must not receive an Access-Control-Allow-Origin "
+        "header (neither its own origin nor any other allowlist entry)."
     )
 
 

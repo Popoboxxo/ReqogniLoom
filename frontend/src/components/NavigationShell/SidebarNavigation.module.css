@@ -412,8 +412,17 @@
   display: inline-block;
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
-  background: rgba(79, 110, 247, 0.2);
-  color: var(--color-primary);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5
+     finding 4): was `background: rgba(79, 110, 247, 0.2); color:
+     var(--color-primary);` — var(--color-primary) is theme-reactive
+     (tuned for --color-surface), but this badge lives on the sidebar's
+     permanently-dark chrome, so 4 of 5 themes failed WCAG AA (as low as
+     2.06:1). --color-nav-badge-bg/-text are dedicated, frozen tokens
+     (same pattern as --color-nav-text/-active-bg above) sized for this
+     exact context; white text on this bg now reaches ~13:1 in every
+     theme. */
+  background: var(--color-nav-badge-bg);
+  color: var(--color-nav-badge-text);
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -535,6 +544,29 @@
   height: 28px;
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--color-nav-bg));
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6: center the chevron affordance
+     (see .scrollHintChevron) within the fade band. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+}
+
+.scrollHintChevron {
+  color: var(--color-nav-text-muted);
+  /* global.css already forces animation-duration to ~0 under
+     prefers-reduced-motion (see its top-level *, *::before, *::after
+     rule), so no separate override is needed here. */
+  animation: scrollHintBounce 1.4s ease-in-out infinite;
+}
+
+@keyframes scrollHintBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
 }
 
 .footer {
@@ -567,8 +599,20 @@
 .buildVersion {
   padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  opacity: 0.7;
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5
+     finding 5, §10.1): was `color: var(--color-text-muted); opacity:
+     0.7;` — var(--color-text-muted) is tuned for contrast against
+     --color-surface, but this element lives on the sidebar's
+     permanently-dark chrome (--color-nav-bg), not --color-surface, so
+     the 30% opacity cut compounded an already-mismatched color and fell
+     to 1.69-3.85:1 in all 5 themes (dropping only the opacity still left
+     light/bauhaus/sepia below 4.5:1, since their text-muted tones are
+     dark colors meant for light surfaces). Switched to
+     --color-nav-text-muted, the token this component's own sibling
+     .terminologyLabel already uses for the identical "muted text in the
+     sidebar" role a few rules above — 7.62:1 in every theme, no opacity
+     needed. */
+  color: var(--color-nav-text-muted);
 }
 
 /* F-02/F-04 (code review): visible feedback for the language quick-toggle —
@@ -577,7 +621,15 @@
 .langNotice {
   padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  /* Task 10 fix round 1 (contrast remediation): identical root cause to
+     .buildVersion above — var(--color-text-muted) is tuned for contrast
+     against --color-surface, but this element lives on the sidebar's
+     permanently-dark chrome (--color-nav-bg), not --color-surface. Measured
+     2.17:1 (light) / 2.61:1 (bauhaus) / 2.78:1 (sepia) against navy-900,
+     below WCAG AA's 4.5:1. Switched to --color-nav-text-muted, the same fix
+     already applied to .buildVersion and already used by .terminologyLabel
+     — 7.62:1 in every theme. */
+  color: var(--color-nav-text-muted);
 }
 
 .langNoticeError {

@@ -707,8 +707,17 @@ export const TERMINOLOGY_LABELS: Record<TerminologyProfile, TerminologyLabels> =
 // Requirement categories (REQ-L2-RF-001)
 // ---------------------------------------------------------------------------
 
+// GESAMTTEST_BERICHT_2026-08-21.md §6/§10.2: "stakeholder" was offered as a
+// Requirement category with 0 of 792 real requirements ever using it.
+// Investigated rather than assumed: this app already has a dedicated,
+// separate L0 artifact type for stakeholder-level content (`StakeholderNeed`,
+// its own list/form/route, not a Requirement variant), and CLAUDE.md's own
+// canonical requirements-category list (functional/non-functional/API/UI-UX/
+// data/integration/test/workflow/baseline/traceability/AI/resilience) never
+// includes "stakeholder" either — so this wasn't a legitimate category with
+// no data yet, it was a stale/mistaken option that blurred the Need-vs-
+// Requirement boundary. Removed (not "genuinely valid, just unused").
 export const REQ_CATEGORIES = [
-  "stakeholder",
   "functional",
   "non-functional",
   "api",

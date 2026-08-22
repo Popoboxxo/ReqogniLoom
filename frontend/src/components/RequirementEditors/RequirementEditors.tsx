@@ -23,7 +23,7 @@
  * - EntityTypeProvider for context-aware field rendering
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
@@ -189,6 +189,24 @@ export default function RequirementEditors(): JSX.Element {
     setCreateError(null);
     setShowCreateForm((open) => !open);
   }, []);
+
+  // F-08 (Dialog migration): the create dialog's own close affordances
+  // (Escape, backdrop click, × button) must discard the draft exactly like
+  // the existing Cancel button already does — extracted so both share one
+  // implementation instead of duplicating the reset logic.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreateForm(false);
+    setCreateError(null);
+    setNewTitle('');
+    setNewDescription('');
+    setNewCategory('');
+  }, []);
+
+  // F-08: Dialog's focus trap moves focus to the first focusable element in
+  // the panel by default — that would be its own × close button, ahead of
+  // the title input this form used to `autoFocus`. Pointing initialFocusRef
+  // at the title input preserves the previous UX.
+  const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   /**
    * Handle delete requirement with confirmation.
@@ -362,8 +380,16 @@ export default function RequirementEditors(): JSX.Element {
         </p>
       )}
 
-      {/* Create form */}
+      {/* Create form — F-08: wrapped in the shared Dialog primitive so it
+          gets a real focus trap and Escape-to-close (GESAMTTEST_BERICHT
+          2026-08-21 §5 finding 8); the form markup itself is unchanged. */}
       {showCreateForm && (
+        <Dialog
+          title={t('requirements.newRequirement')}
+          onClose={handleCancelCreate}
+          initialFocusRef={newTitleInputRef}
+          testId="req-new-dialog"
+        >
         <form
           data-testid="create-req-form"
           onSubmit={(e) => {
@@ -394,6 +420,7 @@ export default function RequirementEditors(): JSX.Element {
           <input
             id="new-req-title"
             data-testid="req-new-title-input"
+            ref={newTitleInputRef}
             type="text"
             value={newTitle}
             onChange={(e) => {
@@ -464,13 +491,7 @@ export default function RequirementEditors(): JSX.Element {
             <button
               data-testid="req-new-cancel-btn"
               type="button"
-              onClick={() => {
-                setShowCreateForm(false);
-                setCreateError(null);
-                setNewTitle('');
-                setNewDescription('');
-                setNewCategory('');
-              }}
+              onClick={handleCancelCreate}
               disabled={isCreating}
               style={{
                 background: 'var(--color-surface)',
@@ -507,6 +528,7 @@ export default function RequirementEditors(): JSX.Element {
             </button>
           </div>
         </form>
+        </Dialog>
       )}
 
       {/*

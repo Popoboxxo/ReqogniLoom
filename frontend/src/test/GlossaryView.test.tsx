@@ -183,4 +183,20 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
       });
     });
   });
+
+  // Regression test for the WCAG 4.1.2/3.3.2 fix: each create-form field must
+  // be queryable via its accessible name (First Rule of ARIA — a passing
+  // getByLabelText query is direct proof the <label htmlFor> association
+  // works, not just that a <label> text node happens to render nearby).
+  it("a11y: create-form fields (term, abbreviation, definition, synonyms) are queryable by label", async () => {
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByTestId("create-glossary-term-btn"));
+
+    expect(screen.getByLabelText("glossary.term *")).toBeInTheDocument();
+    expect(screen.getByLabelText("glossary.abbreviation")).toBeInTheDocument();
+    expect(screen.getByLabelText("glossary.definition *")).toBeInTheDocument();
+    expect(screen.getByLabelText("glossary.synonyms")).toBeInTheDocument();
+  });
 });

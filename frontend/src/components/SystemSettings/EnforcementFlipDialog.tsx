@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "../WorkflowEditor/ConfirmDialog";
 import {
   permissionDefaultsApi,
@@ -34,6 +35,7 @@ export function EnforcementFlipDialog({
   onClose,
   onFlipped,
 }: EnforcementFlipDialogProps): JSX.Element {
+  const { t } = useTranslation();
   const [count, setCount] = useState<number | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -80,7 +82,7 @@ export function EnforcementFlipDialog({
         setCount(stale);
         setAcknowledged(false);
         setError(
-          `The pending mismatch count changed to ${stale} while you were reviewing. Please review and confirm the new count.`
+          t("systemSettings.enforcementFlip.staleCountError", { count: stale })
         );
       } else {
         setError(extractErrorMessage(err));
@@ -88,17 +90,20 @@ export function EnforcementFlipDialog({
     } finally {
       setBusy(false);
     }
-  }, [count, onFlipped]);
+  }, [count, onFlipped, t]);
 
   return (
     <ConfirmDialog
-      title="Flip to Authoritative Enforcement"
+      title={t("systemSettings.enforcementFlip.title")}
       message={
         loadingCount
-          ? "Loading the current pending mismatch count…"
-          : `There ${count === 1 ? "is" : "are"} currently ${count ?? "?"} pending mismatch${count === 1 ? "" : "es"} in the last ${windowDays} days. Switching to authoritative enforcement makes the new permission model the sole access-control authority.`
+          ? t("systemSettings.enforcementFlip.loadingCount")
+          : t("systemSettings.enforcementFlip.message", {
+              count: count ?? 0,
+              days: windowDays,
+            })
       }
-      confirmLabel="Confirm & Flip"
+      confirmLabel={t("systemSettings.enforcementFlip.confirmLabel")}
       confirmDisabled={loadingCount || count == null || !acknowledged}
       busy={busy}
       errorMessage={error}
@@ -120,7 +125,7 @@ export function EnforcementFlipDialog({
             cursor: "pointer",
           }}
         >
-          View the {count ?? 0} mismatch{count === 1 ? "" : "es"}
+          {t("systemSettings.enforcementFlip.viewMismatches", { count: count ?? 0 })}
         </button>
       </div>
       <label
@@ -140,8 +145,7 @@ export function EnforcementFlipDialog({
           disabled={loadingCount || busy}
         />
         <span>
-          I have reviewed the pending mismatches and accept the current count of{" "}
-          {count ?? 0} before switching to authoritative enforcement.
+          {t("systemSettings.enforcementFlip.acknowledgeLabel", { count: count ?? 0 })}
         </span>
       </label>
     </ConfirmDialog>

@@ -3750,8 +3750,9 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
 def _arch_to_dict(el: Any) -> dict[str, Any]:
     """Convert ArchitectureElement ORM object to dict.
 
-    REQ-L2-RA-013: Prefers CTE-annotated 'level' field (from get_with_level())
-    to avoid N+1 queries. Falls back to Python get_level() only if not annotated.
+    REQ-L2-RA-013: Prefers CTE-annotated 'level' field (from
+    ``ArchitectureElement.annotate_levels()``) to avoid N+1 queries. Falls
+    back to Python get_level() only if not annotated.
     """
     # Prefer annotated level field (from CTE) over recursive method call
     level = getattr(el, 'level', None)

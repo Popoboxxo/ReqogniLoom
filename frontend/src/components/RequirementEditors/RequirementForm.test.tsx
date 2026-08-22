@@ -156,6 +156,83 @@ describe("RequirementForm — unified workflow editor (REQ-161)", () => {
 });
 
 /**
+ * Review finding — REQ_CATEGORIES legacy-value passthrough. The backend
+ * `category` field is a free-form CharField with no DB-level choices
+ * constraint, so an existing requirement (CSV/ReqIF import, manual DB edit)
+ * may carry a category value that is no longer in the static REQ_CATEGORIES
+ * list (e.g. the removed "stakeholder" category). The category <select>
+ * must render that unknown value as an extra option, selected, instead of
+ * silently falling back to no/first selection and losing it on next save.
+ */
+describe("RequirementForm — category select preserves unknown legacy values", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(requirementsApi.update).mockResolvedValue(
+      {} as unknown as Requirement
+    );
+  });
+
+  it("shows a known category normally, without an extra legacy option", () => {
+    render(
+      <RequirementForm
+        requirement={{ ...baseReq, category: "functional" } as Requirement}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+    const select = screen.getByTestId("req-category") as HTMLSelectElement;
+    expect(select).toHaveValue("functional");
+    expect(screen.getAllByRole("option", { name: "functional" })).toHaveLength(1);
+  });
+
+  it("keeps an unknown legacy category selected instead of blanking it", () => {
+    render(
+      <RequirementForm
+        requirement={{ ...baseReq, category: "stakeholder" } as Requirement}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+    const select = screen.getByTestId("req-category") as HTMLSelectElement;
+    // The unknown legacy value must be selectable as its own option and
+    // actually selected — not silently dropped to the empty/first option.
+    expect(screen.getByRole("option", { name: "stakeholder" })).toBeInTheDocument();
+    expect(select).toHaveValue("stakeholder");
+  });
+
+  it("persists the unknown legacy category unchanged on save", async () => {
+    render(
+      <RequirementForm
+        requirement={{ ...baseReq, category: "stakeholder" } as Requirement}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    const payload = (requirementsApi.update as ReturnType<typeof vi.fn>).mock
+      .calls[0][1];
+    expect(payload).toMatchObject({ category: "stakeholder" });
+  });
+});
+
+/**
  * Code review regression — the form never resynced local state when a
  * different `requirement` prop arrived (unlike every sibling editor:
  * AdrForm/RiskForm/IssueForm all reset on their entity prop). Selecting a

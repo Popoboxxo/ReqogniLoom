@@ -13,13 +13,14 @@
  * Resizable divider between panels (REQ-002 Masken-Standardisierung).
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
+import { Dialog } from "../shared/Dialog";
 import { StatusBadge } from "../shared/StatusBadge";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
 import { getTestRunStatusLabel } from "./testRunStatusLabel";
@@ -86,6 +87,18 @@ export function TestRunsList(): JSX.Element {
     resetCreateError();
   };
 
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = (): void => {
+    resetCreateForm();
+    setShowCreateForm(false);
+  };
+
+  // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
+  // defaults to the first focusable element in the panel (its own × close
+  // button) unless told otherwise.
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+
   const toggleTestCaseSelection = (id: string): void => {
     setSelectedTestCaseIds((prev) =>
       prev.includes(id) ? prev.filter((tcId) => tcId !== id) : [...prev, id],
@@ -139,9 +152,7 @@ export function TestRunsList(): JSX.Element {
         primaryAction={{
           label: showCreateForm ? t("actions.cancel") : t("testRuns.create", "Create Run"),
           onClick: () =>
-            showCreateForm
-              ? (resetCreateForm(), setShowCreateForm(false))
-              : setShowCreateForm(true),
+            showCreateForm ? handleCancelCreate() : setShowCreateForm(true),
           testId: "testrun-create-btn",
         }}
       />
@@ -180,8 +191,16 @@ export function TestRunsList(): JSX.Element {
           }
         />
 
-        {/* Create form */}
+        {/* Create form — F-08: wrapped in the shared Dialog primitive so it
+            gets a real focus trap and Escape-to-close (GESAMTTEST_BERICHT
+            2026-08-21 §5 finding 8); the form markup itself is unchanged. */}
         {showCreateForm && (
+          <Dialog
+            title={t("testRuns.create", "Create Run")}
+            onClose={handleCancelCreate}
+            initialFocusRef={nameInputRef}
+            testId="testrun-create-dialog"
+          >
           <form
             data-testid="testrun-create-form"
             onSubmit={(e) => void handleCreate(e)}
@@ -209,6 +228,7 @@ export function TestRunsList(): JSX.Element {
             <input
               id="testrun-name"
               data-testid="testrun-name-input"
+              ref={nameInputRef}
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -333,10 +353,7 @@ export function TestRunsList(): JSX.Element {
               <button
                 type="button"
                 data-testid="testrun-create-cancel-btn"
-                onClick={() => {
-                  resetCreateForm();
-                  setShowCreateForm(false);
-                }}
+                onClick={handleCancelCreate}
                 disabled={isCreating}
                 style={{
                   padding: "var(--space-2) var(--space-3)",
@@ -373,6 +390,7 @@ export function TestRunsList(): JSX.Element {
               </button>
             </div>
           </form>
+          </Dialog>
         )}
 
         {/* Load error */}

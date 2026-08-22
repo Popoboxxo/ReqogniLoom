@@ -17,12 +17,14 @@ Architecture:
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from asgiref.sync import sync_to_async
+from django.db import close_old_connections
 from django.http import (
     HttpRequest,
     HttpResponse,
@@ -113,10 +115,9 @@ def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS
         response["Access-Control-Allow-Origin"] = origin
         response["Access-Control-Allow-Credentials"] = "true"
         response["Vary"] = "Origin"
-    elif allowed_origins:
-        # Default to the first configured origin for non-credentialed clients.
-        response["Access-Control-Allow-Origin"] = allowed_origins[0]
-        response["Vary"] = "Origin"
+    # Non-allowlisted (or missing) Origin: omit Access-Control-Allow-Origin
+    # entirely rather than echoing an arbitrary allowlist entry, which would
+    # be misleading metadata for an origin that was never actually allowed.
     response["Access-Control-Allow-Methods"] = methods
     response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
     return response
@@ -143,7 +144,12 @@ class McpHttpTransportView(CorsMixin, View):
     Accepts POST application/json with a JSON-RPC 2.0 body.
     Returns application/json with a JSON-RPC 2.0 response.
 
-    API key: X-API-Key header or params.api_key in request body.
+    API key: Authorization: Bearer <key> or X-API-Key header only.
+    ``params.api_key`` in the request body is intentionally not accepted
+    on this transport — see ``TransportAdapter.extract_api_key`` /
+    REQ-018 (body keys are as much a logging/proxy exposure risk as
+    query-string keys, and stdio is the only transport without a header
+    mechanism to fall back to).
     """
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
@@ -256,8 +262,12 @@ class McpHttpTransportView(CorsMixin, View):
                 # (`"type": "sse"` in dist/plugins/*), so it belongs here
                 # again. Keep this list in sync with mcp_server/urls.py —
                 # omitting a working transport misleads clients just as badly
-                # as advertising a broken one.
-                "transports": ["http", "sse", "stdio"],
+                # as advertising a broken one. "stdio" is deliberately absent:
+                # it is a separate, non-HTTP-routed transport (no path in
+                # mcp_server/urls.py answers it), so listing it on this HTTP
+                # discovery response would violate the very rule this comment
+                # states (deep-dive review D-7a).
+                "transports": ["http", "sse"],
                 "version": "1.0.0",
             }),
             content_type="application/json",
@@ -401,6 +411,16 @@ class McpMessagesView(CorsMixin, View):
         # Celery dependency here we offload to a bounded thread pool
         # (REQ-086 / F8.4) instead of spawning one thread per message.
         def _process():
+            # D-6: these bounded-pool threads live for the process lifetime and
+            # are reused across many messages, so they never go through
+            # Django's per-request connection-hygiene signals (request_started
+            # / request_finished), which normally call close_old_connections()
+            # for us. Without this, a connection that went stale (e.g. closed
+            # by the DB server / a network blip) between two messages handled
+            # on the same pool thread stays cached and every subsequent query
+            # on it fails. Bookend the work explicitly to match the framework
+            # convention this pool bypasses.
+            close_old_connections()
             try:
                 response_frame = handler.handle_http_request(
                     body=body,
@@ -416,6 +436,8 @@ class McpMessagesView(CorsMixin, View):
                     "id": None,
                     "error": {"error_code": "INTERNAL_ERROR", "message": "Internal server error."}
                 })
+            finally:
+                close_old_connections()
 
         _message_executor.submit(_process)
         return HttpResponse(status=202)
@@ -484,7 +506,14 @@ class McpSseTransportView(View):
         requested = request.GET.get("session_id", "")
         if requested:
             bound_key = await sync_to_async(get_session_api_key)(requested)
-            if bound_key == api_key:
+            # Constant-time compare (REQ-018 / SYSTEM_AUDIT P-02): a session's
+            # bound key is a secret, same class of value as the API key it is
+            # matched against, so it gets the same timing-safe treatment as
+            # every other credential compare in this codebase. ``bound_key``
+            # is legitimately ``None`` for an unknown/expired session — that
+            # is not a match and must not reach ``compare_digest``, which
+            # requires both arguments to be strings (or bytes) of matching type.
+            if bound_key is not None and hmac.compare_digest(bound_key, api_key):
                 return requested
 
         session_id = str(uuid.uuid4())
@@ -534,9 +563,22 @@ class McpSseTransportView(View):
         # (REQ-107). Reusing the session keeps the same replay buffer/channel so
         # Last-Event-ID recovery can actually find the missed events. Any other
         # case (no session_id, unknown, or key mismatch) mints a fresh session.
-        session_id = await self._resolve_session_id(
-            request, api_key, get_session_api_key, store_session_api_key
-        )
+        try:
+            session_id = await self._resolve_session_id(
+                request, api_key, get_session_api_key, store_session_api_key
+            )
+        except Exception:
+            # store_session_api_key (D-5b) now raises on a Redis write failure
+            # instead of silently returning a session id whose key binding
+            # never landed — that session would only ever surface as a
+            # confusing SESSION_EXPIRED on the very next message. Fail the
+            # handshake honestly here instead.
+            logger.exception("Failed to establish SSE session")
+            return _apply_cors_headers(
+                request,
+                JsonResponse({"error": "Failed to establish session"}, status=500),
+                methods=self._CORS_METHODS,
+            )
 
         # A reconnecting EventSource replays from the last id it received; parse
         # it defensively so a malformed header just starts a fresh stream.
