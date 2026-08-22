@@ -8,7 +8,8 @@ Covers the nine MCP tools exposed under the ``user.*`` namespace:
 * user.assign_role         — write, workspace-admin OR tenant-admin gated,
                               audited, error mapping, delegates to
                               AuthorizationService.assign_role
-* user.list                — read,  workspace-admin-gated, error mapping
+* user.list                — read,  workspace-admin OR tenant-admin gated
+                              (Fix Round 1, I-4), error mapping
 * user.deactivate           — write, tenant-admin-gated, audited, error
                               mapping, last-admin protected
 * user.activate             — write, tenant-admin-gated, audited
@@ -182,7 +183,8 @@ def _configure_caller_not_superuser(mock_user_objects: MagicMock) -> None:
 class TestPermissionDeniedMapping:
     """Every write handler maps a service-layer PermissionDenied to
     ``PERMISSION_DENIED`` — ``user.list`` is the only tool that still has
-    its own workspace-scoped pre-gate (``_check_admin``)."""
+    its own workspace-scoped pre-gate (``_check_admin``), which since Fix
+    Round 1 (I-4) also falls through for a tenant-admin caller."""
 
     def test_user_create_maps_service_permission_denied(self):
         group, authz, accounts = _group()
@@ -205,7 +207,11 @@ class TestPermissionDeniedMapping:
         assert accounts.create.call_args.kwargs["actor_is_tenant_admin"] is False
 
     def test_user_list_with_viewer_role_returns_permission_denied(self):
-        group, _, _ = _group()
+        group, authz, _ = _group()
+        # Fix Round 1 (I-4): user.list now falls through to a
+        # tenant-admin check when _check_admin denies. Must also be false
+        # here so this stays a "no standing at all" scenario.
+        authz.is_tenant_admin.return_value = False
         result = group.execute_tool(
             tool_name="user.list",
             params={},
@@ -399,6 +405,57 @@ class TestUserCreate:
         assert result.success is False
         assert result.error_code == "PERMISSION_DENIED"
         accounts.create.assert_not_called()
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_create_superuser_can_create_in_foreign_tenant(
+        self, mock_user_objects, mock_audit
+    ):
+        """Fix Round 1, I-2: a real Django superuser passing an explicit
+        ``tenant_id`` they hold no ``TenantRole(admin)`` in must still
+        succeed — this is the entire point of the superuser ``tenant_id``
+        override (still documented in this tool's schema: "superuser
+        callers only"). The gate used to be ``is_tenant_admin(...,
+        tenant_id=<foreign tenant>)`` alone, which silently broke this: a
+        real superuser is not necessarily a TenantRole(admin) of the
+        FOREIGN tenant they are targeting, so that check evaluated False
+        and wrongly denied. The gate must accept EITHER standing.
+        """
+        group, authz, accounts = _group()
+        # The caller IS a genuine Django superuser...
+        caller = MagicMock()
+        caller.is_superuser = True
+        mock_user_objects.filter.return_value.first.return_value = caller
+        # ...but holds no TenantRole(admin) in the foreign target tenant.
+        authz.is_tenant_admin.return_value = False
+
+        foreign_tenant_id = uuid4()
+        created = _mock_user(
+            id_val=UUID("00000000-0000-0000-0000-0000000000d2"),
+            username="cross-tenant-user",
+            tenant_id=foreign_tenant_id,
+        )
+        accounts.create.return_value = created
+
+        result = group.execute_tool(
+            tool_name="user.create",
+            params={
+                "username": "cross-tenant-user",
+                "email": "cross-tenant-user@test.local",
+                "password": "abcdefgh",
+                "tenant_id": str(foreign_tenant_id),
+            },
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True, result.message
+        accounts.create.assert_called_once()
+        # actor_is_tenant_admin must be True even though
+        # authz.is_tenant_admin(...) returned False — the superuser status
+        # alone must be sufficient to open the gate.
+        assert accounts.create.call_args.kwargs["actor_is_tenant_admin"] is True
+        assert accounts.create.call_args.kwargs["tenant_id"] == foreign_tenant_id
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +803,37 @@ class TestUserList:
         # The caller is not a superuser, so a foreign tenant_id is rejected.
         assert result.success is False
         assert result.error_code == "PERMISSION_DENIED"
+
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_list_pure_tenant_admin_can_list(self, mock_user_objects):
+        """Fix Round 1 (I-4): a pure tenant-admin (no workspace-level
+        ``UserRole(admin)``, so ``_check_admin`` denies) must still be able
+        to call ``user.list`` — every other tool in this group already
+        accepts EITHER workspace-admin OR tenant-admin standing; ``user.list``
+        was the sole tool left on the workspace-only gate.
+        """
+        group, authz, _ = _group()
+        authz.is_tenant_admin.return_value = True
+
+        caller = MagicMock()
+        caller.is_superuser = False
+        list_qs = MagicMock()
+        u1 = _mock_user(username="alice")
+        list_qs.order_by.return_value.__getitem__.return_value = [u1]
+        mock_user_objects.filter.side_effect = [
+            MagicMock(first=MagicMock(return_value=caller)),
+            list_qs,
+        ]
+
+        result = group.execute_tool(
+            tool_name="user.list",
+            params={},
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True, result.message
+        assert result.data["count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1388,6 +1476,78 @@ class TestToolRegistryWiring:
             "user.revoke_tenant_admin",
         }
 
+    @pytest.mark.django_db
+    def test_list_tools_advertises_elevated_tools_to_pure_tenant_admin(self):
+        """Fix Round 1, I-1: a pure tenant-admin (zero workspace-level
+        ``UserRole``, so ``can_write`` resolves False for the coarse
+        ``tools/list`` gate) must still see every tool in
+        ``_TENANT_ADMIN_ELEVATED_USER_TOOLS`` — they can actually execute
+        all 8 of them via ``dispatch_request``'s own ``_is_tenant_admin_exempt``
+        bypass, so hiding them from ``tools/list`` was a discoverability bug,
+        not a security control.
+
+        Note: ``authz`` here must be set on the registry-level service
+        (the 3rd ``_build_registry`` return value), not the ``authz=``
+        constructor kwarg — that kwarg only replaces the ``UsersToolGroup``
+        handler's own ``_authz_service``, never the one ``list_tools``'s
+        ``can_write``/``_is_tenant_admin_exempt`` consult.
+        """
+        registry, _, authz_svc = _build_registry(roles=())
+        # roles=() alone would make _build_registry's default decide_access
+        # mock resolve allow=True (its stub only flips to False for an
+        # explicit "viewer" role) — override to the realistic case of a
+        # caller with no roles/standing that is not permitted to write.
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+        authz_svc.is_tenant_admin.return_value = True
+
+        tools = registry.list_tools(api_key=VALID_API_KEY)
+        names = {t["name"] for t in tools}
+
+        for elevated_tool in (
+            "user.create",
+            "user.deactivate",
+            "user.activate",
+            "user.assign_role",
+            "user.suspend_role",
+            "user.reactivate_role",
+            "user.assign_tenant_admin",
+            "user.revoke_tenant_admin",
+        ):
+            assert elevated_tool in names, (
+                f"{elevated_tool} missing from tools/list for a pure "
+                f"tenant-admin caller: {sorted(names)}"
+            )
+        # user.list is read-only and always visible regardless of write RBAC.
+        assert "user.list" in names
+
+    @pytest.mark.django_db
+    def test_list_tools_still_hides_elevated_tools_from_non_tenant_admin(self):
+        """The bypass in the test above must be tenant-admin-specific: a
+        caller with neither a workspace role nor tenant-admin standing must
+        not see the elevated write tools either."""
+        registry, _, authz_svc = _build_registry(roles=())
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+        authz_svc.is_tenant_admin.return_value = False
+
+        tools = registry.list_tools(api_key=VALID_API_KEY)
+        names = {t["name"] for t in tools}
+
+        for elevated_tool in (
+            "user.create",
+            "user.deactivate",
+            "user.activate",
+            "user.assign_role",
+            "user.suspend_role",
+            "user.reactivate_role",
+            "user.assign_tenant_admin",
+            "user.revoke_tenant_admin",
+        ):
+            assert elevated_tool not in names, (
+                f"{elevated_tool} wrongly advertised to a caller with no "
+                f"write standing at all: {sorted(names)}"
+            )
+        assert "user.list" in names
+
 
 # ---------------------------------------------------------------------------
 # E2E — JSON-RPC pipeline (mocked auth/authz services)
@@ -1879,6 +2039,91 @@ class TestE2ERealTenantAdminElevation:
         )
         assert "error" in response, response
         assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
+
+
+@pytest.mark.django_db
+class TestE2ERealAuditPersistence:
+    """Fix Round 1, C-1: prove a real ``AuditEntry`` row is written.
+
+    Every other test in this file (including the "real service" E2E classes
+    above) patches ``mcp_server.tools.users.write_mcp_audit`` and only
+    asserts it was CALLED — which is exactly why C-1 shipped invisibly: the
+    5 new tools' ``operation=`` literals were missing from
+    ``AuditEntry.OP_CHOICES``, so ``write_mcp_audit`` silently swallowed the
+    resulting ``ValidationError`` (logged, never raised) and wrote zero
+    rows, while every mocked-call assertion still passed. These tests do
+    NOT patch ``write_mcp_audit`` — they drive the real, unmocked
+    ``ToolRegistry()`` end to end and query ``audit.models.AuditEntry``
+    directly to prove a genuine row landed in the database.
+    """
+
+    def test_assign_tenant_admin_writes_a_real_audit_row(
+        self, e2e_tenant, e2e_user_viewer
+    ):
+        from audit.models import AuditEntry
+
+        _, api_key = _make_pure_tenant_admin_and_key(
+            e2e_tenant, label="audit-grantor"
+        )
+        handler = _handler(ToolRegistry())
+
+        response = _post(
+            handler,
+            "user.assign_tenant_admin",
+            {"user_id": str(e2e_user_viewer.id)},
+            api_key=api_key,
+        )
+        assert "result" in response, response
+        assert response["result"]["granted"] is True
+
+        rows = list(
+            AuditEntry.unscoped.filter(
+                op="user.assign_tenant_admin",
+                entity_id=e2e_user_viewer.id,
+            )
+        )
+        assert len(rows) == 1, (
+            "expected exactly one AuditEntry row for "
+            f"user.assign_tenant_admin/{e2e_user_viewer.id}, found {len(rows)}"
+        )
+        assert rows[0].source == AuditEntry.SOURCE_MCP
+        assert rows[0].entity_type == "TenantRole"
+
+    def test_suspend_role_writes_a_real_audit_row(
+        self, e2e_tenant, e2e_workspace, e2e_user_viewer, e2e_userrole_viewer
+    ):
+        from audit.models import AuditEntry
+
+        _, api_key = _make_pure_tenant_admin_and_key(
+            e2e_tenant, label="audit-suspender"
+        )
+        handler = _handler(ToolRegistry())
+
+        response = _post(
+            handler,
+            "user.suspend_role",
+            {
+                "workspace_id": str(e2e_workspace.id),
+                "user_id": str(e2e_user_viewer.id),
+                "role": "viewer",
+            },
+            api_key=api_key,
+        )
+        assert "result" in response, response
+        assert response["result"]["suspended"] is True
+
+        rows = list(
+            AuditEntry.unscoped.filter(
+                op="user.suspend_role",
+                entity_id=e2e_user_viewer.id,
+            )
+        )
+        assert len(rows) == 1, (
+            "expected exactly one AuditEntry row for "
+            f"user.suspend_role/{e2e_user_viewer.id}, found {len(rows)}"
+        )
+        assert rows[0].source == AuditEntry.SOURCE_MCP
+        assert rows[0].entity_type == "UserRole"
 
 
 @pytest.mark.django_db

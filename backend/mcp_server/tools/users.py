@@ -36,7 +36,10 @@ Architecture
 * Admin gates come in two shapes:
   - Workspace-scoped: ``_check_admin`` checks
     ``auth_context.has_role("admin")`` (workspace-scoped ``UserRole``).
-    Still used by ``user.list``.
+    ``user.list`` calls it first but, since Fix Round 1 (I-4), falls
+    through instead of returning the denial when the caller is a pure
+    tenant-admin (``is_tenant_admin(...)`` true) — matching every other
+    tool in this group, which all accept EITHER standing.
   - Tenant-scoped: ``self._authz_service.is_tenant_admin(...)`` (a
     ``TenantRole`` check) — used directly by every tool that is
     tenant-admin-exclusive (``user.create``/``.deactivate``/``.activate``/
@@ -552,7 +555,16 @@ class UsersToolGroup(BaseToolGroup):
         else:
             tenant_id = auth_context.tenant_id
 
-        is_admin = self._authz_service.is_tenant_admin(
+        # Fix Round 1 (I-2): a genuine Django superuser must still be able to
+        # create a user in a tenant they hold no TenantRole(admin) in — this
+        # is the whole point of the superuser `tenant_id` override above
+        # (still documented in this tool's schema: "superuser callers only").
+        # Gating purely on `is_tenant_admin(..., tenant_id=<foreign tenant>)`
+        # silently broke that: a real superuser passing a foreign tenant_id
+        # is not a TenantRole(admin) of THAT tenant, so the check evaluated
+        # False and the call was wrongly denied. `is_superuser` was already
+        # computed above for the tenant_id-override gate; OR it in here too.
+        is_admin = is_superuser or self._authz_service.is_tenant_admin(
             user_id=auth_context.user_id, tenant_id=tenant_id
         )
         try:
@@ -751,7 +763,7 @@ class UsersToolGroup(BaseToolGroup):
     def _handle_user_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """user.list — list users (admin-only, read).
+        """user.list — list users (workspace-admin or tenant-admin, read).
 
         Optional params:
             tenant_id : tenant to scope to. Defaults to
@@ -764,7 +776,19 @@ class UsersToolGroup(BaseToolGroup):
         """
         denied = self._check_admin(auth_context)
         if denied is not None:
-            return denied
+            # Fix Round 1 (I-4): `_check_admin` only recognises a
+            # workspace-scoped ``UserRole(admin)``. A pure tenant-admin
+            # (``TenantRole(admin)`` only, zero workspace-level ``UserRole``)
+            # can now create/deactivate/activate/grant-tenant-admin via the
+            # other tools in this group but was still denied here — the only
+            # tool in this group left on the old workspace-only gate.
+            # Fall through instead of returning the denial if the caller is
+            # a tenant-admin of their own tenant.
+            is_tenant_admin = self._authz_service.is_tenant_admin(
+                user_id=auth_context.user_id, tenant_id=auth_context.tenant_id
+            )
+            if not is_tenant_admin:
+                return denied
 
         # Tenant resolution: superuser can override, non-superuser forced.
         is_superuser = self._caller_is_superuser(auth_context.user_id)

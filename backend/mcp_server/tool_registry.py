@@ -636,9 +636,19 @@ class ToolRegistry:
                     tools.extend(group.get_tool_schemas())
 
             if not can_write:
-                # Hide write tools from read-only callers (Viewer role).
+                # Hide write tools from read-only callers (Viewer role) —
+                # except the tenant-admin-elevated ``user.*`` tools
+                # (_TENANT_ADMIN_ELEVATED_USER_TOOLS), which a pure
+                # tenant-admin (TenantRole(admin), zero workspace-level
+                # UserRole) can actually execute via the same
+                # ``_is_tenant_admin_exempt`` bypass ``dispatch_request``'s
+                # Step 3 RBAC gate already applies. Without this, tools/list
+                # advertised none of the 8 tools such a caller can run.
                 tools = [
-                    t for t in tools if not self._is_write_tool(t.get("name", ""))
+                    t
+                    for t in tools
+                    if not self._is_write_tool(t.get("name", ""))
+                    or self._is_tenant_admin_exempt(t.get("name", ""), auth_ctx)
                 ]
             return tools
         finally:

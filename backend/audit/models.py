@@ -127,6 +127,14 @@ class AuditEntry(TenantScopedModel):
     OP_USER_CREATE = "user.create"
     OP_USER_ASSIGN_ROLE = "user.assign_role"
     OP_USER_DEACTIVATE = "user.deactivate"
+    # Multi-user management Task 9 (#539 follow-up): these 5 ops were added
+    # to ``UsersToolGroup`` without being declared here, so ``write_mcp_audit``
+    # silently produced zero audit rows for all of them (see #539 above).
+    OP_USER_ACTIVATE = "user.activate"
+    OP_USER_SUSPEND_ROLE = "user.suspend_role"
+    OP_USER_REACTIVATE_ROLE = "user.reactivate_role"
+    OP_USER_ASSIGN_TENANT_ADMIN = "user.assign_tenant_admin"
+    OP_USER_REVOKE_TENANT_ADMIN = "user.revoke_tenant_admin"
     # #573: LLM-backed analyses exposed as MCP tools. They have no REST
     # pendant whose op could be reused, so they get their own namespace —
     # consistent with the ``baseline.``/``workspace.``/``admin.``/
@@ -201,6 +209,11 @@ class AuditEntry(TenantScopedModel):
         (OP_USER_CREATE, "User Create"),
         (OP_USER_ASSIGN_ROLE, "User Assign Role"),
         (OP_USER_DEACTIVATE, "User Deactivate"),
+        (OP_USER_ACTIVATE, "User Activate"),
+        (OP_USER_SUSPEND_ROLE, "User Suspend Role"),
+        (OP_USER_REACTIVATE_ROLE, "User Reactivate Role"),
+        (OP_USER_ASSIGN_TENANT_ADMIN, "User Assign Tenant Admin"),
+        (OP_USER_REVOKE_TENANT_ADMIN, "User Revoke Tenant Admin"),
         (OP_AI_DECOMPOSE, "AI Decompose"),
         (OP_AI_VALIDATE, "AI Validate"),
         (OP_AI_CHECK_CONSISTENCY, "AI Consistency Check"),
