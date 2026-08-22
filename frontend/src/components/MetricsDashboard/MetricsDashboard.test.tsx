@@ -193,6 +193,34 @@ describe("MetricsDashboard", () => {
   });
 
   // ---------------------------------------------------------------------
+  // GESAMTTEST_BERICHT_2026-08-21.md §5 finding 7: the 5 `metric-status-*`
+  // spans carried `aria-label` with no `role`, which some screen readers do
+  // not reliably expose. Each must now carry both role="img" AND a non-empty
+  // accessible name (the previous aria-label content, unchanged).
+  // ---------------------------------------------------------------------
+  describe("Status-dot accessibility (§5 finding 7)", () => {
+    const TILE_NAMES = [
+      "coverage",
+      "volatility",
+      "workflowGap",
+      "openRisks",
+      "openRisksCritical",
+    ];
+
+    it("gives all 5 metric-status-* spans role=img and a non-empty accessible name", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-status-coverage");
+
+      for (const name of TILE_NAMES) {
+        const span = screen.getByTestId(`metric-status-${name}`);
+        expect(span).toHaveAttribute("role", "img");
+        expect(span.getAttribute("aria-label")).toBeTruthy();
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // GitHub #450: filter dropdown must not be disabled (mirrors ListToolbar's
   // list pages, which never gate filters on a loading flag), and the Refresh
   // button must re-enable ("Refresh", not stuck on "Refreshing...") once its

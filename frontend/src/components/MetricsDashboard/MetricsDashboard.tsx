@@ -277,6 +277,13 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
             background: palette.fg,
             boxShadow: `0 0 0 4px ${palette.bg}`,
           }}
+          // GESAMTTEST_BERICHT_2026-08-21.md §5 finding 7: aria-label on a
+          // roleless <span> is not reliably exposed by all screen readers.
+          // This is a purely visual status-dot icon (color-coded ok/warning/
+          // critical), not a live-updating ARIA live region — role="img"
+          // (with the existing aria-label as its accessible name) is the
+          // correct semantic role, matching the icon-like status pattern.
+          role="img"
           aria-label={t(palette.labelKey, status)}
         />
       </div>
