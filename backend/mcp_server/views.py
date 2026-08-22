@@ -113,10 +113,9 @@ def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS
         response["Access-Control-Allow-Origin"] = origin
         response["Access-Control-Allow-Credentials"] = "true"
         response["Vary"] = "Origin"
-    elif allowed_origins:
-        # Default to the first configured origin for non-credentialed clients.
-        response["Access-Control-Allow-Origin"] = allowed_origins[0]
-        response["Vary"] = "Origin"
+    # Non-allowlisted (or missing) Origin: omit Access-Control-Allow-Origin
+    # entirely rather than echoing an arbitrary allowlist entry, which would
+    # be misleading metadata for an origin that was never actually allowed.
     response["Access-Control-Allow-Methods"] = methods
     response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
     return response

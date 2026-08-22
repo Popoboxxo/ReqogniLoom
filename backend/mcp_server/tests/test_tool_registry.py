@@ -311,6 +311,35 @@ class TestToolRegistryDispatch:
         assert result.success is False
         assert result.error_code == "FEATURE_NOT_ENABLED"
 
+    def test_preset_lookup_failure_fails_open_and_logs_warning(self, caplog):
+        """A DB hiccup during the preset lookup must still allow the call
+        through (fail-open; auth is the hard gate) but must now be logged
+        at WARNING so it's visible in normal log-monitoring, not just debug.
+        """
+        registry, _, _ = self._make_registry()
+
+        mock_group = MagicMock()
+        mock_group.execute_tool.return_value = ToolResult.ok({"trace": {}})
+        registry.register_groups({"traceability": mock_group, "artifact": mock_group})
+
+        with patch("presets.services.get_preset", side_effect=RuntimeError("db down")):
+            with caplog.at_level("WARNING", logger="mcp_server.tool_registry"):
+                result = registry.dispatch_request(
+                    tool_name="traceability.query",
+                    params={
+                        "workspace_id": "ws-preset-lookup-fails",
+                        "artifact_id": "00000000-0000-0000-0000-000000000001",
+                    },
+                    api_key="reqlo_validkey",
+                )
+
+        assert result.success is True
+        assert mock_group.execute_tool.called
+        assert any(
+            record.levelname == "WARNING" and "Preset lookup failed" in record.getMessage()
+            for record in caplog.records
+        ), "Expected a WARNING-level log line for the failed preset lookup."
+
     def test_tool_group_exception_returns_internal_error(self):
         registry, _, _ = self._make_registry()
         mock_group = MagicMock()

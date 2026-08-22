@@ -913,7 +913,7 @@ class ToolRegistry:
                 features = preset_rules.features
                 self._preset_cache.set(workspace_id, features)
             except Exception:
-                logger.debug("Preset lookup failed for workspace=%s", workspace_id)
+                logger.warning("Preset lookup failed for workspace=%s", workspace_id)
                 # On failure, allow (fail-open for preset; auth is the hard gate)
                 return False
 
