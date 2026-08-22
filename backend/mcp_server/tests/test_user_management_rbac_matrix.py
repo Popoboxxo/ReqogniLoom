@@ -13,7 +13,7 @@ import pytest
 
 from auth_tenancy.models import ROLE_ADMIN, ROLE_APPROVER, ROLE_EDITOR, ROLE_VIEWER, TenantRole, UserRole
 from auth_tenancy.services.authentication import AuthenticationService
-from auth_tenancy.tests.user_management_matrix import ACTIONS, USER_MANAGEMENT_MATRIX
+from auth_tenancy.tests.user_management_matrix import ACTIONS, ROLES, USER_MANAGEMENT_MATRIX
 from mcp_server.tool_registry import ToolRegistry
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
@@ -72,7 +72,7 @@ def _setup_caller_and_target(role_label: str):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("action", ACTIONS)
-@pytest.mark.parametrize("role_label", ["tenant-admin", "workspace-admin", "editor", "viewer", "approver", "no-role"])
+@pytest.mark.parametrize("role_label", ROLES)
 def test_mcp_permission_matches_matrix(action, role_label):
     expected_allowed = USER_MANAGEMENT_MATRIX[action][role_label]
     ids = _setup_caller_and_target(role_label)
@@ -85,9 +85,9 @@ def test_mcp_permission_matches_matrix(action, role_label):
     )
 
     if expected_allowed:
-        assert result.error_code != "PERMISSION_DENIED", (
+        assert result.success is True, (
             f"{role_label} should be ALLOWED to call {tool_name} but got "
-            f"{result.error_code!r}: {result.message!r}"
+            f"success={result.success!r} error_code={result.error_code!r}: {result.message!r}"
         )
     else:
         assert result.success is False and result.error_code == "PERMISSION_DENIED", (

@@ -11,7 +11,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, ROLE_APPROVER, ROLE_EDITOR, ROLE_VIEWER, TenantRole, UserRole
-from auth_tenancy.tests.user_management_matrix import ACTIONS, USER_MANAGEMENT_MATRIX
+from auth_tenancy.tests.user_management_matrix import ACTIONS, ROLES, USER_MANAGEMENT_MATRIX
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
@@ -69,7 +69,7 @@ _ACTION_TO_REQUEST = {
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("action", ACTIONS)
-@pytest.mark.parametrize("role_label", ["tenant-admin", "workspace-admin", "editor", "viewer", "approver", "no-role"])
+@pytest.mark.parametrize("role_label", ROLES)
 def test_rest_permission_matches_matrix(action, role_label):
     expected_allowed = USER_MANAGEMENT_MATRIX[action][role_label]
     ids = _setup_and_login(role_label)
@@ -79,6 +79,8 @@ def test_rest_permission_matches_matrix(action, role_label):
     resp = client_call(path, body, format="json")
 
     if expected_allowed:
-        assert resp.status_code != 403, f"{role_label} should be ALLOWED for {path} but got 403: {resp.content}"
+        assert 200 <= resp.status_code < 300, (
+            f"{role_label} should be ALLOWED for {path} but got {resp.status_code}: {resp.content}"
+        )
     else:
         assert resp.status_code == 403, f"{role_label} should be DENIED for {path} but got {resp.status_code}: {resp.content}"
