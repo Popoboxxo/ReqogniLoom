@@ -137,7 +137,7 @@ MODEL_IMPORT_ALLOWLIST: set[str] = {
 # call-sites are migrated into application/ services.
 MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
     "cross_cutting.py": 4,
-    "users.py": 10,
+    "users.py": 8,
 }
 
 # Issue #124 follow-up: frozen baseline for the transport/dispatch modules
