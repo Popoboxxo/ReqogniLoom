@@ -93,6 +93,17 @@ export function TransitionEdge({
             data-testid={`workflow-transition-edge-${transition.id}`}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            // WCAG 2.1.1 — this element has no onClick of its own; selecting
+            // the transition happens via the native click bubbling up (through
+            // the React tree, per EdgeLabelRenderer's portal semantics) to
+            // React Flow's onEdgeClick. Enter/Space must reach the same path,
+            // so we dispatch a real click rather than duplicate that wiring.
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.currentTarget.click();
+              }
+            }}
           >
             {transition.change_reason_required && (
               <Lock size={10} className={styles.edgeLockIcon} aria-hidden="true" />
