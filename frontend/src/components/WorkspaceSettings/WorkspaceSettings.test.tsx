@@ -119,6 +119,14 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.queryByTestId("decomposition-link-type-select")).not.toBeInTheDocument();
   });
 
+  // Regression test for the WCAG 4.1.2/3.3.2 fix: the name field must be
+  // queryable via its accessible name (aria-labelledby -> the "Workspace
+  // Name" heading), not just visually adjacent to it.
+  it("a11y: the workspace-name field is queryable by its accessible name", () => {
+    render(<WorkspaceSettings />);
+    expect(screen.getByLabelText("Workspace Name")).toBe(screen.getByTestId("workspace-name-input"));
+  });
+
   it("#609: opens directly on the LLM tab when deep-linked via ?tab=llm", () => {
     mockSearchParams.current = new URLSearchParams("tab=llm");
     render(<WorkspaceSettings />);

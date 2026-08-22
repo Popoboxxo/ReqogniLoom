@@ -3,6 +3,9 @@
     "title": "ReqogniLoom",
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
   },
+  "adminOps": {
+    "backupTypeLabel": "Backup-Typ"
+  },
   "customFields": {
     "section": "Benutzerdefinierte Felder",
     "workspaceSection": "Workspace-Felder",

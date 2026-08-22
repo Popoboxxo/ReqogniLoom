@@ -115,8 +115,11 @@ export function TransitionDialog({
       }
     >
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>{t("workflow.transitionDialog.from")}</span>
+        <label className={styles.fieldLabel} htmlFor="wf-transition-from">
+          {t("workflow.transitionDialog.from")}
+        </label>
         <input
+          id="wf-transition-from"
           className={styles.fieldInput}
           value={fromState}
           readOnly

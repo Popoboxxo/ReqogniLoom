@@ -79,6 +79,22 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// Visually-hidden but screen-reader-accessible label — the inline
+// create-backup row has no room for a visible caption next to the type
+// select, but the control still needs a programmatic accessible name
+// (WCAG 4.1.2).
+const visuallyHiddenStyle: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export function BackupRestoreSection(): JSX.Element {
   const { t } = useTranslation();
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
@@ -188,7 +204,11 @@ export function BackupRestoreSection(): JSX.Element {
           disabled={isCreating}
           style={{ ...inputStyle, flex: 1, minWidth: "200px" }}
         />
+        <label htmlFor="backup-type-select" style={visuallyHiddenStyle}>
+          {t("adminOps.backupTypeLabel", "Backup type")}
+        </label>
         <select
+          id="backup-type-select"
           data-testid="backup-type-select"
           value={backupType}
           onChange={(e) => setBackupType(e.target.value as BackupTypeValue)}

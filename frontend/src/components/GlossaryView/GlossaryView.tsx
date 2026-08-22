@@ -444,28 +444,28 @@ export default function GlossaryView(): JSX.Element {
       </h2>
       <div className={styles.formGrid}>
         <div>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-term-input">
             {t("glossary.term")} *
           </label>
-          <input required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
+          <input id="glossary-term-input" required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
         </div>
         <div>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-abbreviation-input">
             {t("glossary.abbreviation")}
           </label>
-          <input className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
+          <input id="glossary-abbreviation-input" className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
         </div>
         <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-definition-input">
             {t("glossary.definition")} *
           </label>
-          <textarea required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
+          <textarea id="glossary-definition-input" required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
         </div>
         <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel}>
+          <label className={styles.fieldLabel} htmlFor="glossary-synonyms-input">
             {t("glossary.synonyms")}
           </label>
-          <input className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
+          <input id="glossary-synonyms-input" className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
         </div>
       </div>
 

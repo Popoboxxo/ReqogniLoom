@@ -324,10 +324,11 @@ export default function WorkspaceSettings(): JSX.Element {
           <>
             {/* Workspace Name */}
             <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.workspaceName", "Workspace Name")}</h3>
+              <h3 id="workspace-name-heading" style={headingStyle}>{t("settings.workspaceName", "Workspace Name")}</h3>
               <div style={{ display: "flex", gap: "var(--space-2)" }}>
                 <input
                   data-testid="workspace-name-input"
+                  aria-labelledby="workspace-name-heading"
                   value={name}
                   onChange={(e) => { setName(e.target.value); setSavedOk(false); }}
                   style={{
