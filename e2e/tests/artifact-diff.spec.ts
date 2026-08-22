@@ -31,7 +31,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
       ),
       page.locator('[data-testid="save-btn"]').click(),
     ]);
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText(/Save|Speichern/, { timeout: 10000 });
   }
 
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {

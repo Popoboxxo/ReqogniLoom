@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { getAuthToken, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 test.describe('[REQ-L2-ICD-001] ICD CRUD API', () => {
   test('[REQ-L2-ICD-001] Full CRUD round-trip for ICD with version auto-increment', async ({ request }) => {

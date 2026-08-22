@@ -39,7 +39,7 @@ import {
   createIsolatedWorkspace,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // ---------------------------------------------------------------------------
@@ -390,45 +390,31 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
   });
 
   test('REQ-L1-035: TestRun-Detail öffnen → Aggregate-Status failed (1 von 3)', async ({ page, request }) => {
-    // Vor dem Close: TestRun ist in_progress; result_summary zeigt die
-    // hinzugefügten Ergebnisse (1 fail, 2 passed, 3 total).
+    // GH-690: seit der Backend-Auto-Completion (GH-584, `_recompute_status`)
+    // ist der Run bereits terminal ("failed", finished_at gesetzt), sobald
+    // alle 3 Results in `seedWaterkettleScenario()`'s beforeAll gemeldet
+    // wurden — es gibt keinen manuellen "in_progress" Zwischenzustand mehr
+    // und folglich auch keinen Close-Button zum Klicken. Ein Assert auf
+    // "vor dem Close: in_progress" bzw. ein anschließender UI-Close-Flow
+    // sind daher gegen die aktuelle Backend-Semantik hinfällig.
     const token = await getAuthToken();
-    const before = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
+    const resp = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    expect(before.ok()).toBeTruthy();
-    const open = await before.json();
-    expect(open.status).toBe('in_progress');
-    expect(open.result_summary.passed).toBe(2);
-    expect(open.result_summary.failed).toBe(1);
-    expect(open.result_summary.total).toBe(3);
-    expect(open.finished_at).toBeNull();
+    expect(resp.ok()).toBeTruthy();
+    const run = await resp.json();
+    expect(run.status).toBe('failed');
+    expect(run.result_summary.passed).toBe(2);
+    expect(run.result_summary.failed).toBe(1);
+    expect(run.result_summary.total).toBe(3);
+    expect(run.finished_at).not.toBeNull();
 
-    // Close via UI
+    // UI: Detail öffnen und bestätigen, dass kein Close-Button mehr
+    // angeboten wird (TestRunDetailEditor.tsx rendert ihn nur bei
+    // status === "in_progress") — der Run ist bereits terminal.
     await page.goto(`${FRONTEND_URL}/test-runs`);
     await page.getByText(WK_TESTRUN_NAME).first().click();
-    const closeBtn = page.getByRole('button', { name: /close test run/i });
-    await expect(closeBtn).toBeVisible({ timeout: 8000 });
-    await closeBtn.click();
-    // Two-step inline confirmation (REQ-012) — the first click only reveals
-    // the confirm button, it doesn't call the close API by itself.
-    await page.getByTestId('testrun-confirm-close-btn').click();
-    // handleClose() (TestRunDetailEditor.tsx) awaits testRunsApi.close(),
-    // then renders the "testrun-close-success" status region — wait for
-    // that instead of a fixed delay, so the follow-up API assertion below
-    // is guaranteed to run after the close has actually taken effect.
-    await expect(page.getByTestId('testrun-close-success')).toBeVisible({ timeout: 8000 });
-
-    // Nach dem Close: aggregate status "failed" + finished_at gesetzt
-    const after = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(after.ok()).toBeTruthy();
-    const closed = await after.json();
-    expect(closed.status).toBe('failed');
-    expect(closed.finished_at).not.toBeNull();
-    expect(closed.result_summary.passed).toBe(2);
-    expect(closed.result_summary.failed).toBe(1);
+    await expect(page.getByTestId('testrun-close-btn')).toHaveCount(0, { timeout: 8000 });
   });
 
   // -------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import {
   createIsolatedWorkspace,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('[REQ-126] Bearer Token Role Resolution E2E', () => {

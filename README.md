@@ -485,20 +485,20 @@ job; it is only missing when seeding a local dev stack by hand.
 >    default (`docker-compose exec -e SYSTEM_ADMIN_PASSWORD=admin12345 backend python manage.py
 >    seed_demo --reset-password`), or set `E2E_ADMIN_PASSWORD=<your .env password>` when running
 >    Playwright so `auth.ts` uses it instead.
-> 2. **Backend port mismatch.** `BACKEND_URL` defaults to `http://localhost:8000`, but
->    `docker-compose.override.yml` publishes the backend on host port `8001`. Port 8000 answers
->    with a bare 404 (nothing else is listening there), which — combined with pitfall 1 — can make
->    a whole spec file fail before it does anything meaningful. Always pass `BACKEND_URL` (and,
->    if pitfall 1 applies to you, `E2E_ADMIN_PASSWORD`) explicitly for a local run, as below.
+> 2. **Backend port mismatch (fixed).** `docker-compose.yml` publishes the backend on host port
+>    `8001`. The E2E helpers/specs' `BACKEND_URL` default now matches (`http://localhost:8001`),
+>    so a local run no longer needs to pass it explicitly — only override it if your stack maps
+>    the backend to a different host port (e.g. a local-only compose override to avoid port
+>    clashes with other running stacks).
 
 ```bash
 make test-e2e                # full suite via Makefile (installs deps + runs Playwright)
 
-# Or manually (BACKEND_URL required locally — see pitfall 2 above):
+# Or manually (BACKEND_URL only needed if your stack doesn't use the default 8001 — see pitfall 2 above):
 cd e2e
 npm install                  # first time only
-BACKEND_URL=http://localhost:8001 npx playwright test          # full suite (~3 min)
-BACKEND_URL=http://localhost:8001 npm run test:e2e:ui          # interactive UI mode
+npx playwright test          # full suite (~3 min)
+npm run test:e2e:ui          # interactive UI mode
 npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 ```
 

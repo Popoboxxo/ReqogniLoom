@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('Requirements Management', () => {
@@ -24,6 +24,7 @@ test.describe('Requirements Management', () => {
     // "+ New" opens an inline quick-create form first; Save navigates to
     // /requirements/:id where the title input renders.
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-title-input"]').fill('E2E New Requirement Form');
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
   });
@@ -53,6 +54,7 @@ test.describe('Requirements Management', () => {
   test('[REQ-L1-002] create and edit requirement via UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-title-input"]').fill('E2E Create And Edit Requirement');
     await page.locator('[data-testid="req-new-save-btn"]').click();
 
     // Wait for navigation to /requirements/:id and the title input to appear

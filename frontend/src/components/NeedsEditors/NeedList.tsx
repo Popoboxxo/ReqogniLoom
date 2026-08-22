@@ -204,6 +204,7 @@ export function NeedList({
           </label>
           <input
             type="text"
+            data-testid="need-new-title-input"
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             autoFocus

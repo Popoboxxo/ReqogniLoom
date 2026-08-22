@@ -9,7 +9,7 @@ import {
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form; the full editor only
@@ -149,13 +149,19 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-006] traceability page shows list or empty state', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/traceability`);
-    // Either list (when links exist) or empty placeholder must be visible
+    // Either list (when links exist) or empty placeholder must be visible.
+    // GH-692: under full-suite load (sequential workers, shared Postgres),
+    // the tracelinks aggregation endpoint has been observed taking >10s to
+    // respond, leaving the page stuck on "Laden..." past the old timeout —
+    // reproducible only under suite load, not in isolation. 30s matches
+    // this suite's existing convention for other suite-load-sensitive
+    // assertions (e.g. toothbrush-syseng.spec.ts).
     const list = page.locator('[data-testid="traceability-list"]');
     const empty = page.locator('[data-testid="traceability-empty"]');
     // Wait for one of them to appear
     await Promise.race([
-      expect(list).toBeVisible({ timeout: 10000 }).catch(() => null),
-      expect(empty).toBeVisible({ timeout: 10000 }).catch(() => null),
+      expect(list).toBeVisible({ timeout: 30000 }).catch(() => null),
+      expect(empty).toBeVisible({ timeout: 30000 }).catch(() => null),
     ]);
     const listVisible = await list.isVisible();
     const emptyVisible = await empty.isVisible();

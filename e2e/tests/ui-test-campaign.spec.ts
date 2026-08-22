@@ -18,7 +18,7 @@
 import { test, expect, Page, BrowserContext } from '@playwright/test';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:8000';
+const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:8001';
 const SCREENSHOTS  = process.env.SCREENSHOTS_DIR ||
   '/tmp/claude-1000/-home-dduchrow-Repos-ai-native-reqflow-POC/c6ffd178-9d77-4dc1-856a-c306204b4f92/scratchpad/screenshots';
 
