@@ -21,6 +21,7 @@ import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
+import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
@@ -508,20 +509,50 @@ export default function ArchitectureEditors(): JSX.Element {
           the root dropzone to detach it to L0. Reinstated on 2026-08-15,
           reversing the 2026-07-13 "won't do" note that stood here before. */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <WorkspaceTree
-          data-testid="arch-tree"
-          nodes={archTreeNodes}
-          selectedId={selectedId}
-          onSelect={(id) => navigate(`/architecture/${id}`)}
-          onAddChild={(parentId) => void handleCreate(parentId)}
-          onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
-          rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
-          showLevelBadge={true}
-          showSearch={false}
-          virtualize
-          emptyLabel={t('editor.empty')}
-          noMatchesLabel={t('editor.noMatches')}
-        />
+        {/* GESAMTTEST_BERICHT_2026-08-21.md §6 "Architecture empty-state":
+            this route used to fall through to WorkspaceTree's built-in plain
+            muted-text emptyLabel/noMatchesLabel instead of the shared
+            <EmptyState> headline+description+CTA pattern every sibling list
+            page (Needs, ADRs, Risks, ...) already uses — see NeedList.tsx's
+            identical wiring, which this mirrors (#179 / ch. 13.3: "nothing
+            exists" wants a create action, "nothing matches the filter"
+            only wants a filter reset). */}
+        {elements.length === 0 ? (
+          <EmptyState
+            variant="empty"
+            testId="arch-tree-empty"
+            title={t('arch.emptyTitle', 'No architecture elements yet')}
+            description={t(
+              'arch.emptyDescription',
+              'Architecture elements map system, subsystems and components onto the V-model hierarchy.',
+            )}
+            actions={[
+              { label: t('arch.newElement', 'New Architecture Element'), onClick: () => setShowCreateForm(true), testId: 'arch-tree-empty-create' },
+            ]}
+          />
+        ) : archTreeNodes.length === 0 ? (
+          <EmptyState
+            variant="no-match"
+            testId="arch-tree-no-match"
+            onResetFilters={() => {
+              setListSearch('');
+              setStatusFilter('');
+            }}
+          />
+        ) : (
+          <WorkspaceTree
+            data-testid="arch-tree"
+            nodes={archTreeNodes}
+            selectedId={selectedId}
+            onSelect={(id) => navigate(`/architecture/${id}`)}
+            onAddChild={(parentId) => void handleCreate(parentId)}
+            onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
+            rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
+            showLevelBadge={true}
+            showSearch={false}
+            virtualize
+          />
+        )}
       </div>
     </div>
   );

@@ -11,6 +11,8 @@
     "typeFull": "full",
     "typePartial": "partial",
     "createBackup": "Create Backup",
+    "creatingBackup": "Creating backup...",
+    "restoringNow": "Restoring...",
     "restoreDone": "Restore completed",
     "tablesRestored": "tables restored",
     "empty": "No backups yet.",
@@ -326,7 +328,9 @@
     "summary_one": "{{count}} element",
     "summary_other": "{{count}} elements",
     "activeSuffix": "{{count}} active",
-    "newElement": "New Architecture Element"
+    "newElement": "New Architecture Element",
+    "emptyTitle": "No architecture elements yet",
+    "emptyDescription": "Architecture elements map system, subsystems and components onto the V-model hierarchy."
   },
   "traceability": {
     "upstream": "Upstream Links",
@@ -502,7 +506,12 @@
     "emptyDescription": "Glossary terms keep definitions, synonyms and abbreviations consistent.",
     "selectTitle": "No term selected",
     "selectTerm": "Select a term from the list to view its details.",
-    "usages": "Usages"
+    "usages": "Usages",
+    "lifecycleStatus": {
+      "active": "Active",
+      "outdated": "Outdated",
+      "deprecated": "Deprecated"
+    }
   },
   "adr": {
     "titlePlaceholder": "ADR title",
