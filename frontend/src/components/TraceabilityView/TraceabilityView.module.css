@@ -12,6 +12,16 @@
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6/§10.2 "Traceability: ~1100px
+     unused space alongside a hard-truncated target-id": as a flex item of
+     the tracelink-item <li> row, this used the default `flex: 0 1 auto`
+     (no grow), so source/target endpoints stayed at their natural content
+     width no matter how much free row width was left unused. Letting both
+     endpoints (source and target) grow evenly absorbs that free space
+     instead, so .endpointTitle's ellipsis (below) only engages once the
+     title genuinely doesn't fit — not at some fixed, space-independent
+     JS truncation length (see TraceabilityView.tsx's EndpointCell). */
+  flex: 1 1 0;
 }
 
 /* #425: source/target endpoints are now real <button>s so they're keyboard-

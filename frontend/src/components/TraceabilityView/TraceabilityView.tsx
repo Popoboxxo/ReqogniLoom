@@ -179,8 +179,20 @@ function EndpointCell({
           {artifactType}
         </span>
       )}
+      {/* GESAMTTEST_BERICHT_2026-08-21.md §6/§10.2 "Traceability: target-
+          requirement-id hard-truncated, no ellipsis, ~1100px unused
+          space": unlike `artifactLabel`/`renderEndpoint` (native <select>
+          <option> text, which can't CSS-ellipsis, so a JS pre-cut makes
+          sense there), this is a real DOM element — `truncateTitle`'s fixed
+          60-char JS slice cut every long title the same way regardless of
+          how much row width was actually free, which is the "unused
+          space" half of the finding. Passing the full, untruncated title
+          and letting `.endpointTitle`'s own `overflow: hidden;
+          text-overflow: ellipsis` (below, and see the `.endpoint` flex-grow
+          fix in TraceabilityView.module.css) size itself against the real
+          available width fixes both halves at once. */}
       <span className={styles.endpointTitle} title={title || endpoint.id}>
-        {title ? truncateTitle(title) : formatShortId(endpoint.id)}
+        {title || formatShortId(endpoint.id)}
       </span>
       {title && <span className={styles.endpointId}>({formatShortId(endpoint.id)})</span>}
       {isRequirement && (
