@@ -524,5 +524,18 @@ export async function getAllPages<T extends { id: string }>(
     collect(nextResp);
     nextUrl = nextResp.next;
   }
+
+  // Deep-Dive E-1: the 100-page cap above is intentional (out of scope to
+  // change), but exiting the loop while `nextUrl` is still non-null means
+  // more pages existed and were silently dropped. Surface that in the
+  // console so a truncated list is at least visible/debuggable instead of
+  // being mistaken for "this is the complete list".
+  if (nextUrl && pageCount >= 100) {
+    console.warn(
+      `getAllPages(${path}): stopped after ${pageCount} pages (cap reached) — ` +
+        "further pages exist but were not fetched; the returned list is incomplete."
+    );
+  }
+
   return all;
 }

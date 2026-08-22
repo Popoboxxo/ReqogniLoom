@@ -9,7 +9,7 @@
  * Wraps /api/v1/workspaces/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type {
   PaginatedResponse,
   TerminologyProfile,
@@ -28,6 +28,17 @@ export interface WorkspaceCreatePayload {
 export const workspacesApi = {
   list(): Promise<PaginatedResponse<Workspace>> {
     return getList<Workspace>("/workspaces/");
+  },
+
+  /**
+   * Fetch the complete workspace list across all pages (issue C /
+   * GESAMTTEST_BERICHT_2026-08-21 §10.2): `list()` only returns page 1
+   * (default page size 25), so any tenant with more workspaces than that
+   * had entries unreachable via the UI switcher. Used by
+   * `WorkspaceContext.reloadWorkspaces` instead of `list()`.
+   */
+  listAll(): Promise<Workspace[]> {
+    return getAllPages<Workspace>("/workspaces/");
   },
 
   get(id: UUID): Promise<Workspace> {

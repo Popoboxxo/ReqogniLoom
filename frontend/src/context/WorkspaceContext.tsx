@@ -226,8 +226,13 @@ export function WorkspaceProvider({
     async (selectId?: string): Promise<void> => {
       setIsLoadingWorkspace(true);
       try {
-        const resp = await workspacesApi.list();
-        const list = (resp.results ?? []).map(normalizePreset);
+        // Code-review GESAMTTEST_BERICHT §10.2 (Critical): `list()` only
+        // returns page 1 (default page size 25) — a tenant with more
+        // workspaces than that had entries #26+ unreachable via the UI
+        // switcher (no pagination, no search there). `listAll()` follows
+        // `next` across all pages via the shared `getAllPages` helper.
+        const all = await workspacesApi.listAll();
+        const list = all.map(normalizePreset);
         setWorkspaces(list);
         if (list.length > 0) {
           const storedId =

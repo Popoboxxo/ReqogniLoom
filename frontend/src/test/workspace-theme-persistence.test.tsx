@@ -42,6 +42,10 @@ let nextListResult: unknown = { count: 0, next: null, previous: null, results: [
 vi.mock("../api/workspaces", () => ({
   workspacesApi: {
     list: vi.fn(async () => nextListResult),
+    // reloadWorkspaces (Task 1 fix) now calls listAll() instead of list() to
+    // avoid silently truncating the workspace switcher to page 1 — mirror
+    // the same single-page `nextListResult.results` here for these tests.
+    listAll: vi.fn(async () => (nextListResult as { results?: unknown[] }).results ?? []),
     create: vi.fn(),
     update: vi.fn(),
     setPreset: vi.fn(),
@@ -214,7 +218,7 @@ describe("Returning visitor's stored theme preference is not overwritten by the 
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(workspacesApi.list).toHaveBeenCalled();
+      expect(workspacesApi.listAll).toHaveBeenCalled();
     });
 
     // Give the theme-restore effect a chance to (wrongly) fire if the bug
@@ -257,7 +261,7 @@ describe("Local theme toggle survives an unrelated reloadWorkspaces() call (#568
 
     fireEvent.click(screen.getByTestId("independent-reload-trigger"));
     await waitFor(() => {
-      expect(workspacesApi.list).toHaveBeenCalledTimes(2);
+      expect(workspacesApi.listAll).toHaveBeenCalledTimes(2);
     });
 
     expect(document.documentElement.dataset.theme).toBe(toggledTo);

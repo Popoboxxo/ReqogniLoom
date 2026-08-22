@@ -66,6 +66,10 @@ let nextListResult: unknown = { count: 0, next: null, previous: null, results: [
 vi.mock("../api/workspaces", () => ({
   workspacesApi: {
     list: vi.fn(async () => nextListResult),
+    // reloadWorkspaces (Task 1 fix) now calls listAll() instead of list() to
+    // avoid silently truncating the workspace switcher to page 1 — mirror
+    // the same single-page `nextListResult.results` here for these tests.
+    listAll: vi.fn(async () => (nextListResult as { results?: unknown[] }).results ?? []),
     create: vi.fn(),
     update: updateMock,
     setPreset: vi.fn(),
@@ -413,7 +417,7 @@ describe("Workspace-load-failure does not force English (F-03)", () => {
   });
 
   it("keeps the current language when GET /workspaces/ fails (falls back to DEFAULT_WORKSPACE)", async () => {
-    vi.mocked(workspacesApi.list).mockRejectedValueOnce(new Error("network down"));
+    vi.mocked(workspacesApi.listAll).mockRejectedValueOnce(new Error("network down"));
     renderApp();
 
     await waitFor(() => {
@@ -472,7 +476,7 @@ describe("Sidebar language toggle — visible failure, no placeholder PATCH (F-0
   });
 
   it("never PATCHes the DEFAULT_WORKSPACE placeholder's fake UUID", async () => {
-    vi.mocked(workspacesApi.list).mockRejectedValueOnce(new Error("network down"));
+    vi.mocked(workspacesApi.listAll).mockRejectedValueOnce(new Error("network down"));
     renderApp();
 
     await waitFor(() => {
@@ -529,7 +533,7 @@ describe("Local/unpersisted language survives an unrelated reloadWorkspaces() ca
 
     // The independent reload really did run (list() called again)...
     await waitFor(() => {
-      expect(workspacesApi.list).toHaveBeenCalledTimes(2);
+      expect(workspacesApi.listAll).toHaveBeenCalledTimes(2);
     });
     // ...but the local, unpersisted "en" choice must survive it.
     expect(i18n.language).toBe("en");
@@ -553,7 +557,7 @@ describe("Local/unpersisted language survives an unrelated reloadWorkspaces() ca
     fireEvent.click(screen.getByTestId("independent-reload-trigger"));
 
     await waitFor(() => {
-      expect(workspacesApi.list).toHaveBeenCalledTimes(2);
+      expect(workspacesApi.listAll).toHaveBeenCalledTimes(2);
     });
     // ...but must not silently snap the UI back to it.
     expect(i18n.language).toBe("en");
@@ -622,21 +626,21 @@ describe("Sidebar language toggle — no flash-back while the post-save reload i
 
     // Delay reloadWorkspaces()'s own `GET /workspaces/` so the pending
     // window between "PATCH resolved" and "reload resolved" is observable.
-    // This mock is installed AFTER the initial mount's own `list()` call has
-    // already happened, so `listCallCount` here counts only calls made from
-    // this point on — i.e. the toggle's own `reloadWorkspaces()` call is the
-    // *first* one this counter observes.
+    // This mock is installed AFTER the initial mount's own `listAll()` call
+    // has already happened, so `listCallCount` here counts only calls made
+    // from this point on — i.e. the toggle's own `reloadWorkspaces()` call
+    // is the *first* one this counter observes.
     let releasePendingList: (() => void) | null = null;
     const pendingList = new Promise<void>((resolve) => {
       releasePendingList = resolve;
     });
     let listCallCount = 0;
-    vi.mocked(workspacesApi.list).mockImplementation(async () => {
+    vi.mocked(workspacesApi.listAll).mockImplementation(async () => {
       listCallCount += 1;
       if (listCallCount === 1) {
         await pendingList;
       }
-      return nextListResult as Awaited<ReturnType<typeof workspacesApi.list>>;
+      return (nextListResult as { results: Awaited<ReturnType<typeof workspacesApi.listAll>> }).results;
     });
 
     fireEvent.click(await screen.findByTestId("lang-switch"));
