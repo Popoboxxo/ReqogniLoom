@@ -1511,7 +1511,22 @@
     "spineEmpty": "Auf dieser Station fehlt eine Verknüpfung — eine Lücke in der Nachverfolgbarkeit."
   },
   "systemSettings": {
-    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards."
+    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
+    "enforcementFlip": {
+      "title": "Wechsel zu autoritativer Durchsetzung",
+      "loadingCount": "Aktuelle Anzahl ausstehender Abweichungen wird geladen…",
+      "message": "Es gibt aktuell {{count}} ausstehende Abweichungen in den letzten {{days}} Tagen. Der Wechsel zu autoritativer Durchsetzung macht das neue Berechtigungsmodell zur alleinigen Instanz für Zugriffskontrolle.",
+      "message_one": "Es gibt aktuell {{count}} ausstehende Abweichung in den letzten {{days}} Tagen. Der Wechsel zu autoritativer Durchsetzung macht das neue Berechtigungsmodell zur alleinigen Instanz für Zugriffskontrolle.",
+      "message_other": "Es gibt aktuell {{count}} ausstehende Abweichungen in den letzten {{days}} Tagen. Der Wechsel zu autoritativer Durchsetzung macht das neue Berechtigungsmodell zur alleinigen Instanz für Zugriffskontrolle.",
+      "confirmLabel": "Bestätigen & wechseln",
+      "viewMismatches": "{{count}} Abweichungen anzeigen",
+      "viewMismatches_one": "{{count}} Abweichung anzeigen",
+      "viewMismatches_other": "{{count}} Abweichungen anzeigen",
+      "acknowledgeLabel": "Ich habe die ausstehenden Abweichungen geprüft und akzeptiere die aktuelle Anzahl von {{count}} vor dem Wechsel zu autoritativer Durchsetzung.",
+      "acknowledgeLabel_one": "Ich habe die ausstehende Abweichung geprüft und akzeptiere die aktuelle Anzahl von {{count}} vor dem Wechsel zu autoritativer Durchsetzung.",
+      "acknowledgeLabel_other": "Ich habe die ausstehenden Abweichungen geprüft und akzeptiere die aktuelle Anzahl von {{count}} vor dem Wechsel zu autoritativer Durchsetzung.",
+      "staleCountError": "Die Anzahl ausstehender Abweichungen hat sich während der Prüfung auf {{count}} geändert. Bitte erneut prüfen und die neue Anzahl bestätigen."
+    }
   },
   "profile": {
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."

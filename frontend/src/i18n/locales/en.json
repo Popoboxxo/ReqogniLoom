@@ -1511,7 +1511,22 @@
     "spineEmpty": "A link is missing on this station — a gap in traceability."
   },
   "systemSettings": {
-    "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults."
+    "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
+    "enforcementFlip": {
+      "title": "Flip to Authoritative Enforcement",
+      "loadingCount": "Loading the current pending mismatch count…",
+      "message": "There are currently {{count}} pending mismatches in the last {{days}} days. Switching to authoritative enforcement makes the new permission model the sole access-control authority.",
+      "message_one": "There is currently {{count}} pending mismatch in the last {{days}} days. Switching to authoritative enforcement makes the new permission model the sole access-control authority.",
+      "message_other": "There are currently {{count}} pending mismatches in the last {{days}} days. Switching to authoritative enforcement makes the new permission model the sole access-control authority.",
+      "confirmLabel": "Confirm & Flip",
+      "viewMismatches": "View the {{count}} mismatches",
+      "viewMismatches_one": "View the {{count}} mismatch",
+      "viewMismatches_other": "View the {{count}} mismatches",
+      "acknowledgeLabel": "I have reviewed the pending mismatches and accept the current count of {{count}} before switching to authoritative enforcement.",
+      "acknowledgeLabel_one": "I have reviewed the pending mismatch and accept the current count of {{count}} before switching to authoritative enforcement.",
+      "acknowledgeLabel_other": "I have reviewed the pending mismatches and accept the current count of {{count}} before switching to authoritative enforcement.",
+      "staleCountError": "The pending mismatch count changed to {{count}} while you were reviewing. Please review and confirm the new count."
+    }
   },
   "profile": {
     "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types."
