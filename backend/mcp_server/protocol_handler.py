@@ -482,9 +482,9 @@ class ProtocolHandler:
                 response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
             except McpAuthenticationError as exc:
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "AUTH_FAILED", str(exc))
-            except Exception as exc:
+            except Exception:
                 logger.exception("Error listing tools")
-                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR", str(exc))
+                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR")
             adapter.write_response(response)
             return response
 

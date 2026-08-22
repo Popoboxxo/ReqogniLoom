@@ -303,6 +303,30 @@ class TestProtocolHandler:
         response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert response["error"]["code"] == -32603  # JSON-RPC Internal error
 
+    def test_tools_list_exception_masks_detail_but_logs_it(self, caplog):
+        """CWE-209 regression: an unexpected exception from ``list_tools``
+        must reach the client as the generic INTERNAL_ERROR message, never
+        as ``str(exc)`` — the real exception must still be logged for
+        operators (same pattern as Task 5's REST/MCP fixes elsewhere)."""
+        sensitive_detail = (
+            "psycopg2.OperationalError: FATAL: password authentication "
+            "failed for user \"reqogniloom\" (host=10.0.0.5)"
+        )
+        registry = MagicMock()
+        registry.list_tools.side_effect = RuntimeError(sensitive_detail)
+        handler = ProtocolHandler(tool_registry=registry)
+        body = json.dumps(
+            {"jsonrpc": "2.0", "method": "tools/list", "id": 5, "params": {}}
+        ).encode()
+
+        with caplog.at_level("ERROR"):
+            response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
+
+        assert response["error"]["code"] == -32603  # JSON-RPC Internal error
+        assert sensitive_detail not in response["error"]["message"]
+        assert response["error"]["message"] == "An internal server error occurred."
+        assert sensitive_detail in caplog.text
+
 
 def _make_tools_call_body(
     tool_name: str, arguments: dict = None, request_id: int = 1
