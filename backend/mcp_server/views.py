@@ -143,7 +143,12 @@ class McpHttpTransportView(CorsMixin, View):
     Accepts POST application/json with a JSON-RPC 2.0 body.
     Returns application/json with a JSON-RPC 2.0 response.
 
-    API key: X-API-Key header or params.api_key in request body.
+    API key: Authorization: Bearer <key> or X-API-Key header only.
+    ``params.api_key`` in the request body is intentionally not accepted
+    on this transport — see ``TransportAdapter.extract_api_key`` /
+    REQ-018 (body keys are as much a logging/proxy exposure risk as
+    query-string keys, and stdio is the only transport without a header
+    mechanism to fall back to).
     """
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
