@@ -1,3 +1,29 @@
+> **STATUS: RESOLVED** — findings addressed via `docs/superpowers/plans/2026-08-22-review-findings-remediation.md`
+> (Tasks 1-16), merged in PR(s) #<fill in after merge>. Deferred (not fixed, tracked separately):
+> - §4.2–4.5 / consolidated-table items 12–15 (E2E test-helper gaps, DE/EN locale-assertion mismatches, stale
+>   waterkettle fixtures, Frontend-Unit `localStorage` failures) — already fixed independently in PR #694
+>   (issues #687–693) before this plan started, or (item 12) no longer reproduces on re-run; not part of
+>   Tasks 1-16.
+> - §6 item 7 / Glossary toolbar gaps (Task 16) — status filter + sort dropdown added; the "create in dialog"
+>   toggle deliberately left unwired (`GlossaryTerm` has no backend interview-protocol support; would either
+>   silently no-op or need out-of-scope backend work).
+> - §6 item 9 / Admin backup-button loading state (Task 16) — fixed only for the named "+ Create Backup"
+>   button; the restore-confirm button has the identical bug but wasn't named in the finding, left unfixed.
+> - Finding 22 / §10.1 EnforcementFlipDialog i18n (Task 13) — the dialog itself is translated with a `lang`
+>   attribute; the parent `EnforcementModePanel.tsx` remains fully English-hardcoded (out of scope for this
+>   task); a genuine live-DOM verification of the dialog (vs. the jsdom-only test used) is still outstanding,
+>   as already flagged by this review's own §10.1 ("echter Live-Test steht noch aus").
+> - Finding 23 / dead "stakeholder" category filter (Task 16) — the filter option itself was removed; one
+>   orphaned `categories.stakeholder` i18n key was left in `de.json`/`en.json` (dead, zero runtime impact).
+> - Finding 7 / 6 create-forms migrated to the `Dialog` primitive (Task 12) — resolved as specified, with a
+>   disclosed tradeoff: the ICD and Diagram forms shifted from an embedded `SplitView` side panel to a
+>   full-screen `Dialog` overlay (loses side-by-side list visibility while creating), matching existing
+>   Dialog-over-SplitView precedent elsewhere; not a defect, but worth noting for a future design pass.
+>
+> Resolved on 2026-08-22.
+
+---
+
 # Gesamttest-Bericht ReqogniLoom — 2026-08-21
 
 > Vollständiger Applikationstest: Backend-Unit-/Integrationstests, Frontend-Unit-Tests, komplette E2E-Suite (Playwright), WCAG-2.1-AA-Accessibility-Audit und visueller Design-Konsistenz-Audit über alle 24 Haupt-Routen inkl. Dialoge. Koordiniert über 5 parallele/sequenzielle Subagenten (Backend/Frontend über günstiges Modell, E2E/Design/A11y über Standard-Modell wegen höherem Interpretationsbedarf).
