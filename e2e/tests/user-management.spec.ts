@@ -87,7 +87,7 @@ test.describe('[Multi-user management] Tenant-admin full flow', () => {
 
     const row = page.locator(`[data-testid="user-management-row-${userId}"]`);
     await expect(row).toBeVisible({ timeout: 10000 });
-    await expect(row).toContainText(/^active$|^aktiv$/i);
+    await expect(row.getByText(/^active$|^aktiv$/i)).toBeVisible();
 
     // --- Step 2: assign a workspace role. No UI path exists for this (see
     // file header) — done via the real REST endpoint the dead
@@ -124,15 +124,15 @@ test.describe('[Multi-user management] Tenant-admin full flow', () => {
     // UserManagement UI (Task 12) ---
     await page.goto(`${FRONTEND_URL}/user-management`);
     await expect(row).toBeVisible({ timeout: 10000 });
-    await expect(row).toContainText(/^active$|^aktiv$/i);
+    await expect(row.getByText(/^active$|^aktiv$/i)).toBeVisible();
 
     const toggleActiveBtn = page.locator(`[data-testid="user-management-toggle-active-${userId}"]`);
 
     await toggleActiveBtn.click();
-    await expect(row).toContainText(/^inactive$|^inaktiv$/i, { timeout: 10000 });
+    await expect(row.getByText(/^inactive$|^inaktiv$/i)).toBeVisible({ timeout: 10000 });
 
     await toggleActiveBtn.click();
-    await expect(row).toContainText(/^active$|^aktiv$/i, { timeout: 10000 });
+    await expect(row.getByText(/^active$|^aktiv$/i)).toBeVisible({ timeout: 10000 });
 
     // No cleanup possible: this REST surface (Tasks 7-9) exposes
     // create/activate/deactivate/tenant-admin only — there is no
