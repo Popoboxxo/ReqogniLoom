@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.4] — 2026-08-22
+
+### Fixed
+- **E2E Test Helpers:** `createRequirementViaQuickForm` now fills a title field before clicking save (regression from prior title-required validation fix) (#687); waterkettle TestRun helpers updated to match GH-584's backend auto-completion behavior — tests no longer expect intermediate `in_progress` state or manual close-button interaction (#690)
+- **E2E UI Assertions:** 10 assertions hardcoding English UI strings now accept German variants (app follows `navigator.language`); improved test robustness for bilingual deployments (#688)
+- **E2E Spec Stability:** `needs-cross-boundary.spec.ts` added stable `data-testid` to form inputs to satisfy Playwright strict-mode checks (#689); `toothbrush-syseng.spec.ts` now skips gracefully with clear reason when required seed data is missing instead of failing hard (#691)
+- **E2E Documentation & Defaults:** Fixed `BACKEND_URL` default from `8000` to `8001` across all E2E specs/helpers to match `docker-compose.yml` (#691); README.md updated with correct URLs
+- **E2E Infrastructure:** Raised `/traceability` view loading-state timeout from 10s to 30s to reduce flakiness under full-suite sequential load (#692); removed unresolved git-merge-conflict markers from `.gitignore` (#693)
+
+### Known Issues
+- #504: Two pre-existing E2E shard failures (`artifact-diff.spec.ts` timeout on diff panel PUT response; `diagram-node-graph.spec.ts` unrelated infrastructure timeout) persist in CI but are unrelated to application or E2E framework changes in this release — not a regression from beta.3
+- Baseline on 1.7.0-beta.3; no new application bugs introduced
+
 ## [1.7.0-beta.3] — 2026-08-20
 
 ### Added
