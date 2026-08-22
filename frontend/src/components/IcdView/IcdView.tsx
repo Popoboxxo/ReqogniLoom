@@ -512,7 +512,7 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormPre(e.target.value)}
               rows={2}
               style={{ ...inputStyle, fontFamily: "inherit" }}
-              placeholder="One per line"
+              placeholder={t("icds.onePerLinePlaceholder")}
             />
 
             <label htmlFor="icd-postconditions" style={labelStyle}>
@@ -525,7 +525,7 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormPost(e.target.value)}
               rows={2}
               style={{ ...inputStyle, fontFamily: "inherit" }}
-              placeholder="One per line"
+              placeholder={t("icds.onePerLinePlaceholder")}
             />
 
             <label htmlFor="icd-invariants" style={labelStyle}>
@@ -538,7 +538,7 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormInv(e.target.value)}
               rows={2}
               style={{ ...inputStyle, fontFamily: "inherit" }}
-              placeholder="One per line"
+              placeholder={t("icds.onePerLinePlaceholder")}
             />
 
             {formError && (

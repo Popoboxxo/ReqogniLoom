@@ -116,10 +116,25 @@ function collectReferencedKeys(dir: string): Set<string> {
 // settings.attributeVisibilityHint, settings.visibilityHint,
 // settings.visibilityOverridden, settings.visibilityReset,
 // needs/adrs/risks/issues.deleteFailed — see #619), bringing it down to 180.
+//
+// Lowered again to 145 (GESAMTTEST_BERICHT_2026-08-21.md §6 Top-3, "6
+// independent spots of hardcoded English in an otherwise fully German UI"):
+// fixed the ReqIF Import panel (14 `import.reqif*` keys) and the Backup &
+// Restore card (17 `adminOps.*` keys), both previously "komplett"
+// untranslated bar one pre-existing key each, plus `baselines.compare` /
+// `compareTitle` / `compareRun` (Baselines "Compare" button/panel) and
+// `actions.reset` (shared by both CSV and ReqIF import reset buttons) — 35
+// keys total, all of which were `t(key, "English default")` calls with no
+// matching locale entry in either file, so i18next always rendered the
+// English default regardless of the active UI language. (The traceability
+// link-type dropdown, ICD placeholders, and TestCase title placeholder —
+// the other 3 of the 6 findings — were fixed too, but via 2 new keys
+// created and referenced in the same change, a net-zero on this count, or
+// via a locale-aware lookup-table call with no locale-key involvement.)
 // The remainder is real but unverified backlog (#619's own scan found 174 at
 // a different point in time; source has grown since), not immediately
 // actionable without confirming each one's actual rendered-language impact.
-const MISSING_KEY_BASELINE = 180;
+const MISSING_KEY_BASELINE = 145;
 
 describe("i18n code-to-locale coverage (#619)", () => {
   it("does not reference more undefined translation keys than the frozen baseline", () => {

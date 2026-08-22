@@ -239,7 +239,7 @@ export default function TestCaseEditors(): JSX.Element {
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('editor.newNeedTitle', 'e.g. Test case title...')}
+              placeholder={t('testcases.titlePlaceholder')}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',

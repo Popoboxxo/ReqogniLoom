@@ -316,7 +316,7 @@ export function CsvImport(): JSX.Element {
             onClick={handleReset}
             className={styles.resetBtn}
           >
-            {t("actions.reset", "Reset")}
+            {t("actions.reset")}
           </button>
         )}
       </div>
@@ -373,10 +373,10 @@ export function CsvImport(): JSX.Element {
       )}
 
       {/* ReqIF Import (REQ-147) */}
-      <h2 className={styles.sectionHeading}>{t("import.reqifTitle", "ReqIF Import")}</h2>
+      <h2 className={styles.sectionHeading}>{t("import.reqifTitle")}</h2>
 
       <section data-testid="reqif-import-page" className={styles.card}>
-        <h3 className={styles.cardTitle}>{t("import.reqifSelectFile", "Select ReqIF File")}</h3>
+        <h3 className={styles.cardTitle}>{t("import.reqifSelectFile")}</h3>
         <div
           data-testid="reqif-file-picker"
           onClick={() => reqifFileInputRef.current?.click()}
@@ -397,7 +397,7 @@ export function CsvImport(): JSX.Element {
             </div>
           ) : (
             <p className={styles.hintText}>
-              {t("import.reqifDropHint", "Click to select a .reqif or .xml file")}
+              {t("import.reqifDropHint")}
             </p>
           )}
         </div>
@@ -409,10 +409,7 @@ export function CsvImport(): JSX.Element {
             onChange={(e) => setReqifDryRun(e.target.checked)}
             data-testid="reqif-dry-run-checkbox"
           />
-          {t(
-            "import.reqifDryRun",
-            "Dry run (preview the report without saving any changes)"
-          )}
+          {t("import.reqifDryRun")}
         </label>
 
         <div className={styles.actionsRow}>
@@ -426,8 +423,8 @@ export function CsvImport(): JSX.Element {
             {isImportingReqif
               ? t("import.uploading", "Importing...")
               : reqifDryRun
-              ? t("import.reqifPreview", "Preview Import")
-              : t("import.reqifUpload", "Import ReqIF")}
+              ? t("import.reqifPreview")
+              : t("import.reqifUpload")}
           </button>
           {(reqifImportResult || reqifImportError) && (
             <button
@@ -436,7 +433,7 @@ export function CsvImport(): JSX.Element {
               onClick={handleReqifReset}
               className={styles.resetBtn}
             >
-              {t("actions.reset", "Reset")}
+              {t("actions.reset")}
             </button>
           )}
         </div>
@@ -451,24 +448,24 @@ export function CsvImport(): JSX.Element {
           <div data-testid="reqif-import-result" className={styles.resultBoxPlain}>
             {reqifImportResult.dry_run && (
               <p data-testid="reqif-import-dry-run-badge" className={styles.dryRunBadge}>
-                {t("import.reqifDryRunBadge", "Dry run — nothing was saved")}
+                {t("import.reqifDryRunBadge")}
               </p>
             )}
 
             {(
               [
-                ["needs", t("import.reqifNeeds", "Stakeholder Needs")],
-                ["requirements", t("import.reqifRequirements", "Requirements")],
-                ["relations", t("import.reqifRelations", "Trace Links")],
+                ["needs", t("import.reqifNeeds")],
+                ["requirements", t("import.reqifRequirements")],
+                ["relations", t("import.reqifRelations")],
               ] as const
             ).map(([key, label]) => {
               const report = reqifImportResult[key];
               return (
                 <div key={key} className={styles.reportBlock}>
                   <p className={styles.reportLine}>
-                    {label}: {t("import.reqifCreated", "created")} {report.created},{" "}
-                    {t("import.reqifUpdated", "updated")} {report.updated},{" "}
-                    {t("import.reqifSkipped", "skipped")} {report.skipped}
+                    {label}: {t("import.reqifCreated")} {report.created},{" "}
+                    {t("import.reqifUpdated")} {report.updated},{" "}
+                    {t("import.reqifSkipped")} {report.skipped}
                   </p>
                   {report.errors.length > 0 && (
                     <ul className={styles.errorList}>
@@ -479,7 +476,7 @@ export function CsvImport(): JSX.Element {
                       ))}
                       {report.errors.length > 10 && (
                         <li className={styles.errorListMore}>
-                          ... and {report.errors.length - 10} more errors
+                          {t("import.reqifMoreErrors", { count: report.errors.length - 10 })}
                         </li>
                       )}
                     </ul>
@@ -490,7 +487,7 @@ export function CsvImport(): JSX.Element {
 
             {reqifImportResult.warnings.length > 0 && (
               <div>
-                <p className={styles.reportLine}>{t("import.reqifWarnings", "Warnings")}</p>
+                <p className={styles.reportLine}>{t("import.reqifWarnings")}</p>
                 <ul className={styles.errorList}>
                   {reqifImportResult.warnings.slice(0, 10).map((warning, idx) => (
                     <li key={idx} className={styles.errorListItem}>
@@ -499,7 +496,7 @@ export function CsvImport(): JSX.Element {
                   ))}
                   {reqifImportResult.warnings.length > 10 && (
                     <li className={styles.errorListMore}>
-                      ... and {reqifImportResult.warnings.length - 10} more warnings
+                      {t("import.reqifMoreWarnings", { count: reqifImportResult.warnings.length - 10 })}
                     </li>
                   )}
                 </ul>

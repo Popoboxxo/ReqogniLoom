@@ -4,7 +4,24 @@
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
   },
   "adminOps": {
-    "backupTypeLabel": "Backup-Typ"
+    "title": "Sicherung & Wiederherstellung (Disaster Recovery)",
+    "hint": "Instanzweite Sicherungen. Eine Wiederherstellung überschreibt die aktuellen Daten — der Bestätigungstext ist erforderlich.",
+    "reasonPlaceholder": "Grund (optional)",
+    "backupTypeLabel": "Backup-Typ",
+    "typeFull": "vollständig",
+    "typePartial": "partiell",
+    "createBackup": "Backup erstellen",
+    "restoreDone": "Wiederherstellung abgeschlossen",
+    "tablesRestored": "Tabellen wiederhergestellt",
+    "empty": "Noch keine Backups vorhanden.",
+    "id": "ID",
+    "type": "Typ",
+    "status": "Status",
+    "size": "Größe",
+    "created": "Erstellt",
+    "restore": "Wiederherstellen",
+    "restoreCaptchaPrompt": "\"{{captcha}}\" eingeben, um zu bestätigen — die aktuellen Daten werden überschrieben.",
+    "restoreConfirm": "Jetzt wiederherstellen"
   },
   "customFields": {
     "section": "Benutzerdefinierte Felder",
@@ -170,6 +187,7 @@
     "copy": "Kopieren",
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
+    "reset": "Zurücksetzen",
     "derive": "Ableiten",
     "deriving": "Leitet ab...",
     "deleting": "Löscht...",
@@ -449,7 +467,10 @@
     "artifactRequired": "Bitte ein Artefakt auswählen.",
     "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
     "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 10 Zeichen).",
-    "overrideSubmit": "Baseline mit Ausnahme erstellen"
+    "overrideSubmit": "Baseline mit Ausnahme erstellen",
+    "compare": "Vergleichen",
+    "compareTitle": "Baselines vergleichen",
+    "compareRun": "Vergleichen"
   },
   "glossary": {
     "searchPlaceholder": "Glossar durchsuchen...",
@@ -589,6 +610,7 @@
     "saveFailed": "Testfall konnte nicht gespeichert werden.",
     "deleteFailed": "Testfall konnte nicht gelöscht werden.",
     "newTestCase": "Neuer Testfall",
+    "titlePlaceholder": "z.B. Testfalltitel...",
     "summary_one": "{{count}} Testfall",
     "summary_other": "{{count}} Testfälle",
     "emptyTitle": "Noch keine Testfälle",
@@ -821,7 +843,23 @@
     "success": "{{count}} Zeilen erfolgreich importiert",
     "failed": "Import fehlgeschlagen",
     "errorGeneric": "Import fehlgeschlagen",
-    "pageSummary": "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren."
+    "pageSummary": "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren.",
+    "reqifTitle": "ReqIF-Import",
+    "reqifSelectFile": "ReqIF-Datei auswählen",
+    "reqifDropHint": "Klicken, um eine .reqif- oder .xml-Datei auszuwählen",
+    "reqifDryRun": "Testlauf (Bericht anzeigen, ohne Änderungen zu speichern)",
+    "reqifPreview": "Vorschau anzeigen",
+    "reqifUpload": "ReqIF importieren",
+    "reqifDryRunBadge": "Testlauf — es wurde nichts gespeichert",
+    "reqifNeeds": "Stakeholder-Bedarfe",
+    "reqifRequirements": "Anforderungen",
+    "reqifRelations": "TraceLinks",
+    "reqifCreated": "erstellt",
+    "reqifUpdated": "aktualisiert",
+    "reqifSkipped": "übersprungen",
+    "reqifWarnings": "Warnungen",
+    "reqifMoreErrors": "… und {{count}} weitere Fehler",
+    "reqifMoreWarnings": "… und {{count}} weitere Warnungen"
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
@@ -845,6 +883,7 @@
     "selectInterfaceType": "Schnittstellentyp auswählen",
     "contract": "Vertragsspezifikation",
     "contractPlaceholder": "Semantische Beschreibung des Schnittstellenvertrags",
+    "onePerLinePlaceholder": "Eine pro Zeile",
     "preconditions": "Vorbedingungen",
     "postconditions": "Nachbedingungen",
     "invariants": "Invarianten",

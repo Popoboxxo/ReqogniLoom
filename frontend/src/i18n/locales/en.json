@@ -4,7 +4,24 @@
     "placeholder": "AI-native Requirements Management — implementation in progress."
   },
   "adminOps": {
-    "backupTypeLabel": "Backup type"
+    "title": "Backup & Restore (Disaster Recovery)",
+    "hint": "Instance-level backups. A restore overwrites current data — the confirmation text is required.",
+    "reasonPlaceholder": "Reason (optional)",
+    "backupTypeLabel": "Backup type",
+    "typeFull": "full",
+    "typePartial": "partial",
+    "createBackup": "Create Backup",
+    "restoreDone": "Restore completed",
+    "tablesRestored": "tables restored",
+    "empty": "No backups yet.",
+    "id": "ID",
+    "type": "Type",
+    "status": "Status",
+    "size": "Size",
+    "created": "Created",
+    "restore": "Restore",
+    "restoreCaptchaPrompt": "Type \"{{captcha}}\" to confirm — current data will be overwritten.",
+    "restoreConfirm": "Restore now"
   },
   "customFields": {
     "section": "Custom Fields",
@@ -168,6 +185,7 @@
     "copy": "Copy",
     "dismiss": "Dismiss",
     "clear": "Clear",
+    "reset": "Reset",
     "derive": "Derive",
     "deriving": "Deriving...",
     "deleting": "Deleting...",
@@ -449,7 +467,10 @@
     "artifactRequired": "Please select an artifact.",
     "overrideLabel": "Override justification (SE-Auditor)",
     "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 10 characters).",
-    "overrideSubmit": "Create baseline with override"
+    "overrideSubmit": "Create baseline with override",
+    "compare": "Compare",
+    "compareTitle": "Compare baselines",
+    "compareRun": "Compare"
   },
   "glossary": {
     "searchPlaceholder": "Search glossary...",
@@ -589,6 +610,7 @@
     "saveFailed": "Failed to save test case.",
     "deleteFailed": "Failed to delete test case.",
     "newTestCase": "New Test Case",
+    "titlePlaceholder": "e.g. Test case title...",
     "summary_one": "{{count}} test case",
     "summary_other": "{{count}} test cases",
     "emptyTitle": "No test cases yet",
@@ -821,7 +843,23 @@
     "success": "Successfully imported {{count}} rows",
     "failed": "Import failed",
     "errorGeneric": "Import failed",
-    "pageSummary": "Bulk-import data via CSV, or export requirements, needs and architecture elements."
+    "pageSummary": "Bulk-import data via CSV, or export requirements, needs and architecture elements.",
+    "reqifTitle": "ReqIF Import",
+    "reqifSelectFile": "Select ReqIF File",
+    "reqifDropHint": "Click to select a .reqif or .xml file",
+    "reqifDryRun": "Dry run (preview the report without saving any changes)",
+    "reqifPreview": "Preview Import",
+    "reqifUpload": "Import ReqIF",
+    "reqifDryRunBadge": "Dry run — nothing was saved",
+    "reqifNeeds": "Stakeholder Needs",
+    "reqifRequirements": "Requirements",
+    "reqifRelations": "Trace Links",
+    "reqifCreated": "created",
+    "reqifUpdated": "updated",
+    "reqifSkipped": "skipped",
+    "reqifWarnings": "Warnings",
+    "reqifMoreErrors": "… and {{count}} more errors",
+    "reqifMoreWarnings": "… and {{count}} more warnings"
   },
   "icds": {
     "title": "Interface Control Documents",
@@ -845,6 +883,7 @@
     "selectInterfaceType": "Select interface type",
     "contract": "Contract Spec",
     "contractPlaceholder": "Semantic description of the interface contract",
+    "onePerLinePlaceholder": "One per line",
     "preconditions": "Preconditions",
     "postconditions": "Postconditions",
     "invariants": "Invariants",
