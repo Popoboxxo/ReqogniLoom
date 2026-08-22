@@ -9,7 +9,7 @@
  * the create request goes through useCreateDiagram (TanStack Query mutation).
  */
 
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useCreateDiagram } from "./useDiagramData";
@@ -29,11 +29,17 @@ import type { DiagramType, PayloadFormat } from "../../types";
 export interface DiagramCreateFormProps {
   onCreated: (diagramId: string) => Promise<void> | void;
   onCancel: () => void;
+  // F-08 (Dialog migration): lets the caller wire this form's name input up
+  // as a Dialog's `initialFocusRef`, so the pre-existing autoFocus UX
+  // survives being wrapped in Dialog (whose own focus trap otherwise
+  // defaults to the first focusable element — Dialog's × close button).
+  nameInputRef?: RefObject<HTMLInputElement>;
 }
 
 export function DiagramCreateForm({
   onCreated,
   onCancel,
+  nameInputRef,
 }: DiagramCreateFormProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -91,6 +97,7 @@ export function DiagramCreateForm({
           {t("diagrams.name", "Name")}
           <input
             data-testid="diagram-name-input"
+            ref={nameInputRef}
             type="text"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}

@@ -14,7 +14,7 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
@@ -190,6 +190,18 @@ export default function ArchitectureEditors(): JSX.Element {
     if (!newTitle.trim()) return;
     await handleCreate(undefined, newTitle.trim(), newDescription);
   }, [newTitle, newDescription, handleCreate]);
+
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreateForm(false);
+    setNewTitle('');
+    setNewDescription('');
+  }, []);
+
+  // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
+  // defaults to the first focusable element (its own × close button).
+  const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   /**
    * Drag & drop reparenting from the tree (user decision 2026-08-15).
@@ -422,8 +434,15 @@ export default function ArchitectureEditors(): JSX.Element {
         </p>
       )}
 
-      {/* Inline create form */}
+      {/* Inline create form — F-08: wrapped in the shared Dialog primitive
+          (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged. */}
       {showCreateForm && (
+        <Dialog
+          title={t('arch.newElementTitle')}
+          onClose={handleCancelCreate}
+          initialFocusRef={newTitleInputRef}
+          testId="arch-new-dialog"
+        >
         <form
           onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
           style={{
@@ -438,6 +457,7 @@ export default function ArchitectureEditors(): JSX.Element {
           </label>
           <input
             data-testid="arch-new-title-input"
+            ref={newTitleInputRef}
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('arch.newElementTitle')}
             style={{
@@ -461,7 +481,7 @@ export default function ArchitectureEditors(): JSX.Element {
           />
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button data-testid="arch-new-cancel-btn" type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); setNewDescription(''); }}
+            <button data-testid="arch-new-cancel-btn" type="button" onClick={handleCancelCreate}
               style={{
                 background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
@@ -477,6 +497,7 @@ export default function ArchitectureEditors(): JSX.Element {
             >{t('actions.create', 'Create')}</button>
           </div>
         </form>
+        </Dialog>
       )}
 
       {/* WorkspaceTree — unified navigation panel (REQ-003).

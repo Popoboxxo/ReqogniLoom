@@ -23,7 +23,7 @@
  * Use "archive" / "supersede" semantics via the new-version flow.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -34,6 +34,7 @@ import {
 import type { ArchitectureElement } from "../../types";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
+import { Dialog } from "../shared/Dialog";
 import { IcdDetailPane } from "./IcdDetailPane";
 import { IcdList } from "./IcdList";
 import { useIcdData } from "./useIcdData";
@@ -131,6 +132,17 @@ export default function IcdView(): JSX.Element {
     setShowNewVersion(false);
     setFormError(null);
   }, []);
+
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreate(false);
+    resetCreateForm();
+  }, []);
+
+  // F-08: initial-focus target for Dialog's focus trap — the form's first
+  // real field (name input), not Dialog's own × close button.
+  const icdNameInputRef = useRef<HTMLInputElement | null>(null);
 
   // REQ-173: a workflow transition mutates the ICD's status server-side, so
   // refresh the detail (badge label) and the list (any status column) after it.
@@ -337,6 +349,15 @@ export default function IcdView(): JSX.Element {
         }
         rightPanel={
           showCreate ? (
+          // F-08 (Dialog migration): wrapped in the shared Dialog primitive
+          // (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged.
+          <Dialog
+            title={t("icds.create")}
+            onClose={handleCancelCreate}
+            initialFocusRef={icdNameInputRef}
+            size="lg"
+            testId="create-icd-dialog"
+          >
           <div data-testid="create-icd-form" style={{ maxWidth: "720px" }}>
             <h3
               style={{
@@ -373,6 +394,7 @@ export default function IcdView(): JSX.Element {
             <input
               id="icd-name"
               data-testid="icd-name-input"
+              ref={icdNameInputRef}
               type="text"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
@@ -562,10 +584,7 @@ export default function IcdView(): JSX.Element {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setShowCreate(false);
-                  resetCreateForm();
-                }}
+                onClick={handleCancelCreate}
                 style={{
                   background: "transparent",
                   color: "var(--color-text)",
@@ -580,6 +599,7 @@ export default function IcdView(): JSX.Element {
               </button>
             </div>
           </div>
+          </Dialog>
         ) : routeId && isLoadingDetail ? (
           <p
             role="status"
