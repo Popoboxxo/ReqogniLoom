@@ -40,12 +40,13 @@ from auth_tenancy.services.user_account import UserAccountService
 # that either.
 
 
-def _user_to_dict(user: Any) -> dict[str, Any]:
+def _user_to_dict(user: Any, *, is_tenant_admin: bool = False) -> dict[str, Any]:
     return {
         "id": str(user.id),
         "username": user.username,
         "email": user.email,
         "is_active": user.is_active,
+        "is_tenant_admin": is_tenant_admin,
     }
 
 
@@ -83,7 +84,22 @@ class UserViewSet(ViewSet):
         if not self._authz.is_tenant_admin(user_id=ctx.user_id, tenant_id=ctx.tenant_id):
             return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
         users = self._accounts.list_for_tenant(tenant_id=ctx.tenant_id)
-        return Response([_user_to_dict(u) for u in users], status=status.HTTP_200_OK)
+        # Per-row tenant-admin flag so the UI can render "Grant"/"Revoke"
+        # correctly (rather than blindly offering both actions on every row).
+        # N+1 `is_tenant_admin` calls, not a batched query — mirrors the
+        # single-user-at-a-time pattern already used by every other action in
+        # this ViewSet, and tenant user rosters are small (multi-user
+        # management is not built for thousands of users per tenant).
+        return Response(
+            [
+                _user_to_dict(
+                    u,
+                    is_tenant_admin=self._authz.is_tenant_admin(user_id=u.id, tenant_id=ctx.tenant_id),
+                )
+                for u in users
+            ],
+            status=status.HTTP_200_OK,
+        )
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         ctx = self._auth_context(request)
@@ -158,7 +174,8 @@ class UserViewSet(ViewSet):
             user = self._accounts.get(user_id=target_id)
         except ObjectDoesNotExist:
             return _err("NOT_FOUND", "User not found.", status.HTTP_404_NOT_FOUND)
-        return Response(_user_to_dict(user), status=status.HTTP_200_OK)
+        target_is_admin = self._authz.is_tenant_admin(user_id=target_id, tenant_id=ctx.tenant_id)
+        return Response(_user_to_dict(user, is_tenant_admin=target_is_admin), status=status.HTTP_200_OK)
 
     def deactivate(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         ctx = self._auth_context(request)
@@ -184,7 +201,8 @@ class UserViewSet(ViewSet):
             user = self._accounts.get(user_id=target_id)
         except ObjectDoesNotExist:
             return _err("NOT_FOUND", "User not found.", status.HTTP_404_NOT_FOUND)
-        return Response(_user_to_dict(user), status=status.HTTP_200_OK)
+        target_is_admin = self._authz.is_tenant_admin(user_id=target_id, tenant_id=ctx.tenant_id)
+        return Response(_user_to_dict(user, is_tenant_admin=target_is_admin), status=status.HTTP_200_OK)
 
     def tenant_admin(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         """Combined handler for POST (grant) / DELETE (revoke), routed as

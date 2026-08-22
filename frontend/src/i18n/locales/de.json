@@ -37,6 +37,7 @@
     "testCases": "Testfälle",
     "settings": "Workspace-Einstellungen",
     "systemSettings": "System-Einstellungen",
+    "userManagement": "Benutzerverwaltung",
     "profile": "Profil",
     "glossary": "Glossar",
     "workflows": "Workflows",
@@ -728,10 +729,12 @@
     },
     "userManagement": {
       "title": "Benutzerverwaltung",
+      "summary": "{{count}} User in diesem Tenant",
       "createUser": "User anlegen",
       "username": "Benutzername",
       "email": "E-Mail",
       "password": "Passwort",
+      "status": "Status",
       "active": "Aktiv",
       "inactive": "Inaktiv",
       "activate": "Aktivieren",
@@ -739,7 +742,10 @@
       "tenantAdmin": "Tenant-Admin",
       "grantTenantAdmin": "Tenant-Admin zuweisen",
       "revokeTenantAdmin": "Tenant-Admin entziehen",
-      "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr."
+      "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr.",
+      "tenantAdminOnly": "Du musst Tenant-Admin sein, um die Benutzerverwaltung zu sehen oder zu bearbeiten.",
+      "noUsers": "Keine User gefunden.",
+      "createFailed": "User konnte nicht angelegt werden."
     }
   },
   "categories": {

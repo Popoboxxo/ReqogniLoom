@@ -59,6 +59,7 @@ export interface LoginResponse {
   user: AuthUser;
   tenant_id: string;
   roles: string[];
+  is_tenant_admin: boolean;
 }
 
 /**
@@ -74,6 +75,13 @@ interface IdentityPayload {
   user: AuthUser;
   tenant_id: string | null;
   roles: string[];
+  /**
+   * Multi-user management design spec: whether the caller holds an active
+   * tenant-admin role (`TenantRole`) — a tenant-wide concept distinct from
+   * the workspace-scoped `roles` above. Optional/defaulted for backward
+   * compatibility with any caller/mock that predates this field.
+   */
+  is_tenant_admin?: boolean;
 }
 
 export interface AuthState {
@@ -82,6 +90,10 @@ export interface AuthState {
   user: AuthUser | null;
   tenantId: string | null;
   roles: string[];
+  /** Whether the caller holds an active tenant-admin role (`TenantRole`) —
+   * gates the tenant-admin-only User Management surface. UX-only: real
+   * enforcement lives server-side (`UserViewSet` / MCP `users` tool group). */
+  isTenantAdmin: boolean;
   /** POST /api/v1/auth/login/ — resolves on success, rejects with error message on failure */
   login: (credentials: LoginCredentials) => Promise<void>;
   /** PATCH /api/v1/auth/me/ — update editable profile fields (REQ-006) */
@@ -106,11 +118,13 @@ export function AuthProvider({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
+  const [isTenantAdmin, setIsTenantAdmin] = useState<boolean>(false);
 
   const clearAuth = useCallback(() => {
     setUser(null);
     setTenantId(null);
     setRoles([]);
+    setIsTenantAdmin(false);
     setStatus("anonymous");
   }, []);
 
@@ -118,6 +132,7 @@ export function AuthProvider({
     setUser(data.user);
     setTenantId(data.tenant_id ?? null);
     setRoles(data.roles ?? []);
+    setIsTenantAdmin(data.is_tenant_admin ?? false);
     setStatus("authenticated");
     // Re-arm the 401 notification guard (GitHub #135): a fresh/restored
     // session must be able to trigger the unauthorized handler again the
@@ -185,6 +200,7 @@ export function AuthProvider({
         user: data.user,
         tenant_id: data.tenant_id ?? null,
         roles: data.roles ?? [],
+        is_tenant_admin: data.is_tenant_admin ?? false,
       });
     },
     [applyIdentity]
@@ -213,11 +229,12 @@ export function AuthProvider({
       user,
       tenantId,
       roles,
+      isTenantAdmin,
       login,
       updateProfile,
       logout,
     }),
-    [status, user, tenantId, roles, login, updateProfile, logout]
+    [status, user, tenantId, roles, isTenantAdmin, login, updateProfile, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

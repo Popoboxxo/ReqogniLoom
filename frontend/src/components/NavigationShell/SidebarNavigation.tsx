@@ -103,6 +103,15 @@ const NAV_ITEMS: NavItem[] = [
   // REQ-184: System Settings — tenant-wide config. Link always visible (like
   // /settings); the page itself gates on the admin role.
   { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard", group: "admin" },
+  // Multi-user management design spec (Task 12): tenant-admin is a NEW,
+  // tenant-wide concept distinct from the workspace `admin` role that gates
+  // /settings and /system-settings — a tenant-admin need not be a workspace
+  // admin of the currently active workspace (and vice versa), so this link
+  // cannot simply live inside either of those pages' existing role gate.
+  // Link always visible (like every other admin-group item); the page
+  // itself gates on `useAuth().isTenantAdmin` (UX-only — real enforcement
+  // is server-side, see UserManagement.tsx's module docstring).
+  { path: "/user-management", labelKey: "nav.userManagement", feature: "dashboard", group: "admin" },
 ];
 
 export function SidebarNavigation(): JSX.Element {

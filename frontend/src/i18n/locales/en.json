@@ -37,6 +37,7 @@
     "testCases": "Test Cases",
     "settings": "Workspace Settings",
     "systemSettings": "System Settings",
+    "userManagement": "User Management",
     "profile": "Profile",
     "glossary": "Glossary",
     "workflows": "Workflows",
@@ -728,10 +729,12 @@
     },
     "userManagement": {
       "title": "User Management",
+      "summary": "{{count}} users in this tenant",
       "createUser": "Create user",
       "username": "Username",
       "email": "Email",
       "password": "Password",
+      "status": "Status",
       "active": "Active",
       "inactive": "Inactive",
       "activate": "Activate",
@@ -739,7 +742,10 @@
       "tenantAdmin": "Tenant Admin",
       "grantTenantAdmin": "Grant tenant admin",
       "revokeTenantAdmin": "Revoke tenant admin",
-      "lastAdminError": "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left."
+      "lastAdminError": "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left.",
+      "tenantAdminOnly": "You must be a tenant-admin to view or edit User Management.",
+      "noUsers": "No users found.",
+      "createFailed": "Failed to create the user."
     }
   },
   "categories": {

@@ -22,6 +22,7 @@ export interface ManagedUser {
   username: string;
   email: string;
   is_active: boolean;
+  is_tenant_admin: boolean;
 }
 
 export interface CreateUserPayload {

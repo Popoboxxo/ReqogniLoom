@@ -39,9 +39,12 @@ from auth_tenancy.rest import (
 )
 from auth_tenancy.services import (
     AuthenticationService,
+    AuthorizationService,
     PasswordAuthenticationService,
     UserProfileService,
 )
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.tenancy import TenantContext
 from rest_api.serializers import UserProfileSerializer
 from rest_api.throttling import (
     LoginIpRateThrottle,
@@ -109,6 +112,41 @@ def _auth_error_response(
     """Build a standardised auth-error Response (REQ-L3-AT001-004)."""
     body = build_error_body(code, accept_language=accept_language)
     return Response(body, status=http_status)
+
+
+def _resolve_is_tenant_admin(user_id: Any, tenant_id: Any) -> bool:
+    """Whether ``user_id`` holds an active tenant-admin role in ``tenant_id``.
+
+    Multi-user management design spec: exposed alongside ``roles`` on every
+    identity payload (login / refresh / me) so the SPA can gate the
+    tenant-admin-only User Management surface without inventing a new
+    client-side RBAC concept (:class:`AuthorizationService.is_tenant_admin`,
+    same call used by ``UserViewSet`` — no duplicated logic).
+
+    ``tenant_id`` may be falsy for a user with no tenant (should not
+    normally reach an authenticated endpoint, but defensive here since
+    :meth:`AuthorizationService.is_tenant_admin` requires a concrete UUID).
+
+    ``LoginView``/``RefreshView`` are PUBLIC endpoints that run before
+    AuthAndTenancy's tenant-context middleware activates (no auth context
+    exists yet — that is the whole point of login), so ``TenantRole``'s
+    tenant-scoped manager has no thread-local tenant to read from.
+    ``MeView``, by contrast, already runs with an active context set by the
+    normal authenticated-request middleware. ``TenantContext`` is a flat
+    thread-local, not a stack, so this only activates/deactivates it when
+    nothing is active yet — unconditionally clearing here would wipe out an
+    already-active outer context for the remainder of that request.
+    """
+    if not tenant_id:
+        return False
+    already_active = TenantContext.is_set()
+    if not already_active:
+        set_request_tenant(tenant_id)
+    try:
+        return AuthorizationService().is_tenant_admin(user_id=user_id, tenant_id=tenant_id)
+    finally:
+        if not already_active:
+            clear_request_tenant()
 
 
 def _user_payload(user: Any, roles: tuple[str, ...]) -> dict[str, Any]:
@@ -196,6 +234,7 @@ class LoginView(APIView):
                 # endpoints — see the class docstring (Codeberg #89).
                 "tenant_id": str(user.tenant_id) if user.tenant_id else None,
                 "roles": list(roles),
+                "is_tenant_admin": _resolve_is_tenant_admin(user.id, user.tenant_id),
             },
             status=status.HTTP_200_OK,
         )
@@ -298,6 +337,7 @@ class RefreshView(APIView):
                 "user": _user_payload(user, roles),
                 "tenant_id": str(user.tenant_id) if user.tenant_id else None,
                 "roles": list(roles),
+                "is_tenant_admin": _resolve_is_tenant_admin(user.id, user.tenant_id),
             },
             status=status.HTTP_200_OK,
         )
@@ -338,6 +378,7 @@ class MeView(APIView):
                 "user": _user_payload(user, tuple(ctx.active_roles)),
                 "tenant_id": str(ctx.tenant_id),
                 "roles": list(ctx.active_roles),
+                "is_tenant_admin": _resolve_is_tenant_admin(ctx.user_id, ctx.tenant_id),
             },
             status=status.HTTP_200_OK,
         )
@@ -376,6 +417,7 @@ class MeView(APIView):
                 "user": _user_payload(user, tuple(ctx.active_roles)),
                 "tenant_id": str(ctx.tenant_id),
                 "roles": list(ctx.active_roles),
+                "is_tenant_admin": _resolve_is_tenant_admin(ctx.user_id, ctx.tenant_id),
             },
             status=status.HTTP_200_OK,
         )
