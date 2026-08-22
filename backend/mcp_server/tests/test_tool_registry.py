@@ -186,6 +186,34 @@ class TestToolRegistryDispatch:
         assert result.success is False
         assert result.error_code == "AUTH_FAILED"
 
+    def test_unexpected_auth_error_masks_exception_but_logs_it(self, caplog):
+        """D-3 (CWE-209) regression: an unexpected (non-AuthenticationFailed)
+        exception from ``validate_api_key`` must reach the caller as the same
+        generic "An internal error occurred." used elsewhere (tool_registry.py
+        :706), never as ``str(exc)`` — that class of leak lands under
+        AUTH_FAILED, i.e. reachable by an unauthenticated-or-wrongly-
+        authenticated caller. The real exception must still be logged.
+        """
+        sensitive_detail = (
+            "psycopg2.OperationalError: FATAL: password authentication "
+            "failed for user \"reqogniloom\" (host=10.0.0.5)"
+        )
+        registry, auth_svc, _ = self._make_registry()
+        auth_svc.validate_api_key.side_effect = RuntimeError(sensitive_detail)
+
+        with caplog.at_level("ERROR"):
+            result = registry.dispatch_request(
+                tool_name="requirement.get",
+                params={},
+                api_key="reqlo_validkey",
+            )
+
+        assert result.success is False
+        assert result.error_code == "AUTH_FAILED"
+        assert sensitive_detail not in (result.message or "")
+        assert result.message == "An internal error occurred."
+        assert sensitive_detail in caplog.text
+
     def test_bearer_token_rejected_with_precise_req_reference(self):
         """Codeberg #108 -- not a bug: MCP intentionally requires API keys
         (REQ-L2-MC-006, REQ-052). The error message must point to those

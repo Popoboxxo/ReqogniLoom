@@ -182,10 +182,10 @@ class CanvasStrokeView(APIView):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("GET canvas-strokes failed for diagram %s", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -261,10 +261,10 @@ class CanvasStrokeView(APIView):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("POST canvas-strokes failed for diagram %s", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -339,10 +339,10 @@ class CanvasStrokeView(APIView):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("PUT canvas-strokes failed for diagram %s", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -400,10 +400,10 @@ class MermaidSourceView(APIView):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("GET mermaid-source failed for diagram %s", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -478,10 +478,10 @@ class MermaidSourceView(APIView):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("PUT mermaid-source failed for diagram %s", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -539,9 +539,9 @@ class MermaidPreviewView(APIView):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("GET mermaid-preview failed for diagram %s", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

@@ -201,6 +201,37 @@ class TestCanvasStrokeViewGet:
         assert response.status_code == 404
         assert "error" in response.data
 
+    @patch("rest_api.diagram_canvas_views.get_canvas_diagram")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_get_masks_internal_exception_but_logs_it(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_get_canvas: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """CWE-209 regression (DEEP_DIVE_REVIEW C-1): an unexpected exception's
+        ``str()`` must never reach the client, but must still be logged for
+        operators (``logger.exception``, preserved by this fix).
+        """
+        sensitive_detail = "psycopg2.OperationalError: could not connect to server at /var/run/postgresql/.s.PGSQL.5432"
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_get_canvas.side_effect = RuntimeError(sensitive_detail)
+
+        request = _make_request("get")
+        view = CanvasStrokeView.as_view()
+        with caplog.at_level("ERROR"):
+            response = view(request, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 500
+        body = str(response.data)
+        assert sensitive_detail not in body
+        assert response.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        # The real exception must still reach the operator-facing log.
+        assert sensitive_detail in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # CanvasStrokeView — POST (IF-L1-058 auto-save)

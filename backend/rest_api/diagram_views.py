@@ -24,6 +24,7 @@ machinery. workspace_id is set on creation and stored directly on Diagram
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -52,6 +53,8 @@ from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import StandardPagination, build_error_response, detect_lang
 from traceability.exceptions import TraceLinkError
+
+logger = logging.getLogger(__name__)
 
 
 class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
@@ -143,9 +146,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
             ).order_by("-created_at")
             serialized = [self._diagram_to_dict(d) for d in diagrams]
             return self._paginate(request, serialized)
-        except Exception as exc:
+        except Exception:
+            logger.exception("GET /diagrams/ list failed")
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -216,9 +220,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception("POST /diagrams/ create failed")
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -246,9 +251,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception("GET /diagrams/%s/ retrieve failed", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -299,9 +305,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception("PATCH /diagrams/%s/ update failed", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -319,9 +326,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception("DELETE /diagrams/%s/ destroy failed", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -343,9 +351,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang, message=str(exc)),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception("GET /diagrams/%s/versions/ failed", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -397,8 +406,9 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception("GET /diagrams/%s/diff/ failed", pk)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

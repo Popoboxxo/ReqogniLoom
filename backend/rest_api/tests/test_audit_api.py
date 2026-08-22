@@ -27,7 +27,11 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
-from rest_api.audit_views import WorkspaceAuditRemediateView, WorkspaceAuditView
+from rest_api.audit_views import (
+    WorkspaceAuditAiReviewView,
+    WorkspaceAuditRemediateView,
+    WorkspaceAuditView,
+)
 from traceability.audit.registry import TRACE_P5
 from traceability.types import LinkType
 
@@ -232,3 +236,48 @@ class TestAuditRemediateEndpoint:
             )
 
         assert resp.status_code == 400
+
+
+class TestAuditAiReviewEndpointErrorMasking:
+    """CWE-209 regression (DEEP_DIVE_REVIEW C-1, ``audit_views.py:241``):
+    ``AiReviewResponseError`` (e.g. an LLM transport failure) must not leak
+    its raw message to the client, but the real exception must still be
+    logged for operators.
+
+    Also verifies the Task 5 deviation fix: this call site previously had NO
+    ``logger.exception`` at all (unlike the finding's blanket claim that
+    logging was present everywhere) — this test would fail on ``caplog.text``
+    if that gap were not closed.
+    """
+
+    def test_post_masks_internal_exception_but_logs_it(
+        self, tenant, workspace, user, caplog
+    ):
+        from unittest.mock import patch
+
+        from application.ai_review_service import AiReviewResponseError
+
+        sensitive_detail = (
+            "AnthropicError: connection refused to https://internal-llm-proxy"
+            ".corp.local:8443 (api_key=sk-live-REDACTED-but-not-really)"
+        )
+
+        with _active(tenant):
+            req = APIRequestFactory().post(
+                f"/api/v1/workspaces/{workspace.id}/audit/ai-review/"
+            )
+            req.auth_context = _ctx(user)
+            with patch(
+                "rest_api.audit_views.AiReviewService.review",
+                side_effect=AiReviewResponseError(sensitive_detail),
+            ):
+                with caplog.at_level("ERROR"):
+                    resp = WorkspaceAuditAiReviewView.as_view()(
+                        req, workspace_id=str(workspace.id)
+                    )
+
+        assert resp.status_code == 500
+        body = str(resp.data)
+        assert sensitive_detail not in body
+        assert resp.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert sensitive_detail in caplog.text

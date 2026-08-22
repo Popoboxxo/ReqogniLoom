@@ -19,6 +19,7 @@ import uuid
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rest_framework.test import APIRequestFactory
 
 from diagram.services import DiagramValidationError
@@ -460,3 +461,75 @@ class TestDiagramViewSetNodeGraphValidation:
         assert response.status_code == 400
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
         assert "500" in response.data["error"]["message"]
+
+
+class TestDiagramViewSetInternalErrorMasking:
+    """CWE-209 regression (DEEP_DIVE_REVIEW C-1, "weitere Treffer in
+    diagram_views.py"): an unexpected exception's ``str()`` must never reach
+    the client via the generic ``except Exception`` 500 handler, but the real
+    exception must still be logged for operators.
+    """
+
+    _SENSITIVE = (
+        "psycopg2.OperationalError: FATAL: password authentication failed "
+        "for user \"reqogniloom\" at /etc/postgresql/pg_hba.conf line 42"
+    )
+
+    def test_create_masks_internal_exception_but_logs_it(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "My Diagram",
+                "diagram_type": "block",
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.Tenant"), patch(
+                "rest_api.diagram_views.User"
+            ):
+                with patch(
+                    "rest_api.diagram_views.create_diagram",
+                    side_effect=RuntimeError(self._SENSITIVE),
+                ):
+                    with caplog.at_level("ERROR"):
+                        response = view(req)
+
+        assert response.status_code == 500
+        body = str(response.data)
+        assert self._SENSITIVE not in body
+        assert response.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert self._SENSITIVE in caplog.text
+
+    def test_retrieve_masks_internal_exception_but_logs_it(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/diagrams/{FAKE_DIAGRAM_ID}/")
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"get": "retrieve"})
+
+        with patch(
+            "rest_api.diagram_views.get_diagram",
+            side_effect=RuntimeError(self._SENSITIVE),
+        ):
+            with caplog.at_level("ERROR"):
+                response = view(req, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 500
+        body = str(response.data)
+        assert self._SENSITIVE not in body
+        assert response.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert self._SENSITIVE in caplog.text

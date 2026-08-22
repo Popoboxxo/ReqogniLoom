@@ -745,9 +745,14 @@ class ToolRegistry:
         except AuthenticationFailed as exc:
             logger.debug("MCP API key validation failed: %s", exc.code)
             return None, f"Authentication failed: {exc.code}"
-        except Exception as exc:
+        except Exception:
+            # D-3 (CWE-209): mirror the masking already used at the outer
+            # dispatch_request safety net (see "An internal error occurred."
+            # above) — the raw exception must not reach the caller under
+            # AUTH_FAILED, since that can leak infra details (DSN fragments
+            # etc.) to an unauthenticated-or-wrongly-authenticated caller.
             logger.exception("Unexpected auth error")
-            return None, str(exc)
+            return None, "An internal error occurred."
 
         # Build a partial AuthContext (roles resolved separately)
         ctx = AuthContext(
