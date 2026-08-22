@@ -56,15 +56,38 @@ type ThemeId = (typeof THEME_IDS)[number];
  * this codebase actually paints one token's color as text on the other's
  * background (see StatusBadge, the badge variants in `global.css`, and the
  * primary-button rule set).
+ *
+ * 3rd element: the backdrop token a translucent `bg` composites over —
+ * `--color-surface` (the page background) for every pair above. Task 10
+ * (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5 findings 4-5)
+ * added the sidebar/nav-chrome pairs below, which live on `--color-nav-bg`
+ * instead — a permanently-dark chrome background that does NOT track
+ * `--color-surface` (it is frozen to the same navy value in all 5 themes),
+ * so those two explicitly override it. Always written out (rather than left
+ * optional) — an optional tuple element made `it.each`'s inferred parameter
+ * types collapse to `string | undefined` for every element, not just the
+ * omitted one.
  */
-const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string]> = [
-  ["--color-text", "--color-surface"],
-  ["--color-on-primary", "--color-primary"],
-  ["--color-badge-success-text", "--color-badge-success-bg"],
-  ["--color-badge-danger-text", "--color-badge-danger-bg"],
-  ["--color-badge-warning-text", "--color-badge-warning-bg"],
-  ["--color-badge-neutral-text", "--color-badge-neutral-bg"],
-  ["--color-badge-info-text", "--color-badge-info-bg"],
+const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string, backdrop: string]> = [
+  ["--color-text", "--color-surface", "--color-surface"],
+  ["--color-on-primary", "--color-primary", "--color-surface"],
+  ["--color-badge-success-text", "--color-badge-success-bg", "--color-surface"],
+  ["--color-badge-danger-text", "--color-badge-danger-bg", "--color-surface"],
+  ["--color-badge-warning-text", "--color-badge-warning-bg", "--color-surface"],
+  ["--color-badge-neutral-text", "--color-badge-neutral-bg", "--color-surface"],
+  ["--color-badge-info-text", "--color-badge-info-bg", "--color-surface"],
+  // Task 10: --color-text-muted-on-surface (GESAMTTEST_BERICHT_2026-08-21
+  // §10.1 — was failing in bauhaus/sepia specifically, 4.21:1/3.80:1).
+  ["--color-text-muted", "--color-surface", "--color-surface"],
+  // Task 10: SidebarNavigation.module.css's .buildVersion (was
+  // --color-text-muted at 70% opacity — 1.69-3.85:1 in all 5 themes) now
+  // uses --color-nav-text-muted, the token this file's own .terminologyLabel
+  // sibling already used for the same role.
+  ["--color-nav-text-muted", "--color-nav-bg", "--color-nav-bg"],
+  // Task 10: .presetBadge (was --color-primary on a hardcoded translucent
+  // royal-blue chip — 2.06:1 in 4 of 5 themes) now uses the dedicated,
+  // frozen --color-nav-badge-* pair sized for the sidebar chrome.
+  ["--color-nav-badge-text", "--color-nav-badge-bg", "--color-nav-bg"],
 ];
 
 /* ==========================================================================
@@ -244,9 +267,20 @@ function resolveRenderedColor(map: Map<string, string>, token: string, backdrop:
 
 /** A theme's `--color-surface`, which must itself be opaque (it is the page). */
 function resolveSurface(map: Map<string, string>): Rgba {
-  const surface = parseColor(resolveRawValue(map, "--color-surface"));
-  if (surface.a < 1) throw new Error("--color-surface must be an opaque color");
-  return surface;
+  return resolveBackdrop(map, "--color-surface");
+}
+
+/**
+ * Resolve any token to use as a compositing backdrop — must itself be
+ * opaque, since a translucent backdrop would need a backdrop of its own.
+ * Generalizes `resolveSurface` (Task 10, contrast remediation) so
+ * nav-chrome pairs can composite over `--color-nav-bg` instead of the page
+ * `--color-surface`.
+ */
+function resolveBackdrop(map: Map<string, string>, token: string): Rgba {
+  const color = parseColor(resolveRawValue(map, token));
+  if (color.a < 1) throw new Error(`${token} must be an opaque color to use as a compositing backdrop`);
+  return color;
 }
 
 /* ==========================================================================
@@ -295,11 +329,21 @@ const KNOWN_AA_SHORTFALLS: Record<string, { ratio: number; note: string }> = {
 
 const themeMaps = buildThemeMaps(readFileSync(TOKENS_FILE, "utf-8"));
 
-/** Measured ratio for one token pair in one theme, rounded to 2 decimals. */
-function measure(themeId: ThemeId, fgToken: string, bgToken: string): number {
+/**
+ * Measured ratio for one token pair in one theme, rounded to 2 decimals.
+ * `backdropToken` defaults to `--color-surface` (correct for every
+ * page-level pair); pass an override for chrome that lives on a different,
+ * non-`--color-surface`-tracking background (Task 10).
+ */
+function measure(
+  themeId: ThemeId,
+  fgToken: string,
+  bgToken: string,
+  backdropToken?: string,
+): number {
   const map = themeMaps[themeId];
-  const surface = resolveSurface(map);
-  const bg = resolveRenderedColor(map, bgToken, surface);
+  const backdrop = resolveBackdrop(map, backdropToken ?? "--color-surface");
+  const bg = resolveRenderedColor(map, bgToken, backdrop);
   const fg = resolveRenderedColor(map, fgToken, bg);
   return Math.round(contrastRatio(fg, bg) * 100) / 100;
 }
@@ -337,8 +381,8 @@ describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
   });
 
   describe.each(THEME_IDS)("theme '%s'", (themeId) => {
-    it.each(CONTRAST_PAIRS)("%s on %s meets its contrast floor", (fgToken, bgToken) => {
-      const ratio = measure(themeId, fgToken, bgToken);
+    it.each(CONTRAST_PAIRS)("%s on %s meets its contrast floor", (fgToken, bgToken, backdropToken) => {
+      const ratio = measure(themeId, fgToken, bgToken, backdropToken);
       const known = KNOWN_AA_SHORTFALLS[`${themeId}|${fgToken}|${bgToken}`];
 
       if (known) {
@@ -377,11 +421,11 @@ describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
       ?.env;
     if (!env?.CONTRAST_TABLE) return;
     const rows = THEME_IDS.flatMap((themeId) =>
-      CONTRAST_PAIRS.map(([fg, bg]) => ({
+      CONTRAST_PAIRS.map(([fg, bg, backdrop]) => ({
         theme: themeId,
         pair: `${fg} / ${bg}`,
-        ratio: measure(themeId, fg, bg),
-        pass: measure(themeId, fg, bg) >= AA_MIN_RATIO,
+        ratio: measure(themeId, fg, bg, backdrop),
+        pass: measure(themeId, fg, bg, backdrop) >= AA_MIN_RATIO,
       })),
     );
     console.table(rows);

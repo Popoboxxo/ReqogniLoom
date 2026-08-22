@@ -87,6 +87,11 @@
   /* Royal — sidebar active accent; a distinct blue-violet, not indigo-600 */
   --palette-royal-500: #4f6ef7;
   --palette-royal-500-a15: rgba(79, 110, 247, 0.15);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5
+     findings 4-5): same alpha the pre-existing .presetBadge hardcoded
+     inline (rgba(79, 110, 247, 0.2)) — extracted as a primitive so the
+     badge-bg token below no longer carries a raw literal. */
+  --palette-royal-500-a20: rgba(79, 110, 247, 0.2);
 
   /* Navy — permanently dark sidebar chrome */
   --palette-navy-900: #1a1f2e;
@@ -384,6 +389,19 @@
   --color-nav-border: var(--palette-white-a08);
   --color-nav-active-bg: var(--palette-royal-500-a15);
   --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation): .presetBadge previously read
+     var(--color-primary) as its text color on this translucent royal-blue
+     chip — that token is theme-reactive (tuned for contrast against each
+     theme's own --color-surface), but the badge sits on the sidebar's
+     permanently-dark chrome, not --color-surface, so 4 of 5 themes failed
+     WCAG AA (as low as 2.06:1; only bauhaus's bright mustard primary
+     happened to pass). No single alpha on the existing royal-500 bg could
+     fix all 5 simultaneously (verified by sweep: dark/light cap at
+     ~2.34:1 at any alpha), so this is a dedicated pair, frozen like the
+     other --color-nav-* chrome tokens above — white text already reaches
+     13:1 on this bg, so opacity was intentionally left unchanged. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
 
   /* Keyboard focus ring (issue #158 — WCAG 2.4.7 Focus Visible) */
   --color-focus: var(--palette-indigo-400);
@@ -716,6 +734,11 @@
   --color-nav-border: var(--palette-white-a08);
   --color-nav-active-bg: var(--palette-royal-500-a15);
   --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
 
   /* Keyboard focus ring (issue #158) — darker for AA contrast on white */
   --color-focus: var(--palette-indigo-600);
@@ -807,7 +830,13 @@
   --color-border-hover: var(--palette-bauhaus-slate-400);
   --color-border-subtle: var(--palette-bauhaus-slate-300);
   --color-text: var(--palette-bauhaus-navy);
-  --color-text-muted: var(--palette-bauhaus-slate-600);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5,
+     §10.1): slate-600 measured 4.21:1 against this theme's alabaster
+     surface, just under WCAG AA's 4.5:1 floor. Bumped one step to
+     slate-700 (5.71:1) — the next rung of the same already-defined
+     bauhaus-slate ramp, no new primitive needed. Light/Dark/Nordic were
+     not reported as failing and are left untouched. */
+  --color-text-muted: var(--palette-bauhaus-slate-700);
   --color-on-primary: var(--palette-bauhaus-navy);
 
   --color-success: var(--palette-bauhaus-teal-500);
@@ -840,6 +869,11 @@
   --color-nav-border: var(--palette-white-a08);
   --color-nav-active-bg: var(--palette-royal-500-a15);
   --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
 
   --color-focus: var(--palette-bauhaus-mustard-600);
 
@@ -951,6 +985,11 @@
   --color-nav-border: var(--palette-white-a08);
   --color-nav-active-bg: var(--palette-royal-500-a15);
   --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
 
   --color-focus: var(--palette-nordic-frost-400);
 
@@ -1029,7 +1068,13 @@
   --color-border-hover: var(--palette-sepia-taupe-400);
   --color-border-subtle: var(--palette-sepia-taupe-300);
   --color-text: var(--palette-sepia-espresso);
-  --color-text-muted: var(--palette-sepia-taupe-600);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5,
+     §10.1): taupe-600 measured 3.81:1 against this theme's cream surface,
+     under WCAG AA's 4.5:1 floor. Bumped one step to taupe-700 (5.24:1) —
+     the next rung of the same already-defined sepia-taupe ramp, no new
+     primitive needed. Light/Dark/Nordic were not reported as failing and
+     are left untouched. */
+  --color-text-muted: var(--palette-sepia-taupe-700);
   --color-on-primary: var(--palette-white);
 
   --color-success: var(--palette-sepia-forest-500);
@@ -1062,6 +1107,11 @@
   --color-nav-border: var(--palette-white-a08);
   --color-nav-active-bg: var(--palette-royal-500-a15);
   --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
 
   --color-focus: var(--palette-sepia-orange-800);
 
