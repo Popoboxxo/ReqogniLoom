@@ -1,0 +1,131 @@
+/*
+ * UserManagement — tenant-admin user list + create/activate/deactivate/
+ * grant-revoke-tenant-admin surface (multi-user management design spec,
+ * Task 12).
+ *
+ * CSS-Module convention (mirrors Dialog.module.css / Goals.module.css) —
+ * every value resolves through a token from styles/tokens.css, no inline
+ * object-literal style props and no hardcoded colours/sizes (UI concept
+ * ratchet, frontend/src/test/ui-ratchet.test.ts).
+ */
+
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+.gatePage {
+  max-width: 640px;
+  padding: var(--space-6);
+}
+
+.gateMessage {
+  color: var(--color-warning);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tableHeadRow {
+  text-align: left;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.th {
+  padding: var(--space-2);
+}
+
+.td {
+  padding: var(--space-2);
+}
+
+.tdActions {
+  padding: var(--space-2);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.row {
+  border-top: 1px solid var(--color-border);
+}
+
+.emptyCell {
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.actionButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  margin-right: var(--space-2);
+}
+
+.actionButton:last-child {
+  margin-right: 0;
+}
+
+.error {
+  margin-top: var(--space-3);
+  color: var(--color-danger);
+}
+
+/* --- Create-user dialog form --------------------------------------------- */
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -1px;
+}
+
+.formError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

@@ -37,6 +37,7 @@
     "testCases": "Testfälle",
     "settings": "Workspace-Einstellungen",
     "systemSettings": "System-Einstellungen",
+    "userManagement": "Benutzerverwaltung",
     "profile": "Profil",
     "glossary": "Glossar",
     "workflows": "Workflows",
@@ -725,6 +726,26 @@
       "copyHttpEndpoint": "HTTP-Endpunkt kopieren",
       "copySseEndpoint": "SSE-Endpunkt kopieren",
       "copyConfigExample": "Beispiel-Konfiguration kopieren"
+    },
+    "userManagement": {
+      "title": "Benutzerverwaltung",
+      "summary": "{{count}} User in diesem Tenant",
+      "createUser": "User anlegen",
+      "username": "Benutzername",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "status": "Status",
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "activate": "Aktivieren",
+      "deactivate": "Deaktivieren",
+      "tenantAdmin": "Tenant-Admin",
+      "grantTenantAdmin": "Tenant-Admin zuweisen",
+      "revokeTenantAdmin": "Tenant-Admin entziehen",
+      "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr.",
+      "tenantAdminOnly": "Du musst Tenant-Admin sein, um die Benutzerverwaltung zu sehen oder zu bearbeiten.",
+      "noUsers": "Keine User gefunden.",
+      "createFailed": "User konnte nicht angelegt werden."
     }
   },
   "categories": {
@@ -1512,6 +1533,17 @@
   },
   "profile": {
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."
+  },
+  "permissions": {
+    "members": {
+      "title": "Workspace-Mitglieder",
+      "empty": "Keine Workspace-Mitglieder.",
+      "member": "Mitglied",
+      "roles": "Rollen",
+      "suspend": "Sperren",
+      "reactivate": "Reaktivieren",
+      "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr."
+    }
   },
   "interviews": {
     "summary_one": "{{count}} Interview",

@@ -49,6 +49,11 @@ const WorkspaceSettings = lazy(
 const SystemSettings = lazy(
   () => import("../SystemSettings/SystemSettings")
 );
+const UserManagement = lazy(() =>
+  import("../Settings/UserManagement/UserManagement").then((m) => ({
+    default: m.UserManagement,
+  }))
+);
 const TraceabilityView = lazy(
   () => import("../TraceabilityView/TraceabilityView")
 );
@@ -154,6 +159,7 @@ function AppShell(): JSX.Element {
               <Route path="/audit" element={<AuditDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/system-settings" element={<SystemSettings />} />
+              <Route path="/user-management" element={<UserManagement />} />
               <Route
                 path="/workspace-settings"
                 element={<Navigate to="/settings" replace />}

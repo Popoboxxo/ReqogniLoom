@@ -67,6 +67,14 @@ ERROR_CODES = {
         "The MCP SSE session is unknown or has expired. This is not an "
         "authentication failure — reconnect to obtain a fresh session_id."
     ),
+    # Multi-user management (Task 9): a mutation would leave a workspace or
+    # tenant with zero active admins. Distinct from VALIDATION_ERROR/
+    # PERMISSION_DENIED — the caller IS authorized, the request is otherwise
+    # well-formed, but completing it would violate the last-admin invariant
+    # (mirrors the REST layer's 409 CONFLICT for the same condition).
+    "LAST_ADMIN": (
+        "This action would leave a workspace or tenant with no active admin."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -100,6 +108,7 @@ ERROR_CODE_MAP = {
     "LLM_NOT_CONFIGURED": -32003,    # Server-defined: LLM config
     "NOT_FOUND": -32004,             # Server-defined: Not found
     "SESSION_EXPIRED": -32005,       # Server-defined: SSE session gone (#427)
+    "LAST_ADMIN": -32006,            # Server-defined: last-admin invariant (Task 9)
 }
 
 

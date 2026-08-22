@@ -248,6 +248,25 @@ def test_revoked_api_key_raises_revoked(user_a):
 
 
 @pytest.mark.django_db
+def test_deactivated_user_api_key_raises_invalid(user_a):
+    """C-2 regression: deactivating a user must revoke MCP/REST access via
+    their existing API key, not just block new logins. Without the
+    ``is_active`` check, ``validate_api_key`` kept resolving a deactivated
+    tenant-admin's key, letting them call ``user.activate`` on themselves or
+    grant tenant-admin to anyone via MCP after being deactivated."""
+    plaintext = generate_api_key_plaintext()
+    ApiKey.unscoped.create(
+        user=user_a, tenant=user_a.tenant, name="ci", key_hash=hash_api_key(plaintext)
+    )
+    user_a.is_active = False
+    user_a.save(update_fields=["is_active"])
+
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_api_key(plaintext)
+    assert exc.value.code == "invalid_api_key"
+
+
+@pytest.mark.django_db
 def test_api_key_comparison_uses_compare_digest(user_a):
     """Verify constant-time comparison is actually invoked (REQ-L3-AT001-002)."""
     plaintext = generate_api_key_plaintext()

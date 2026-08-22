@@ -204,6 +204,32 @@ def test_regression_mcp_admin_operations_are_declared(operation: str) -> None:
 
 @pytest.mark.parametrize(
     "operation",
+    [
+        "user.activate",
+        "user.suspend_role",
+        "user.reactivate_role",
+        "user.assign_tenant_admin",
+        "user.revoke_tenant_admin",
+    ],
+)
+def test_regression_mcp_multi_user_management_operations_are_declared(
+    operation: str,
+) -> None:
+    """Explicit guard for the five ops added by multi-user management Task 9.
+
+    ``UsersToolGroup``'s ``user.activate``/``.suspend_role``/
+    ``.reactivate_role``/``.assign_tenant_admin``/``.revoke_tenant_admin``
+    handlers all called ``write_mcp_audit`` with these operation strings
+    without ever adding them to ``AuditEntry.OP_CHOICES`` (Fix Round 1,
+    C-1) — the same #539 silent-drop failure mode, including for
+    ``user.assign_tenant_admin``/``.revoke_tenant_admin``, the
+    highest-privilege operations on this whole surface.
+    """
+    assert operation in {value for value, _label in AuditEntry.OP_CHOICES}
+
+
+@pytest.mark.parametrize(
+    "operation",
     ["ai.decompose", "ai.validate", "ai.check_consistency"],
 )
 def test_regression_mcp_ai_operations_are_declared(operation: str) -> None:

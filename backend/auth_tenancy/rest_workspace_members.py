@@ -31,17 +31,20 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.base import PermissionDeniedError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
+from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService, Operation
-from auth_tenancy.services.authorization import WorkspaceMember
+from auth_tenancy.services.authorization import LastAdminError, WorkspaceMember
+from presets.services import get_preset
 
 
 def _member_to_dict(member: WorkspaceMember) -> dict[str, Any]:
@@ -67,9 +70,29 @@ class WorkspaceMembersView(APIView):
     """
 
     permission_classes = [HasOperationPermission]
-    # RBAC: READ is the least-privilege operation; the service adds the
-    # workspace-membership gate on top (REQ-014 AC#1).
-    required_operation = Operation.READ
+
+    @property
+    def required_operation(self) -> Operation | None:
+        """RBAC gate: READ-only for ``GET`` (REQ-014 AC#1); ``None`` for ``POST``.
+
+        Fix round 1 (C-1): ``HasOperationPermission`` resolves
+        ``active_roles`` from ``AuthTenancyAuthentication`` WORKSPACE-SCOPED
+        for any URL naming a ``workspace_id`` — a pure tenant-admin (a
+        ``TenantRole(admin)`` holder with no workspace-level ``UserRole``)
+        therefore resolves to ``active_roles=()`` and was denied here before
+        the view body (and its tenant-admin elevation branch, wired into
+        :meth:`AuthorizationService.assign_role`) ever ran. Declaring no
+        ``required_operation`` for ``POST`` mirrors the precedent in
+        ``rest_api.user_management_views.UserViewSet``: ``HasOperationPermission``
+        becomes an authentication-only gate for the mutating action, and
+        :meth:`AuthorizationService.assign_role` performs its own
+        admin/tenant-admin re-check — no defense is lost. ``GET`` (listing
+        members) keeps the least-privilege READ gate; the service's
+        workspace-membership check on top is unaffected either way.
+        """
+        if self.request is not None and self.request.method == "GET":
+            return Operation.READ
+        return None
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -129,5 +152,198 @@ class WorkspaceMembersView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    def post(self, request: Request, **kwargs: Any) -> Response:
+        """Assign a role to a user in this workspace (admin-guarded).
 
-__all__ = ["WorkspaceMembersView"]
+        Admin gate (mirrors :class:`WorkspaceMemberRoleTransitionView`): the
+        caller must either hold ``admin`` in the workspace or be a
+        tenant-admin of the workspace's own tenant.
+        :meth:`AuthorizationService.assign_role` self-enforces that
+        ``workspace_id`` actually belongs to ``ctx.tenant_id`` (the caller's
+        own tenant, resolved from the authenticated JWT/tenant context — see
+        ``TenantContextService``), so a caller cannot smuggle in a
+        cross-tenant workspace id even as a tenant-admin of their own tenant.
+
+        Fix round 1 (C-2): the workspace's preset tier is resolved
+        SERVER-SIDE via :func:`presets.services.get_preset`, not read from
+        the request body. A client-supplied ``preset`` field would let a
+        workspace-admin lie about the tier (e.g. claim ``"extended"`` for a
+        Standard workspace) to bypass
+        :meth:`PresetPolicyValidator.is_role_allowed_in_preset`'s gate on the
+        Approver role — demonstrated: a spoofed preset created a live
+        ``UserRole(role="approver")`` in a Standard-tier workspace. Any
+        ``preset`` field still sent by older clients is now ignored.
+
+        Fix round 2 (N-2): :func:`presets.services.get_preset` is not a
+        pure read — it internally ``get_or_create``s a
+        ``WorkspacePresetConfig`` row. Calling it unconditionally meant
+        EVERY POST, including one that will ultimately be denied (e.g. a
+        cross-tenant workspace id), created a real DB row as an
+        unauthorized side effect for a workspace the caller has no
+        standing over at all. It is now resolved only AFTER a cheap,
+        side-effect-free pre-check — :meth:`AuthorizationService.
+        workspace_exists_in_tenant` — confirms the caller is at least an
+        authenticated member of the workspace's OWN tenant (the same
+        tenant-membership check :meth:`AuthorizationService.assign_role`
+        performs as part of its real authorization gate below). A caller
+        who fails this pre-check still gets the correct 404 from
+        ``assign_role``'s own tenant check further down, just without the
+        side effect ever firing. This pre-check is deliberately narrower
+        than full authorization (it does not check admin/tenant-admin
+        standing) — a same-tenant caller who is ultimately denied by the
+        admin gate still triggers the ``get_or_create``, matching this
+        endpoint's pre-existing behaviour for that case; only the
+        previously-uncovered cross-tenant case is fixed here.
+        """
+        ctx = self._auth_context(request)
+        try:
+            workspace_id = self._workspace_id_from_kwargs(request)
+        except ValidationError as exc:
+            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+
+        target_user_id = (request.data or {}).get("user_id")
+        role = (request.data or {}).get("role")
+        if not target_user_id or not role:
+            return _err("VALIDATION_ERROR", "user_id and role are required.", status.HTTP_400_BAD_REQUEST)
+
+        actor_is_tenant_admin = self._service.is_tenant_admin(
+            user_id=ctx.user_id, tenant_id=ctx.tenant_id
+        )
+
+        # Resolve the REAL preset tier server-side (C-2) — but only AFTER
+        # confirming the caller has at least plausible tenant-level standing
+        # (N-2, fix round 2): `get_preset` get_or_creates a
+        # WorkspacePresetConfig row, and that side effect must not fire for
+        # a caller who has no standing over this workspace at all (e.g. a
+        # cross-tenant id). A caller who fails this pre-check still gets the
+        # correct NotFoundError -> 404 from `assign_role` below; only the
+        # unauthorized side effect is skipped.
+        if self._service.workspace_exists_in_tenant(
+            workspace_id=workspace_id, tenant_id=ctx.tenant_id
+        ):
+            try:
+                real_preset = get_preset(str(workspace_id)).preset
+            except ObjectDoesNotExist:
+                real_preset = None
+        else:
+            real_preset = None
+
+        try:
+            user_role = self._service.assign_role(
+                actor_roles=ctx.active_roles,
+                actor_is_tenant_admin=actor_is_tenant_admin,
+                target_user_id=UUID(str(target_user_id)),
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                role=role,
+                preset=real_preset,
+                assigned_by_user_id=ctx.user_id,
+                target_is_member=False,
+            )
+        except (PermissionDenied, PermissionDeniedError):
+            return _err("PERMISSION_DENIED", "You must be a workspace admin.", status.HTTP_403_FORBIDDEN)
+        except NotFoundError as exc:
+            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+        except (ValueError, ValidationError) as exc:
+            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+
+        # Fix round 3 (C-4): mirror `mcp_server.tools.users._handle_user_
+        # assign_role`'s `write_mcp_audit` call — this REST surface is the
+        # one the shipped UI actually uses, and it previously wrote zero
+        # audit rows for any user-management action.
+        ServiceBase._audit(
+            ctx,
+            operation=AuditEntry.OP_USER_ASSIGN_ROLE,
+            entity_type="UserRole",
+            entity_id=user_role.id,
+            details={"target_user_id": str(target_user_id), "role": role},
+        )
+
+        return Response({"assigned": True}, status=status.HTTP_201_CREATED)
+
+
+class WorkspaceMemberRoleTransitionView(APIView):
+    """Suspend / reactivate a single member's role in a workspace.
+
+    URL: ``/api/v1/workspaces/<uuid:workspace_id>/members/<uuid:user_id>/suspend/``
+         ``/api/v1/workspaces/<uuid:workspace_id>/members/<uuid:user_id>/reactivate/``
+
+    Deliberately declares no ``required_operation`` (fix round 1, C-1): both
+    actions target a specific ``workspace_id`` in the URL, so
+    ``AuthTenancyAuthentication`` resolves ``active_roles`` WORKSPACE-SCOPED —
+    a pure tenant-admin (no workspace-level ``UserRole``) would resolve to
+    ``active_roles=()`` and be denied by ``HasOperationPermission`` before the
+    view body (and the tenant-admin elevation branch already wired into
+    :meth:`AuthorizationService.suspend_role`/``reactivate_role``) ever ran.
+    ``HasOperationPermission`` is kept purely as an authentication gate here
+    (mirrors ``rest_api.user_management_views.UserViewSet``); the service
+    layer's own admin/tenant-admin re-check is the real authorization.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._service = AuthorizationService()
+
+    @staticmethod
+    def _auth_context(request: Request) -> AuthContext:
+        ctx = getattr(request, "auth_context", None)
+        if ctx is None:
+            raise PermissionDeniedError("Authentication required.")
+        return ctx
+
+    def _handle(self, request: Request, *, suspend: bool, workspace_id: str, user_id: str) -> Response:
+        ctx = self._auth_context(request)
+        role = (request.data or {}).get("role")
+        if not role:
+            return _err("VALIDATION_ERROR", "role is required.", status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ws_uuid = UUID(str(workspace_id))
+            user_uuid = UUID(str(user_id))
+        except (ValueError, TypeError):
+            return _err("VALIDATION_ERROR", "Invalid workspace_id or user_id.", status.HTTP_400_BAD_REQUEST)
+
+        actor_is_tenant_admin = self._service.is_tenant_admin(
+            user_id=ctx.user_id, tenant_id=ctx.tenant_id
+        )
+
+        method = self._service.suspend_role if suspend else self._service.reactivate_role
+        try:
+            method(
+                actor_roles=ctx.active_roles,
+                actor_is_tenant_admin=actor_is_tenant_admin,
+                target_user_id=user_uuid,
+                workspace_id=ws_uuid,
+                role=role,
+            )
+        except (PermissionDenied, PermissionDeniedError):
+            return _err("PERMISSION_DENIED", "You must be a workspace admin.", status.HTTP_403_FORBIDDEN)
+        except LastAdminError as exc:
+            return _err("LAST_ADMIN", str(exc), status.HTTP_409_CONFLICT)
+        except NotFoundError as exc:
+            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+
+        # Fix round 3 (C-4): mirror the MCP `user.suspend_role` /
+        # `user.reactivate_role` audit calls (entity_id=target user id,
+        # same as `write_mcp_audit` uses there).
+        ServiceBase._audit(
+            ctx,
+            operation=(
+                AuditEntry.OP_USER_SUSPEND_ROLE if suspend else AuditEntry.OP_USER_REACTIVATE_ROLE
+            ),
+            entity_type="UserRole",
+            entity_id=user_uuid,
+            details={"workspace_id": str(ws_uuid), "role": role},
+        )
+
+        return Response({"suspend" if suspend else "reactivate": True}, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, workspace_id: str = "", user_id: str = "", **kwargs: Any) -> Response:
+        action = request.parser_context.get("kwargs", {}).get("action") if request.parser_context else None
+        suspend = action != "reactivate"
+        return self._handle(request, suspend=suspend, workspace_id=workspace_id, user_id=user_id)
+
+
+__all__ = ["WorkspaceMembersView", "WorkspaceMemberRoleTransitionView"]

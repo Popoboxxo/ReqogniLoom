@@ -76,6 +76,10 @@ def _resolve_roles_from_db(
     filters: dict[str, Any] = {
         "user_id": user_id,
         "suspended_at__isnull": True,
+        # Fix round 3 (C-2): a deactivated user's leftover UserRole rows
+        # must never resolve to active roles — mirrors
+        # AuthorizationService.is_tenant_admin's identical filter.
+        "user__is_active": True,
     }
     if workspace_id is not None:
         filters["workspace_id"] = workspace_id

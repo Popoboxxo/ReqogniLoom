@@ -11,7 +11,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.models import ROLE_ADMIN, TenantRole, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
@@ -31,6 +31,12 @@ def test_bootstrap_creates_base_data_and_is_idempotent(monkeypatch):
         assert Workspace.objects.filter(name="Demo Workspace").count() == 1
         admin = User.objects.get(username="admin")
         assert UserRole.objects.filter(user=admin, role=ROLE_ADMIN).count() == 1
+        assert (
+            TenantRole.unscoped.filter(
+                tenant=tenant, user=admin, role=TenantRole.ROLE_ADMIN
+            ).count()
+            == 1
+        )
     finally:
         clear_request_tenant()
 

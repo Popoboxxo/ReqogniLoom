@@ -305,6 +305,7 @@ def _admin_only_calls(identity: _Identity) -> Dict[str, Dict[str, Any]]:
             "password": "not-a-real-password",
         },
         "user.deactivate": {"user_id": stranger_id},
+        "user.activate": {"user_id": stranger_id},
         "user.list": {},
         # Not a bootstrap candidate (foreign target, non-admin role), so the
         # SEC-05 self-bootstrap exemption does not apply.
@@ -314,6 +315,21 @@ def _admin_only_calls(identity: _Identity) -> Dict[str, Dict[str, Any]]:
             "role": ROLE_VIEWER,
             "preset": "extended",
         },
+        # Multi-user management (Task 9): workspace-admin OR tenant-admin
+        # gated, no bootstrap exception at all (unlike user.assign_role).
+        "user.suspend_role": {
+            "user_id": stranger_id,
+            "workspace_id": workspace_id,
+            "role": ROLE_VIEWER,
+        },
+        "user.reactivate_role": {
+            "user_id": stranger_id,
+            "workspace_id": workspace_id,
+            "role": ROLE_VIEWER,
+        },
+        # Tenant-admin-exclusive (no workspace-admin path at all).
+        "user.assign_tenant_admin": {"user_id": stranger_id},
+        "user.revoke_tenant_admin": {"user_id": stranger_id},
         # AdminToolGroup (WorkspaceService enforces admin).
         "workspace.close": {"workspace_id": workspace_id},
         "workspace.reactivate": {"workspace_id": workspace_id},

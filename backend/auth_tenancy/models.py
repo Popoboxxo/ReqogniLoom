@@ -150,6 +150,61 @@ class UserRole(TenantScopedModel):
         return self.suspended_at is None
 
 
+class TenantRole(TenantScopedModel):
+    """Tenant-wide admin role assignment (issue: multi-user management).
+
+    Distinct from the workspace-scoped ``UserRole``: this grants
+    administrative authority over the whole tenant (creating users,
+    assigning workspace roles across any workspace in the tenant),
+    not just one workspace. Only ``role="admin"`` exists today; modelled
+    as a role table (not a boolean flag on ``User``) for symmetry with
+    ``UserRole`` — same audit trail (``assigned_by``), same
+    suspend/reactivate mechanism (``suspended_at``), same last-admin
+    invariant enforcement code shape as the workspace level.
+
+    Inherits ``TenantScopedModel``: UUID PK, audit fields, the ``tenant``
+    FK and the tenant-isolating default manager.
+    """
+
+    ROLE_ADMIN = "admin"
+    ROLE_CHOICES = ((ROLE_ADMIN, "Admin"),)
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="tenant_role_assignments",
+    )
+    role = models.CharField(max_length=32, choices=ROLE_CHOICES, default=ROLE_ADMIN)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    assigned_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "at_tenant_role"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user", "role"],
+                name="uq_tenantrole_tenant_user_role",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "user"], name="idx_tenantrole_tenant_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"TenantRole({self.user_id}, {self.role}@{self.tenant_id})"
+
+    @property
+    def is_active(self) -> bool:
+        """Return whether the assignment is effective (not suspended)."""
+        return self.suspended_at is None
+
+
 class ItemPermission(TenantScopedModel):
     """Item-level permission rule (COMP-AT-005, REQ-L1-039).
 
@@ -506,6 +561,7 @@ class PermissionDecisionMismatch(TenantScopedModel):
 __all__ = [
     "ApiKey",
     "UserRole",
+    "TenantRole",
     "ItemPermission",
     "GlobalPermissionDefinition",
     "WorkspacePermissionDefinition",
