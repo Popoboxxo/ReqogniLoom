@@ -590,7 +590,18 @@ export default function MetricsDashboard(): JSX.Element {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            // GESAMTTEST_BERICHT_2026-08-21.md §6 "SE-Metrics orphaned grid
+            // row": with `1fr` tracks, `auto-fit` collapses the unused
+            // column tracks on a partially-filled last row and stretches
+            // the remaining item(s) to fill the freed space — at widths
+            // that fit exactly 4 of the 5 TILES per row, the 5th tile alone
+            // on row 2 stretched to the FULL row width instead of matching
+            // row 1's card size. Capping the track max width keeps every
+            // card the same size regardless of row fill, and
+            // `justify-content: center` centers a short last row instead of
+            // leaving it pinned to the left with a large empty gap.
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 320px))",
+            justifyContent: "center",
             gap: "var(--space-4)",
           }}
         >

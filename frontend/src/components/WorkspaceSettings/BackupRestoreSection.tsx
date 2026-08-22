@@ -20,6 +20,7 @@ import {
   type BackupTypeValue,
   type RestoreResult,
 } from "../../api/admin-ops";
+import { Spinner } from "../shared/Spinner/Spinner";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -77,6 +78,16 @@ const primaryButtonStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
   cursor: "pointer",
+  // GESAMTTEST_BERICHT_2026-08-21.md §6 "Admin backup-button loading state":
+  // without a floor, the button's label swapping to a bare "…" (now a
+  // <Spinner>, see call sites) made it visibly collapse to almost nothing
+  // during the request. display:flex + centered content keeps the spinner
+  // centered instead of left-aligned once the wider label text is gone.
+  minWidth: "140px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "var(--space-2)",
 };
 
 // Visually-hidden but screen-reader-accessible label — the inline
@@ -225,11 +236,15 @@ export function BackupRestoreSection(): JSX.Element {
           disabled={isCreating}
           style={{
             ...primaryButtonStyle,
-            opacity: isCreating ? 0.5 : 1,
+            opacity: isCreating ? 0.7 : 1,
             cursor: isCreating ? "wait" : "pointer",
           }}
         >
-          {isCreating ? "…" : `+ ${t("adminOps.createBackup", "Create Backup")}`}
+          {isCreating ? (
+            <Spinner label={t("adminOps.creatingBackup", "Creating backup...")} />
+          ) : (
+            `+ ${t("adminOps.createBackup", "Create Backup")}`
+          )}
         </button>
       </div>
 

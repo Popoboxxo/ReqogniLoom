@@ -25,6 +25,23 @@ const ACTIVE_BADGE_STYLE: CSSProperties = {
   padding: "1px 8px",
   whiteSpace: "nowrap",
   lineHeight: 1.6,
+  // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: never let the flex row
+  // shrink this pill — the workspace-name span below is the one that
+  // truncates instead, so the pill stays fully legible and clear of the
+  // absolutely positioned preset badge.
+  flexShrink: 0,
+};
+
+// GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: truncates a long workspace
+// name with an ellipsis instead of letting the title row's flex children
+// (name + active pill, default flex-shrink) overflow past the paddingRight
+// reserved for the preset badge above and visually collide with it. Hoisted
+// — see the ui-ratchet.test.ts frozen baseline note above.
+const NAME_TRUNCATE_STYLE: CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  minWidth: 0,
 };
 
 // GESAMTTEST_BERICHT_2026-08-21.md §5 finding 6: the mode/preset badge used
@@ -156,9 +173,16 @@ export function WorkspaceCard({
                 display: "flex",
                 alignItems: "center",
                 gap: "var(--space-2)",
+                // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: with the
+                // default flex-shrink behavior, a long workspace name pushed
+                // the active-pill (and the whole title row) past the
+                // paddingRight reserved above for the absolutely positioned
+                // preset badge, causing the two to overlap. minWidth: 0 lets
+                // the name span below actually shrink instead of overflowing.
+                minWidth: 0,
               }}
             >
-              {workspace.name}
+              <span style={NAME_TRUNCATE_STYLE}>{workspace.name}</span>
               {isActive && (
                 <span
                   data-testid="workspace-card-active-badge"

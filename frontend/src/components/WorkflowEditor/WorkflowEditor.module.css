@@ -551,10 +551,21 @@
   align-items: center;
   gap: 4px;
   max-width: 160px;
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6 item "workflow-editor edge-label
+   * collision": without `overflow: hidden` here, a long `to_state` name
+   * (e.g. "deprecated") was never actually clipped to `max-width` — its
+   * flex child (.edgeLabelText below) kept its full intrinsic width (flex
+   * items default to `min-width: auto`, i.e. "don't shrink below content"),
+   * so the pill visually bled past its own box and collided with whatever
+   * state node sat nearby instead of showing a clean "..." ellipsis. */
+  overflow: hidden;
   padding: 2px 8px;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
+  /* Lift the pill above the underlying node on visual overlap (nodes have
+   * no box-shadow of their own) instead of relying on stacking order alone. */
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.3));
   font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--color-text-muted);
@@ -579,6 +590,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Flex items don't shrink below their content's intrinsic width by
+   * default (`min-width: auto`) — without this, the ellipsis rule above
+   * never engaged and the text just overflowed .edgeLabel's `max-width`
+   * instead of truncating (see .edgeLabel's `overflow: hidden` comment). */
+  min-width: 0;
 }
 
 .edgeLockIcon {

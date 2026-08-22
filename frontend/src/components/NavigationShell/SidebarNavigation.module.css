@@ -544,6 +544,29 @@
   height: 28px;
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--color-nav-bg));
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6: center the chevron affordance
+     (see .scrollHintChevron) within the fade band. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+}
+
+.scrollHintChevron {
+  color: var(--color-nav-text-muted);
+  /* global.css already forces animation-duration to ~0 under
+     prefers-reduced-motion (see its top-level *, *::before, *::after
+     rule), so no separate override is needed here. */
+  animation: scrollHintBounce 1.4s ease-in-out infinite;
+}
+
+@keyframes scrollHintBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
 }
 
 .footer {

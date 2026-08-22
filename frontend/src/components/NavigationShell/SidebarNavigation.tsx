@@ -14,6 +14,7 @@
 import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { ChevronDown } from "lucide-react";
 import { APP_NAME } from "../../config/app-name";
 import { useWorkspace, DEFAULT_WORKSPACE } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
@@ -625,11 +626,21 @@ export function SidebarNavigation(): JSX.Element {
       )}
       </div>
 
-      {/* Fade-out scroll affordance (issue #168): signals that the nav
-          list is cut off and there is more to scroll to below. Only
-          shown while not scrolled to the bottom; purely decorative. */}
+      {/* Fade-out scroll affordance (issue #168). GESAMTTEST_BERICHT_2026-08-21.md
+          §6 "Sidebar navigation: no scroll indicator": at common laptop
+          resolutions (1366×900) the plain fade-to-background gradient was
+          nearly indistinguishable from the boundary between the scroll
+          region and the pinned footer below it (both share the same nav
+          background color), so it read as "end of list", not "scroll for
+          more" — live-verified: the last item (e.g. "Architektur") fades
+          out with no unambiguous cue. Adding a small centered chevron on
+          top of the same gradient makes the affordance legible without
+          changing the underlying scroll-detection logic. Still purely
+          decorative/non-interactive. */}
       {showScrollHint && (
-        <div aria-hidden="true" data-testid="sidebar-nav-scroll-hint" className={styles.scrollHint} />
+        <div aria-hidden="true" data-testid="sidebar-nav-scroll-hint" className={styles.scrollHint}>
+          <ChevronDown size={14} className={styles.scrollHintChevron} />
+        </div>
       )}
       </div>
 
