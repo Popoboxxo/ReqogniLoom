@@ -82,7 +82,11 @@ const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string, backdrop: 
   // Task 10: SidebarNavigation.module.css's .buildVersion (was
   // --color-text-muted at 70% opacity — 1.69-3.85:1 in all 5 themes) now
   // uses --color-nav-text-muted, the token this file's own .terminologyLabel
-  // sibling already used for the same role.
+  // sibling already used for the same role. Fix round 1: .langNotice had the
+  // identical bug (plain --color-text-muted, no opacity, on --color-nav-bg —
+  // 2.17:1/2.61:1/2.78:1 in light/bauhaus/sepia) and got the identical fix,
+  // so this one token-pair entry covers both components — no separate row
+  // needed since CONTRAST_PAIRS asserts per token pair, not per component.
   ["--color-nav-text-muted", "--color-nav-bg", "--color-nav-bg"],
   // Task 10: .presetBadge (was --color-primary on a hardcoded translucent
   // royal-blue chip — 2.06:1 in 4 of 5 themes) now uses the dedicated,

@@ -598,7 +598,15 @@
 .langNotice {
   padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  /* Task 10 fix round 1 (contrast remediation): identical root cause to
+     .buildVersion above — var(--color-text-muted) is tuned for contrast
+     against --color-surface, but this element lives on the sidebar's
+     permanently-dark chrome (--color-nav-bg), not --color-surface. Measured
+     2.17:1 (light) / 2.61:1 (bauhaus) / 2.78:1 (sepia) against navy-900,
+     below WCAG AA's 4.5:1. Switched to --color-nav-text-muted, the same fix
+     already applied to .buildVersion and already used by .terminologyLabel
+     — 7.62:1 in every theme. */
+  color: var(--color-nav-text-muted);
 }
 
 .langNoticeError {
