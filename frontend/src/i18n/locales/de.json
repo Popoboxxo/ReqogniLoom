@@ -129,7 +129,10 @@
     "enabled": "Aktiviert",
     "dismissibleField": "Vom Anwender schließbar",
     "showOnLoginPage": "Auch auf der Login-Seite anzeigen",
-    "messagePlaceholder": "Markdown-Text..."
+    "messagePlaceholder": "Markdown-Text...",
+    "globalTitle": "Globaler Banner",
+    "levelLabel": "Stufe",
+    "messageLabel": "Nachricht (Markdown)"
   },
   "triLabelOverview": {
     "title": "Tri-Label-Übersicht",
@@ -189,6 +192,7 @@
     "add": "Hinzufügen",
     "edit": "Bearbeiten",
     "save": "Speichern",
+    "saved": "Gespeichert.",
     "saving": "Speichert...",
     "reload": "Neu laden",
     "retry": "Erneut versuchen",
