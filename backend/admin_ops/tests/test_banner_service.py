@@ -8,7 +8,8 @@ from admin_ops.services.banner_service import BannerService
 from application.base import NotFoundError, PermissionDeniedError
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.tests.conftest import tenant_b
-from persistence.models import Workspace
+from persistence.models import Tenant, Workspace
+from persistence.tenancy import TenantContext
 
 from .conftest import active_tenant
 
@@ -169,8 +170,32 @@ class TestWorkspaceBanner:
             assert fetched.enabled is False
 
 
+def _seed_login_banner(service: BannerService, ctx: AuthContext, tenant) -> None:
+    with active_tenant(tenant):
+        service.upsert_global_banner(
+            ctx,
+            is_system_admin=True,
+            level=BannerLevel.CRITICAL,
+            message="maintenance",
+            enabled=True,
+            dismissible=False,
+            show_on_login_page=True,
+        )
+
+
 @pytest.mark.django_db
 class TestLoginBanner:
+    """``get_login_banner`` resolves its own tenant — no caller-supplied id.
+
+    These tests deliberately never patch ``settings.DEFAULT_TENANT_ID``. The
+    old suite did, pinning it to a real tenant UUID — a configuration that can
+    never occur at runtime, because the setting is declared
+    ``config("DEFAULT_TENANT_ID", default=1, cast=int)``. Patching it to a UUID
+    made the endpoint look correct while every real deployment resolved
+    ``uuid.UUID(int=1)`` and matched zero tenants. The replacement below
+    exercises the real single-tenant deployment shape instead.
+    """
+
     def test_returns_none_when_not_enabled_for_login(
         self, service: BannerService, admin_ctx: AuthContext, tenant_a
     ) -> None:
@@ -184,21 +209,72 @@ class TestLoginBanner:
                 dismissible=True,
                 show_on_login_page=False,
             )
-        assert service.get_login_banner(tenant_a.id) is None
+        assert service.get_login_banner() is None
 
-    def test_returns_banner_when_enabled_and_login_flagged(
+    def test_returns_banner_for_the_single_deployed_tenant(
         self, service: BannerService, admin_ctx: AuthContext, tenant_a
     ) -> None:
-        with active_tenant(tenant_a):
-            service.upsert_global_banner(
-                admin_ctx,
-                is_system_admin=True,
-                level=BannerLevel.CRITICAL,
-                message="maintenance",
-                enabled=True,
-                dismissible=False,
-                show_on_login_page=True,
-            )
-        found = service.get_login_banner(tenant_a.id)
+        """The real-world configuration: exactly one Tenant row, no setting patched.
+
+        pytest-django rolls each test back, so ``tenant_a`` is the only Tenant
+        in scope — asserted explicitly below so a future fixture that leaks a
+        second tenant turns this into a loud failure rather than a silent
+        change of what is being tested.
+        """
+        assert Tenant.objects.count() == 1, "test scope must hold exactly one tenant"
+
+        _seed_login_banner(service, admin_ctx, tenant_a)
+
+        found = service.get_login_banner()
         assert found is not None
         assert found.message == "maintenance"
+        assert found.tenant_id == tenant_a.id
+
+    def test_resolve_login_tenant_id_returns_the_only_tenant(
+        self, service: BannerService, tenant_a
+    ) -> None:
+        assert service.resolve_login_tenant_id() == tenant_a.id
+
+    def test_returns_none_when_no_tenant_exists(
+        self, service: BannerService, db
+    ) -> None:
+        """Fresh install (zero tenants) is ambiguous -> no banner, not an error."""
+        assert Tenant.objects.count() == 0
+        assert service.resolve_login_tenant_id() is None
+        assert service.get_login_banner() is None
+
+    def test_returns_none_when_multiple_tenants_make_resolution_ambiguous(
+        self, service: BannerService, admin_ctx: AuthContext, tenant_a, tenant_b
+    ) -> None:
+        """Two tenants -> no way to know whose banner the login page shows.
+
+        Fails closed (``None`` -> 204) rather than guessing; guessing would
+        disclose one tenant's announcement to the other tenant's users.
+        """
+        _seed_login_banner(service, admin_ctx, tenant_a)
+
+        assert Tenant.objects.count() == 2
+        assert service.resolve_login_tenant_id() is None
+        assert service.get_login_banner() is None
+
+    def test_does_not_leave_a_tenant_context_behind(
+        self, service: BannerService, admin_ctx: AuthContext, tenant_a
+    ) -> None:
+        """The explicit ``set_request_tenant`` for the RLS-guarded read must be
+        paired with a clear, or an unauthenticated request would arm a tenant
+        context for whatever reuses the connection/thread next."""
+        _seed_login_banner(service, admin_ctx, tenant_a)
+
+        assert not TenantContext.is_set()
+        assert service.get_login_banner() is not None
+        assert not TenantContext.is_set()
+
+    def test_restores_a_pre_existing_tenant_context(
+        self, service: BannerService, admin_ctx: AuthContext, tenant_a
+    ) -> None:
+        """Called with a tenant already active, the prior context survives."""
+        _seed_login_banner(service, admin_ctx, tenant_a)
+
+        with active_tenant(tenant_a):
+            assert service.get_login_banner() is not None
+            assert TenantContext.get_tenant() == tenant_a.id

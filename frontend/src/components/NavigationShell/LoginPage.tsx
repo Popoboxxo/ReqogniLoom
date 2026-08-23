@@ -26,6 +26,27 @@ const LOGIN_BANNER_COLORS: Record<LoginBanner["level"], string> = {
   critical: "var(--color-danger)",
 };
 
+/**
+ * Dismiss key for the login-page banner.
+ *
+ * Same scheme as `BannerStack`'s (`banner-dismissed-<scope>-<id>-<updated_at>`)
+ * with `scope=global-login`, per the design spec. Deliberately duplicated
+ * rather than shared: `BannerStack`'s helpers are module-private, and hoisting
+ * five lines into a shared module for two call sites that already differ in
+ * their scope literal would be more indirection than it removes.
+ *
+ * `sessionStorage`, not `localStorage`: the dismissal must reset on the next
+ * login. Keying on `updated_at` means an admin editing the message
+ * automatically invalidates every prior dismissal.
+ */
+function loginDismissKey(banner: LoginBanner): string {
+  return `banner-dismissed-global-login-${banner.id}-${banner.updated_at ?? ""}`;
+}
+
+function isLoginBannerDismissed(banner: LoginBanner): boolean {
+  return window.sessionStorage.getItem(loginDismissKey(banner)) === "1";
+}
+
 export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
   const { login } = useAuth();
@@ -46,6 +67,7 @@ export function LoginPage(): JSX.Element {
   // endpoint. Non-blocking and non-critical: a slow or failed fetch must never gate
   // the login form.
   const [loginBanner, setLoginBanner] = useState<LoginBanner | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +89,12 @@ export function LoginPage(): JSX.Element {
     void bannersApi
       .getLoginBanner()
       .then((banner) => {
-        if (!cancelled) setLoginBanner(banner);
+        if (cancelled) return;
+        setLoginBanner(banner);
+        // Check the stored dismissal on arrival, not on click only: a banner
+        // already dismissed earlier in this browser session must stay hidden
+        // across reloads of the login page.
+        setBannerDismissed(banner ? isLoginBannerDismissed(banner) : false);
       })
       .catch(() => {
         // Silently omit the banner on failure — must never block the login form.
@@ -131,7 +158,7 @@ export function LoginPage(): JSX.Element {
         background: "var(--color-surface)",
       }}
     >
-      {loginBanner && (
+      {loginBanner && !bannerDismissed && (
         <div
           data-testid="login-page-banner"
           role="status"
@@ -140,7 +167,25 @@ export function LoginPage(): JSX.Element {
             borderBottomColor: LOGIN_BANNER_COLORS[loginBanner.level],
           }}
         >
-          {loginBanner.message}
+          {/* Plain text, never Markdown: this endpoint is unauthenticated, so
+              its content must not be able to render links or HTML on the login
+              page. That is a deliberate, security-motivated divergence from
+              BannerStack's in-app Markdown rendering. */}
+          <span className={styles.bannerMessage}>{loginBanner.message}</span>
+          {loginBanner.dismissible && (
+            <button
+              type="button"
+              className={styles.bannerDismiss}
+              data-testid="login-page-banner-dismiss"
+              aria-label={t("banners.dismiss", "Dismiss")}
+              onClick={() => {
+                window.sessionStorage.setItem(loginDismissKey(loginBanner), "1");
+                setBannerDismissed(true);
+              }}
+            >
+              ×
+            </button>
+          )}
         </div>
       )}
       <form

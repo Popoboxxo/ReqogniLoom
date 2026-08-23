@@ -6,6 +6,9 @@
   top: 0;
   left: 0;
   right: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-bottom-width: 3px;
   border-bottom-style: solid;
@@ -13,4 +16,26 @@
   color: var(--color-text);
   font-size: var(--font-size-sm);
   text-align: center;
+}
+
+.bannerMessage {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mirrors BannerStack.module.css's .dismissButton so the in-app and login-page
+   banners share one dismiss affordance. */
+.bannerDismiss {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  padding: 0 var(--space-1);
+}
+
+.bannerDismiss:hover {
+  color: var(--color-text);
 }

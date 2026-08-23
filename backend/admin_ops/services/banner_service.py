@@ -22,7 +22,8 @@ from django.db import transaction
 
 from application.base import NotFoundError, PermissionDeniedError, ServiceBase
 from auth_tenancy.context import AuthContext
-from persistence.models import Workspace
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 
 from admin_ops.models import Banner, BannerLevel, BannerScope
@@ -156,22 +157,76 @@ class BannerService:
 
     # -- Public (unauthenticated) login-page banner --------------------------
 
-    def get_login_banner(self, tenant_id: UUID) -> Optional[Banner]:
-        """Return the enabled, login-page-visible global banner for *tenant_id*.
+    @staticmethod
+    def resolve_login_tenant_id() -> Optional[UUID]:
+        """Return the single deployed tenant's id, or ``None`` if ambiguous.
 
-        No :class:`AuthContext` — called from the unauthenticated
-        ``PublicLoginBannerView``. Uses ``Banner.unscoped`` (the
-        tenant-filter escape hatch, REQ-L3-PL001-004) with an explicit
-        ``tenant_id=`` filter instead of the thread-local
-        :class:`TenantContext`, because no request-scoped tenant exists
-        before login.
+        The unauthenticated login page carries no tenant signal at all: this
+        codebase resolves the tenant *from the username* during
+        authentication (``LoginView``), and there is no host/subdomain
+        routing. ``settings.DEFAULT_TENANT_ID`` cannot be used either — it is
+        declared ``cast=int`` (``reqogniloom/settings.py``), so Django's
+        ``UUIDField.to_python`` silently coerces the shipped default ``1``
+        into ``uuid.UUID(int=1)``, a value that matches no real tenant and
+        that an operator cannot override with a real UUID (decouple would
+        raise on a non-integer).
+
+        So the tenant is resolved from the database instead: this product is
+        deployed one-tenant-per-installation (self-hosted docker-compose; the
+        System-Admin tier already assumes a single administered tenant). If
+        exactly one :class:`Tenant` row exists it is unambiguously *the*
+        tenant. Zero rows (fresh install) or more than one (a multi-tenant or
+        test-seeded database) is ambiguous, and the caller must then behave
+        exactly as it does for "no banner configured" — never a distinguishable
+        error, so an unauthenticated client cannot fingerprint the
+        deployment's tenant configuration.
         """
-        return Banner.unscoped.filter(
-            tenant_id=tenant_id,
-            scope=BannerScope.GLOBAL,
-            enabled=True,
-            show_on_login_page=True,
-        ).first()
+        tenant_ids = list(Tenant.objects.values_list("id", flat=True)[:2])
+        if len(tenant_ids) != 1:
+            return None
+        return tenant_ids[0]
+
+    def get_login_banner(self) -> Optional[Banner]:
+        """Return the enabled, login-page-visible global banner, or ``None``.
+
+        No :class:`AuthContext` and no caller-supplied tenant — this runs on a
+        genuinely unauthenticated request, so the tenant is resolved here via
+        :meth:`resolve_login_tenant_id`. ``None`` is returned both when the
+        tenant is ambiguous and when no matching banner exists; the caller
+        maps both to the same 204 response.
+
+        The read is wrapped in an explicit
+        :func:`persistence.middleware.set_request_tenant` / ``clear`` pair.
+        That is load-bearing, not decorative: ``admin_ops_banner`` carries a
+        ``FORCE ROW LEVEL SECURITY`` policy keyed on the PostgreSQL session
+        variable ``app.current_tenant``
+        (``admin_ops/migrations/0003_banner_rls.py``), and the tenant
+        middleware only sets that variable for *authenticated* requests.
+        Without the explicit activation below, this read would run with the
+        variable unset and RLS would correctly — and silently — return zero
+        rows for every deployment. Any prior context on this thread is
+        restored in the ``finally`` so the helper is safe to call from inside
+        a request that already has a tenant active (e.g. tests).
+        """
+        tenant_id = self.resolve_login_tenant_id()
+        if tenant_id is None:
+            return None
+
+        previous_tenant_id = (
+            TenantContext.get_tenant() if TenantContext.is_set() else None
+        )
+        set_request_tenant(tenant_id)
+        try:
+            return Banner.objects.filter(
+                scope=BannerScope.GLOBAL,
+                enabled=True,
+                show_on_login_page=True,
+            ).first()
+        finally:
+            if previous_tenant_id is not None:
+                set_request_tenant(previous_tenant_id)
+            else:
+                clear_request_tenant()
 
 
 __all__ = ["BannerService"]

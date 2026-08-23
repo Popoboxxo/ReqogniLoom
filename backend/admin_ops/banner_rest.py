@@ -3,22 +3,24 @@ admin_ops — REST adapter for System & Workspace Banners.
 
 Endpoints:
     GET/PUT /api/v1/admin/banners/global/
-        GET: any authenticated user (``BannerService.get_global_banner`` takes
-        no permission flag — read access is not role-gated). PUT: System-Admin
-        only (``AuthorizationService.is_tenant_admin``).
+        GET: any authenticated user holding ``Operation.READ`` (every role in
+        the RBAC matrix grants it). PUT: System-Admin only
+        (``AuthorizationService.is_tenant_admin``).
     GET/PUT /api/v1/workspaces/<uuid:workspace_id>/banner/
-        GET: any authenticated user (same rationale as above, via
-        ``BannerService.get_workspace_banner``). PUT: Workspace-Admin
-        (workspace-scoped ``admin`` role) or System-Admin.
+        GET: ``Operation.READ`` — and because the URL names a workspace,
+        ``AuthTenancyAuthentication`` resolves ``active_roles`` scoped to
+        *that* workspace, so a non-member (no ``UserRole`` there) resolves to
+        ``()`` and is denied 403. PUT: Workspace-Admin (workspace-scoped
+        ``admin`` role) or System-Admin.
     GET     /api/v1/public/banners/login/
-        Unauthenticated. Returns 204 if no enabled+show_on_login_page
-        global banner exists for ``settings.DEFAULT_TENANT_ID`` (see the
-        plan's Global Constraints section for why this endpoint resolves
-        the tenant from a settings default rather than per-request), else
-        200 with ``{level, message, dismissible}``. Never distinguishes
-        "tenant misconfigured" from "banner disabled" in its response
-        shape (both are 204) — avoids leaking tenant configuration state
-        to an unauthenticated caller.
+        Unauthenticated. Returns 204 if no enabled+show_on_login_page global
+        banner exists, else 200 with
+        ``{id, level, message, dismissible, updated_at}``. Tenant resolution
+        lives entirely in ``BannerService.get_login_banner`` (single deployed
+        tenant, see that method). Never distinguishes "tenant ambiguous /
+        unresolvable" from "banner disabled" in its response shape (both are
+        204) — avoids leaking tenant configuration state to an
+        unauthenticated caller.
 
 All three views delegate every read/write to :class:`BannerService`
 (REQ-L3-RA001-004 — no business logic in views).
@@ -28,7 +30,6 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -113,6 +114,31 @@ class GlobalBannerView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @property
+    def required_operation(self) -> Operation | None:
+        """RBAC gate: ``Operation.READ`` for ``GET``; ``None`` for ``PUT``.
+
+        Mirrors ``auth_tenancy.rest_workspace_members.WorkspaceMembersView``
+        exactly. ``HasOperationPermission`` treats a missing
+        ``required_operation`` as "authenticated access is sufficient", so
+        without this property the read side had no RBAC gate at all.
+
+        ``PUT`` deliberately declares no operation: the write gate is the
+        ``AuthorizationService.is_tenant_admin`` check in :meth:`put`, and a
+        pure System-Admin (a ``TenantRole(admin)`` holder with no
+        workspace-level ``UserRole``) resolves to ``active_roles=()`` — a
+        matrix-based gate would deny them before that check ever ran.
+
+        ``self.request`` is read via ``getattr`` rather than attribute access:
+        ``HasOperationPermission`` looks this property up with
+        ``getattr(view, "required_operation", None)``, which would swallow an
+        ``AttributeError`` raised inside the property and silently fail *open*.
+        """
+        request = getattr(self, "request", None)
+        if request is not None and request.method == "GET":
+            return Operation.READ
+        return None
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._service = BannerService()
@@ -170,9 +196,35 @@ class GlobalBannerView(APIView):
 
 
 class WorkspaceBannerView(APIView):
-    """``/api/v1/workspaces/<uuid:workspace_id>/banner/`` — GET: any authenticated user. PUT: Workspace-Admin or System-Admin."""
+    """``/api/v1/workspaces/<uuid:workspace_id>/banner/`` — GET: workspace member. PUT: Workspace-Admin or System-Admin."""
 
     permission_classes = [HasOperationPermission]
+
+    @property
+    def required_operation(self) -> Operation | None:
+        """RBAC gate: ``Operation.READ`` for ``GET``; ``None`` for ``PUT``.
+
+        Same shape and rationale as
+        :attr:`GlobalBannerView.required_operation`, but with real teeth on
+        the read side: the URL names a ``workspace_id``, so
+        ``AuthTenancyAuthentication`` resolves ``active_roles`` from the
+        ``UserRole`` rows *of that workspace*. An authenticated user who is
+        not a member of it resolves to ``()``, no role permits ``READ``, and
+        the request is denied 403 — which is what the spec means by "visible
+        only to users inside that workspace". Without this gate any
+        authenticated user in the tenant could read any workspace's banner.
+
+        ``PUT`` stays ungated here on purpose: :meth:`put` already computes
+        ``ctx.has_role("admin") or is_tenant_admin`` and forwards it to
+        ``BannerService.upsert_workspace_banner``, which raises
+        ``PermissionDeniedError``. Declaring an operation for ``PUT`` would
+        lock out the System-Admin override (``active_roles=()`` for a pure
+        tenant-admin).
+        """
+        request = getattr(self, "request", None)
+        if request is not None and request.method == "GET":
+            return Operation.READ
+        return None
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -258,19 +310,33 @@ class PublicLoginBannerView(APIView):
         self._service = BannerService()
 
     def get(self, request: Request, **kwargs: Any) -> Response:
-        tenant_id = getattr(settings, "DEFAULT_TENANT_ID", None)
-        if tenant_id is None:
-            return Response(status=status.HTTP_204_NO_CONTENT)
+        """Return the login-page banner, or 204 for every "nothing to show" case.
 
-        banner = self._service.get_login_banner(tenant_id)
+        Tenant resolution is entirely the service's job (REQ-L3-RA001-004 — no
+        business logic in views): ``get_login_banner`` returns ``None`` both
+        when the deployment's tenant cannot be resolved unambiguously and when
+        no enabled login banner exists, and both map to the same empty 204.
+
+        ``id`` and ``updated_at`` are part of the response because the
+        frontend's dismiss key is ``banner-dismissed-global-login-<id>-<updated_at>``
+        — keying on ``updated_at`` is what makes an admin's edit invalidate a
+        prior dismissal. Neither field is sensitive (the authenticated banner
+        payload already exposes both) and neither reveals anything when the
+        banner itself is already being disclosed.
+        """
+        banner = self._service.get_login_banner()
         if banner is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         return Response(
             {
+                "id": str(banner.id),
                 "level": banner.level,
                 "message": banner.message,
                 "dismissible": banner.dismissible,
+                "updated_at": (
+                    banner.modified_at.isoformat() if banner.modified_at else None
+                ),
             },
             status=status.HTTP_200_OK,
         )

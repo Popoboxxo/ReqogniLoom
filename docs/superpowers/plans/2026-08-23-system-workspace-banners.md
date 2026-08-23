@@ -21,6 +21,39 @@
 - No scheduling, no banner history UI, no per-user targeting — manual enable/disable only (spec Non-Goals).
 - **Deviation from spec, discovered during planning:** the spec assumed an existing pre-login tenant-resolution mechanism (subdomain/host header) for the public login-page endpoint. No such mechanism exists in this codebase — `LoginView` resolves tenant *from* the username during authentication, and the only precedent for a pre-auth "which tenant" signal is `settings.DEFAULT_TENANT_ID` (already used the same way, with the same caveat, by `se_metrics/views.py`). Task 3 below uses `settings.DEFAULT_TENANT_ID` for the public endpoint. This is a documented limitation (single-default-tenant deployments only), not a new invention — it reuses an existing, if imperfect, precedent rather than building real multi-tenant host routing, which is out of scope for this mini feature.
 
+  > **Superseded by the final review (2026-08-23).** `settings.DEFAULT_TENANT_ID`
+  > turned out to be unusable, not merely imperfect: it is declared
+  > `config("DEFAULT_TENANT_ID", default=1, cast=int)`, so it is always an
+  > `int`. Django's `UUIDField.to_python` silently coerces the shipped default
+  > `1` into `uuid.UUID(int=1)`, which matches no real tenant in any
+  > deployment, and `cast=int` prevents an operator from setting a real tenant
+  > UUID instead (decouple raises at startup on a non-integer). The public
+  > endpoint could therefore never return a banner. It now resolves the tenant
+  > from the database via `BannerService.resolve_login_tenant_id`: exactly one
+  > `Tenant` row -> that tenant; zero or more than one -> ambiguous -> the same
+  > empty `204` as "no banner configured" (never a distinguishable error). The
+  > structurally identical bug in `se_metrics/views.py` is out of scope for
+  > this feature and was deliberately left untouched.
+  >
+  > Two further corrections from the same review:
+  > * `admin_ops_banner` now carries an RLS policy
+  >   (`admin_ops/migrations/0003_banner_rls.py`), matching every other
+  >   `TenantScopedModel` table. Because the login-banner read happens on an
+  >   unauthenticated request — where the tenant middleware never sets
+  >   `app.current_tenant` — `get_login_banner` activates the resolved tenant
+  >   explicitly via `set_request_tenant` and restores the prior context in a
+  >   `finally`. Without that the RLS policy would silently return zero rows.
+  > * `GlobalBannerView` / `WorkspaceBannerView` now declare
+  >   `required_operation = Operation.READ` for `GET` (`None` for `PUT`),
+  >   mirroring `WorkspaceMembersView`. `PUT` must stay ungated by the matrix
+  >   so a pure System-Admin (`TenantRole(admin)`, `active_roles=()`) is not
+  >   denied before the views' own tenant-admin elevation check runs.
+  >
+  > The public endpoint's response shape consequently grew `id` and
+  > `updated_at` (spec §Frontend Display's dismiss key
+  > `banner-dismissed-<scope>-<id>-<updated_at>` needs both), and the
+  > spec-mandated login-page dismiss button was implemented in `LoginPage.tsx`.
+
 ---
 
 ### Task 1: Backend — `Banner` model + migration

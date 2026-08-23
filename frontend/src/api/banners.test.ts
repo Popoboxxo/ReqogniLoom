@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { bannersApi } from "./banners";
+import { bannersApi, type LoginBanner } from "./banners";
 import { apiClient } from "./client";
 
 vi.mock("./client", () => ({
@@ -66,5 +66,27 @@ describe("bannersApi", () => {
     vi.mocked(apiClient.get).mockResolvedValue(null);
     await bannersApi.getLoginBanner();
     expect(apiClient.get).toHaveBeenCalledWith("/public/banners/login/");
+  });
+
+  it("getLoginBanner returns the id/updated_at the dismiss key needs", async () => {
+    // banner-dismissed-global-login-<id>-<updated_at> cannot be built — and an
+    // admin edit cannot invalidate a prior dismissal — without both fields.
+    const loginBanner: LoginBanner = {
+      id: "b9",
+      level: "warning",
+      message: "Maintenance tonight",
+      dismissible: true,
+      updated_at: "2026-08-23T10:00:00Z",
+    };
+    vi.mocked(apiClient.get).mockResolvedValue(loginBanner);
+    const result = await bannersApi.getLoginBanner();
+    expect(result).toEqual(loginBanner);
+    expect(result?.id).toBe("b9");
+    expect(result?.updated_at).toBe("2026-08-23T10:00:00Z");
+  });
+
+  it("getLoginBanner normalises an empty 204 response to null", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(undefined);
+    expect(await bannersApi.getLoginBanner()).toBeNull();
   });
 });

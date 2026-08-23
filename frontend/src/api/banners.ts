@@ -42,10 +42,26 @@ export interface GlobalBannerWritePayload extends BannerWritePayload {
   show_on_login_page: boolean;
 }
 
+/**
+ * The unauthenticated login-page projection of a global banner.
+ *
+ * Deliberately narrower than {@link Banner}: no `scope`, `workspace_id`,
+ * `enabled` or `show_on_login_page` — an unauthenticated caller must not be
+ * able to read the deployment's banner configuration state.
+ *
+ * `id` and `updated_at` ARE included: the dismiss key is
+ * `banner-dismissed-global-login-<id>-<updated_at>`, and keying on
+ * `updated_at` is what makes an admin's edit invalidate a prior dismissal
+ * (same scheme as `BannerStack`). Neither field is sensitive — the
+ * authenticated `Banner` payload already exposes both, and they reveal
+ * nothing beyond the banner text that is being disclosed anyway.
+ */
 export interface LoginBanner {
+  id: UUID;
   level: BannerLevel;
   message: string;
   dismissible: boolean;
+  updated_at: string | null;
 }
 
 export const bannersApi = {
