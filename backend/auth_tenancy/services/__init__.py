@@ -26,7 +26,7 @@ from .authorization import (
     PresetPolicyValidator,
     WorkspaceMember,
 )
-from .item_permission import ItemPermissionService, PermissionDecision
+from .item_permission import ItemPermissionService, NO_RULE_REASON, PermissionDecision
 from .password_authentication import PasswordAuthenticationService
 from .permission_cache import (
     DEFAULT_TTL_SECONDS,
@@ -52,6 +52,7 @@ __all__ = [
     "TenantContextService",
     "ItemPermissionService",
     "PermissionDecision",
+    "NO_RULE_REASON",
     "PermissionCache",
     "DEFAULT_TTL_SECONDS",
     "CacheEntry",

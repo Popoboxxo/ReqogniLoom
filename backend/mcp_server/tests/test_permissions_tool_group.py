@@ -55,6 +55,22 @@ EDITOR_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
+VIEWER_CTX = AuthContext(
+    user_id=UUID("00000000-0000-0000-0000-000000000001"),
+    tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+    active_roles=("viewer",),
+    auth_method=AuthMethod.API_KEY,
+    api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+)
+
+NO_ROLE_CTX = AuthContext(
+    user_id=UUID("00000000-0000-0000-0000-000000000001"),
+    tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+    active_roles=(),
+    auth_method=AuthMethod.API_KEY,
+    api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+)
+
 VALID_API_KEY = "reqlo_test_admin_key"
 
 WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000010")
@@ -470,7 +486,9 @@ class TestPermissionsCheck:
         # read is not >= write -> denied
         assert result.data["decision"]["is_allowed"] is False
 
-    def test_check_deny_returns_denied(self):
+    def test_check_deny_returns_denied_when_rbac_also_denies(self):
+        """No item rule (closed-world default) AND no RBAC role at all ->
+        still correctly denied (no loosening beyond #716)."""
         group, svc = _group()
         svc.check_permission.return_value = PermissionDecision(
             level="deny", reason="no rule applies (default deny)"
@@ -482,13 +500,106 @@ class TestPermissionsCheck:
                 "workspace_id": str(WORKSPACE_ID),
                 "permission_level": "read",
             },
-            auth_context=ADMIN_CTX,
+            auth_context=NO_ROLE_CTX,
             api_key=VALID_API_KEY,
         )
 
         assert result.success is True
         assert result.data["decision"]["is_allowed"] is False
         assert result.data["decision"]["level"] == "deny"
+
+    def test_check_no_item_rule_falls_back_to_rbac_for_viewer(self):
+        """Fix #716: a Viewer with NO item-level rule is reported as
+        allowed for 'read' — the item layer's closed-world 'deny' default
+        must not silently override a role the base RBAC matrix grants."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason="no rule applies (default deny)"
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+            },
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "read"
+        assert result.data["decision"]["is_allowed"] is True
+
+    def test_check_no_item_rule_viewer_denied_for_write(self):
+        """Same no-item-rule fallback to RBAC, but a Viewer still has no
+        'write' -> denied (the fix does not grant more than the role has)."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason="no rule applies (default deny)"
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "write",
+            },
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "read"
+        assert result.data["decision"]["is_allowed"] is False
+
+    def test_check_explicit_item_deny_overrides_editor_rbac(self):
+        """An explicit item-level 'none' rule still restricts an Editor
+        below their RBAC grant (defense-in-depth is preserved)."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason="artifact-scoped rule grants 'none' (explicit deny)"
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+                "artifact_id": str(ARTIFACT_ID),
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "deny"
+        assert result.data["decision"]["is_allowed"] is False
+
+    def test_check_explicit_item_rule_cannot_escalate_beyond_rbac(self):
+        """An explicit item-level 'write' rule cannot grant a Viewer more
+        than their RBAC role permits (item layer restricts only, per
+        auth_tenancy.services.item_permission's module docstring)."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level=ITEM_PERMISSION_WRITE,
+            reason="artifact-scoped rule grants 'write'",
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "write",
+                "artifact_id": str(ARTIFACT_ID),
+            },
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "read"
+        assert result.data["decision"]["is_allowed"] is False
 
     def test_check_missing_level_returns_validation_error(self):
         group, svc = _group()
@@ -692,6 +803,37 @@ class TestE2EPermissions:
 
         assert "result" in response
         assert len(response["result"]["permissions"]) == 1
+
+    def test_check_e2e_viewer_with_no_item_rule_reads_allow(self):
+        """Real ToolRegistry/ProtocolHandler pipeline, real (unmocked)
+        PermissionsToolGroup._authz_service — reproduces the exact QA repro
+        for #716: a Viewer with no ItemPermission row calling
+        ``permissions.check`` for 'read' must get ``is_allowed: true``."""
+        from mcp_server.protocol_handler import ProtocolHandler
+        from auth_tenancy.services.item_permission import (
+            NO_RULE_REASON,
+            PermissionDecision,
+        )
+
+        svc = MagicMock()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason=NO_RULE_REASON
+        )
+        registry = _build_registry(roles=("viewer",), service=svc)
+        handler = ProtocolHandler(tool_registry=registry)
+
+        response = _post(
+            handler,
+            "permissions.check",
+            {
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+            },
+        )
+
+        assert "result" in response, response
+        assert response["result"]["decision"]["is_allowed"] is True
+        assert response["result"]["decision"]["level"] == "read"
 
     def test_registry_routes_permissions_prefix_to_permissions_group(self):
         from mcp_server.tools.permissions import PermissionsToolGroup
