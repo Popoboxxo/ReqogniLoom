@@ -187,6 +187,63 @@ class TestBaselineToolGroupRoundtrip:
         assert second.success is False
         assert second.error_code == "VALIDATION_ERROR"
 
+    def test_create_document_scope_without_document_id_returns_validation_error(self):
+        """GH-715: scope='document' without document_id must be a clean
+        VALIDATION_ERROR, never an internal-error-wrapped ValueError."""
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("baseline-mcp-docscope")
+        group = BaselineToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "scope": "document",
+                    "name": "doc-baseline-no-id",
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "document_id is required" in result.message
+        assert "internal error" not in result.message
+
+    def test_create_document_scope_with_document_id_succeeds(self):
+        """GH-715 success path: scope='document' WITH a valid document_id
+        actually creates the baseline and evaluates the gate correctly."""
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("baseline-mcp-docscope-ok")
+        group = BaselineToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            from persistence.models import Artifact
+
+            artifact = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="Requirement",
+            )
+
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "scope": "document",
+                    "name": "doc-baseline-with-id",
+                    "document_id": str(artifact.id),
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is True
+        assert "baseline_id" in result.data
+
     def test_get_not_found_returns_error(self):
         tenant, _, ctx = _make_tenant_workspace_ctx("baseline-mcp-notfound")
         group = BaselineToolGroup()
