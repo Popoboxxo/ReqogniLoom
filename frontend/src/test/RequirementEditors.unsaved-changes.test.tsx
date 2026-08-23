@@ -228,4 +228,38 @@ describe("RequirementEditors — unsaved-changes confirmation before tree naviga
     );
     expect(screen.queryByTestId("req-unsaved-changes-dialog")).not.toBeInTheDocument();
   });
+
+  /**
+   * Regression test for a stale-dirty-flag bug found in code review: the
+   * `onDirtyChange` reporting effect had no cleanup, so unmounting
+   * `RequirementForm` while `isDirty` was still `true` (e.g. via Cancel,
+   * which navigates away and unmounts the form without ever reporting
+   * `isDirty(false)`) left the parent's `isFormDirty` state stuck at `true`.
+   * The very next tree click then wrongly showed the unsaved-changes dialog
+   * even though no form was open anymore.
+   */
+  it("does not show the unsaved-changes dialog for a tree click after Cancel discarded the dirty form", async () => {
+    const user = userEvent.setup();
+    renderEditor(REQ_A.id);
+
+    await waitFor(() => expect(screen.getByTestId("req-title")).toHaveValue("Requirement A"));
+
+    await user.clear(screen.getByTestId("req-title"));
+    await user.type(screen.getByTestId("req-title"), "Unsaved edit");
+    expect(screen.getByTestId("req-title")).toHaveValue("Unsaved edit");
+
+    // Cancel navigates to `/requirements` (no id), unmounting the dirty
+    // RequirementForm without ever going through the confirm dialog.
+    await user.click(screen.getByTestId("cancel-btn"));
+    await waitFor(() => expect(screen.queryByTestId("req-title")).not.toBeInTheDocument());
+
+    // A stale `isFormDirty=true` would now wrongly gate this click behind
+    // the unsaved-changes dialog, even though no form is open anymore.
+    await user.click(screen.getByTestId(`req-list-tree-node-${REQ_B.id}`));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("req-title")).toHaveValue("Requirement B")
+    );
+    expect(screen.queryByTestId("req-unsaved-changes-dialog")).not.toBeInTheDocument();
+  });
 });

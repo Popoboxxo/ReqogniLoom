@@ -80,7 +80,7 @@ vi.mock("../api/architecture", () => ({
     listAll: vi.fn().mockResolvedValue([ELEMENT_A, ELEMENT_B]),
     create: vi.fn(),
     update: vi.fn(),
-    delete: vi.fn(),
+    delete: vi.fn().mockResolvedValue({}),
     get: vi.fn((id: string) =>
       Promise.resolve(id === ELEMENT_B.id ? ELEMENT_B : ELEMENT_A)
     ),
@@ -202,6 +202,39 @@ describe("ArchitectureEditors — unsaved-changes confirmation before tree navig
 
     await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element A"));
 
+    await user.click(screen.getByTestId(`arch-tree-node-${ELEMENT_B.id}`));
+
+    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element B"));
+    expect(screen.queryByTestId("arch-unsaved-changes-dialog")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Regression test for a stale-dirty-flag bug found in code review: the
+   * `onDirtyChange` reporting effect had no cleanup, so unmounting
+   * `ArchitectureForm` while `isDirty` was still `true` (e.g. via Delete,
+   * which navigates away and unmounts the form without ever reporting
+   * `isDirty(false)`) left the parent's `isFormDirty` state stuck at `true`.
+   * The very next tree click then wrongly showed the unsaved-changes dialog
+   * even though no form was open anymore.
+   */
+  it("does not show the unsaved-changes dialog for a tree click after Delete discarded the dirty form", async () => {
+    const user = userEvent.setup();
+    renderEditor(ELEMENT_A.id);
+
+    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element A"));
+
+    await user.clear(screen.getByTestId("arch-title"));
+    await user.type(screen.getByTestId("arch-title"), "Unsaved edit");
+    expect(screen.getByTestId("arch-title")).toHaveValue("Unsaved edit");
+
+    // Delete navigates to `/architecture` (no id), unmounting the dirty
+    // ArchitectureForm without ever going through the confirm dialog.
+    await user.click(screen.getByTestId("arch-delete-btn"));
+    await user.click(screen.getByTestId("confirm-delete-btn"));
+    await waitFor(() => expect(screen.queryByTestId("arch-title")).not.toBeInTheDocument());
+
+    // A stale `isFormDirty=true` would now wrongly gate this click behind
+    // the unsaved-changes dialog, even though no form is open anymore.
     await user.click(screen.getByTestId(`arch-tree-node-${ELEMENT_B.id}`));
 
     await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element B"));

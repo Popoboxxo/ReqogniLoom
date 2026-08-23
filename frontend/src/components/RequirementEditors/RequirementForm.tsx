@@ -216,6 +216,12 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
+    // Cleanup: report "not dirty" on unmount so a stale `true` from a
+    // previous mount (e.g. after Cancel/Delete) can't make the parent show
+    // an unsaved-changes dialog for a form that no longer exists.
+    return () => {
+      onDirtyChange?.(false);
+    };
   }, [isDirty, onDirtyChange]);
 
   // UI state

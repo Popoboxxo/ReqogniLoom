@@ -830,15 +830,17 @@ describe("RequirementForm — change_reason survives a same-id refetch race (#70
     );
   });
 
-  it("submits the typed change reason even when a same-id refetch races an in-flight save", async () => {
-    let resolveUpdate: (() => void) | undefined;
-    vi.mocked(requirementsApi.update).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveUpdate = () => resolve({} as unknown as Requirement);
-        })
-    );
-
+  it("submits the typed change reason even when a same-id refetch races the typing, before Save is ever clicked", async () => {
+    // The actually exploitable window for this bug is NOT "while a save
+    // request is in flight" — `handleSave` reads the local `changeReason`
+    // state synchronously and calls `requirementsApi.update` before any
+    // `await`, so once the click has happened the typed value is already
+    // captured and no longer sensitive to a racing refetch. The real
+    // exploitable window is BETWEEN typing and clicking Save: with the old,
+    // `[requirement]`-keyed reset effect, a same-id refetch landing in that
+    // window re-ran `setChangeReason(requirement.change_reason || '')` and
+    // silently wiped what the user had just typed, before they ever got to
+    // click Save. This test reproduces exactly that ordering.
     const { rerender } = render(
       <RequirementForm
         requirement={baseReq}
@@ -855,11 +857,13 @@ describe("RequirementForm — change_reason survives a same-id refetch race (#70
     fireEvent.change(screen.getByTestId("change-reason-input"), {
       target: { value: "Race-condition probe" },
     });
-    fireEvent.click(screen.getByTestId("save-btn"));
+    expect(screen.getByTestId("change-reason-input")).toHaveValue(
+      "Race-condition probe"
+    );
 
-    // The save is now in flight (requirementsApi.update has not resolved
-    // yet). A same-id refetch lands while it is still awaiting.
-    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    // A same-id background refetch (new object reference, same id, server
+    // never persisted `change_reason` so it comes back empty) lands here —
+    // strictly BEFORE the user clicks Save.
     rerender(
       <RequirementForm
         requirement={{ ...baseReq, change_reason: "" } as unknown as Requirement}
@@ -873,7 +877,13 @@ describe("RequirementForm — change_reason survives a same-id refetch race (#70
       />
     );
 
-    resolveUpdate?.();
+    // With the old `[requirement]`-keyed reset effect, the field would be
+    // wiped back to "" right here, before Save was ever clicked.
+    expect(screen.getByTestId("change-reason-input")).toHaveValue(
+      "Race-condition probe"
+    );
+
+    fireEvent.click(screen.getByTestId("save-btn"));
     await waitFor(() => expect(requirementsApi.update).toHaveBeenCalledTimes(1));
 
     const payload = (requirementsApi.update as ReturnType<typeof vi.fn>).mock
