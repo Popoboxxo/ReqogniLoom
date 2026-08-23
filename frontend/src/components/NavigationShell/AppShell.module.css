@@ -1,0 +1,14 @@
+/* AppShell — Authenticated shell layout. CSS Module per this codebase's
+   ratchet direction for new UI code. */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.contentRow {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}

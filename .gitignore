@@ -92,3 +92,4 @@ docs/test-reports/
 docs/test-reports/design-audit-populated/
 docs/test-reports/design-audit-screenshots/
 docs/test-reports/e2e/
+.worktrees/

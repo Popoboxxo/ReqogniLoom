@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
 import { WorkflowEditorPage } from "../WorkflowEditor/WorkflowEditorPage";
 import { WorkspaceAdminSection } from "./WorkspaceAdminSection";
+import { BannerSection } from "./BannerSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { PageHeader } from "../shared/PageHeader";
 
@@ -142,7 +143,12 @@ export default function SystemSettings(): JSX.Element {
         data-testid={`system-settings-panel-${activeTab}`}
         aria-labelledby={`system-settings-tab-${activeTab}`}
       >
-        {activeTab === "administration" && <WorkspaceAdminSection />}
+        {activeTab === "administration" && (
+          <>
+            <WorkspaceAdminSection />
+            <BannerSection />
+          </>
+        )}
         {activeTab === "workflow-defaults" && (
           <div
             data-testid="system-workflow-defaults"

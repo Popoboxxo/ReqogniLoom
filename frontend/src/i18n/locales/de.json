@@ -118,6 +118,23 @@
       "llm_provider": "LLM-Provider"
     }
   },
+  "banners": {
+    "dismiss": "Schließen",
+    "level": {
+      "neutral": "Neutral",
+      "info": "Info",
+      "warning": "Warnung",
+      "critical": "Kritisch"
+    },
+    "enabled": "Aktiviert",
+    "dismissibleField": "Vom Anwender schließbar",
+    "showOnLoginPage": "Auch auf der Login-Seite anzeigen",
+    "messagePlaceholder": "Markdown-Text...",
+    "globalTitle": "Globaler Banner",
+    "workspaceTitle": "Workspace-Banner",
+    "levelLabel": "Stufe",
+    "messageLabel": "Nachricht (Markdown)"
+  },
   "triLabelOverview": {
     "title": "Tri-Label-Übersicht",
     "sectionHint": "Schreibgeschützte Referenz aller 14 TraceLink-Typen mit ihren deutschen/englischen Downstream-, Upstream- und Neutral-Labels.",
@@ -176,6 +193,7 @@
     "add": "Hinzufügen",
     "edit": "Bearbeiten",
     "save": "Speichern",
+    "saved": "Gespeichert.",
     "saving": "Speichert...",
     "reload": "Neu laden",
     "retry": "Erneut versuchen",

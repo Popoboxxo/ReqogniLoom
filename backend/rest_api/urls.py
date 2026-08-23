@@ -44,6 +44,7 @@ from auth_tenancy.rest_workspace_members import (
     WorkspaceMemberRoleTransitionView,
     WorkspaceMembersView,
 )
+from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
 from admin_ops.health_rest import SystemHealthView
 from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
@@ -186,6 +187,12 @@ urlpatterns = [
     # hard-log the user out.
     path("auth/refresh/", RefreshView.as_view(), name="api-v1-auth-refresh"),
     path("auth/me/", MeView.as_view(), name="api-v1-auth-me"),
+    # System & Workspace Banners — public login-page banner (unauthenticated).
+    path(
+        "public/banners/login/",
+        PublicLoginBannerView.as_view(),
+        name="public-banner-login",
+    ),
     # Baseline scope-preview + other custom baseline views (REQ-011) — must precede
     # router.urls to avoid being swallowed by the router's baselines/<pk>/ pattern.
     path("baselines/", include(baseline_urlpatterns)),
@@ -322,6 +329,18 @@ urlpatterns = [
         "admin/health/",
         SystemHealthView.as_view(),
         name="admin-health",
+    ),
+    # System & Workspace Banners.
+    # /admin/banners/global/  -> GET/PUT, System-Admin only
+    path(
+        "admin/banners/global/",
+        GlobalBannerView.as_view(),
+        name="admin-banner-global",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/banner/",
+        WorkspaceBannerView.as_view(),
+        name="workspace-banner",
     ),
     # User workspace preferences (REQ-L1-027) — per-user visibility overrides.
     path(
