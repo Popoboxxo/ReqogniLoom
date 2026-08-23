@@ -59,6 +59,11 @@ _sleep: Callable[[float], None] = time.sleep
 #   no retry  — every other 4xx (400 invalid request, 401/403 auth, ...)
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
+# Issue #714: 401/403 are classified as authentication failures specifically
+# (not just "some other 4xx") so the resulting message says so explicitly,
+# instead of collapsing into an unhelpful generic "Connection error".
+_AUTH_STATUS = frozenset({401, 403})
+
 
 class LlmTransportError(RuntimeError):
     """Outbound LLM call failed after the resilience policy was exhausted.
@@ -84,24 +89,55 @@ def _extract_status_code(exc: BaseException) -> Optional[int]:
         return None
 
 
+def _is_authentication_error(exc: BaseException) -> bool:
+    """Detect a provider-SDK ``AuthenticationError`` by class name (issue #714).
+
+    Anthropic, OpenAI and the OpenAI-compatible OpenCode Go client all raise a
+    dedicated ``AuthenticationError`` subclass for bad credentials. Matching
+    the class name across the MRO — rather than importing the SDK's own
+    exception class, which may not even be installed for every provider — is
+    a signal that keeps working even if a proxy/gateway between the app and
+    the provider strips or mangles the HTTP status code before it reaches
+    :func:`_extract_status_code` below.
+    """
+    return any(klass.__name__ == "AuthenticationError" for klass in type(exc).__mro__)
+
+
 def classify_exception(exc: BaseException) -> ResilienceError:
     """Map an arbitrary transport exception onto the resilience taxonomy.
 
     REQ-082 retry matrix:
+      - HTTP 401/403 or SDK ``AuthenticationError``
+                                              -> NonRetryableError (no retry),
+        with a message that says "authentication failed" explicitly
+        (issue #714) instead of the generic 4xx/transient framing below.
       - connection/timeout errors            -> TransientError (retry)
       - HTTP 5xx and 429                     -> TransientError (retry)
-      - HTTP 4xx other than 429 (400/401/..) -> NonRetryableError (no retry)
+      - HTTP 4xx other than 429 (400/404/..) -> NonRetryableError (no retry)
       - missing provider SDK                 -> NonRetryableError (no retry)
       - anything else                        -> TransientError (fail-safe retry,
         consistent with PolicyEngine's handling of unclassified errors)
 
     The original message is preserved so downstream error categorisation in
     the CapabilityRouter (rate-limit / 5xx detection) keeps working.
+
+    Issue #714: an authentication failure (e.g. a stale/rotated API key still
+    persisted in the ``LlmSettings`` DB row) must be classified as permanent
+    and clearly labelled, *not* silently retried and *not* reported as a
+    generic "Connection error" — that combination is what made a simple key
+    mismatch look like a real provider outage, wasting the retry budget and
+    eventually opening the circuit breaker for what was actually a
+    permanent misconfiguration.
     """
     if isinstance(exc, ResilienceError):
         return exc
 
     status = _extract_status_code(exc)
+
+    if status in _AUTH_STATUS or _is_authentication_error(exc):
+        detail = f" (HTTP {status})" if status is not None else ""
+        return NonRetryableError(f"authentication failed{detail}: {exc}")
+
     if status is not None:
         if status in _RETRYABLE_STATUS or status >= 500:
             return TransientError(str(exc))
@@ -179,6 +215,43 @@ def max_retries_for_timeout(timeout_seconds: float) -> int:
     return LLM_MAX_RETRIES
 
 
+def _log_breaker_open(breaker: Any, provider_name: str) -> None:
+    """Log distinctly that a call fast-failed because the breaker is OPEN.
+
+    Issue #714: without this, "the call was never attempted because the
+    breaker is Open" and "the call was attempted and actually failed" were
+    indistinguishable in the logs — an operator debugging a cascading
+    failure had no way to tell which one they were looking at. When a real
+    :class:`CircuitBreaker` is bound, its persisted row is read (read-only,
+    no locking) to include the failure count and the time it opened; for the
+    no-op/test-double breakers used outside a tenant context or in unit
+    tests, a generic message is logged instead.
+    """
+    snapshot = None
+    if isinstance(breaker, CircuitBreaker):
+        try:
+            snapshot = breaker.peek_state()
+        except Exception:  # noqa: BLE001 — logging must never break the call path.
+            snapshot = None
+
+    if snapshot is not None:
+        state, failure_count, opened_at = snapshot
+        logger.warning(
+            "LLM call to provider '%s' fast-failed: circuit breaker is %s "
+            "(%d consecutive failures, opened at %s) — call was not attempted.",
+            provider_name,
+            state,
+            failure_count,
+            opened_at,
+        )
+    else:
+        logger.warning(
+            "LLM call to provider '%s' fast-failed: circuit breaker is OPEN "
+            "— call was not attempted.",
+            provider_name,
+        )
+
+
 def resilient_call(
     operation: Callable[[], Any],
     *,
@@ -214,6 +287,7 @@ def resilient_call(
 
     # Fast-fail while the circuit is Open (REQ-L3-RO-003-03).
     if not breaker.can_execute():
+        _log_breaker_open(breaker, provider_name)
         raise LlmTransportError(
             f"circuit open for LLM provider '{provider_name}': "
             "calls are temporarily rejected"

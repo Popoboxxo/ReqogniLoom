@@ -95,3 +95,33 @@ def test_half_open_failure_reopens(active_tenant) -> None:
     breaker.report_failure()  # -> open again
     row = CircuitBreakerState.objects.get(target_subsystem="llm")
     assert row.state == CircuitBreakerState.STATE_OPEN
+
+
+# ---------------------------------------------------------------------------
+# peek_state() — read-only diagnostic snapshot (issue #714)
+# ---------------------------------------------------------------------------
+
+
+def test_peek_state_returns_none_for_untouched_target(active_tenant) -> None:
+    """A target with no recorded failure has no row yet — nothing to peek."""
+    breaker = _breaker()
+    assert breaker.peek_state() is None
+
+
+def test_peek_state_reflects_open_state_and_failure_count(active_tenant) -> None:
+    breaker = _breaker(threshold=1, recovery=999)
+    breaker.report_failure()  # opens immediately
+
+    snapshot = breaker.peek_state()
+    assert snapshot is not None
+    state, failure_count, opened_at = snapshot
+    assert state == CircuitBreakerState.STATE_OPEN
+    assert failure_count == 1
+    assert opened_at is not None
+
+
+def test_peek_state_does_not_lock_or_create_a_row(active_tenant) -> None:
+    """peek_state() must not itself create the row (pure read, no side effect)."""
+    breaker = _breaker()
+    breaker.peek_state()
+    assert not CircuitBreakerState.objects.filter(target_subsystem="llm").exists()

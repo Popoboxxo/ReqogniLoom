@@ -82,6 +82,32 @@ class CircuitBreaker:
                 return True
             return False
 
+    # -- diagnostics ---------------------------------------------------------
+
+    def peek_state(self) -> tuple[str, int, "object | None"] | None:
+        """Read-only snapshot of the persisted row, for logging only (issue #714).
+
+        Unlike :meth:`can_execute` / :meth:`report_failure`, this never locks
+        or creates a row — it must be safe to call from a code path (fast-fail
+        logging) that runs *after* ``can_execute()`` already made the
+        Open/Closed decision, without perturbing a concurrent
+        can_execute()/report_failure() transaction on the same row.
+
+        Returns:
+            ``(state, failure_count, opened_at)`` when a row exists for this
+            target, or ``None`` when the breaker has never recorded a failure
+            (still implicitly Closed, nothing interesting to log).
+        """
+        row = (
+            CircuitBreakerState.objects.filter(
+                target_subsystem=self.target_subsystem
+            )
+            .first()
+        )
+        if row is None:
+            return None
+        return (row.state, row.failure_count, row.opened_at)
+
     # -- IF-RO-INT-004 -----------------------------------------------------
 
     def report_success(self) -> None:
