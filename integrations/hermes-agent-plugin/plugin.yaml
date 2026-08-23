@@ -1,0 +1,5 @@
+name: reqogniloom
+version: 0.1.0
+description: "Start and drive ReqogniLoom requirements interviews from Hermes via /reqogniloom, plus a basic dashboard stats tab."
+author: "ReqogniLoom"
+hooks: []
