@@ -29,6 +29,7 @@ import type { ChainArtifact } from "../shared/TraceSpine";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
@@ -106,6 +107,13 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
+
+  // Issue #672: does the currently-open ArchitectureForm have unsaved local
+  // edits? Reported by the form itself via onDirtyChange. `pendingSelectId`
+  // holds a tree-node click that arrived while dirty, so it can be
+  // confirmed or discarded instead of silently overwriting the open edit.
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
 
   // #340: rejected create/delete calls used to end in a bare console.error,
   // leaving the list unchanged and the user without any reason. One banner in
@@ -257,6 +265,32 @@ export default function ArchitectureEditors(): JSX.Element {
     },
     [refresh, navigate, t]
   );
+
+  /**
+   * Issue #672: the tree's onSelect used to call `navigate()` directly,
+   * which swaps the URL — and therefore the `element` prop the open
+   * ArchitectureForm is bound to — immediately, discarding any unsaved edit
+   * with no warning. Unsaved edits now gate the navigation behind a
+   * confirmation instead.
+   */
+  const selectElement = useCallback(
+    (id: string): void => {
+      if (isFormDirty && id !== selectedId) {
+        setPendingSelectId(id);
+        return;
+      }
+      navigate(`/architecture/${id}`);
+    },
+    [isFormDirty, navigate, selectedId]
+  );
+
+  const confirmPendingSelect = useCallback((): void => {
+    if (!pendingSelectId) return;
+    const target = pendingSelectId;
+    setPendingSelectId(null);
+    setIsFormDirty(false);
+    navigate(`/architecture/${target}`);
+  }, [pendingSelectId, navigate]);
 
   // Filter elements by search and convert to WorkspaceTreeNode[] (REQ-003).
   // Must be declared before any early return for stable hook order.
@@ -544,7 +578,7 @@ export default function ArchitectureEditors(): JSX.Element {
             data-testid="arch-tree"
             nodes={archTreeNodes}
             selectedId={selectedId}
-            onSelect={(id) => navigate(`/architecture/${id}`)}
+            onSelect={selectElement}
             onAddChild={(parentId) => void handleCreate(parentId)}
             onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
             rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
@@ -607,6 +641,7 @@ export default function ArchitectureEditors(): JSX.Element {
                 onDelete={(id) => void handleDelete(id)}
                 isExtendedPreset={activeWorkspace?.preset === "extended"}
                 onDecompose={() => setShowDecomposePanel(true)}
+                onDirtyChange={setIsFormDirty}
               />
             </EntityTypeProvider>
 
@@ -661,6 +696,16 @@ export default function ArchitectureEditors(): JSX.Element {
 
   return (
     <>
+      {pendingSelectId && (
+        <ConfirmDialog
+          title={t("editor.unsavedChangesTitle")}
+          message={t("editor.unsavedChangesMessage")}
+          confirmLabel={t("editor.discardChanges")}
+          onConfirm={confirmPendingSelect}
+          onCancel={() => setPendingSelectId(null)}
+          testId="arch-unsaved-changes-dialog"
+        />
+      )}
       {deleteTarget && (
         <Dialog
           title={t("arch.deleteTitle")}

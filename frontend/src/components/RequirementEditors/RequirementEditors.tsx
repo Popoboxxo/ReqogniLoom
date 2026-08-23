@@ -42,6 +42,7 @@ import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
@@ -65,6 +66,12 @@ export default function RequirementEditors(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   // GH-443: opt-in to soft-deleted requirements (status="outdated").
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  // Issue #672: does the currently-open RequirementForm have unsaved local
+  // edits? Reported by the form itself via onDirtyChange. `pendingId` holds
+  // a tree-node click that arrived while dirty, so it can be confirmed or
+  // discarded instead of silently overwriting the open edit.
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
   const {
     requirements,
     requirement,
@@ -207,6 +214,32 @@ export default function RequirementEditors(): JSX.Element {
   // the title input this form used to `autoFocus`. Pointing initialFocusRef
   // at the title input preserves the previous UX.
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * Issue #672: navigating the tree used to call `navigate()` directly,
+   * which swaps the URL — and therefore the `requirement` prop the open
+   * RequirementForm is bound to — immediately, discarding any unsaved edit
+   * with no warning. Unsaved edits now gate the navigation behind a
+   * confirmation instead of running it straight away.
+   */
+  const selectRequirement = useCallback(
+    (id: string): void => {
+      if (isFormDirty && id !== selectedId) {
+        setPendingSelectId(id);
+        return;
+      }
+      navigate(`/requirements/${id}`);
+    },
+    [isFormDirty, navigate, selectedId]
+  );
+
+  const confirmPendingSelect = useCallback((): void => {
+    if (!pendingSelectId) return;
+    const target = pendingSelectId;
+    setPendingSelectId(null);
+    setIsFormDirty(false);
+    navigate(`/requirements/${target}`);
+  }, [pendingSelectId, navigate]);
 
   /**
    * Handle delete requirement with confirmation.
@@ -555,7 +588,7 @@ export default function RequirementEditors(): JSX.Element {
       <RequirementList
         requirements={requirements}
         selectedId={selectedId}
-        onSelect={(id) => navigate(`/requirements/${id}`)}
+        onSelect={selectRequirement}
         onDelete={handleDelete}
         onCreateNew={() => {
           setCreateError(null);
@@ -594,6 +627,7 @@ export default function RequirementEditors(): JSX.Element {
           workspaceId={activeWorkspace!.id}
           onSaved={refresh}
           onCancel={() => navigate('/requirements')}
+          onDirtyChange={setIsFormDirty}
         />
       </EntityTypeProvider>
 
@@ -665,6 +699,16 @@ export default function RequirementEditors(): JSX.Element {
 
   return (
     <>
+      {pendingSelectId && (
+        <ConfirmDialog
+          title={t('editor.unsavedChangesTitle')}
+          message={t('editor.unsavedChangesMessage')}
+          confirmLabel={t('editor.discardChanges')}
+          onConfirm={confirmPendingSelect}
+          onCancel={() => setPendingSelectId(null)}
+          testId="req-unsaved-changes-dialog"
+        />
+      )}
       {showDeriveTestcasePanel && requirement && activeWorkspace && (
         <Dialog
           title={t('deriveTestcase.title')}

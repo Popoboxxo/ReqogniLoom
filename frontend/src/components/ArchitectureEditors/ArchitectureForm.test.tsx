@@ -8,12 +8,13 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { AuthProvider } from "../../context/AuthContext";
 import { WorkspaceProvider } from "../../context/WorkspaceContext";
 import { ThemeProvider } from "../../context/ThemeContext";
+import { architectureApi } from "../../api/architecture";
 import type { ArchitectureElement } from "../../types";
 
 // jsdom in this test runtime does not provide window.localStorage (Node's
@@ -81,14 +82,18 @@ vi.mock("../../api/client", () => ({
   },
 }));
 
-function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> {
-  return render(
+function withProviders(ui: React.ReactElement): JSX.Element {
+  return (
     <AuthProvider>
       <ThemeProvider>
         <WorkspaceProvider>{ui}</WorkspaceProvider>
       </ThemeProvider>
     </AuthProvider>
   );
+}
+
+function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> {
+  return render(withProviders(ui));
 }
 
 const MOCK_ELEMENT: ArchitectureElement = {
@@ -227,5 +232,220 @@ describe("ArchitectureForm — change control consistency (#417/#418/#422)", () 
     );
 
     expect(screen.getByTestId("arch-element-type-hint")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #672/#673 — ArchitectureForm shares `useEntityReset`/`useFormDirty`
+ * with RequirementForm so both forms reset and dirty-track consistently.
+ */
+describe("ArchitectureForm — unsaved-edit tracking and entity-switch reset (#672/#673)", () => {
+  const OTHER_ELEMENT: ArchitectureElement = {
+    ...MOCK_ELEMENT,
+    id: "arch-456",
+    title: "Power Subsystem",
+    description: "Battery and charging",
+    custom_fields: {},
+  };
+
+  it("starts clean and flips to dirty on the first local edit", async () => {
+    const onDirtyChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+
+    await user.clear(screen.getByTestId("arch-title"));
+    await user.type(screen.getByTestId("arch-title"), "Renamed");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("fully resets local state (title, description, custom fields) and goes back to clean when switching to a different element", async () => {
+    const onDirtyChange = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT, OTHER_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    await user.clear(screen.getByTestId("arch-title"));
+    await user.type(screen.getByTestId("arch-title"), "Unsaved draft");
+    expect(screen.getByTestId("arch-title")).toHaveValue("Unsaved draft");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    rerender(
+      withProviders(
+        <ArchitectureForm
+          element={OTHER_ELEMENT}
+          elements={[MOCK_ELEMENT, OTHER_ELEMENT]}
+          onSaved={vi.fn()}
+          onDelete={vi.fn()}
+          isExtendedPreset={false}
+          onDirtyChange={onDirtyChange}
+        />
+      )
+    );
+
+    // Stale draft from the previous element must not leak into the newly
+    // selected one.
+    expect(screen.getByTestId("arch-title")).toHaveValue("Power Subsystem");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("does not reset local state on a same-id refetch (new object reference, same id)", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(
+      <ArchitectureForm
+        element={MOCK_ELEMENT}
+        elements={[MOCK_ELEMENT]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+      />
+    );
+
+    await user.clear(screen.getByTestId("arch-title"));
+    await user.type(screen.getByTestId("arch-title"), "Unsaved draft");
+
+    // Same id, new object reference — simulates a background refetch of the
+    // SAME element while the user is mid-edit.
+    const refetched: ArchitectureElement = { ...MOCK_ELEMENT };
+    expect(refetched).not.toBe(MOCK_ELEMENT);
+    rerender(
+      withProviders(
+        <ArchitectureForm
+          element={refetched}
+          elements={[refetched]}
+          onSaved={vi.fn()}
+          onDelete={vi.fn()}
+          isExtendedPreset={false}
+        />
+      )
+    );
+
+    expect(screen.getByTestId("arch-title")).toHaveValue("Unsaved draft");
+  });
+});
+
+/**
+ * Issue #673 — "particularly custom fields" half of the inconsistent-reset
+ * bug, same class of defect as the RequirementForm test of the same name.
+ * `CustomFieldsEditor` seeds its internal row list from `value` once on
+ * mount and never resyncs it on a prop update; without `key={element.id}`
+ * on the mount site, switching the selected element left CustomFieldsEditor
+ * showing (and, on the next edit, splicing into the payload) the PREVIOUS
+ * element's stale rows.
+ */
+describe("ArchitectureForm — CustomFieldsEditor resets on entity switch (#673)", () => {
+  const ELEMENT_A: ArchitectureElement = {
+    ...MOCK_ELEMENT,
+    id: "arch-cf-a",
+    title: "Element A",
+    custom_fields: { owner: "team-a" },
+  };
+  const ELEMENT_B: ArchitectureElement = {
+    ...MOCK_ELEMENT,
+    id: "arch-cf-b",
+    title: "Element B",
+    // Deliberately a different key than A's — a stale row list leaking
+    // through would still carry "owner", never "region".
+    custom_fields: { region: "emea" },
+  };
+
+  it("shows the newly-selected element's own custom fields, not the previous one's edited draft, after switching", () => {
+    const { rerender } = renderWithProviders(
+      <ArchitectureForm
+        element={ELEMENT_A}
+        elements={[ELEMENT_A, ELEMENT_B]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+      />
+    );
+
+    expect(screen.getByTestId("custom-field-key")).toHaveValue("owner");
+    expect(screen.getByTestId("custom-field-value")).toHaveValue("team-a");
+
+    fireEvent.change(screen.getByTestId("custom-field-value"), {
+      target: { value: "team-a-edited" },
+    });
+    expect(screen.getByTestId("custom-field-value")).toHaveValue("team-a-edited");
+
+    rerender(
+      withProviders(
+        <ArchitectureForm
+          element={ELEMENT_B}
+          elements={[ELEMENT_A, ELEMENT_B]}
+          onSaved={vi.fn()}
+          onDelete={vi.fn()}
+          isExtendedPreset={false}
+        />
+      )
+    );
+
+    expect(screen.getByTestId("custom-field-key")).toHaveValue("region");
+    expect(screen.getByTestId("custom-field-value")).toHaveValue("emea");
+  });
+
+  it("does not splice the previous element's stale custom field rows into a save made after switching", async () => {
+    vi.mocked(architectureApi.update).mockResolvedValue(
+      {} as unknown as ArchitectureElement
+    );
+    const { rerender } = renderWithProviders(
+      <ArchitectureForm
+        element={ELEMENT_A}
+        elements={[ELEMENT_A, ELEMENT_B]}
+        onSaved={vi.fn()}
+        onDelete={vi.fn()}
+        isExtendedPreset={false}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("custom-field-value"), {
+      target: { value: "team-a-edited" },
+    });
+
+    rerender(
+      withProviders(
+        <ArchitectureForm
+          element={ELEMENT_B}
+          elements={[ELEMENT_A, ELEMENT_B]}
+          onSaved={vi.fn()}
+          onDelete={vi.fn()}
+          isExtendedPreset={false}
+        />
+      )
+    );
+
+    fireEvent.change(screen.getByTestId("custom-field-value"), {
+      target: { value: "team-b-edited" },
+    });
+
+    fireEvent.click(screen.getByTestId("arch-save-btn"));
+    await waitFor(() => expect(architectureApi.update).toHaveBeenCalled());
+
+    const [savedId, payload] = (architectureApi.update as ReturnType<typeof vi.fn>)
+      .mock.calls[0];
+    expect(savedId).toBe("arch-cf-b");
+    expect(payload).toMatchObject({
+      custom_fields: { region: "team-b-edited" },
+    });
+    expect(
+      (payload as { custom_fields: Record<string, unknown> }).custom_fields
+    ).not.toHaveProperty("owner");
   });
 });
