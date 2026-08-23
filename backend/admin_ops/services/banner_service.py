@@ -18,6 +18,8 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from django.db import transaction
+
 from application.base import NotFoundError, PermissionDeniedError, ServiceBase
 from auth_tenancy.context import AuthContext
 from persistence.models import Workspace
@@ -59,31 +61,32 @@ class BannerService:
                 "Permission denied: tenant-admin (System-Admin) role required."
             )
         ServiceBase._set_tenant_context(ctx)
-        # update_or_create()/get_or_create() do NOT get TenantManager.create()'s
-        # tenant auto-injection (that only fires on a bare .create() call) — the
-        # tenant_id must be passed explicitly here or the insert 500s on the
-        # NOT NULL constraint (see context_graph/projector.py's identical note).
-        tenant_id = TenantContext.get_tenant()
-        banner, created = Banner.objects.update_or_create(
-            scope=BannerScope.GLOBAL,
-            defaults={
-                "tenant_id": tenant_id,
-                "level": level,
-                "message": message,
-                "enabled": enabled,
-                "dismissible": dismissible,
-                "show_on_login_page": show_on_login_page,
-                "modified_by_id": ctx.user_id,
-            },
-        )
-        ServiceBase._audit(
-            ctx,
-            operation="create" if created else "update",
-            entity_type="Banner",
-            entity_id=banner.id,
-            change_reason=f"banner.upsert scope=global level={level} enabled={enabled}",
-            details={"scope": "global", "level": level, "enabled": enabled},
-        )
+        with transaction.atomic():
+            # update_or_create()/get_or_create() do NOT get TenantManager.create()'s
+            # tenant auto-injection (that only fires on a bare .create() call) — the
+            # tenant_id must be passed explicitly here or the insert 500s on the
+            # NOT NULL constraint (see context_graph/projector.py's identical note).
+            tenant_id = TenantContext.get_tenant()
+            banner, created = Banner.objects.update_or_create(
+                scope=BannerScope.GLOBAL,
+                defaults={
+                    "tenant_id": tenant_id,
+                    "level": level,
+                    "message": message,
+                    "enabled": enabled,
+                    "dismissible": dismissible,
+                    "show_on_login_page": show_on_login_page,
+                    "modified_by_id": ctx.user_id,
+                },
+            )
+            ServiceBase._audit(
+                ctx,
+                operation="create" if created else "update",
+                entity_type="Banner",
+                entity_id=banner.id,
+                change_reason=f"banner.upsert scope=global level={level} enabled={enabled}",
+                details={"scope": "global", "level": level, "enabled": enabled},
+            )
         return banner
 
     # -- Workspace banner ----------------------------------------------------
@@ -122,32 +125,33 @@ class BannerService:
         if not Workspace.objects.filter(id=workspace_id).exists():
             raise NotFoundError(f"Workspace {workspace_id} not found.")
 
-        tenant_id = TenantContext.get_tenant()
-        banner, created = Banner.objects.update_or_create(
-            scope=BannerScope.WORKSPACE,
-            workspace_id=workspace_id,
-            defaults={
-                "tenant_id": tenant_id,
-                "level": level,
-                "message": message,
-                "enabled": enabled,
-                "dismissible": dismissible,
-                "modified_by_id": ctx.user_id,
-            },
-        )
-        ServiceBase._audit(
-            ctx,
-            operation="create" if created else "update",
-            entity_type="Banner",
-            entity_id=banner.id,
-            change_reason=f"banner.upsert scope=workspace level={level} enabled={enabled}",
-            details={
-                "scope": "workspace",
-                "workspace_id": str(workspace_id),
-                "level": level,
-                "enabled": enabled,
-            },
-        )
+        with transaction.atomic():
+            tenant_id = TenantContext.get_tenant()
+            banner, created = Banner.objects.update_or_create(
+                scope=BannerScope.WORKSPACE,
+                workspace_id=workspace_id,
+                defaults={
+                    "tenant_id": tenant_id,
+                    "level": level,
+                    "message": message,
+                    "enabled": enabled,
+                    "dismissible": dismissible,
+                    "modified_by_id": ctx.user_id,
+                },
+            )
+            ServiceBase._audit(
+                ctx,
+                operation="create" if created else "update",
+                entity_type="Banner",
+                entity_id=banner.id,
+                change_reason=f"banner.upsert scope=workspace level={level} enabled={enabled}",
+                details={
+                    "scope": "workspace",
+                    "workspace_id": str(workspace_id),
+                    "level": level,
+                    "enabled": enabled,
+                },
+            )
         return banner
 
     # -- Public (unauthenticated) login-page banner --------------------------

@@ -7,6 +7,7 @@ from admin_ops.models import Banner, BannerLevel, BannerScope
 from admin_ops.services.banner_service import BannerService
 from application.base import NotFoundError, PermissionDeniedError
 from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.tests.conftest import tenant_b
 from persistence.models import Workspace
 
 from .conftest import active_tenant
@@ -101,6 +102,31 @@ class TestWorkspaceBanner:
                 service.upsert_workspace_banner(
                     admin_ctx,
                     workspace_id=uuid.uuid4(),
+                    is_authorized=True,
+                    level=BannerLevel.INFO,
+                    message="hi",
+                    enabled=True,
+                    dismissible=True,
+                )
+
+    def test_upsert_rejects_workspace_belonging_to_different_tenant(
+        self, service: BannerService, admin_ctx: AuthContext, tenant_a, tenant_b
+    ) -> None:
+        """Verify that a workspace from a different tenant is rejected.
+
+        Even though the workspace exists in the database, it belongs to
+        tenant_b, not tenant_a. The call is made while tenant_a is active,
+        so the tenant-scoped Workspace.objects.filter(id=...) should not
+        find it and should raise NotFoundError.
+        """
+        with active_tenant(tenant_b):
+            ws_in_b = Workspace.objects.create(tenant=tenant_b, name="ws-in-b")
+
+        with active_tenant(tenant_a):
+            with pytest.raises(NotFoundError):
+                service.upsert_workspace_banner(
+                    admin_ctx,
+                    workspace_id=ws_in_b.id,
                     is_authorized=True,
                     level=BannerLevel.INFO,
                     message="hi",
