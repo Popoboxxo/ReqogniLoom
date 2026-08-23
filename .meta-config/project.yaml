@@ -1,4 +1,4 @@
-agent-meta-version: 0.97.0
+agent-meta-version: 0.100.0
 test-repo:
   enabled: false
   path: ''
@@ -252,22 +252,22 @@ variables:
     - NICHT DRF-View direkt auf persistence.models zugreifen (immer via application/services)
 
     - Playwright E2E: gezielte, kurze Checks während der Entwicklung sind erlaubt
-    (einzelne Spec-Datei oder `--grep`-gefiltert, z.B. um einen konkreten Fix zu
-    verifizieren) — dafür KEINE Rückfrage nötig. Der VOLLE E2E-Lauf (alle Specs,
-    alle Shards, `npx playwright test` ohne Filter) NUR nach expliziter Empfehlung
-    durch den Agenten UND expliziter Freigabe durch den User — niemals automatisch,
-    kein DoD-Gate. Grund: der volle Lauf ist teuer (mehrere Minuten, mehrere Shards)
-    und die CI deckt ihn ohnehin bei jedem PR ab
+    (einzelne Spec-Datei oder `--grep`-gefiltert, z.B. um einen konkreten Fix zu verifizieren)
+    — dafür KEINE Rückfrage nötig. Der VOLLE E2E-Lauf (alle Specs, alle Shards, `npx
+    playwright test` ohne Filter) NUR nach expliziter Empfehlung durch den Agenten
+    UND expliziter Freigabe durch den User — niemals automatisch, kein DoD-Gate. Grund:
+    der volle Lauf ist teuer (mehrere Minuten, mehrere Shards) und die CI deckt ihn
+    ohnehin bei jedem PR ab
 
     - NICHT bei jeder lokalen Fix-Iteration die komplette Backend-Testsuite (alle
     pytest-Module sequenziell, 20-35 Min) laufen lassen — während der Entwicklung
     NUR die Module der geänderten Datei(en) + direkt abhängige Tests gezielt ausführen
-    (z.B. `pytest application/tests/test_x.py traceability/`). Die CI deckt die
-    vollständige Matrix ab (4 parallele backend-test-Sets + frontend-test + e2e,
-    siehe .github/workflows/) — das ist der Ort für den Gesamtlauf, nicht der lokale
-    Fix-Loop. Ein gezielter Lauf unmittelbar vor dem finalen Commit (nur betroffene
-    Verzeichnisse, nicht der komplette Baum) bleibt sinnvoll; der volle sequenzielle
-    Lauf über alle Module ist Verschwendung, wenn CI ihn ohnehin parallel wiederholt.
+    (z.B. `pytest application/tests/test_x.py traceability/`). Die CI deckt die vollständige
+    Matrix ab (4 parallele backend-test-Sets + frontend-test + e2e, siehe .github/workflows/)
+    — das ist der Ort für den Gesamtlauf, nicht der lokale Fix-Loop. Ein gezielter
+    Lauf unmittelbar vor dem finalen Commit (nur betroffene Verzeichnisse, nicht der
+    komplette Baum) bleibt sinnvoll; der volle sequenzielle Lauf über alle Module
+    ist Verschwendung, wenn CI ihn ohnehin parallel wiederholt.
 
     '
   CODE_QUALITY_RULES: '- TypeScript strict mode (tsconfig.json: strict: true, noImplicitAny)
@@ -650,3 +650,5 @@ rules:
 max-parallel-agents: 2
 debug-mode: false
 allow-committed-secrets: false
+# The active naming/versioning conventions preset, matched against config/conventions-presets.yaml. Individual overrides via 'conventions' block. Precedence: conventions > conventions-preset > 'default'.
+conventions-preset: default
