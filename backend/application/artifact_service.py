@@ -72,6 +72,37 @@ def _clean_custom_fields(value: object) -> dict:
         raise ValidationError(exc.messages[0] if exc.messages else str(exc))
 
 
+def clean_free_text_field(value: Optional[str], field_name: str) -> Optional[str]:
+    """Reject HTML markup / script URIs in a single free-text field (#269, #709).
+
+    Defense in depth, same shape as :func:`_clean_custom_fields`: the REST
+    serializer's ``SanitizedCharField`` plus ``FreeTextSanitizationMixin``
+    already reject this at the REST boundary (GitHub #269), but that guard
+    lives in ``rest_api`` and only fires for requests that go through a DRF
+    ViewSet. The service is the single write entry point (ADR-01); MCP tools
+    (e.g. ``requirement.create``) call it directly and never touch the DRF
+    layer, so without this check a ``<script>`` payload sent over MCP was
+    persisted verbatim (#709 regression).
+
+    ``None`` passes through unchanged (mirrors the "field not provided" idiom
+    used by ``update_*`` methods across this module — callers gate the
+    assignment on ``is not None``, not this helper).
+
+    Raises:
+        application.base.ValidationError: if *value* contains HTML markup or
+            a script-capable URI scheme.
+    """
+    if value is None:
+        return None
+
+    from persistence.free_text import find_free_text_violation
+
+    violation = find_free_text_violation(value)
+    if violation is not None:
+        raise ValidationError(f"{field_name} {violation}")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Version-bump gating (#269, finding 5)
 # ---------------------------------------------------------------------------

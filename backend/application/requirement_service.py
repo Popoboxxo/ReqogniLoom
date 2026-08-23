@@ -45,6 +45,7 @@ from application.base import (
 )
 from application.artifact_service import (
     _clean_custom_fields,
+    clean_free_text_field,
     has_field_changes,
     snapshot_versioned_fields,
 )
@@ -218,6 +219,17 @@ class RequirementService(ServiceBase):
 
         self._assert_uid_unique_in_workspace(workspace_id, uid)
 
+        # #709: reject HTML markup / script URIs before any row is written.
+        # Defense in depth (see clean_free_text_field docstring) — this is
+        # what closes the MCP `requirement.create` bypass, since MCP calls
+        # this service directly and never runs the REST serializer/ViewSet
+        # guard that already protects the REST boundary.
+        title = clean_free_text_field(title, "title")
+        description = clean_free_text_field(description, "description")
+        acceptance_criteria = clean_free_text_field(
+            acceptance_criteria, "acceptance_criteria"
+        )
+
         # Create the backing Artifact first
         artifact = Artifact.objects.create(
             tenant=tenant,
@@ -369,12 +381,17 @@ class RequirementService(ServiceBase):
         _before = snapshot_versioned_fields(requirement)
         _custom_fields_changed = False
 
+        # #709: same MCP-bypass defense in depth as create_requirement — only
+        # applied to fields actually being changed (``is not None`` already
+        # gates "was this field provided").
         if title is not None:
-            requirement.title = title
+            requirement.title = clean_free_text_field(title, "title")
         if description is not None:
-            requirement.description = description
+            requirement.description = clean_free_text_field(description, "description")
         if acceptance_criteria is not None:
-            requirement.acceptance_criteria = acceptance_criteria
+            requirement.acceptance_criteria = clean_free_text_field(
+                acceptance_criteria, "acceptance_criteria"
+            )
         if category is not None:
             requirement.category = category
         if status is not None:
