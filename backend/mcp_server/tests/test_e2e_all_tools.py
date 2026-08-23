@@ -1226,6 +1226,102 @@ def test_e2e_validation_error_for_invalid_uuid(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_create_rejects_script_tag_in_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """Issue #709: ``requirement.create`` bypassed the REST serializer's
+    free-text guard (#269) entirely — MCP calls ``RequirementService.
+    create_requirement`` directly, so a ``<script>`` title used to be
+    persisted verbatim instead of rejected, unlike the same payload sent
+    over REST (see ``test_security_hardening_269.
+    test_html_markup_in_title_is_rejected_not_silently_stripped``).
+    """
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "title": "<script>alert(1)</script>",
+        },
+    )
+    assert response.status_code == 400, response.content
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+    # Nothing was persisted — the rejection must not silently strip and save.
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        assert not Requirement.objects.filter(
+            artifact__workspace_id=e2e_workspace.id
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_create_rejects_javascript_uri_in_description(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """Same #709 gap, on ``description`` via a script-capable URI scheme."""
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "title": "Legitimate title",
+            "description": "javascript:alert(1)",
+        },
+    )
+    assert response.status_code == 400, response.content
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_create_accepts_benign_angle_brackets_in_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """The guard must not overcorrect: ordinary prose with '<'/'>' is not markup."""
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "title": "System shall respond in < 200 ms",
+        },
+    )
+    assert response.status_code == 200, response.content
+    assert (
+        extract_result(response)["requirement"]["title"]
+        == "System shall respond in < 200 ms"
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_update_rejects_script_tag_in_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """The same #709 bypass exists on ``requirement.update`` — guarded too."""
+    req = _seed_requirement(e2e_workspace)
+
+    response = post_mcp(
+        admin_client,
+        "requirement.update",
+        {
+            "id": str(req.id),
+            "data": {"title": "<img src=x onerror=alert(1)>"},
+        },
+    )
+    assert response.status_code == 400, response.content
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        req.refresh_from_db()
+    finally:
+        clear_request_tenant()
+    assert req.title != "<img src=x onerror=alert(1)>"
+
+
+@pytest.mark.django_db(transaction=True)
 def test_e2e_llm_not_configured_for_decompose(
     admin_client: Client,
     e2e_workspace: Workspace,
