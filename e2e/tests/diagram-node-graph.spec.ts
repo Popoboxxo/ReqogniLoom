@@ -108,8 +108,14 @@ test.describe('[GH-353 Task 8] DiagramGraphEditor (node_graph)', () => {
     await expect(page.locator('[data-testid="graph-edit-toggle"]')).toHaveAttribute('aria-checked', 'false');
     await expect(page.locator('[data-testid="graph-toolbar-add-node"]')).toHaveCount(0);
 
-    // Empty-state hint shows for the freshly-created diagram.
-    await expect(page.getByText('No nodes yet')).toBeVisible({ timeout: 5000 });
+    // Empty-state hint shows for the freshly-created diagram. The seeded
+    // demo workspace's persisted `language` field is "de" (`GET
+    // /api/v1/workspaces/{id}/`), which WorkspaceContext.tsx restores into
+    // i18next on load — independent of the browser/OS locale — so the UI
+    // renders the German translation ("Noch keine Knoten") for this string,
+    // not the English default. Match either, mirroring the existing
+    // `/Save|Speichern/` pattern in artifact-diff.spec.ts.
+    await expect(page.getByText(/No nodes yet|Noch keine Knoten/)).toBeVisible({ timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------

@@ -19,19 +19,68 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
    * policy", HTTP 400). Without filling change-reason-input the save never
    * reaches the server successfully, no refetch is triggered, and the
    * waitForResponse below hangs until the test times out.
+   *
+   * Retries once on that exact symptom: RequirementForm.tsx's
+   * `useEffect(() => { ...; setChangeReason(requirement.change_reason || '');
+   * }, [requirement])` resyncs every local field from the freshly refetched
+   * requirement on every render of that effect — including the refetch this
+   * same helper's own PREVIOUS call just triggered. The GET response never
+   * echoes back `change_reason` (it is not a persisted field), so on an
+   * unlucky interleaving the effect fires and wipes the reason this call just
+   * typed before the click below submits, client-side validation blocks the
+   * PATCH ("change reason required"), and the response this function waits
+   * for never arrives. Confirmed via a CI failure snapshot showing the input
+   * `[invalid]` with that exact validation message at the moment of timeout.
+   * A second attempt observes the now-settled requirement object and does
+   * not race it again.
    */
-  async function saveWithChangeReason(page: Page, reason: string): Promise<void> {
-    await page.locator('[data-testid="change-reason-input"]').fill(reason);
-    await Promise.all([
-      page.waitForResponse(
-        (resp) =>
-          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
-          resp.request().method() === 'GET' &&
-          resp.status() === 200
-      ),
-      page.locator('[data-testid="save-btn"]').click(),
-    ]);
+  async function saveWithChangeReason(page: Page, reason: string, attempt = 1): Promise<void> {
+    const reasonInput = page.locator('[data-testid="change-reason-input"]');
+    await reasonInput.fill(reason);
+    try {
+      await Promise.all([
+        page.waitForResponse(
+          (resp) =>
+            /\/requirements\/[^/?]+\/?$/.test(new URL(resp.url()).pathname) &&
+            resp.request().method() === 'GET' &&
+            resp.status() === 200,
+          { timeout: attempt === 1 ? 8000 : 30000 }
+        ),
+        page.locator('[data-testid="save-btn"]').click(),
+      ]);
+    } catch (err) {
+      const stillHasReason = await reasonInput.inputValue();
+      if (attempt === 1 && stillHasReason.trim() !== reason.trim()) {
+        await saveWithChangeReason(page, reason, attempt + 1);
+        return;
+      }
+      throw err;
+    }
     await expect(page.locator('[data-testid="save-btn"]')).toContainText(/Save|Speichern/, { timeout: 10000 });
+  }
+
+  /**
+   * Expand the ArtifactInspector sidebar if it renders collapsed.
+   *
+   * GitHub #419 (predates this test) made the RightSidebar shell default to
+   * collapsed on viewports narrower than 1600px so the editor column stays
+   * usable — see RightSidebar.tsx's DEFAULT_COLLAPSE_BREAKPOINT_PX. The E2E
+   * suite runs at Playwright's 'Desktop Chrome' default viewport (1280x720),
+   * which is below that threshold, so a freshly created browser context
+   * (empty localStorage) always mounts the sidebar collapsed. Without this
+   * step every locator scoped to the panels inside the sidebar
+   * (inspector-diff-panel, artifact-diff-view, ...) times out because the
+   * panels never mount at all while collapsed — the collapsed strip renders
+   * icon-only buttons in their place. This mirrors what a real user on a
+   * narrow screen has to do (click the expand affordance) rather than
+   * assuming an always-expanded default that no longer matches the app.
+   */
+  async function ensureInspectorExpanded(page: Page): Promise<void> {
+    const expandBtn = page.locator('[data-testid="artifact-inspector-expand"]');
+    if (await expandBtn.isVisible().catch(() => false)) {
+      await expandBtn.click();
+    }
+    await expect(page.locator('[data-testid="artifact-inspector-collapsed"]')).toHaveCount(0);
   }
 
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
@@ -77,6 +126,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     // section around it, see DiffPanel.tsx).
     const inspector = page.locator('[data-testid="artifact-inspector"]');
     await expect(inspector).toBeVisible({ timeout: 10000 });
+    await ensureInspectorExpanded(page);
 
     const diffPanel = page.locator('[data-testid="inspector-diff-panel"]');
     await expect(diffPanel).toBeVisible({ timeout: 10000 });
@@ -137,6 +187,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     // Diff view is rendered inline in the persistent ArtifactInspector
     // sidebar (REQ-L2-RF-034/036) — no separate "View Diff" trigger exists
     // anymore, see the note in the previous test.
+    await ensureInspectorExpanded(page);
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
     await expect(diffView).toBeVisible({ timeout: 10000 });
 
