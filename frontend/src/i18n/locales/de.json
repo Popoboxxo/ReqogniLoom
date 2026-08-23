@@ -559,7 +559,10 @@
     "approvedSuffix": "{{count}} freigegeben",
     "newNeed": "Neuer Bedarf",
     "emptyTitle": "Noch keine Bedarfe",
-    "emptyDescription": "Stakeholder-Bedarfe beschreiben, was Stakeholder brauchen und warum."
+    "emptyDescription": "Stakeholder-Bedarfe beschreiben, was Stakeholder brauchen und warum.",
+    "openCreateFormLabel": "Bedarf-Formular öffnen",
+    "emptyCreateLabel": "Ersten Bedarf anlegen",
+    "submitCreateLabel": "Bedarf jetzt erstellen"
   },
   "deriveRequirements": {
     "title": "Abgeleitete Systemanforderungen (Entwurf)",
