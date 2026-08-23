@@ -95,6 +95,41 @@ class TestClassifyException:
         classified = classify_exception(_StatusError(429, "429 Rate limit hit"))
         assert "429" in str(classified)
 
+    # -- issue #714: authentication failures must be classified & labelled --
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_auth_status_codes_are_non_retryable(self, status):
+        classified = classify_exception(_StatusError(status))
+        assert isinstance(classified, NonRetryableError)
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_auth_status_codes_say_authentication_failed(self, status):
+        classified = classify_exception(_StatusError(status, "Invalid API key"))
+        message = str(classified)
+        assert "authentication failed" in message
+        assert str(status) in message
+        # Original SDK message text must still be present for debugging.
+        assert "Invalid API key" in message
+
+    def test_auth_status_message_does_not_say_generic_connection_error(self):
+        classified = classify_exception(_StatusError(401, "Invalid API key"))
+        assert "connection error" not in str(classified).lower()
+
+    def test_named_authentication_error_without_status_code_is_non_retryable(self):
+        # Some gateways/proxies strip the status code before it reaches the
+        # app; the SDK's dedicated exception class name is a second signal.
+        class AuthenticationError(Exception):
+            pass
+
+        classified = classify_exception(AuthenticationError("bad credentials"))
+        assert isinstance(classified, NonRetryableError)
+        assert "authentication failed" in str(classified)
+
+    def test_non_auth_4xx_is_not_labelled_as_authentication_failure(self):
+        classified = classify_exception(_StatusError(404, "Not found"))
+        assert isinstance(classified, NonRetryableError)
+        assert "authentication failed" not in str(classified)
+
 
 # ---------------------------------------------------------------------------
 # Retry behaviour
@@ -158,6 +193,22 @@ class TestResilientCallRetries:
             resilient_call(operation, provider_name="testprov", timeout_seconds=5)
         assert operation.call_count == 1
         assert _no_backoff_sleep == []
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_auth_failure_is_not_retried_and_message_says_so(
+        self, status, _no_backoff_sleep
+    ):
+        """Issue #714: a bad/rotated API key must fail fast with a clear
+        message, not burn the full retry budget and end in a generic
+        "transient_exhausted: ... Connection error" message."""
+        operation = MagicMock(side_effect=_StatusError(status, "Invalid API key"))
+        with pytest.raises(LlmTransportError) as excinfo:
+            resilient_call(operation, provider_name="testprov", timeout_seconds=5)
+        assert operation.call_count == 1
+        assert _no_backoff_sleep == []
+        message = str(excinfo.value).lower()
+        assert "authentication failed" in message
+        assert "transient_exhausted" not in message
 
     def test_per_attempt_timeout_counts_as_transient(self, _no_backoff_sleep):
         import time as _time
@@ -245,6 +296,70 @@ class TestCircuitBreakerIntegration:
         breaker = resilient_transport._breaker_for("llm:x", Policy())
         assert isinstance(breaker, _NullCircuitBreaker)
         assert breaker.can_execute() is True
+
+    # -- issue #714: fast-fail while Open must be visible in the logs --------
+
+    def test_open_circuit_logs_distinct_fast_fail_warning(self, monkeypatch, caplog):
+        """A fast-failed call (breaker already Open) must be distinguishable
+        in the logs from a call that was actually attempted and failed."""
+        import logging
+
+        breaker = MagicMock()
+        breaker.can_execute.return_value = False
+        monkeypatch.setattr(
+            resilient_transport, "_breaker_for", lambda target, policy: breaker
+        )
+        with caplog.at_level(logging.WARNING, logger=resilient_transport.__name__):
+            with pytest.raises(LlmTransportError):
+                resilient_call(
+                    MagicMock(), provider_name="testprov", timeout_seconds=5
+                )
+
+        assert any(
+            "fast-failed" in record.message and "circuit breaker is OPEN" in record.message
+            for record in caplog.records
+        )
+
+    @pytest.mark.django_db
+    def test_open_circuit_logs_breaker_details_from_real_breaker(
+        self, monkeypatch, caplog
+    ):
+        """With a real, DB-backed CircuitBreaker the log includes the actual
+        failure count / opened-at timestamp, not just a generic message."""
+        import logging
+
+        from persistence.models import Tenant
+        from persistence.tenancy import TenantContext
+        from resilience.circuit_breaker import CircuitBreaker
+        from resilience.policies import Policy
+
+        tenant = Tenant.objects.create(name="LogTenant", slug="log-tenant-714")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            target = "llm:testprov-714"
+            policy = Policy(failure_threshold=1, recovery_timeout_seconds=999)
+            breaker = CircuitBreaker(target, policy)
+            breaker.report_failure()  # trips to Open immediately
+            assert breaker.can_execute() is False
+
+            monkeypatch.setattr(
+                resilient_transport, "_breaker_for", lambda t, p: breaker
+            )
+            with caplog.at_level(logging.WARNING, logger=resilient_transport.__name__):
+                with pytest.raises(LlmTransportError):
+                    resilient_call(
+                        MagicMock(),
+                        provider_name="testprov-714",
+                        timeout_seconds=5,
+                    )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert any(
+            "fast-failed" in record.message
+            and "consecutive failures" in record.message
+            for record in caplog.records
+        )
 
 
 # ---------------------------------------------------------------------------
