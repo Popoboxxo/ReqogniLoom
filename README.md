@@ -36,6 +36,7 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Terminology Profiles** — Switch between dev-mode and systems engineering terminology
 - **Audit Logging** — Complete activity history for compliance and debugging
 - **Internationalization** — German and English interfaces
+- **System & Workspace Banners** — Dismissible, Markdown-rendered notice banners at global (System Admin) and per-workspace (Workspace/System Admin) scope, with 4 severity levels and session-scoped dismissal; also shown on the login page
 
 ### Developer Experience
 - **REST API** — Full-featured /api/v1/ with JWT authentication, 20+ ViewSets/APIViews, OpenAPI 3.0 schema (drf-spectacular)
@@ -1252,6 +1253,7 @@ Detailed requirement and architecture specifications: [`docs/se/`](docs/se/)
 
 | Release | Date | Highlights |
 |---------|------|------------|
+| **v1.7.0** | 2026-08-23 | System & Workspace Banners (global + per-workspace, Markdown, 4 severity levels); 7-group bugfix batch (RBAC/API-key permissions, MCP XSS-sanitization regression, LLM key precedence, baseline scope validation, editor race conditions, System Health UI, minor UI fixes); 4 dependency updates. See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md`](docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md) for details. |
 | **v1.1.1 — Session 2026-06-28** | 2026-06-28 | 7 new waves: Workspace-Lifecycle MCP (REQ-L1-042), Item-Level-RBAC (REQ-L1-039), Disaster Recovery (REQ-L1-046), MCP wrappers for Audit/DLQ/User-Management. ~277 new tests. |
 | **v1.1 — Session 2026-06-27** | 2026-06-27 | 1,130 pytest / 111 E2E tests; 9 L1 REQs decomposed (SE-Phases 1-6); 6 leaf REQs in Pipeline B (3 implemented); 3 continue REQs for v2.0 (ReqIF, Comments, RAG) |
 | **v1.0 — Greenfield** | 2026-06-25 | 1,042 pytest tests; 16 L2 subsystems; 12 L2 architectures terminal; full SE-Kaskade L0→L2 |

@@ -691,7 +691,9 @@ frontend/
       BaselinesView/              # Baseline-Verwaltung und Diff-Viewer
       TraceabilityView/           # Trace-Link-Visualisierung
       NavigationShell/            # Sidebar, Workspace-Switcher, globale Suche
+        BannerStack.tsx            # Rendert globales System-Banner + Workspace-Banner (session-scoped Dismiss)
       WorkspaceSettings/          # Workspace-Settings (Preset, Terminologie, Sprache)
+        WorkspaceBannerSection.tsx # Workspace-Banner-Verwaltung (Workspace-Admin oder System-Admin)
     context/
       index.ts                    # React Context (Auth, Tenant, Presets, Workspace)
     types/
@@ -718,8 +720,8 @@ frontend/
 3. `ArchitectureEditors` — Architecture-Element-Editor
 4. `TraceabilityView` — Trace-Link-Visualisierung und Create-Formular
 5. `BaselinesView` — Baseline-Verwaltung und Diff-Viewer
-6. `NavigationShell` — Sidebar mit Workspace-Switcher, globaler Suche
-7. `WorkspaceSettings` — Workspace-Settings (Preset, Terminologie, Sprache)
+6. `NavigationShell` — Sidebar mit Workspace-Switcher, globaler Suche; inkl. `BannerStack` (System-/Workspace-Banner-Anzeige, v1.7.0)
+7. `WorkspaceSettings` — Workspace-Settings (Preset, Terminologie, Sprache); inkl. `WorkspaceBannerSection` (Workspace-Banner-Verwaltung, v1.7.0)
 8. `ArtifactDiff` — Visueller Artefakt-Diff (side-by-side + unified, Feld-Highlighting)
 9. `CsvImport` — CSV-Bulk-Import UI
 10. `TestRuns` — Test-Run-Ansicht mit Ergebnisliste

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] — 2026-08-23
+
+### Added
+- **System & Workspace Banners:** Admins can now publish dismissible notice banners at two scopes — a single global banner managed by System Admins in System Settings, and a single per-workspace banner managed by the Workspace Admin (or a System Admin) in Workspace Settings. Four severity levels (Neutral, Info, Warning, Critical), Markdown rendering via `react-markdown`, activate/deactivate toggle, session-scoped dismissal that is invalidated whenever an admin edits the banner, and a "dismissible" flag (Critical banners default to non-dismissible but can be configured otherwise). Banners are also shown on the public login page (#712 design, #713 implementation)
+
+### Fixed
+- **RBAC/Tenant Permission Matrix:** The Viewer role could incorrectly create API keys, and the `permissions.check` MCP tool did not accurately reflect the real RBAC matrix (Fixes #716, PR #723). The reported last-admin-guard bypass (#708) was investigated and could not be reproduced against current code; an analysis comment was left on the issue, which remains open for re-verification rather than closed as fixed
+- **MCP Requirement Creation — XSS Sanitization Regression:** Fixed a regression where input sanitization was bypassed when creating requirements via MCP, reopening an XSS vector (Fixes #709, PR #721). The inconsistent UUID error-handling report (#710) was left open as a product decision requiring input rather than a code fix; an analysis comment was left on the issue
+- **LLM Settings — Key Precedence & Error Classification:** A DB-stored LLM key no longer incorrectly overrides a configured environment key; authentication failures and transient/network failures are now classified distinctly, with clearer circuit-breaker diagnostics (Fixes #714, PR #717)
+- **Baseline Creation — Document Scope Validation:** `baseline.create` with `scope=document` no longer raises an internal `ValueError`; it now returns a proper validation error (Fixes #715, PR #725). A related malformed-UUID 500 response leak was split out into follow-up issue #724
+- **Editor Forms:** Fixed a race condition on the `changeReason` field during a concurrent background refetch (Fixes #700); custom field values no longer leak between different entities when switching the active selection (Fixes #673); forms left via the workspace tree now correctly show an "unsaved changes" warning instead of silently discarding edits (Fixes #672) (PR #728)
+- **System Health UI:** The Celery Beat "unknown" status no longer reads like a dead service — it now carries an explanatory hint that this state is by design (Fixes #706, PR #726)
+- **Minor UI Fixes:** Multiple "Create Need" buttons sharing the same accessible name are now distinguishable (Fixes #678); `InterviewWidget` no longer crashes in private/incognito browsing modes where `localStorage` access throws (Fixes #679) (PR #727)
+
+### Changed
+- **Dependency Updates:** `dagre` 3.0.0 → 3.1.1 (PR #640); Anthropic SDK `<1.0,>=0.120.2` → `>=0.122.0` (PR #639); `reqif` `<0.1,>=0.0.53` → `>=0.1.0` (PR #637); `pytest-django` `<5.0,>=4.13.0` → `>=4.14.0` (PR #635). Five further dependency PRs with major-version jumps (Django 5→6, ESLint 9→10 ×2, a React bump, gunicorn 21→26) were rebased but deliberately left open — each needs its own migration effort and is not part of this release
+
+### Known Issues
+- #708: Last-admin-guard-bypass report — verified not reproducible against current code; issue stays open for monitoring/re-verification, not closed as fixed
+- #682: Pre-existing E2E infrastructure issue, unrelated to application code in this release
+- #707: Theming inconsistency — needs a dedicated redesign, out of scope for this release
+- #722 / #724: Non-blocking follow-ups from the bugfix batch (RBAC architecture findings; a related baseline malformed-UUID 500 leak) — tracked for a future release, not release blockers
+- See [`docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md`](docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md) for the full prioritized backlog of remaining open bug/audit issues
+
 ## [1.7.0-beta.5] — 2026-08-23
 
 ### Added
