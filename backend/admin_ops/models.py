@@ -22,7 +22,7 @@ import uuid
 
 from django.db import models
 
-from persistence.models import AuditableModel
+from persistence.models import AuditableModel, TenantScopedModel
 
 
 class BackupStatus(models.TextChoices):
@@ -143,8 +143,93 @@ class BackupMetadata(AuditableModel):
         return self.status == BackupStatus.COMPLETED
 
 
+class BannerScope(models.TextChoices):
+    """Which surface a :class:`Banner` targets."""
+
+    GLOBAL = "global", "Global"
+    WORKSPACE = "workspace", "Workspace"
+
+
+class BannerLevel(models.TextChoices):
+    """Visual/semantic severity of a :class:`Banner`."""
+
+    NEUTRAL = "neutral", "Neutral"
+    INFO = "info", "Info"
+    WARNING = "warning", "Warning"
+    CRITICAL = "critical", "Critical"
+
+
+class Banner(TenantScopedModel):
+    """A dismissible, Markdown announcement banner (System/Workspace Banners).
+
+    Exactly one row exists per scope instance: one ``scope="global"`` row per
+    tenant, one ``scope="workspace"`` row per workspace — enforced by the two
+    partial unique constraints below, not by application logic alone. Callers
+    always write through :meth:`BannerService.upsert_global_banner` /
+    :meth:`~BannerService.upsert_workspace_banner`, which use
+    ``update_or_create`` so an edit overwrites the existing row instead of
+    creating a second one.
+
+    ``workspace`` is NULL iff ``scope == "global"`` — enforced by
+    ``ck_banner_workspace_matches_scope``.
+    """
+
+    scope = models.CharField(max_length=16, choices=BannerScope.choices)
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="banner",
+    )
+    level = models.CharField(
+        max_length=16, choices=BannerLevel.choices, default=BannerLevel.NEUTRAL
+    )
+    message = models.TextField(blank=True, default="", help_text="Markdown source.")
+    enabled = models.BooleanField(default=False)
+    dismissible = models.BooleanField(
+        default=True,
+        help_text=(
+            "Whether end users may close the banner (until next login). "
+            "A real, independently-editable field — never hardcoded by level."
+        ),
+    )
+    show_on_login_page = models.BooleanField(
+        default=False,
+        help_text="Ignored unless scope == 'global' — the login page has no workspace context.",
+    )
+
+    class Meta:
+        db_table = "admin_ops_banner"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(scope=BannerScope.GLOBAL),
+                name="uq_banner_one_global_per_tenant",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace"],
+                condition=models.Q(scope=BannerScope.WORKSPACE),
+                name="uq_banner_one_per_workspace",
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(scope=BannerScope.GLOBAL, workspace__isnull=True)
+                    | models.Q(scope=BannerScope.WORKSPACE, workspace__isnull=False)
+                ),
+                name="ck_banner_workspace_matches_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"Banner({self.scope}, level={self.level}, enabled={self.enabled})"
+
+
 __all__ = [
     "BackupMetadata",
     "BackupStatus",
     "BackupType",
+    "Banner",
+    "BannerScope",
+    "BannerLevel",
 ]
