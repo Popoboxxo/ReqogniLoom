@@ -47,6 +47,12 @@ All planned features are implemented. `InterviewListView.tsx`/`InterviewFormView
 ## [Archive/2026-08-14-interview-management-web-widget-design.md](Archive/2026-08-14-interview-management-web-widget-design.md)
 All planned features are implemented. `InterviewSession.transcript` JSONField exists, `POST /api/v1/interviews/{id}/chat/` in `interview_views.py`, `InterviewWidget` mounted in `NavigationShell.tsx`, `AiPromptsSection.tsx` auto-discovers `interview.protocol.<type>` slots.
 
+## [Archive/2026-08-21-multi-user-management-design.md](Archive/2026-08-21-multi-user-management-design.md)
+All planned features are implemented (2026-08-23). Matches 1:1 the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-21-multi-user-management.md`): `TenantRole` model, last-admin invariant at both workspace and tenant scope, `UserAccountService`, shared REST/MCP RBAC-matrix test. No scope in the spec beyond what the plan covers.
+
+## [Archive/2026-08-23-system-workspace-banners-design.md](Archive/2026-08-23-system-workspace-banners-design.md)
+All planned features are implemented (2026-08-23, PR #713). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-23-system-workspace-banners.md`). One deliberate deviation: the spec's Data Model section describes a new standalone `banners` Django app, but the model was actually placed in the existing `admin_ops` app (`backend/admin_ops/models.py`) — a documented, architecturally-justified filing decision in the plan itself ("Layer 0, alongside `admin_ops`/`audit`"), not a scope gap.
+
 ---
 
 ## Open / deferred (not archived)
@@ -64,3 +70,6 @@ All planned features are implemented. `InterviewSession.transcript` JSONField ex
 
 ## [2026-08-16-prompt-variable-catalog-design.md](2026-08-16-prompt-variable-catalog-design.md)
 **Not implemented — tracked separately.** Phase 3 (Promptfoo test infrastructure) is entirely missing: no `export_promptfoo_configs` management command, no `backend/application/prompt_testing/cases/` directory, no CI job. Already tracked as GitHub Issue #587 ("feat: Promptfoo test infrastructure for prompt templates (Phase 3, Prompt Variable Catalog)") — do not file a duplicate.
+
+## [2026-08-20-multi-palette-theming-design.md](2026-08-20-multi-palette-theming-design.md)
+**Literal scope fully implemented, structural gap remains — kept out of Archive/ (2026-08-23).** All 3 phases this spec describes are fully built (verified in `docs/superpowers/plans/index.md`'s three `2026-08-2[01]-multi-palette-theming-phase*.md` entries) — the spec's own §5 already records all three as done with exact test counts. Not archived because open issue **#707** ("Theme palette and light/dark mode cannot be combined — flat list instead of two axes") is a structural gap this spec never addressed: palette and light/dark mode share one flat `THEMES` registry instead of being two independent, combinable axes. Tracked in `docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md` Group K (P3, needs its own architectural redesign spec).
