@@ -131,6 +131,7 @@
     "showOnLoginPage": "Also show on the login page",
     "messagePlaceholder": "Markdown text...",
     "globalTitle": "Global Banner",
+    "workspaceTitle": "Workspace Banner",
     "levelLabel": "Level",
     "messageLabel": "Message (Markdown)"
   },

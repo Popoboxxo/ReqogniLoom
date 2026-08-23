@@ -131,6 +131,7 @@
     "showOnLoginPage": "Auch auf der Login-Seite anzeigen",
     "messagePlaceholder": "Markdown-Text...",
     "globalTitle": "Globaler Banner",
+    "workspaceTitle": "Workspace-Banner",
     "levelLabel": "Stufe",
     "messageLabel": "Nachricht (Markdown)"
   },

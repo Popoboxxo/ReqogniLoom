@@ -39,6 +39,7 @@ import { PromptVariablesSection } from "./PromptVariablesSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
 import { McpConnectionSection } from "./McpConnectionSection";
 import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
+import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { PageHeader } from "../shared/PageHeader";
 
@@ -537,6 +538,8 @@ export default function WorkspaceSettings(): JSX.Element {
               workspaceId={activeWorkspace.id}
               workspaceName={activeWorkspace.name}
             />
+
+            <WorkspaceBannerSection workspaceId={activeWorkspace.id} />
           </>
         )}
 
