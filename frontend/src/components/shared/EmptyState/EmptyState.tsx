@@ -37,6 +37,13 @@ export interface EmptyStateAction {
   label: string;
   onClick: () => void;
   testId?: string;
+  /**
+   * Overrides the accessible name (falls back to `label`). Use when a call
+   * site's `label` text collides with another simultaneously-rendered
+   * control (issue #678), e.g. a page-header "create" action and this
+   * empty-state's own "create" action sharing the same visible wording.
+   */
+  ariaLabel?: string;
 }
 
 interface EmptyStateLoadingProps {
@@ -110,6 +117,7 @@ function ActionButton({
       type="button"
       className={variant === "primary" ? styles.primaryButton : styles.secondaryButton}
       data-testid={testId}
+      aria-label={action.ariaLabel}
       onClick={action.onClick}
     >
       {action.label}

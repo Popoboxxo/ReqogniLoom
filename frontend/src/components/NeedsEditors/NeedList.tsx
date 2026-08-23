@@ -267,6 +267,7 @@ export function NeedList({
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
             <button
               type="button"
+              data-testid="need-create-cancel-btn"
               onClick={() => setShowCreateForm(false)}
               style={{
                 background: 'transparent',
@@ -282,6 +283,14 @@ export function NeedList({
             </button>
             <button
               type="submit"
+              data-testid="need-create-submit-btn"
+              // #678: distinct accessible name from the PageHeader's primary
+              // action and the empty-state's create action — those two open
+              // this form; this one submits it. All three can be visible at
+              // once (empty list + open form), and "Create"/"Erstellen" is
+              // generic enough to be worth disambiguating explicitly rather
+              // than relying on translation strings staying different.
+              aria-label={t('needs.submitCreateLabel', 'Bedarf jetzt erstellen')}
               disabled={!(newTitle || '').trim()}
               style={{
                 background: 'var(--color-primary)',
@@ -314,7 +323,18 @@ export function NeedList({
           )}
           actions={
             onCreateClick
-              ? [{ label: t('needs.newNeed', 'Neuer Bedarf'), onClick: onCreateClick, testId: 'need-list-empty-create' }]
+              ? [
+                  {
+                    label: t('needs.newNeed', 'Neuer Bedarf'),
+                    // #678: same visible wording as the PageHeader's primary
+                    // action (both trigger the identical create flow), but a
+                    // distinct accessible name — the two buttons coexist in
+                    // the DOM whenever the list is empty.
+                    ariaLabel: t('needs.emptyCreateLabel', 'Ersten Bedarf anlegen'),
+                    onClick: onCreateClick,
+                    testId: 'need-list-empty-create',
+                  },
+                ]
               : undefined
           }
         />

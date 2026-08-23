@@ -20,6 +20,31 @@ import styles from "./InterviewWidget.module.css";
 
 const STORAGE_KEY = "reqflow-interview-widget-open";
 
+/**
+ * Defensive localStorage wrapper (issue #679) — direct `window.localStorage`
+ * access throws in third-party-cookie-restricted browsers, private-browsing
+ * storage lockouts, and JSDOM test environments where the property is
+ * unavailable/mocked out (`TypeError: Cannot read properties of undefined`,
+ * or a `SecurityError`). The toggle-open state persisted here is a
+ * nice-to-have, never worth freezing the widget over.
+ */
+export const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      // Storage unavailable (private browsing, disabled cookies, etc.) — silently no-op.
+    }
+  },
+};
+
 export function InterviewWidget(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   const [open, setOpen] = useState(false);
@@ -27,13 +52,13 @@ export function InterviewWidget(): JSX.Element {
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
-    setOpen(localStorage.getItem(STORAGE_KEY) === "true");
+    setOpen(safeLocalStorage.getItem(STORAGE_KEY) === "true");
   }, []);
 
   const toggle = () => {
     const next = !open;
     setOpen(next);
-    localStorage.setItem(STORAGE_KEY, String(next));
+    safeLocalStorage.setItem(STORAGE_KEY, String(next));
   };
 
   const startInterview = async (artifactType: string) => {

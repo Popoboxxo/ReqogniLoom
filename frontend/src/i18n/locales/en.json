@@ -561,7 +561,10 @@
     "approvedSuffix": "{{count}} approved",
     "newNeed": "New Need",
     "emptyTitle": "No needs yet",
-    "emptyDescription": "Stakeholder needs describe what stakeholders need and why."
+    "emptyDescription": "Stakeholder needs describe what stakeholders need and why.",
+    "openCreateFormLabel": "Open need creation form",
+    "emptyCreateLabel": "Add your first need",
+    "submitCreateLabel": "Submit new need"
   },
   "deriveRequirements": {
     "title": "Derived system requirements (draft)",

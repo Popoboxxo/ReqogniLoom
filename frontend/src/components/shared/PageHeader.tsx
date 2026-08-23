@@ -30,6 +30,15 @@ interface PageHeaderAction {
   onClick: () => void;
   disabled?: boolean;
   testId?: string;
+  /**
+   * Overrides the accessible name (falls back to `label` otherwise). Use
+   * this when the visible `label` text would collide with another
+   * simultaneously-rendered control's accessible name (issue #678) — e.g.
+   * a page header action and a related in-panel action that share the same
+   * visible wording but need genuinely distinct names for a11y trees and
+   * `getByRole` queries.
+   */
+  ariaLabel?: string;
 }
 
 interface PageHeaderCount {
@@ -171,6 +180,7 @@ export function PageHeader({
             type="button"
             className="btn-secondary"
             data-testid={action.testId}
+            aria-label={action.ariaLabel}
             onClick={action.onClick}
             disabled={action.disabled}
           >
@@ -183,6 +193,7 @@ export function PageHeader({
             type="button"
             className="btn-primary"
             data-testid={primaryAction.testId ?? "page-header-primary-action"}
+            aria-label={primaryAction.ariaLabel}
             onClick={primaryAction.onClick}
             disabled={primaryAction.disabled}
           >
