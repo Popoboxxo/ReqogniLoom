@@ -103,8 +103,9 @@ class BaselineFacade(ServiceBase):
                 approval authority for an override.
             BaselineGateBlockedError: SE-Auditor BLOCKERs and no accepted
                 override (subclass of ValidationError).
-            ValidationError: Scope not allowed by preset, duplicate name, an
-                unusable override justification, or an unevaluable gate.
+            ValidationError: Scope not allowed by preset, duplicate name, a
+                missing ``document_id`` for scope="document", an unusable
+                override justification, or an unevaluable gate.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -117,6 +118,22 @@ class BaselineFacade(ServiceBase):
         doc_id: Optional[UUID] = (
             UUID(str(document_id)) if document_id is not None else None
         )
+
+        # GH-715: scope="document" requires a root artifact to resolve the
+        # subtree against (see baseline.services.resolve_scope_item_ids). This
+        # MUST be validated here, before the SE-Auditor gate is evaluated —
+        # AuditContext.scope_item_ids resolves lazily via the same helper and
+        # raises a bare ValueError when document_id/artifact_id is missing,
+        # which _enforce_audit_gate's fail-closed handler (GH-400) would
+        # otherwise catch and re-wrap as an opaque "internal error", hiding a
+        # simple, callable-side validation problem behind a governance-gate
+        # failure message.
+        if scope == "document" and doc_id is None:
+            raise ValidationError(
+                "Baseline cannot be created: document_id is required when "
+                "scope='document' (the root artifact whose subtree is being "
+                "baselined)."
+            )
 
         # SE-conformance gate: no baseline over known-broken traceability —
         # unless the blockers are explicitly and traceably waived (GH-513).

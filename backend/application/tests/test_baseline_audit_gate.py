@@ -182,6 +182,42 @@ class TestBaselineAuditGateWiring:
         scopes = mock_audit.call_args.kwargs["scopes"]
         assert scopes == [AuditScope(scope="document", artifact_id=str(doc_id))]
 
+    def test_document_scope_without_document_id_raises_validation_error(self):
+        """GH-715: a missing document_id must be rejected cleanly, before the
+        SE-Auditor gate is ever evaluated.
+
+        Regression test for the bug where scope="document" without a
+        document_id let a bare ``ValueError`` escape from
+        ``AuditContext.scope_item_ids`` (baseline.services.resolve_scope_item_ids)
+        deep inside the gate, which the fail-closed handler (GH-400) then
+        re-wrapped as an opaque "internal error" — instead of the clean,
+        callable-side validation error this actually is.
+        """
+        facade = BaselineFacade()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.baseline_facade.TenantContext"),
+            patch(
+                "application.baseline_facade.BaselineFacade._check_scope_allowed"
+            ),
+            patch.object(AuditService, "blocking_findings") as mock_audit,
+            patch("baseline.services.build") as mock_build,
+        ):
+            with pytest.raises(ValidationError) as exc_info:
+                facade.create_baseline(
+                    scope="document", workspace_id=WS_ID, name="v1", ctx=ctx
+                )
+
+        message = str(exc_info.value)
+        assert "document_id is required" in message
+        assert "ValueError" not in message
+        assert "internal error" not in message
+        # The gate must never even be reached — this is a callable-side
+        # validation problem, not a gate-evaluation failure.
+        mock_audit.assert_not_called()
+        mock_build.assert_not_called()
+
     def test_auditor_malfunction_fails_closed(self):
         """GH-400: an internal auditor error must BLOCK the build, not open the gate.
 
