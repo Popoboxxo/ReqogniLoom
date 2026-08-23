@@ -1,6 +1,6 @@
 {
   "name": "reqogniloom",
-  "version": "1.7.0-beta.5",
+  "version": "1.7.0",
   "description": "SE-domain agent roles + native MCP connection for a ReqogniLoom requirements/architecture/test workspace.",
   "author": {
     "name": "ReqogniLoom"

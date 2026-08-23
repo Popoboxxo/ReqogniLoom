@@ -147,7 +147,7 @@ services:
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
     deploy:
       resources:
         limits:
@@ -219,7 +219,7 @@ services:
   # SYSTEM_ADMIN_PASSWORD is required only when the admin does not exist yet
   # (mirrors createsuperuser --noinput). See backend/application/self_init.py.
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
     deploy:
       resources:
         limits:
@@ -261,7 +261,7 @@ services:
   # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
     deploy:
       resources:
         limits:
@@ -332,7 +332,7 @@ services:
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0-beta.2
+    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
     deploy:
       resources:
         limits:
@@ -385,7 +385,7 @@ services:
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:1.7.0-beta.2
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:1.7.0
     deploy:
       resources:
         limits:
