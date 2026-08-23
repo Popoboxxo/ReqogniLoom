@@ -110,7 +110,7 @@ class TestWorkspaceBannerPermissions:
             response = WorkspaceBannerView().put(request, workspace_id=str(ws.id))
         assert response.status_code == 200
 
-    def test_admin_of_other_workspace_denied(
+    def test_admin_role_trusts_url_scoped_active_roles(
         self, admin_ctx: AuthContext, tenant_a
     ) -> None:
         """admin_ctx carries an unscoped ``admin`` role fixture; the view's
@@ -141,6 +141,17 @@ class TestPublicLoginBanner:
             request = Request(APIRequestFactory().get("/x/"))
             response = PublicLoginBannerView().get(request)
         assert response.status_code == 204
+
+    def test_returns_204_when_tenant_id_unset(self, db) -> None:
+        """settings.DEFAULT_TENANT_ID missing/None must yield the same 204,
+        no-body shape as "tenant configured but no login banner" — the view
+        never distinguishes the two cases in its response, so a misconfigured
+        deployment cannot be fingerprinted by an unauthenticated caller."""
+        with patch("django.conf.settings.DEFAULT_TENANT_ID", None):
+            request = Request(APIRequestFactory().get("/x/"))
+            response = PublicLoginBannerView().get(request)
+        assert response.status_code == 204
+        assert response.data is None
 
     def test_returns_200_with_shape_when_configured(
         self, tenant_admin_ctx: AuthContext, tenant_a

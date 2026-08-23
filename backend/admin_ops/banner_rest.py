@@ -3,9 +3,13 @@ admin_ops — REST adapter for System & Workspace Banners.
 
 Endpoints:
     GET/PUT /api/v1/admin/banners/global/
-        System-Admin only (``AuthorizationService.is_tenant_admin``).
+        GET: any authenticated user (``BannerService.get_global_banner`` takes
+        no permission flag — read access is not role-gated). PUT: System-Admin
+        only (``AuthorizationService.is_tenant_admin``).
     GET/PUT /api/v1/workspaces/<uuid:workspace_id>/banner/
-        Workspace-Admin (workspace-scoped ``admin`` role) or System-Admin.
+        GET: any authenticated user (same rationale as above, via
+        ``BannerService.get_workspace_banner``). PUT: Workspace-Admin
+        (workspace-scoped ``admin`` role) or System-Admin.
     GET     /api/v1/public/banners/login/
         Unauthenticated. Returns 204 if no enabled+show_on_login_page
         global banner exists for ``settings.DEFAULT_TENANT_ID`` (see the
@@ -105,7 +109,7 @@ def _parse_write_payload(data: Any) -> dict[str, Any]:
 
 
 class GlobalBannerView(APIView):
-    """``/api/v1/admin/banners/global/`` — System-Admin only."""
+    """``/api/v1/admin/banners/global/`` — GET: any authenticated user. PUT: System-Admin only."""
 
     permission_classes = [HasOperationPermission]
 
@@ -166,7 +170,7 @@ class GlobalBannerView(APIView):
 
 
 class WorkspaceBannerView(APIView):
-    """``/api/v1/workspaces/<uuid:workspace_id>/banner/`` — Workspace-Admin or System-Admin."""
+    """``/api/v1/workspaces/<uuid:workspace_id>/banner/`` — GET: any authenticated user. PUT: Workspace-Admin or System-Admin."""
 
     permission_classes = [HasOperationPermission]
 
