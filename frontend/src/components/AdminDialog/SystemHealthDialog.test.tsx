@@ -114,3 +114,49 @@ describe("SystemHealthDialog — version indicator", () => {
     expect(screen.queryByTestId("system-health-version")).not.toBeInTheDocument();
   });
 });
+
+describe("SystemHealthDialog — 'unknown' status explanation (#706)", () => {
+  it("shows an explanatory hint for a component with status 'unknown' (e.g. celery_beat)", async () => {
+    vi.mocked(adminOpsModule.adminOpsApi.getSystemHealth).mockResolvedValue({
+      components: [
+        { name: "database", status: "ok" as const, detail: "reachable" },
+        {
+          name: "celery_beat",
+          status: "unknown" as const,
+          detail: "3 periodic task(s) configured (process liveness not verified)",
+        },
+      ],
+      recent_events: [],
+    });
+    vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "unknown",
+      commit_short: "abcdef1",
+    });
+
+    render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
+
+    const hint = await screen.findByTestId("system-health-unknown-hint-celery_beat");
+    expect(hint).toHaveAttribute(
+      "title",
+      "This check cannot verify process liveness from this endpoint by design — it does not mean the component is down."
+    );
+  });
+
+  it("does not render the 'unknown' hint for components with a definitive status", async () => {
+    vi.mocked(adminOpsModule.adminOpsApi.getSystemHealth).mockResolvedValue({
+      components: [{ name: "database", status: "ok" as const, detail: "reachable" }],
+      recent_events: [],
+    });
+    vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "unknown",
+      commit_short: "abcdef1",
+    });
+
+    render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("system-health-components")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("system-health-unknown-hint-database")).not.toBeInTheDocument();
+  });
+});

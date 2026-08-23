@@ -297,18 +297,56 @@ export function SystemHealthDialog({
                         </span>
                       </span>
                       <span
-                        data-testid={`system-health-status-${component.name}`}
                         style={{
-                          fontSize: "var(--font-size-xs)",
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                          color: STATUS_COLORS[component.status],
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "var(--space-1)",
                           flexShrink: 0,
                           marginLeft: "var(--space-3)",
                         }}
                       >
-                        {t(`systemHealth.status.${component.status}`, component.status)}
+                        <span
+                          data-testid={`system-health-status-${component.name}`}
+                          style={{
+                            fontSize: "var(--font-size-xs)",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                            color: STATUS_COLORS[component.status],
+                          }}
+                        >
+                          {t(`systemHealth.status.${component.status}`, component.status)}
+                        </span>
+                        {component.status === "unknown" && (
+                          <span
+                            data-testid={`system-health-unknown-hint-${component.name}`}
+                            role="img"
+                            aria-label={t(
+                              "systemHealth.unknownExplanationLabel",
+                              "Why is this unknown?"
+                            )}
+                            title={t(
+                              "systemHealth.unknownExplanation",
+                              "This check cannot verify process liveness from this endpoint by design — it does not mean the component is down."
+                            )}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: "1rem",
+                              height: "1rem",
+                              borderRadius: "50%",
+                              border: "1px solid var(--color-text-muted)",
+                              color: "var(--color-text-muted)",
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              cursor: "help",
+                            }}
+                          >
+                            ?
+                          </span>
+                        )}
                       </span>
                     </li>
                   ))}

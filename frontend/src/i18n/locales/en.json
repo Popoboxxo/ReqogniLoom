@@ -109,6 +109,8 @@
       "down": "Down",
       "unknown": "Unknown"
     },
+    "unknownExplanationLabel": "Why is this unknown?",
+    "unknownExplanation": "This check cannot verify process liveness from this endpoint by design — it does not mean the component is down.",
     "componentNames": {
       "database": "Database",
       "redis": "Redis",
