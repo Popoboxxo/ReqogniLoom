@@ -118,6 +118,19 @@
       "llm_provider": "LLM Provider"
     }
   },
+  "banners": {
+    "dismiss": "Dismiss",
+    "level": {
+      "neutral": "Neutral",
+      "info": "Info",
+      "warning": "Warning",
+      "critical": "Critical"
+    },
+    "enabled": "Enabled",
+    "dismissibleField": "Dismissible by end users",
+    "showOnLoginPage": "Also show on the login page",
+    "messagePlaceholder": "Markdown text..."
+  },
   "triLabelOverview": {
     "title": "Tri-Label Overview",
     "sectionHint": "Read-only reference of all 14 TraceLink types with their German/English downstream, upstream and neutral labels.",
