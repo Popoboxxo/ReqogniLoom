@@ -1,0 +1,16 @@
+/* LoginPage — Login page banner. CSS Module per this codebase's
+   ratchet direction for new UI code. */
+
+.banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom-width: 3px;
+  border-bottom-style: solid;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}

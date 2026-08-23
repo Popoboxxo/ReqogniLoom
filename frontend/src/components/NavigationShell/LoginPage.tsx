@@ -17,6 +17,7 @@ import { useAuth } from "../../context/AuthContext";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { bannersApi, type LoginBanner } from "../../api/banners";
 import { APP_NAME } from "../../config/app-name";
+import styles from "./LoginPage.module.css";
 
 const LOGIN_BANNER_COLORS: Record<LoginBanner["level"], string> = {
   neutral: "var(--color-text-muted)",
@@ -134,17 +135,9 @@ export function LoginPage(): JSX.Element {
         <div
           data-testid="login-page-banner"
           role="status"
+          className={styles.banner}
           style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            padding: "var(--space-2) var(--space-4)",
-            borderBottom: `3px solid ${LOGIN_BANNER_COLORS[loginBanner.level]}`,
-            background: "var(--color-surface-raised)",
-            color: "var(--color-text)",
-            fontSize: "var(--font-size-sm)",
-            textAlign: "center",
+            borderBottomColor: LOGIN_BANNER_COLORS[loginBanner.level],
           }}
         >
           {loginBanner.message}

@@ -30,6 +30,7 @@ import { SidebarNavigation } from "./SidebarNavigation";
 import { LoginPage } from "./LoginPage";
 import { InterviewWidget } from "../InterviewWidget/InterviewWidget";
 import { BannerStack } from "./BannerStack";
+import styles from "./AppShell.module.css";
 
 // Lazy-loaded route components for performance (REQ-L2-RF-009)
 const DashboardViews = lazy(
@@ -110,9 +111,9 @@ function AppShell(): JSX.Element {
   const { t } = useTranslation();
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div className={styles.shell}>
       <BannerStack />
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+      <div className={styles.contentRow}>
       <SidebarNavigation />
       <main
         style={{ flex: 1, height: "100%", padding: "1.5rem", overflow: "auto" }}
