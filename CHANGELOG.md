@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0-beta.5] — 2026-08-23
+
+### Added
+- **Multi-User Workspace Management:** Tenant admins can now suspend, reactivate, and assign roles to workspace members via new `/users/` REST endpoints and MCP tool group; includes role transition guards, last-admin invariants at both workspace and tenant scope, and comprehensive audit logging (#686)
+- **Workspace Members UI:** New admin settings panel for managing workspace member lifecycle (activate, suspend, reactivate, role assignment) with permission matrix tests validating REST/MCP consistency (#686)
+- **TenantRole Model:** New persistent model representing tenant-level roles (e.g., tenant-admin); backfill migration for existing multi-user tenants (#686)
+- **Multi-Artifact Discovery Interview Design Spec (docs only, not yet implemented):** Design for a new interview mode that helps users determine which artifact(s) they need from a described problem, and creates multiple artifacts of the same or mixed types in one confirmed, atomic batch with cross-links and provenance back to the interview (#699)
+
+### Fixed
+- **Review Findings Remediation (17-task plan):** Comprehensive accessibility, security, i18n, and consistency fixes including:
+  - WCAG §4.1.2 (form label coverage): Added missing `htmlFor`/`id` linkage across 8+ input fields (#698)
+  - Keyboard Navigation (WCAG §2.1.1): Trace-link entries now focusable `<button>` elements; WorkflowEditor canvas keyboard-accessible; tree-expand toggles have `aria-label` (#698)
+  - Contrast Failures (WCAG §1.4.11): Fixed sitewide contrast in `.buildVersion`, `.presetBadge`, `.langNotice`, and Bauhaus/Sepia `text-muted` (#698)
+  - Hardcoded English UI Text: Translated `EnforcementFlipDialog` and 10+ additional strings to German; app now respects `navigator.language` (#698)
+  - Button Styling & Semantic HTML: Unified primary-button styling; migrated 5 create-forms to Dialog primitive; removed nested interactive elements (#698)
+  - Trace-Link Dialog UX: Source picker now unified searchable list (not plain `<select>`); disabled state has tooltip (#698)
+  - MCP Security: Restricted `params.api_key` acceptance to stdio transport only; added missing audit operation declarations (#698)
+  - Exception Handling: Stopped leaking raw exception detail from MCP `/tools/list` (#698)
+
+- **E2E Infrastructure & CI (PR #701):** Visual-regression baseline repair and test stabilization:
+  - Linux baseline screenshots: Added missing baseline images for visual-regression tests in CI-matching environment (#701)
+  - Dashboard/workspace-create snapshots: Stabilized and regenerated visual baselines to match CI rendering (#701)
+  - Fixed 3 pre-existing, unrelated E2E test failures that had left `main`'s CI red since 2026-08-20: `artifact-diff.spec.ts` (ArtifactInspector auto-collapse below 1600px viewport hid asserted panels; a rare `RequirementForm` save-refetch race occasionally flaked one test, root cause tracked separately in #700) and `diagram-node-graph.spec.ts` (seeded demo workspace's German locale rendered the empty-state hint differently than the test expected) (#701)
+
+- **Backend/Frontend Hygiene:** ORM import cleanup, dead code removal, timing-safe comparisons, MCP tools ratchet ceiling adjustments (#701 series)
+- **Traceability View:** Fixed long traceability IDs truncation; removed dead category filter (#701 series)
+- **Architecture & Glossary Empty States:** Aligned toolbar styling with sibling pages (#701 series)
+- **Layout & Component Fixes:** Resolved clipping/overlap issues across 7 components; artifact inspector defaults to collapsed <1600px (#701 series)
+
+### Changed
+- **MCP Tool Restrictions:** `params.api_key` parameter now only accepted on stdio transport; other transports (HTTP, SSE) must use header-based auth (#698)
+- **Preset Resolution:** Gated preset resolution to prevent spoofing; use uncached tier for Approver gate validation (#698)
+
+### Security
+- **MCP Tool Restriction:** API key parameter locked to stdio transport, closing potential surface for cross-transport token leakage (#698)
+- **CORS Origin Mirroring:** Removed auto-mirroring behavior, now validates against configured allowed origins (#698)
+
 ## [1.7.0-beta.4] — 2026-08-22
 
 ### Fixed
