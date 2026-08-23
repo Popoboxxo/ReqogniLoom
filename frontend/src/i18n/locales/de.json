@@ -109,6 +109,8 @@
       "down": "Ausgefallen",
       "unknown": "Unbekannt"
     },
+    "unknownExplanationLabel": "Warum ist das unbekannt?",
+    "unknownExplanation": "Dieser Check kann die Prozess-Verfügbarkeit von diesem Endpunkt aus konstruktionsbedingt nicht prüfen — das bedeutet nicht, dass die Komponente ausgefallen ist.",
     "componentNames": {
       "database": "Datenbank",
       "redis": "Redis",
