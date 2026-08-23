@@ -81,21 +81,61 @@ test.beforeEach(async ({ page }) => {
   // native text-cursor blink, which that built-in does not touch.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript(() => {
-    const style = document.createElement('style');
-    style.setAttribute('data-e2e-visual-freeze', 'true');
-    style.textContent = `
-      *, *::before, *::after {
-        animation-duration: 0s !important;
-        animation-delay: 0s !important;
-        transition-duration: 0s !important;
-        transition-delay: 0s !important;
-        scroll-behavior: auto !important;
-      }
-      input, textarea, [contenteditable="true"] {
-        caret-color: transparent !important;
-      }
-    `;
-    document.documentElement.appendChild(style);
+    const install = (): void => {
+      const style = document.createElement('style');
+      style.setAttribute('data-e2e-visual-freeze', 'true');
+      style.textContent = `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+          scroll-behavior: auto !important;
+        }
+        input, textarea, [contenteditable="true"] {
+          caret-color: transparent !important;
+        }
+        /*
+         * The Dashboard's workspace-list is tenant-wide, not scoped to this
+         * spec's isolated workspace (see the "dashboard route" test below) —
+         * its real DOM height therefore depends on how many workspaces this
+         * shared environment has accumulated across every prior E2E run ever
+         * executed against it (observed: 3 on a fresh CI DB, 53+ on a
+         * long-lived local dev stack). Even though the container itself is
+         * masked (solid overlay) in the two tests that reference it, an
+         * *unbounded* mask still changes the screenshot: a taller container
+         * pushes the mask rectangle's bottom edge further down (or off-page
+         * entirely for the viewport-clipped dashboard shot, or inflates the
+         * total document height for the full-page create-workspace-modal
+         * shot), which is exactly what caused both tests to fail with
+         * ~40-46% pixel diffs regardless of which environment generated the
+         * baseline. Capping the container to a fixed height makes the
+         * masked rectangle's geometry constant no matter how many
+         * workspaces exist, so only the actually-interesting chrome around
+         * it (header, sidebar, dialog) is under test.
+         */
+        [data-testid="workspace-list"] {
+          max-height: 240px !important;
+          overflow: hidden !important;
+        }
+      `;
+      document.head.appendChild(style);
+    };
+    // `addInitScript` runs via CDP's Page.addScriptToEvaluateOnNewDocument,
+    // i.e. before the HTML parser has produced ANY nodes — `document.head`
+    // (and `document.documentElement`) are still `null` at this point, so
+    // appending synchronously throws and is silently swallowed by
+    // Playwright (this had been true of the pre-existing animation/caret
+    // freeze rules too; nobody had noticed because Playwright's own
+    // built-in "animations: disabled" already covers the common case).
+    // Defer to DOMContentLoaded, which — for a Vite/ESM app whose bundle
+    // scripts are deferred `type="module"` — still fires well before React
+    // renders anything, so this remains effectively as early as intended.
+    if (document.head) {
+      install();
+    } else {
+      document.addEventListener('DOMContentLoaded', install, { once: true });
+    }
   });
 
   await setWorkspaceId(page, ISOLATED_WORKSPACE_ID);
@@ -132,20 +172,30 @@ test.describe('[VISUAL] Route screenshots (isolated empty workspace)', () => {
       // The dashboard lists ALL workspaces for the tenant (DashboardViews.tsx
       // -> useDashboardData), not just the isolated one — it is not scoped
       // by active-workspace selection. Across repeated E2E-suite runs this
-      // list grows without bound (25+ workspaces observed from prior specs
-      // at authoring time), so a full-page screenshot of it can never be
-      // stable: new cards would grow the scrollable page height itself, not
-      // just the pixels under a mask. Mitigation: clip to the viewport
-      // (fullPage: false, constant image dimensions) and mask the entire
-      // card-list container, so the route chrome (header, sidebar, nav) is
-      // still regression-tested while the volatile card list never affects
-      // the diff.
+      // list grows without bound (3 to 50+ workspaces observed across CI
+      // and local dev runs), so a full-page screenshot of it can never be
+      // stable: new cards grow the container's real DOM height even though
+      // it is masked, which shifts the mask rectangle's geometry and fails
+      // the pixel diff regardless of environment. Mitigation: clip to the
+      // viewport (fullPage: false, constant image dimensions), cap the
+      // container's height via the beforeEach CSS injection so its mask
+      // footprint is constant too, and mask the count text next to it — so
+      // the route chrome (header, sidebar, nav) is still regression-tested
+      // while the volatile card list/count never affect the diff.
       test(`[VISUAL] ${slug} route renders consistently`, async ({ page }) => {
         await gotoAndSettle(page, route);
         await expect(page.locator('[data-testid="workspace-list"]')).toBeVisible({ timeout: 10000 });
         await expect(page).toHaveScreenshot(`route-${slug}.png`, {
           fullPage: false,
-          mask: [...volatileMasks(page), page.locator('[data-testid="workspace-list"]')],
+          // page-header-count renders "N workspace(s) available." — same
+          // tenant-wide, ever-growing count as workspace-list (see the CSS
+          // cap in beforeEach), so it is masked here too rather than only
+          // in the generic volatileMasks() used by every other route.
+          mask: [
+            ...volatileMasks(page),
+            page.locator('[data-testid="workspace-list"]'),
+            page.locator('[data-testid="page-header-count"]'),
+          ],
         });
       });
       continue;
@@ -180,9 +230,14 @@ test.describe('[VISUAL] Dialog screenshots', () => {
     await expect(page).toHaveScreenshot('dialog-workspace-create.png', {
       fullPage: true,
       // The dashboard behind the modal overlay is the same tenant-wide,
-      // ever-growing workspace list as the dashboard route test above — mask
-      // it too so the modal itself is the only thing under test.
-      mask: [...volatileMasks(page), page.locator('[data-testid="workspace-list"]')],
+      // ever-growing workspace list (+ its "N workspace(s) available."
+      // count) as the dashboard route test above — mask both so the modal
+      // itself is the only thing under test.
+      mask: [
+        ...volatileMasks(page),
+        page.locator('[data-testid="workspace-list"]'),
+        page.locator('[data-testid="page-header-count"]'),
+      ],
     });
   });
 
