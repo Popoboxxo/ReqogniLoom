@@ -15,7 +15,15 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
 import { versionApi, type VersionInfo } from "../../api/version";
+import { bannersApi, type LoginBanner } from "../../api/banners";
 import { APP_NAME } from "../../config/app-name";
+
+const LOGIN_BANNER_COLORS: Record<LoginBanner["level"], string> = {
+  neutral: "var(--color-text-muted)",
+  info: "var(--color-primary)",
+  warning: "var(--color-warning)",
+  critical: "var(--color-danger)",
+};
 
 export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
@@ -33,6 +41,11 @@ export function LoginPage(): JSX.Element {
   // failed fetch must never gate the login form.
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
+  // System/workspace banner, fetched from the public /api/v1/public/banners/login/
+  // endpoint. Non-blocking and non-critical: a slow or failed fetch must never gate
+  // the login form.
+  const [loginBanner, setLoginBanner] = useState<LoginBanner | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     void versionApi
@@ -42,6 +55,21 @@ export function LoginPage(): JSX.Element {
       })
       .catch(() => {
         // Silently omit the version marker on failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void bannersApi
+      .getLoginBanner()
+      .then((banner) => {
+        if (!cancelled) setLoginBanner(banner);
+      })
+      .catch(() => {
+        // Silently omit the banner on failure — must never block the login form.
       });
     return () => {
       cancelled = true;
@@ -102,6 +130,26 @@ export function LoginPage(): JSX.Element {
         background: "var(--color-surface)",
       }}
     >
+      {loginBanner && (
+        <div
+          data-testid="login-page-banner"
+          role="status"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            padding: "var(--space-2) var(--space-4)",
+            borderBottom: `3px solid ${LOGIN_BANNER_COLORS[loginBanner.level]}`,
+            background: "var(--color-surface-raised)",
+            color: "var(--color-text)",
+            fontSize: "var(--font-size-sm)",
+            textAlign: "center",
+          }}
+        >
+          {loginBanner.message}
+        </div>
+      )}
       <form
         onSubmit={handleSubmit}
         style={{
