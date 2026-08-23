@@ -69,8 +69,15 @@ class PermissionDecision:
         return f"PermissionDecision({self.level!r}, {self.reason!r})"
 
 
-# Sentinel returned when no rule applies (closed-world default).
-_DENY_DEFAULT = PermissionDecision(level="deny", reason="no rule applies (default deny)")
+# Sentinel returned when no rule applies (closed-world default). Exported
+# (not underscore-prefixed) so callers that need to distinguish "no explicit
+# item-level rule exists" from "an explicit rule denies" can do so without
+# re-deriving the exact reason string themselves (fix #716: mcp_server.tools.
+# permissions._handle_check combines this layer with the base RBAC decision
+# and must only apply this closed-world default when the item layer is truly
+# silent — see that module for why).
+NO_RULE_REASON = "no rule applies (default deny)"
+_DENY_DEFAULT = PermissionDecision(level="deny", reason=NO_RULE_REASON)
 
 
 # -----------------------------------------------------------------------------
@@ -350,4 +357,5 @@ class ItemPermissionService:
 __all__ = [
     "ItemPermissionService",
     "PermissionDecision",
+    "NO_RULE_REASON",
 ]

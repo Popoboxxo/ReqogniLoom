@@ -22,6 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
 
 
@@ -34,14 +35,36 @@ class ApiKeyViewSet(ViewSet):
     destroy: DEL  /api/v1/api-keys/<pk>/    — revoke key
 
     Authentication: Bearer token (AuthTenancyAuthentication via DRF default classes).
-    Permissions:  IsAuthenticated (any authenticated user may manage own keys).
+    Permissions:  Any authenticated, role-holding user may manage OWN keys.
     Tenant scope: Keys are scoped to the user — list/create return only the
                   authenticated user's keys.  Tenant isolation is implicit via
                   AuthenticationService which filters by user_id.
+
+    RBAC gate (fix #716): every action here is inherently self-scoped — a
+    caller only ever creates/lists/reads/revokes THEIR OWN keys (see the
+    ``user_id``-filtered service calls below), never another user's or a
+    workspace's data. Requiring workspace ``write`` for POST/DELETE — the
+    global ``RbacPermission`` HTTP-method default (GET->read, POST/DELETE
+    ->write) — incorrectly locked a Viewer out of ever creating (or
+    revoking) their own key, leaving them with literally no programmatic
+    access path (MCP X-API-Key / REST Bearer) at all, UI-only. ``READ`` is
+    declared uniformly for every action here as the least-privilege
+    operation that still requires the caller to hold an active role
+    somewhere in the tenant (an authenticated user with NO role anywhere
+    remains correctly denied — ``AuthorizationService.decide_access`` denies
+    READ too in that case). This mirrors the "authenticated self-service
+    action, not a workspace-write action" precedent already used by
+    ``UserPreferenceView``/``WorkspaceMembersView``/``UserViewSet`` for
+    other self- or tenant-scoped endpoints.
     """
 
+    required_operation = Operation.READ
+
     # Uses global DEFAULT_AUTHENTICATION_CLASSES (AuthTenancyAuthentication)
-    # and DEFAULT_PERMISSION_CLASSES (RbacPermission) from settings.
+    # and DEFAULT_PERMISSION_CLASSES (RbacPermission) from settings; the
+    # ``required_operation`` above overrides RbacPermission's per-HTTP-method
+    # default for every action on this ViewSet (see rest_api.auth_enforcer.
+    # RbacPermission.has_permission).
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._authn = AuthenticationService()
