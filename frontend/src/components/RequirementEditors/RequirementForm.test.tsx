@@ -760,3 +760,222 @@ describe("RequirementForm — field-level validation error visibility (BUG-08)",
     mockRequiredFields = [];
   });
 });
+
+/**
+ * Issue #700 — "changeReason wiped by refetch race before save completes".
+ *
+ * The reset effect used to be keyed on the whole `requirement` object
+ * (`useEffect(..., [requirement])`), so it re-ran on a same-id refetch too —
+ * blindly resetting `changeReason` to `requirement.change_reason || ''`,
+ * which is ALWAYS empty (change_reason never round-trips through the
+ * server). If such a refetch landed while a Save was still awaiting the
+ * update() call, the user's typed reason could be wiped before the save
+ * ever read it.
+ */
+describe("RequirementForm — change_reason survives a same-id refetch race (#700)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPreset = "extended";
+  });
+
+  afterEach(() => {
+    mockPreset = "standard";
+  });
+
+  it("does not wipe a typed but unsaved change reason when the requirement prop is refetched with the same id", () => {
+    const { rerender } = render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("change-reason-input"), {
+      target: { value: "Clarifying wording per review" },
+    });
+    expect(screen.getByTestId("change-reason-input")).toHaveValue(
+      "Clarifying wording per review"
+    );
+
+    // Simulate an unrelated background refetch of the SAME requirement (id
+    // unchanged, new object reference, change_reason still empty — exactly
+    // what a reload of a field the server never persisted looks like).
+    const refetchedSameRequirement = {
+      ...baseReq,
+      change_reason: "",
+    } as unknown as Requirement;
+    expect(refetchedSameRequirement).not.toBe(baseReq);
+    rerender(
+      <RequirementForm
+        requirement={refetchedSameRequirement}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+
+    // The typed, unsaved reason must survive the refetch untouched.
+    expect(screen.getByTestId("change-reason-input")).toHaveValue(
+      "Clarifying wording per review"
+    );
+  });
+
+  it("submits the typed change reason even when a same-id refetch races an in-flight save", async () => {
+    let resolveUpdate: (() => void) | undefined;
+    vi.mocked(requirementsApi.update).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = () => resolve({} as unknown as Requirement);
+        })
+    );
+
+    const { rerender } = render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("change-reason-input"), {
+      target: { value: "Race-condition probe" },
+    });
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    // The save is now in flight (requirementsApi.update has not resolved
+    // yet). A same-id refetch lands while it is still awaiting.
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    rerender(
+      <RequirementForm
+        requirement={{ ...baseReq, change_reason: "" } as unknown as Requirement}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+      />
+    );
+
+    resolveUpdate?.();
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalledTimes(1));
+
+    const payload = (requirementsApi.update as ReturnType<typeof vi.fn>).mock
+      .calls[0][1];
+    expect(payload).toMatchObject({ change_reason: "Race-condition probe" });
+  });
+});
+
+/**
+ * Issue #672 — "no unsaved-changes warning". RequirementForm reports its
+ * own dirty state via `onDirtyChange` so the parent can gate navigation.
+ */
+describe("RequirementForm — reports unsaved-edit state via onDirtyChange (#672)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(requirementsApi.update).mockResolvedValue(
+      {} as unknown as Requirement
+    );
+  });
+
+  it("starts clean and flips to dirty on the first local edit", () => {
+    const onDirtyChange = vi.fn();
+    render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.change(screen.getByTestId("req-title"), {
+      target: { value: "Edited title" },
+    });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("goes back to clean once switching to a different requirement (issue #673)", () => {
+    const onDirtyChange = vi.fn();
+    const { rerender } = render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+    fireEvent.change(screen.getByTestId("req-title"), {
+      target: { value: "Unsaved draft" },
+    });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    rerender(
+      <RequirementForm
+        requirement={{ ...baseReq, id: "req-2", title: "Different requirement" } as unknown as Requirement}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("goes back to clean immediately after a successful save, without waiting for a refetch", async () => {
+    const onDirtyChange = vi.fn();
+    render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("req-title"), {
+      target: { value: "Edited title" },
+    });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+  });
+});

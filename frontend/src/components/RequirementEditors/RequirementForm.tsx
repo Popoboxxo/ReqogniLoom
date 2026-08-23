@@ -19,10 +19,12 @@
  * IF-RF-EXT-OUT-001 → PATCH /api/v1/requirements/
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useEntityReset } from '../../hooks/use-entity-reset';
+import { useFormDirty } from '../../hooks/use-form-dirty';
 import {
   Requirement,
   RequirementType,
@@ -78,6 +80,12 @@ interface RequirementFormProps {
   onSaved: () => void;
   /** Optional: invoked when the user cancels editing (e.g. deselect / back to list). */
   onCancel?: () => void;
+  /**
+   * Issue #672: invoked whenever this form's "has unsaved local edits"
+   * state changes, so the parent (RequirementEditors) can warn before
+   * navigating away to a different artifact and silently discarding them.
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 /**
@@ -89,12 +97,35 @@ interface RequirementFormProps {
  * no longer consumed here — traceability is now surfaced through the
  * shared ArtifactInspector (REQ-L1-095).
  */
+/**
+ * Snapshot of every locally-editable field, shared between the entity-reset
+ * callback, the isDirty baseline and the post-save `markClean` call so all
+ * three always agree on the same shape. Explicitly typed rather than
+ * inferred: an object literal built from `x || fallback` expressions
+ * otherwise widens its narrow union members (e.g. `VerificationMethod | ''`)
+ * to plain `string`, which would silently defeat the `useState` setters'
+ * own narrower types.
+ */
+interface RequirementFormValues {
+  title: string;
+  description: string;
+  acceptanceCriteria: string;
+  category: string;
+  changeReason: string;
+  type: RequirementType;
+  complexityFibonacci: number | '';
+  verificationMethod: VerificationMethod | '';
+  level: RequirementLevel | '';
+  customFields: CustomFields;
+}
+
 export const RequirementForm: React.FC<RequirementFormProps> = ({
   requirement,
   requirements: _requirements,
   workspaceId: _workspaceId,  // retained for API compatibility; not consumed here
   onSaved,
   onCancel,
+  onDirtyChange,
 }) => {
   const { t } = useTranslation();
   const { isFieldVisible, isFieldRequired } = useEntityType();
@@ -150,6 +181,43 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     requirement.custom_fields || {}
   );
 
+  // Issue #672: "has unsaved local edits" tracking, so the parent can warn
+  // before navigating away to a different artifact. The baseline is
+  // re-anchored explicitly — from the entity-switch reset below and from a
+  // successful Save — never implicitly from the raw `requirement` prop (see
+  // `useFormDirty`'s own docstring for why).
+  const formValues = useMemo<RequirementFormValues>(
+    () => ({
+      title,
+      description,
+      acceptanceCriteria,
+      category,
+      changeReason,
+      type,
+      complexityFibonacci,
+      verificationMethod,
+      level,
+      customFields,
+    }),
+    [
+      title,
+      description,
+      acceptanceCriteria,
+      category,
+      changeReason,
+      type,
+      complexityFibonacci,
+      verificationMethod,
+      level,
+      customFields,
+    ]
+  );
+  const { isDirty, markClean } = useFormDirty(formValues, formValues);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   // UI state
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -200,29 +268,57 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     isFieldRequired('verification_method') &&
     !verificationMethod;
 
-  // Code review regression: unlike every sibling editor (AdrForm, RiskForm,
-  // IssueForm, TestCaseForm all have this reset effect keyed on their
-  // entity prop), this form never resynced its local state when a
-  // different `requirement` was selected — its fields were only ever
-  // initialised from the initial `useState(requirement.X)` call, so
-  // switching the selected requirement in the list left the form showing
-  // (and, on Save, silently overwriting the new requirement with) the
-  // previously-selected one's stale field values.
-  useEffect(() => {
-    setTitle(requirement.title);
-    setDescription(requirement.description);
-    setAcceptanceCriteria(requirement.acceptance_criteria || '');
-    setCategory(requirement.category);
-    setChangeReason(requirement.change_reason || '');
-    setType(requirement.type || 'SyReq');
-    setComplexityFibonacci(requirement.complexity_fibonacci || 1);
-    setVerificationMethod(requirement.verification_method || '');
-    setLevel(requirement.level ?? '');
-    setCustomFields(requirement.custom_fields || {});
+  // Issue #700/#673: this reset must fire exactly once per genuinely
+  // different requirement (switching the selected item in the list), never
+  // on a refetch of the SAME requirement — which produces a new object
+  // reference with an unchanged id (e.g. right after Save, via `onSaved`'s
+  // refresh(), or an unrelated background reload). A `[requirement]`-keyed
+  // effect (the previous version of this code) re-ran on every one of
+  // those too, blindly resetting `changeReason` to `requirement.change_reason
+  // || ''` — but `change_reason` never round-trips through the server at
+  // all (it is a save-time-only annotation on the PATCH, not a persisted
+  // field), so it is ALWAYS empty on reload. If such a refetch landed while
+  // a save was still in flight, this could wipe a change reason the user
+  // had just typed before the save call had read it. Scoping the effect to
+  // `requirement.id` (via the shared `useEntityReset`, matching the pattern
+  // `ArchitectureForm` already used) closes that race: the local state is
+  // only ever discarded when the user is actually looking at a different
+  // artifact now.
+  //
+  // The same call also re-anchors the `isDirty` baseline (issue #672) to
+  // exactly the values just set, so "unsaved changes" tracking starts
+  // clean for the newly-selected requirement.
+  useEntityReset(requirement.id, () => {
+    const next: RequirementFormValues = {
+      title: requirement.title,
+      description: requirement.description,
+      acceptanceCriteria: requirement.acceptance_criteria || '',
+      category: requirement.category,
+      // Always resets to '' — matches what the server would return anyway
+      // (change_reason is never persisted), so this never disagrees with
+      // the isDirty baseline below.
+      changeReason: requirement.change_reason || '',
+      type: requirement.type || 'SyReq',
+      complexityFibonacci: requirement.complexity_fibonacci || 1,
+      verificationMethod: requirement.verification_method || '',
+      level: requirement.level ?? '',
+      customFields: requirement.custom_fields || {},
+    };
+    setTitle(next.title);
+    setDescription(next.description);
+    setAcceptanceCriteria(next.acceptanceCriteria);
+    setCategory(next.category);
+    setChangeReason(next.changeReason);
+    setType(next.type);
+    setComplexityFibonacci(next.complexityFibonacci);
+    setVerificationMethod(next.verificationMethod);
+    setLevel(next.level);
+    setCustomFields(next.customFields);
     setSaveError(null);
     setTitleInvalid(false);
     setHasAttemptedSave(false);
-  }, [requirement]);
+    markClean(next);
+  });
 
   // #344: bring a freshly raised save error into view. `scrollIntoView` is
   // absent in jsdom, hence the optional call.
@@ -339,6 +435,30 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
 
       await requirementsApi.update(requirement.id, updateData);
 
+      // #344/#672: `change_reason` annotates *this* edit only — it never
+      // round-trips through the server (see the `useEntityReset` reset
+      // callback above), so it is cleared here explicitly on a successful
+      // save. Mirrors ArchitectureForm's existing post-save behavior.
+      setChangeReason('');
+      // Issue #672: re-anchor the isDirty baseline to exactly what was just
+      // submitted — not to whatever `requirement` next resolves with via
+      // `onSaved()`'s refetch, which lags this by a network round trip and
+      // would otherwise show a spurious "unsaved changes" state until it
+      // resolves.
+      const savedValues: RequirementFormValues = {
+        title,
+        description,
+        acceptanceCriteria,
+        category,
+        changeReason: '',
+        type,
+        complexityFibonacci,
+        verificationMethod,
+        level,
+        customFields,
+      };
+      markClean(savedValues);
+
       // REQ-161: lifecycle transitions are no longer bundled with Save — they
       // run independently through <WorkflowStatusEditor/> (WorkflowFacade).
       onSaved();
@@ -362,6 +482,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     verificationMethod,
     level,
     customFields,
+    markClean,
     onSaved,
   ]);
 
@@ -778,7 +899,17 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
             {t('customFields.section')}
           </h3>
+          {/* Issue #673: `key` forces a fresh internal row list whenever the
+              edited requirement actually changes — CustomFieldsEditor seeds
+              its rows from `value` once on mount and never resyncs them on
+              a prop update (by design, so mid-edit rows with a transiently
+              empty/duplicate key are not clobbered). Without the key, a
+              user who edits any custom field row after switching to a
+              different requirement would splice that different
+              requirement's now-stale rows into the new one's custom_fields
+              on save. */}
           <CustomFieldsEditor
+            key={requirement.id}
             value={requirement.custom_fields}
             onChange={setCustomFields}
             disabled={isSaving}

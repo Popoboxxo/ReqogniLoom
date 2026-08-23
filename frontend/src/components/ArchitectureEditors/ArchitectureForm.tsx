@@ -22,6 +22,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
+import { useEntityReset } from '../../hooks/use-entity-reset';
+import { useFormDirty } from '../../hooks/use-form-dirty';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
@@ -69,6 +71,13 @@ interface ArchitectureFormProps {
    * Called when user clicks "AI Decompose" button.
    */
   onDecompose?: () => void;
+
+  /**
+   * Issue #672: invoked whenever this form's "has unsaved local edits"
+   * state changes, so the parent (ArchitectureEditors) can warn before
+   * navigating away to a different element and silently discarding them.
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 /**
@@ -162,6 +171,25 @@ function DeleteConfirmationDialog({
  * Editable form with ASIL/Make-or-Buy dropdowns,
  * dynamic field visibility, and UID/Version header.
  */
+
+/**
+ * Snapshot of every locally-editable field, shared between the entity-reset
+ * callback, the isDirty baseline and the post-save `markClean` call so all
+ * three always agree on the same shape (see the identical rationale on
+ * `RequirementFormValues` in RequirementForm.tsx — object literals built
+ * from `x ?? fallback` expressions otherwise widen narrow union members).
+ */
+interface ArchitectureFormValues {
+  title: string;
+  description: string;
+  elementType: ElementType;
+  parentId: string;
+  asilLevel: ASILLevel;
+  makeOrBuy: MakeOrBuyDecision;
+  changeReason: string;
+  customFields: CustomFields;
+}
+
 export function ArchitectureForm({
   element,
   elements,
@@ -169,6 +197,7 @@ export function ArchitectureForm({
   onDelete,
   isExtendedPreset,
   onDecompose,
+  onDirtyChange,
 }: ArchitectureFormProps): JSX.Element {
   const { t } = useTranslation();
   const { visibleFields } = useEntityType();
@@ -184,6 +213,29 @@ export function ArchitectureForm({
   // REQ-L2-AS-037: user-defined custom fields (stored on the backing Artifact).
   const [customFields, setCustomFields] = useState<CustomFields>(element.custom_fields ?? {});
 
+  // Issue #672: "has unsaved local edits" tracking (see the analogous block
+  // in RequirementForm — the baseline is re-anchored explicitly below, from
+  // the entity-switch reset and from a successful Save, never implicitly
+  // from the raw `element` prop).
+  const formValues = useMemo<ArchitectureFormValues>(
+    () => ({
+      title,
+      description,
+      elementType,
+      parentId,
+      asilLevel,
+      makeOrBuy,
+      changeReason,
+      customFields,
+    }),
+    [title, description, elementType, parentId, asilLevel, makeOrBuy, changeReason, customFields]
+  );
+  const { isDirty, markClean } = useFormDirty(formValues, formValues);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   // UI state
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -196,17 +248,31 @@ export function ArchitectureForm({
   const [typeSuggestions, setTypeSuggestions] = useState<string[]>([]);
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
 
-  // Sync form state when element changes
-  useEffect(() => {
-    setTitle(element.title);
-    setDescription(element.description);
-    setElementType(element.element_type);
-    setParentId(element.parent_id ?? '');
-    setAsilLevel(element.asil_level ?? null);
-    setMakeOrBuy(element.make_or_buy ?? null);
-    setChangeReason(element.change_reason ?? '');
-    setCustomFields(element.custom_fields ?? {});
-  }, [element.id]);
+  // Sync form state when element changes — issue #673: shares
+  // `useEntityReset` with RequirementForm so both forms fire exactly once
+  // per genuinely different entity (never on a same-id refetch), instead of
+  // two hand-written `[x.id]`-keyed effects that can silently drift apart.
+  useEntityReset(element.id, () => {
+    const next: ArchitectureFormValues = {
+      title: element.title,
+      description: element.description,
+      elementType: element.element_type,
+      parentId: element.parent_id ?? '',
+      asilLevel: element.asil_level ?? null,
+      makeOrBuy: element.make_or_buy ?? null,
+      changeReason: element.change_reason ?? '',
+      customFields: element.custom_fields ?? {},
+    };
+    setTitle(next.title);
+    setDescription(next.description);
+    setElementType(next.elementType);
+    setParentId(next.parentId);
+    setAsilLevel(next.asilLevel);
+    setMakeOrBuy(next.makeOrBuy);
+    setChangeReason(next.changeReason);
+    setCustomFields(next.customFields);
+    markClean(next);
+  });
 
   // Client-side cycle guard — same computation the tree's drag & drop uses to
   // refuse a drop, so both parent-changing surfaces forbid the same set.
@@ -273,6 +339,20 @@ export function ArchitectureForm({
       }
       await architectureApi.update(element.id, payload);
       setChangeReason('');
+      // Issue #672: re-anchor the isDirty baseline to what was just
+      // submitted rather than waiting on `onSaved()`'s refetch, which lags
+      // this by a network round trip.
+      const savedValues: ArchitectureFormValues = {
+        title,
+        description,
+        elementType,
+        parentId,
+        asilLevel,
+        makeOrBuy,
+        changeReason: '',
+        customFields,
+      };
+      markClean(savedValues);
       onSaved();
     } catch (err: unknown) {
       setSaveError(extractErrorMessage(err));
@@ -290,6 +370,7 @@ export function ArchitectureForm({
     changeReason,
     customFields,
     isExtendedPreset,
+    markClean,
     onSaved,
   ]);
 
@@ -599,7 +680,13 @@ export function ArchitectureForm({
       {/* Custom Fields (REQ-L2-AS-037) */}
       <div style={{ marginTop: 'var(--space-5)', marginBottom: 'var(--space-3)' }}>
         <label style={labelStyle}>{t('customFields.section')}</label>
+        {/* Issue #673: `key` makes the row-list reset self-contained even if
+            this form is ever mounted without the parent's own
+            `key={element.id}` (see the identical note in
+            RequirementForm.tsx) — CustomFieldsEditor seeds its rows from
+            `value` once on mount and never resyncs them on a prop update. */}
         <CustomFieldsEditor
+          key={element.id}
           value={element.custom_fields}
           onChange={setCustomFields}
           disabled={isSaving}
