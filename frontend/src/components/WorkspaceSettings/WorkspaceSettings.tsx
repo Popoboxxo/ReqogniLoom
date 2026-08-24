@@ -385,10 +385,17 @@ export default function WorkspaceSettings(): JSX.Element {
                       />
                       <div>
                         <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{preset}</div>
-                        <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginTop: "2px" }}>
-                          Baselines: {features.baselines ? "✓" : "✗"} &nbsp;|&nbsp;
-                          change_reason: {features.changeReason} &nbsp;|&nbsp;
-                          {features.workflow}
+                        <div
+                          data-testid={`preset-features-${preset}`}
+                          style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginTop: "2px" }}
+                        >
+                          <div>{features.baselines ? "✓" : "✗"} {t("settings.presets.baselines", "Baselines")}</div>
+                          <div>
+                            {features.changeReason === "required" ? "✓" : "✗"}{" "}
+                            {t("settings.presets.changeReason", "Change Reason")}{" "}
+                            ({features.changeReason === "required" ? t("settings.presets.required", "required") : t("settings.presets.optional", "optional")})
+                          </div>
+                          <div>✓ {t("settings.presets.workflow", "Workflow")}: {features.workflow}</div>
                         </div>
                       </div>
                     </label>

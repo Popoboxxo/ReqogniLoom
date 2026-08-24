@@ -655,6 +655,13 @@
   },
   "settings": {
     "preset": "Preset",
+    "presets": {
+      "baselines": "Baselines",
+      "changeReason": "Änderungsgrund",
+      "required": "erforderlich",
+      "optional": "optional",
+      "workflow": "Workflow"
+    },
     "terminologyProfile": "Terminologie-Profil",
     "language": "Sprache",
     "theme": "Theme",

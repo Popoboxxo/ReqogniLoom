@@ -188,4 +188,11 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     fireEvent.change(input, { target: { value: "   " } });
     expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
   });
+
+  it("renders preset features with a consistent symbol-prefixed format", () => {
+    render(<WorkspaceSettings />);
+    const summary = screen.getByTestId("preset-features-extended");
+    expect(summary).not.toHaveTextContent("change_reason:");
+    expect(summary.textContent).toMatch(/✓ Baselines/);
+  });
 });
