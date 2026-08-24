@@ -64,3 +64,16 @@ class TestColdStartRetry:
                     artifact_id="test-artifact-id",
                 )
         assert mocked.call_count == 2  # original attempt + exactly 1 retry
+
+    def test_does_not_retry_on_valid_json_with_wrong_structure(self):
+        service = AiDerivationService()
+        with patch.object(
+            service, "_complete", return_value=('["not an object"]', "cache-key")
+        ) as mocked:
+            with pytest.raises(LlmResponseError, match="none of them was an object"):
+                service._complete_json_list(
+                    prompt="x",
+                    purpose="need_to_sysreq",
+                    artifact_id="test-artifact-id",
+                )
+        assert mocked.call_count == 1  # no retry — data quality issue, not parse error

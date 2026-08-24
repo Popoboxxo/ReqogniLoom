@@ -1845,8 +1845,6 @@ class AiDerivationService(ServiceBase):
             )
             try:
                 items = self._parse_json_list(raw)
-                if require_objects:
-                    items = self._usable_entries(items, purpose=purpose)
             except LlmResponseError as exc:
                 last_error = exc
                 self._discard_cached_completion(
@@ -1855,6 +1853,8 @@ class AiDerivationService(ServiceBase):
                 if attempt < max_retries:
                     continue
                 raise
+            if require_objects:
+                items = self._usable_entries(items, purpose=purpose)
             return items
         raise last_error  # pragma: no cover - unreachable, satisfies static analysis
 
