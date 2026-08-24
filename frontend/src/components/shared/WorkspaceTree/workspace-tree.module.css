@@ -65,7 +65,7 @@
   position: absolute;
   left: calc(var(--tree-depth, 0) * 16px - 8px);
   top: 50%;
-  width: 8px;
+  width: 16px;
   height: 1px;
   background: var(--color-border);
 }
