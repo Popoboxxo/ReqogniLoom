@@ -1802,8 +1802,9 @@ class AiDerivationService(ServiceBase):
         artifact_id: UUID | str,
         context: Optional[Dict[str, Any]] = None,
         require_objects: bool = True,
+        max_retries: int = 1,
     ) -> List[Any]:
-        """Run a completion and return its JSON array (issue #311).
+        """Run a completion and return its JSON array (issue #311, #652).
 
         The single entry point for every array-shaped flow: it chains
         :meth:`_complete`, :meth:`_parse_json_list` and — unless
@@ -1818,12 +1819,18 @@ class AiDerivationService(ServiceBase):
         an immediate retry — the obvious reaction to the error — actually
         reach the provider.
 
+        On :class:`LlmResponseError` the call is retried up to *max_retries*
+        times (default 1) with cache eviction before each retry, so a cold-start
+        empty completion or transient truncation is recovered automatically
+        instead of failing hard (issue #652).
+
         Args:
             prompt: The rendered prompt.
             purpose: Capability name (cache namespace, audit entry, log text).
             artifact_id: Source artifact of this derivation (cache namespace).
             context: Optional structured hints for the provider.
             require_objects: Whether the array must carry JSON objects.
+            max_retries: Number of extra attempts after the first failure.
 
         Returns:
             The parsed array; only its object entries when *require_objects*.
@@ -1831,19 +1838,25 @@ class AiDerivationService(ServiceBase):
         Raises:
             LlmResponseError: The response was not a usable JSON array.
         """
-        raw, cache_key = self._complete(
-            prompt, purpose=purpose, artifact_id=artifact_id, context=context
-        )
-        try:
-            items = self._parse_json_list(raw)
-            if require_objects:
-                items = self._usable_entries(items, purpose=purpose)
-        except LlmResponseError:
-            self._discard_cached_completion(
-                cache_key, purpose=purpose, artifact_id=artifact_id
+        last_error: Optional[LlmResponseError] = None
+        for attempt in range(max_retries + 1):
+            raw, cache_key = self._complete(
+                prompt, purpose=purpose, artifact_id=artifact_id, context=context
             )
-            raise
-        return items
+            try:
+                items = self._parse_json_list(raw)
+                if require_objects:
+                    items = self._usable_entries(items, purpose=purpose)
+            except LlmResponseError as exc:
+                last_error = exc
+                self._discard_cached_completion(
+                    cache_key, purpose=purpose, artifact_id=artifact_id
+                )
+                if attempt < max_retries:
+                    continue
+                raise
+            return items
+        raise last_error  # pragma: no cover - unreachable, satisfies static analysis
 
     def _complete_json_object(
         self,
@@ -1852,27 +1865,37 @@ class AiDerivationService(ServiceBase):
         purpose: str,
         artifact_id: UUID | str,
         context: Optional[Dict[str, Any]] = None,
+        max_retries: int = 1,
     ) -> Dict[str, Any]:
-        """Object-shaped sibling of :meth:`_complete_json_list` (issue #311).
+        """Object-shaped sibling of :meth:`_complete_json_list` (issue #311, #652).
 
         Used by the single-draft flows (``derive_testcase_from_requirement``,
         ``derive_adr_from_decision``) and evicts the cached answer on the same
         grounds: a response the flow cannot parse must not be replayed from the
         cache for the rest of the TTL.
 
+        On :class:`LlmResponseError` the call is retried up to *max_retries*
+        times (default 1) with cache eviction before each retry (issue #652).
+
         Raises:
             LlmResponseError: The response was not a JSON object.
         """
-        raw, cache_key = self._complete(
-            prompt, purpose=purpose, artifact_id=artifact_id, context=context
-        )
-        try:
-            return self._parse_json_object(raw)
-        except LlmResponseError:
-            self._discard_cached_completion(
-                cache_key, purpose=purpose, artifact_id=artifact_id
+        last_error: Optional[LlmResponseError] = None
+        for attempt in range(max_retries + 1):
+            raw, cache_key = self._complete(
+                prompt, purpose=purpose, artifact_id=artifact_id, context=context
             )
-            raise
+            try:
+                return self._parse_json_object(raw)
+            except LlmResponseError as exc:
+                last_error = exc
+                self._discard_cached_completion(
+                    cache_key, purpose=purpose, artifact_id=artifact_id
+                )
+                if attempt < max_retries:
+                    continue
+                raise
+        raise last_error  # pragma: no cover - unreachable, satisfies static analysis
 
     def _discard_cached_completion(
         self, cache_key: Optional[str], *, purpose: str, artifact_id: UUID | str
@@ -1917,9 +1940,13 @@ class AiDerivationService(ServiceBase):
         """Parse *raw* into a JSON list, tolerating Markdown code fences.
 
         Raises:
-            LlmResponseError: When *raw* is not valid JSON or not a list.
+            LlmResponseError: When *raw* is empty, not valid JSON, or not a list.
         """
-        text = raw.strip()
+        text = raw.strip() if raw else ""
+        if not text:
+            raise LlmResponseError(
+                "The LLM response was empty completion (cold-start or truncation)."
+            )
         # Strip the mock-fallback marker (REQ-078) so a degraded response still
         # parses; the marker is only a user-facing signal, not part of the JSON.
         if text.startswith(MOCK_FALLBACK_MARKER):
@@ -2001,9 +2028,13 @@ class AiDerivationService(ServiceBase):
         single JSON object rather than an array (SysEng 2.0 N5).
 
         Raises:
-            LlmResponseError: When *raw* is not valid JSON or not an object.
+            LlmResponseError: When *raw* is empty, not valid JSON, or not an object.
         """
-        text = raw.strip()
+        text = raw.strip() if raw else ""
+        if not text:
+            raise LlmResponseError(
+                "The LLM response was empty completion (cold-start or truncation)."
+            )
         if text.startswith(MOCK_FALLBACK_MARKER):
             text = text[len(MOCK_FALLBACK_MARKER):].strip()
         if text.startswith("```"):
