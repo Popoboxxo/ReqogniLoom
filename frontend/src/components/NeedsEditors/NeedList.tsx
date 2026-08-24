@@ -302,7 +302,7 @@ export function NeedList({
                 cursor: 'pointer',
               }}
             >
-              {`+ ${t('needs.newNeed')}`}
+              {t('actions.create', 'Erstellen')}
             </button>
           </div>
         </form>

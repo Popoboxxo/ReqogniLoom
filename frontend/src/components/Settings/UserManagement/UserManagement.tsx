@@ -324,7 +324,7 @@ export function UserManagement(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !canSubmitCreate}
               >
-                {isCreating ? t("actions.creating") : `+ ${t("users.newUser")}`}
+                {isCreating ? t("actions.creating") : t('actions.create', 'Erstellen')}
               </button>
             </div>
           }

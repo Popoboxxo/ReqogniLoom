@@ -88,7 +88,7 @@ describe("NeedsEditors — create-trigger accessible names (issue #678)", () => 
     // Bedarf" for sighted users (unified trigger-button pattern, #594).
     expect(headerBtn).toHaveTextContent("+ Neuer Bedarf");
     expect(emptyStateBtn).toHaveTextContent("+ Neuer Bedarf");
-    expect(submitBtn).toHaveTextContent("+ Neuer Bedarf");
+    expect(submitBtn).toHaveTextContent("Erstellen");
   });
 
   it("no longer matches multiple buttons for a loose /create|erstellen/i role query", () => {

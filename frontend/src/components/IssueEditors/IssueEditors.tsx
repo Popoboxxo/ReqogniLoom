@@ -217,7 +217,7 @@ export default function IssueEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : `+ ${t('issues.newIssue')}`}
+                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
               </button>
             </>
           }

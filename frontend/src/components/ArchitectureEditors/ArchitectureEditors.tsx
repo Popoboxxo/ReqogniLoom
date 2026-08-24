@@ -529,7 +529,7 @@ export default function ArchitectureEditors(): JSX.Element {
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
-            >{`+ ${t("arch.newElement")}`}</button>
+            >{t('actions.create', 'Erstellen')}</button>
           </div>
         </form>
         </Dialog>

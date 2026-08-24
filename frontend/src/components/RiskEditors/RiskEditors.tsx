@@ -216,7 +216,7 @@ export default function RiskEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : `+ ${t('risks.newRisk')}`}
+                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
               </button>
             </>
           }
