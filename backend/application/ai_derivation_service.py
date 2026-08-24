@@ -1794,6 +1794,53 @@ class AiDerivationService(ServiceBase):
             cache.set(cache_key, result, DERIVATION_CACHE_TTL_SECONDS)
         return result, cache_key
 
+    def _complete_retrying(
+        self,
+        prompt: str,
+        *,
+        purpose: str,
+        artifact_id: UUID | str,
+        context: Optional[Dict[str, Any]],
+        max_retries: int,
+        parse: Callable[[str], Any],
+    ) -> Tuple[Any, str]:
+        """Shared complete+parse retry loop behind the two ``_complete_json_*``
+        methods (issue #311, #652).
+
+        Calls :meth:`_complete` then *parse(raw)*. :meth:`_complete` caches
+        the raw text *before* any flow can judge it, so on
+        :class:`LlmResponseError` the cache entry is evicted (an immediate
+        retry — the obvious reaction to the error — must actually reach the
+        provider, not replay the same rejected text) and the call is retried
+        up to *max_retries* times before re-raising, so a cold-start empty
+        completion or transient truncation is recovered automatically
+        instead of failing hard.
+
+        Returns:
+            ``(parsed, cache_key)`` — the cache key is returned so a caller
+            can evict on a *later*, non-retriable validation failure (e.g.
+            :meth:`_usable_entries`) using the same key.
+
+        Raises:
+            LlmResponseError: *parse* kept failing through the last attempt.
+        """
+        last_error: Optional[LlmResponseError] = None
+        for attempt in range(max_retries + 1):
+            raw, cache_key = self._complete(
+                prompt, purpose=purpose, artifact_id=artifact_id, context=context
+            )
+            try:
+                return parse(raw), cache_key
+            except LlmResponseError as exc:
+                last_error = exc
+                self._discard_cached_completion(
+                    cache_key, purpose=purpose, artifact_id=artifact_id
+                )
+                if attempt < max_retries:
+                    continue
+                raise
+        raise last_error  # pragma: no cover - unreachable, satisfies static analysis
+
     def _complete_json_list(
         self,
         prompt: str,
@@ -1807,22 +1854,9 @@ class AiDerivationService(ServiceBase):
         """Run a completion and return its JSON array (issue #311, #652).
 
         The single entry point for every array-shaped flow: it chains
-        :meth:`_complete`, :meth:`_parse_json_list` and — unless
-        *require_objects* is False, as for the id-list flow
+        :meth:`_complete_retrying` (parsing via :meth:`_parse_json_list`)
+        and — unless *require_objects* is False, as for the id-list flow
         :meth:`suggest_architecture_for_requirement` — :meth:`_usable_entries`.
-
-        Its reason to exist is the failure path: :meth:`_complete` caches the
-        raw text *before* any flow can judge it, so an unusable answer used to
-        be replayed from the cache on every retry for the full
-        ``DERIVATION_CACHE_TTL_SECONDS``, with the provider never consulted
-        again. Rejecting the answer therefore also evicts it here, which makes
-        an immediate retry — the obvious reaction to the error — actually
-        reach the provider.
-
-        On :class:`LlmResponseError` the call is retried up to *max_retries*
-        times (default 1) with cache eviction before each retry, so a cold-start
-        empty completion or transient truncation is recovered automatically
-        instead of failing hard (issue #652).
 
         Args:
             prompt: The rendered prompt.
@@ -1838,36 +1872,28 @@ class AiDerivationService(ServiceBase):
         Raises:
             LlmResponseError: The response was not a usable JSON array.
         """
-        last_error: Optional[LlmResponseError] = None
-        for attempt in range(max_retries + 1):
-            raw, cache_key = self._complete(
-                prompt, purpose=purpose, artifact_id=artifact_id, context=context
-            )
+        items, cache_key = self._complete_retrying(
+            prompt,
+            purpose=purpose,
+            artifact_id=artifact_id,
+            context=context,
+            max_retries=max_retries,
+            parse=self._parse_json_list,
+        )
+        if require_objects:
             try:
-                items = self._parse_json_list(raw)
-            except LlmResponseError as exc:
-                last_error = exc
+                items = self._usable_entries(items, purpose=purpose)
+            except LlmResponseError:
+                # Data-quality rejection, not a parse error — no retry
+                # (see test_does_not_retry_on_valid_json_with_wrong_structure),
+                # but the raw answer must still be evicted so an immediate
+                # caller-driven retry reaches the provider instead of
+                # replaying the same unusable array from cache.
                 self._discard_cached_completion(
                     cache_key, purpose=purpose, artifact_id=artifact_id
                 )
-                if attempt < max_retries:
-                    continue
                 raise
-            if require_objects:
-                try:
-                    items = self._usable_entries(items, purpose=purpose)
-                except LlmResponseError:
-                    # Data-quality rejection, not a parse error — no retry
-                    # (see test_does_not_retry_on_valid_json_with_wrong_structure),
-                    # but the raw answer must still be evicted so an immediate
-                    # caller-driven retry reaches the provider instead of
-                    # replaying the same unusable array from cache.
-                    self._discard_cached_completion(
-                        cache_key, purpose=purpose, artifact_id=artifact_id
-                    )
-                    raise
-            return items
-        raise last_error  # pragma: no cover - unreachable, satisfies static analysis
+        return items
 
     def _complete_json_object(
         self,
@@ -1885,28 +1911,18 @@ class AiDerivationService(ServiceBase):
         grounds: a response the flow cannot parse must not be replayed from the
         cache for the rest of the TTL.
 
-        On :class:`LlmResponseError` the call is retried up to *max_retries*
-        times (default 1) with cache eviction before each retry (issue #652).
-
         Raises:
             LlmResponseError: The response was not a JSON object.
         """
-        last_error: Optional[LlmResponseError] = None
-        for attempt in range(max_retries + 1):
-            raw, cache_key = self._complete(
-                prompt, purpose=purpose, artifact_id=artifact_id, context=context
-            )
-            try:
-                return self._parse_json_object(raw)
-            except LlmResponseError as exc:
-                last_error = exc
-                self._discard_cached_completion(
-                    cache_key, purpose=purpose, artifact_id=artifact_id
-                )
-                if attempt < max_retries:
-                    continue
-                raise
-        raise last_error  # pragma: no cover - unreachable, satisfies static analysis
+        obj, _cache_key = self._complete_retrying(
+            prompt,
+            purpose=purpose,
+            artifact_id=artifact_id,
+            context=context,
+            max_retries=max_retries,
+            parse=self._parse_json_object,
+        )
+        return obj
 
     def _discard_cached_completion(
         self, cache_key: Optional[str], *, purpose: str, artifact_id: UUID | str

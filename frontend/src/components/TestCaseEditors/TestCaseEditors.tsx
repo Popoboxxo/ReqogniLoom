@@ -142,7 +142,8 @@ export default function TestCaseEditors(): JSX.Element {
         title={t('nav.testCases')}
         summary={t('testcases.summary', { count: items.length })}
         primaryAction={{
-          label: `+ ${newTestCaseLabel}`,
+          label: newTestCaseLabel,
+          prefixWithPlus: true,
           onClick: openCreateDialog,
           testId: 'create-tc-btn',
         }}

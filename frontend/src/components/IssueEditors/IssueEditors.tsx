@@ -133,7 +133,8 @@ export default function IssueEditors(): JSX.Element {
         title={t('nav.issues')}
         summary={t('issues.summary', { count: items.length })}
         primaryAction={{
-          label: `+ ${newIssueLabel}`,
+          label: newIssueLabel,
+          prefixWithPlus: true,
           onClick: openCreateDialog,
           testId: 'create-issue-btn',
         }}

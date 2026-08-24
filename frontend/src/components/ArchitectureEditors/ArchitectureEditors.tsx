@@ -800,8 +800,8 @@ export default function ArchitectureEditors(): JSX.Element {
           title={t("nav.architecture")}
           summary={archSummary}
           primaryAction={{
-            // ch. 14.2: name the result, not the gesture.
-            label: `+ ${t("arch.newElement")}`,
+            label: t("arch.newElement"),
+            prefixWithPlus: true,
             onClick: () => setShowCreateForm(true),
             disabled: showCreateForm,
             testId: "create-arch-btn",

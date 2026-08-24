@@ -136,7 +136,8 @@ export default function AdrEditors(): JSX.Element {
         title={t('nav.adrs')}
         summary={t('adrs.summary', { count: items.length })}
         primaryAction={{
-          label: `+ ${newAdrLabel}`,
+          label: newAdrLabel,
+          prefixWithPlus: true,
           onClick: openCreateDialog,
           testId: 'create-adr-btn',
         }}

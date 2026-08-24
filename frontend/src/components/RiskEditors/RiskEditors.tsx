@@ -133,7 +133,8 @@ export default function RiskEditors(): JSX.Element {
         title={t('nav.risks')}
         summary={t('risks.summary', { count: items.length })}
         primaryAction={{
-          label: `+ ${newRiskLabel}`,
+          label: newRiskLabel,
+          prefixWithPlus: true,
           onClick: openCreateDialog,
           testId: 'create-risk-btn',
         }}

@@ -223,7 +223,8 @@ export function UserManagement(): JSX.Element {
         title={t("settings.userManagement.title")}
         summary={t("settings.userManagement.summary", { count: users.length })}
         primaryAction={{
-          label: `+ ${t("users.newUser")}`,
+          label: t("users.newUser"),
+          prefixWithPlus: true,
           onClick: () => {
             resetCreateForm();
             setShowCreateDialog(true);
