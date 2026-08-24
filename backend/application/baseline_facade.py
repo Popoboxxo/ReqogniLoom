@@ -115,9 +115,14 @@ class BaselineFacade(ServiceBase):
         # IF-AS-INT-006: scope gate via PresetPolicyService
         self._check_scope_allowed(str(ws_id), scope)
 
-        doc_id: Optional[UUID] = (
-            UUID(str(document_id)) if document_id is not None else None
-        )
+        try:
+            doc_id: Optional[UUID] = (
+                UUID(str(document_id)) if document_id is not None else None
+            )
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValidationError(
+                "Baseline cannot be created: document_id is not a valid UUID."
+            ) from exc
 
         # GH-715: scope="document" requires a root artifact to resolve the
         # subtree against (see baseline.services.resolve_scope_item_ids). This
