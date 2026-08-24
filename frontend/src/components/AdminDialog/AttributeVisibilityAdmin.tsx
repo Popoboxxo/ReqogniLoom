@@ -336,7 +336,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
             fontWeight: 600,
           }}
         >
-          {t('admin.entityType', 'Entity Type')}
+          {t('admin.entityTypeLabel', 'Entity Type')}
         </label>
         <select
           id="entity-type-select"

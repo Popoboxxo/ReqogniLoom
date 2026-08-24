@@ -231,7 +231,16 @@
     "attributeVisibility": "Attribute Configuration",
     "attributeVisibilityDescription": "Configure which fields are visible and required in artifact editors.",
     "attributeVisibilityEmpty": "No attribute visibility rules configured yet. Defaults apply until you save a configuration.",
-    "entityType": "Entity Type",
+    "entityTypeLabel": "Entity Type",
+    "entityType": {
+      "requirement": "Requirement",
+      "architectureElement": "Architecture Element",
+      "testCase": "Test Case",
+      "stakeholderNeed": "Stakeholder Need",
+      "adr": "ADR",
+      "risk": "Risk",
+      "issue": "Issue"
+    },
     "visibleFields": "Fields",
     "visible": "Visible",
     "required": "Required",

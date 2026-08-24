@@ -45,6 +45,17 @@ const EXPORT_ENTITY_TYPES: ExportEntityType[] = [
   "ArchitectureElement",
 ];
 
+/**
+ * Maps raw entity-type enum values to i18n translation keys under
+ * `admin.entityType.*`. Falls back to the raw value for unknown types.
+ */
+const ENTITY_TYPE_LABEL_KEYS: Record<string, string> = {
+  Requirement: "admin.entityType.requirement",
+  ArchitectureElement: "admin.entityType.architectureElement",
+  TestCase: "admin.entityType.testCase",
+  StakeholderNeed: "admin.entityType.stakeholderNeed",
+};
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -258,7 +269,7 @@ export function CsvImport(): JSX.Element {
                 onChange={() => setEntityType(type)}
                 data-testid={`entity-type-${type}`}
               />
-              {type}
+              {t(ENTITY_TYPE_LABEL_KEYS[type] ?? type)}
             </label>
           ))}
         </div>
@@ -525,7 +536,7 @@ export function CsvImport(): JSX.Element {
                 onChange={() => setExportEntityType(type)}
                 data-testid={`export-entity-type-${type}`}
               />
-              {type}
+              {t(ENTITY_TYPE_LABEL_KEYS[type] ?? type)}
             </label>
           ))}
         </div>

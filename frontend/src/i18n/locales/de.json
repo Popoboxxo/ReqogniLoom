@@ -231,7 +231,16 @@
     "attributeVisibility": "Attributkonfiguration",
     "attributeVisibilityDescription": "Konfigurieren Sie, welche Felder in den Editoren sichtbar und welche Pflichtfelder sind.",
     "attributeVisibilityEmpty": "Es sind noch keine Attribut-Sichtbarkeitsregeln konfiguriert. Bis zum Speichern einer Konfiguration gelten die Standardwerte.",
-    "entityType": "Entitätstyp",
+    "entityTypeLabel": "Entitätstyp",
+    "entityType": {
+      "requirement": "Anforderung",
+      "architectureElement": "Architekturelement",
+      "testCase": "Testfall",
+      "stakeholderNeed": "Stakeholder-Bedarf",
+      "adr": "ADR",
+      "risk": "Risiko",
+      "issue": "Issue"
+    },
     "visibleFields": "Felder",
     "visible": "Sichtbar",
     "required": "Pflicht",
