@@ -2350,8 +2350,9 @@ class InterviewSessionArtifact(TenantScopedModel):
 
     A real FK to ``Artifact`` (not a loose UUID) — ``Artifact`` is the shared
     base row for every artifact subtype (models.py:680), so one FK covers
-    all 9 in-scope types without a per-type join table, matching the
-    project's existing FK-join-table style (see ``TestRunResult``).
+    all 8 in-scope types plus explicit GlossaryTerm rejection without a
+    per-type join table, matching the project's existing FK-join-table style
+    (see ``TestRunResult``).
     """
 
     session = models.ForeignKey(

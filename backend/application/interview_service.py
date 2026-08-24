@@ -45,6 +45,57 @@ GROUNDING_RANK_PROMPT_TEMPLATE_NAME = "interview.grounding_rank"
 _DIAGRAM_REF_LINK_TYPE = "diagram-ref"
 
 
+def _validate_confirmed_proposal(confirmed_proposal: "list[dict]") -> None:
+    """Structure-validate a multi-mode proposal (pre-transaction, fail fast).
+
+    Every item must be a dict with ``type: str`` and ``fields: dict``; every
+    link (if present) must be a dict with ``from: int`` / ``to: int``
+    (indices into the proposal item list) plus ``type: str``. Anything else
+    raises ValidationError BEFORE transaction.atomic() opens, so malformed
+    caller input can never abort an already half-applied batch.
+    """
+    for index, item in enumerate(confirmed_proposal):
+        if not isinstance(item, dict):
+            raise ValidationError(
+                f"proposal item #{index} must be a dict, got {type(item).__name__}"
+            )
+        item_type = item.get("type")
+        if not isinstance(item_type, str):
+            raise ValidationError(
+                f"proposal item #{index}: 'type' must be a string, got {item_type!r}"
+            )
+        if not isinstance(item.get("fields"), dict):
+            raise ValidationError(
+                f"proposal item {item_type!r} must carry a 'fields' dict"
+            )
+        for link_index, link in enumerate(item.get("links", [])):
+            if not isinstance(link, dict):
+                raise ValidationError(
+                    f"proposal item {item_type!r}, link #{link_index} must be a dict"
+                )
+            for endpoint in ("from", "to"):
+                value = link.get(endpoint)
+                # bool is an int subclass -- True/False must not pass as
+                # link endpoints via created_refs[True] indexing.
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise ValidationError(
+                        f"proposal item {item_type!r}, link #{link_index}: "
+                        f"'{endpoint}' must be an int index into the proposal items, "
+                        f"got {value!r}"
+                    )
+                if not 0 <= value < len(confirmed_proposal):
+                    raise ValidationError(
+                        f"proposal item {item_type!r}, link #{link_index}: "
+                        f"'{endpoint}' index {value} is out of range "
+                        f"(0..{len(confirmed_proposal) - 1})"
+                    )
+            if not isinstance(link.get("type"), str):
+                raise ValidationError(
+                    f"proposal item {item_type!r}, link #{link_index}: "
+                    f"'type' must be a string, got {link.get('type')!r}"
+                )
+
+
 class InterviewService(ServiceBase):
     @atomic_transaction
     def start(
@@ -780,6 +831,9 @@ class InterviewService(ServiceBase):
         if not confirmed_proposal:
             raise ValidationError("confirmed_proposal is required for a multi-mode interview")
 
+        # Fail fast on malformed caller input BEFORE the transaction opens.
+        _validate_confirmed_proposal(confirmed_proposal)
+
         for item in confirmed_proposal:
             for link in item.get("links", []):
                 if link.get("type") == _DIAGRAM_REF_LINK_TYPE:
@@ -797,7 +851,16 @@ class InterviewService(ServiceBase):
                 adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
                 if adapter is None:
                     raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
-                ref = adapter(item["fields"], ctx, session.workspace_id)
+                try:
+                    ref = adapter(item["fields"], ctx, session.workspace_id)
+                except KeyError as exc:
+                    # Required-field gaps (e.g. Risk without probability/impact)
+                    # surface as a clear ValidationError instead of a bare
+                    # KeyError; raised INSIDE the atomic block, so rollback
+                    # semantics are unchanged -- the whole batch reverts.
+                    raise ValidationError(
+                        f"missing required field for {item['type']!r}: {exc}"
+                    ) from exc
                 InterviewSessionArtifact.objects.create(
                     session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
                 )
@@ -815,7 +878,10 @@ class InterviewService(ServiceBase):
                     )
 
             session.status = InterviewSession.STATUS_COMPLETED
-            session.save(update_fields=["status"])
+            # Same optimistic-concurrency bump as _formalize_single: the
+            # status write must not silently overwrite a concurrent edit.
+            session.version = F("version") + 1
+            session.save(update_fields=["status", "modified_at", "version"])
 
         return {
             "created": [

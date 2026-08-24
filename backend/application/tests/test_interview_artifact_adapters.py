@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from application.base import ValidationError  # noqa: F401 -- guard: base errors exist
+from application.base import ValidationError
 from application.interview_artifact_adapters import (
     ARTIFACT_CREATION_ADAPTERS,
     CreatedArtifactRef,
@@ -59,6 +59,76 @@ class TestArtifactCreationAdapters:
         mocked.assert_called_once_with(workspace_id="ws-1", title="G", ctx=fake_ctx)
         # "id" is the Goal version-row id; the ref must carry the Artifact PK.
         assert ref == CreatedArtifactRef(artifact_id=goal_artifact_id, artifact_type="Goal")
+
+    def test_architecture_element_adapter_normalizes_orm_object(self):
+        fake_ctx = MagicMock()
+        fake_element = MagicMock(artifact_id=uuid.uuid4())
+        with patch(
+            "application.interview_artifact_adapters."
+            "ArchitectureService.create_architecture_element",
+            return_value=fake_element,
+        ) as mocked:
+            ref = ARTIFACT_CREATION_ADAPTERS["ArchitectureElement"](
+                {"name": "Sensor Unit"}, fake_ctx, "ws-1"
+            )
+        mocked.assert_called_once_with(workspace_id="ws-1", ctx=fake_ctx, name="Sensor Unit")
+        assert ref == CreatedArtifactRef(
+            artifact_id=fake_element.artifact_id, artifact_type="ArchitectureElement"
+        )
+
+    def test_test_case_adapter_normalizes_orm_object(self):
+        fake_ctx = MagicMock()
+        fake_case = MagicMock(artifact_id=uuid.uuid4())
+        with patch(
+            "application.interview_artifact_adapters.TestService.create_test_case",
+            return_value=fake_case,
+        ) as mocked:
+            ref = ARTIFACT_CREATION_ADAPTERS["TestCase"]({"title": "TC-1"}, fake_ctx, "ws-1")
+        mocked.assert_called_once_with(workspace_id="ws-1", ctx=fake_ctx, title="TC-1")
+        assert ref == CreatedArtifactRef(
+            artifact_id=fake_case.artifact_id, artifact_type="TestCase"
+        )
+
+    def test_adr_adapter_normalizes_orm_object(self):
+        fake_ctx = MagicMock()
+        fake_adr = MagicMock(artifact_id=uuid.uuid4())
+        with patch(
+            "application.interview_artifact_adapters.AdrService.create_adr",
+            return_value=fake_adr,
+        ) as mocked:
+            ref = ARTIFACT_CREATION_ADAPTERS["Adr"](
+                {"title": "ADR-1", "description": "Why"}, fake_ctx, "ws-1"
+            )
+        # title/description are explicit kwargs on AdrService.create_adr --
+        # the call must not duplicate them through **fields.
+        mocked.assert_called_once_with(
+            workspace_id="ws-1", title="ADR-1", description="Why", ctx=fake_ctx
+        )
+        assert ref == CreatedArtifactRef(artifact_id=fake_adr.artifact_id, artifact_type="Adr")
+
+    def test_issue_adapter_normalizes_orm_object(self):
+        fake_ctx = MagicMock()
+        fake_issue = MagicMock(artifact_id=uuid.uuid4())
+        with patch(
+            "application.interview_artifact_adapters.IssueService.create_issue",
+            return_value=fake_issue,
+        ) as mocked:
+            ref = ARTIFACT_CREATION_ADAPTERS["Issue"]({"title": "BUG-1"}, fake_ctx, "ws-1")
+        mocked.assert_called_once_with(workspace_id="ws-1", ctx=fake_ctx, title="BUG-1")
+        assert ref == CreatedArtifactRef(
+            artifact_id=fake_issue.artifact_id, artifact_type="Issue"
+        )
+
+    def test_glossary_term_adapter_rejects_even_for_editor(self):
+        # The rejection is type-based, NOT role-based: even a fully
+        # privileged editor ctx must hit the explicit ValidationError --
+        # GlossaryTerm has no Artifact backing row to reference.
+        fake_ctx = MagicMock()
+        with pytest.raises(ValidationError) as excinfo:
+            ARTIFACT_CREATION_ADAPTERS["GlossaryTerm"](
+                {"term": "X", "definition": "Y"}, fake_ctx, "ws-1"
+            )
+        assert "GlossaryTerm" in str(excinfo.value)
 
     def test_risk_adapter_requires_probability_and_impact(self):
         fake_ctx = MagicMock()

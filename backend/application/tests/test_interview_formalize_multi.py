@@ -168,11 +168,51 @@ class TestFormalizeMulti:
             {"type": "StakeholderNeed", "fields": {"title": "Need A"}, "links": []},
             {"type": "Requirement", "fields": {"title": "Req B"}, "links": []},
             # Risk is missing required probability/impact -> KeyError inside
-            # the adapter (intentional per interview_artifact_adapters._risk);
-            # the whole batch must roll back.
+            # the adapter (intentional per interview_artifact_adapters._risk),
+            # converted to a ValidationError at the _formalize_multi batch
+            # boundary; the whole batch must roll back either way.
             {"type": "Risk", "fields": {"title": "Risk C"}, "links": []},
         ]
-        with pytest.raises(KeyError):
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+
+        with _active(tenant):
+            assert Requirement.objects.filter(title="Req B").count() == 0
+            assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
+            session.refresh_from_db()
+            assert session.status == InterviewSession.STATUS_IN_PROGRESS
+
+    def test_rejects_item_without_fields_dict(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
+    ):
+        # Structure validation runs BEFORE the atomic block: an item without
+        # 'fields' is caller input error, not an adapter failure.
+        session = _multi_session(tenant, workspace)
+        proposal = [{"type": "StakeholderNeed"}]
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+
+        with _active(tenant):
+            assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
+            session.refresh_from_db()
+            assert session.status == InterviewSession.STATUS_IN_PROGRESS
+
+    def test_rejects_out_of_range_link_index(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
+    ):
+        # Link endpoints are indices into the proposal item list -- out-of-range
+        # values must be rejected up front as ValidationError, not surface as a
+        # bare IndexError from created_refs indexing mid-batch.
+        session = _multi_session(tenant, workspace)
+        proposal = [
+            {"type": "StakeholderNeed", "fields": {"title": "Need A"}, "links": []},
+            {
+                "type": "Requirement",
+                "fields": {"title": "Req B"},
+                "links": [{"from": 5, "to": 0, "type": "derives-from"}],
+            },
+        ]
+        with pytest.raises(ValidationError):
             InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
 
         with _active(tenant):

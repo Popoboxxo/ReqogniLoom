@@ -10,9 +10,10 @@ Contract (Task 3): ``CreatedArtifactRef.artifact_id`` is ALWAYS the
 ``InterviewSessionArtifact.artifact`` and ``TraceLink`` endpoints. Subtype
 rows (Requirement, StakeholderNeed, Risk, ...) carry their own row id next to
 the artifact FK, so adapters normalize ``obj.artifact_id``/``dto.artifact_id``
-rather than the subtype id. GlossaryTerm has no Artifact backing row yet and
-is rejected with a clear ValidationError instead of writing an unresolvable
-FK.
+rather than the subtype id. The registry therefore covers all 8 in-scope
+types plus explicit GlossaryTerm rejection: GlossaryTerm has no Artifact
+backing row yet and is rejected with a clear ValidationError instead of
+writing an unresolvable FK.
 """
 from __future__ import annotations
 
@@ -59,8 +60,10 @@ def _architecture_element(fields: dict, ctx: AuthContext, workspace_id) -> Creat
 
 def _risk(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     # probability/impact are required, no default, on RiskService.create_risk --
-    # a KeyError here on a malformed proposal is intentional and caught by
-    # InterviewService._formalize_multi() (Task 3), surfaced as a per-item error.
+    # a KeyError here on a malformed proposal has NO per-item catch: it
+    # propagates unchanged out of InterviewService._formalize_multi()'s
+    # transaction.atomic(), rolling back the ENTIRE batch (the service layer
+    # converts it to a ValidationError at the batch boundary -- Task 3).
     obj = RiskService().create_risk(
         workspace_id=workspace_id,
         title=fields["title"],
