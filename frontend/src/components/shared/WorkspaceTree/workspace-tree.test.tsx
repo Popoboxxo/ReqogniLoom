@@ -824,10 +824,13 @@ describe('WorkspaceTree — ARIA treeitem accessibility (#667)', () => {
     );
     fireEvent.click(screen.getByTestId('workspace-tree-toggle-root'));
     expect(screen.queryByText('L1 Subsystem A')).not.toBeInTheDocument();
+    onToggle.mockClear();
 
     const treeitem = screen.getAllByRole('treeitem')[0];
     fireEvent.keyDown(treeitem, { key: 'ArrowRight' });
-    expect(onToggle).toHaveBeenCalled();
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(treeitem).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument();
   });
 });
 

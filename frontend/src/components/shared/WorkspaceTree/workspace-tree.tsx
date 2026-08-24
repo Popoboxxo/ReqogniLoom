@@ -939,10 +939,12 @@ function TreeRow({
       onKeyDown={(e) => {
         if (e.key === 'ArrowRight' && hasChildren && !isExpanded) {
           e.preventDefault();
+          e.stopPropagation();
           onToggle(node.id);
         }
         if (e.key === 'ArrowLeft' && hasChildren && isExpanded) {
           e.preventDefault();
+          e.stopPropagation();
           onToggle(node.id);
         }
       }}

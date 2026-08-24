@@ -1854,7 +1854,18 @@ class AiDerivationService(ServiceBase):
                     continue
                 raise
             if require_objects:
-                items = self._usable_entries(items, purpose=purpose)
+                try:
+                    items = self._usable_entries(items, purpose=purpose)
+                except LlmResponseError:
+                    # Data-quality rejection, not a parse error — no retry
+                    # (see test_does_not_retry_on_valid_json_with_wrong_structure),
+                    # but the raw answer must still be evicted so an immediate
+                    # caller-driven retry reaches the provider instead of
+                    # replaying the same unusable array from cache.
+                    self._discard_cached_completion(
+                        cache_key, purpose=purpose, artifact_id=artifact_id
+                    )
+                    raise
             return items
         raise last_error  # pragma: no cover - unreachable, satisfies static analysis
 

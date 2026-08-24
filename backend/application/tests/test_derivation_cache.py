@@ -516,9 +516,12 @@ def test_concurrent_calls_on_shared_instance_do_not_evict_each_others_cache(
         staticmethod(_parse_json_list_with_interleaving),
     )
 
+    # max_retries=0 isolates this test from the unrelated cold-start-retry
+    # feature (issue #652): it must assert cache-key race isolation, not
+    # incidentally also pin the retry count of a different feature.
     with pytest.raises(ds.LlmResponseError):
         svc._complete_json_list(
-            "prompt-a", purpose="need_to_sysreq", artifact_id="art-a"
+            "prompt-a", purpose="need_to_sysreq", artifact_id="art-a", max_retries=0
         )
 
     # A's own unusable answer must still be evicted (issue #311 behaviour is
@@ -531,7 +534,7 @@ def test_concurrent_calls_on_shared_instance_do_not_evict_each_others_cache(
     )
     with pytest.raises(ds.LlmResponseError):
         svc._complete_json_list(
-            "prompt-a", purpose="need_to_sysreq", artifact_id="art-a"
+            "prompt-a", purpose="need_to_sysreq", artifact_id="art-a", max_retries=0
         )
     assert provider_a.calls == 2  # retried the provider, not replayed from cache
 
