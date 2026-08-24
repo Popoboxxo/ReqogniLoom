@@ -187,6 +187,11 @@ class GoalService(ServiceBase):
 
         return {
             "id": str(goal.id),
+            # Artifact backing PK (Variante A: one dedicated Artifact per Goal
+            # version). Exposed so callers that need the Artifact row -- e.g.
+            # InterviewSessionArtifact provenance / TraceLink endpoints --
+            # never have to re-derive it from the Goal row id.
+            "artifact_id": str(goal.artifact_id),
             "lineage_id": str(goal.lineage_id),
             "sequence_number": goal.sequence_number,
             "title": goal.title,

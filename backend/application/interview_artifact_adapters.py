@@ -5,11 +5,14 @@ for that type -- never a shortcut insert path. This is what keeps workflow
 state initialization (e.g. RequirementService.create_requirement() calling
 initialize_workflow_states() internally) correct for free.
 
-The 9 real service methods return 3 different shapes (ORM object with
-``.id``, a DTO with ``.id``, or a plain dict with ``["id"]``) -- CreatedArtifactRef
-normalizes all three into one uniform pair so InterviewSessionArtifact
-bookkeeping and TraceLink creation (Task 3) never need to know which shape
-a given type returned.
+Contract (Task 3): ``CreatedArtifactRef.artifact_id`` is ALWAYS the
+``persistence.Artifact`` PK -- the FK target of both
+``InterviewSessionArtifact.artifact`` and ``TraceLink`` endpoints. Subtype
+rows (Requirement, StakeholderNeed, Risk, ...) carry their own row id next to
+the artifact FK, so adapters normalize ``obj.artifact_id``/``dto.artifact_id``
+rather than the subtype id. GlossaryTerm has no Artifact backing row yet and
+is rejected with a clear ValidationError instead of writing an unresolvable
+FK.
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ from uuid import UUID
 
 from application.adr_service import AdrService
 from application.architecture_service import ArchitectureService
+from application.base import ValidationError
 from application.glossary_service import GlossaryService
 from application.goal_service import GoalService
 from application.issue_service import IssueService
@@ -31,25 +35,26 @@ from auth_tenancy.context import AuthContext
 
 @dataclass(frozen=True)
 class CreatedArtifactRef:
+    # Always the persistence.Artifact PK -- see module docstring contract.
     artifact_id: UUID
     artifact_type: str
 
 
 def _requirement(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     obj = RequirementService().create_requirement(workspace_id=workspace_id, ctx=ctx, **fields)
-    return CreatedArtifactRef(artifact_id=obj.id, artifact_type="Requirement")
+    return CreatedArtifactRef(artifact_id=obj.artifact_id, artifact_type="Requirement")
 
 
 def _stakeholder_need(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     dto = StakeholderNeedService().create(ctx=ctx, workspace_id=workspace_id, **fields)
-    return CreatedArtifactRef(artifact_id=dto.id, artifact_type="StakeholderNeed")
+    return CreatedArtifactRef(artifact_id=dto.artifact_id, artifact_type="StakeholderNeed")
 
 
 def _architecture_element(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     obj = ArchitectureService().create_architecture_element(
         workspace_id=workspace_id, ctx=ctx, **fields
     )
-    return CreatedArtifactRef(artifact_id=obj.id, artifact_type="ArchitectureElement")
+    return CreatedArtifactRef(artifact_id=obj.artifact_id, artifact_type="ArchitectureElement")
 
 
 def _risk(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
@@ -64,12 +69,12 @@ def _risk(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
         ctx=ctx,
         **{k: v for k, v in fields.items() if k not in ("title", "probability", "impact")},
     )
-    return CreatedArtifactRef(artifact_id=obj.id, artifact_type="Risk")
+    return CreatedArtifactRef(artifact_id=obj.artifact_id, artifact_type="Risk")
 
 
 def _test_case(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     obj = TestService().create_test_case(workspace_id=workspace_id, ctx=ctx, **fields)
-    return CreatedArtifactRef(artifact_id=obj.id, artifact_type="TestCase")
+    return CreatedArtifactRef(artifact_id=obj.artifact_id, artifact_type="TestCase")
 
 
 def _adr(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
@@ -81,12 +86,12 @@ def _adr(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
         ctx=ctx,
         **{k: v for k, v in fields.items() if k not in ("title", "description")},
     )
-    return CreatedArtifactRef(artifact_id=obj.id, artifact_type="Adr")
+    return CreatedArtifactRef(artifact_id=obj.artifact_id, artifact_type="Adr")
 
 
 def _issue(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     obj = IssueService().create_issue(workspace_id=workspace_id, ctx=ctx, **fields)
-    return CreatedArtifactRef(artifact_id=obj.id, artifact_type="Issue")
+    return CreatedArtifactRef(artifact_id=obj.artifact_id, artifact_type="Issue")
 
 
 def _goal(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
@@ -94,12 +99,18 @@ def _goal(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
     # Workspace.goals_enabled is False -- that exception propagates unchanged
     # through _formalize_multi()'s transaction (Task 3), rolling everything back.
     result = GoalService().create_version(workspace_id=workspace_id, ctx=ctx, **fields)
-    return CreatedArtifactRef(artifact_id=result["id"], artifact_type="Goal")
+    return CreatedArtifactRef(artifact_id=result["artifact_id"], artifact_type="Goal")
 
 
 def _glossary_term(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
-    dto = GlossaryService().create(ctx=ctx, workspace_id=workspace_id, **fields)
-    return CreatedArtifactRef(artifact_id=dto.id, artifact_type="GlossaryTerm")
+    # GlossaryTerm has NO Artifact backing row (see persistence.models.GlossaryTerm),
+    # so neither an InterviewSessionArtifact provenance row nor a TraceLink
+    # endpoint can reference it. Fail fast here rather than letting a deferred
+    # ForeignKey IntegrityError roll back the whole batch at commit time.
+    raise ValidationError(
+        "GlossaryTerm is not Artifact-backed yet and cannot be created by a "
+        "multi-artifact interview"
+    )
 
 
 ARTIFACT_CREATION_ADAPTERS: Dict[str, Callable[[dict, AuthContext, Any], CreatedArtifactRef]] = {
