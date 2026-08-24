@@ -2273,6 +2273,13 @@ class InterviewSession(TenantScopedModel):
         (STATUS_ABANDONED, "Abandoned"),
     ]
 
+    SESSION_KIND_SINGLE = "single"
+    SESSION_KIND_MULTI = "multi"
+    SESSION_KIND_CHOICES = (
+        (SESSION_KIND_SINGLE, "Single artifact type"),
+        (SESSION_KIND_MULTI, "Multi-artifact discovery"),
+    )
+
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="interview_sessions"
     )
@@ -2286,7 +2293,23 @@ class InterviewSession(TenantScopedModel):
     )
     artifact_type = models.CharField(
         max_length=64,
-        help_text="Which interview protocol applies (PascalCase, matches Artifact.artifact_type).",
+        null=True,
+        blank=True,
+        help_text=(
+            "Which interview protocol applies (PascalCase, matches "
+            "Artifact.artifact_type). NULL only for multi-artifact discovery "
+            "sessions, which are not bound to a single protocol."
+        ),
+    )
+    session_kind = models.CharField(
+        max_length=16,
+        choices=SESSION_KIND_CHOICES,
+        default=SESSION_KIND_SINGLE,
+        help_text=(
+            "Interview axis: 'single' drives one typed artifact via the "
+            "classic protocol; 'multi' lets the LLM propose several possibly "
+            "different-typed artifacts with provenance in InterviewSessionArtifact."
+        ),
     )
     status = models.CharField(
         max_length=16,
@@ -2319,6 +2342,37 @@ class InterviewSession(TenantScopedModel):
         db_table = "pl_interview_session"
         indexes = [
             models.Index(fields=["workspace", "status"], name="idx_iview_ws_status"),
+        ]
+
+
+class InterviewSessionArtifact(TenantScopedModel):
+    """Provenance join row: one artifact created by a multi-mode interview.
+
+    A real FK to ``Artifact`` (not a loose UUID) — ``Artifact`` is the shared
+    base row for every artifact subtype (models.py:680), so one FK covers
+    all 9 in-scope types without a per-type join table, matching the
+    project's existing FK-join-table style (see ``TestRunResult``).
+    """
+
+    session = models.ForeignKey(
+        InterviewSession,
+        on_delete=models.CASCADE,
+        related_name="created_artifacts",
+        help_text="Multi-mode interview session that created this artifact.",
+    )
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.CASCADE,
+        related_name="interview_provenance",
+        help_text="Artifact created by the session (any in-scope artifact_type).",
+    )
+    artifact_type = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "pl_interview_session_artifact"
+        indexes = [
+            models.Index(fields=["artifact"], name="idx_iview_artifact"),
         ]
 
 
@@ -2356,6 +2410,7 @@ __all__ = [
     "LlmSettings",
     "TokenUsageRecord",
     "InterviewSession",
+    "InterviewSessionArtifact",
     "PromptTemplate",
     "PROMPT_TEMPLATE_DEFAULTS",
     "DEFAULT_NEED_TO_SYSREQ",
