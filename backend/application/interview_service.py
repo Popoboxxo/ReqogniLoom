@@ -19,7 +19,11 @@ from django.utils import timezone
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES, get_protocol
-from persistence.models import InterviewSession, Workspace
+from persistence.models import (
+    InterviewSession,
+    InterviewSessionArtifact,
+    Workspace,
+)
 from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
@@ -35,6 +39,10 @@ ABANDONED_TTL = timedelta(days=30)
 # canonical registry AiDerivationService._get_template_content's fallback
 # chain resolves against, so the content lives there, not here.
 GROUNDING_RANK_PROMPT_TEMPLATE_NAME = "interview.grounding_rank"
+
+# Link type rejected at multi-mode proposal-parse level (Task 3): owned by
+# the diagram reconciler, never hand-authored -- see _formalize_multi.
+_DIAGRAM_REF_LINK_TYPE = "diagram-ref"
 
 
 class InterviewService(ServiceBase):
@@ -594,16 +602,30 @@ class InterviewService(ServiceBase):
         return self.get_state(ctx, session_id)
 
     @atomic_transaction
-    def formalize(self, ctx, session_id: UUID) -> "dict[str, Any]":
-        """Turn the session's collected answers into a real artifact --
+    def formalize(
+        self, ctx, session_id: UUID, confirmed_proposal: "list[dict] | None" = None
+    ) -> "dict[str, Any]":
+        """Turn the session's collected answers into real artifact(s) --
         spec §5 point 4.
 
-        Only ``Requirement`` is implemented (YAGNI, matches
-        ``_structural_candidates``): the other 7 in-scope artifact types
+        Single-kind sessions drive one typed artifact through the classic
+        protocol: only ``Requirement`` is implemented there (YAGNI, matches
+        ``_structural_candidates``); the other 8 in-scope artifact types
         raise ``ValidationError`` for now rather than being speculatively
         stubbed out, per the plan's Self-Review Notes.
 
-        If the session was grounded onto an existing artifact
+        Multi-kind sessions take a caller-confirmed ``confirmed_proposal``
+        (list of ``{"type", "fields", "links"}`` items) and create every
+        artifact in ONE transaction via ARTIFACT_CREATION_ADAPTERS, writing
+        provenance rows and proposed trace links atomically -- any failure
+        rolls back the whole batch.
+
+        The WRITE-permission check runs centrally here, BEFORE the dispatch:
+        several adapters call services that perform no WRITE check of their
+        own (e.g. GlossaryService.create), so this is the single enforcement
+        point for every type created by an interview.
+
+        If the single-mode session was grounded onto an existing artifact
         (``target_artifact_id`` set, e.g. by a future grounding-confirmation
         flow), that artifact is updated instead of creating a new one. Its
         existence is re-checked here, at write time -- spec §9: grounding
@@ -619,12 +641,24 @@ class InterviewService(ServiceBase):
         ``RequirementService.get_requirement``/``update_requirement``, which
         both take the Requirement's own id.
         """
+        self._assert_write_permission(ctx)
         session = self._get_session(ctx, session_id)
         if session.status != InterviewSession.STATUS_IN_PROGRESS:
             raise ValidationError(
                 f"InterviewSession {session_id} is {session.status}, cannot formalize."
             )
 
+        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
+            return self._formalize_multi(ctx, session, confirmed_proposal or [])
+        return self._formalize_single(ctx, session)
+
+    def _formalize_single(self, ctx, session) -> "dict[str, Any]":
+        """Single-kind path: one typed artifact from collected_fields.
+
+        Body moved verbatim from the pre-multi-mode formalize() -- behavior
+        and return shape are unchanged (single-mode regression guard:
+        test_interview_formalize_multi.py::test_single_mode_formalize_unchanged).
+        """
         if session.artifact_type != "Requirement":
             raise ValidationError(
                 f"formalize() for artifact_type={session.artifact_type!r} is not "
@@ -643,7 +677,7 @@ class InterviewService(ServiceBase):
         if missing:
             missing_names = ", ".join(f.name for f in missing)
             raise ValidationError(
-                f"InterviewSession {session_id} is not complete yet -- missing "
+                f"InterviewSession {session.id} is not complete yet -- missing "
                 f"required field(s): {missing_names}. Cannot formalize."
             )
 
@@ -662,7 +696,7 @@ class InterviewService(ServiceBase):
         title = str(session.collected_fields.get("title") or "").strip()
         if not title:
             raise ValidationError(
-                f"InterviewSession {session_id} has no non-empty 'title' in "
+                f"InterviewSession {session.id} has no non-empty 'title' in "
                 "collected_fields; cannot formalize a Requirement without a title."
             )
 
@@ -726,6 +760,70 @@ class InterviewService(ServiceBase):
             session.version = F("version") + 1
             session.save(update_fields=["status", "modified_at", "version"])
         return {"resulting_artifact_ids": resulting_ids, "status": session.status}
+
+    def _formalize_multi(self, ctx, session, confirmed_proposal: "list[dict]") -> "dict[str, Any]":
+        """Multi-kind path: create every confirmed-proposal item atomically.
+
+        Each item is created through its production service method via
+        ARTIFACT_CREATION_ADAPTERS (never a shortcut insert path, so
+        workflow state initialization etc. stays correct). Provenance rows
+        (InterviewSessionArtifact) and the proposal's trace links are written
+        inside ONE transaction.atomic() block: a failure on any item rolls
+        back the entire batch and leaves the session in_progress.
+
+        'diagram-ref' links are rejected BEFORE that block, at the
+        proposal-parse level: they are reconciler-owned
+        (diagram.traceability_connector) and would be silently deleted on
+        the next node_graph save -- creating them here can only produce
+        unexplained data loss later.
+        """
+        if not confirmed_proposal:
+            raise ValidationError("confirmed_proposal is required for a multi-mode interview")
+
+        for item in confirmed_proposal:
+            for link in item.get("links", []):
+                if link.get("type") == _DIAGRAM_REF_LINK_TYPE:
+                    raise ValidationError(
+                        "invalid link type in proposal: 'diagram-ref' is system-managed "
+                        "and cannot be created by an interview"
+                    )
+
+        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
+        from application.trace_link_service import TraceLinkService
+
+        with transaction.atomic():
+            created_refs = []
+            for item in confirmed_proposal:
+                adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
+                if adapter is None:
+                    raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
+                ref = adapter(item["fields"], ctx, session.workspace_id)
+                InterviewSessionArtifact.objects.create(
+                    session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
+                )
+                created_refs.append(ref)
+
+            for item in confirmed_proposal:
+                for link in item.get("links", []):
+                    source = created_refs[link["from"]]
+                    target = created_refs[link["to"]]
+                    TraceLinkService().create_trace_link(
+                        source_id=source.artifact_id,
+                        target_id=target.artifact_id,
+                        link_type=link["type"],
+                        ctx=ctx,
+                    )
+
+            session.status = InterviewSession.STATUS_COMPLETED
+            session.save(update_fields=["status"])
+
+        return {
+            "created": [
+                {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
+                for ref in created_refs
+            ],
+            "status": "completed",
+        }
 
     @atomic_transaction
     def abandon(self, ctx, session_id: UUID) -> "dict[str, Any]":
