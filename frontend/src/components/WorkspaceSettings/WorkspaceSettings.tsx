@@ -345,10 +345,10 @@ export default function WorkspaceSettings(): JSX.Element {
                 <button
                   data-testid="workspace-name-save"
                   onClick={() => void handleSaveName()}
-                  disabled={isSaving || name === activeWorkspace.name}
+                  disabled={isSaving || !name.trim() || name === activeWorkspace.name}
                   style={{
                     ...primaryButtonStyle,
-                    opacity: (isSaving || name === activeWorkspace.name) ? 0.5 : 1,
+                    opacity: (isSaving || !name.trim() || name === activeWorkspace.name) ? 0.5 : 1,
                   }}
                 >
                   {isSaving ? "…" : t("actions.save")}

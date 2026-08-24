@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import WorkspaceSettings from "./WorkspaceSettings";
 import { workspacesApi } from "../../api/workspaces";
@@ -173,5 +173,19 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
 
     expect(screen.getByTestId("stub-llm")).toBeInTheDocument();
     expect(screen.getByTestId("stub-prompts")).toBeInTheDocument();
+  });
+
+  it("disables the save button when the name is emptied", () => {
+    render(<WorkspaceSettings />);
+    const input = screen.getByTestId("workspace-name-input");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
+  });
+
+  it("disables the save button when the name is only whitespace", () => {
+    render(<WorkspaceSettings />);
+    const input = screen.getByTestId("workspace-name-input");
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
   });
 });
