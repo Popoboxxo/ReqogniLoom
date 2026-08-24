@@ -953,6 +953,8 @@ class InterviewService(ServiceBase):
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
         session = self._get_session(ctx, session_id)
+        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
+            return self._generate_multi_chat_turn(ctx, session, user_message)
         if session.status != InterviewSession.STATUS_IN_PROGRESS:
             raise ValidationError(f"InterviewSession {session_id} is {session.status}, cannot chat.")
 
@@ -1056,6 +1058,79 @@ class InterviewService(ServiceBase):
         session.refresh_from_db(fields=["version"])
 
         return {"reply": reply, "state": self.get_state(ctx, session_id)}
+
+    def _generate_multi_chat_turn(
+        self, ctx, session: InterviewSession, user_message: str
+    ) -> "dict[str, Any]":
+        """One free-form multi-artifact chat turn (multi-artifact plan Task 5).
+
+        Deliberately NOT ``get_state()``-backed: that helper resolves the
+        per-artifact-type protocol via ``get_protocol()``, which has no
+        answer for a multi session's ``artifact_type=None`` (it would raise
+        ProtocolValidationError). The state dict below mirrors get_state's
+        shape minus phase/missing_fields, which do not exist in multi mode.
+
+        Unlike single mode there is no per-field extraction step: the whole
+        reply is parsed as one fenced-JSON artifact proposal and stored
+        under ``grounding_snapshot["pending_proposal"]`` when it parses
+        (parse_multi_proposal already returns None for no-fence/malformed/
+        non-list payloads, so "no proposal this turn" degrades gracefully).
+        """
+        from application.interview_multi_protocol import (
+            get_multi_protocol_prompt,
+            parse_multi_proposal,
+        )
+        from llm_adapter.timeouts import resolve_timeout_seconds
+
+        provider, _provider_name, resolve_error = self._resolve_provider()
+        if provider is None:
+            # NOT fail-open -- same contract as single-mode generate_chat_turn.
+            raise ValidationError(f"No LLM provider available for interview chat: {resolve_error}")
+
+        prompt = get_multi_protocol_prompt(ctx, session.workspace_id, user_message, session.transcript)
+        timeout = resolve_timeout_seconds("interview.chat_turn")
+        try:
+            reply = provider.complete(prompt, purpose="interview.chat_turn", timeout=timeout)
+        except Exception as error:  # noqa: BLE001 -- mirror single-mode error surfacing
+            raise ValidationError(f"Interview chat LLM call failed: {error}") from error
+
+        # Multi-mode turns use role/content keys -- the shape
+        # get_multi_protocol_prompt() renders back into the next prompt.
+        # Single mode's role/text/timestamp shape never mixes in here.
+        session.transcript = [
+            *session.transcript,
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": reply},
+        ]
+        proposal = parse_multi_proposal(reply)
+        if proposal is not None:
+            session.grounding_snapshot = {
+                **session.grounding_snapshot,
+                "pending_proposal": proposal,
+            }
+        session.save(update_fields=["transcript", "grounding_snapshot"])
+
+        return {
+            "reply": reply,
+            "proposal": proposal,
+            "state": {
+                "session_id": str(session.id),
+                "status": session.status,
+                "collected_fields": session.collected_fields,
+                "grounding_snapshot": session.grounding_snapshot,
+                "transcript": session.transcript,
+            },
+        }
+
+    def propose(self, ctx, session_id: UUID) -> "Optional[list[dict]]":
+        """Return the pending multi-artifact proposal for *session_id*, or None.
+
+        Sourced from ``grounding_snapshot["pending_proposal"]`` -- written by
+        ``generate_chat_turn()`` whenever the LLM emitted a parseable
+        proposal; None until then (multi-artifact plan Task 5).
+        """
+        session = self._get_session(ctx, session_id)
+        return session.grounding_snapshot.get("pending_proposal")
 
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
         self._set_tenant_context(ctx)
