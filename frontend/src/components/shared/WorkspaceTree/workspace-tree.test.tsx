@@ -753,6 +753,48 @@ describe('WorkspaceTree — onAddChild', () => {
 // Drag & drop reparenting (user decision 2026-08-15)
 // ---------------------------------------------------------------------------
 
+describe('WorkspaceTree — ARIA treeitem accessibility (#667)', () => {
+  it('does not expose the toggle/add-child buttons as tab-focusable or in the a11y tree', () => {
+    render(
+      <WorkspaceTree
+        nodes={TREE_NODES}
+        onToggle={vi.fn()}
+        onAddChild={vi.fn()}
+        onSelect={vi.fn()}
+        showSearch={false}
+      />,
+    );
+    const toggleButton = screen.getByTestId('workspace-tree-toggle-root');
+    expect(toggleButton).toHaveAttribute('tabIndex', '-1');
+    expect(toggleButton).toHaveAttribute('aria-hidden', 'true');
+    const addChildButton = screen.getByTestId('workspace-tree-add-child-root');
+    expect(addChildButton).toHaveAttribute('tabIndex', '-1');
+    expect(addChildButton).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('expands a node via ArrowRight on the focused treeitem', async () => {
+    const onToggle = vi.fn();
+    render(
+      <WorkspaceTree
+        nodes={TREE_NODES}
+        onToggle={onToggle}
+        onSelect={vi.fn()}
+        showSearch={false}
+      />,
+    );
+    // Collapse root first (it auto-expands on mount)
+    await waitFor(() =>
+      expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('workspace-tree-toggle-root'));
+    expect(screen.queryByText('L1 Subsystem A')).not.toBeInTheDocument();
+
+    const treeitem = screen.getAllByRole('treeitem')[0];
+    fireEvent.keyDown(treeitem, { key: 'ArrowRight' });
+    expect(onToggle).toHaveBeenCalled();
+  });
+});
+
 describe('WorkspaceTree — drag & drop reparenting', () => {
   /**
    * Minimal stand-in for the browser's DataTransfer. jsdom ships no
