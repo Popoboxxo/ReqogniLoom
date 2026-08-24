@@ -13,7 +13,7 @@
  * architectureApi.get (via resolveArtifactRef).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // keys — the suite above only ever checked testids/markup and never needed
 // this, so it is a new, additive setup step for this file.
 import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules (must precede component import)
@@ -353,5 +354,53 @@ describe("AdrEditors Task 2.1 concept remodel (PageHeader / ArtifactRow / Dialog
         })
       );
     });
+  });
+});
+
+describe("AdrEditors i18n — ADR title placeholder (#658)", () => {
+  const previousLanguage = i18n.language;
+
+  afterEach(() => {
+    void i18n.changeLanguage(previousLanguage);
+  });
+
+  it("shows an ADR-appropriate placeholder, translated to German", async () => {
+    await i18n.changeLanguage("de");
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-new-title-input")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByPlaceholderText("z.B. Als Benutzer möchte ich...")
+    ).toBeInTheDocument();
+  });
+
+  it("shows an ADR-appropriate placeholder in English", async () => {
+    await i18n.changeLanguage("en");
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-new-title-input")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByPlaceholderText("e.g. As a user, I need...")
+    ).toBeInTheDocument();
   });
 });

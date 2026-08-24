@@ -539,6 +539,7 @@
   },
   "adr": {
     "titlePlaceholder": "ADR title",
+    "newTitlePlaceholder": "e.g. As a user, I need...",
     "contextPlaceholder": "What is the context / problem?",
     "decisionPlaceholder": "What is the decision and its consequences?",
     "context": "Context",

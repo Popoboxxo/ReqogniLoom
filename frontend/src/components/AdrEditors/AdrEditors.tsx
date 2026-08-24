@@ -239,7 +239,7 @@ export default function AdrEditors(): JSX.Element {
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('editor.newNeedTitle', 'e.g. As a user, I need...')}
+              placeholder={t('adr.newTitlePlaceholder')}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
