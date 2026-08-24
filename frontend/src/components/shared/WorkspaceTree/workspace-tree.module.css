@@ -40,3 +40,32 @@
   border-color: var(--color-primary);
   background: var(--color-card-active-bg);
 }
+
+/*
+ * Visual connector lines for non-root tree rows (issue #661).
+ * Vertical line from parent, horizontal stub connecting to the row content.
+ * Only applied when depth > 0 — root nodes have no parent connector.
+ */
+.treeLine {
+  position: relative;
+}
+
+.treeLine::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--tree-depth, 0) * 16px - 8px);
+  top: 0;
+  bottom: 50%;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.treeLine::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--tree-depth, 0) * 16px - 8px);
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--color-border);
+}

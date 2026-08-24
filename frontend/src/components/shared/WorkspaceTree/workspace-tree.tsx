@@ -905,7 +905,11 @@ function TreeRow({
   // already own background/border-left, and an inline rule would win over a
   // class. `outline`/`opacity` are untouched inline, so the class applies.
   const dragClassName =
-    [isDropTarget ? styles.dropTarget : '', isDragging ? styles.dragging : '']
+    [
+      depth > 0 ? styles.treeLine : '',
+      isDropTarget ? styles.dropTarget : '',
+      isDragging ? styles.dragging : '',
+    ]
       .filter(Boolean)
       .join(' ') || undefined;
 
@@ -953,6 +957,7 @@ function TreeRow({
         minHeight: '32px',
         padding: hasCustomRow ? '0 8px' : '4px 8px',
         paddingLeft: `${8 + depth * 16}px`,
+        ['--tree-depth' as string]: depth,
         borderRadius: 'var(--radius-sm)',
         cursor: 'pointer',
         userSelect: 'none',

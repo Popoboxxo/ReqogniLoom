@@ -723,6 +723,42 @@ describe('WorkspaceTree — keyboard navigation in the virtualized path', () => 
   });
 });
 
+// ---------------------------------------------------------------------------
+// Visual connector lines (issue #661)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — connector lines', () => {
+  it('renders a connector-line class on non-root tree rows', async () => {
+    renderTree({ nodes: TREE_NODES });
+    // Wait for auto-expand so children are visible
+    await waitFor(() => {
+      expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument();
+    });
+    const childRow = screen.getByTestId('workspace-tree-node-child1');
+    expect(childRow.className).toMatch(/treeLine/);
+  });
+
+  it('does not render connector-line class on root rows', () => {
+    renderTree({ nodes: TREE_NODES });
+    const rootRow = screen.getByTestId('workspace-tree-node-root');
+    expect(rootRow.className).not.toMatch(/treeLine/);
+  });
+
+  it('renders connector-line class on deeper nested rows (depth > 1)', async () => {
+    renderTree({ nodes: TREE_NODES });
+    await waitFor(() => {
+      expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument();
+    });
+    // Expand child1 to reveal grandchild (depth 2)
+    fireEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+    await waitFor(() => {
+      expect(screen.getByText('L2 Component')).toBeInTheDocument();
+    });
+    const grandchildRow = screen.getByTestId('workspace-tree-node-grandchild');
+    expect(grandchildRow.className).toMatch(/treeLine/);
+  });
+});
+
 describe('WorkspaceTree — onAddChild', () => {
   it('renders add-child button when onAddChild is provided', () => {
     renderTree({ nodes: FLAT_NODES, onAddChild: vi.fn() });
