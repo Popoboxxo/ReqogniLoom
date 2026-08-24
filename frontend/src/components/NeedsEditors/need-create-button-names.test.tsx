@@ -23,7 +23,12 @@ import { PageHeader } from "../shared/PageHeader";
 import { NeedList } from "./NeedList";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  useTranslation: () => ({
+    t: (key: string, fallback?: string) => {
+      if (key === "needs.newNeed") return "Neuer Bedarf";
+      return fallback ?? key;
+    },
+  }),
 }));
 
 function renderNeedsPage() {
@@ -32,7 +37,7 @@ function renderNeedsPage() {
       <PageHeader
         title="Bedarfe"
         primaryAction={{
-          label: "Neuer Bedarf",
+          label: "+ Neuer Bedarf",
           ariaLabel: "Bedarf-Formular öffnen",
           onClick: vi.fn(),
           testId: "create-need-btn",
@@ -79,11 +84,11 @@ describe("NeedsEditors — create-trigger accessible names (issue #678)", () => 
     ];
     expect(new Set(names).size).toBe(3);
 
-    // The header and empty-state buttons still visually read "Neuer
-    // Bedarf" for sighted users (only the accessible name is disambiguated).
-    expect(headerBtn).toHaveTextContent("Neuer Bedarf");
-    expect(emptyStateBtn).toHaveTextContent("Neuer Bedarf");
-    expect(submitBtn).toHaveTextContent("Create");
+    // The header and empty-state buttons now visually read "+ Neuer
+    // Bedarf" for sighted users (unified trigger-button pattern, #594).
+    expect(headerBtn).toHaveTextContent("+ Neuer Bedarf");
+    expect(emptyStateBtn).toHaveTextContent("+ Neuer Bedarf");
+    expect(submitBtn).toHaveTextContent("+ Neuer Bedarf");
   });
 
   it("no longer matches multiple buttons for a loose /create|erstellen/i role query", () => {

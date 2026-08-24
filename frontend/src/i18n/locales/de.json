@@ -774,7 +774,6 @@
       "computedValue": "wird vom System berechnet",
       "originCode": "Code",
       "newName": "Neue Variable",
-      "create": "Anlegen",
       "boolTrue": "Wahr",
       "boolFalse": "Falsch",
       "origin": {
@@ -1190,7 +1189,11 @@
     "active": "aktiv",
     "revoke": "Widerrufen",
     "revokeConfirm": "Diesen Token widerrufen? Clients, die ihn verwenden, verlieren sofort den Zugriff.",
-    "empty": "Noch keine Token vorhanden."
+    "empty": "Noch keine Token vorhanden.",
+    "newKeyLabel": "API-Key"
+  },
+  "users": {
+    "newUser": "Neuer Nutzer"
   },
   "sidebar": {
     "inspector": {

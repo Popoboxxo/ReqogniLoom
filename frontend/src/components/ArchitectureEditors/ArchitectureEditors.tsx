@@ -529,7 +529,7 @@ export default function ArchitectureEditors(): JSX.Element {
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
-            >{t('actions.create', 'Create')}</button>
+            >{`+ ${t("arch.newElement")}`}</button>
           </div>
         </form>
         </Dialog>
@@ -801,7 +801,7 @@ export default function ArchitectureEditors(): JSX.Element {
           summary={archSummary}
           primaryAction={{
             // ch. 14.2: name the result, not the gesture.
-            label: t("arch.newElement", "Neues Architekturelement"),
+            label: `+ ${t("arch.newElement")}`,
             onClick: () => setShowCreateForm(true),
             disabled: showCreateForm,
             testId: "create-arch-btn",

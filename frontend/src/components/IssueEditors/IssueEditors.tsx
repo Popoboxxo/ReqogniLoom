@@ -133,7 +133,7 @@ export default function IssueEditors(): JSX.Element {
         title={t('nav.issues')}
         summary={t('issues.summary', { count: items.length })}
         primaryAction={{
-          label: newIssueLabel,
+          label: `+ ${newIssueLabel}`,
           onClick: openCreateDialog,
           testId: 'create-issue-btn',
         }}
@@ -217,7 +217,7 @@ export default function IssueEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Create')}
+                {isCreating ? t('actions.saving', 'Saving...') : `+ ${t('issues.newIssue')}`}
               </button>
             </>
           }

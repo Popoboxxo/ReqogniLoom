@@ -774,7 +774,6 @@
       "computedValue": "computed by the system",
       "originCode": "Code",
       "newName": "New variable",
-      "create": "Create",
       "boolTrue": "True",
       "boolFalse": "False",
       "origin": {
@@ -1190,7 +1189,11 @@
     "active": "active",
     "revoke": "Revoke",
     "revokeConfirm": "Revoke this token? Clients using it will lose access immediately.",
-    "empty": "No tokens yet."
+    "empty": "No tokens yet.",
+    "newKeyLabel": "API Key"
+  },
+  "users": {
+    "newUser": "New User"
   },
   "sidebar": {
     "inspector": {

@@ -142,7 +142,7 @@ export default function TestCaseEditors(): JSX.Element {
         title={t('nav.testCases')}
         summary={t('testcases.summary', { count: items.length })}
         primaryAction={{
-          label: newTestCaseLabel,
+          label: `+ ${newTestCaseLabel}`,
           onClick: openCreateDialog,
           testId: 'create-tc-btn',
         }}
@@ -217,7 +217,7 @@ export default function TestCaseEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Create')}
+                {isCreating ? t('actions.saving', 'Saving...') : `+ ${t('testcases.newTestCase')}`}
               </button>
             </>
           }

@@ -164,4 +164,15 @@ describe("UserManagement", () => {
     await user.click(screen.getByTestId("user-management-toggle-admin-u2"));
     await waitFor(() => expect(usersApi.grantTenantAdmin).toHaveBeenCalledWith("u2"));
   });
+
+  it("uses the unified + New User trigger label instead of bare Erstellen", async () => {
+    render(<UserManagement />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("user-management-create-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("user-management-create-btn")).toHaveTextContent("+ Neuer Nutzer");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+  });
 });

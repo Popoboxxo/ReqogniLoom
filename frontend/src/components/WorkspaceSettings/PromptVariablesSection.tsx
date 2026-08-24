@@ -596,7 +596,7 @@ export function PromptVariablesSection({
           disabled={busyName !== null}
           style={primaryButtonStyle}
         >
-          {t("settings.promptVariables.create", "Anlegen")}
+          {t("actions.create")}
         </button>
       </div>
     </section>

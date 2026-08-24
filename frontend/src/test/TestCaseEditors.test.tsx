@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules (must precede component import)
@@ -256,5 +257,21 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
         })
       );
     });
+  });
+
+  it("uses the unified + New Test Case trigger label instead of bare Erstellen", async () => {
+    const previousLanguage = i18n.language;
+    void i18n.changeLanguage("de");
+
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-tc-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-tc-btn")).toHaveTextContent("+ Neuer Testfall");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+
+    void i18n.changeLanguage(previousLanguage);
   });
 });

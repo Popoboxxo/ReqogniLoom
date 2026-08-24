@@ -136,7 +136,7 @@ export default function AdrEditors(): JSX.Element {
         title={t('nav.adrs')}
         summary={t('adrs.summary', { count: items.length })}
         primaryAction={{
-          label: newAdrLabel,
+          label: `+ ${newAdrLabel}`,
           onClick: openCreateDialog,
           testId: 'create-adr-btn',
         }}
@@ -217,7 +217,7 @@ export default function AdrEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Create')}
+                {isCreating ? t('actions.saving', 'Saving...') : `+ ${t('adrs.newAdr')}`}
               </button>
             </>
           }

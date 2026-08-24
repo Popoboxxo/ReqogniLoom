@@ -403,4 +403,20 @@ describe("AdrEditors i18n — ADR title placeholder (#658)", () => {
       screen.getByPlaceholderText("e.g. As a user, I need...")
     ).toBeInTheDocument();
   });
+
+  it("uses the unified + New ADR trigger label instead of bare Erstellen", async () => {
+    const previousLanguage = i18n.language;
+    await i18n.changeLanguage("de");
+
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-adr-btn")).toHaveTextContent("+ Neue ADR");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+
+    void i18n.changeLanguage(previousLanguage);
+  });
 });
