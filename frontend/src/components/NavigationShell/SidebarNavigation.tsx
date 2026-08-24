@@ -444,7 +444,7 @@ export function SidebarNavigation(): JSX.Element {
       {/* Scrollable nav content — keeps the footer (below) pinned to the
           viewport bottom regardless of how many nav items are rendered
           (issue #47: footer must not scroll away with a long sidebar). */}
-      <div ref={navScrollRef} className={styles.scrollContent}>
+      <div ref={navScrollRef} className={styles.scrollContent} data-testid="sidebar-nav-scroll-content">
       {/* Logo */}
       <div className={styles.logoRow}>
         <span aria-hidden="true" className={styles.logoDot} />

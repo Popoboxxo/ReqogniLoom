@@ -7,11 +7,22 @@ import userEvent from "@testing-library/user-event";
 
 import { PromptVariablesSection } from "../components/WorkspaceSettings/PromptVariablesSection";
 import type { PromptVariableState } from "../api/prompt-variables";
+import { resolveLocaleKey } from "./i18n-test-helpers";
 
-vi.mock("react-i18next", () => {
-  const t = (_key: string, fallback?: string): string => fallback ?? _key;
-  return { useTranslation: () => ({ t }) };
-});
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, fallback?: unknown, options?: Record<string, string>) => {
+      const fallbackStr = typeof fallback === "string" ? fallback : undefined;
+      const params = typeof fallback === "object" && fallback !== null ? (fallback as Record<string, string>) : options;
+      const resolved = resolveLocaleKey(key) ?? fallbackStr ?? key;
+      if (!params) return resolved;
+      return Object.entries(params).reduce(
+        (acc, [name, value]) => acc.replace(`{{${name}}}`, String(value)),
+        resolved
+      );
+    },
+  }),
+}));
 vi.mock("../api/client", () => ({
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : "error"),
 }));
@@ -307,5 +318,14 @@ describe("PromptVariablesSection (spec §5)", () => {
 
     const control = await screen.findByTestId("prompt-variable-enable_x-input");
     expect(control.tagName).toBe("SELECT");
+  });
+
+  it("uses actions.create (Erstellen) instead of the removed Anlegen key", async () => {
+    list.mockResolvedValue({ variables: [], count: 0, workspace_id: WORKSPACE_ID });
+    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+
+    await screen.findByTestId("prompt-variable-new-save");
+
+    expect(screen.getByTestId("prompt-variable-new-save")).toHaveTextContent("Erstellen");
   });
 });

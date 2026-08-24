@@ -25,6 +25,7 @@ import {
 } from "../../api/import";
 import { exportApi, type ExportEntityType } from "../../api/export";
 import { PageHeader } from "../shared/PageHeader";
+import { ENTITY_TYPE_I18N_KEYS } from "../../constants/entityTypeLabels";
 import styles from "./CsvImport.module.css";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,7 @@ const EXPORT_ENTITY_TYPES: ExportEntityType[] = [
   "StakeholderNeed",
   "ArchitectureElement",
 ];
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -258,7 +260,7 @@ export function CsvImport(): JSX.Element {
                 onChange={() => setEntityType(type)}
                 data-testid={`entity-type-${type}`}
               />
-              {type}
+              {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
             </label>
           ))}
         </div>
@@ -525,7 +527,7 @@ export function CsvImport(): JSX.Element {
                 onChange={() => setExportEntityType(type)}
                 data-testid={`export-entity-type-${type}`}
               />
-              {type}
+              {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
             </label>
           ))}
         </div>

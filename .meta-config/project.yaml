@@ -604,6 +604,8 @@ provider-tier-overrides:
     balanced: opencode-go/mimo-v2.5
     fast: opencode-go/mimo-v2.5
     nano: opencode-go/mimo-v2.5
+model-inherit-main-chat:
+  Opencode: true
 knowledge-engine:
   okf:
     enforce-frontmatter: true

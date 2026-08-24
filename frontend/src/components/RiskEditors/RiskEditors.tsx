@@ -134,6 +134,7 @@ export default function RiskEditors(): JSX.Element {
         summary={t('risks.summary', { count: items.length })}
         primaryAction={{
           label: newRiskLabel,
+          prefixWithPlus: true,
           onClick: openCreateDialog,
           testId: 'create-risk-btn',
         }}
@@ -216,7 +217,7 @@ export default function RiskEditors(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
               >
-                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Create')}
+                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
               </button>
             </>
           }

@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   permissionDefaultsApi,
   type EnforcementStatus,
@@ -65,14 +66,15 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-function fmtRelative(iso: string | null | undefined): string {
-  if (!iso) return "never";
+function fmtRelative(iso: string | null | undefined, neverLabel: string): string {
+  if (!iso) return neverLabel;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
 }
 
 export function EnforcementModePanel(): JSX.Element {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<EnforcementStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export function EnforcementModePanel(): JSX.Element {
   const handleRollback = useCallback(async (): Promise<void> => {
     if (
       !window.confirm(
-        "Roll back to shadow enforcement? The new permission model will stop being authoritative."
+        t("systemSettings.enforcementMode.confirmRollback")
       )
     ) {
       return;
@@ -125,7 +127,7 @@ export function EnforcementModePanel(): JSX.Element {
 
   return (
     <section style={cardStyle} data-testid="enforcement-mode-section">
-      <h3 style={headingStyle}>Enforcement Mode</h3>
+      <h3 style={headingStyle}>{t("systemSettings.enforcementMode.title")}</h3>
 
       {loading ? (
         <p style={{ color: "var(--color-text-muted)" }}>…</p>
@@ -150,24 +152,25 @@ export function EnforcementModePanel(): JSX.Element {
                     : "var(--color-text-muted)",
                 }}
               >
-                {isAuthoritative ? "Authoritative" : "Shadow"}
+                {isAuthoritative ? t("systemSettings.enforcementMode.authoritative") : t("systemSettings.enforcementMode.shadow")}
               </span>
               {status.ready_for_authoritative ? (
                 <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-success)" }}>
-                  0 pending mismatches — ready to flip
+                  {t("systemSettings.enforcementMode.zeroMismatches")}
                 </span>
               ) : (
                 <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-warning)" }}>
-                  {status.pending_mismatch_count} pending — review recommended before flipping
+                  {t("systemSettings.enforcementMode.pendingMismatches", { count: status.pending_mismatch_count })}
                 </span>
               )}
             </div>
 
             <p style={hintStyle} data-testid="enforcement-meta">
-              {status.pending_mismatch_count} mismatch
-              {status.pending_mismatch_count === 1 ? "" : "es"} in the last{" "}
-              {status.mismatch_window_days} days · last at{" "}
-              {fmtRelative(status.last_mismatch_at)}
+              {t("systemSettings.enforcementMode.meta", {
+                count: status.pending_mismatch_count,
+                days: status.mismatch_window_days,
+                lastAt: fmtRelative(status.last_mismatch_at, t("systemSettings.enforcementMode.never")),
+              })}
             </p>
             {status.advisory_note && (
               <p style={hintStyle} data-testid="enforcement-advisory">
@@ -200,7 +203,7 @@ export function EnforcementModePanel(): JSX.Element {
                     opacity: rollingBack ? 0.5 : 1,
                   }}
                 >
-                  {rollingBack ? "…" : "Roll Back to Shadow"}
+                  {rollingBack ? "…" : t("systemSettings.enforcementMode.rollbackButton")}
                 </button>
               ) : (
                 <button
@@ -209,7 +212,7 @@ export function EnforcementModePanel(): JSX.Element {
                   onClick={() => setShowFlipDialog(true)}
                   style={primaryButtonStyle}
                 >
-                  Review &amp; Flip to Authoritative
+                  {t("systemSettings.enforcementMode.flipButton")}
                 </button>
               )}
             </div>

@@ -231,7 +231,16 @@
     "attributeVisibility": "Attributkonfiguration",
     "attributeVisibilityDescription": "Konfigurieren Sie, welche Felder in den Editoren sichtbar und welche Pflichtfelder sind.",
     "attributeVisibilityEmpty": "Es sind noch keine Attribut-Sichtbarkeitsregeln konfiguriert. Bis zum Speichern einer Konfiguration gelten die Standardwerte.",
-    "entityType": "Entitätstyp",
+    "entityTypeLabel": "Entitätstyp",
+    "entityType": {
+      "requirement": "Anforderung",
+      "architectureElement": "Architekturelement",
+      "testCase": "Testfall",
+      "stakeholderNeed": "Stakeholder-Bedarf",
+      "adr": "ADR",
+      "risk": "Risiko",
+      "issue": "Issue"
+    },
     "visibleFields": "Felder",
     "visible": "Sichtbar",
     "required": "Pflicht",
@@ -539,6 +548,7 @@
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
+    "newTitlePlaceholder": "z.B. Als Benutzer möchte ich...",
     "contextPlaceholder": "Was ist der Kontext / das Problem?",
     "decisionPlaceholder": "Was ist die Entscheidung und ihre Konsequenzen?",
     "context": "Kontext",
@@ -655,6 +665,13 @@
   },
   "settings": {
     "preset": "Preset",
+    "presets": {
+      "baselines": "Baselines",
+      "changeReason": "Änderungsgrund",
+      "required": "erforderlich",
+      "optional": "optional",
+      "workflow": "Workflow"
+    },
     "terminologyProfile": "Terminologie-Profil",
     "language": "Sprache",
     "theme": "Theme",
@@ -757,7 +774,6 @@
       "computedValue": "wird vom System berechnet",
       "originCode": "Code",
       "newName": "Neue Variable",
-      "create": "Anlegen",
       "boolTrue": "Wahr",
       "boolFalse": "Falsch",
       "origin": {
@@ -1173,7 +1189,11 @@
     "active": "aktiv",
     "revoke": "Widerrufen",
     "revokeConfirm": "Diesen Token widerrufen? Clients, die ihn verwenden, verlieren sofort den Zugriff.",
-    "empty": "Noch keine Token vorhanden."
+    "empty": "Noch keine Token vorhanden.",
+    "newKeyLabel": "API-Key"
+  },
+  "users": {
+    "newUser": "Neuer Nutzer"
   },
   "sidebar": {
     "inspector": {
@@ -1607,6 +1627,30 @@
   },
   "systemSettings": {
     "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
+    "tabs": {
+      "administration": "Administration",
+      "workflowDefaults": "Workflow-Standards",
+      "permissionDefaults": "Berechtigungs-Standards"
+    },
+    "permissionDefaults": {
+      "globalMatrixTitle": "Globale Berechtigungsmatrix",
+      "globalMatrixHint": "Die tenant-weite Standard-Matrix aus Rolle→Capability, die jeder neue Workspace erbt. Speichern überträgt die Änderung auf alle Workspaces, die aktuell den Standard verwenden.",
+      "propagatedToast_one": "Änderung auf {{count}} Workspace übertragen, der aktuell den Standard verwendet.",
+      "propagatedToast_other": "Änderung auf {{count}} Workspaces übertragen, die aktuell den Standard verwenden."
+    },
+    "enforcementMode": {
+      "title": "Durchsetzungsmodus",
+      "rollbackButton": "Zurück zu Shadow wechseln",
+      "confirmRollback": "Zurück zu Shadow-Durchsetzung wechseln? Das neue Berechtigungsmodell wird nicht mehr autoritativ sein.",
+      "flipButton": "Prüfen & zu Autoritativ wechseln",
+      "authoritative": "Autoritativ",
+      "shadow": "Shadow",
+      "zeroMismatches": "0 ausstehende Abweichungen — bereit zum Umschalten",
+      "pendingMismatches": "{{count}} ausstehend — Prüfung vor dem Umschalten empfohlen",
+      "meta_one": "{{count}} Abweichung in den letzten {{days}} Tagen · zuletzt am {{lastAt}}",
+      "meta_other": "{{count}} Abweichungen in den letzten {{days}} Tagen · zuletzt am {{lastAt}}",
+      "never": "nie"
+    },
     "enforcementFlip": {
       "title": "Wechsel zu autoritativer Durchsetzung",
       "loadingCount": "Aktuelle Anzahl ausstehender Abweichungen wird geladen…",
@@ -1635,6 +1679,17 @@
       "suspend": "Sperren",
       "reactivate": "Reaktivieren",
       "lastAdminError": "Aktion nicht möglich: {{scope}} {{identifier}} hätte keinen aktiven Admin mehr."
+    }
+  },
+  "permissionMatrix": {
+    "roleColumn": "Rolle",
+    "capability": {
+      "read": "Lesen",
+      "write": "Schreiben",
+      "workflow_transition": "Übergang",
+      "workflow_approval": "Freigabe",
+      "workspace_config": "Konfig",
+      "assign_role": "Rolle zuweisen"
     }
   },
   "interviews": {

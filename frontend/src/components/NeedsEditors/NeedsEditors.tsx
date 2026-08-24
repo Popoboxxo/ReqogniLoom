@@ -180,7 +180,8 @@ export default function NeedsEditors(): JSX.Element {
         // replaces the counter that only appeared under an active filter.
         summary={needsSummary}
         primaryAction={{
-          label: t('needs.newNeed', 'Neuer Bedarf'),
+          label: t('needs.newNeed'),
+          prefixWithPlus: true,
           // #678: distinct accessible name from the empty-state's own
           // "create" action and the create form's submit button — all three
           // can be present in the DOM at once (empty list + open form), and

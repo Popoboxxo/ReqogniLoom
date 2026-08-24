@@ -142,6 +142,8 @@ export interface WorkspaceTreeProps {
   nodes: WorkspaceTreeNode[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  /** Optional callback fired whenever a node is expanded or collapsed. */
+  onToggle?: (id: string) => void;
   /**
    * If provided, each tree row shows a small "+" button to add a child
    * under that node. Used by the Architecture view.
@@ -326,6 +328,7 @@ export function WorkspaceTree({
   onReparent,
   rootDropzoneLabel = 'Drop here to make root',
   'data-testid': testId = 'workspace-tree',
+  onToggle,
 }: WorkspaceTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState('');
@@ -387,7 +390,8 @@ export function WorkspaceTree({
       else next.add(id);
       return next;
     });
-  }, []);
+    onToggle?.(id);
+  }, [onToggle]);
 
   // REQ-091: virtualize only when opted in and the visible list is large.
   const parentRef = useRef<HTMLDivElement>(null);
@@ -901,7 +905,11 @@ function TreeRow({
   // already own background/border-left, and an inline rule would win over a
   // class. `outline`/`opacity` are untouched inline, so the class applies.
   const dragClassName =
-    [isDropTarget ? styles.dropTarget : '', isDragging ? styles.dragging : '']
+    [
+      depth > 0 ? styles.treeLine : '',
+      isDropTarget ? styles.dropTarget : '',
+      isDragging ? styles.dragging : '',
+    ]
       .filter(Boolean)
       .join(' ') || undefined;
 
@@ -928,6 +936,18 @@ function TreeRow({
         dragProps ? (e) => dragProps.onDragLeaveRow(e, node.id) : undefined
       }
       onDrop={dragProps ? (e) => dragProps.onDropRow(e, node.id) : undefined}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowRight' && hasChildren && !isExpanded) {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle(node.id);
+        }
+        if (e.key === 'ArrowLeft' && hasChildren && isExpanded) {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle(node.id);
+        }
+      }}
       onClick={() => {
         onSelect(node.id);
         onFocusRow(node.id);
@@ -939,6 +959,7 @@ function TreeRow({
         minHeight: '32px',
         padding: hasCustomRow ? '0 8px' : '4px 8px',
         paddingLeft: `${8 + depth * 16}px`,
+        ['--tree-depth' as string]: depth,
         borderRadius: 'var(--radius-sm)',
         cursor: 'pointer',
         userSelect: 'none',
@@ -978,6 +999,8 @@ function TreeRow({
           type="button"
           data-testid={`${testIdPrefix}-toggle-${node.id}`}
           aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          tabIndex={-1}
+          aria-hidden="true"
           onClick={(e) => {
             e.stopPropagation();
             onToggle(node.id);
@@ -1079,6 +1102,8 @@ function TreeRow({
           data-testid={`${testIdPrefix}-add-child-${node.id}`}
           aria-label="Add child"
           title="Add child"
+          tabIndex={-1}
+          aria-hidden="true"
           onClick={(e) => {
             e.stopPropagation();
             onAddChild(node.id);

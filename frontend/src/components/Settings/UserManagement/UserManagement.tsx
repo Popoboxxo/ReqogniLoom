@@ -223,7 +223,8 @@ export function UserManagement(): JSX.Element {
         title={t("settings.userManagement.title")}
         summary={t("settings.userManagement.summary", { count: users.length })}
         primaryAction={{
-          label: t("settings.userManagement.createUser"),
+          label: t("users.newUser"),
+          prefixWithPlus: true,
           onClick: () => {
             resetCreateForm();
             setShowCreateDialog(true);
@@ -324,7 +325,7 @@ export function UserManagement(): JSX.Element {
                 className="btn-primary"
                 disabled={isCreating || !canSubmitCreate}
               >
-                {isCreating ? t("actions.creating") : t("actions.create")}
+                {isCreating ? t("actions.creating") : t('actions.create', 'Erstellen')}
               </button>
             </div>
           }

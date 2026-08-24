@@ -723,6 +723,42 @@ describe('WorkspaceTree — keyboard navigation in the virtualized path', () => 
   });
 });
 
+// ---------------------------------------------------------------------------
+// Visual connector lines (issue #661)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — connector lines', () => {
+  it('renders a connector-line class on non-root tree rows', async () => {
+    renderTree({ nodes: TREE_NODES });
+    // Wait for auto-expand so children are visible
+    await waitFor(() => {
+      expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument();
+    });
+    const childRow = screen.getByTestId('workspace-tree-node-child1');
+    expect(childRow.className).toMatch(/treeLine/);
+  });
+
+  it('does not render connector-line class on root rows', () => {
+    renderTree({ nodes: TREE_NODES });
+    const rootRow = screen.getByTestId('workspace-tree-node-root');
+    expect(rootRow.className).not.toMatch(/treeLine/);
+  });
+
+  it('renders connector-line class on deeper nested rows (depth > 1)', async () => {
+    renderTree({ nodes: TREE_NODES });
+    await waitFor(() => {
+      expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument();
+    });
+    // Expand child1 to reveal grandchild (depth 2)
+    fireEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+    await waitFor(() => {
+      expect(screen.getByText('L2 Component')).toBeInTheDocument();
+    });
+    const grandchildRow = screen.getByTestId('workspace-tree-node-grandchild');
+    expect(grandchildRow.className).toMatch(/treeLine/);
+  });
+});
+
 describe('WorkspaceTree — onAddChild', () => {
   it('renders add-child button when onAddChild is provided', () => {
     renderTree({ nodes: FLAT_NODES, onAddChild: vi.fn() });
@@ -752,6 +788,51 @@ describe('WorkspaceTree — onAddChild', () => {
 // ---------------------------------------------------------------------------
 // Drag & drop reparenting (user decision 2026-08-15)
 // ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — ARIA treeitem accessibility (#667)', () => {
+  it('does not expose the toggle/add-child buttons as tab-focusable or in the a11y tree', () => {
+    render(
+      <WorkspaceTree
+        nodes={TREE_NODES}
+        onToggle={vi.fn()}
+        onAddChild={vi.fn()}
+        onSelect={vi.fn()}
+        showSearch={false}
+      />,
+    );
+    const toggleButton = screen.getByTestId('workspace-tree-toggle-root');
+    expect(toggleButton).toHaveAttribute('tabIndex', '-1');
+    expect(toggleButton).toHaveAttribute('aria-hidden', 'true');
+    const addChildButton = screen.getByTestId('workspace-tree-add-child-root');
+    expect(addChildButton).toHaveAttribute('tabIndex', '-1');
+    expect(addChildButton).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('expands a node via ArrowRight on the focused treeitem', async () => {
+    const onToggle = vi.fn();
+    render(
+      <WorkspaceTree
+        nodes={TREE_NODES}
+        onToggle={onToggle}
+        onSelect={vi.fn()}
+        showSearch={false}
+      />,
+    );
+    // Collapse root first (it auto-expands on mount)
+    await waitFor(() =>
+      expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('workspace-tree-toggle-root'));
+    expect(screen.queryByText('L1 Subsystem A')).not.toBeInTheDocument();
+    onToggle.mockClear();
+
+    const treeitem = screen.getAllByRole('treeitem')[0];
+    fireEvent.keyDown(treeitem, { key: 'ArrowRight' });
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(treeitem).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('L1 Subsystem A')).toBeInTheDocument();
+  });
+});
 
 describe('WorkspaceTree — drag & drop reparenting', () => {
   /**

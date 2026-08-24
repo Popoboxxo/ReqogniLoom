@@ -231,7 +231,16 @@
     "attributeVisibility": "Attribute Configuration",
     "attributeVisibilityDescription": "Configure which fields are visible and required in artifact editors.",
     "attributeVisibilityEmpty": "No attribute visibility rules configured yet. Defaults apply until you save a configuration.",
-    "entityType": "Entity Type",
+    "entityTypeLabel": "Entity Type",
+    "entityType": {
+      "requirement": "Requirement",
+      "architectureElement": "Architecture Element",
+      "testCase": "Test Case",
+      "stakeholderNeed": "Stakeholder Need",
+      "adr": "ADR",
+      "risk": "Risk",
+      "issue": "Issue"
+    },
     "visibleFields": "Fields",
     "visible": "Visible",
     "required": "Required",
@@ -539,6 +548,7 @@
   },
   "adr": {
     "titlePlaceholder": "ADR title",
+    "newTitlePlaceholder": "e.g. As a user, I need...",
     "contextPlaceholder": "What is the context / problem?",
     "decisionPlaceholder": "What is the decision and its consequences?",
     "context": "Context",
@@ -655,6 +665,13 @@
   },
   "settings": {
     "preset": "Preset",
+    "presets": {
+      "baselines": "Baselines",
+      "changeReason": "Change Reason",
+      "required": "required",
+      "optional": "optional",
+      "workflow": "Workflow"
+    },
     "terminologyProfile": "Terminology Profile",
     "language": "Language",
     "theme": "Theme",
@@ -757,7 +774,6 @@
       "computedValue": "computed by the system",
       "originCode": "Code",
       "newName": "New variable",
-      "create": "Create",
       "boolTrue": "True",
       "boolFalse": "False",
       "origin": {
@@ -1173,7 +1189,11 @@
     "active": "active",
     "revoke": "Revoke",
     "revokeConfirm": "Revoke this token? Clients using it will lose access immediately.",
-    "empty": "No tokens yet."
+    "empty": "No tokens yet.",
+    "newKeyLabel": "API Key"
+  },
+  "users": {
+    "newUser": "New User"
   },
   "sidebar": {
     "inspector": {
@@ -1607,6 +1627,30 @@
   },
   "systemSettings": {
     "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
+    "tabs": {
+      "administration": "Administration",
+      "workflowDefaults": "Workflow Defaults",
+      "permissionDefaults": "Permission Defaults"
+    },
+    "permissionDefaults": {
+      "globalMatrixTitle": "Global Permission Matrix",
+      "globalMatrixHint": "The tenant-wide default role→capability matrix that every new workspace inherits. Saving propagates into all workspaces currently on the default.",
+      "propagatedToast_one": "Change propagated to {{count}} workspace currently on default.",
+      "propagatedToast_other": "Change propagated to {{count}} workspaces currently on default."
+    },
+    "enforcementMode": {
+      "title": "Enforcement Mode",
+      "rollbackButton": "Roll Back to Shadow",
+      "confirmRollback": "Switch back to Shadow enforcement? The new permission model will stop being authoritative.",
+      "flipButton": "Review & Flip to Authoritative",
+      "authoritative": "Authoritative",
+      "shadow": "Shadow",
+      "zeroMismatches": "0 pending mismatches — ready to switch",
+      "pendingMismatches": "{{count}} pending — review before switching",
+      "meta_one": "{{count}} mismatch in the last {{days}} days · last at {{lastAt}}",
+      "meta_other": "{{count}} mismatches in the last {{days}} days · last at {{lastAt}}",
+      "never": "never"
+    },
     "enforcementFlip": {
       "title": "Flip to Authoritative Enforcement",
       "loadingCount": "Loading the current pending mismatch count…",
@@ -1635,6 +1679,17 @@
       "suspend": "Suspend",
       "reactivate": "Reactivate",
       "lastAdminError": "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left."
+    }
+  },
+  "permissionMatrix": {
+    "roleColumn": "Role",
+    "capability": {
+      "read": "Read",
+      "write": "Write",
+      "workflow_transition": "Transition",
+      "workflow_approval": "Approval",
+      "workspace_config": "Config",
+      "assign_role": "Assign Role"
     }
   },
   "interviews": {

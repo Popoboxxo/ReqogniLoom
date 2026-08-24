@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules (must precede component import)
@@ -282,5 +283,21 @@ describe("RiskEditors Task 2.2 concept remodel (PageHeader / ArtifactRow / Dialo
     expect(screen.queryByTestId("risk-create-link-button")).not.toBeInTheDocument();
     // TraceLinkPanel owns the new-link action in its own header instead.
     expect(screen.getByTestId("trace-link-panel-open-dialog")).toBeInTheDocument();
+  });
+
+  it("uses the unified + New Risk trigger label instead of bare Erstellen", async () => {
+    const previousLanguage = i18n.language;
+    void i18n.changeLanguage("de");
+
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-risk-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-risk-btn")).toHaveTextContent("+ Neues Risiko");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+
+    void i18n.changeLanguage(previousLanguage);
   });
 });

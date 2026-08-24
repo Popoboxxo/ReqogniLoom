@@ -10,9 +10,21 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { NeedList } from "./NeedList";
+import { resolveLocaleKey } from "../../test/i18n-test-helpers";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  useTranslation: () => ({
+    t: (key: string, fallback?: unknown, options?: Record<string, string>) => {
+      const fallbackStr = typeof fallback === "string" ? fallback : undefined;
+      const params = typeof fallback === "object" && fallback !== null ? (fallback as Record<string, string>) : options;
+      const resolved = resolveLocaleKey(key) ?? fallbackStr ?? key;
+      if (!params) return resolved;
+      return Object.entries(params).reduce(
+        (acc, [name, value]) => acc.replace(`{{${name}}}`, String(value)),
+        resolved
+      );
+    },
+  }),
 }));
 
 function renderList(overrides: Partial<Parameters<typeof NeedList>[0]> = {}) {
@@ -57,5 +69,12 @@ describe("NeedList — create form has description/category fields (BUG-11)", ()
 
     expect(setNewDescription).toHaveBeenCalledWith("d");
     expect(setNewCategory).toHaveBeenCalledWith("c");
+  });
+
+  it("uses the unified + New Need trigger label instead of bare Erstellen", () => {
+    renderList({ needs: [], showCreateForm: false });
+
+    expect(screen.getByTestId("need-list-empty-create")).toHaveTextContent("+ Neuer Bedarf");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
   });
 });

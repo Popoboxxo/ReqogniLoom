@@ -19,6 +19,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules
@@ -678,5 +680,26 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
     await dragElementOnto("arch-001", "arch-004");
 
     expect(architectureApi.reparent).not.toHaveBeenCalled();
+  });
+
+  it("uses the unified + New Architecture Element trigger label instead of bare Erstellen", async () => {
+    const previousLanguage = i18n.language;
+    void i18n.changeLanguage("de");
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-arch-btn")).toHaveTextContent("+ Neues Architekturelement");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+
+    void i18n.changeLanguage(previousLanguage);
   });
 });

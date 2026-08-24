@@ -13,8 +13,10 @@
  *     active. It answers "how many do we have?" up front and makes a
  *     silently truncated list noticeable.
  *  3. Exactly one filled primary action, top right, named after its
- *     *result* ("New requirement"), not the gesture ("+ New"). Everything
- *     else moves into the overflow menu — export and import are rare.
+ *     *result* ("New requirement"). Set `primaryAction.prefixWithPlus` to
+ *     additionally render the gesture ("+ New requirement") — the label
+ *     itself stays result-named either way. Everything else moves into the
+ *     overflow menu — export and import are rare.
  *
  * Backwards compatibility: `count` and `secondaryActions` are the original
  * API and still render as before, so routes outside the current pilot are
@@ -39,6 +41,12 @@ interface PageHeaderAction {
    * `getByRole` queries.
    */
   ariaLabel?: string;
+  /**
+   * Renders `label` prefixed with the "+ " gesture marker, e.g.
+   * "+ New requirement" — the CTA-button convention (issue #594). `label`
+   * itself stays result-named; only `primaryAction` honors this.
+   */
+  prefixWithPlus?: boolean;
 }
 
 interface PageHeaderCount {
@@ -197,7 +205,9 @@ export function PageHeader({
             onClick={primaryAction.onClick}
             disabled={primaryAction.disabled}
           >
-            {primaryAction.label}
+            {primaryAction.prefixWithPlus
+              ? `+ ${primaryAction.label}`
+              : primaryAction.label}
           </button>
         )}
 

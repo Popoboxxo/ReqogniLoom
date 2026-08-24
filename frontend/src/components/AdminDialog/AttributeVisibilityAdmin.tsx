@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 import type { EntityType, AttributeVisibilityConfig } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
 import { extractErrorMessage } from '../../api/client';
+import { ENTITY_TYPE_I18N_KEYS } from '../../constants/entityTypeLabels';
 
 /**
  * Available attributes per entity type.
@@ -336,7 +337,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
             fontWeight: 600,
           }}
         >
-          {t('admin.entityType', 'Entity Type')}
+          {t('admin.entityTypeLabel', 'Entity Type')}
         </label>
         <select
           id="entity-type-select"
@@ -355,25 +356,25 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
           }}
         >
           <option value="requirement">
-            {t('admin.entityType.requirement', 'Requirement')}
+            {t(ENTITY_TYPE_I18N_KEYS.Requirement, 'Requirement')}
           </option>
           <option value="stakeholder_need">
-            {t('admin.entityType.stakeholderNeed', 'Stakeholder Need')}
+            {t(ENTITY_TYPE_I18N_KEYS.StakeholderNeed, 'Stakeholder Need')}
           </option>
           <option value="architecture_element">
-            {t('admin.entityType.architectureElement', 'Architecture Element')}
+            {t(ENTITY_TYPE_I18N_KEYS.ArchitectureElement, 'Architecture Element')}
           </option>
           <option value="test_case">
-            {t('admin.entityType.testCase', 'Test Case')}
+            {t(ENTITY_TYPE_I18N_KEYS.TestCase, 'Test Case')}
           </option>
           <option value="adr">
-            {t('admin.entityType.adr', 'Architecture Decision Record')}
+            {t(ENTITY_TYPE_I18N_KEYS.Adr, 'Architecture Decision Record')}
           </option>
           <option value="risk">
-            {t('admin.entityType.risk', 'Risk')}
+            {t(ENTITY_TYPE_I18N_KEYS.Risk, 'Risk')}
           </option>
           <option value="issue">
-            {t('admin.entityType.issue', 'Issue')}
+            {t(ENTITY_TYPE_I18N_KEYS.Issue, 'Issue')}
           </option>
         </select>
       </div>

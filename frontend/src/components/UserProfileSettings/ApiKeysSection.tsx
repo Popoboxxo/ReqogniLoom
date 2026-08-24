@@ -211,7 +211,7 @@ export function ApiKeysSection(): JSX.Element {
               cursor: isCreating || !newKeyName.trim() ? "not-allowed" : "pointer",
             }}
           >
-            {isCreating ? "…" : `+ ${t("actions.create", "Create")}`}
+            {isCreating ? "…" : `+ ${t("actions.new")} ${t("apiKeys.newKeyLabel")}`}
           </button>
         </div>
       </div>
