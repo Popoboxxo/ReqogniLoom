@@ -1614,6 +1614,30 @@
   },
   "systemSettings": {
     "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
+    "tabs": {
+      "administration": "Administration",
+      "workflowDefaults": "Workflow Defaults",
+      "permissionDefaults": "Permission Defaults"
+    },
+    "permissionDefaults": {
+      "globalMatrixTitle": "Global Permission Matrix",
+      "globalMatrixHint": "The tenant-wide default role→capability matrix that every new workspace inherits. Saving propagates into all workspaces currently on the default.",
+      "propagatedToast_one": "Change propagated to {{count}} workspace currently on default.",
+      "propagatedToast_other": "Change propagated to {{count}} workspaces currently on default."
+    },
+    "enforcementMode": {
+      "title": "Enforcement Mode",
+      "rollbackButton": "Roll Back to Shadow",
+      "confirmRollback": "Switch back to Shadow enforcement? The new permission model will stop being authoritative.",
+      "flipButton": "Review & Flip to Authoritative",
+      "authoritative": "Authoritative",
+      "shadow": "Shadow",
+      "zeroMismatches": "0 pending mismatches — ready to switch",
+      "pendingMismatches": "{{count}} pending — review before switching",
+      "meta_one": "{{count}} mismatch in the last {{days}} days · last at {{lastAt}}",
+      "meta_other": "{{count}} mismatches in the last {{days}} days · last at {{lastAt}}",
+      "never": "never"
+    },
     "enforcementFlip": {
       "title": "Flip to Authoritative Enforcement",
       "loadingCount": "Loading the current pending mismatch count…",
@@ -1642,6 +1666,17 @@
       "suspend": "Suspend",
       "reactivate": "Reactivate",
       "lastAdminError": "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left."
+    }
+  },
+  "permissionMatrix": {
+    "roleColumn": "Role",
+    "capability": {
+      "read": "Read",
+      "write": "Write",
+      "workflow_transition": "Transition",
+      "workflow_approval": "Approval",
+      "workspace_config": "Config",
+      "assign_role": "Assign Role"
     }
   },
   "interviews": {

@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   permissionDefaultsApi,
   normalizeMatrix,
@@ -49,6 +50,7 @@ const hintStyle: React.CSSProperties = {
 };
 
 function GlobalPermissionMatrixCard(): JSX.Element {
+  const { t } = useTranslation();
   const [def, setDef] = useState<GlobalPermissionDefinition | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
         if (typeof updated.propagated_workspace_count === "number") {
           const n = updated.propagated_workspace_count;
           setToast(
-            `Change propagated to ${n} workspace${n === 1 ? "" : "s"} currently on default.`
+            t("systemSettings.permissionDefaults.propagatedToast", { count: n })
           );
           window.setTimeout(() => setToast(null), 3000);
         }
@@ -101,10 +103,9 @@ function GlobalPermissionMatrixCard(): JSX.Element {
 
   return (
     <section style={cardStyle} data-testid="global-permission-matrix-section">
-      <h3 style={headingStyle}>Global Permission Matrix</h3>
+      <h3 style={headingStyle}>{t("systemSettings.permissionDefaults.globalMatrixTitle")}</h3>
       <p style={hintStyle}>
-        The tenant-wide default role→capability matrix that every new workspace
-        inherits. Saving propagates into all workspaces currently on the default.
+        {t("systemSettings.permissionDefaults.globalMatrixHint")}
       </p>
       {loading ? (
         <p style={{ color: "var(--color-text-muted)" }}>…</p>

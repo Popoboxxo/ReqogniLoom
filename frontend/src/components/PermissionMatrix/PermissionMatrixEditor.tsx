@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   CAPABILITY_KEYS,
   ROLE_KEYS,
@@ -32,15 +33,6 @@ interface PermissionMatrixEditorProps {
   /** Prefix for data-testids so multiple editors on one page stay distinct. */
   testIdPrefix?: string;
 }
-
-const CAPABILITY_LABELS: Record<CapabilityKey, string> = {
-  read: "Read",
-  write: "Write",
-  workflow_transition: "Transition",
-  workflow_approval: "Approval",
-  workspace_config: "Config",
-  assign_role: "Assign Role",
-};
 
 const thStyle: React.CSSProperties = {
   textAlign: "center",
@@ -98,6 +90,7 @@ export function PermissionMatrixEditor({
   savedOk = false,
   testIdPrefix = "permission-matrix",
 }: PermissionMatrixEditorProps): JSX.Element {
+  const { t } = useTranslation();
   const normalized = useMemo(() => normalizeMatrix(value), [value]);
   const [draft, setDraft] = useState<PermissionMatrix>(normalized);
 
@@ -125,11 +118,11 @@ export function PermissionMatrixEditor({
           <thead>
             <tr>
               <th style={{ ...thStyle, textAlign: "left" }} scope="col">
-                Role
+                {t("permissionMatrix.roleColumn")}
               </th>
               {CAPABILITY_KEYS.map((cap) => (
                 <th key={cap} style={thStyle} scope="col" title={cap}>
-                  {CAPABILITY_LABELS[cap]}
+                  {t("permissionMatrix.capability." + cap)}
                 </th>
               ))}
             </tr>
@@ -192,7 +185,7 @@ export function PermissionMatrixEditor({
             marginTop: "var(--space-2)",
           }}
         >
-          Saved.
+          {t("actions.saved")}
         </p>
       )}
 
@@ -214,7 +207,7 @@ export function PermissionMatrixEditor({
             cursor: saving || !dirty ? "not-allowed" : "pointer",
           }}
         >
-          {saving ? "…" : "Save"}
+          {saving ? "…" : t("actions.save")}
         </button>
         {onCancel && (
           <button
@@ -224,7 +217,7 @@ export function PermissionMatrixEditor({
             disabled={saving}
             style={cancelButtonStyle}
           >
-            Cancel
+            {t("actions.cancel")}
           </button>
         )}
       </div>
