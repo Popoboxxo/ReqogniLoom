@@ -261,6 +261,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "interview.get_state",
         "interview.list",
         "interview.get",
+        # Multi-artifact plan Task 6: interview.propose only reads
+        # grounding_snapshot["pending_proposal"] — same read-only class as
+        # interview.get_state above.
+        "interview.propose",
         # interview.grounding_context moved to _WRITE_TOOL_PREFIXES above
         # (post-hoc fix, final-review batch) once it started making real LLM
         # calls -- no longer exempt here.

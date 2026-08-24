@@ -101,11 +101,43 @@ class InterviewService(ServiceBase):
     def start(
         self,
         ctx,
-        artifact_type: str,
+        artifact_type: "str | None",
         workspace_id: UUID,
+        session_kind: str = InterviewSession.SESSION_KIND_SINGLE,
         seed_context: "Optional[dict]" = None,
     ) -> InterviewSession:
-        if artifact_type not in IN_SCOPE_ARTIFACT_TYPES:
+        """Start an interview session (multi-artifact plan Task 6).
+
+        ``session_kind="single"`` (default) drives one typed artifact via
+        the classic per-type protocol and requires *artifact_type*;
+        ``session_kind="multi"`` starts a type-less discovery session
+        (*artifact_type* must be None) whose artifacts are proposed during
+        chat and created later by ``_formalize_multi``.
+        """
+        # Mode/shape gates first -- pure input validation that must run
+        # before anything below can mis-read a cross-kind combination
+        # (e.g. multi + a leftover artifact_type).
+        if (
+            session_kind == InterviewSession.SESSION_KIND_MULTI
+            and artifact_type is not None
+        ):
+            raise ValidationError(
+                "artifact_type must not be set for a multi-mode interview"
+            )
+        if (
+            session_kind == InterviewSession.SESSION_KIND_SINGLE
+            and not artifact_type
+        ):
+            raise ValidationError(
+                "artifact_type is required for a single-mode interview"
+            )
+        # Unchanged single-mode gate -- guarded with != MULTI so the multi
+        # branch (artifact_type=None by definition) can never reach it;
+        # for every non-multi kind this is the exact same check in the
+        # exact same position as before Task 6.
+        if session_kind != InterviewSession.SESSION_KIND_MULTI and (
+            artifact_type not in IN_SCOPE_ARTIFACT_TYPES
+        ):
             raise ValidationError(
                 f"Interviews are not available for artifact_type={artifact_type!r} "
                 f"(MainGoal stays read-only; other unknown types are unsupported)."
@@ -118,6 +150,19 @@ class InterviewService(ServiceBase):
         # handler would otherwise surface as an opaque INTERNAL_ERROR.
         if not Workspace.objects.filter(id=workspace_id).exists():
             raise NotFoundError(f"Workspace {workspace_id} not found")
+        if session_kind == InterviewSession.SESSION_KIND_MULTI:
+            # Multi-mode sessions are not bound to one artifact type: no
+            # per-type protocol applies (get_protocol has no answer for
+            # artifact_type=None), there is no single backing Artifact yet,
+            # and _formalize_multi writes the completed status directly --
+            # so no workflow init here either (same bare shape as the
+            # ORM-created multi sessions the Task 3-5 tests seed directly).
+            return InterviewSession.objects.create(
+                workspace_id=workspace_id,
+                artifact_type=None,
+                session_kind=session_kind,
+                collected_fields=(seed_context or {}),
+            )
         # Fail fast if the protocol config is missing/broken rather than
         # creating a session that can never progress past get_state.
         get_protocol(ctx, artifact_type, workspace_id)
@@ -134,6 +179,7 @@ class InterviewService(ServiceBase):
             workspace_id=workspace_id,
             artifact=artifact,
             artifact_type=artifact_type,
+            session_kind=session_kind,
             collected_fields=(seed_context or {}),
         )
         # 2026-08-20 UI-visibility fix: register with the workflow engine so

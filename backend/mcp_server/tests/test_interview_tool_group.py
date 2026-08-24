@@ -100,7 +100,13 @@ class TestInterviewToolGroup:
         assert result.data["session_id"] == str(session.id)
         assert "title" in [f["name"] for f in result.data["missing_fields"]]
         svc.start.assert_called_once_with(
-            EDITOR_CTX, "Requirement", WORKSPACE_UUID, seed_context=None
+            EDITOR_CTX,
+            "Requirement",
+            WORKSPACE_UUID,
+            # Task 6 (multi-artifact plan): the handler always forwards
+            # session_kind; absent from params it defaults to "single".
+            session_kind="single",
+            seed_context=None,
         )
         mock_audit.assert_called_once()
         call_kwargs = mock_audit.call_args.kwargs
@@ -134,6 +140,7 @@ class TestInterviewToolGroup:
             EDITOR_CTX,
             "Requirement",
             WORKSPACE_UUID,
+            session_kind="single",
             seed_context={"title": "Pre-known title"},
         )
 
