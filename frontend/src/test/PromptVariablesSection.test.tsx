@@ -7,18 +7,7 @@ import userEvent from "@testing-library/user-event";
 
 import { PromptVariablesSection } from "../components/WorkspaceSettings/PromptVariablesSection";
 import type { PromptVariableState } from "../api/prompt-variables";
-import deLocale from "../i18n/locales/de.json";
-
-function resolveLocaleKey(key: string): string | undefined {
-  const value = key
-    .split(".")
-    .reduce<unknown>(
-      (node, segment) =>
-        node && typeof node === "object" ? (node as Record<string, unknown>)[segment] : undefined,
-      deLocale
-    );
-  return typeof value === "string" ? value : undefined;
-}
+import { resolveLocaleKey } from "./i18n-test-helpers";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
