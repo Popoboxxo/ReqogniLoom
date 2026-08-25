@@ -644,26 +644,33 @@ class SearchService(ServiceBase):
         """
         hits: List[SearchHit] = []
         for entity_type in entity_types:
-            try:
-                per_workspace_hits = [
-                    cls._search_entity_type(
-                        entity_type=entity_type,
-                        tsquery_str=tsquery_str,
-                        tenant_id=tenant_id,
-                        workspace_id=ws_id,
-                        raw_query=raw_query,
+            per_workspace_hits: List[List[SearchHit]] = []
+            for ws_id in workspace_ids:
+                try:
+                    per_workspace_hits.append(
+                        cls._search_entity_type(
+                            entity_type=entity_type,
+                            tsquery_str=tsquery_str,
+                            tenant_id=tenant_id,
+                            workspace_id=ws_id,
+                            raw_query=raw_query,
+                        )
                     )
-                    for ws_id in workspace_ids
-                ]
-                hits.extend(_merge_hits(*per_workspace_hits))
-            except Exception:
-                logger.exception(
-                    "SearchService: error searching entity_type=%s query=%r "
-                    "(tenant scope)",
-                    entity_type,
-                    tsquery_str,
-                )
-                # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
+                except Exception:
+                    # A failure querying ONE accessible workspace must not
+                    # discard already-gathered hits from the OTHER accessible
+                    # workspaces for this same entity type -- REQ-L3-SEARCH-009
+                    # degrade-gracefully applies per workspace here, not per
+                    # entity type (unlike the single-workspace path in
+                    # search(), where "per type" and "per query" coincide).
+                    logger.exception(
+                        "SearchService: error searching entity_type=%s "
+                        "workspace_id=%s query=%r (tenant scope)",
+                        entity_type,
+                        ws_id,
+                        tsquery_str,
+                    )
+            hits.extend(_merge_hits(*per_workspace_hits))
         return hits
 
 
