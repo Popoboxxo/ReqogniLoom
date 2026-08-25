@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { i18n } from "../../i18n/index";

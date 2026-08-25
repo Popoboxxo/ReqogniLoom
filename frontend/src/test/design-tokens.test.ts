@@ -105,6 +105,30 @@ function collectTokenReferences(text: string, file: string): TokenReference[] {
   return references;
 }
 
+/**
+ * Structural (non-themeable) custom properties consumed via `var(--name)`
+ * in stylesheets but *set* dynamically per element through React inline
+ * styles (`style={{ ['--name']: value }}`), not via a declaration in
+ * tokens.css.
+ *
+ * These are not design tokens: they carry per-instance layout state
+ * (e.g. tree depth for connector-line geometry), vary per row/node rather
+ * than globally, and are meaningless as a themable global default. Adding
+ * them to tokens.css would create a fake token entry just to silence this
+ * test — hence this explicit, documented allow-list instead.
+ *
+ * When adding a name here:
+ *  1. Confirm the property is set inline per element (search for the name
+ *     inside a `style={{ ... }}` block) and is purely structural.
+ *  2. Reference the defining component below so the exemption is auditable.
+ */
+const STRUCTURAL_INLINE_STYLE_TOKENS: ReadonlyMap<string, string> = new Map([
+  [
+    "--tree-depth",
+    "WorkspaceTree/workspace-tree.tsx sets it per row <li> from the node depth; workspace-tree.module.css uses it to offset connector lines (var(--tree-depth, 0)).",
+  ],
+]);
+
 describe("design token existence (Task 7.1)", () => {
   it("every var(--token) reference in src/ resolves to a token defined in styles/tokens.css", () => {
     const tokensCss = readFileSync(TOKENS_FILE, "utf-8");
@@ -125,16 +149,47 @@ describe("design token existence (Task 7.1)", () => {
       }
     }
 
-    if (undefinedReferences.length > 0) {
-      const details = undefinedReferences
+    // Structural inline-style tokens are exempt only when they are NOT also
+    // accidentally defined in tokens.css — if someone adds a definition there,
+    // the global one wins and the exemption must be re-evaluated.
+    const exempt = [...STRUCTURAL_INLINE_STYLE_TOKENS.keys()].filter(
+      (name) => !definedTokens.has(name),
+    );
+    const filteredReferences = undefinedReferences.filter(
+      (ref) => !exempt.includes(ref.name),
+    );
+
+    if (filteredReferences.length > 0) {
+      const details = filteredReferences
         .map((ref) => `  ${relative(SRC_DIR, ref.file)}:${ref.line} -> ${ref.name}`)
         .join("\n");
       throw new Error(
-        `Found ${undefinedReferences.length} reference(s) to token(s) not defined in styles/tokens.css:\n${details}`,
+        `Found ${filteredReferences.length} reference(s) to token(s) not defined in styles/tokens.css:\n${details}`,
       );
     }
 
-    expect(undefinedReferences).toEqual([]);
+    expect(filteredReferences).toEqual([]);
+  });
+
+  it("every structural inline-style exemption still points at an actually-referenced token", () => {
+    // Guards against stale exemptions: if the consuming stylesheet is ever
+    // refactored away, the allow-list entry should be removed too, not left
+    // behind as dead documentation.
+    const files = collectScannableFiles(SRC_DIR);
+    const referencedNames = new Set<string>();
+    for (const file of files) {
+      const text = readFileSync(file, "utf-8");
+      for (const ref of collectTokenReferences(text, file)) {
+        referencedNames.add(ref.name);
+      }
+    }
+
+    for (const [name] of STRUCTURAL_INLINE_STYLE_TOKENS) {
+      expect(
+        referencedNames.has(name),
+        `stale exemption: '${name}' is listed in STRUCTURAL_INLINE_STYLE_TOKENS but no longer referenced anywhere in src/`,
+      ).toBe(true);
+    }
   });
 });
 
