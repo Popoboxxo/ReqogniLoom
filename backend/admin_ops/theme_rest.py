@@ -28,7 +28,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from admin_ops.models import CANONICAL_COLOR_TOKEN_KEYS, TOKEN_KEYS_VERSION, ThemePalette
+from admin_ops.models import (
+    CANONICAL_COLOR_TOKEN_KEYS,
+    MODE_DARK,
+    MODE_LIGHT,
+    TOKEN_KEYS_VERSION,
+    TenantThemeDefault,
+    ThemePalette,
+    UserThemePreference,
+)
 from admin_ops.services.theme_service import ThemeService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
@@ -197,7 +205,119 @@ class ThemePaletteExportView(APIView):
 
 
 __all__ = [
+    "TenantThemeDefaultView",
     "ThemePaletteDetailView",
     "ThemePaletteExportView",
     "ThemePaletteListView",
+    "UserThemePreferenceView",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Per-user preference + tenant-wide default (Task 4)
+# ---------------------------------------------------------------------------
+
+
+def _valid_mode(mode: Any) -> bool:
+    return mode in (MODE_DARK, MODE_LIGHT)
+
+
+class UserThemePreferenceView(APIView):
+    """``/api/v1/users/me/theme-preference/`` — GET/PUT, always scoped to the
+    authenticated caller. Any authenticated user may set their own."""
+
+    permission_classes = [HasOperationPermission]
+
+    def get(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
+        TenantContext.set_tenant(ctx.tenant_id)
+        pref = UserThemePreference.objects.filter(user_id=ctx.user_id).first()
+        return Response(
+            {
+                "palette_key": pref.palette_key if pref else None,
+                "mode": pref.mode if pref else None,
+            }
+        )
+
+    def put(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
+
+        mode = request.data.get("mode")
+        if not _valid_mode(mode):
+            return _err(
+                "VALIDATION_ERROR", lang, status.HTTP_400_BAD_REQUEST,
+                message="mode must be 'dark' or 'light'",
+            )
+        palette_key = request.data.get("palette_key")
+        if palette_key is not None and not isinstance(palette_key, str):
+            return _err(
+                "VALIDATION_ERROR", lang, status.HTTP_400_BAD_REQUEST,
+                message="palette_key must be a string or null",
+            )
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        UserThemePreference.unscoped.update_or_create(
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            defaults={"palette_key": palette_key, "mode": mode},
+        )
+        return Response({"palette_key": palette_key, "mode": mode})
+
+
+class TenantThemeDefaultView(APIView):
+    """``/api/v1/system/theme-default/`` — GET: any authenticated user.
+    PUT: System-Admin only; one row per tenant (upsert)."""
+
+    permission_classes = [HasOperationPermission]
+
+    def get(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
+        TenantContext.set_tenant(ctx.tenant_id)
+        default = TenantThemeDefault.objects.first()
+        return Response(
+            {
+                "palette_key": default.palette_key if default else "default",
+                "mode": default.mode if default else MODE_DARK,
+            }
+        )
+
+    def put(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
+        if not _is_system_admin(ctx):
+            return _err("PERMISSION_DENIED", lang, status.HTTP_403_FORBIDDEN)
+
+        mode = request.data.get("mode")
+        if not _valid_mode(mode):
+            return _err(
+                "VALIDATION_ERROR", lang, status.HTTP_400_BAD_REQUEST,
+                message="mode must be 'dark' or 'light'",
+            )
+        palette_key = request.data.get("palette_key")
+        if not isinstance(palette_key, str) or not palette_key.strip():
+            return _err(
+                "VALIDATION_ERROR", lang, status.HTTP_400_BAD_REQUEST,
+                message="palette_key is required",
+            )
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        TenantThemeDefault.unscoped.update_or_create(
+            tenant_id=ctx.tenant_id,
+            defaults={"palette_key": palette_key, "mode": mode},
+        )
+        return Response({"palette_key": palette_key, "mode": mode})
