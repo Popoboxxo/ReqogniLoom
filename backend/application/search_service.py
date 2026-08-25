@@ -260,6 +260,22 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _merge_hits(*hit_lists: List[SearchHit]) -> List[SearchHit]:
+    """Dedup ``hit_lists`` by ``hit.id``, keeping the highest relevance score.
+
+    Shared by :meth:`SearchService._search_entity_type`'s two-pass
+    (full-text + lexical) merge and :meth:`SearchService._search_multi_workspace`'s
+    per-workspace merge -- same "keyed by id, keep max score" pattern either way.
+    """
+    merged: Dict[str, SearchHit] = {}
+    for hits in hit_lists:
+        for hit in hits:
+            existing = merged.get(hit.id)
+            if existing is None or hit.relevance_score > existing.relevance_score:
+                merged[hit.id] = hit
+    return list(merged.values())
+
+
 def _rows_to_hits(rows: Any, entity_type: str) -> List[SearchHit]:
     """Map ``(id, workspace_id, title, description, score)`` rows to hits."""
     return [
@@ -447,6 +463,7 @@ class SearchService(ServiceBase):
         type_filter: Optional[List[str]] = None,
         page: int = _DEFAULT_PAGE,
         limit: int = _DEFAULT_LIMIT,
+        scope: str = "workspace",
     ) -> SearchResult:
         """Execute the search and return ranked, paginated results.
 
@@ -461,10 +478,18 @@ class SearchService(ServiceBase):
         Args:
             query: User-supplied search string.
             ctx: AuthContext (tenant + workspace isolation).
-            workspace_id: Optional workspace UUID filter.
+            workspace_id: Optional workspace UUID filter. Ignored when
+                ``scope="tenant"``.
             type_filter: Optional list of entity types to search.
             page: Page number (1-based, default 1).
             limit: Page size (default 20, max 100).
+            scope: ``"workspace"`` (default, unchanged behaviour: filters to
+                ``workspace_id`` if given, else the whole tenant with no RBAC
+                narrowing) or ``"tenant"`` (new: searches every workspace
+                ``ctx.user_id`` has an active role in, via
+                ``AuthorizationService.accessible_workspace_ids()`` --  an
+                explicit ``workspace_id`` is ignored in this mode, since
+                ``scope="tenant"`` means "all my workspaces", not one).
 
         Returns:
             SearchResult with ranked hits and pagination metadata.
@@ -501,31 +526,47 @@ class SearchService(ServiceBase):
         except Exception as exc:
             raise ValidationError(f"Failed to parse search query: {exc}") from exc
 
-        ws_uuid: Optional[UUID] = (
-            UUID(str(workspace_id)) if workspace_id is not None else None
-        )
-
-        # Execute per-type queries and merge
-        hits: List[SearchHit] = []
         tenant_id = ctx.tenant_id
+        hits: List[SearchHit] = []
 
-        for entity_type in effective_types:
-            try:
-                type_hits = self._search_entity_type(
-                    entity_type=entity_type,
-                    tsquery_str=tsquery_str,
-                    tenant_id=tenant_id,
-                    workspace_id=ws_uuid,
-                    raw_query=query,
-                )
-                hits.extend(type_hits)
-            except Exception:
-                logger.exception(
-                    "SearchService: error searching entity_type=%s query=%r",
-                    entity_type,
-                    tsquery_str,
-                )
-                # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
+        if scope == "tenant":
+            # scope="tenant" means "every workspace I'm allowed to see", so an
+            # explicit workspace_id (if one was also passed) is ignored.
+            from auth_tenancy.services.authorization import AuthorizationService
+
+            accessible_ids = AuthorizationService().accessible_workspace_ids(
+                user_id=ctx.user_id, tenant_id=tenant_id
+            )
+            hits = self._search_multi_workspace(
+                entity_types=effective_types,
+                tsquery_str=tsquery_str,
+                tenant_id=tenant_id,
+                workspace_ids=accessible_ids,
+                raw_query=query,
+            )
+        else:
+            ws_uuid: Optional[UUID] = (
+                UUID(str(workspace_id)) if workspace_id is not None else None
+            )
+
+            # Execute per-type queries and merge
+            for entity_type in effective_types:
+                try:
+                    type_hits = self._search_entity_type(
+                        entity_type=entity_type,
+                        tsquery_str=tsquery_str,
+                        tenant_id=tenant_id,
+                        workspace_id=ws_uuid,
+                        raw_query=query,
+                    )
+                    hits.extend(type_hits)
+                except Exception:
+                    logger.exception(
+                        "SearchService: error searching entity_type=%s query=%r",
+                        entity_type,
+                        tsquery_str,
+                    )
+                    # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
 
         # Sort by relevance DESC (lexical hits score >= 1.5 and therefore
         # always land above full-text hits), title ASC as a stable tiebreaker
@@ -575,15 +616,55 @@ class SearchService(ServiceBase):
         if spec is None:
             return []
 
-        merged: Dict[str, SearchHit] = {}
-        for hit in _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id):
-            merged[hit.id] = hit
-        for hit in _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id):
-            existing = merged.get(hit.id)
-            if existing is None or hit.relevance_score > existing.relevance_score:
-                merged[hit.id] = hit
+        return _merge_hits(
+            _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id),
+            _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id),
+        )
 
-        return list(merged.values())
+    @classmethod
+    def _search_multi_workspace(
+        cls,
+        entity_types: List[str],
+        tsquery_str: str,
+        tenant_id: Any,
+        workspace_ids: List[UUID],
+        raw_query: str,
+    ) -> List[SearchHit]:
+        """Search every type in ``entity_types`` across all ``workspace_ids``.
+
+        Used for ``scope="tenant"``: runs the same two-pass (full-text +
+        lexical) query :meth:`_search_entity_type` already runs for a single
+        workspace, once per accessible workspace, then merges the per-workspace
+        results with the same id-keyed/max-score dedup rule (:func:`_merge_hits`)
+        -- a proper cross-workspace merge, not just the existing two-pass merge
+        repeated in isolation per workspace.
+
+        An empty ``workspace_ids`` (caller has no accessible workspace) yields
+        no hits for any type, by construction.
+        """
+        hits: List[SearchHit] = []
+        for entity_type in entity_types:
+            try:
+                per_workspace_hits = [
+                    cls._search_entity_type(
+                        entity_type=entity_type,
+                        tsquery_str=tsquery_str,
+                        tenant_id=tenant_id,
+                        workspace_id=ws_id,
+                        raw_query=raw_query,
+                    )
+                    for ws_id in workspace_ids
+                ]
+                hits.extend(_merge_hits(*per_workspace_hits))
+            except Exception:
+                logger.exception(
+                    "SearchService: error searching entity_type=%s query=%r "
+                    "(tenant scope)",
+                    entity_type,
+                    tsquery_str,
+                )
+                # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
+        return hits
 
 
 __all__ = [

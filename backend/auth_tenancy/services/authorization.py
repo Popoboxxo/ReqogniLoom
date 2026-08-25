@@ -214,6 +214,31 @@ class AuthorizationService:
         ).values_list("role", flat=True)
         return tuple(sorted(set(assignments)))
 
+    def accessible_workspace_ids(
+        self, *, user_id: UUID, tenant_id: UUID
+    ) -> list[UUID]:
+        """Return every workspace ID in ``tenant_id`` where ``user_id`` holds
+        an active (non-suspended) role.
+
+        Used for cross-workspace search scoping (``SearchService.search``,
+        ``scope="tenant"``) so a search never surfaces artifacts from a
+        workspace the caller has no standing in.
+
+        Requires an active tenant context (the default manager is
+        tenant-scoped); ``workspace__tenant_id=tenant_id`` is an additional
+        explicit guard so the result never spans tenants even if called
+        without one.
+        """
+        return list(
+            UserRole.objects.filter(
+                user_id=user_id,
+                workspace__tenant_id=tenant_id,
+                suspended_at__isnull=True,
+            )
+            .values_list("workspace_id", flat=True)
+            .distinct()
+        )
+
     def list_workspace_members(
         self, *, caller_user_id: UUID, workspace_id: UUID
     ) -> list["WorkspaceMember"]:
