@@ -12,14 +12,28 @@ import { useMemo } from "react";
 import { ReactFlow, Background, type Edge, type Node, type NodeTypes, type EdgeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ProposalItem } from "../../api/interviews";
-import { getArtifactTypeColorVar } from "../../constants/artifactTypeColors";
 import styles from "./ProposalPreviewGraph.module.css";
+
+// Per-type border color as a plain CSS-module class (keeps the ui-ratchet
+// inline-style ratchet untouched). Unknown types fall back to .typeDefault,
+// mirroring getArtifactTypeColorVar()'s fallback token.
+const TYPE_CLASS: Record<string, string> = {
+  StakeholderNeed: styles.typeStakeholderNeed,
+  Requirement: styles.typeRequirement,
+  ArchitectureElement: styles.typeArchitectureElement,
+  Risk: styles.typeRisk,
+  TestCase: styles.typeTestCase,
+  Adr: styles.typeAdr,
+  Issue: styles.typeIssue,
+  Goal: styles.typeGoal,
+  GlossaryTerm: styles.typeGlossaryTerm,
+};
 
 // Defined at module scope -- React Flow needs a stable reference for
 // NODE_TYPES/EDGE_TYPES across renders, same reasoning as GraphCanvas.tsx.
 function ProposalNode({ data }: { data: { title: string; type: string } }) {
   return (
-    <div className={styles.node} style={{ borderColor: getArtifactTypeColorVar(data.type) }}>
+    <div className={`${styles.node} ${TYPE_CLASS[data.type] ?? styles.typeDefault}`}>
       <span className={styles.nodeType}>{data.type}</span>
       <span className={styles.nodeTitle}>{data.title}</span>
     </div>

@@ -1,6 +1,7 @@
 /* ProposalPreviewGraph — display-only interview proposal preview
- * (plan Task 10). Colors/sizes come from styles/tokens.css custom properties;
- * node border color is injected inline via getArtifactTypeColorVar(). */
+ * (plan Task 10). Colors/sizes come from styles/tokens.css custom properties.
+ * Per-type border colors are plain classes (one per artifact type) instead of
+ * an inline style — keeps the ui-ratchet inline-style ratchet untouched. */
 .container {
   height: 280px;
   width: 100%;
@@ -17,6 +18,46 @@
   flex-direction: column;
   gap: 2px;
   min-width: 140px;
+}
+
+.typeStakeholderNeed {
+  border-color: var(--color-artifacttype-stakeholderneed);
+}
+
+.typeRequirement {
+  border-color: var(--color-artifacttype-requirement);
+}
+
+.typeArchitectureElement {
+  border-color: var(--color-artifacttype-architectureelement);
+}
+
+.typeRisk {
+  border-color: var(--color-artifacttype-risk);
+}
+
+.typeTestCase {
+  border-color: var(--color-artifacttype-testcase);
+}
+
+.typeAdr {
+  border-color: var(--color-artifacttype-adr);
+}
+
+.typeIssue {
+  border-color: var(--color-artifacttype-issue);
+}
+
+.typeGoal {
+  border-color: var(--color-artifacttype-goal);
+}
+
+.typeGlossaryTerm {
+  border-color: var(--color-artifacttype-glossaryterm);
+}
+
+.typeDefault {
+  border-color: var(--color-artifacttype-default);
 }
 
 .nodeType {

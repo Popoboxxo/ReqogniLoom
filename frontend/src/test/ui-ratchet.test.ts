@@ -481,7 +481,12 @@ const HEX_LITERAL_FILE_BASELINE = 4;
 // every other CSS file (there are none left) and would still catch a real
 // leak (a second file appearing, or tokens.css's SEMANTIC blocks gaining raw
 // hex, which the primitive-only exemption above does not cover).
-const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 197;
+//
+// Multi-artifact-interview plan Task 9 (2026-08-25): +3 primitive-layer
+// entries (--palette-teal-500/-orange-500/-rose-500), same rationale as the
+// raise above — the artifact-type color ramp needs distinct families that
+// did not exist yet. Still 1 file; semantic blocks untouched.
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 200;
 const HEX_LITERAL_CSS_FILE_BASELINE = 1;
 
 // --- (c) Duplicate tree implementations ------------------------------------
