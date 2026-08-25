@@ -30,6 +30,7 @@ from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
 from application.prompt_resolver import render_template, resolve_template_content
 from application.prompt_slots import get_prompt_slots
 from auth_tenancy.context import AuthContext
+from memory.prompts import MEMORY_PROMPT_DEFAULTS
 from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db
@@ -123,6 +124,24 @@ def test_legacy_entry_point_returns_the_unmodified_body_for_architecture_decompo
         )
 
 
+def test_legacy_entry_point_returns_the_unmodified_body_for_every_memory_slot(
+    ctx_workspace,
+):
+    """Same as above for the fourth source dict (``memory.prompts``'s
+    ``memory.extract`` slot, ai-memory-and-search plan Task 5) — together
+    with the three tests above this covers every slot ``get_prompt_slots()``
+    merges, each checked against its own raw source rather than against the
+    resolver."""
+    ctx, workspace = ctx_workspace
+
+    assert MEMORY_PROMPT_DEFAULTS, "sanity: the source dict must be non-empty"
+    for name, expected_body in MEMORY_PROMPT_DEFAULTS.items():
+        assert (
+            AiDerivationService._get_template_content(ctx, name, workspace_id=workspace.id)
+            == expected_body
+        )
+
+
 def test_the_two_source_dicts_cover_every_slot_get_prompt_slots_merges(ctx_workspace):
     """Guards the tests above against silently going stale: if a future slot
     family is added to ``get_prompt_slots()`` without also being added to one
@@ -132,6 +151,7 @@ def test_the_two_source_dicts_cover_every_slot_get_prompt_slots_merges(ctx_works
         set(LEGACY_PROMPT_TEMPLATE_DEFAULTS)
         | set(INTERVIEW_PROTOCOL_DEFAULTS)
         | set(ARCH_DECOMPOSE_SOURCE_DEFAULTS)
+        | set(MEMORY_PROMPT_DEFAULTS)
     )
 
     assert set(get_prompt_slots()) == covered

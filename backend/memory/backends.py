@@ -50,11 +50,20 @@ from persistence.tenancy import TenantContext
 
 @dataclass
 class MemoryEntryRef:
-    """Backend-agnostic view of a persisted memory entry."""
+    """Backend-agnostic view of a persisted memory entry.
+
+    ``distance`` is the backend's similarity metric to whatever query
+    produced this ref (e.g. cosine distance for :meth:`MemoryBackend.query`;
+    lower = more similar), or ``None`` when the ref was not produced by a
+    similarity query (``upsert``/``list_recent``/``forget``) or the backend
+    does not expose one. Optional and defaulted for backward compatibility
+    with existing callers/tests that construct a ``MemoryEntryRef`` directly.
+    """
 
     entry_id: UUID
     content: str
     confidence: float = 1.0
+    distance: Optional[float] = None
 
 
 class MemoryBackend(ABC):
@@ -187,7 +196,10 @@ class PgvectorMemoryBackend(MemoryBackend):
                 .order_by("distance")[:top_k]
             )
             return [
-                MemoryEntryRef(entry_id=e.id, content=e.content, confidence=e.confidence) for e in qs
+                MemoryEntryRef(
+                    entry_id=e.id, content=e.content, confidence=e.confidence, distance=e.distance
+                )
+                for e in qs
             ]
 
     def list_recent(

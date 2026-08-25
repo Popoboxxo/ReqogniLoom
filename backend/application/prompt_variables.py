@@ -150,6 +150,10 @@ PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
     "element_title": _data(
         "element_title", "Title of the architecture element being decomposed."
     ),
+    "interaction_text": _data(
+        "interaction_text",
+        "Raw interview interaction text to extract durable memory facts from.",
+    ),
     # --- config (data-driven, admin-editable) ------------------------------
     "max_breadth": _config(
         "max_breadth",
