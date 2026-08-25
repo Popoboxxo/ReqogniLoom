@@ -59,6 +59,41 @@ def _state_dict(ctx: Any, session_id: UUID) -> "dict[str, Any]":
     return result
 
 
+def _started_session_state(ctx: Any, session: Any) -> "dict[str, Any]":
+    """State payload for a freshly started interview session (REST create()).
+
+    Multi-kind sessions deliberately bypass InterviewService.get_state():
+    it resolves the per-artifact-type protocol via get_protocol(), which
+    has no answer for a multi session's ``artifact_type=None``
+    (ProtocolValidationError -- proven in multi-artifact plan Tasks 5/6,
+    and ProtocolValidationError is not in _SERVICE_EXCEPTIONS, so the
+    unguarded _state_dict() call in create() would surface as a 500).
+    Same decision as the MCP facade's InterviewToolGroup
+    ._started_session_state (Task 6): inline state mirroring
+    InterviewService._generate_multi_chat_turn's shape minus phase/
+    missing_fields, which do not exist in multi mode. Single-kind
+    sessions keep the unchanged _state_dict()/get_state() path.
+
+    Key-naming note: unlike the MCP handler this helper already emits the
+    REST-facade "id" key (not "session_id"), matching the _state_dict()
+    normalisation every other action in this ViewSet answers with.
+    """
+    # Literal, not persistence.models.InterviewSession.SESSION_KIND_MULTI:
+    # this view module is guarded by test_architecture.py's
+    # no-model-import ratchet (interview_views.py is not allowlisted), and
+    # "multi" is the stable DB-choice value InterviewSession.SESSION_KIND_MULTI
+    # stores -- same literal the REST callers send as session_kind.
+    if session.session_kind == "multi":
+        return {
+            "id": str(session.id),
+            "status": session.status,
+            "collected_fields": session.collected_fields,
+            "grounding_snapshot": session.grounding_snapshot,
+            "transcript": session.transcript,
+        }
+    return _state_dict(ctx, session.id)
+
+
 class InterviewViewSet(viewsets.ViewSet):
     """ViewSet for /api/v1/interviews/ -- start/list/get/state/answer/grounding/formalize/chat.
 
@@ -77,8 +112,13 @@ class InterviewViewSet(viewsets.ViewSet):
             return error
         try:
             ctx = get_auth_context(request)
-            session = InterviewService().start(ctx, request.data.get("artifact_type"), workspace_id)
-            result = _state_dict(ctx, session.id)
+            session = InterviewService().start(
+                ctx,
+                request.data.get("artifact_type"),
+                workspace_id,
+                session_kind=request.data.get("session_kind", "single"),
+            )
+            result = _started_session_state(ctx, session)
         except _SERVICE_EXCEPTIONS as exc:
             return _service_error_response(exc, lang)
         return Response(result, status=status.HTTP_201_CREATED)
@@ -156,17 +196,36 @@ class InterviewViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=["post"], url_path="formalize")
     def formalize(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """POST /api/v1/interviews/{id}/formalize/ -- create/update the target artifact."""
+        """POST /api/v1/interviews/{id}/formalize/ -- create/update the target artifact.
+
+        Multi-kind sessions take a caller-confirmed ``confirmed_proposal``
+        (list of proposal items) -- ignored by single-mode sessions, whose
+        artifacts come from the protocol's collected_fields instead.
+        """
         lang = detect_lang(request)
         session_id, error = parse_uuid_param(pk, lang, name="id")
         if error is not None:
             return error
         try:
             ctx = get_auth_context(request)
-            result = InterviewService().formalize(ctx, session_id)
+            result = InterviewService().formalize(ctx, session_id, request.data.get("confirmed_proposal"))
         except _SERVICE_EXCEPTIONS as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="propose")
+    def propose(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/interviews/{id}/propose/ -- current pending multi-artifact proposal, if any."""
+        lang = detect_lang(request)
+        session_id, error = parse_uuid_param(pk, lang, name="id")
+        if error is not None:
+            return error
+        try:
+            ctx = get_auth_context(request)
+            proposal = InterviewService().propose(ctx, session_id)
+        except _SERVICE_EXCEPTIONS as exc:
+            return _service_error_response(exc, lang)
+        return Response({"proposal": proposal})
 
     @action(detail=True, methods=["post"], url_path="abandon")
     def abandon(self, request: Request, pk: str, **kwargs: Any) -> Response:
