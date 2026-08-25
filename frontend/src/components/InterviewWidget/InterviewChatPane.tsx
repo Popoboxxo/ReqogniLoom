@@ -14,12 +14,14 @@
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import {
   interviewsApi,
   type InterviewState,
   type MultiFormalizeResult,
   type ProposalItem,
 } from "../../api/interviews";
+import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { Spinner } from "../shared/Spinner/Spinner";
 import { ProposalPreviewGraph } from "./ProposalPreviewGraph";
 import styles from "./InterviewChatPane.module.css";
@@ -59,6 +61,10 @@ export function InterviewChatPane({
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  // Double-submit guard for the proposal confirm button (same pattern as
+  // `sending`): a second click while formalize() is in flight must not fire
+  // a second POST.
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<ProposalItem[] | null>(null);
   const [createdArtifacts, setCreatedArtifacts] = useState<CreatedArtifactRef[] | null>(null);
@@ -101,7 +107,8 @@ export function InterviewChatPane({
   };
 
   const confirmProposal = async (): Promise<void> => {
-    if (!pendingProposal) return;
+    if (!pendingProposal || creating) return;
+    setCreating(true);
     setError(null);
     try {
       // Declared return type predates multi-mode; at runtime a multi-kind
@@ -115,6 +122,8 @@ export function InterviewChatPane({
       onFormalized?.(result.created);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create artifacts.");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -131,26 +140,32 @@ export function InterviewChatPane({
         ))}
       </div>
       {pendingProposal && !createdArtifacts && (
-        <div className="interview-proposal-card">
+        <div className={styles.proposalCard}>
           <h3>{t("interview.multi.proposalHeading")}</h3>
           <ProposalPreviewGraph proposal={pendingProposal} />
           <button
             type="button"
             data-testid="interview-multi-confirm"
             onClick={() => void confirmProposal()}
+            disabled={creating}
+            aria-busy={creating}
           >
-            {t("interview.multi.confirm")}
+            {creating ? <Spinner label={t("interview.multi.confirm")} /> : t("interview.multi.confirm")}
           </button>
         </div>
       )}
       {createdArtifacts && (
-        <div data-testid="interview-multi-result" className="interview-result-summary">
+        <div data-testid="interview-multi-result" className={styles.resultSummary}>
           <h3>{t("interview.multi.resultHeading")}</h3>
           <ul>
             {createdArtifacts.map((ref) => (
               <li key={ref.artifact_id}>
-                <span className="badge">{ref.artifact_type}</span>
-                <a href={`/artifacts/${ref.artifact_id}`}>{ref.artifact_id}</a>
+                <span className={styles.createdBadge} title={t("interview.multi.createdBadge")}>
+                  {ref.artifact_type}
+                </span>
+                <Link to={getArtifactRoute(ref.artifact_type, ref.artifact_id)}>
+                  {ref.artifact_id}
+                </Link>
               </li>
             ))}
           </ul>
@@ -163,6 +178,7 @@ export function InterviewChatPane({
           className={styles.input}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          placeholder={t("interview.multi.chatPlaceholder")}
           disabled={sending}
         />
         <button
@@ -171,7 +187,7 @@ export function InterviewChatPane({
           onClick={() => void send()}
           disabled={sending}
         >
-          {sending ? <Spinner label="Sending" /> : "Send"}
+          {sending ? <Spinner label={t("interview.multi.send")} /> : t("interview.multi.send")}
         </button>
       </div>
     </div>

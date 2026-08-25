@@ -41,3 +41,39 @@
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
 }
+
+/* Multi-mode proposal review card and result summary. Colors/sizes come
+ * from styles/tokens.css custom properties (same convention as
+ * ProposalPreviewGraph.module.css). */
+.proposalCard,
+.resultSummary {
+  margin: 0 var(--space-2) var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.proposalCard h3,
+.resultSummary h3 {
+  margin: 0 0 var(--space-2);
+}
+
+.resultSummary ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.createdBadge {
+  display: inline-block;
+  margin-right: var(--space-2);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-subtle);
+}
