@@ -325,7 +325,8 @@ export function NeedList({
             onCreateClick
               ? [
                   {
-                    label: `+ ${t('needs.newNeed')}`,
+                    label: t('needs.newNeed'),
+                    prefixWithPlus: true,
                     // #678: same visible wording as the PageHeader's primary
                     // action (both trigger the identical create flow), but a
                     // distinct accessible name — the two buttons coexist in

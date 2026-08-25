@@ -44,6 +44,13 @@ export interface EmptyStateAction {
    * empty-state's own "create" action sharing the same visible wording.
    */
   ariaLabel?: string;
+  /**
+   * Renders `label` prefixed with the "+ " gesture marker, e.g.
+   * "+ New requirement" — the CTA-button convention (issue #594). `label`
+   * itself stays result-named; call sites must never hand-concatenate
+   * "+ " into the label string.
+   */
+  prefixWithPlus?: boolean;
 }
 
 interface EmptyStateLoadingProps {
@@ -120,7 +127,7 @@ function ActionButton({
       aria-label={action.ariaLabel}
       onClick={action.onClick}
     >
-      {action.label}
+      {action.prefixWithPlus ? `+ ${action.label}` : action.label}
     </button>
   );
 }
