@@ -194,3 +194,27 @@ describe("interviewsApi multi-mode (plan Task 8)", () => {
     expect(result.proposal).toBeNull();
   });
 });
+
+describe("interviewsApi provenance (plan Task 14)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("getProvenance() returns the creating session id", async () => {
+    mockGet.mockResolvedValue({ session_id: "s-9" });
+
+    const result = await interviewsApi.getProvenance("a-1");
+
+    expect(mockGet).toHaveBeenCalledWith("/interviews/by-artifact/a-1/");
+    expect(result.session_id).toBe("s-9");
+  });
+
+  it("getProvenance() passes through null for non-provenanced artifacts", async () => {
+    mockGet.mockResolvedValue({ session_id: null });
+
+    const result = await interviewsApi.getProvenance("a-1");
+
+    expect(mockGet).toHaveBeenCalledWith("/interviews/by-artifact/a-1/");
+    expect(result.session_id).toBeNull();
+  });
+});

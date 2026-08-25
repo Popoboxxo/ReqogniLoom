@@ -202,6 +202,17 @@ export const interviewsApi = {
     );
   },
 
+  /**
+   * Provenance lookup for one artifact (multi-artifact-interview plan
+   * Task 14): returns the id of the interview session that created the
+   * artifact, or `null` when no provenance row exists.
+   */
+  getProvenance(artifactId: UUID): Promise<{ session_id: string | null }> {
+    return apiClient.get<{ session_id: string | null }>(
+      `/interviews/by-artifact/${artifactId}/`
+    );
+  },
+
   /** Send a free-form chat message and get back the assistant's reply + updated state. */
   chat(id: UUID, message: string): Promise<{ reply: string; state: InterviewState }> {
     return apiClient.post<{ reply: string; state: InterviewState }>(
