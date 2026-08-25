@@ -46,6 +46,11 @@ from auth_tenancy.rest_workspace_members import (
 )
 from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
 from admin_ops.health_rest import SystemHealthView
+from admin_ops.theme_rest import (
+    ThemePaletteDetailView,
+    ThemePaletteExportView,
+    ThemePaletteListView,
+)
 from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
@@ -341,6 +346,26 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/banner/",
         WorkspaceBannerView.as_view(),
         name="workspace-banner",
+    ),
+    # Theme Presets.
+    # /admin/theme-palettes/  -> GET any user; POST (import) System-Admin only
+    path(
+        "admin/theme-palettes/",
+        ThemePaletteListView.as_view(),
+        name="theme-palette-list",
+    ),
+    # /admin/theme-palettes/<key>/export/  -> GET any user
+    # NOTE: export/ must precede the detail route so it is not shadowed.
+    path(
+        "admin/theme-palettes/<str:key>/export/",
+        ThemePaletteExportView.as_view(),
+        name="theme-palette-export",
+    ),
+    # /admin/theme-palettes/<key>/  -> DELETE System-Admin; system rows 403
+    path(
+        "admin/theme-palettes/<str:key>/",
+        ThemePaletteDetailView.as_view(),
+        name="theme-palette-detail",
     ),
     # User workspace preferences (REQ-L1-027) — per-user visibility overrides.
     path(
