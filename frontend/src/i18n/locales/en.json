@@ -1717,5 +1717,26 @@
       "Issue": "Interview → Issue",
       "Goal": "Interview → Goal"
     }
+  },
+  "interview": {
+    "start": {
+      "StakeholderNeed": "Stakeholder Need",
+      "Requirement": "Requirement",
+      "ArchitectureElement": "Architecture Element",
+      "Risk": "Risk",
+      "TestCase": "Test Case",
+      "Adr": "ADR",
+      "Issue": "Issue",
+      "Goal": "Goal"
+    },
+    "multiEntry": "I'm not sure yet what I need",
+    "multi": {
+      "chatPlaceholder": "Describe your problem...",
+      "send": "Send",
+      "proposalHeading": "Proposed artifacts",
+      "confirm": "Create these artifacts",
+      "resultHeading": "Created artifacts",
+      "createdBadge": "Created via interview"
+    }
   }
 }
