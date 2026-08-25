@@ -1,13 +1,13 @@
 /**
  * Interview-management web widget — chat pane (plan Task 6).
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { InterviewChatPane } from "./InterviewChatPane";
-import type { InterviewState } from "../../api/interviews";
+import { InterviewChatPane, type MultiModeInterview } from "./InterviewChatPane";
+import type { InterviewState, ProposalItem, SingleFormalizeResult } from "../../api/interviews";
 
 vi.mock("../../api/interviews", () => ({
-  interviewsApi: { chat: vi.fn() },
+  interviewsApi: { chat: vi.fn(), propose: vi.fn(), formalize: vi.fn() },
 }));
 import { interviewsApi } from "../../api/interviews";
 
@@ -63,5 +63,69 @@ describe("InterviewChatPane", () => {
 
     await screen.findByText("no provider");
     expect(input.value).toBe("hello");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-mode (plan Task 12): proposal card + result summary
+// ---------------------------------------------------------------------------
+
+describe("InterviewChatPane multi-mode", () => {
+  const proposal: ProposalItem[] = [
+    { type: "StakeholderNeed", title: "Need A", fields: { title: "Need A" }, links: [] },
+  ];
+
+  // Multi-aware state shape (see MultiModeInterview in InterviewChatPane.tsx):
+  // backend get_state() doesn't carry session_kind yet, so the pane's prop
+  // type keeps it optional.
+  function makeMultiInterview(
+    overrides: Partial<MultiModeInterview> = {}
+  ): MultiModeInterview {
+    return { ...makeInterview(), ...overrides } as MultiModeInterview;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders the proposal preview and a confirm button when a proposal is pending", async () => {
+    vi.mocked(interviewsApi.propose).mockResolvedValue({ proposal });
+    render(
+      <InterviewChatPane
+        interview={makeMultiInterview({ id: "s1", session_kind: "multi" })}
+        onStateChange={vi.fn()}
+        onFormalized={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByTestId("proposal-preview-graph")).toBeInTheDocument();
+    expect(screen.getByTestId("interview-multi-confirm")).toBeInTheDocument();
+  });
+
+  it("confirming calls formalize with the proposal and shows the result summary", async () => {
+    const onFormalized = vi.fn();
+    vi.mocked(interviewsApi.propose).mockResolvedValue({ proposal });
+    // Runtime contract (api/interviews.ts): a multi-kind formalize() responds
+    // with MultiFormalizeResult even though its declared return type predates
+    // multi-mode -- hence the cast here and inside the component.
+    vi.mocked(interviewsApi.formalize).mockResolvedValue({
+      created: [{ artifact_id: "a1", artifact_type: "StakeholderNeed" }],
+      status: "completed",
+    } as unknown as SingleFormalizeResult);
+    render(
+      <InterviewChatPane
+        interview={makeMultiInterview({ id: "s1", session_kind: "multi" })}
+        onStateChange={vi.fn()}
+        onFormalized={onFormalized}
+      />
+    );
+
+    fireEvent.click(await screen.findByTestId("interview-multi-confirm"));
+
+    expect(await screen.findByTestId("interview-multi-result")).toBeInTheDocument();
+    expect(interviewsApi.formalize).toHaveBeenCalledWith("s1", proposal);
+    expect(onFormalized).toHaveBeenCalledWith([
+      { artifact_id: "a1", artifact_type: "StakeholderNeed" },
+    ]);
   });
 });
