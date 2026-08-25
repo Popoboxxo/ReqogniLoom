@@ -22,6 +22,7 @@ import {
 } from "../../api/admin-ops";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { Dialog } from "../shared/Dialog";
+import styles from "./SystemHealthDialog.module.css";
 
 export interface SystemHealthDialogProps {
   /** Controls modal visibility. */
@@ -296,15 +297,7 @@ export function SystemHealthDialog({
                           {component.detail}
                         </span>
                       </span>
-                      <span
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "var(--space-1)",
-                          flexShrink: 0,
-                          marginLeft: "var(--space-3)",
-                        }}
-                      >
+                      <span className={styles.statusCluster}>
                         <span
                           data-testid={`system-health-status-${component.name}`}
                           style={{
@@ -329,20 +322,7 @@ export function SystemHealthDialog({
                               "systemHealth.unknownExplanation",
                               "This check cannot verify process liveness from this endpoint by design — it does not mean the component is down."
                             )}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              width: "1rem",
-                              height: "1rem",
-                              borderRadius: "50%",
-                              border: "1px solid var(--color-text-muted)",
-                              color: "var(--color-text-muted)",
-                              fontSize: "0.65rem",
-                              fontWeight: 700,
-                              lineHeight: 1,
-                              cursor: "help",
-                            }}
+                            className={styles.unknownHint}
                           >
                             ?
                           </span>
