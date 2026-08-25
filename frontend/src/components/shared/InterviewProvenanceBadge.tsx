@@ -26,9 +26,16 @@ export function InterviewProvenanceBadge({
 
   useEffect(() => {
     let cancelled = false;
-    interviewsApi.getProvenance(artifactId).then((r) => {
-      if (!cancelled) setSessionId(r.session_id);
-    });
+    interviewsApi
+      .getProvenance(artifactId)
+      .then((r) => {
+        if (!cancelled) setSessionId(r.session_id);
+      })
+      .catch(() => {
+        // Lookup failure degrades to "no provenance" -- the badge is purely
+        // informational and must never surface as an unhandled rejection.
+        if (!cancelled) setSessionId(null);
+      });
     return () => {
       cancelled = true;
     };

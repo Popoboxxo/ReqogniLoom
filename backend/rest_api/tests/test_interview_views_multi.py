@@ -56,3 +56,35 @@ class TestInterviewViewsMulti:
         response = authed_client.get(f"/api/v1/interviews/{session_id}/propose/")
         assert response.status_code == 200, response.content
         assert response.data["proposal"] is None
+
+    def test_state_on_multi_session_returns_200_not_500(self, authed_client, workspace):
+        # Review finding B1 regression: the state action used to fall through
+        # to get_protocol(artifact_type=None) -> unhandled ProtocolValidationError.
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        session_id = start_resp.data["id"]
+
+        response = authed_client.get(f"/api/v1/interviews/{session_id}/state/")
+        assert response.status_code == 200, response.content
+        assert response.data["id"] == session_id
+        assert "phase" not in response.data
+        assert "missing_fields" not in response.data
+
+    def test_answer_on_multi_session_returns_400_not_500(self, authed_client, workspace):
+        # Review finding B1 regression: field answers are single-mode only.
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        session_id = start_resp.data["id"]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "title", "value": "X"},
+            format="json",
+        )
+        assert response.status_code == 400, response.content

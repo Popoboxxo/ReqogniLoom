@@ -310,6 +310,19 @@ class InterviewService(ServiceBase):
 
     def get_state(self, ctx, session_id: UUID) -> "dict[str, Any]":
         session = self._get_session(ctx, session_id)
+        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
+            # Multi sessions have artifact_type=None: the per-type protocol
+            # resolver (get_protocol) has no answer for that and would raise
+            # ProtocolValidationError -- an unhandled 500 at every facade
+            # (review finding B1). Multi mode has no phase/missing_fields
+            # concept, so the state shape omits both keys by design.
+            return {
+                "session_id": str(session.id),
+                "status": session.status,
+                "collected_fields": session.collected_fields,
+                "grounding_snapshot": session.grounding_snapshot,
+                "transcript": session.transcript,
+            }
         phase, missing = self._current_phase_and_missing(ctx, session)
         return {
             "session_id": str(session.id),
@@ -327,6 +340,16 @@ class InterviewService(ServiceBase):
     @atomic_transaction
     def answer(self, ctx, session_id: UUID, field: str, value: Any) -> InterviewSession:
         session = self._get_session(ctx, session_id)
+        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
+            # Field-by-field answering is a single-mode protocol concept
+            # (review finding B1): without this guard the call would fall
+            # through to get_protocol(artifact_type=None) and raise an
+            # unhandled ProtocolValidationError. Multi sessions take free-
+            # form chat input instead.
+            raise ValidationError(
+                f"InterviewSession {session_id} is a multi-mode session; "
+                "field answers are not applicable -- use chat()."
+            )
         if session.status != InterviewSession.STATUS_IN_PROGRESS:
             raise ValidationError(
                 f"InterviewSession {session_id} is {session.status}, cannot answer."
@@ -924,6 +947,16 @@ class InterviewService(ServiceBase):
         from application.trace_link_service import TraceLinkService
 
         with transaction.atomic():
+            # Review finding M2: re-read the session under a row lock so two
+            # concurrent formalize() calls cannot both pass the in_progress
+            # guard above and commit duplicate batches (check-then-act race).
+            locked_session = InterviewSession.objects.select_for_update().get(pk=session.pk)
+            if locked_session.status != InterviewSession.STATUS_IN_PROGRESS:
+                raise ValidationError(
+                    f"InterviewSession {session.pk} is {locked_session.status}, cannot formalize."
+                )
+            session = locked_session
+
             created_refs = []
             for item in confirmed_proposal:
                 adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
@@ -931,13 +964,18 @@ class InterviewService(ServiceBase):
                     raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
                 try:
                     ref = adapter(item["fields"], ctx, session.workspace_id)
-                except KeyError as exc:
-                    # Required-field gaps (e.g. Risk without probability/impact)
-                    # surface as a clear ValidationError instead of a bare
-                    # KeyError; raised INSIDE the atomic block, so rollback
+                except (KeyError, TypeError) as exc:
+                    # Malformed caller input surfaces as a clear
+                    # ValidationError instead of KeyError/TypeError: missing
+                    # required fields (e.g. Risk without probability/impact)
+                    # raise KeyError, field names the target create_X()
+                    # signature does not accept raise TypeError -- both come
+                    # straight from client JSON via confirmed_proposal, so
+                    # neither may escape as an unhandled 500 (review finding
+                    # M1). Raised INSIDE the atomic block, so rollback
                     # semantics are unchanged -- the whole batch reverts.
                     raise ValidationError(
-                        f"missing required field for {item['type']!r}: {exc}"
+                        f"invalid fields for {item['type']!r} in proposal item: {exc}"
                     ) from exc
                 InterviewSessionArtifact.objects.create(
                     session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
