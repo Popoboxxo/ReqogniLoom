@@ -143,6 +143,55 @@ class BackupMetadata(AuditableModel):
         return self.status == BackupStatus.COMPLETED
 
 
+# ---------------------------------------------------------------------------
+# Theme Presets — canonical color-token vocabulary
+# ---------------------------------------------------------------------------
+
+#: The canonical set of ``--color-*`` semantic custom properties every
+#: :class:`ThemePalette` must define for BOTH modes. A palette is all-or-
+#: nothing: imports and seed data are validated against this exact set —
+#: no more, no fewer keys.
+#:
+#: Provenance: the 74 semantic tokens enumerated by the theme-presets plan
+#: (the 10 ``--color-artifacttype-*`` constants are deliberately excluded —
+#: they are theme-independent branding constants, identical in every theme
+#: block of ``tokens.css``) plus the 3 sidebar overlay tokens introduced by
+#: the sidebar hard-coded-overlay fix (``--color-nav-overlay-*``), which the
+#: plan folds into the canonical set before the seed migration is finalized.
+CANONICAL_COLOR_TOKEN_KEYS = frozenset({
+    "--color-badge-approved", "--color-badge-approved-text", "--color-badge-danger-bg",
+    "--color-badge-danger-text", "--color-badge-draft", "--color-badge-draft-text",
+    "--color-badge-info-bg", "--color-badge-info-text", "--color-badge-neutral-bg",
+    "--color-badge-neutral-text", "--color-badge-success-bg", "--color-badge-success-text",
+    "--color-badge-warning-bg", "--color-badge-warning-text", "--color-border",
+    "--color-border-hover", "--color-border-subtle", "--color-card-active-bg", "--color-danger",
+    "--color-danger-banner-bg", "--color-danger-dark", "--color-diagram-edge-default",
+    "--color-diagram-edge-dependency", "--color-diagram-edge-primary", "--color-diff-added-bg",
+    "--color-diff-added-text", "--color-diff-modified-bg", "--color-diff-modified-text",
+    "--color-diff-note-bg", "--color-diff-note-text", "--color-diff-removed-bg",
+    "--color-diff-removed-text", "--color-diff-unchanged-bg", "--color-diff-unchanged-text",
+    "--color-errorboundary-text", "--color-focus", "--color-gradient-ai-end",
+    "--color-gradient-ai-start", "--color-level-l0", "--color-level-l1", "--color-level-l3",
+    "--color-level-l4", "--color-link-hover", "--color-linktype-badge-bg",
+    "--color-linktype-badge-text", "--color-metric-critical", "--color-metric-healthy",
+    "--color-metric-neutral", "--color-metric-warning", "--color-nav-active-bg",
+    "--color-nav-badge-bg", "--color-nav-badge-text", "--color-nav-bg", "--color-nav-border",
+    "--color-nav-hover-bg", "--color-nav-text", "--color-nav-text-muted", "--color-on-primary",
+    "--color-primary", "--color-primary-dark", "--color-primary-rgb", "--color-reqtype-default",
+    "--color-reqtype-featurereq", "--color-reqtype-syreq", "--color-reqtype-usecase",
+    "--color-success", "--color-summary-failed", "--color-summary-notrun", "--color-summary-passed",
+    "--color-surface", "--color-surface-raised", "--color-text", "--color-text-muted", "--color-warning",
+    # Sidebar overlay tokens (theme-agnostic hover tints / shadows):
+    "--color-nav-overlay-hover",
+    "--color-nav-overlay-hover-border",
+    "--color-nav-overlay-shadow",
+})
+
+#: Version tag stored on every palette row so a future token-vocabulary
+#: extension can detect (and migrate) palettes written against an older set.
+TOKEN_KEYS_VERSION = "v1"
+
+
 class BannerScope(models.TextChoices):
     """Which surface a :class:`Banner` targets."""
 
@@ -225,6 +274,97 @@ class Banner(TenantScopedModel):
         return f"Banner({self.scope}, level={self.level}, enabled={self.enabled})"
 
 
+class ThemePalette(TenantScopedModel):
+    """A named color palette with a complete token set for dark AND light mode.
+
+    Theme Presets feature: replaces the flat 5-entry ``THEMES`` list in the
+    frontend with two independent axes (palette x mode). Every row carries
+    BOTH modes' full ``--color-*`` maps (exactly
+    :data:`CANONICAL_COLOR_TOKEN_KEYS` — no partial palettes); the frontend
+    applies the resolved mode's map onto ``document.documentElement`` via
+    inline custom properties at runtime.
+
+    ``is_system=True`` rows are the seeded stock palettes ("default",
+    "bauhaus", "nordic", "sepia") and are read-only at the REST layer —
+    PATCH/DELETE always answer 403, regardless of role. Custom palettes are
+    imported by System-Admins only.
+    """
+
+    key = models.CharField(max_length=64)
+    label = models.CharField(max_length=128)
+    is_system = models.BooleanField(default=False)
+    dark_tokens = models.JSONField()
+    light_tokens = models.JSONField()
+    token_keys_version = models.CharField(max_length=16, default=TOKEN_KEYS_VERSION)
+
+    class Meta:
+        db_table = "admin_ops_theme_palette"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "key"], name="uq_theme_palette_tenant_key"
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"ThemePalette({self.key}, system={self.is_system})"
+
+
+# ---------------------------------------------------------------------------
+# Theme Presets — per-user preference and tenant-wide default
+# ---------------------------------------------------------------------------
+
+MODE_DARK = "dark"
+MODE_LIGHT = "light"
+MODE_CHOICES = ((MODE_DARK, "Dark"), (MODE_LIGHT, "Light"))
+
+
+class UserThemePreference(TenantScopedModel):
+    """A user's personal theme choice: one row per user (OneToOne).
+
+    Resolution order in the frontend: user preference > tenant default >
+    built-in fallback ("default"/dark). The palette/mode pair is stored
+    denormalized as plain strings so a deleted custom palette degrades to a
+    frontend-side fallback instead of cascading anywhere.
+    """
+
+    user = models.OneToOneField(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="theme_preference",
+    )
+    palette_key = models.CharField(max_length=64)
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+
+    class Meta:
+        db_table = "admin_ops_user_theme_preference"
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"UserThemePreference(user={self.user_id}, {self.palette_key}/{self.mode})"
+
+
+class TenantThemeDefault(TenantScopedModel):
+    """The tenant-wide default theme, set by a System-Admin.
+
+    Exactly one row per tenant — enforced by the unique constraint below,
+    same shape as ``Banner``'s global-scope uniqueness. Writers use
+    ``update_or_create`` so an edit overwrites the existing row.
+    """
+
+    palette_key = models.CharField(max_length=64)
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+
+    class Meta:
+        db_table = "admin_ops_tenant_theme_default"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"], name="uq_tenant_theme_default_one_per_tenant"
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"TenantThemeDefault(tenant={self.tenant_id}, {self.palette_key}/{self.mode})"
+
+
 __all__ = [
     "BackupMetadata",
     "BackupStatus",
@@ -232,4 +372,12 @@ __all__ = [
     "Banner",
     "BannerScope",
     "BannerLevel",
+    "CANONICAL_COLOR_TOKEN_KEYS",
+    "MODE_CHOICES",
+    "MODE_DARK",
+    "MODE_LIGHT",
+    "TOKEN_KEYS_VERSION",
+    "TenantThemeDefault",
+    "ThemePalette",
+    "UserThemePreference",
 ]

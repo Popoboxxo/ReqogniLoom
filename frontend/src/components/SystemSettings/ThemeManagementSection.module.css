@@ -1,0 +1,84 @@
+/* ThemeManagementSection (Theme Presets) — mirrors BannerSection.module.css's
+   card/list styling using design tokens only. */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.list {
+  list-style: none;
+  margin: 0 0 var(--space-4) 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.rowLabel {
+  font-weight: 600;
+}
+
+.rowKey {
+  color: var(--color-text-muted);
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.badge {
+  font-size: var(--font-size-xs);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--color-badge-neutral-bg);
+  color: var(--color-badge-neutral-text);
+}
+
+.importLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.tenantDefault {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-top: var(--space-4);
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.tenantDefaultLabel {
+  font-weight: 600;
+  margin-right: var(--space-2);
+}
+
+.tenantDefaultSaved {
+  color: var(--color-success);
+  font-size: var(--font-size-sm);
+}

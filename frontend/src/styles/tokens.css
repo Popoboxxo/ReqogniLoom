@@ -411,6 +411,14 @@
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
 
+  /* Sidebar overlay tints/shadows (theme presets): hover tints assume a
+     dark nav background here; the light theme inverts them to black-tinted
+     overlays so the sidebar stays readable once a palette renders it
+     light. Consumed by SidebarNavigation.module.css. */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
   /* Keyboard focus ring (issue #158 — WCAG 2.4.7 Focus Visible) */
   --color-focus: var(--palette-indigo-400);
 
@@ -765,6 +773,13 @@
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
 
+  /* Sidebar overlay tints/shadows (theme presets) — inverted vs. the dark
+     block: black-tinted overlays on a light nav background, same opacity
+     levels. See the dark block's comment above. */
+  --color-nav-overlay-hover: rgba(0, 0, 0, 0.1);
+  --color-nav-overlay-hover-border: rgba(0, 0, 0, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.35);
+
   /* Keyboard focus ring (issue #158) — darker for AA contrast on white */
   --color-focus: var(--palette-indigo-600);
 
@@ -910,6 +925,12 @@
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
 
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
   --color-focus: var(--palette-bauhaus-mustard-600);
 
   /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
@@ -1035,6 +1056,12 @@
      chrome tokens. */
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
 
   --color-focus: var(--palette-nordic-frost-400);
 
@@ -1167,6 +1194,12 @@
      chrome tokens. */
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
 
   --color-focus: var(--palette-sepia-orange-800);
 

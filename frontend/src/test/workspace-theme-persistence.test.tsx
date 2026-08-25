@@ -1,25 +1,25 @@
 /**
- * ARCH-L1-001 ReactFrontend — Workspace theme persistence (#568 phase 1).
+ * ARCH-L1-001 ReactFrontend — Workspace theme decoupling (Theme Presets).
  *
- * Mirrors workspace-language-persistence.test.tsx's BUG-01/F-04-Residual/R-02
- * coverage, applied to `theme` instead of `language`. Unlike language, the
- * sidebar's quick theme toggle is deliberately NOT admin-gated and does NOT
- * PATCH the backend — a personal, client-only preference (unchanged from its
- * pre-#568 behavior) — so the F-02/F-04 notice-and-admin-gate machinery the
- * language toggle needed does not apply here. What DOES apply, and is
- * covered below: the workspace-default theme is restored on load (BUG-01),
- * a session-local toggle choice survives an unrelated reloadWorkspaces()
- * call (F-04-Residual), and it is cleared on logout (R-02).
+ * Supersedes the #568 workspace-theme persistence tests: with Theme
+ * Presets the theme is resolved inside ThemeContext (user preference >
+ * tenant default > fallback) and WorkspaceContext no longer seeds a
+ * workspace `theme` into it. `Workspace.theme` remains a backend field but
+ * is functionally superseded — these tests pin exactly that: a themed
+ * workspace row must have NO influence on the resolved theme, and mounting
+ * the shell with one must stay free of console errors.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { AuthProvider, useAuth } from "../context/AuthContext";
-import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
-import { ThemeProvider, useTheme, THEMES } from "../context/ThemeContext";
+import { AuthProvider } from "../context/AuthContext";
+import { WorkspaceProvider } from "../context/WorkspaceContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import { SidebarNavigation } from "../components/NavigationShell/SidebarNavigation";
-import { workspacesApi } from "../api/workspaces";
+import { themePalettesApi } from "../api/themePalettes";
 import type { Workspace } from "../types";
+
+vi.mock("../api/themePalettes");
 
 vi.mock("../api/preferences", () => ({
   preferencesApi: {
@@ -42,9 +42,6 @@ let nextListResult: unknown = { count: 0, next: null, previous: null, results: [
 vi.mock("../api/workspaces", () => ({
   workspacesApi: {
     list: vi.fn(async () => nextListResult),
-    // reloadWorkspaces (Task 1 fix) now calls listAll() instead of list() to
-    // avoid silently truncating the workspace switcher to page 1 — mirror
-    // the same single-page `nextListResult.results` here for these tests.
     listAll: vi.fn(async () => (nextListResult as { results?: unknown[] }).results ?? []),
     create: vi.fn(),
     update: vi.fn(),
@@ -87,6 +84,19 @@ function setListWorkspace(theme: string): void {
   nextListResult = { count: 1, next: null, previous: null, results: [ws] };
 }
 
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+
 function renderApp(): ReturnType<typeof render> {
   return render(
     <MemoryRouter>
@@ -101,92 +111,55 @@ function renderApp(): ReturnType<typeof render> {
   );
 }
 
-function IndependentReloadTrigger(): JSX.Element {
-  const { activeWorkspace, reloadWorkspaces } = useWorkspace();
-  return (
-    <button
-      data-testid="independent-reload-trigger"
-      onClick={() => void reloadWorkspaces(activeWorkspace?.id)}
-    >
-      trigger unrelated reload
-    </button>
-  );
-}
+describe("Workspace theme decoupling (Theme Presets)", () => {
+  let consoleErrors: string[];
+  let consoleWarns: string[];
 
-function renderAppWithIndependentReloadTrigger(): ReturnType<typeof render> {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-            <IndependentReloadTrigger />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
-  );
-}
-
-function AuthSwitchHarness(): JSX.Element {
-  const { logout, login } = useAuth();
-  return (
-    <>
-      <button data-testid="test-logout-trigger" onClick={() => logout()}>logout</button>
-      <button data-testid="test-login-trigger" onClick={() => void login({ username: "user-b", password: "irrelevant" })}>login</button>
-    </>
-  );
-}
-
-function renderAppWithAuthSwitch(): ReturnType<typeof render> {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-            <AuthSwitchHarness />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
-  );
-}
-
-/**
- * #568 Phase 3: `THEMES` now has 5 entries (dark/light/bauhaus/nordic/sepia),
- * not just 2 — `toggleTheme()` advances to the NEXT registered theme, it does
- * not alternate between exactly two values. Compute the real next id from the
- * live registry instead of hardcoding "dark", so this test doesn't silently
- * re-break the next time a theme is added or reordered.
- */
-function nextThemeIdAfter(currentId: string): string {
-  const index = THEMES.findIndex((t) => t.id === currentId);
-  return THEMES[(index + 1) % THEMES.length].id;
-}
-
-function installLocalStorageStub(): void {
-  const store = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
-      removeItem: (key: string) => void store.delete(key),
-      clear: () => store.clear(),
-    },
-  });
-}
-
-describe("Workspace theme restore on load (#568)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     installLocalStorageStub();
     sessionStorage.clear();
     stubAuthFetch(["viewer"]);
+    document.documentElement.style.cssText = "";
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.themeMode;
+
+    (themePalettesApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      results: [
+        {
+          key: "default",
+          label: "Default",
+          is_system: true,
+          dark_tokens: { "--color-primary": "#111111" },
+          light_tokens: { "--color-primary": "#eeeeee" },
+        },
+      ],
+    });
+    (
+      themePalettesApi.getPreference as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ palette_key: null, mode: null });
+    (
+      themePalettesApi.getTenantDefault as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ palette_key: "default", mode: "dark" });
+
+    consoleErrors = [];
+    consoleWarns = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      consoleErrors.push(args.map(String).join(" "));
+    });
+    vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      consoleWarns.push(args.map(String).join(" "));
+    });
   });
 
-  it("applies the workspace-default theme even though the local default is dark", async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a workspace-default theme no longer overrides the server-resolved theme", async () => {
+    // Workspace says "light"; no user preference, tenant default = dark.
+    // The workspace row must NOT flip the theme — only user preference /
+    // tenant default / fallback decide.
     setListWorkspace("light");
     renderApp();
 
@@ -194,153 +167,27 @@ describe("Workspace theme restore on load (#568)", () => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(document.documentElement.dataset.themeMode).toBe("dark");
     });
-  });
-});
-
-describe("Returning visitor's stored theme preference is not overwritten by the workspace default (#568 final-review fix)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    installLocalStorageStub();
-    sessionStorage.clear();
-    stubAuthFetch(["viewer"]);
+    expect(document.documentElement.dataset.themeMode).toBe("dark");
   });
 
-  it("keeps an existing localStorage theme preference after the workspace list resolves with a different default", async () => {
-    // Seed the stub's underlying store BEFORE renderApp() so ThemeProvider's
-    // initial mount (resolveInitialTheme) actually reads it.
-    window.localStorage.setItem("reqflow-theme", "light");
-    setListWorkspace("dark");
+  it("mounting with a themed workspace produces no console errors or warnings", async () => {
+    setListWorkspace("light");
     renderApp();
 
     await waitFor(() => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
-    await waitFor(() => {
-      expect(workspacesApi.listAll).toHaveBeenCalled();
-    });
+    // Give every effect (including any wrongly-revived seeding effect) a
+    // chance to fire before asserting silence.
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // Give the theme-restore effect a chance to (wrongly) fire if the bug
-    // were still present.
-    await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe("light");
-    });
-    expect(window.localStorage.getItem("reqflow-theme")).toBe("light");
-
-    // Re-review finding: the first waitFor success above can be a false
-    // positive if a later effect (e.g. the bootstrap effect's own
-    // auth-resolution re-run) still overwrites the value shortly after —
-    // exactly how this test passed once before against unfixed code that
-    // reset the override, then the restore effect reapplied the workspace
-    // default a tick later. Flush pending effects and assert the value is
-    // still correct afterward, not just at first success.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(document.documentElement.dataset.theme).toBe("light");
-    expect(window.localStorage.getItem("reqflow-theme")).toBe("light");
-  });
-});
-
-describe("Local theme toggle survives an unrelated reloadWorkspaces() call (#568)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    installLocalStorageStub();
-    sessionStorage.clear();
-    stubAuthFetch(["viewer"]);
-  });
-
-  it("keeps a manually-toggled theme after an unrelated reload re-fetches the workspace-default", async () => {
-    setListWorkspace("light");
-    renderAppWithIndependentReloadTrigger();
-
-    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
-
-    const toggledTo = nextThemeIdAfter("light");
-    fireEvent.click(await screen.findByTestId("theme-toggle"));
-    await waitFor(() => expect(document.documentElement.dataset.theme).toBe(toggledTo));
-
-    fireEvent.click(screen.getByTestId("independent-reload-trigger"));
-    await waitFor(() => {
-      expect(workspacesApi.listAll).toHaveBeenCalledTimes(2);
-    });
-
-    expect(document.documentElement.dataset.theme).toBe(toggledTo);
-  });
-});
-
-describe("Logout clears a local/unpersisted theme override (#568, mirrors R-02)", () => {
-  // Round-1 fix (seed hasLocalThemeOverride from localStorage) was defeated
-  // by the pre-existing unconditional reset in the bootstrap effect's
-  // `!isAuthenticated` branch (fires during the transient "restoring" phase
-  // too, not just a real logout). Round-2 "fix" deleted that reset
-  // entirely — which fixed the returning-visitor bug but reintroduced
-  // exactly the cross-user leak this test guards against: a DIFFERENT
-  // user's real, confirmed logout must still clear a previous user's local
-  // theme choice on a shared tab/browser, the same reasoning as language's
-  // R-02. Round 3 (final) gates the reset on `authStatus === "anonymous"`
-  // instead of the coarse `!isAuthenticated`, so it fires on a real logout
-  // but not during the transient restore — this test is the regression
-  // guard for that distinction; do not "fix" it back to asserting the
-  // override survives logout, that is round 2's bug.
-  beforeEach(() => {
-    vi.clearAllMocks();
-    installLocalStorageStub();
-    sessionStorage.clear();
-  });
-
-  it("a re-login in the same tab follows the newly loaded workspace's theme, not a stale override", async () => {
-    stubAuthFetch(["viewer"]);
-    setListWorkspace("light");
-    renderAppWithAuthSwitch();
-
-    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
-    const toggledTo = nextThemeIdAfter("light");
-    fireEvent.click(await screen.findByTestId("theme-toggle"));
-    await waitFor(() => expect(document.documentElement.dataset.theme).toBe(toggledTo));
-
-    fireEvent.click(screen.getByTestId("test-logout-trigger"));
-    fireEvent.click(screen.getByTestId("test-login-trigger"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe("light");
-    });
-  });
-});
-
-describe("ThemeContext.setTheme falls back on an unregistered theme id (#568 final-review fix)", () => {
-  beforeEach(() => {
-    installLocalStorageStub();
-  });
-
-  function SetBogusThemeHarness(): JSX.Element {
-    const { theme, setTheme } = useTheme();
-    return (
-      <button
-        data-testid="set-bogus-theme"
-        onClick={() => setTheme("bogus-unregistered-id")}
-      >
-        current: {theme}
-      </button>
-    );
-  }
-
-  it("resolves an unregistered theme id to FALLBACK_THEME (dark) instead of applying it verbatim", async () => {
-    render(
-      <ThemeProvider>
-        <SetBogusThemeHarness />
-      </ThemeProvider>
-    );
-
-    fireEvent.click(screen.getByTestId("set-bogus-theme"));
-
-    await waitFor(() => {
-      expect(document.documentElement.dataset.theme).toBe("dark");
-    });
-    expect(screen.getByTestId("set-bogus-theme").textContent).toBe(
-      "current: dark"
-    );
+    // React's act() advisories are test-harness timing noise, not app
+    // behavior — everything else must be silent.
+    const realErrors = consoleErrors.filter((m) => !m.includes("not wrapped in act("));
+    const realWarns = consoleWarns.filter((m) => !m.includes("not wrapped in act("));
+    expect(realErrors).toEqual([]);
+    expect(realWarns).toEqual([]);
   });
 });

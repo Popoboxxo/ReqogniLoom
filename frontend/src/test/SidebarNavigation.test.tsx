@@ -11,13 +11,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import { SidebarNavigation } from "../components/NavigationShell/SidebarNavigation";
+import { themePalettesApi } from "../api/themePalettes";
 import type { Workspace } from "../types";
+
+vi.mock("../api/themePalettes");
 
 vi.mock("../api/preferences", () => ({
   preferencesApi: {
@@ -100,23 +103,28 @@ function installLocalStorageStub(): void {
   });
 }
 
+
+function stubAuthFetch(roles: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles },
+        tenant_id: null,
+        roles,
+      }),
+    }) as unknown as Response)
+  );
+}
+
 describe("SidebarNavigation — Goals nav item (REQ-L2-TE-020)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     installLocalStorageStub();
     sessionStorage.clear();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles: ["admin"] },
-          tenant_id: null,
-          roles: ["admin"],
-        }),
-      }) as unknown as Response)
-    );
+    stubAuthFetch(["admin"]);
   });
 
   it("shows the Goals nav link when goals_enabled is true", async () => {
@@ -149,5 +157,64 @@ describe("SidebarNavigation — Goals nav item (REQ-L2-TE-020)", () => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
     expect(screen.queryByText("Goals")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Theme Presets — mode-only quick toggle (Task 6 Part B)
+// ---------------------------------------------------------------------------
+
+describe("SidebarNavigation — theme mode quick toggle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["viewer"]);
+    document.documentElement.style.cssText = "";
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.themeMode;
+
+    // Server state: user preference = bauhaus/dark.
+    (themePalettesApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      results: [
+        {
+          key: "bauhaus",
+          label: "Bauhaus",
+          is_system: true,
+          dark_tokens: { "--color-primary": "#222222" },
+          light_tokens: { "--color-primary": "#dddddd" },
+        },
+      ],
+    });
+    (
+      themePalettesApi.getPreference as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ palette_key: "bauhaus", mode: "dark" });
+    (
+      themePalettesApi.getTenantDefault as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ palette_key: "default", mode: "dark" });
+  });
+
+  it("flips the mode without changing the palette", async () => {
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.themeMode).toBe("dark");
+    });
+    // Wait for the server resolution (user preference bauhaus/dark) too.
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe("bauhaus");
+    });
+
+    fireEvent.click(await screen.findByTestId("sidebar-theme-mode-toggle"));
+
+    // Mode flipped, palette untouched...
+    await waitFor(() => {
+      expect(document.documentElement.dataset.themeMode).toBe("light");
+    });
+    expect(document.documentElement.dataset.theme).toBe("bauhaus");
+    // ...and the full (paletteKey, mode) pair persisted server-side.
+    await waitFor(() => {
+      expect(themePalettesApi.setPreference).toHaveBeenCalledWith("bauhaus", "light");
+    });
   });
 });

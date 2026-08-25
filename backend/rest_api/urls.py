@@ -46,6 +46,13 @@ from auth_tenancy.rest_workspace_members import (
 )
 from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
 from admin_ops.health_rest import SystemHealthView
+from admin_ops.theme_rest import (
+    TenantThemeDefaultView,
+    ThemePaletteDetailView,
+    ThemePaletteExportView,
+    ThemePaletteListView,
+    UserThemePreferenceView,
+)
 from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
@@ -342,11 +349,44 @@ urlpatterns = [
         WorkspaceBannerView.as_view(),
         name="workspace-banner",
     ),
+    # Theme Presets.
+    # /admin/theme-palettes/  -> GET any user; POST (import) System-Admin only
+    path(
+        "admin/theme-palettes/",
+        ThemePaletteListView.as_view(),
+        name="theme-palette-list",
+    ),
+    # /admin/theme-palettes/<key>/export/  -> GET any user
+    # NOTE: export/ must precede the detail route so it is not shadowed.
+    path(
+        "admin/theme-palettes/<str:key>/export/",
+        ThemePaletteExportView.as_view(),
+        name="theme-palette-export",
+    ),
+    # /admin/theme-palettes/<key>/  -> DELETE System-Admin; system rows 403
+    path(
+        "admin/theme-palettes/<str:key>/",
+        ThemePaletteDetailView.as_view(),
+        name="theme-palette-detail",
+    ),
     # User workspace preferences (REQ-L1-027) — per-user visibility overrides.
     path(
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # Theme Presets — the caller's own theme choice (GET/PUT).
+    # NOTE: must precede any other users/me/ pattern that could shadow it.
+    path(
+        "users/me/theme-preference/",
+        UserThemePreferenceView.as_view(),
+        name="user-theme-preference",
+    ),
+    # Theme Presets — tenant-wide default (GET any user; PUT System-Admin).
+    path(
+        "system/theme-default/",
+        TenantThemeDefaultView.as_view(),
+        name="tenant-theme-default",
     ),
     # LLM configuration (REQ-L2-LLM-001) — tenant-scoped singleton, admin-only.
     path(

@@ -40,7 +40,6 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-
 const TOKENS_FILE = join(resolve(__dirname, ".."), "styles", "tokens.css");
 
 /** WCAG 2.1 AA minimum for normal-size text. */
@@ -434,5 +433,53 @@ describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
     );
     console.table(rows);
     expect(rows).toHaveLength(THEME_IDS.length * CONTRAST_PAIRS.length);
+  });
+});
+
+/* ==========================================================================
+ * DB-palette light-mode counterparts (theme presets, Task 8)
+ *
+ * bauhaus/nordic/sepia ship as dark-oriented palettes today; their light
+ * modes exist ONLY as ThemePalette seed data (backend/admin_ops/
+ * theme_seed_data.py), authored from the same primitives as `default`'s
+ * existing dark/light pair. This fixture mirrors that seed data — both are
+ * generated from one source (see the seed-data module's docstring) — and
+ * holds every new palette/mode combination to the same AA bar the CSS
+ * themes above already enforce.
+ * ========================================================================== */
+
+// The authored light palettes live in the backend as the single source of
+// truth (backend/admin_ops/fixtures/themePalettes.light.json) — the same
+// file the DB seed loads, so what ships is byte-identical to what is
+// contrast-checked here.
+const LIGHT_PALETTES_FILE = join(
+  resolve(__dirname, "../../.."),
+  "backend/admin_ops/fixtures/themePalettes.light.json"
+);
+
+const LIGHT_TOKENS = JSON.parse(
+  readFileSync(LIGHT_PALETTES_FILE, "utf-8")
+) as Record<string, Record<string, string>>;
+
+describe.each(["bauhaus", "nordic", "sepia"])("%s light mode contrast", (paletteKey) => {
+  const tokens = LIGHT_TOKENS[paletteKey];
+
+  it("fixture carries a complete token map", () => {
+    expect(Object.keys(tokens).length).toBeGreaterThanOrEqual(71);
+  });
+
+  it("meets WCAG AA for text-on-surface", () => {
+    expect(
+      contrastRatio(parseColor(tokens["--color-text"]), parseColor(tokens["--color-surface"]))
+    ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+  });
+
+  it("meets WCAG AA for primary-on-surface", () => {
+    expect(
+      contrastRatio(
+        parseColor(tokens["--color-on-primary"]),
+        parseColor(tokens["--color-primary"])
+      )
+    ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
   });
 });

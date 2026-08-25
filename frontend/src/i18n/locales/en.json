@@ -1626,6 +1626,15 @@
     "spineEmpty": "A link is missing on this station — a gap in traceability."
   },
   "systemSettings": {
+    "themes.heading": "Theme Palettes",
+    "themes.hint": "Named color palettes for the whole tenant. System palettes are read-only; import custom palettes as JSON files.",
+    "themes.readOnly": "Read-only",
+    "themes.export": "Export",
+    "themes.delete": "Delete",
+    "themes.importLabel": "Import palette (JSON):",
+    "themes.tenantDefaultLabel": "Tenant default:",
+    "themes.tenantDefaultSave": "Save as default",
+    "themes.tenantDefaultSaved": "Saved",
     "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
     "tabs": {
       "administration": "Administration",
