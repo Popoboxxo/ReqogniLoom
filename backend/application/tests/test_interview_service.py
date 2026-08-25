@@ -776,6 +776,52 @@ class TestGenerateChatTurn:
         assert result["reply"] == "not json at all"
         assert result["state"]["collected_fields"] == {}
 
+    def test_prompt_includes_memory_context_when_memory_exists(self, ctx, tenant, workspace, monkeypatch):
+        """Memory plan Task 6: build_memory_context() must actually reach the
+        rendered prompt, not just be computed and discarded -- a template
+        that lost its {memory_context} placeholder again would still "work"
+        (render_template leaves unknown placeholders literally in place) but
+        silently stop passing memory to the model."""
+        from memory.backends import get_memory_backend
+        from persistence.tests.factories import make_user
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        # UserTenantMemory FKs to a real pl_user row -- the module `ctx`
+        # fixture's user_id is a bare uuid4() with no backing User, so a
+        # real user is created here rather than reusing ctx.user_id.
+        user = make_user(tenant)
+        ctx = AuthContext(
+            user_id=user.id, tenant_id=ctx.tenant_id, active_roles=ctx.active_roles, auth_method=ctx.auth_method
+        )
+        backend = get_memory_backend()
+        backend.upsert(ctx.tenant_id, "workspace", workspace.id, "Project uses hexagonal architecture.")
+        backend.upsert(ctx.tenant_id, "user", ctx.user_id, "Prefers TypeScript over JavaScript.")
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        provider = _ChatFakeProvider('{"extracted_fields": {}, "reply": "ok"}')
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        InterviewService().generate_chat_turn(ctx, session.id, "architecture question")
+
+        assert "hexagonal architecture" in provider.last_prompt
+        assert "TypeScript" in provider.last_prompt
+
+    def test_prompt_renders_without_memory_context_placeholder_left_literal(
+        self, ctx, workspace, monkeypatch
+    ):
+        """No memory exists yet -- build_memory_context() returns "", and the
+        placeholder must be substituted with that empty string, not left as
+        the literal ``{memory_context}`` text (REQ-046 only applies to
+        placeholders nothing ever supplies a value for)."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        provider = _ChatFakeProvider('{"extracted_fields": {}, "reply": "ok"}')
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+
+        InterviewService().generate_chat_turn(ctx, session.id, "anything")
+
+        assert "{memory_context}" not in provider.last_prompt
+
 
 # ---------------------------------------------------------------------------
 # 2026-08-20 UI-visibility fix: workflow-engine integration

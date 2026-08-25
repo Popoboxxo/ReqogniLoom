@@ -70,6 +70,9 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
         "missing_fields_json",
         "grounding_snapshot_json",
         "user_message",
+        # memory plan Task 6: single-mode generate_chat_turn() only -- see
+        # InterviewService.generate_chat_turn's build_memory_context() call.
+        "memory_context",
     ),
     "architecture_decompose_tree": ("element_title",),
     "memory.extract": ("interaction_text",),

@@ -1104,6 +1104,7 @@ class InterviewService(ServiceBase):
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from memory.context_builder import build_memory_context
 
         session = self._get_session(ctx, session_id)
         # Status guard BEFORE the kind dispatch (review-2 fix M1): it used
@@ -1148,6 +1149,12 @@ class InterviewService(ServiceBase):
             )
 
         phase, missing = self._current_phase_and_missing(ctx, session)
+        # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
+        # "" on any backend failure, never blocks the chat turn (see
+        # build_memory_context's own docstring for the Fehlerfälle contract).
+        memory_context = build_memory_context(
+            ctx.tenant_id, session.workspace_id, ctx.user_id, user_message
+        )
         template = AiDerivationService._get_template_content(ctx, "interview.chat_turn", session.workspace_id)
         prompt = AiDerivationService._render(
             template,
@@ -1157,6 +1164,7 @@ class InterviewService(ServiceBase):
             missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
             grounding_snapshot_json=json.dumps(session.grounding_snapshot),
             user_message=user_message,
+            memory_context=memory_context,
         )
 
         timeout = resolve_timeout_seconds("interview.chat_turn")

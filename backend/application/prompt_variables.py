@@ -147,6 +147,10 @@ PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
         "json",
     ),
     "user_message": _data("user_message", "The user's latest interview message."),
+    "memory_context": _data(
+        "memory_context",
+        "Rendered workspace/user memory context (memory plan Task 6); empty when none.",
+    ),
     "element_title": _data(
         "element_title", "Title of the architecture element being decomposed."
     ),
