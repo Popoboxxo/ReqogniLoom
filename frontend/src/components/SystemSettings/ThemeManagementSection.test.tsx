@@ -33,6 +33,10 @@ describe("ThemeManagementSection", () => {
         },
       ],
     });
+    (themePalettesApi.getTenantDefault as ReturnType<typeof vi.fn>).mockResolvedValue({
+      palette_key: "default",
+      mode: "dark",
+    });
   });
 
   it("shows a read-only badge for system palettes and no delete button", async () => {
@@ -88,5 +92,44 @@ describe("ThemeManagementSection", () => {
     const input = screen.getByTestId("theme-import-input");
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(themePalettesApi.importPalette).toHaveBeenCalled());
+  });
+
+  describe("tenant default", () => {
+    beforeEach(() => {
+      (themePalettesApi.getTenantDefault as ReturnType<typeof vi.fn>).mockResolvedValue({
+        palette_key: "default",
+        mode: "dark",
+      });
+      (themePalettesApi.setTenantDefault as ReturnType<typeof vi.fn>).mockResolvedValue({
+        palette_key: "custom-x",
+        mode: "light",
+      });
+    });
+
+    it("loads and displays the current tenant default", async () => {
+      render(<ThemeManagementSection />);
+      await waitFor(() =>
+        expect(themePalettesApi.getTenantDefault).toHaveBeenCalled()
+      );
+      expect(screen.getByTestId("tenant-default-picker")).toBeInTheDocument();
+    });
+
+    it("saves a new tenant default when changed", async () => {
+      render(<ThemeManagementSection />);
+      await screen.findByTestId("theme-row-default");
+
+      fireEvent.change(screen.getByTestId("tenant-default-palette-select"), {
+        target: { value: "custom-x" },
+      });
+      fireEvent.change(screen.getByTestId("tenant-default-mode-select"), {
+        target: { value: "light" },
+      });
+      fireEvent.click(screen.getByTestId("tenant-default-save"));
+
+      await waitFor(() =>
+        expect(themePalettesApi.setTenantDefault).toHaveBeenCalledWith("custom-x", "light")
+      );
+      expect(await screen.findByTestId("tenant-default-saved")).toBeInTheDocument();
+    });
   });
 });

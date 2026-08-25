@@ -1632,6 +1632,9 @@
     "themes.export": "Export",
     "themes.delete": "Delete",
     "themes.importLabel": "Import palette (JSON):",
+    "themes.tenantDefaultLabel": "Tenant default:",
+    "themes.tenantDefaultSave": "Save as default",
+    "themes.tenantDefaultSaved": "Saved",
     "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
     "tabs": {
       "administration": "Administration",

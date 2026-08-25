@@ -9,13 +9,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { themePalettesApi, type ThemePalette } from "../../api/themePalettes";
+import {
+  themePalettesApi,
+  type ThemeMode,
+  type ThemePalette,
+} from "../../api/themePalettes";
 import styles from "./ThemeManagementSection.module.css";
 
 export function ThemeManagementSection(): JSX.Element {
   const { t } = useTranslation();
   const [palettes, setPalettes] = useState<ThemePalette[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [tenantDefaultKey, setTenantDefaultKey] = useState<string>("default");
+  const [tenantDefaultMode, setTenantDefaultMode] = useState<ThemeMode>("dark");
+  const [tenantDefaultSaved, setTenantDefaultSaved] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,10 +39,42 @@ export function ThemeManagementSection(): JSX.Element {
           );
         }
       });
+    themePalettesApi
+      .getTenantDefault()
+      .then((d) => {
+        if (cancelled) return;
+        setTenantDefaultKey(d.palette_key);
+        setTenantDefaultMode(d.mode);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, []);
+
+  function handleSaveTenantDefault(): void {
+    themePalettesApi
+      .setTenantDefault(tenantDefaultKey, tenantDefaultMode)
+      .then(() => {
+        setTenantDefaultSaved(true);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setError(
+          (err as { error?: { message?: string } })?.error?.message ?? String(err)
+        );
+      });
+  }
+
+  function selectTenantDefaultKey(key: string): void {
+    setTenantDefaultKey(key);
+    setTenantDefaultSaved(false);
+  }
+
+  function selectTenantDefaultMode(mode: ThemeMode): void {
+    setTenantDefaultMode(mode);
+    setTenantDefaultSaved(false);
+  }
 
   function reload(): void {
     themePalettesApi
@@ -144,6 +183,42 @@ export function ThemeManagementSection(): JSX.Element {
           onChange={(e) => void handleImportFile(e)}
         />
       </label>
+      <div className={styles.tenantDefault} data-testid="tenant-default-picker">
+        <span className={styles.tenantDefaultLabel}>
+          {t("systemSettings.themes.tenantDefaultLabel")}
+        </span>
+        <select
+          data-testid="tenant-default-palette-select"
+          value={tenantDefaultKey}
+          onChange={(e) => selectTenantDefaultKey(e.target.value)}
+        >
+          {palettes.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <select
+          data-testid="tenant-default-mode-select"
+          value={tenantDefaultMode}
+          onChange={(e) => selectTenantDefaultMode(e.target.value as ThemeMode)}
+        >
+          <option value="dark">{t("nav.darkMode")}</option>
+          <option value="light">{t("nav.lightMode")}</option>
+        </select>
+        <button
+          type="button"
+          data-testid="tenant-default-save"
+          onClick={handleSaveTenantDefault}
+        >
+          {t("systemSettings.themes.tenantDefaultSave")}
+        </button>
+        {tenantDefaultSaved && (
+          <span className={styles.tenantDefaultSaved} data-testid="tenant-default-saved">
+            {t("systemSettings.themes.tenantDefaultSaved")}
+          </span>
+        )}
+      </div>
     </section>
   );
 }
