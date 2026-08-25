@@ -766,10 +766,15 @@ class SearchService(ServiceBase):
         # generate_embedding() never raises (its own contract: returns None on
         # any provider error, e.g. no SDK installed or a dimension mismatch it
         # can detect itself), so this is safe even when no embedding provider
-        # is configured. _run_semantic_query additionally no-ops immediately
-        # for entity types outside _EMBEDDABLE_TYPES, so this costs nothing
-        # extra for the 7 non-embeddable searchable types.
-        query_embedding = generate_embedding(query)
+        # is configured. Still, gate it on effective_types actually containing
+        # an embeddable type: generate_embedding() is not free in general (a
+        # real network round-trip for the openai provider, model inference for
+        # sentence-transformers) -- a caller with e.g. type_filter=["TestCase"]
+        # (no embedding column at all) must not pay that cost just because
+        # Requirement/TraceLink/IcdVersion exist elsewhere in the codebase.
+        query_embedding: Optional[List[float]] = None
+        if _EMBEDDABLE_TYPES & set(effective_types):
+            query_embedding = generate_embedding(query)
 
         if scope == "tenant":
             # scope="tenant" means "every workspace I'm allowed to see", so an

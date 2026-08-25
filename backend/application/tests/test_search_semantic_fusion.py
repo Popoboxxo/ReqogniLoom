@@ -117,6 +117,117 @@ class TestSemanticFusion:
 
         assert any(hit.id == str(req.id) for hit in result.results)
 
+    def test_exact_lexical_match_still_ranks_correctly_when_rrf_activates(self, monkeypatch):
+        """Review finding 2: the RRF-vs-_merge_hits scoring-scale seam.
+
+        Two Requirements: ``req_exact`` has an exact title match for the
+        query AND a stored embedding that is semantically UNRELATED to it
+        (opposite direction -- maximal cosine distance); ``req_semantic`` has
+        no keyword overlap at all but a stored embedding that closely matches
+        the query embedding. Because a semantic hit exists for this entity
+        type (req_semantic), _search_entity_type activates RRF fusion for
+        BOTH requirements -- including req_exact, whose lexical score would
+        otherwise be pinned at the dominant >= 1.5 tier by _merge_hits.
+
+        This asserts the design decision documented in _rrf_fuse's docstring
+        and the Task 9 report actually holds under real RRF arithmetic:
+        req_exact appears in ALL THREE rank lists for this type (lexical
+        rank 0, full-text rank 0, semantic rank 1 -- last, since its
+        embedding is deliberately the worst match) while req_semantic only
+        appears in the semantic list (rank 0). Fused:
+            req_exact:    3 * 1/(60+rank+1) contributions
+                          = 1/61 (lexical) + 1/61 (fulltext) + 1/62 (semantic)
+                          ~= 0.0489
+            req_semantic: 1/61 (semantic only) ~= 0.0164
+        so req_exact must still win. If this assertion ever fails, that is a
+        real regression in the scoping decision, not a flaky test -- do not
+        loosen it to pass.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            req_exact = make_requirement(
+                ws,
+                title="Unique Exact Phrase Match",
+                description="Nothing semantically related here.",
+            )
+            req_semantic = make_requirement(
+                ws,
+                title="Totally unrelated requirement title",
+                description="Some other unrelated description text.",
+            )
+            query_vector = [0.9] * 1536
+            # Opposite direction -- cosine distance is maximal (~2.0), i.e.
+            # as "unrelated" to the query embedding as a vector can be.
+            req_exact.embedding = [-0.9] * 1536
+            req_exact.save(update_fields=["embedding"])
+            req_semantic.embedding = query_vector
+            req_semantic.save(update_fields=["embedding"])
+
+            ctx = editor_ctx(tenant, ws)
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: query_vector,
+            )
+
+            result = SearchService().search(
+                "Unique Exact Phrase Match", ctx, workspace_id=ws.id
+            )
+
+        ids_in_order = [hit.id for hit in result.results]
+        assert str(req_exact.id) in ids_in_order
+        assert str(req_semantic.id) in ids_in_order
+        assert ids_in_order.index(str(req_exact.id)) < ids_in_order.index(
+            str(req_semantic.id)
+        ), (
+            "RRF fusion let the exact lexical/title match rank BELOW a "
+            "semantic-only match for the same entity type -- the scoping "
+            "decision in _rrf_fuse's docstring does not hold here."
+        )
+
+
+@pytest.mark.django_db
+class TestEmbeddingGenerationGatedByTypeFilter:
+    """Review finding 1: generate_embedding() must not run at all when
+    ``effective_types`` contains no embeddable type -- it is not free in
+    general (a real network round-trip for the openai provider, model
+    inference for sentence-transformers), so a caller filtering to a
+    non-embeddable type (e.g. TestCase, which has a _TableSpec but no
+    embedding column) must not pay that cost."""
+
+    def test_generate_embedding_not_called_when_type_filter_excludes_embeddable_types(
+        self, monkeypatch
+    ):
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "application.search_service.generate_embedding",
+            lambda text: calls.append(text) or None,
+        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            SearchService().search(
+                "anything", ctx, workspace_id=ws.id, type_filter=["TestCase"]
+            )
+
+        assert calls == []
+
+    def test_generate_embedding_is_called_when_type_filter_includes_an_embeddable_type(
+        self, monkeypatch
+    ):
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "application.search_service.generate_embedding",
+            lambda text: calls.append(text) or None,
+        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            SearchService().search(
+                "anything", ctx, workspace_id=ws.id, type_filter=["Requirement"]
+            )
+
+        assert calls == ["anything"]
+
 
 @pytest.mark.django_db
 class TestSemanticQueryDirectTraceLinkAndIcdVersion:
