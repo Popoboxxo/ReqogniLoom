@@ -1,17 +1,29 @@
 /**
- * ARCH-L1-001 ReactFrontend — Theme Context.
+ * ARCH-L1-001 ReactFrontend — Theme Context (Theme Presets, two-axis).
  *
  * leaf_id: COMP-RF-001 (NavigationShell)
  * req_id:  REQ-L1-081-THEME (Light/Dark mode, always AA-readable)
  *
- * Applies the resolved theme to <html data-theme="..."> so styles/tokens.css
- * can flip every --color-* token. Preference order: localStorage > OS
- * prefers-color-scheme > dark (this app's default identity).
+ * The theme is now TWO independent axes:
+ *   - paletteKey: which named color palette (DB-backed ThemePalette row),
+ *   - mode:       dark | light.
  *
- * UI concept ch. 8.6 / Task 8.1: a theme is an open-ended *id*, not one of two
- * fixed modes. Everything theme-specific lives in `styles/tokens.css` (a
- * primitive block plus a `:root[data-theme="<id>"]` semantic block); the only
- * code-side touch point for a new theme is one entry in `THEMES` below.
+ * Resolution order on load: user preference (server) > tenant default
+ * (server) > localStorage cache > built-in fallback ("default"/dark).
+ *
+ * The resolved palette's --color-* token map is applied onto
+ * document.documentElement as INLINE custom properties — inline style beats
+ * every stylesheet rule, so the DB palette overrides the static fallbacks
+ * in styles/tokens.css without touching them.
+ *
+ * Legacy compat: styles/tokens.css still ships complete :root theme blocks
+ * selected via ``data-theme``. Until the palette list resolves (and as a
+ * graceful fallback while offline) we keep writing a compatible value:
+ *   - one of the three named single-mode palettes -> its own CSS block,
+ *   - otherwise the mode ("dark" lives on bare :root, "light" has a block).
+ * Once the inline tokens land they win anyway; the attribute only decides
+ * what renders BEFORE/without server data. Additionally
+ * ``data-theme-mode`` carries the raw mode for mode-only selectors.
  */
 
 import {
@@ -24,106 +36,131 @@ import {
   type ReactNode,
 } from "react";
 
-/**
- * A theme id. Matches the `data-theme` attribute value written to <html> and
- * the `:root[data-theme="<id>"]` selector in styles/tokens.css. Deliberately
- * an open string type rather than a closed union — adding a theme must not
- * require touching component code.
- */
-export type Theme = string;
+import { themePalettesApi, type ThemeMode, type ThemePalette } from "../api/themePalettes";
 
-/** The dark default identity — rendered by the bare `:root` block. */
-export const DEFAULT_DARK: Theme = "dark";
-/** The light default — `:root[data-theme="light"]`. */
-export const DEFAULT_LIGHT: Theme = "light";
+/** Palettes whose identity IS one specific look; used for the legacy
+ * ``data-theme`` CSS-block mapping above. */
+const NAMED_CSS_PALETTES = new Set(["bauhaus", "nordic", "sepia"]);
 
-export interface ThemeDefinition {
-  /** `data-theme` value; must have a matching block in styles/tokens.css. */
-  id: Theme;
-  /** i18n key of the label offered when this theme is the next one. */
-  labelKey: string;
-}
+const FALLBACK_PALETTE = "default";
+const FALLBACK_MODE: ThemeMode = "dark";
 
-/**
- * The registered themes, in switcher order. Adding a theme means adding one
- * entry here plus its token blocks in styles/tokens.css — nothing else.
- */
-export const THEMES: readonly ThemeDefinition[] = [
-  { id: DEFAULT_DARK, labelKey: "nav.darkMode" },
-  { id: DEFAULT_LIGHT, labelKey: "nav.lightMode" },
-  { id: "bauhaus", labelKey: "nav.bauhausTheme" },
-  { id: "nordic", labelKey: "nav.nordicTheme" },
-  { id: "sepia", labelKey: "nav.sepiaTheme" },
-];
-
-/** Theme applied when neither storage nor the OS expresses a preference. */
-const FALLBACK_THEME: Theme = DEFAULT_DARK;
-
-const STORAGE_KEY = "reqflow-theme";
+const STORAGE_KEY_PALETTE = "reqflow-theme-palette";
+const STORAGE_KEY_MODE = "reqflow-theme-mode";
+/** Pre-feature storage keys (flat single-axis themes). Kept so an old
+ * cached choice still influences the initial paint instead of flashing. */
+const LEGACY_STORAGE_KEY = "reqflow-theme";
 
 interface ThemeContextValue {
-  theme: Theme;
-  /** The registered theme `toggleTheme` will switch to next. */
-  nextTheme: ThemeDefinition;
-  setTheme: (theme: Theme) => void;
-  /** Advance to the next registered theme, wrapping around. */
-  toggleTheme: () => void;
+  paletteKey: string;
+  mode: ThemeMode;
+  /** Every palette visible to this user (system stock + tenant custom). */
+  palettes: ThemePalette[];
+  setPreference: (paletteKey: string, mode: ThemeMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-function isRegistered(id: string | null): id is Theme {
-  return id !== null && THEMES.some((t) => t.id === id);
+/** Legacy-compatible ``data-theme`` value for a (paletteKey, mode) pair. */
+function legacyDataTheme(paletteKey: string, mode: ThemeMode): string {
+  if (NAMED_CSS_PALETTES.has(paletteKey)) return paletteKey;
+  return mode;
 }
 
-/** True if a real, registered theme preference is already stored — i.e. this
- * is not the user's first visit with an opinion on theme. Used by
- * WorkspaceContext to decide whether the workspace-default restore effect
- * should apply on load (first-ever visit) or defer to the stored choice
- * (returning visit — #568 override-seeding fix). */
-export function hasStoredThemePreference(): boolean {
-  return isRegistered(window.localStorage.getItem(STORAGE_KEY));
-}
-
-function nextThemeOf(current: Theme): ThemeDefinition {
-  const index = THEMES.findIndex((t) => t.id === current);
-  return THEMES[(index + 1) % THEMES.length];
-}
-
-function resolveInitialTheme(): Theme {
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (isRegistered(stored)) return stored;
-  if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
-    return DEFAULT_LIGHT;
+function applyPalette(
+  palette: ThemePalette | undefined,
+  mode: ThemeMode,
+  paletteKey: string
+): void {
+  const root = document.documentElement;
+  if (palette) {
+    const tokens = mode === "dark" ? palette.dark_tokens : palette.light_tokens;
+    Object.entries(tokens).forEach(([key, value]) => {
+      root.style.setProperty(key, value);
+    });
   }
-  return FALLBACK_THEME;
+  root.dataset.theme = legacyDataTheme(paletteKey, mode);
+  root.dataset.themeMode = mode;
+}
+
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable (private mode, disabled) — session-only preference.
+  }
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [theme, setThemeState] = useState<Theme>(resolveInitialTheme);
+  // Initial state: last cached choice (instant paint), else pre-feature
+  // legacy cache, else built-in fallback. The server resolution below
+  // overrides this once it arrives.
+  const [palettes, setPalettes] = useState<ThemePalette[]>([]);
+  const [paletteKey, setPaletteKey] = useState<string>(
+    () => readStored(STORAGE_KEY_PALETTE) || readStored(LEGACY_STORAGE_KEY) || FALLBACK_PALETTE
+  );
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    const stored = readStored(STORAGE_KEY_MODE);
+    if (stored === "light" || stored === "dark") return stored;
+    const legacy = readStored(LEGACY_STORAGE_KEY);
+    if (legacy === "light") return "light";
+    return FALLBACK_MODE;
+  });
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(STORAGE_KEY, theme);
-  }, [theme]);
+    let cancelled = false;
+    Promise.all([
+      themePalettesApi.list(),
+      themePalettesApi.getPreference(),
+      themePalettesApi.getTenantDefault(),
+    ])
+      .then(([paletteList, userPref, tenantDefault]) => {
+        if (cancelled) return;
+        setPalettes(Array.isArray(paletteList?.results) ? paletteList.results : []);
+        const resolvedKey =
+          userPref.palette_key || tenantDefault.palette_key || FALLBACK_PALETTE;
+        const resolvedMode = userPref.mode || tenantDefault.mode || FALLBACK_MODE;
+        setPaletteKey(resolvedKey);
+        setMode(resolvedMode);
+      })
+      .catch(() => {
+        // Network failure: keep the localStorage-cached values already in state.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const setTheme = useCallback(
-    (next: Theme): void => setThemeState(isRegistered(next) ? next : FALLBACK_THEME),
-    []
-  );
-  const toggleTheme = useCallback(
-    (): void => setThemeState((prev) => nextThemeOf(prev).id),
-    []
-  );
+  useEffect(() => {
+    const palette = palettes.find((p) => p.key === paletteKey);
+    applyPalette(palette, mode, paletteKey);
+    writeStored(STORAGE_KEY_PALETTE, paletteKey);
+    writeStored(STORAGE_KEY_MODE, mode);
+  }, [palettes, paletteKey, mode]);
+
+  const setPreference = useCallback((newPaletteKey: string, newMode: ThemeMode): void => {
+    setPaletteKey(newPaletteKey);
+    setMode(newMode);
+    // Promise.resolve(): a test double returning undefined stays harmless.
+    Promise.resolve(themePalettesApi.setPreference(newPaletteKey, newMode)).catch(() => {
+      // Server persistence failed — the local choice still applies this session.
+    });
+  }, []);
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, nextTheme: nextThemeOf(theme), setTheme, toggleTheme }),
-    [theme, setTheme, toggleTheme]
+    () => ({ paletteKey, mode, palettes, setPreference }),
+    [paletteKey, mode, palettes, setPreference]
   );
 
-  return (
-    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme(): ThemeContextValue {

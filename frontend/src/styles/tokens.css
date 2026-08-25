@@ -925,6 +925,12 @@
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
 
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
   --color-focus: var(--palette-bauhaus-mustard-600);
 
   /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
@@ -1050,6 +1056,12 @@
      chrome tokens. */
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
 
   --color-focus: var(--palette-nordic-frost-400);
 
@@ -1182,6 +1194,12 @@
      chrome tokens. */
   --color-nav-badge-bg: var(--palette-royal-500-a20);
   --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
 
   --color-focus: var(--palette-sepia-orange-800);
 

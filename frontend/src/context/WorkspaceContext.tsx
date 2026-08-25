@@ -44,7 +44,10 @@ import {
   type OptionalArtifactFeature,
 } from "../api/preferences";
 import { useAuth } from "./AuthContext";
-import { useTheme, hasStoredThemePreference } from "./ThemeContext";
+// Theme Presets: WorkspaceContext no longer seeds a workspace `theme` into
+// the theme system — ThemeContext resolves (paletteKey, mode) itself from
+// user preference > tenant default > fallback. Workspace.theme stays a
+// backend field but is functionally superseded (see design spec).
 // Code-review F-01 (BLOCKER): import the raw `i18next` singleton, NOT
 // `../i18n/index` — that barrel eagerly runs `.use(initReactI18next)` at
 // module load (a side effect of importing `react-i18next`). WorkspaceContext
@@ -106,7 +109,6 @@ export interface WorkspaceState {
   // `setActiveWorkspace`).
   markLanguageOverrideActive: () => void;
   clearLanguageOverride: () => void;
-  markThemeOverrideActive: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,20 +204,12 @@ export function WorkspaceProvider({
     setHasLocalLanguageOverride(false);
   }, []);
 
-  const [hasLocalThemeOverride, setHasLocalThemeOverride] =
-    useState<boolean>(hasStoredThemePreference);
-  const markThemeOverrideActive = useCallback((): void => {
-    setHasLocalThemeOverride(true);
-  }, []);
-  const { setTheme } = useTheme();
-
   const setActiveWorkspace = useCallback((ws: Workspace | null) => {
     setActiveWorkspaceState(ws);
     // An explicit workspace switch is the one case where "the language
     // should now follow the (new) workspace's persisted value" is exactly
     // right — clear any override left over from the previous workspace.
     setHasLocalLanguageOverride(false);
-    setHasLocalThemeOverride(false);
     if (ws && typeof sessionStorage !== "undefined") {
       sessionStorage.setItem("reqflow_workspace_id", ws.id);
     }
@@ -277,22 +271,10 @@ export function WorkspaceProvider({
       // guard is TRUE both during the transient "restoring" phase (every
       // fresh mount starts here, before the session check resolves — see
       // AuthContext.tsx's `AuthStatus`) and on a confirmed "anonymous"
-      // logout. Resetting theme's override unconditionally here — like the
-      // very first fix attempt did by seeding-then-still-resetting, and
-      // like just deleting the reset outright (round 2) — is each wrong in
-      // its own way: seeding-then-resetting clobbers a returning user's
-      // `hasStoredThemePreference()` seed on every ordinary page load
-      // (round 1's bug); deleting the reset entirely lets a real, confirmed
-      // logout leak one user's local theme choice into the next different
-      // user's session on the same tab/browser (round 2's bug — the exact
-      // cross-user leak R-02 exists to prevent, proven via an adversarial
-      // two-user test). The fix is neither: gate the reset on the
-      // fine-grained `status === "anonymous"` (a *resolved*, confirmed
-      // logged-out state) instead of the coarse `!isAuthenticated`, so it
-      // fires on a real logout but not during the transient restore.
-      if (authStatus === "anonymous") {
-        setHasLocalThemeOverride(false);
-      }
+      // Theme Presets: the theme-override machinery (seed/reset dance) was
+      // removed together with the workspace-theme restore effect —
+      // ThemeContext owns theme resolution end to end now, so there is no
+      // local override state left to reset on logout.
       return;
     }
     let cancelled = false;
@@ -358,16 +340,9 @@ export function WorkspaceProvider({
     }
   }, [isWorkspaceReady, activeWorkspace, hasLocalLanguageOverride]);
 
-  // Theme mirror of the language-restore effect immediately above — same
-  // BUG-01/F-04-Residual shape, applied to `theme` (#568 phase 1).
-  useEffect(() => {
-    if (!isWorkspaceReady) return;
-    if (activeWorkspace === DEFAULT_WORKSPACE) return;
-    if (hasLocalThemeOverride) return;
-    const nextTheme = activeWorkspace?.theme;
-    if (!nextTheme) return;
-    setTheme(nextTheme);
-  }, [isWorkspaceReady, activeWorkspace, hasLocalThemeOverride, setTheme]);
+  // Theme Presets: the workspace-default-theme restore effect was removed —
+  // ThemeContext now owns theme resolution end to end (server-side user
+  // preference + tenant default), so a workspace row can no longer override it.
 
   // Fetch per-user preferences whenever the active workspace changes (REQ-L1-027).
   // Gated on ``isWorkspaceReady`` so we don't burn an API call for the
@@ -572,7 +547,6 @@ export function WorkspaceProvider({
       isFeatureOverridden,
       markLanguageOverrideActive,
       clearLanguageOverride,
-      markThemeOverrideActive,
     }),
     [
       activeWorkspace,
@@ -590,7 +564,6 @@ export function WorkspaceProvider({
       isFeatureOverridden,
       markLanguageOverrideActive,
       clearLanguageOverride,
-      markThemeOverrideActive,
     ]
   );
 

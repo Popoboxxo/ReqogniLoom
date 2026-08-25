@@ -129,7 +129,6 @@ export function SidebarNavigation(): JSX.Element {
     setHideAllOptional,
     markLanguageOverrideActive,
     clearLanguageOverride,
-    markThemeOverrideActive,
   } = useWorkspace();
   const { logout, roles } = useAuth();
   // F-02 (code review, High): the equivalent language radios on the
@@ -139,7 +138,10 @@ export function SidebarNavigation(): JSX.Element {
   // a non-admin flipping it here must not silently change the language for
   // the whole workspace.
   const isAdmin = roles.includes("admin");
-  const { nextTheme, toggleTheme } = useTheme();
+  // Theme Presets: mode-only quick toggle — keeps the current palette and
+  // flips dark <-> light (the highest-frequency action). Full palette
+  // switching lives in WorkspaceSettings.
+  const { mode, paletteKey, setPreference } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
@@ -683,15 +685,12 @@ export function SidebarNavigation(): JSX.Element {
           </p>
         )}
         <button
-          data-testid="theme-toggle"
-          onClick={() => {
-            markThemeOverrideActive();
-            toggleTheme();
-          }}
+          data-testid="sidebar-theme-mode-toggle"
+          onClick={() => setPreference(paletteKey, mode === "dark" ? "light" : "dark")}
           title={t("nav.toggleTheme")}
           className={styles.footerBtn}
         >
-          {t(nextTheme.labelKey)}
+          {mode === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
         {/* Personal Access Tokens — workspace-independent, always reachable (REQ-L2-RF-027) */}
         <button
