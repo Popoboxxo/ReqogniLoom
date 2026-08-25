@@ -309,6 +309,62 @@ class ThemePalette(TenantScopedModel):
         return f"ThemePalette({self.key}, system={self.is_system})"
 
 
+# ---------------------------------------------------------------------------
+# Theme Presets — per-user preference and tenant-wide default
+# ---------------------------------------------------------------------------
+
+MODE_DARK = "dark"
+MODE_LIGHT = "light"
+MODE_CHOICES = ((MODE_DARK, "Dark"), (MODE_LIGHT, "Light"))
+
+
+class UserThemePreference(TenantScopedModel):
+    """A user's personal theme choice: one row per user (OneToOne).
+
+    Resolution order in the frontend: user preference > tenant default >
+    built-in fallback ("default"/dark). The palette/mode pair is stored
+    denormalized as plain strings so a deleted custom palette degrades to a
+    frontend-side fallback instead of cascading anywhere.
+    """
+
+    user = models.OneToOneField(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="theme_preference",
+    )
+    palette_key = models.CharField(max_length=64)
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+
+    class Meta:
+        db_table = "admin_ops_user_theme_preference"
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"UserThemePreference(user={self.user_id}, {self.palette_key}/{self.mode})"
+
+
+class TenantThemeDefault(TenantScopedModel):
+    """The tenant-wide default theme, set by a System-Admin.
+
+    Exactly one row per tenant — enforced by the unique constraint below,
+    same shape as ``Banner``'s global-scope uniqueness. Writers use
+    ``update_or_create`` so an edit overwrites the existing row.
+    """
+
+    palette_key = models.CharField(max_length=64)
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+
+    class Meta:
+        db_table = "admin_ops_tenant_theme_default"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"], name="uq_tenant_theme_default_one_per_tenant"
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"TenantThemeDefault(tenant={self.tenant_id}, {self.palette_key}/{self.mode})"
+
+
 __all__ = [
     "BackupMetadata",
     "BackupStatus",
@@ -317,6 +373,11 @@ __all__ = [
     "BannerScope",
     "BannerLevel",
     "CANONICAL_COLOR_TOKEN_KEYS",
+    "MODE_CHOICES",
+    "MODE_DARK",
+    "MODE_LIGHT",
     "TOKEN_KEYS_VERSION",
+    "TenantThemeDefault",
     "ThemePalette",
+    "UserThemePreference",
 ]
