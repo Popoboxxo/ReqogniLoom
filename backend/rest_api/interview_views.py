@@ -145,6 +145,27 @@ class InterviewViewSet(viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response({"results": [_session_to_dict(s) for s in sessions]})
 
+    @action(detail=False, methods=["get"], url_path="by-artifact/(?P<artifact_id>[^/.]+)")
+    def by_artifact(self, request: Request, artifact_id: str, **kwargs: Any) -> Response:
+        """GET /api/v1/interviews/by-artifact/{artifact_id}/ -- provenance lookup.
+
+        Resolves the multi-mode interview session that created *artifact_id*
+        via InterviewService.provenance_session_id(); answers
+        ``{"session_id": null}`` for artifacts without an interview
+        provenance row instead of 404, so callers can distinguish "exists,
+        not interview-created" from "unknown endpoint".
+        """
+        lang = detect_lang(request)
+        parsed_artifact_id, error = parse_uuid_param(artifact_id, lang, name="artifact_id")
+        if error is not None:
+            return error
+        try:
+            ctx = get_auth_context(request)
+            session_id = InterviewService().provenance_session_id(ctx, parsed_artifact_id)
+        except _SERVICE_EXCEPTIONS as exc:
+            return _service_error_response(exc, lang)
+        return Response({"session_id": session_id})
+
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/{id}/ -- bare session summary."""
         lang = detect_lang(request)

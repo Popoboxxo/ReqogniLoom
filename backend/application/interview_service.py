@@ -1263,6 +1263,31 @@ class InterviewService(ServiceBase):
         session = self._get_session(ctx, session_id)
         return session.grounding_snapshot.get("pending_proposal")
 
+    def provenance_session_id(self, ctx, artifact_id: UUID) -> "str | None":
+        """Resolve the multi-mode session that created *artifact_id*, if any.
+
+        Reads the InterviewSessionArtifact provenance join row written by
+        ``_formalize_multi`` -- the reverse lookup of "which interview
+        produced this artifact" (multi-artifact plan). Tenant scoping comes
+        from the thread-local manager via ``_set_tenant_context``, so an
+        artifact id from another tenant resolves to None rather than leaking
+        the owning session.
+
+        Returns the session's id as a string (the wire format every
+        get_state()/MCP consumer already uses) or None when no provenance
+        row exists -- a missing row is a normal answer ("not created by an
+        interview"), not an error.
+        """
+        self._set_tenant_context(ctx)
+        row = (
+            InterviewSessionArtifact.objects.filter(artifact_id=artifact_id)
+            .select_related("session")
+            .first()
+        )
+        if row is None:
+            return None
+        return str(row.session_id)
+
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
         self._set_tenant_context(ctx)
         # Flip stale rows before filtering, so a "status=in_progress" list
