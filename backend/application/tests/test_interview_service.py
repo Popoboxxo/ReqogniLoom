@@ -12,7 +12,7 @@ from django.utils import timezone
 from application.base import NotFoundError, ValidationError
 from application.interview_service import ABANDONED_TTL, InterviewService
 from auth_tenancy.context import AuthContext, AuthMethod
-from persistence.models import Tenant, Workspace
+from persistence.models import InterviewSession, Tenant, Workspace
 from persistence.tenancy import TenantContext
 
 
@@ -58,6 +58,22 @@ class TestStart:
         (same class as RequirementService.create_requirement's check)."""
         with pytest.raises(NotFoundError):
             InterviewService().start(ctx, "Requirement", uuid.uuid4())
+
+    def test_start_rejects_unknown_session_kind(self, ctx, tenant, workspace):
+        """Review-2 fix m2a: an unknown session_kind used to slip past every
+        kind-specific gate and be silently created as a broken single-ish
+        row (Django choices are not DB constraints) -- it must be rejected
+        cleanly and create nothing."""
+        with pytest.raises(ValidationError) as excinfo:
+            InterviewService().start(ctx, "Requirement", workspace.id, session_kind="hybrid")
+        assert "Unknown session_kind" in str(excinfo.value)
+        # InterviewSession's manager is tenant-scoped -- set the context for
+        # this assertion (same try/finally convention as the fixtures above).
+        TenantContext.set_tenant(tenant.id)
+        try:
+            assert not InterviewSession.objects.filter(workspace_id=workspace.id).exists()
+        finally:
+            TenantContext.clear_tenant()
 
 
 class TestGetState:

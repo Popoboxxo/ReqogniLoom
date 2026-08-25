@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import contextlib
 from typing import Iterator
+from unittest.mock import MagicMock
 
 import pytest
 
+from application.base import ValidationError
 from application.interview_service import InterviewService
 from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.models import (
@@ -123,6 +125,189 @@ _FENCED_PROPOSAL_REPLY = """Sounds good, here is the proposal:
 ```json
 [{"type": "StakeholderNeed", "title": "Need A", "fields": {"title": "Need A"}, "links": []}]
 ```"""
+
+
+class _FailingProvider:
+    """Provider double whose .complete() always raises -- mirrors how the
+    single-mode path tests surface provider outages as ValidationError."""
+
+    def __init__(self, error: Exception):
+        self._error = error
+
+    def complete(self, prompt, *, purpose="", context=None, timeout=None):
+        raise self._error
+
+
+class _AuditSpy:
+    """Stands in for LlmAuditLogger and records every log_llm_call payload."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def log_llm_call(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+class TestMultiChatGuards:
+    """Review-2 fixes on the multi chat path (M1/M2/M3/n2):
+
+    * M1 -- a non-in_progress multi session is rejected by the same
+      hoisted status guard as single mode, BEFORE any provider call.
+    * M2 -- the REQ-106 daily token budget gates the multi path too.
+    * M3 -- every exit (budget-exceeded / provider failure / success)
+      writes an LlmAuditLogger.log_llm_call entry like single mode.
+    * n2 -- the transcript save bumps ``version`` (+ modified_at) exactly
+      like every other session write.
+    """
+
+    def test_completed_multi_session_rejects_chat(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        with _active(tenant):
+            session = InterviewSession.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type=None,
+                session_kind=InterviewSession.SESSION_KIND_MULTI,
+                status=InterviewSession.STATUS_COMPLETED,
+            )
+        provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
+        monkeypatch.setattr(
+            InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
+        )
+
+        with pytest.raises(ValidationError) as excinfo:
+            InterviewService().generate_chat_turn(editor_ctx, session.id, "hello?")
+
+        # Same message shape as the single-mode guard, and the guard must
+        # fire BEFORE the provider call (last_prompt stays unset).
+        assert "completed" in str(excinfo.value)
+        assert "cannot chat." in str(excinfo.value)
+        assert provider.last_prompt is None
+
+    def test_abandoned_multi_session_rejects_chat(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        with _active(tenant):
+            session = InterviewSession.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type=None,
+                session_kind=InterviewSession.SESSION_KIND_MULTI,
+                status=InterviewSession.STATUS_ABANDONED,
+            )
+        provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
+        monkeypatch.setattr(
+            InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
+        )
+
+        with pytest.raises(ValidationError) as excinfo:
+            InterviewService().generate_chat_turn(editor_ctx, session.id, "hello?")
+
+        assert "abandoned" in str(excinfo.value)
+        assert provider.last_prompt is None
+
+    def test_exhausted_budget_rejects_chat_and_audits_limit_exceeded(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        """M2/M3: budget check runs before the provider call and the
+        rejection is audited exactly like single mode's."""
+        session = _multi_session(tenant, workspace)
+        provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
+        monkeypatch.setattr(
+            InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
+        )
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.is_over_daily_limit", lambda: True
+        )
+        spy = _AuditSpy()
+        monkeypatch.setattr("llm_adapter.audit_logger.LlmAuditLogger", lambda: spy)
+
+        with pytest.raises(ValidationError) as excinfo:
+            InterviewService().generate_chat_turn(editor_ctx, session.id, "another turn")
+
+        assert "Daily LLM token limit exceeded" in str(excinfo.value)
+        # Guard fires BEFORE the provider call.
+        assert provider.last_prompt is None
+        assert len(spy.calls) == 1
+        assert spy.calls[0] == {
+            "provider": "anthropic",
+            "capability": "interview.chat_turn",
+            "artifact_id": str(session.id),
+            "token_usage": None,
+            "success": False,
+            "error": "LLM_TOKEN_LIMIT_EXCEEDED",
+        }
+
+    def test_successful_turn_audits_success_and_records_tokens(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        session = _multi_session(tenant, workspace)
+        provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
+        monkeypatch.setattr(
+            InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
+        )
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.is_over_daily_limit", lambda: False
+        )
+        record_mock = MagicMock()
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.record_token_usage", record_mock
+        )
+        spy = _AuditSpy()
+        monkeypatch.setattr("llm_adapter.audit_logger.LlmAuditLogger", lambda: spy)
+
+        result = InterviewService().generate_chat_turn(editor_ctx, session.id, "I need something for X")
+
+        assert result["proposal"][0]["type"] == "StakeholderNeed"
+        assert len(spy.calls) == 1
+        assert spy.calls[0]["success"] is True
+        assert spy.calls[0]["error"] is None
+        record_mock.assert_called_once_with(
+            provider="anthropic", capability="interview.chat_turn", input_tokens=0
+        )
+
+    def test_provider_failure_audits_failure_then_raises(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        session = _multi_session(tenant, workspace)
+        monkeypatch.setattr(
+            InterviewService,
+            "_resolve_provider",
+            lambda self: (_FailingProvider(RuntimeError("kaboom")), "anthropic", None),
+        )
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.is_over_daily_limit", lambda: False
+        )
+        spy = _AuditSpy()
+        monkeypatch.setattr("llm_adapter.audit_logger.LlmAuditLogger", lambda: spy)
+
+        with pytest.raises(ValidationError) as excinfo:
+            InterviewService().generate_chat_turn(editor_ctx, session.id, "turn")
+
+        assert "Interview chat LLM call failed" in str(excinfo.value)
+        assert len(spy.calls) == 1
+        assert spy.calls[0]["success"] is False
+        assert spy.calls[0]["error"] == "kaboom"
+
+    def test_multi_chat_save_bumps_version(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        """n2: the multi chat save uses the same F('version') + 1 bump as
+        the single-mode chat save and _formalize_multi."""
+        session = _multi_session(tenant, workspace)
+        provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
+        monkeypatch.setattr(
+            InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
+        )
+
+        with _active(tenant):
+            version_before = InterviewSession.objects.get(id=session.id).version
+
+            InterviewService().generate_chat_turn(editor_ctx, session.id, "turn")
+
+            session.refresh_from_db()
+            assert session.version == version_before + 1
 
 
 class TestMultiChatTurn:

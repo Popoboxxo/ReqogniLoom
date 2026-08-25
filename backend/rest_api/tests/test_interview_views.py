@@ -36,6 +36,38 @@ class TestInterviewStartAndList:
         )
         assert response.status_code == 400
 
+    def test_start_explicit_null_session_kind_normalises_to_single(
+        self, authed_client, workspace
+    ):
+        """Review-2 fix m2b: an explicitly-null session_kind in the JSON
+        payload must normalise to "single" (same falsy-normalisation the
+        MCP facade applies), not reach start() as None and create a
+        broken session_kind=None row."""
+        from persistence.models import InterviewSession
+        from persistence.tenancy import TenantContext
+
+        response = authed_client.post(
+            "/api/v1/interviews/",
+            {
+                "artifact_type": "Requirement",
+                "workspace_id": str(workspace.id),
+                "session_kind": None,
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.content
+        # Single-mode state shape (phase/missing_fields present) proves the
+        # session really took the single path.
+        assert "missing_fields" in response.data
+        # InterviewSession's manager is tenant-scoped -- set the context for
+        # this assertion.
+        TenantContext.set_tenant(workspace.tenant_id)
+        try:
+            stored_kind = InterviewSession.objects.get(id=response.data["id"]).session_kind
+        finally:
+            TenantContext.clear_tenant()
+        assert stored_kind == InterviewSession.SESSION_KIND_SINGLE
+
     def test_list_returns_started_session(self, authed_client, workspace):
         start = authed_client.post(
             "/api/v1/interviews/",

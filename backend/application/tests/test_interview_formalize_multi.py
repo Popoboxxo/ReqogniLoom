@@ -33,7 +33,7 @@ from typing import Iterator
 import pytest
 
 from application.base import PermissionDeniedError, ValidationError
-from application.interview_service import InterviewService
+from application.interview_service import InterviewService, _validate_confirmed_proposal
 from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.models import (
     InterviewSession,
@@ -284,3 +284,58 @@ class TestFormalizeMulti:
         result = InterviewService().formalize(editor_ctx, session.id)
         assert "resulting_artifact_ids" in result
         assert len(result["resulting_artifact_ids"]) == 1
+
+
+class TestProposalLinksHardening:
+    """Review-2 fix m1: 'links' may be explicitly null in caller JSON --
+    dict.get(key, default) returns None (not the default) for an existing
+    null value, so enumerate(None) used to raise a bare TypeError. None now
+    normalises to [], any other non-list is a clean ValidationError."""
+
+    def test_null_links_normalise_to_empty_list_in_place(self):
+        item = {"type": "StakeholderNeed", "fields": {"title": "N"}, "links": None}
+        _validate_confirmed_proposal([item])
+        assert item["links"] == []
+
+    def test_missing_links_key_still_accepted(self):
+        items = [{"type": "StakeholderNeed", "fields": {"title": "N"}}]
+        _validate_confirmed_proposal(items)  # must not raise
+
+    def test_non_list_links_raise_validation_error_not_type_error(self):
+        item = {"type": "StakeholderNeed", "fields": {"title": "N"}, "links": "nope"}
+        with pytest.raises(ValidationError) as excinfo:
+            _validate_confirmed_proposal([item])
+        # The failure is the structured ValidationError, never a TypeError.
+        assert not isinstance(excinfo.value, TypeError)
+        assert "'links' must be a list or null" in str(excinfo.value)
+
+    def test_formalize_accepts_explicit_null_links(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
+    ):
+        # End-to-end: links:null flows through formalize() like [] -- both
+        # items are created, no trace links are written.
+        session = _multi_session(tenant, workspace)
+        proposal = [
+            {"type": "StakeholderNeed", "fields": {"title": "Need A"}, "links": None},
+            {"type": "Requirement", "fields": {"title": "Req B"}, "links": None},
+        ]
+        result = InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+
+        assert result["status"] == "completed"
+        with _active(tenant):
+            assert TraceLink.objects.count() == 0
+            assert InterviewSessionArtifact.objects.filter(session=session).count() == 2
+
+    def test_formalize_rejects_non_list_links_cleanly(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
+    ):
+        session = _multi_session(tenant, workspace)
+        proposal = [
+            {"type": "StakeholderNeed", "fields": {"title": "Need A"}, "links": {"from": 0}}
+        ]
+        with pytest.raises(ValidationError):
+            InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+
+        # Rejected pre-transaction: nothing was created.
+        with _active(tenant):
+            assert InterviewSessionArtifact.objects.filter(session=session).count() == 0

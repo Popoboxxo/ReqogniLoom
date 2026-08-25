@@ -50,9 +50,11 @@ def _validate_confirmed_proposal(confirmed_proposal: "list[dict]") -> None:
 
     Every item must be a dict with ``type: str`` and ``fields: dict``; every
     link (if present) must be a dict with ``from: int`` / ``to: int``
-    (indices into the proposal item list) plus ``type: str``. Anything else
-    raises ValidationError BEFORE transaction.atomic() opens, so malformed
-    caller input can never abort an already half-applied batch.
+    (indices into the proposal item list) plus ``type: str``. ``links`` may
+    be explicitly null (normalised to an empty list in place) but any other
+    non-list value is rejected. Anything else raises ValidationError BEFORE
+    transaction.atomic() opens, so malformed caller input can never abort an
+    already half-applied batch.
     """
     for index, item in enumerate(confirmed_proposal):
         if not isinstance(item, dict):
@@ -68,7 +70,24 @@ def _validate_confirmed_proposal(confirmed_proposal: "list[dict]") -> None:
             raise ValidationError(
                 f"proposal item {item_type!r} must carry a 'fields' dict"
             )
-        for link_index, link in enumerate(item.get("links", [])):
+        # Review-2 fix m1: 'links' may be explicitly null in caller JSON.
+        # dict.get(key, default) does NOT help here -- it returns None (not
+        # the default) when the key exists with value None, so enumerate(None)
+        # used to raise a bare TypeError. Normalise None to [] IN PLACE so
+        # _formalize_multi's later item.get("links", []) loops see a real
+        # list too; anything non-list is a clean ValidationError instead.
+        raw_links = item.get("links")
+        if raw_links is None:
+            raw_links = []
+            # Normalise in place so _formalize_multi's later
+            # item.get("links", []) loops see a real list too.
+            item["links"] = []
+        elif not isinstance(raw_links, list):
+            raise ValidationError(
+                f"proposal item {item_type!r}: 'links' must be a list or null, "
+                f"got {type(raw_links).__name__}"
+            )
+        for link_index, link in enumerate(raw_links):
             if not isinstance(link, dict):
                 raise ValidationError(
                     f"proposal item {item_type!r}, link #{link_index} must be a dict"
@@ -117,6 +136,19 @@ class InterviewService(ServiceBase):
         # Mode/shape gates first -- pure input validation that must run
         # before anything below can mis-read a cross-kind combination
         # (e.g. multi + a leftover artifact_type).
+        # Review-2 fix m2a: whitelist gate. An unknown session_kind used to
+        # fall through every kind-specific gate below and be silently
+        # created as a broken single-ish row (Django choices are not DB
+        # constraints) -- reject it cleanly instead.
+        if session_kind not in (
+            InterviewSession.SESSION_KIND_SINGLE,
+            InterviewSession.SESSION_KIND_MULTI,
+        ):
+            raise ValidationError(
+                f"Unknown session_kind {session_kind!r}; must be "
+                f"'{InterviewSession.SESSION_KIND_SINGLE}' or "
+                f"'{InterviewSession.SESSION_KIND_MULTI}'."
+            )
         if (
             session_kind == InterviewSession.SESSION_KIND_MULTI
             and artifact_type is not None
@@ -999,10 +1031,16 @@ class InterviewService(ServiceBase):
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
         session = self._get_session(ctx, session_id)
-        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
-            return self._generate_multi_chat_turn(ctx, session, user_message)
+        # Status guard BEFORE the kind dispatch (review-2 fix M1): it used
+        # to sit after the multi branch, which let a completed/abandoned
+        # multi session reach a live LLM call. Hoisting it here rejects
+        # both kinds with the same ValidationError; for single sessions the
+        # order swap is semantically neutral -- they never entered the
+        # multi branch, so they hit this exact check either way.
         if session.status != InterviewSession.STATUS_IN_PROGRESS:
             raise ValidationError(f"InterviewSession {session_id} is {session.status}, cannot chat.")
+        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
+            return self._generate_multi_chat_turn(ctx, session, user_message)
 
         provider, provider_name, resolve_error = self._resolve_provider()
         if provider is None:
@@ -1126,19 +1164,61 @@ class InterviewService(ServiceBase):
             get_multi_protocol_prompt,
             parse_multi_proposal,
         )
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
-        provider, _provider_name, resolve_error = self._resolve_provider()
+        provider, provider_name, resolve_error = self._resolve_provider()
         if provider is None:
             # NOT fail-open -- same contract as single-mode generate_chat_turn.
             raise ValidationError(f"No LLM provider available for interview chat: {resolve_error}")
+
+        audit_logger = LlmAuditLogger()
+        entity_id = str(session.id)
+
+        # REQ-106: per-tenant daily token budget, mirrored 1:1 from the
+        # single-mode path (review-2 fixes M2/M3). This free-form flow
+        # bypasses CapabilityRouter, so nothing else enforces the budget --
+        # and not fail-open here either: an exhausted budget still means
+        # "cannot chat right now", not "chat silently does nothing".
+        if is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.chat_turn",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise ValidationError(
+                "Daily LLM token limit exceeded for this tenant. Try again later "
+                "or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
 
         prompt = get_multi_protocol_prompt(ctx, session.workspace_id, user_message, session.transcript)
         timeout = resolve_timeout_seconds("interview.chat_turn")
         try:
             reply = provider.complete(prompt, purpose="interview.chat_turn", timeout=timeout)
         except Exception as error:  # noqa: BLE001 -- mirror single-mode error surfacing
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.chat_turn",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
             raise ValidationError(f"Interview chat LLM call failed: {error}") from error
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        record_token_usage(provider=provider_name, capability="interview.chat_turn", input_tokens=0)
 
         # Multi-mode turns use role/content keys -- the shape
         # get_multi_protocol_prompt() renders back into the next prompt.
@@ -1154,7 +1234,12 @@ class InterviewService(ServiceBase):
                 **session.grounding_snapshot,
                 "pending_proposal": proposal,
             }
-        session.save(update_fields=["transcript", "grounding_snapshot"])
+        # Same optimistic-concurrency bump as the single-mode chat save
+        # (review-2 fix n2): a multi chat turn must not silently overwrite a
+        # concurrent edit either.
+        session.version = F("version") + 1
+        session.save(update_fields=["transcript", "grounding_snapshot", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
 
         return {
             "reply": reply,

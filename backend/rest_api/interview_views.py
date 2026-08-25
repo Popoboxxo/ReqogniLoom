@@ -116,7 +116,14 @@ class InterviewViewSet(viewsets.ViewSet):
                 ctx,
                 request.data.get("artifact_type"),
                 workspace_id,
-                session_kind=request.data.get("session_kind", "single"),
+                # Review-2 fix m2b: `or "single"` (not the .get default) so an
+                # explicitly-null/empty session_kind in JSON also normalises to
+                # single instead of reaching start() as None. Valid values
+                # ("single"/"multi") pass through unchanged -- same
+                # falsy-normalisation the MCP facade's _handle_start already
+                # applies; unknown non-empty values are rejected by the
+                # service-side whitelist gate.
+                session_kind=request.data.get("session_kind") or "single",
             )
             result = _started_session_state(ctx, session)
         except _SERVICE_EXCEPTIONS as exc:
