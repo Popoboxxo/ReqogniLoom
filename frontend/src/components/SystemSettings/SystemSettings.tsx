@@ -22,6 +22,7 @@ import { useAuth } from "../../context/AuthContext";
 import { WorkflowEditorPage } from "../WorkflowEditor/WorkflowEditorPage";
 import { WorkspaceAdminSection } from "./WorkspaceAdminSection";
 import { BannerSection } from "./BannerSection";
+import { ThemeManagementSection } from "./ThemeManagementSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { PageHeader } from "../shared/PageHeader";
 
@@ -147,6 +148,7 @@ export default function SystemSettings(): JSX.Element {
           <>
             <WorkspaceAdminSection />
             <BannerSection />
+            <ThemeManagementSection />
           </>
         )}
         {activeTab === "workflow-defaults" && (

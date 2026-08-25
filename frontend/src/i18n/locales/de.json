@@ -1626,6 +1626,12 @@
     "spineEmpty": "Auf dieser Station fehlt eine Verknüpfung — eine Lücke in der Nachverfolgbarkeit."
   },
   "systemSettings": {
+    "themes.heading": "Design-Paletten",
+    "themes.hint": "Benannte Farbpaletten für den gesamten Tenant. System-Paletten sind schreibgeschützt; eigene Paletten als JSON-Datei importieren.",
+    "themes.readOnly": "Schreibgeschützt",
+    "themes.export": "Exportieren",
+    "themes.delete": "Löschen",
+    "themes.importLabel": "Palette importieren (JSON):",
     "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
     "tabs": {
       "administration": "Administration",
