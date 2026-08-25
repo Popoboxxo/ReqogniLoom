@@ -22,6 +22,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 #
 #   - llm      : LLM adapter capability runs (potentially long / rate-limited).
 #   - events   : domain-event outbox dispatch (latency-sensitive, high volume).
+#   - memory   : AI-memory projection tasks (ai-memory-and-search plan).
 #   - default  : everything else (resilience/audit maintenance tasks).
 #
 # Routes are matched against the registered task *name* (see @shared_task
@@ -31,11 +32,13 @@ app.conf.task_queues = (
     Queue('default'),
     Queue('llm'),
     Queue('events'),
+    Queue('memory'),
 )
 app.conf.task_default_queue = 'default'
 app.conf.task_routes = {
     'llm_adapter.*': {'queue': 'llm'},
     'application.dispatch_outbox_events': {'queue': 'events'},
+    'memory.*': {'queue': 'memory'},
 }
 
 # Load task modules from all registered Django apps.

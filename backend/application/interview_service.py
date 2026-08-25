@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES, get_protocol
+from application.models import DomainEventOutbox
 from persistence.models import (
     InterviewSession,
     InterviewSessionArtifact,
@@ -911,6 +912,22 @@ class InterviewService(ServiceBase):
             session.status = InterviewSession.STATUS_COMPLETED
             session.version = F("version") + 1
             session.save(update_fields=["status", "modified_at", "version"])
+
+        # formalize() (the caller) wraps this whole method in
+        # @atomic_transaction, so this is already inside an active
+        # transaction -- the on_commit hook fires once formalize() commits,
+        # and a failed/partial formalization above never reaches here.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
+                entity_id=session.id,
+                workspace_id=session.workspace_id,
+                payload={
+                    "artifact_type": session.artifact_type,
+                    "resulting_artifact_ids": resulting_ids,
+                },
+            )
+        )
         return {"resulting_artifact_ids": resulting_ids, "status": session.status}
 
     def _formalize_multi(self, ctx, session, confirmed_proposal: "list[dict]") -> "dict[str, Any]":
@@ -998,6 +1015,26 @@ class InterviewService(ServiceBase):
             # status write must not silently overwrite a concurrent edit.
             session.version = F("version") + 1
             session.save(update_fields=["status", "modified_at", "version"])
+
+            # Emitted inside this same atomic() block (unlike
+            # _formalize_single, which relies on formalize()'s outer
+            # decorator) so the event is bound to the exact transaction that
+            # created the batch -- a rollback anywhere above (adapter/link
+            # failure) means this line never runs.
+            self._emit_event(
+                self._make_event(
+                    event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
+                    entity_id=session.id,
+                    workspace_id=session.workspace_id,
+                    payload={
+                        "artifact_type": None,
+                        "created": [
+                            {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
+                            for ref in created_refs
+                        ],
+                    },
+                )
+            )
 
         return {
             "created": [
@@ -1169,15 +1206,35 @@ class InterviewService(ServiceBase):
                 self.answer(ctx, session_id, field_name, value)
 
         now = timezone.now().isoformat()
-        session.refresh_from_db()
-        session.transcript = [
-            *session.transcript,
-            {"role": "user", "text": user_message, "timestamp": now},
-            {"role": "assistant", "text": reply, "timestamp": now},
-        ]
-        session.version = F("version") + 1
-        session.save(update_fields=["transcript", "modified_at", "version"])
-        session.refresh_from_db(fields=["version"])
+        # The DB write and the event publish are grouped in their own short
+        # atomic block (rather than wrapping the whole method, which would
+        # hold a transaction open across the blocking LLM call above) so
+        # _emit_event's on_commit hook (REQ-L2-AS-029) is bound to this
+        # write specifically.
+        with transaction.atomic():
+            session.refresh_from_db()
+            session.transcript = [
+                *session.transcript,
+                {"role": "user", "text": user_message, "timestamp": now},
+                {"role": "assistant", "text": reply, "timestamp": now},
+            ]
+            session.version = F("version") + 1
+            session.save(update_fields=["transcript", "modified_at", "version"])
+            session.refresh_from_db(fields=["version"])
+
+            self._emit_event(
+                self._make_event(
+                    event_type=DomainEventOutbox.EventType.INTERVIEW_CHAT_TURN,
+                    entity_id=session.id,
+                    workspace_id=session.workspace_id,
+                    payload={
+                        "session_kind": session.session_kind,
+                        "user_message": user_message,
+                        "reply": reply,
+                        "extracted_fields": list(extracted.keys()),
+                    },
+                )
+            )
 
         return {"reply": reply, "state": self.get_state(ctx, session_id)}
 
@@ -1275,9 +1332,27 @@ class InterviewService(ServiceBase):
         # Same optimistic-concurrency bump as the single-mode chat save
         # (review-2 fix n2): a multi chat turn must not silently overwrite a
         # concurrent edit either.
-        session.version = F("version") + 1
-        session.save(update_fields=["transcript", "grounding_snapshot", "modified_at", "version"])
-        session.refresh_from_db(fields=["version"])
+        # DB write + event publish grouped in their own atomic block --
+        # same rationale as the single-mode path above (avoid holding a
+        # transaction open across the LLM call already made further up).
+        with transaction.atomic():
+            session.version = F("version") + 1
+            session.save(update_fields=["transcript", "grounding_snapshot", "modified_at", "version"])
+            session.refresh_from_db(fields=["version"])
+
+            self._emit_event(
+                self._make_event(
+                    event_type=DomainEventOutbox.EventType.INTERVIEW_CHAT_TURN,
+                    entity_id=session.id,
+                    workspace_id=session.workspace_id,
+                    payload={
+                        "session_kind": session.session_kind,
+                        "user_message": user_message,
+                        "reply": reply,
+                        "has_proposal": proposal is not None,
+                    },
+                )
+            )
 
         return {
             "reply": reply,
