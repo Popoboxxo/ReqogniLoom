@@ -190,6 +190,18 @@ export default function WorkspaceSettings(): JSX.Element {
     fontSize: "var(--font-size-base)",
   };
 
+  const palettePickerStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--space-1)",
+  };
+
+  const modePickerStyle: React.CSSProperties = {
+    display: "flex",
+    gap: "var(--space-2)",
+    marginTop: "var(--space-2)",
+  };
+
   const fieldLabelStyle: React.CSSProperties = {
     display: "block",
     marginBottom: "var(--space-2)",
@@ -449,7 +461,7 @@ export default function WorkspaceSettings(): JSX.Element {
             {/* Theme (Theme Presets): independent palette + mode pickers */}
             <section style={cardStyle}>
               <h3 style={headingStyle}>{t("settings.theme")}</h3>
-              <div data-testid="theme-palette-picker" style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+              <div data-testid="theme-palette-picker" style={palettePickerStyle}>
                 {palettes.map((p) => (
                   <button
                     key={p.key}
@@ -463,7 +475,7 @@ export default function WorkspaceSettings(): JSX.Element {
                   </button>
                 ))}
               </div>
-              <div data-testid="theme-mode-picker" style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+              <div data-testid="theme-mode-picker" style={modePickerStyle}>
                 <button
                   type="button"
                   data-testid="theme-mode-dark"
