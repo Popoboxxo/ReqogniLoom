@@ -13,6 +13,11 @@ from typing import Any
 
 import yaml
 
+from application.interview_multi_protocol import (
+    _MULTI_PROTOCOL_FACTORY_DEFAULT,
+    _MULTI_PROTOCOL_SLOT,
+)
+
 # All artifact types Spec 1 puts in scope (spec §1) -- everything except
 # MainGoal, which stays read-only (matches the MCP surface: only
 # main_goal.read/list_versions exist, no write tools).
@@ -132,10 +137,18 @@ def _default_protocol_yaml(artifact_type: str) -> str:
 
 # Single canonical registry, same pattern as ai_derivation_service.PROMPT_TEMPLATE_DEFAULTS
 # (mcp_server.tools.prompt_template reads factory defaults from exactly one
-# place per family so every read path agrees).
+# place per family so every read path agrees). The free-running multi-artifact
+# chat registers its factory default here too so the existing
+# Workspace -> Tenant -> Factory resolver chain (try_resolve_template_content)
+# picks it up identically to the 8 single-type slots. Module-level import of
+# interview_multi_protocol is safe: prompt_slots imports this module lazily
+# inside get_prompt_slots(), so no import cycle closes.
 INTERVIEW_PROTOCOL_DEFAULTS: "dict[str, str]" = {
-    f"interview.protocol.{artifact_type}": _default_protocol_yaml(artifact_type)
-    for artifact_type in IN_SCOPE_ARTIFACT_TYPES
+    **{
+        f"interview.protocol.{artifact_type}": _default_protocol_yaml(artifact_type)
+        for artifact_type in IN_SCOPE_ARTIFACT_TYPES
+    },
+    _MULTI_PROTOCOL_SLOT: _MULTI_PROTOCOL_FACTORY_DEFAULT,
 }
 
 

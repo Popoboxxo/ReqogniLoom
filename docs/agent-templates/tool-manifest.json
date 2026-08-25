@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.7.0-beta.3",
-  "tool_count": 167,
+  "generated_from": "reqogniloom==1.7.0",
+  "tool_count": 168,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2108,6 +2108,25 @@
       }
     },
     {
+      "name": "interview.propose",
+      "prefix": "interview",
+      "is_write": false,
+      "description": "Get the current pending multi-artifact proposal for a session, if the LLM has emitted one (read-only). Returns null until a chat turn produced a parseable proposal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the interview session."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
       "name": "interview.set_target",
       "prefix": "interview",
       "is_write": true,
@@ -2134,17 +2153,26 @@
       "name": "interview.start",
       "prefix": "interview",
       "is_write": true,
-      "description": "Start a new structured interview for one artifact type in a workspace (write). Returns the new session_id plus its current interview state (phase, collected_fields, missing_fields) so the caller can immediately render the first question.",
+      "description": "Start a new interview session in a workspace (write). Two modes: session_kind='single' (default) drives one typed artifact and requires artifact_type; session_kind='multi' starts a type-less multi-artifact discovery session -- omit artifact_type there. Returns the new session_id plus its current interview state so the caller can immediately render the first question (multi sessions return state without phase/missing_fields, which do not exist in that mode).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "artifact_type": {
             "type": "string",
-            "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'."
+            "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'. Required for single-mode interviews; must be omitted for session_kind='multi'."
           },
           "workspace_id": {
             "type": "string",
             "description": "UUID of the workspace."
+          },
+          "session_kind": {
+            "type": "string",
+            "enum": [
+              "single",
+              "multi"
+            ],
+            "default": "single",
+            "description": "Interview mode: 'single' drives one typed artifact via its per-type protocol; 'multi' lets the LLM propose several possibly different-typed artifacts (read them via interview.propose)."
           },
           "seed_context": {
             "type": "object",
@@ -2152,7 +2180,6 @@
           }
         },
         "required": [
-          "artifact_type",
           "workspace_id"
         ]
       }

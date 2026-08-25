@@ -6,7 +6,9 @@ interview.answer / interview.list / interview.get /
 interview.grounding_context (Task 5, structural + Task 6 AI-assisted
 ranking) / interview.formalize (Task 7, Requirement only) /
 interview.set_target (issue #540, confirms a grounding_context()
-candidate as formalize()'s update target, Requirement only).
+candidate as formalize()'s update target, Requirement only) /
+interview.propose (multi-artifact plan Task 6, read-only pending-proposal
+readout).
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
+from persistence.models import InterviewSession
 
 
 def _session_to_dict(session: Any) -> dict:
@@ -45,26 +48,45 @@ class InterviewToolGroup(BaseToolGroup):
         "interview.formalize": "_handle_formalize",
         "interview.set_target": "_handle_set_target",
         "interview.abandon": "_handle_abandon",
+        "interview.propose": "_handle_propose",
     }
 
     _TOOL_SCHEMAS = [
         {
             "name": "interview.start",
             "description": (
-                "Start a new structured interview for one artifact type in a "
-                "workspace (write). Returns the new session_id plus its "
-                "current interview state (phase, collected_fields, "
-                "missing_fields) so the caller can immediately render the "
-                "first question."
+                "Start a new interview session in a workspace (write). Two "
+                "modes: session_kind='single' (default) drives one typed "
+                "artifact and requires artifact_type; session_kind='multi' "
+                "starts a type-less multi-artifact discovery session -- omit "
+                "artifact_type there. Returns the new session_id plus its "
+                "current interview state so the caller can immediately render "
+                "the first question (multi sessions return state without "
+                "phase/missing_fields, which do not exist in that mode)."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "artifact_type": {
                         "type": "string",
-                        "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'.",
+                        "description": (
+                            "Target artifact type, e.g. 'Requirement', 'Risk', "
+                            "'TestCase'. Required for single-mode interviews; "
+                            "must be omitted for session_kind='multi'."
+                        ),
                     },
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "session_kind": {
+                        "type": "string",
+                        "enum": ["single", "multi"],
+                        "default": "single",
+                        "description": (
+                            "Interview mode: 'single' drives one typed artifact "
+                            "via its per-type protocol; 'multi' lets the LLM "
+                            "propose several possibly different-typed artifacts "
+                            "(read them via interview.propose)."
+                        ),
+                    },
                     "seed_context": {
                         "type": "object",
                         "description": (
@@ -74,7 +96,7 @@ class InterviewToolGroup(BaseToolGroup):
                         ),
                     },
                 },
-                "required": ["artifact_type", "workspace_id"],
+                "required": ["workspace_id"],
             },
         },
         {
@@ -208,6 +230,25 @@ class InterviewToolGroup(BaseToolGroup):
                 "required": ["session_id"],
             },
         },
+        {
+            "name": "interview.propose",
+            "description": (
+                "Get the current pending multi-artifact proposal for a "
+                "session, if the LLM has emitted one (read-only). Returns "
+                "null until a chat turn produced a parseable proposal."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "UUID of the interview session.",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        },
     ]
 
     def __init__(self, service: Optional[InterviewService] = None) -> None:
@@ -216,13 +257,25 @@ class InterviewToolGroup(BaseToolGroup):
     def _handle_start(
         self, *, params: Dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
-        artifact_type = require_param(params, "artifact_type")
+        # artifact_type is optional since the multi-artifact mode: a
+        # session_kind="multi" start omits it (schema parity -- see
+        # interview.start's inputSchema). Single-mode shape violations
+        # (missing artifact_type) are rejected by InterviewService.start()
+        # as a clean ValidationError below.
+        artifact_type = params.get("artifact_type")
         workspace_id = require_uuid(params, "workspace_id")
         seed_context = params.get("seed_context")
+        session_kind = (
+            params.get("session_kind") or InterviewSession.SESSION_KIND_SINGLE
+        )
 
         try:
             session = self._service.start(
-                auth_context, artifact_type, workspace_id, seed_context=seed_context
+                auth_context,
+                artifact_type,
+                workspace_id,
+                session_kind=session_kind,
+                seed_context=seed_context,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -241,8 +294,29 @@ class InterviewToolGroup(BaseToolGroup):
             tool_name="interview.start",
             api_key=api_key,
         )
-        state = self._service.get_state(auth_context, session.id)
+        state = self._started_session_state(auth_context, session)
         return ToolResult.ok({**_session_to_dict(session), **state})
+
+    def _started_session_state(self, auth_context, session: Any) -> dict:
+        """State payload for a freshly started session.
+
+        Multi-kind sessions deliberately bypass InterviewService.get_state():
+        it resolves the per-artifact-type protocol via get_protocol(), which
+        has no answer for a multi session's ``artifact_type=None``
+        (ProtocolValidationError). Same Task-5 decision as
+        InterviewService._generate_multi_chat_turn -- same state shape minus
+        phase/missing_fields, which do not exist in multi mode. Single-kind
+        sessions keep the unchanged get_state() call.
+        """
+        if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
+            return {
+                "session_id": str(session.id),
+                "status": session.status,
+                "collected_fields": session.collected_fields,
+                "grounding_snapshot": session.grounding_snapshot,
+                "transcript": session.transcript,
+            }
+        return self._service.get_state(auth_context, session.id)
 
     def _handle_get_state(
         self, *, params: Dict[str, Any], auth_context, api_key: str
@@ -376,6 +450,22 @@ class InterviewToolGroup(BaseToolGroup):
             api_key=api_key,
         )
         return ToolResult.ok(result)
+
+    def _handle_propose(
+        self, *, params: Dict[str, Any], auth_context, api_key: str
+    ) -> ToolResult:
+        """Read-only pending-proposal readout (multi-artifact plan Task 6).
+
+        Mirrors _handle_get_state's shape: plain read, so no write_mcp_audit
+        and only NotFoundError needs explicit mapping -- propose() raises
+        nothing else of note.
+        """
+        session_id = require_uuid(params, "session_id")
+        try:
+            proposal = self._service.propose(auth_context, session_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        return ToolResult.ok({"proposal": proposal})
 
 
 __all__ = ["InterviewToolGroup"]

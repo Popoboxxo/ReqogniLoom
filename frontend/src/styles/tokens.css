@@ -115,6 +115,14 @@
   --palette-blue-300: #93c5fd;
   --palette-blue-500: #3b82f6;
   --palette-blue-500-a20: rgba(59, 130, 246, 0.2);
+  /* Task 9 (multi-artifact interview): teal/orange/rose were missing from
+     the status families; the artifact-type graph ramp below references
+     their -500 primitives. Values follow the same Tailwind-standard
+     provenance as the existing -500 entries above. Violet needs no new
+     primitive — purple-500 already is this project's violet family. */
+  --palette-teal-500: #14b8a6;
+  --palette-orange-500: #f97316;
+  --palette-rose-500: #f43f5e;
 
   /* Pastel badge ramp — solid light-theme badge fills and their text tones.
      A separate, flatter ramp than the status families above; it predates the
@@ -515,6 +523,23 @@
   --color-reqtype-featurereq: var(--palette-amber-500);
   --color-reqtype-default: var(--palette-gray-600);
 
+  /* Artifact-type colors for the multi-artifact interview proposal graph.
+     Declared once in :root — they reference palette primitives directly,
+     so themes inherit them unless explicitly overridden. Deviation from
+     plan (Task 9): -goal maps to the existing --palette-purple-500 instead
+     of a violet-500 token; purple-500 is this project's established violet
+     family (same reasoning as -usecase above). */
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
+
   /* Trace-link-type inline badge (TraceLinksForm.tsx and
      TraceabilityView.tsx both carry an identical `background: "#eef",
      color: "#2c5282"` pill around the link_type label), theming phase 2,
@@ -784,6 +809,16 @@
   --color-reqtype-usecase: var(--palette-purple-500);
   --color-reqtype-featurereq: var(--palette-amber-500);
   --color-reqtype-default: var(--palette-gray-600);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
   --color-linktype-badge-bg: var(--palette-slate-50);
   --color-linktype-badge-text: var(--palette-sky-800);
   --color-metric-healthy: var(--palette-emerald-500);
@@ -909,6 +944,16 @@
   --color-reqtype-usecase: var(--palette-purple-500);
   --color-reqtype-featurereq: var(--palette-amber-500);
   --color-reqtype-default: var(--palette-gray-600);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
   --color-linktype-badge-bg: var(--palette-slate-50);
   --color-linktype-badge-text: var(--palette-sky-800);
   --color-metric-healthy: var(--palette-emerald-500);
@@ -1025,6 +1070,16 @@
   --color-reqtype-usecase: var(--palette-purple-500);
   --color-reqtype-featurereq: var(--palette-amber-500);
   --color-reqtype-default: var(--palette-gray-600);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
   --color-linktype-badge-bg: var(--palette-slate-50);
   --color-linktype-badge-text: var(--palette-sky-800);
   --color-metric-healthy: var(--palette-emerald-500);
@@ -1147,6 +1202,16 @@
   --color-reqtype-usecase: var(--palette-purple-500);
   --color-reqtype-featurereq: var(--palette-amber-500);
   --color-reqtype-default: var(--palette-gray-600);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
   --color-linktype-badge-bg: var(--palette-slate-50);
   --color-linktype-badge-text: var(--palette-sky-800);
   --color-metric-healthy: var(--palette-emerald-500);

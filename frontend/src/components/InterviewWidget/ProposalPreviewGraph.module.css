@@ -1,0 +1,70 @@
+/* ProposalPreviewGraph — display-only interview proposal preview
+ * (plan Task 10). Colors/sizes come from styles/tokens.css custom properties.
+ * Per-type border colors are plain classes (one per artifact type) instead of
+ * an inline style — keeps the ui-ratchet inline-style ratchet untouched. */
+.container {
+  height: 280px;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.node {
+  padding: 8px 12px;
+  border: 2px solid;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+.typeStakeholderNeed {
+  border-color: var(--color-artifacttype-stakeholderneed);
+}
+
+.typeRequirement {
+  border-color: var(--color-artifacttype-requirement);
+}
+
+.typeArchitectureElement {
+  border-color: var(--color-artifacttype-architectureelement);
+}
+
+.typeRisk {
+  border-color: var(--color-artifacttype-risk);
+}
+
+.typeTestCase {
+  border-color: var(--color-artifacttype-testcase);
+}
+
+.typeAdr {
+  border-color: var(--color-artifacttype-adr);
+}
+
+.typeIssue {
+  border-color: var(--color-artifacttype-issue);
+}
+
+.typeGoal {
+  border-color: var(--color-artifacttype-goal);
+}
+
+.typeGlossaryTerm {
+  border-color: var(--color-artifacttype-glossaryterm);
+}
+
+.typeDefault {
+  border-color: var(--color-artifacttype-default);
+}
+
+.nodeType {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.nodeTitle {
+  font-weight: 600;
+}
