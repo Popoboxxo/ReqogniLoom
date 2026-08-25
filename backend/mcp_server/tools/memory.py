@@ -29,7 +29,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from auth_tenancy.services.authorization import AuthorizationService
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, ParameterError, require_param
+from mcp_server.tools.base import BaseToolGroup, ParameterError, require_param, require_uuid
 from memory.backends import _tenant_context, get_memory_backend
 from memory.models import UserTenantMemory, WorkspaceMemory
 
@@ -96,7 +96,7 @@ class MemoryToolGroup(BaseToolGroup):
         if scope not in ("workspace", "user"):
             raise ParameterError(f"Parameter 'scope' must be 'workspace' or 'user', got {scope!r}.")
         if scope == "workspace":
-            return UUID(str(require_param(params, "workspace_id")))
+            return require_uuid(params, "workspace_id")
         return auth_context.user_id
 
     def _handle_query(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -125,7 +125,7 @@ class MemoryToolGroup(BaseToolGroup):
         OR a ``WorkspaceMemory`` row in a workspace where the caller holds the
         admin role.
         """
-        entry_id = UUID(str(require_param(params, "entry_id")))
+        entry_id = require_uuid(params, "entry_id")
         with _tenant_context(auth_context.tenant_id):
             user_entry = UserTenantMemory.objects.filter(id=entry_id).first()
             if user_entry is not None:

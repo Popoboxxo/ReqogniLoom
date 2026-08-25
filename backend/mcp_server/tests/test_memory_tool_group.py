@@ -104,6 +104,31 @@ class TestMemoryToolGroupHandlers:
             )
             assert allowed.success
 
+    def test_query_malformed_workspace_id_is_validation_error(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group.execute_tool(
+                "memory.query",
+                {"scope": "workspace", "workspace_id": "not-a-uuid", "query": "fact"},
+                ctx,
+                None,
+            )
+            assert not result.success
+            assert result.error_code == "VALIDATION_ERROR"
+
+    def test_forget_malformed_entry_id_is_validation_error(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user)
+            group = MemoryToolGroup()
+            result = group.execute_tool("memory.forget", {"entry_id": "not-a-uuid"}, ctx, None)
+            assert not result.success
+            assert result.error_code == "VALIDATION_ERROR"
+
     def test_forget_unknown_entry_not_found(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         with active_tenant() as tenant:
