@@ -10,7 +10,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import WorkspaceSettings from "./WorkspaceSettings";
-import { workspacesApi } from "../../api/workspaces";
 
 vi.mock("react-i18next", () => {
   const t = (_key: string, fallback?: unknown): string =>
