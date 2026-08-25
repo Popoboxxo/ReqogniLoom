@@ -89,3 +89,7 @@ reqif>=0.1.0,<0.2
 # `mock` was actually usable. Pinned consistent with the other deps above.
 anthropic>=0.122.0,<1.0
 openai>=1.40,<2.0
+# Embedding provider (REQ-L2-VS-004) — sentence-transformers is the new default
+# embedding provider (384 dims, in-process, no external service). Optional
+# providers: ollama (768 dims) and openai (1536 dims, already listed above).
+sentence-transformers>=3.2.0,<4.0

@@ -23,6 +23,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
+# Pre-download sentence-transformers model (REQ-L2-VS-004) to avoid slow
+# first-request download at runtime. Model is cached in /root/.cache and will
+# be available when the runtime image boots.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # ─────────────────────────────────────────────────────────
 # Stage 2: runtime — minimal image with only runtime deps
 # ─────────────────────────────────────────────────────────
