@@ -708,6 +708,11 @@
       "rebuilding": "Wird neu aufgebaut...",
       "rebuildQueued": "Neuaufbau eingereiht"
     },
+    "memory": {
+      "title": "KI-Gedächtnis",
+      "description": "Lernt aus Interaktionen in diesem Workspace und ruft daraus Fakten ab, um KI-gestützte Vorschläge im Zeitverlauf zu verbessern.",
+      "enabled": "Aktiviert"
+    },
     "customFields": {
       "title": "Benutzerdefinierte Felder",
       "description": "Definiere zusätzliche Felder für dieses Workspace. Definierte Felder erscheinen im Bearbeitungsformular jeder Anforderung (Requirement) und können dort ausgefüllt werden.",

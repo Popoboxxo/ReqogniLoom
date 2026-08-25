@@ -40,6 +40,7 @@ import { CustomFieldsSection } from "./CustomFieldsSection";
 import { McpConnectionSection } from "./McpConnectionSection";
 import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
+import { MemorySettingsSection } from "./MemorySettingsSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { PageHeader } from "../shared/PageHeader";
 
@@ -566,6 +567,7 @@ export default function WorkspaceSettings(): JSX.Element {
             />
 
             <WorkspaceBannerSection workspaceId={activeWorkspace.id} />
+            <MemorySettingsSection workspaceId={activeWorkspace.id} />
           </>
         )}
 

@@ -1,0 +1,49 @@
+/* MemorySettingsSection (Spec 2026-08-24, Task 11). CSS Module, not inline
+   styles — matches ContextGraphSettingsSection's precedent (the codebase's
+   ratchet direction for new UI code, see src/test/ui-ratchet.test.ts). */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-top: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.description {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.toggleLabel[data-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.error {
+  color: var(--color-danger);
+  margin-top: var(--space-3);
+}
+
+.saved {
+  color: var(--color-success);
+  margin-top: var(--space-3);
+}

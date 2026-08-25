@@ -708,6 +708,11 @@
       "rebuilding": "Rebuilding...",
       "rebuildQueued": "Rebuild queued"
     },
+    "memory": {
+      "title": "AI Memory",
+      "description": "Learns and recalls facts from interactions in this workspace to improve AI-assisted suggestions over time.",
+      "enabled": "Enabled"
+    },
     "customFields": {
       "title": "Custom Fields",
       "description": "Define additional fields for this workspace. Defined fields appear on every requirement's edit form, where they can be filled in.",

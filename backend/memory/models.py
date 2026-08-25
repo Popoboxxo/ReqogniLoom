@@ -1,4 +1,4 @@
-"""AI Long-Term Memory models (Spec 2026-08-24, Task 2).
+"""AI Long-Term Memory models (Spec 2026-08-24, Task 2 + Task 11).
 
 Two tenant-scoped tables holding consolidated, embeddable memory facts:
 
@@ -13,6 +13,11 @@ Both models are additive read/write targets for the (future, Task 3+)
 ``superseded_by`` is a self-referential FK used by the (future, Task 5)
 consolidation pipeline to mark a fact as replaced by a newer one without
 deleting the historical row.
+
+``WorkspaceMemorySettings`` (Task 11) is a third, independent table: the
+per-workspace enable/disable toggle for the memory feature. Missing row =
+feature ON (``enabled`` defaults ``True``), mirroring the "missing row =
+default state" convention already used by ``LlmSettings``.
 """
 from django.db import models
 from pgvector.django import HnswIndex, VectorField
@@ -74,3 +79,19 @@ class UserTenantMemory(TenantScopedModel):
                 opclasses=["vector_cosine_ops"],
             ),
         ]
+
+
+class WorkspaceMemorySettings(TenantScopedModel):
+    """Per-workspace enable/disable toggle for the AI Long-Term Memory feature.
+
+    One row per ``Workspace`` (``OneToOneField``, mirrors
+    ``context_graph.models.WorkspaceContextSettings``). Missing row = feature
+    ON (``enabled`` defaults ``True``) — the read path (``memory_rest``) never
+    creates this row as a side effect; only the write path (PUT) does.
+    """
+
+    workspace = models.OneToOneField(Workspace, on_delete=models.CASCADE)
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "mem_workspace_memory_settings"
