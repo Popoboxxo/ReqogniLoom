@@ -50,12 +50,30 @@ vi.mock("../../context/AuthContext", () => ({
   useAuth: () => ({ roles: ["admin"] }),
 }));
 
+const setPreferenceMock = vi.hoisted(() => vi.fn());
+
 vi.mock("../../context/ThemeContext", () => ({
-  useTheme: () => ({ setTheme: vi.fn() }),
-  THEMES: [
-    { id: "dark", labelKey: "nav.darkMode" },
-    { id: "light", labelKey: "nav.lightMode" },
-  ],
+  useTheme: () => ({
+    paletteKey: "default",
+    mode: "dark",
+    palettes: [
+      {
+        key: "default",
+        label: "Default",
+        is_system: true,
+        dark_tokens: {},
+        light_tokens: {},
+      },
+      {
+        key: "nordic",
+        label: "Nordic",
+        is_system: true,
+        dark_tokens: {},
+        light_tokens: {},
+      },
+    ],
+    setPreference: setPreferenceMock,
+  }),
 }));
 
 vi.mock("../../api/workspaces", () => ({
@@ -142,10 +160,23 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("settings-tab-general")).toHaveAttribute("aria-selected", "true");
   });
 
-  it("lets an admin change the workspace-default theme (#568)", async () => {
+  it("renders a palette picker and a mode picker instead of the old single theme list", () => {
     render(<WorkspaceSettings />);
-    await userEvent.click(screen.getByTestId("theme-option-light"));
-    expect(workspacesApi.update).toHaveBeenCalledWith("ws-1", { theme: "light" });
+    expect(screen.getByTestId("theme-palette-picker")).toBeInTheDocument();
+    expect(screen.getByTestId("theme-mode-picker")).toBeInTheDocument();
+    expect(screen.queryByTestId("theme-option-dark")).not.toBeInTheDocument(); // old flat-list testid gone
+  });
+
+  it("lets the user pick an independent palette without touching the mode", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("theme-palette-option-nordic"));
+    expect(setPreferenceMock).toHaveBeenCalledWith("nordic", "dark");
+  });
+
+  it("lets the user flip the mode without touching the palette", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("theme-mode-light"));
+    expect(setPreferenceMock).toHaveBeenCalledWith("default", "light");
   });
 
   it("shows the rebuilt Workflows & Permissions tab (SCR-202)", async () => {
