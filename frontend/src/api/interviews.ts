@@ -64,16 +64,69 @@ export interface InterviewSummary {
   status: string;
 }
 
+/**
+ * One proposed trace link inside a {@link ProposalItem}, referencing the
+ * batch by zero-based item index (`from`/`to`). Mirrors what
+ * `InterviewService._validate_confirmed_proposal()` accepts and what the
+ * REST facade's `confirmed_proposal` body carries.
+ */
+export interface ProposalLink {
+  from: number;
+  to: number;
+  type: string;
+}
+
+/**
+ * One proposed artifact in a multi-mode interview's pending proposal
+ * (`GET /interviews/{id}/propose/`) or caller-confirmed batch
+ * (`POST /interviews/{id}/formalize/` with `confirmed_proposal`).
+ */
+export interface ProposalItem {
+  type: string;
+  title: string;
+  fields: Record<string, unknown>;
+  links: ProposalLink[];
+}
+
+/** `formalize()` response for a single-kind session (backend `_formalize_single`). */
+export interface SingleFormalizeResult {
+  resulting_artifact_ids: string[];
+  status: string;
+}
+
+/**
+ * `formalize()` response for a multi-kind session (backend `_formalize_multi`):
+ * every confirmed proposal item becomes one artifact. Not yet the declared
+ * return type of {@link interviewsApi.formalize} (its current return type
+ * predates multi-mode and no frontend caller consumes this shape yet) --
+ * exported so the multi-mode contract is typed and ready for Task 10+'s UI.
+ */
+export interface MultiFormalizeResult {
+  created: { artifact_id: string; artifact_type: string }[];
+  status: string;
+}
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
 
 export const interviewsApi = {
-  /** Start a new interview session for `artifactType` in `workspaceId`. */
-  start(workspaceId: UUID, artifactType: string): Promise<InterviewState> {
+  /**
+   * Start a new interview session in `workspaceId`. Single-mode sessions
+   * target one `artifactType`; multi-mode discovery sessions pass
+   * `artifactType: null` with `sessionKind: "multi"` (backend normalises a
+   * missing/absent `session_kind` to `"single"`, so existing two-argument
+   * call sites behave exactly as before).
+   */
+  start(
+    workspaceId: UUID,
+    artifactType: string | null,
+    sessionKind: "single" | "multi" = "single"
+  ): Promise<InterviewState> {
     return apiClient.post<InterviewState>("/interviews/", {
-      artifact_type: artifactType,
       workspace_id: workspaceId,
+      artifact_type: artifactType,
+      session_kind: sessionKind,
     });
   },
 
@@ -119,11 +172,33 @@ export const interviewsApi = {
     );
   },
 
-  /** Turn the session's collected answers into a real artifact. */
-  formalize(id: UUID): Promise<{ resulting_artifact_ids: string[]; status: string }> {
-    return apiClient.post<{ resulting_artifact_ids: string[]; status: string }>(
+  /**
+   * Fetch the multi-mode session's current pending proposal (LLM-generated,
+   * NOT yet persisted as artifacts). Returns `{ proposal: null }` while no
+   * proposal exists. The caller reviews/edits it and passes the confirmed
+   * batch to {@link formalize}.
+   */
+  propose(id: UUID): Promise<{ proposal: ProposalItem[] | null }> {
+    return apiClient.get<{ proposal: ProposalItem[] | null }>(
+      `/interviews/${id}/propose/`
+    );
+  },
+
+  /**
+   * Turn the session's collected answers into real artifact(s).
+   * Without `confirmedProposal` (single-kind session): backend
+   * `_formalize_single`. With a confirmed batch (multi-kind session):
+   * every item becomes one artifact plus its proposed trace links,
+   * atomically (backend `_formalize_multi`) -- that response carries the
+   * {@link MultiFormalizeResult} shape at runtime.
+   */
+  formalize(
+    id: UUID,
+    confirmedProposal?: ProposalItem[]
+  ): Promise<SingleFormalizeResult> {
+    return apiClient.post<SingleFormalizeResult>(
       `/interviews/${id}/formalize/`,
-      {}
+      confirmedProposal ? { confirmed_proposal: confirmedProposal } : {}
     );
   },
 

@@ -4,6 +4,10 @@
  * used by `stakeholder-need.test.ts` / `diagrams.test.ts` — a plain mock
  * object per method (not `vi.mock`'s `importOriginal`, which no sibling
  * `src/api/*.test.ts` file in this codebase uses).
+ *
+ * The "multi-mode" describe group covers multi-artifact-interview plan
+ * Task 8: `start()` gains `session_kind`, `formalize()` gains an optional
+ * `confirmed_proposal`, and `propose()` fetches the pending proposal.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -42,7 +46,7 @@ describe("interviewsApi", () => {
     vi.clearAllMocks();
   });
 
-  it("start POSTs artifact_type and workspace_id", async () => {
+  it("start POSTs artifact_type, workspace_id and default session_kind", async () => {
     mockPost.mockResolvedValue(STATE_FIXTURE);
 
     const result = await interviewsApi.start(WS, "Requirement");
@@ -50,6 +54,7 @@ describe("interviewsApi", () => {
     expect(mockPost).toHaveBeenCalledWith("/interviews/", {
       artifact_type: "Requirement",
       workspace_id: WS,
+      session_kind: "single",
     });
     expect(result.id).toBe(SESSION);
   });
@@ -139,5 +144,53 @@ describe("interviewsApi", () => {
       message: "hello",
     });
     expect(result.reply).toBe("Got it.");
+  });
+});
+
+describe("interviewsApi multi-mode (plan Task 8)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("start() sends session_kind and passes null artifact_type for multi", async () => {
+    mockPost.mockResolvedValue(STATE_FIXTURE);
+
+    await interviewsApi.start(WS, null, "multi");
+
+    expect(mockPost).toHaveBeenCalledWith("/interviews/", {
+      workspace_id: WS,
+      artifact_type: null,
+      session_kind: "multi",
+    });
+  });
+
+  it("formalize() sends confirmed_proposal when given", async () => {
+    mockPost.mockResolvedValue({ created: [], status: "completed" });
+
+    const proposal = [
+      { type: "StakeholderNeed", title: "N", fields: { title: "N" }, links: [] },
+    ];
+    await interviewsApi.formalize(SESSION, proposal);
+
+    expect(mockPost).toHaveBeenCalledWith(`/interviews/${SESSION}/formalize/`, {
+      confirmed_proposal: proposal,
+    });
+  });
+
+  it("formalize() without argument posts {} (backward compatible)", async () => {
+    mockPost.mockResolvedValue({ resulting_artifact_ids: [], status: "completed" });
+
+    await interviewsApi.formalize(SESSION);
+
+    expect(mockPost).toHaveBeenCalledWith(`/interviews/${SESSION}/formalize/`, {});
+  });
+
+  it("propose() fetches the pending proposal", async () => {
+    mockGet.mockResolvedValue({ proposal: null });
+
+    const result = await interviewsApi.propose(SESSION);
+
+    expect(mockGet).toHaveBeenCalledWith(`/interviews/${SESSION}/propose/`);
+    expect(result.proposal).toBeNull();
   });
 });
