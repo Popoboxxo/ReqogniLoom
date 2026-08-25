@@ -1,0 +1,29 @@
+/* ProposalPreviewGraph — display-only interview proposal preview
+ * (plan Task 10). Colors/sizes come from styles/tokens.css custom properties;
+ * node border color is injected inline via getArtifactTypeColorVar(). */
+.container {
+  height: 280px;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.node {
+  padding: 8px 12px;
+  border: 2px solid;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+.nodeType {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.nodeTitle {
+  font-weight: 600;
+}
