@@ -1653,6 +1653,7 @@
     "memory.deleteConfirmButton": "Endgültig löschen",
     "memory.noWorkspaces": "Keine Workspaces gefunden.",
     "memory.loadError": "Memory-Übersicht konnte nicht geladen werden.",
+    "memory.deleteError": "Löschen fehlgeschlagen.",
     "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
     "tabs": {
       "administration": "Administration",

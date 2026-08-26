@@ -3,6 +3,7 @@ import pytest
 
 from application.base import NotFoundError, PermissionDeniedError
 from application.memory_admin_service import MemoryAdminService
+from auth_tenancy.models import TenantRole
 from memory.backends import get_memory_backend
 from memory.models import UserTenantMemory, WorkspaceMemory, WorkspaceMemorySettings
 from persistence.tests.factories import (
@@ -22,6 +23,7 @@ class TestMemoryAdminServiceListOverview:
         with active_tenant() as tenant:
             ws = make_workspace(tenant, name="Empty WS")
             admin_user = make_user(tenant)
+            TenantRole.unscoped.create(tenant=tenant, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
 
             overview = MemoryAdminService().list_workspace_overview(ctx)
@@ -47,6 +49,7 @@ class TestMemoryAdminServiceListOverview:
             backend.upsert(tenant.id, "user", member.id, "user fact one")
 
             admin_user = make_user(tenant)
+            TenantRole.unscoped.create(tenant=tenant, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
 
             overview = MemoryAdminService().list_workspace_overview(ctx)
@@ -70,6 +73,7 @@ class TestMemoryAdminServiceListOverview:
             backend.upsert(tenant.id, "user", outsider.id, "outsider fact")
 
             admin_user = make_user(tenant)
+            TenantRole.unscoped.create(tenant=tenant, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
 
             overview = MemoryAdminService().list_workspace_overview(ctx)
@@ -81,6 +85,20 @@ class TestMemoryAdminServiceListOverview:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
+
+            with pytest.raises(PermissionDeniedError):
+                MemoryAdminService().list_workspace_overview(ctx)
+
+    def test_denies_workspace_scoped_admin_without_tenant_role(self):
+        """A ``UserRole(role="admin")`` in ONE workspace (no ``TenantRole``
+        anywhere) must NOT satisfy the System-Admin check — regression test
+        for the workspace_scope narrowing bug (see
+        ``MemoryAdminService._assert_system_admin``'s docstring).
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("admin",))
 
             with pytest.raises(PermissionDeniedError):
                 MemoryAdminService().list_workspace_overview(ctx)
@@ -102,6 +120,7 @@ class TestMemoryAdminServiceDelete:
             backend.upsert(tenant.id, "user", outsider.id, "outsider fact")
 
             admin_user = make_user(tenant)
+            TenantRole.unscoped.create(tenant=tenant, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
 
             result = MemoryAdminService().delete_workspace_memory(ctx, ws.id)
@@ -116,6 +135,7 @@ class TestMemoryAdminServiceDelete:
     def test_raises_not_found_for_unknown_workspace(self):
         with active_tenant() as tenant:
             admin_user = make_user(tenant)
+            TenantRole.unscoped.create(tenant=tenant, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
             import uuid
 
@@ -126,6 +146,20 @@ class TestMemoryAdminServiceDelete:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
+
+            with pytest.raises(PermissionDeniedError):
+                MemoryAdminService().delete_workspace_memory(ctx, ws.id)
+
+    def test_denies_workspace_scoped_admin_without_tenant_role(self):
+        """A ``UserRole(role="admin")`` in ONE workspace (no ``TenantRole``
+        anywhere) must NOT satisfy the System-Admin check — regression test
+        for the workspace_scope narrowing bug (see
+        ``MemoryAdminService._assert_system_admin``'s docstring).
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("admin",))
 
             with pytest.raises(PermissionDeniedError):
                 MemoryAdminService().delete_workspace_memory(ctx, ws.id)
@@ -141,6 +175,7 @@ class TestMemoryAdminServiceDelete:
             backend.upsert(tenant.id, "user", suspended_member.id, "suspended member fact")
 
             admin_user = make_user(tenant)
+            TenantRole.unscoped.create(tenant=tenant, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
 
             result = MemoryAdminService().delete_workspace_memory(ctx, ws.id)
@@ -159,6 +194,7 @@ class TestMemoryAdminServiceDelete:
         # Then try to delete it as admin in tenant_a
         with active_tenant() as tenant_a:
             admin_user = make_user(tenant_a)
+            TenantRole.unscoped.create(tenant=tenant_a, user=admin_user, role=TenantRole.ROLE_ADMIN)
             ctx = ctx_for_user(tenant_a, admin_user, roles=("admin",))
 
             with pytest.raises(NotFoundError):

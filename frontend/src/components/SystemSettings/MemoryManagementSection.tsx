@@ -12,11 +12,6 @@ import {
 import { Dialog } from "../shared/Dialog";
 import styles from "./MemoryManagementSection.module.css";
 
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
-
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -63,11 +58,12 @@ export function MemoryManagementSection(): JSX.Element {
       setPendingDelete(null);
       reload();
     } catch (err: unknown) {
-      setDeleteError(extractErrorMessage(err));
+      console.error("MemoryManagementSection: failed to delete workspace memory", err);
+      setDeleteError(t("systemSettings.memory.deleteError"));
     } finally {
       setIsDeleting(false);
     }
-  }, [pendingDelete, reload]);
+  }, [pendingDelete, reload, t]);
 
   return (
     <section className={styles.section} data-testid="memory-management-section">

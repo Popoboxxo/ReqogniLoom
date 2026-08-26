@@ -32,10 +32,11 @@ class MemoryAdminService(ServiceBase):
 
     @staticmethod
     def _assert_system_admin(ctx: AuthContext) -> None:
-        """Same System-Admin check as ``memory.memory_rest._is_system_admin``."""
-        if ctx.has_role("admin") or AuthorizationService().is_tenant_admin(
-            user_id=ctx.user_id, tenant_id=ctx.tenant_id
-        ):
+        """System-Admin check: tenant-wide admin only (NOT workspace-scoped
+        ``has_role("admin")``, which on an endpoint with a ``workspace_id`` URL
+        kwarg means "admin of that one workspace" — see auth_tenancy.workspace_scope).
+        """
+        if AuthorizationService().is_tenant_admin(user_id=ctx.user_id, tenant_id=ctx.tenant_id):
             return
         raise PermissionDeniedError("System-Admin role required")
 

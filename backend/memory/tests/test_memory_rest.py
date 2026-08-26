@@ -2,7 +2,10 @@
 import pytest
 from rest_framework.test import APIClient
 
+from auth_tenancy.models import UserRole
 from persistence.tests.factories import (
+    _FACTORY_PASSWORD,
+    _login_for_token,
     active_tenant,
     admin_user_and_token,
     assign_role,
@@ -10,6 +13,23 @@ from persistence.tests.factories import (
     make_user,
     make_workspace,
 )
+
+
+def _workspace_admin_user_and_token(tenant, workspace):
+    """Create a workspace-scoped admin (``UserRole(role="admin")``, NO
+    ``TenantRole``), log in for real, return ``(user, token)``.
+
+    Mirrors ``editor_user_and_token`` but grants the workspace-scoped
+    ``"admin"`` role instead of ``"editor"`` — used to prove that a
+    workspace-level admin is NOT a System-Admin (see
+    ``MemoryAdminService._assert_system_admin``'s docstring).
+    """
+    user = make_user(tenant)
+    user.set_password(_FACTORY_PASSWORD)
+    user.save(update_fields=["password"])
+    UserRole.unscoped.create(tenant=tenant, user=user, workspace=workspace, role="admin")
+    token = _login_for_token(user.username, _FACTORY_PASSWORD)
+    return user, token
 
 
 @pytest.mark.django_db
@@ -109,6 +129,23 @@ class TestMemoryAdminWorkspaceOverviewRest:
 
             assert response.status_code == 403
 
+    def test_overview_denies_workspace_scoped_admin_without_tenant_role(self):
+        """A workspace-scoped admin (``UserRole(role="admin")``, no
+        ``TenantRole`` anywhere) must NOT be able to see the whole-tenant
+        workspace overview — regression test for the ``workspace_scope``
+        narrowing bug (``ctx.has_role("admin")`` on this URL means
+        "admin of THIS workspace", not System-Admin).
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get("/api/v1/system/memory/workspaces/")
+
+            assert response.status_code == 403
+
 
 @pytest.mark.django_db
 class TestMemoryAdminWorkspaceDeleteRest:
@@ -139,6 +176,23 @@ class TestMemoryAdminWorkspaceDeleteRest:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete(f"/api/v1/system/memory/workspaces/{ws.id}/")
+
+            assert response.status_code == 403
+
+    def test_delete_denies_workspace_scoped_admin_without_tenant_role(self):
+        """A workspace-scoped admin (``UserRole(role="admin")``, no
+        ``TenantRole`` anywhere) must NOT be able to delete the workspace's
+        memory — regression test for the ``workspace_scope`` narrowing bug
+        (``ctx.has_role("admin")`` on this URL means "admin of THIS
+        workspace", not System-Admin).
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 

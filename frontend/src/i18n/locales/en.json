@@ -1653,6 +1653,7 @@
     "memory.deleteConfirmButton": "Permanently Delete",
     "memory.noWorkspaces": "No workspaces found.",
     "memory.loadError": "Failed to load memory overview.",
+    "memory.deleteError": "Delete failed.",
     "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
     "tabs": {
       "administration": "Administration",
