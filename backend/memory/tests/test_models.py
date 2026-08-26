@@ -1,7 +1,7 @@
 import pytest
 from django.db import IntegrityError
 
-from memory.models import UserTenantMemory, WorkspaceMemory
+from memory.models import SYSTEM_MEMORY_SETTINGS_ID, SystemMemorySettings, UserTenantMemory, WorkspaceMemory
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
 
@@ -39,3 +39,29 @@ class TestUserTenantMemory:
                 tenant=tenant, user=user, content="Prefers concise code review comments.", embedding=[0.3] * 384,
             )
             assert UserTenantMemory.objects.get(id=entry.id).user_id == user.id
+
+
+@pytest.mark.django_db
+class TestSystemMemorySettings:
+    def test_save_forces_singleton_pk(self):
+        row = SystemMemorySettings.objects.create(embedding_provider="mock")
+        assert row.pk == SYSTEM_MEMORY_SETTINGS_ID
+        assert SystemMemorySettings.objects.count() == 1
+
+    def test_all_override_fields_default_to_null(self):
+        row = SystemMemorySettings.objects.create()
+        assert row.embedding_provider is None
+        assert row.embedding_model_name is None
+        assert row.ollama_base_url is None
+        assert row.embedding_timeout is None
+        assert row.memory_backend is None
+        assert row.honcho_base_url is None
+
+    def test_honcho_api_key_roundtrips_encrypted(self):
+        row = SystemMemorySettings.objects.create()
+        row.honcho_api_key = "sk-test-secret"
+        row.save()
+        assert row.honcho_api_key_encrypted != "sk-test-secret"
+        assert row.honcho_api_key_encrypted != ""
+        reloaded = SystemMemorySettings.objects.get(pk=SYSTEM_MEMORY_SETTINGS_ID)
+        assert reloaded.honcho_api_key == "sk-test-secret"

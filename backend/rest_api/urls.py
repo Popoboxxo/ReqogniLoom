@@ -54,6 +54,7 @@ from admin_ops.theme_rest import (
     UserThemePreferenceView,
 )
 from memory.memory_rest import (
+    SystemMemorySettingsResetView,
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
     SystemMemoryWorkspaceOverviewView,
@@ -468,6 +469,11 @@ urlpatterns = [
         "system/memory-settings/",
         SystemMemorySettingsView.as_view(),
         name="system-memory-settings",
+    ),
+    path(
+        "system/memory-settings/reset/",
+        SystemMemorySettingsResetView.as_view(),
+        name="system-memory-settings-reset",
     ),
     # AI Long-Term Memory — System-Admin workspace overview + delete
     # (Memory Admin UI Phase 1, spec 2026-08-26).

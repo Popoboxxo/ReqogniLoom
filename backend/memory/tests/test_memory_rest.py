@@ -2,7 +2,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from auth_tenancy.models import UserRole
+from auth_tenancy.models import TenantRole, UserRole
 from persistence.tests.factories import (
     _FACTORY_PASSWORD,
     _login_for_token,
@@ -13,6 +13,25 @@ from persistence.tests.factories import (
     make_user,
     make_workspace,
 )
+
+
+def _superuser_and_token(tenant):
+    """Create a Django superuser (also a tenant admin, as in a real
+    deployment), log in for real, return ``(user, token)``.
+
+    ``/api/v1/system/memory-settings/``'s WRITE paths require
+    ``is_superuser`` (final whole-branch review C-1): the row is
+    deployment-global and cross-tenant, so a tenant/workspace-level admin
+    identity is not enough. The tenant-admin role is granted on top only so
+    the same client can still perform the read (GET) assertions, whose gate
+    is unchanged.
+    """
+    user = make_user(tenant, is_staff=True, is_superuser=True)
+    user.set_password(_FACTORY_PASSWORD)
+    user.save(update_fields=["password"])
+    TenantRole.unscoped.create(tenant=tenant, user=user, role=TenantRole.ROLE_ADMIN)
+    token = _login_for_token(user.username, _FACTORY_PASSWORD)
+    return user, token
 
 
 def _workspace_admin_user_and_token(tenant, workspace):
@@ -97,6 +116,410 @@ class TestMemorySettingsRest:
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
             response = client.get("/api/v1/system/memory-settings/")
             assert response.status_code == 403
+
+    def test_put_sets_db_override(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": "mock"},
+                format="json",
+            )
+            assert response.status_code == 200
+            assert response.data["embedding_provider"] == "mock"
+            assert response.data["embedding_provider_is_override"] is True
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["embedding_provider"] == "mock"
+
+    def test_put_changing_provider_returns_warning(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": "mock"},
+                format="json",
+            )
+            assert response.data["warning"] is not None
+
+    def test_put_unchanged_provider_no_warning(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_TIMEOUT", "10")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_timeout": 20},
+                format="json",
+            )
+            assert response.data["warning"] is None
+
+    def test_put_omitted_field_leaves_existing_override_unchanged(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put("/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json")
+
+            # Second PUT omits embedding_provider entirely -> must NOT reset it.
+            client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_model_name": "some-model"},
+                format="json",
+            )
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["embedding_provider"] == "mock"
+            assert get_response.data["embedding_model_name"] == "some-model"
+
+    def test_put_explicit_null_clears_override_back_to_env(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put("/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json")
+
+            # Explicit null -> clears the override, falls back to env.
+            null_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": None},
+                format="json",
+            )
+            assert null_response.status_code == 200
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["embedding_provider"] == "sentence-transformers"
+            assert get_response.data["embedding_provider_is_override"] is False
+
+    def test_honcho_api_key_never_returned_plaintext(self):
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            put_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"honcho_api_key": "super-secret-value"},
+                format="json",
+            )
+            assert "honcho_api_key" not in put_response.data
+            assert put_response.data["honcho_api_key_is_set"] is True
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert "honcho_api_key" not in get_response.data
+            assert get_response.data["honcho_api_key_is_set"] is True
+
+    def test_reset_clears_all_overrides(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put("/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json")
+
+            reset_response = client.post("/api/v1/system/memory-settings/reset/")
+            assert reset_response.status_code == 200
+            assert reset_response.data["embedding_provider"] == "sentence-transformers"
+            assert reset_response.data["embedding_provider_is_override"] is False
+
+    def test_put_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json"
+            )
+            assert response.status_code == 403
+
+    def test_reset_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.post("/api/v1/system/memory-settings/reset/")
+            assert response.status_code == 403
+
+    def test_put_rejects_unknown_provider(self):
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "not-a-real-provider"}, format="json"
+            )
+            assert response.status_code == 400
+
+    # --- C-1: write gate is superuser-only ------------------------------
+
+    def test_put_denies_workspace_scoped_admin(self):
+        """A workspace-scoped admin must NOT be able to write the
+        deployment-global settings row (C-1): this URL carries no
+        workspace_id, so ``ctx.has_role("admin")`` would otherwise let an
+        admin of ONE workspace repoint every tenant's embedding traffic.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"ollama_base_url": "http://attacker.example"},
+                format="json",
+            )
+            assert response.status_code == 403
+
+    def test_reset_denies_workspace_scoped_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.post("/api/v1/system/memory-settings/reset/")
+            assert response.status_code == 403
+
+    def test_put_denies_tenant_admin_without_superuser(self):
+        """Even a full tenant-admin is not enough for the WRITE path — the
+        row is shared by every tenant in the process (C-1)."""
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json"
+            )
+            assert response.status_code == 403
+
+    def test_reset_denies_tenant_admin_without_superuser(self):
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.post("/api/v1/system/memory-settings/reset/")
+            assert response.status_code == 403
+
+    def test_get_still_allowed_for_tenant_admin_without_superuser(self):
+        """The READ gate is deliberately unchanged by C-1."""
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.get("/api/v1/system/memory-settings/")
+            assert response.status_code == 200
+
+    # --- C-2 / I-4: selectable choices ----------------------------------
+
+    def test_put_rejects_honcho_memory_backend(self):
+        """HonchoMemoryBackend is an unregistered, partially-implemented
+        skeleton — selecting it would make get_memory_backend() raise for
+        the whole deployment, so it must not be a valid PUT value (C-2)."""
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"memory_backend": "honcho"}, format="json"
+            )
+            assert response.status_code == 400
+
+    def test_put_accepts_openai_embedding_provider(self):
+        """openai is a registered, documented provider and must be
+        selectable (I-4)."""
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "openai"}, format="json"
+            )
+            assert response.status_code == 200
+            assert response.data["embedding_provider"] == "openai"
+            assert response.data["embedding_provider_is_override"] is True
+
+    # --- I-3: empty string clears the override, it does not store "" -----
+
+    def test_put_empty_string_clears_text_override(self, monkeypatch):
+        """Clearing a free-text field must actually clear the override.
+
+        Storing ``""`` would report ``is_override: true`` while the runtime
+        overlay (which tests truthiness) silently kept using the env value.
+        """
+        monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama-from-env:11434")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put(
+                "/api/v1/system/memory-settings/",
+                {"ollama_base_url": "http://override:11434"},
+                format="json",
+            )
+
+            cleared = client.put(
+                "/api/v1/system/memory-settings/", {"ollama_base_url": ""}, format="json"
+            )
+            assert cleared.status_code == 200
+            assert cleared.data["ollama_base_url_is_override"] is False
+            assert cleared.data["ollama_base_url"] == "http://ollama-from-env:11434"
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["ollama_base_url_is_override"] is False
+            assert get_response.data["ollama_base_url"] == "http://ollama-from-env:11434"
+
+    # --- I-6: attribution ------------------------------------------------
+
+    def test_put_records_modified_by(self):
+        from memory.models import SystemMemorySettings
+
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json"
+            )
+
+            row = SystemMemorySettings.objects.first()
+            assert row is not None
+            assert row.modified_by_id == user.id
+            assert row.created_by_id == user.id
+
+            # ...and the write leaves an audit trail (I-6). Field NAMES only:
+            # the row holds an encrypted secret, values are never logged.
+            from audit.models import AuditEntry
+
+            entry = AuditEntry.objects.filter(entity_type="SystemMemorySettings").first()
+            assert entry is not None
+            assert entry.actor == str(user.id)
+            assert entry.op == "update"
+            assert "embedding_provider" in (entry.change_reason or "")
+
+    def test_put_persists_config_even_if_db_level_audit_write_fails(self, monkeypatch):
+        """Regression test for N-2.
+
+        ``_audit_config_write`` runs inside the same ``@atomic_transaction``
+        as the actual config write. A DB-level failure in ``log_write``
+        (e.g. AuditEntry's monthly partitioning, ADR-L3-AL001-04, missing
+        the target partition) issues real SQL that poisons the transaction
+        — without a nested savepoint around the audit call, the broad
+        ``except Exception: pass`` around it does NOT stop that poisoned
+        transaction from rolling back the config write, too, even though
+        the caller still gets HTTP 200. Reproduced here by forcing
+        ``log_write`` to raise a DB-level error and asserting the config
+        change WAS still persisted.
+        """
+        from django.db import connection
+
+        def _raise_db_error(*args, **kwargs):
+            # A plain Python exception here would never poison the real DB
+            # transaction (nothing was actually sent to Postgres), so it
+            # would pass even against the pre-fix code and prove nothing.
+            # Issuing real invalid SQL puts the underlying DB transaction
+            # itself into an aborted state, exactly like a genuine
+            # DB-level failure (e.g. a missing AuditEntry partition) would.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+
+        monkeypatch.setattr("audit.services.log_write", _raise_db_error)
+
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json"
+            )
+
+            assert response.status_code == 200
+
+            from memory.models import SystemMemorySettings
+
+            row = SystemMemorySettings.objects.first()
+            assert row is not None
+            assert row.embedding_provider == "mock"
+
+
+@pytest.mark.django_db
+class TestSystemMemorySettingsRuntimeRoundTrip:
+    """I-5: a PUT through the real HTTP path must change what the runtime
+    factories (``get_embedding_provider`` / ``get_memory_backend``) resolve
+    next, and a reset must fall back to the environment again.
+
+    Every other override test stops at the config-object or service-response
+    layer, which is exactly why I-1/I-2 went unnoticed through three
+    task-scoped reviews.
+    """
+
+    def test_put_then_reset_round_trips_through_get_embedding_provider(self, monkeypatch):
+        from llm_adapter.embedding_service import get_embedding_provider
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            # Baseline: env wins while there is no override row.
+            assert (
+                get_embedding_provider().__class__.__name__
+                == "SentenceTransformersEmbeddingProvider"
+            )
+
+            put_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": "mock"},
+                format="json",
+            )
+            assert put_response.status_code == 200
+
+            provider = get_embedding_provider()
+            assert provider.__class__.__name__ == "MockEmbeddingProvider"
+            assert provider.dimensions == 384
+
+            reset_response = client.post("/api/v1/system/memory-settings/reset/")
+            assert reset_response.status_code == 200
+            assert (
+                get_embedding_provider().__class__.__name__
+                == "SentenceTransformersEmbeddingProvider"
+            )
+
+    def test_put_then_reset_round_trips_through_get_memory_backend(self, monkeypatch):
+        from memory.backends import get_memory_backend
+
+        # A deliberately unresolvable env value makes "env wins" observable
+        # without needing a second real backend implementation.
+        monkeypatch.setenv("MEMORY_BACKEND", "not-a-real-backend")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            with pytest.raises(ValueError, match="unknown memory backend"):
+                get_memory_backend()
+
+            put_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"memory_backend": "pgvector"},
+                format="json",
+            )
+            assert put_response.status_code == 200
+            assert get_memory_backend().__class__.__name__ == "PgvectorMemoryBackend"
+
+            reset_response = client.post("/api/v1/system/memory-settings/reset/")
+            assert reset_response.status_code == 200
+            with pytest.raises(ValueError, match="unknown memory backend"):
+                get_memory_backend()
 
 
 @pytest.mark.django_db

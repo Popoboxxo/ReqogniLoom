@@ -21,7 +21,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from admin_ops.health_rest import STATUS_DOWN, STATUS_OK, SystemHealthView
+from admin_ops.health_rest import STATUS_DOWN, STATUS_OK, STATUS_UNKNOWN, SystemHealthView
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
@@ -289,6 +289,74 @@ class TestSystemHealthMemoryComponents:
             c for c in response.data["components"] if c["name"] == "memory_embedding"
         )
         assert component["status"] == STATUS_OK
+
+    def test_memory_embedding_honours_the_db_override(self, tenant_a, monkeypatch) -> None:
+        """The embedding check must health-check the EFFECTIVE provider.
+
+        Regression test for I-1: it used to read ``_read_env_config()``, so
+        after a SystemMemorySettings override it reported on the wrong
+        provider (unlike the sibling backend check, which already resolved
+        the override). Env here is deliberately unresolvable, so passing
+        proves the override — not the env var — was used.
+        """
+        from admin_ops import health_rest
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "not-a-real-provider")
+        SystemMemorySettings.objects.create(embedding_provider="mock")
+
+        result = health_rest._check_memory_embedding()
+
+        assert result["status"] == STATUS_OK
+
+    def test_memory_embedding_skips_cold_load_when_override_names_a_new_model(
+        self, tenant_a, monkeypatch
+    ) -> None:
+        """Regression test for N-1.
+
+        I-2's fix keyed the sentence-transformers model cache by model
+        name. That means the cold-load guard here must ALSO compare names,
+        not just check ``_model is None`` — otherwise a worker that already
+        loaded model "A" sails past the guard when a SystemMemorySettings
+        override requests a different, not-yet-loaded model "B", and
+        ``.embed()`` triggers a real in-request cold load. Proven here by
+        installing a fake ``sentence_transformers`` module and asserting
+        its constructor is never called.
+        """
+        import sys
+        import types
+
+        from llm_adapter.embedding_service import SentenceTransformersEmbeddingProvider
+        from memory.models import SystemMemorySettings
+
+        constructed: list[str] = []
+
+        module = types.ModuleType("sentence_transformers")
+
+        class _FakeSentenceTransformer:
+            def __init__(self, model_name):
+                constructed.append(model_name)
+
+        module.SentenceTransformer = _FakeSentenceTransformer
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+        # Simulate a worker that already loaded model "A" by real usage.
+        monkeypatch.setattr(SentenceTransformersEmbeddingProvider, "_model", object())
+        monkeypatch.setattr(
+            SentenceTransformersEmbeddingProvider, "_loaded_model_name", "model-a"
+        )
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        SystemMemorySettings.objects.create(
+            embedding_provider="sentence-transformers", embedding_model_name="model-b"
+        )
+
+        from admin_ops import health_rest
+
+        result = health_rest._check_memory_embedding()
+
+        assert result["status"] == STATUS_UNKNOWN
+        assert constructed == []  # no cold load was triggered
 
     def test_memory_backend_ok_with_pgvector(
         self, admin_ctx: AuthContext, tenant_a, monkeypatch

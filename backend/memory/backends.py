@@ -125,12 +125,26 @@ def register_memory_backend(name: str) -> Callable[[Type[MemoryBackend]], Type[M
 
 
 def get_memory_backend() -> MemoryBackend:
-    """Resolve the active :class:`MemoryBackend` from ``MEMORY_BACKEND`` (default: ``pgvector``)."""
-    name = os.environ.get("MEMORY_BACKEND", "pgvector").strip().lower()
+    """Resolve the active MemoryBackend. SystemMemorySettings.memory_backend
+    (Phase 3) wins if set; otherwise MEMORY_BACKEND env var (default pgvector).
+    """
+    name = _resolve_memory_backend_name()
     backend_cls = MEMORY_BACKEND_REGISTRY.get(name)
     if backend_cls is None:
         raise ValueError(f"unknown memory backend: {name!r}")
     return backend_cls()
+
+
+def _resolve_memory_backend_name() -> str:
+    try:
+        from memory.models import SystemMemorySettings
+
+        row = SystemMemorySettings.objects.first()
+        if row is not None and row.memory_backend:
+            return row.memory_backend.strip().lower()
+    except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+        pass
+    return os.environ.get("MEMORY_BACKEND", "pgvector").strip().lower()
 
 
 def _model_for_scope(scope: str):

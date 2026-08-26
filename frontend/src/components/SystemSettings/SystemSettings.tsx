@@ -25,6 +25,7 @@ import { BannerSection } from "./BannerSection";
 import { ThemeManagementSection } from "./ThemeManagementSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { MemoryManagementSection } from "./MemoryManagementSection";
+import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
 import { PageHeader } from "../shared/PageHeader";
 
 type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults" | "memory";
@@ -163,7 +164,12 @@ export default function SystemSettings(): JSX.Element {
           </div>
         )}
         {activeTab === "permission-defaults" && <PermissionDefaultsTab />}
-        {activeTab === "memory" && <MemoryManagementSection />}
+        {activeTab === "memory" && (
+          <>
+            <MemorySystemSettingsSection />
+            <MemoryManagementSection />
+          </>
+        )}
       </div>
     </div>
   );

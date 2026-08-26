@@ -90,6 +90,37 @@ def _read_env_config() -> EmbeddingProviderConfig:
     )
 
 
+def _apply_db_settings(cfg: EmbeddingProviderConfig) -> EmbeddingProviderConfig:
+    """Overlay a persisted SystemMemorySettings override onto an env-based
+    config (Memory Admin UI Phase 3). Mirrors llm_adapter.providers's own
+    _apply_db_settings for LlmSettings -- same best-effort semantics: any
+    failure (no row, DB unavailable) leaves cfg untouched, env stays the
+    fallback. Lazy import avoids a memory<->llm_adapter circular import.
+    """
+    try:
+        from memory.models import SystemMemorySettings
+
+        row = SystemMemorySettings.objects.first()
+        if row is None:
+            return cfg
+        if row.embedding_provider:
+            cfg.provider_name = row.embedding_provider
+        if row.embedding_model_name:
+            cfg.model_name = row.embedding_model_name
+        if row.ollama_base_url:
+            cfg.base_url = row.ollama_base_url
+        if row.embedding_timeout:
+            cfg.timeout = float(row.embedding_timeout)
+        return cfg
+    except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+        logger.debug("SystemMemorySettings lookup skipped; falling back to environment.")
+        return cfg
+
+
+def _read_config() -> EmbeddingProviderConfig:
+    return _apply_db_settings(_read_env_config())
+
+
 EMBEDDING_PROVIDER_REGISTRY: Dict[str, Type[EmbeddingProvider]] = {}
 
 
@@ -101,7 +132,7 @@ def register_embedding_provider(name: str) -> Callable[[Type[EmbeddingProvider]]
 
 
 def get_embedding_provider(config: Optional[EmbeddingProviderConfig] = None) -> EmbeddingProvider:
-    cfg = config or _read_env_config()
+    cfg = config or _read_config()
     provider_cls = EMBEDDING_PROVIDER_REGISTRY.get(cfg.provider_name)
     if provider_cls is None:
         raise ValueError(f"unknown embedding provider: {cfg.provider_name!r}")
@@ -132,15 +163,23 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     dimensions = 384
     _DEFAULT_MODEL = "all-MiniLM-L6-v2"
     _model = None  # class-level lazy singleton -- loading the model is expensive (~100ms+)
+    # Which model name _model was actually built from. The cache is KEYED by
+    # this name: without it, an EMBEDDING_MODEL_NAME change (env or, since
+    # Memory Admin UI Phase 3, a SystemMemorySettings override) would be
+    # silently ignored by every worker that had already loaded some model,
+    # while the admin UI reported the new value as active.
+    _loaded_model_name: Optional[str] = None
 
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._model_name = config.model_name or self._DEFAULT_MODEL
 
     def _get_model(self):
-        if SentenceTransformersEmbeddingProvider._model is None:
+        cls = SentenceTransformersEmbeddingProvider
+        if cls._model is None or cls._loaded_model_name != self._model_name:
             from sentence_transformers import SentenceTransformer
-            SentenceTransformersEmbeddingProvider._model = SentenceTransformer(self._model_name)
-        return SentenceTransformersEmbeddingProvider._model
+            cls._model = SentenceTransformer(self._model_name)
+            cls._loaded_model_name = self._model_name
+        return cls._model
 
     def embed(self, text: str) -> Optional[List[float]]:
         if not text or not text.strip():

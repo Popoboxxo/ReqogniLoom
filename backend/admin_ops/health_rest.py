@@ -194,8 +194,11 @@ def _check_llm_provider() -> dict[str, str]:
 def _check_memory_embedding() -> dict[str, str]:
     """Check the configured EmbeddingProvider by embedding a short string.
 
-    Uses the normal env-derived config but overrides ``timeout`` to
-    ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
+    Uses the normal effective config — ``_read_config()``, i.e. the
+    ``SystemMemorySettings`` DB override overlaid on the env vars, matching
+    what ``get_embedding_provider()`` resolves at real call sites and what
+    the sibling ``_check_memory_backend`` already does — but overrides
+    ``timeout`` to ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
     ``openai``) to ~1s. The default in-process ``sentence-transformers``
     provider ignores ``config.timeout`` entirely -- its ``encode()`` call is
     local/CPU-bound, not network I/O, so there is nothing to time out; a cold
@@ -209,32 +212,44 @@ def _check_memory_embedding() -> dict[str, str]:
     race this dashboard's own frontend request timeout and could blank out
     every OTHER row on the dashboard too. Reports "unknown" instead,
     mirroring _check_celery_beat's existing side-effect-avoidance policy.
+
+    The model cache is keyed by model name (I-2 fix): ``_model`` can be
+    non-``None`` while loaded under a DIFFERENT name than what the resolved
+    config (env, possibly overlaid by a ``SystemMemorySettings.
+    embedding_model_name`` override) would actually request. So the guard
+    must also skip when the loaded name doesn't match the name this call
+    would use — otherwise an override to a not-yet-loaded model name would
+    still slip past the guard and trigger the exact cold load this check
+    exists to avoid.
     """
     try:
         import dataclasses
 
         from llm_adapter.embedding_service import (  # noqa: PLC0415
             SentenceTransformersEmbeddingProvider,
-            _read_env_config,
+            _read_config,
             get_embedding_provider,
         )
 
-        cfg = dataclasses.replace(_read_env_config(), timeout=_CHECK_TIMEOUT_S)
+        cfg = dataclasses.replace(_read_config(), timeout=_CHECK_TIMEOUT_S)
         provider = get_embedding_provider(cfg)
 
-        if (
-            isinstance(provider, SentenceTransformersEmbeddingProvider)
-            and SentenceTransformersEmbeddingProvider._model is None
-        ):
-            return {
-                "name": "memory_embedding",
-                "status": STATUS_UNKNOWN,
-                "detail": (
-                    "in-process sentence-transformers model not yet loaded in "
-                    "this worker process; skipped to avoid a slow cold load "
-                    "(will report ok/down once loaded by real usage)"
-                ),
-            }
+        if isinstance(provider, SentenceTransformersEmbeddingProvider):
+            resolved_model_name = provider._model_name  # noqa: SLF001 - same class, health-check internal use
+            if (
+                SentenceTransformersEmbeddingProvider._model is None
+                or SentenceTransformersEmbeddingProvider._loaded_model_name != resolved_model_name
+            ):
+                return {
+                    "name": "memory_embedding",
+                    "status": STATUS_UNKNOWN,
+                    "detail": (
+                        "in-process sentence-transformers model not yet loaded "
+                        "under the currently-configured model name in this "
+                        "worker process; skipped to avoid a slow cold load "
+                        "(will report ok/down once loaded by real usage)"
+                    ),
+                }
 
         vector = provider.embed("ping")
         if vector is None:
