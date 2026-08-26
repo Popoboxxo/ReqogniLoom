@@ -5,7 +5,9 @@ from rest_framework.test import APIClient
 from persistence.tests.factories import (
     active_tenant,
     admin_user_and_token,
+    assign_role,
     editor_user_and_token,
+    make_user,
     make_workspace,
 )
 
@@ -75,3 +77,83 @@ class TestMemorySettingsRest:
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
             response = client.get("/api/v1/system/memory-settings/")
             assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestMemoryAdminWorkspaceOverviewRest:
+    def test_lists_workspace_overview(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant, name="Overview WS")
+            admin_user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get("/api/v1/system/memory/workspaces/")
+
+            assert response.status_code == 200
+            row = next(r for r in response.data["results"] if r["workspace_id"] == str(ws.id))
+            assert row["workspace_name"] == "Overview WS"
+            assert row["enabled"] is True
+            assert row["workspace_entry_count"] == 0
+            assert row["user_entry_count"] == 0
+
+    def test_overview_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get("/api/v1/system/memory/workspaces/")
+
+            assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestMemoryAdminWorkspaceDeleteRest:
+    def test_deletes_both_tiers(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            member = make_user(tenant)
+            assign_role(member, ws, "editor")
+
+            from memory.backends import get_memory_backend
+
+            backend = get_memory_backend()
+            backend.upsert(tenant.id, "workspace", ws.id, "ws fact")
+            backend.upsert(tenant.id, "user", member.id, "member fact")
+
+            admin_user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete(f"/api/v1/system/memory/workspaces/{ws.id}/")
+
+            assert response.status_code == 200
+            assert response.data["workspace_memory_deleted"] == 1
+            assert response.data["user_memory_deleted"] == 1
+
+    def test_delete_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete(f"/api/v1/system/memory/workspaces/{ws.id}/")
+
+            assert response.status_code == 403
+
+    def test_delete_unknown_workspace_returns_404(self):
+        import uuid
+
+        with active_tenant() as tenant:
+            admin_user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete(f"/api/v1/system/memory/workspaces/{uuid.uuid4()}/")
+
+            assert response.status_code == 404

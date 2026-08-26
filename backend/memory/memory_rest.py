@@ -1,5 +1,6 @@
 """
-memory — REST adapter for Memory Settings (Spec 2026-08-24, Task 11).
+memory — REST adapter for Memory Settings (Spec 2026-08-24, Task 11) and
+Memory Admin UI Phase 1 (Spec 2026-08-26).
 
 Endpoints:
     GET/PUT /api/v1/workspaces/<uuid:workspace_id>/memory-settings/
@@ -14,6 +15,14 @@ Endpoints:
         ``EMBEDDING_PROVIDER``/``MEMORY_BACKEND`` env configuration for
         visibility only; v1 is env-configured, not live-switchable via this
         endpoint (PUT is a no-op 501, see :meth:`SystemMemorySettingsView.put`).
+    GET /api/v1/system/memory/workspaces/
+        System-Admin only. Lists one overview row per workspace in the
+        active tenant. Delegates to
+        :meth:`application.memory_admin_service.MemoryAdminService.list_workspace_overview`.
+    DELETE /api/v1/system/memory/workspaces/<uuid:workspace_id>/
+        System-Admin only. Deletes both memory tiers for a workspace.
+        Delegates to
+        :meth:`application.memory_admin_service.MemoryAdminService.delete_workspace_memory`.
 
 Both views rely on the tenant context already activated by
 ``AuthTenancyAuthentication`` during DRF authentication (COMP-AT-003
@@ -39,6 +48,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from application.base import NotFoundError, PermissionDeniedError
+from application.memory_admin_service import MemoryAdminService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from memory.models import WorkspaceMemorySettings
@@ -180,4 +191,83 @@ class SystemMemorySettingsView(APIView):
         )
 
 
-__all__ = ["SystemMemorySettingsView", "WorkspaceMemorySettingsView"]
+class SystemMemoryWorkspaceOverviewView(APIView):
+    """``GET /api/v1/system/memory/workspaces/`` — System-Admin only.
+
+    Memory Admin UI Phase 1 (spec 2026-08-26). Lists one row per workspace
+    in the active tenant: memory enabled/disabled, entry counts per tier,
+    last consolidation timestamp. Delegates to :class:`MemoryAdminService`.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            overview = MemoryAdminService().list_workspace_overview(ctx)
+        except PermissionDeniedError:
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # MemoryAdminService returns raw uuid.UUID values (see its own
+        # UUID-to-UUID comparisons in application/tests/test_memory_admin_
+        # service.py) — since this view returns a plain dict (no
+        # Serializer/UUIDField doing the to_representation coercion that
+        # e.g. StakeholderNeedViewSet gets for free), stringify workspace_id
+        # here so response.data matches the actual over-the-wire JSON shape
+        # (DRF's JSONRenderer already encodes UUID as str on the real
+        # response body; this keeps `response.data` consistent with that
+        # for API consumers/tests inspecting it directly).
+        for row in overview:
+            row["workspace_id"] = str(row["workspace_id"])
+        return Response({"results": overview})
+
+
+class SystemMemoryWorkspaceDeleteView(APIView):
+    """``DELETE /api/v1/system/memory/workspaces/<uuid:workspace_id>/``.
+
+    System-Admin only. Deletes BOTH tiers: the workspace's own
+    ``WorkspaceMemory`` rows and its current members' ``UserTenantMemory``
+    rows. See :meth:`MemoryAdminService.delete_workspace_memory`.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def delete(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            result = MemoryAdminService().delete_workspace_memory(ctx, workspace_id)
+        except PermissionDeniedError:
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(result)
+
+
+__all__ = [
+    "SystemMemorySettingsView",
+    "WorkspaceMemorySettingsView",
+    "SystemMemoryWorkspaceOverviewView",
+    "SystemMemoryWorkspaceDeleteView",
+]
