@@ -98,6 +98,110 @@ class TestMemorySettingsRest:
             response = client.get("/api/v1/system/memory-settings/")
             assert response.status_code == 403
 
+    def test_put_sets_db_override(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": "mock"},
+                format="json",
+            )
+            assert response.status_code == 200
+            assert response.data["embedding_provider"] == "mock"
+            assert response.data["embedding_provider_is_override"] is True
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["embedding_provider"] == "mock"
+
+    def test_put_changing_provider_returns_warning(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": "mock"},
+                format="json",
+            )
+            assert response.data["warning"] is not None
+
+    def test_put_unchanged_provider_no_warning(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_TIMEOUT", "10")
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_timeout": 20},
+                format="json",
+            )
+            assert response.data["warning"] is None
+
+    def test_honcho_api_key_never_returned_plaintext(self):
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            put_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"honcho_api_key": "super-secret-value"},
+                format="json",
+            )
+            assert "honcho_api_key" not in put_response.data
+            assert put_response.data["honcho_api_key_is_set"] is True
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert "honcho_api_key" not in get_response.data
+            assert get_response.data["honcho_api_key_is_set"] is True
+
+    def test_reset_clears_all_overrides(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put("/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json")
+
+            reset_response = client.post("/api/v1/system/memory-settings/reset/")
+            assert reset_response.status_code == 200
+            assert reset_response.data["embedding_provider"] == "sentence-transformers"
+            assert reset_response.data["embedding_provider_is_override"] is False
+
+    def test_put_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json"
+            )
+            assert response.status_code == 403
+
+    def test_reset_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.post("/api/v1/system/memory-settings/reset/")
+            assert response.status_code == 403
+
+    def test_put_rejects_unknown_provider(self):
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "not-a-real-provider"}, format="json"
+            )
+            assert response.status_code == 400
+
 
 @pytest.mark.django_db
 class TestMemoryAdminWorkspaceOverviewRest:

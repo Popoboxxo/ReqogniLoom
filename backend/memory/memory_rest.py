@@ -11,10 +11,15 @@ Endpoints:
     GET/PUT /api/v1/system/memory-settings/
         System-Admin only (``ctx.has_role("admin") or
         AuthorizationService().is_tenant_admin(...)`` — same pattern as
-        ``TenantThemeDefaultView``). Exposes the CURRENTLY ACTIVE
-        ``EMBEDDING_PROVIDER``/``MEMORY_BACKEND`` env configuration for
-        visibility only; v1 is env-configured, not live-switchable via this
-        endpoint (PUT is a no-op 501, see :meth:`SystemMemorySettingsView.put`).
+        ``TenantThemeDefaultView``). GET returns the effective configuration
+        (DB override from ``SystemMemorySettings`` falling back to env vars
+        per field, see :func:`_with_env_fallback`), PUT applies a partial
+        override (Memory Admin UI Phase 3, spec 2026-08-26). Delegates to
+        :class:`application.memory_settings_service.MemorySettingsService`.
+    POST /api/v1/system/memory-settings/reset/
+        System-Admin only. Clears every override field back to NULL, so the
+        effective configuration falls back entirely to env vars. See
+        :class:`SystemMemorySettingsResetView`.
     GET /api/v1/system/memory/workspaces/
         System-Admin only. Lists one overview row per workspace in the
         active tenant. Delegates to
@@ -40,16 +45,16 @@ method runs.
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from application.base import NotFoundError, PermissionDeniedError
 from application.memory_admin_service import MemoryAdminService
+from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from memory.models import WorkspaceMemorySettings
@@ -62,6 +67,44 @@ def _is_system_admin(ctx) -> bool:
     return ctx.has_role("admin") or AuthorizationService().is_tenant_admin(
         user_id=ctx.user_id, tenant_id=ctx.tenant_id
     )
+
+
+class SystemMemorySettingsWriteSerializer(serializers.Serializer):
+    """Partial-update payload for ``PUT /api/v1/system/memory-settings/``."""
+
+    embedding_provider = serializers.ChoiceField(
+        choices=["sentence-transformers", "ollama", "mock"], required=False, allow_null=True
+    )
+    embedding_model_name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=128)
+    ollama_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    embedding_timeout = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    memory_backend = serializers.ChoiceField(
+        choices=["pgvector", "honcho"], required=False, allow_null=True
+    )
+    honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)
+
+
+def _with_env_fallback(effective: dict) -> dict:
+    """Fill in the env-var value for every field the DB override left None,
+    so the response's top-level fields are always the ACTUAL effective
+    configuration (override-or-env), not just the raw override row.
+    """
+    import os
+
+    env_defaults = {
+        "embedding_provider": os.environ.get("EMBEDDING_PROVIDER", "sentence-transformers"),
+        "embedding_model_name": os.environ.get("EMBEDDING_MODEL_NAME"),
+        "ollama_base_url": os.environ.get("OLLAMA_BASE_URL"),
+        "embedding_timeout": int(os.environ.get("EMBEDDING_TIMEOUT", "10")),
+        "memory_backend": os.environ.get("MEMORY_BACKEND", "pgvector"),
+        "honcho_base_url": os.environ.get("HONCHO_BASE_URL"),
+    }
+    out = dict(effective)
+    for field, env_value in env_defaults.items():
+        if out.get(field) is None:
+            out[field] = env_value
+    return out
 
 
 class WorkspaceMemorySettingsView(APIView):
@@ -129,10 +172,14 @@ class WorkspaceMemorySettingsView(APIView):
 class SystemMemorySettingsView(APIView):
     """``/api/v1/system/memory-settings/`` — System-Admin only.
 
-    v1: read-only visibility into the active env configuration. PUT
-    deliberately answers 501 (not editable via this endpoint in v1 — the
-    provider/backend are env-configured, matching the Theme Presets spec's
-    "system config viewable but not editable" precedent).
+    GET returns the effective configuration (SystemMemorySettings DB
+    override, falling back to env vars per field) plus an
+    ``<field>_is_override`` flag per field so the UI can show what deviates
+    from the default (Memory Admin UI Phase 3, spec 2026-08-26). PUT applies
+    a partial override; omitted fields are left unchanged, a field sent as
+    ``null`` clears that field's override back to env. A response ``warning``
+    (non-null only when embedding_provider/memory_backend actually changed)
+    tells the caller existing embeddings were not migrated automatically.
 
     ``permission_classes``/no ``required_operation`` mirrors
     ``TenantThemeDefaultView``/``GlobalBannerView``'s write side: the default
@@ -160,12 +207,8 @@ class SystemMemorySettingsView(APIView):
                 build_error_response("PERMISSION_DENIED", lang),
                 status=status.HTTP_403_FORBIDDEN,
             )
-        return Response(
-            {
-                "embedding_provider": os.environ.get("EMBEDDING_PROVIDER", "sentence-transformers"),
-                "memory_backend": os.environ.get("MEMORY_BACKEND", "pgvector"),
-            }
-        )
+        effective = MemorySettingsService().get_effective_settings()
+        return Response(_with_env_fallback(effective))
 
     def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -181,14 +224,45 @@ class SystemMemorySettingsView(APIView):
                 build_error_response("PERMISSION_DENIED", lang),
                 status=status.HTTP_403_FORBIDDEN,
             )
-        return Response(
-            build_error_response(
-                "NOT_IMPLEMENTED",
-                lang,
-                message="EMBEDDING_PROVIDER/MEMORY_BACKEND are env-configured only in v1 and cannot be changed via this endpoint.",
-            ),
-            status=status.HTTP_501_NOT_IMPLEMENTED,
-        )
+        ser = SystemMemorySettingsWriteSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = MemorySettingsService().update_settings(dict(ser.validated_data))
+        return Response(_with_env_fallback(result))
+
+
+class SystemMemorySettingsResetView(APIView):
+    """``POST /api/v1/system/memory-settings/reset/`` — System-Admin only.
+
+    Clears every SystemMemorySettings override field back to NULL, so the
+    effective configuration falls back entirely to environment variables.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if not _is_system_admin(ctx):
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        result = MemorySettingsService().reset_settings()
+        return Response(_with_env_fallback(result))
 
 
 class SystemMemoryWorkspaceOverviewView(APIView):
@@ -267,6 +341,7 @@ class SystemMemoryWorkspaceDeleteView(APIView):
 
 __all__ = [
     "SystemMemorySettingsView",
+    "SystemMemorySettingsResetView",
     "WorkspaceMemorySettingsView",
     "SystemMemoryWorkspaceOverviewView",
     "SystemMemoryWorkspaceDeleteView",
