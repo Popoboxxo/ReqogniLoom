@@ -93,5 +93,16 @@ class HonchoMemoryBackend(MemoryBackend):
     def forget(self, tenant_id: UUID, entry_id: UUID) -> None:
         raise NotImplementedError("verify Honcho's deletion API before implementing")
 
+    def health_check(self) -> tuple[bool, str]:
+        if not self._base_url:
+            return False, "HONCHO_BASE_URL is not configured"
+        try:
+            import requests  # noqa: PLC0415 - lazy import, matches this repo's health-check convention
+
+            requests.get(self._base_url, timeout=1.0)
+            return True, f"{self._base_url} reachable"
+        except Exception as exc:
+            return False, str(exc)
+
 
 __all__ = ["HonchoMemoryBackend"]

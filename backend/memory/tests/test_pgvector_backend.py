@@ -1,6 +1,6 @@
 import pytest
 
-from memory.backends import get_memory_backend
+from memory.backends import PgvectorMemoryBackend, get_memory_backend
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
 
@@ -55,3 +55,12 @@ class TestPgvectorMemoryBackend:
             backend.upsert(tenant.id, "workspace", ws.id, "Second fact.")
             results = backend.list_recent(tenant.id, "workspace", ws.id, limit=10)
             assert [r.content for r in results] == ["Second fact.", "First fact."]
+
+
+@pytest.mark.django_db
+class TestPgvectorMemoryBackendHealthCheck:
+    def test_health_check_ok_when_table_reachable(self):
+        backend = PgvectorMemoryBackend()
+        ok, detail = backend.health_check()
+        assert ok is True
+        assert "reachable" in detail.lower() or "ok" in detail.lower()

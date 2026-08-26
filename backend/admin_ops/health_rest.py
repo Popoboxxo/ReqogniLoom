@@ -188,6 +188,52 @@ def _check_llm_provider() -> dict[str, str]:
     }
 
 
+def _check_memory_embedding() -> dict[str, str]:
+    """Check the configured EmbeddingProvider by embedding a short string."""
+    try:
+        from llm_adapter.embedding_service import get_embedding_provider  # noqa: PLC0415
+
+        provider = get_embedding_provider()
+        vector = provider.embed("ping")
+        if vector is None:
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_DOWN,
+                "detail": "embed() returned no vector",
+            }
+        if len(vector) != provider.dimensions:
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_DEGRADED,
+                "detail": f"expected {provider.dimensions} dims, got {len(vector)}",
+            }
+        return {
+            "name": "memory_embedding",
+            "status": STATUS_OK,
+            "detail": f"{provider.dimensions}-dim vector returned",
+        }
+    except Exception as exc:  # noqa: BLE001 - provider unreachable/misconfigured
+        logger.warning("System health: memory embedding check failed - %s", exc)
+        return {"name": "memory_embedding", "status": STATUS_DOWN, "detail": str(exc)}
+
+
+def _check_memory_backend() -> dict[str, str]:
+    """Check the configured MemoryBackend via its own health_check()."""
+    try:
+        from memory.backends import get_memory_backend  # noqa: PLC0415
+
+        backend = get_memory_backend()
+        ok, detail = backend.health_check()
+        return {
+            "name": "memory_backend",
+            "status": STATUS_OK if ok else STATUS_DOWN,
+            "detail": detail,
+        }
+    except Exception as exc:  # noqa: BLE001 - backend unreachable/misconfigured
+        logger.warning("System health: memory backend check failed - %s", exc)
+        return {"name": "memory_backend", "status": STATUS_DOWN, "detail": str(exc)}
+
+
 def _recent_audit_events(limit: int = _RECENT_EVENTS_LIMIT) -> list[dict[str, Any]]:
     """Return the most recent audit-log entries, newest first.
 
@@ -235,7 +281,9 @@ class SystemHealthView(APIView):
             {"name": "celery_worker", "status": "ok", "detail": "..."},
             {"name": "celery_beat", "status": "unknown", "detail": "..."},
             {"name": "mcp_server", "status": "ok", "detail": "..."},
-            {"name": "llm_provider", "status": "ok", "detail": "..."}
+            {"name": "llm_provider", "status": "ok", "detail": "..."},
+            {"name": "memory_embedding", "status": "ok", "detail": "..."},
+            {"name": "memory_backend", "status": "ok", "detail": "..."}
           ],
           "recent_events": [ {...AuditEntry...}, ... ]
         }
@@ -274,6 +322,8 @@ class SystemHealthView(APIView):
             _check_celery_beat(),
             _check_mcp_server(),
             _check_llm_provider(),
+            _check_memory_embedding(),
+            _check_memory_backend(),
         ]
         return Response(
             {
