@@ -29,6 +29,7 @@ function formatDate(iso: string | null): string {
 export function MemoryManagementSection(): JSX.Element {
   const { t } = useTranslation();
   const [rows, setRows] = useState<WorkspaceMemoryOverviewRow[]>([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WorkspaceMemoryOverviewRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -40,9 +41,12 @@ export function MemoryManagementSection(): JSX.Element {
       .then((r) => {
         setRows(r.results);
         setLoadError(null);
+        setHasLoaded(true);
       })
       .catch((err: unknown) => {
-        setLoadError(extractErrorMessage(err) || t("systemSettings.memory.loadError"));
+        console.error("MemoryManagementSection: failed to load overview", err);
+        setLoadError(t("systemSettings.memory.loadError"));
+        setHasLoaded(true);
       });
   }, [t]);
 
@@ -76,7 +80,7 @@ export function MemoryManagementSection(): JSX.Element {
         </p>
       )}
 
-      {!loadError && rows.length === 0 && (
+      {!loadError && hasLoaded && rows.length === 0 && (
         <p data-testid="memory-management-empty" className={styles.empty}>
           {t("systemSettings.memory.noWorkspaces")}
         </p>

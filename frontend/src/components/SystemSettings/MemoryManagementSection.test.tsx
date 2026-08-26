@@ -51,6 +51,19 @@ describe("MemoryManagementSection", () => {
     expect(await screen.findByTestId("memory-management-empty")).toBeInTheDocument();
   });
 
+  it("does not flash the empty state before the initial fetch resolves", async () => {
+    // Regression guard: `rows` starts as `[]`, so a naive `rows.length === 0`
+    // empty-state condition would render "no workspaces" for one tick even
+    // when workspaces actually exist — before `listWorkspaceOverview()` has
+    // had a chance to resolve.
+    vi.mocked(memoryAdminApi.listWorkspaceOverview).mockResolvedValue({ results: [ROW] });
+
+    render(<MemoryManagementSection />);
+
+    expect(screen.queryByTestId("memory-management-empty")).not.toBeInTheDocument();
+    expect(await screen.findByTestId(`memory-row-${ROW.workspace_id}`)).toBeInTheDocument();
+  });
+
   it("delete flow: opens confirm dialog, confirms, calls API, reloads", async () => {
     const user = userEvent.setup();
     render(<MemoryManagementSection />);
