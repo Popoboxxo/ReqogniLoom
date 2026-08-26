@@ -92,4 +92,13 @@ openai>=1.40,<2.0
 # Embedding provider (REQ-L2-VS-004) — sentence-transformers is the new default
 # embedding provider (384 dims, in-process, no external service). Optional
 # providers: ollama (768 dims) and openai (1536 dims, already listed above).
-sentence-transformers>=3.2.0,<4.0
+# Floor raised to 6.0 (from the original 3.2-3.x range) because every
+# sentence-transformers release through 5.x pins transformers<5.0.0, and
+# transformers 4.57.6 (the version pip resolved under the old floor) carries
+# 5 known CVEs (PYSEC-2025-217, PYSEC-2026-2288/2289/2290 — RCE via
+# checkpoint/config deserialization), all fixed only in transformers>=5.0.0.
+# sentence-transformers==6.0.0 is the first release requiring
+# transformers>=5.0.0,<6.0.0. The only API this codebase uses
+# (SentenceTransformer(model_name).encode(text, normalize_embeddings=True))
+# is unchanged across this range (llm_adapter/embedding_service.py).
+sentence-transformers>=6.0.0,<7.0

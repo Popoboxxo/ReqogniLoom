@@ -43,8 +43,8 @@ export function ThemeManagementSection(): JSX.Element {
       .getTenantDefault()
       .then((d) => {
         if (cancelled) return;
-        setTenantDefaultKey(d.palette_key);
-        setTenantDefaultMode(d.mode);
+        setTenantDefaultKey(d.palette_key ?? "default");
+        setTenantDefaultMode(d.mode ?? "dark");
       })
       .catch(() => undefined);
     return () => {

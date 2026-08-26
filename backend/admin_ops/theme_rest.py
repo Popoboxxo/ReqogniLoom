@@ -288,8 +288,8 @@ class TenantThemeDefaultView(APIView):
         default = TenantThemeDefault.objects.first()
         return Response(
             {
-                "palette_key": default.palette_key if default else "default",
-                "mode": default.mode if default else MODE_DARK,
+                "palette_key": default.palette_key if default else None,
+                "mode": default.mode if default else None,
             }
         )
 

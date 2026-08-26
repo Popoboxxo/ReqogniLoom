@@ -48,10 +48,17 @@ class TestUserThemePreferenceRest:
 
 @pytest.mark.django_db
 class TestTenantThemeDefaultRest:
-    def test_get_defaults_when_unset(self, editor_client) -> None:
+    def test_get_defaults_to_null_when_unset(self, editor_client) -> None:
+        """No ``TenantThemeDefault`` row -> both fields null (mirrors
+        ``UserThemePreferenceView``'s convention). MUST NOT hardcode a mode
+        here — the frontend's fallback chain
+        (``userPref.mode || tenantDefault.mode || resolveFallbackMode()``)
+        relies on a falsy value to ever reach the OS ``prefers-color-scheme``
+        fallback for a freshly seeded tenant with no configured default.
+        """
         response = editor_client.get("/api/v1/system/theme-default/")
         assert response.status_code == 200
-        assert response.data == {"palette_key": "default", "mode": "dark"}
+        assert response.data == {"palette_key": None, "mode": None}
 
     def test_editor_cannot_set_tenant_default(self, editor_client) -> None:
         response = editor_client.put(

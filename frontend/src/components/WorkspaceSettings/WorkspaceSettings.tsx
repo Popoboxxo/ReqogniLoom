@@ -21,7 +21,7 @@
  * every prompt slot at both the global and the per-workspace scope.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -84,6 +84,19 @@ export default function WorkspaceSettings(): JSX.Element {
   const { roles } = useAuth();
 
   const [name, setName] = useState(activeWorkspace?.name ?? "");
+  // `activeWorkspace` often carries a stale/placeholder `name` on this
+  // component's first render even though its `id` is already the real
+  // workspace id (WorkspaceContext seeds `DEFAULT_WORKSPACE.id` from
+  // sessionStorage before the real workspace object resolves) —
+  // `useState`'s initializer only runs once, so keying this resync on `id`
+  // alone misses that transition entirely and the field stays permanently
+  // empty. Depending on `name` too re-syncs the moment the real value
+  // arrives. This still never clobbers an in-progress edit: after a save,
+  // `activeWorkspace.name` becomes exactly what `name` already holds, so
+  // the resync is a same-value no-op.
+  useEffect(() => {
+    setName(activeWorkspace?.name ?? "");
+  }, [activeWorkspace?.id, activeWorkspace?.name]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);

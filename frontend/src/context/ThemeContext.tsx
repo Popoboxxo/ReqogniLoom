@@ -45,6 +45,26 @@ const NAMED_CSS_PALETTES = new Set(["bauhaus", "nordic", "sepia"]);
 const FALLBACK_PALETTE = "default";
 const FALLBACK_MODE: ThemeMode = "dark";
 
+/**
+ * Built-in fallback mode when no stored/server preference exists yet: honor
+ * the OS/browser color-scheme preference before falling back to
+ * ``FALLBACK_MODE``. This restores behavior the single-axis theme system had
+ * (dropped when this file was rewritten for two-axis palettes) — without it,
+ * every first-time session (no localStorage, no user/tenant preference,
+ * e.g. a freshly seeded tenant) always renders dark regardless of the
+ * visitor's OS preference.
+ */
+function resolveFallbackMode(): ThemeMode {
+  try {
+    if (window.matchMedia?.("(prefers-color-scheme: light)")?.matches) {
+      return "light";
+    }
+  } catch {
+    // matchMedia unavailable in this environment — use the built-in fallback.
+  }
+  return FALLBACK_MODE;
+}
+
 const STORAGE_KEY_PALETTE = "reqflow-theme-palette";
 const STORAGE_KEY_MODE = "reqflow-theme-mode";
 /** Pre-feature storage keys (flat single-axis themes). Kept so an old
@@ -112,7 +132,7 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
     if (stored === "light" || stored === "dark") return stored;
     const legacy = readStored(LEGACY_STORAGE_KEY);
     if (legacy === "light") return "light";
-    return FALLBACK_MODE;
+    return resolveFallbackMode();
   });
 
   useEffect(() => {
@@ -127,7 +147,7 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
         setPalettes(Array.isArray(paletteList?.results) ? paletteList.results : []);
         const resolvedKey =
           userPref.palette_key || tenantDefault.palette_key || FALLBACK_PALETTE;
-        const resolvedMode = userPref.mode || tenantDefault.mode || FALLBACK_MODE;
+        const resolvedMode = userPref.mode || tenantDefault.mode || resolveFallbackMode();
         setPaletteKey(resolvedKey);
         setMode(resolvedMode);
       })
