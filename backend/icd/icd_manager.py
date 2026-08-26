@@ -59,8 +59,26 @@ def _apply_embedding(version: IcdVersion) -> None:
         )
 
         embedding = generate_embedding(get_icd_version_embedding_text(version))
-        if embedding is not None:
+        field_dimensions = IcdVersion._meta.get_field("embedding").dimensions
+        if embedding is not None and len(embedding) == field_dimensions:
             version.embedding = embedding
+        elif embedding is not None:
+            # Dimension mismatch (e.g. the default sentence-transformers
+            # provider is 384-dim but this column is a fixed vector(1536) —
+            # see RequirementService._generate_and_store_embedding for the
+            # full rationale). Unlike the Requirement/TraceLink write paths,
+            # this function only sets the in-memory attribute; the actual
+            # INSERT happens later, outside this try/except, so an
+            # unguarded assignment here would surface as an *uncaught*
+            # DataError at save() time instead of a caught one here. Skip
+            # the assignment so ``version.embedding`` stays unset (None).
+            logger.debug(
+                "IcdManager: embedding generation skipped for icd=%s: "
+                "dimension mismatch (got %d, column expects %d)",
+                getattr(version, "icd_id", None),
+                len(embedding),
+                field_dimensions,
+            )
     except Exception as exc:  # noqa: BLE001 — best-effort
         logger.debug(
             "IcdManager: embedding generation skipped for icd=%s: %s",

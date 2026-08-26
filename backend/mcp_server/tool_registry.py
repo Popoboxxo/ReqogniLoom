@@ -174,6 +174,10 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # 2026-08-20 UI-visibility fix: interview.abandon writes a workflow
     # transition (in_progress -> abandoned) -- same write gate as formalize.
     "interview.abandon",
+    # Task 7 of the AI-memory spec: memory.forget deletes a WorkspaceMemory/
+    # UserTenantMemory row -- memory.query/memory.list are read-only (see
+    # _READ_ONLY_TOOL_NAMES below).
+    "memory.forget",
 )
 
 # ---------------------------------------------------------------------------
@@ -268,6 +272,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # interview.grounding_context moved to _WRITE_TOOL_PREFIXES above
         # (post-hoc fix, final-review batch) once it started making real LLM
         # calls -- no longer exempt here.
+        # Task 7 of the AI-memory spec: memory.query/memory.list are plain
+        # reads over MemoryBackend -- memory.forget stays fail-closed
+        # WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        "memory.query",
+        "memory.list",
     }
 )
 
@@ -529,6 +538,7 @@ class ToolRegistry:
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
         from mcp_server.tools.interview import InterviewToolGroup
+        from mcp_server.tools.memory import MemoryToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -583,6 +593,10 @@ class ToolRegistry:
             # interviews (start/get_state/answer/list/get). Grounding and
             # formalize land on the same prefix in Tasks 6-7.
             "interview": InterviewToolGroup(),
+            # Task 7 of the AI-memory spec: memory.query/memory.list/memory.forget
+            # over the Task 3 MemoryBackend abstraction. Standalone prefix (no
+            # sharing, unlike e.g. "traceability"/"artifact"/"context").
+            "memory": MemoryToolGroup(),
         })
 
     def list_tools(

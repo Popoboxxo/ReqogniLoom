@@ -9,13 +9,21 @@ Search over every artifact type listed in ``SEARCHABLE_ARTIFACT_TYPES``
 Issue, ChangeRequest, Goal, GlossaryTerm). Two passes run per type and are
 merged (issue #345):
 
-  1. semantic: PostgreSQL tsvector / tsquery, relevance-ranked via ts_rank
-  2. lexical:  case-insensitive substring match on title, uid and IDs
+  1. full-text: PostgreSQL tsvector / tsquery, relevance-ranked via ts_rank
+  2. lexical:   case-insensitive substring match on title, uid and IDs
 
 Pass 2 exists because ``plainto_tsquery`` lexemizes its input, so literal
 identifiers ("QA-AI", "00436a35") were previously unfindable. Lexical hits
 always rank above full-text hits. Both passes enforce workspace and tenant
 isolation. Supports type filtering, pagination, and safe query parsing.
+
+Task 9 (REQ-L2-VS-004) adds a third, cosine-similarity pass over the
+``embedding`` column of the entity types that have one (today: Requirement --
+see ``_EMBEDDABLE_TYPES`` for why TraceLink/IcdVersion are implemented but not
+yet wired into ``type_filter``). When that pass contributes a hit for a given
+entity type, all three passes are combined via Reciprocal Rank Fusion
+(``_rrf_fuse``) instead of the plain max-score merge (``_merge_hits``) —
+see ``SearchService._search_entity_type``'s docstring for the fusion rule.
 
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: search(query, ...) → SearchResult
@@ -35,9 +43,13 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+
+from django.db import transaction
+from django.db.models import F
+from pgvector.django import CosineDistance
 
 from auth_tenancy.context import AuthContext
 
@@ -45,6 +57,8 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from application.base import ServiceBase, ValidationError
+from llm_adapter.embedding_service import generate_embedding
+from persistence.models import Requirement, TraceLink
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +88,34 @@ _MIN_LEXICAL_QUERY_LEN = 2
 # into memory. Capping per type bounds the cost; the full-text pass — the
 # relevance-ranked one — stays uncapped, as before.
 _MAX_LEXICAL_ROWS_PER_TYPE = 200
+
+# ---------- Semantic pass (Task 9, REQ-L2-VS-004) ----------
+#
+# Entity types that carry an ``embedding`` VectorField today. Deliberately
+# NOT the same set as SEARCHABLE_ARTIFACT_TYPES: TraceLink and IcdVersion
+# have an embedding column (populated by application/trace_link_service.py
+# and icd/icd_manager.py respectively) but no fulltext/lexical _TableSpec and
+# are not part of the public `type_filter` enum. Wiring them into
+# SearchService.search()'s type_filter surface would require deciding a
+# synthetic "title" for a TraceLink (it has none) and a workspace-scoping
+# join (TraceLink -> source.workspace_id, IcdVersion -> icd.workspace_id)
+# — real product/API-surface decisions, not "add a fusion pass". This task
+# scopes that decision out: _run_semantic_query below implements and
+# directly unit-tests all three, but only "Requirement" is wired into
+# _search_entity_type's fusion, since it is the only one of the three that
+# is already a searchable type today.
+_EMBEDDABLE_TYPES: frozenset[str] = frozenset({"Requirement", "TraceLink", "IcdVersion"})
+
+# Standard RRF constant (see e.g. Cormack et al. 2009) — large enough that a
+# rank-1 hit in one list and a rank-1 hit in another contribute comparable
+# amounts, so no single pass dominates purely by being first.
+_RRF_K = 60
+
+# Cap on rows considered per entity type for the semantic pass (mirrors the
+# lexical pass's _MAX_LEXICAL_ROWS_PER_TYPE cap for the same reason: no
+# supporting index bounds an unbounded scan/sort otherwise — the HNSW index
+# does bound the *cost* here, but we still only need the top few dozen).
+_SEMANTIC_TOP_K = 50
 
 
 @dataclass(frozen=True)
@@ -258,6 +300,265 @@ def _escape_like(value: str) -> str:
     value is bound as a parameter, so no string-literal quoting applies.
     """
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _merge_hits(*hit_lists: List[SearchHit]) -> List[SearchHit]:
+    """Dedup ``hit_lists`` by ``hit.id``, keeping the highest relevance score.
+
+    Shared by :meth:`SearchService._search_entity_type`'s two-pass
+    (full-text + lexical) merge and :meth:`SearchService._search_multi_workspace`'s
+    per-workspace merge -- same "keyed by id, keep max score" pattern either way.
+    """
+    merged: Dict[str, SearchHit] = {}
+    for hits in hit_lists:
+        for hit in hits:
+            existing = merged.get(hit.id)
+            if existing is None or hit.relevance_score > existing.relevance_score:
+                merged[hit.id] = hit
+    return list(merged.values())
+
+
+def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
+    """Reciprocal Rank Fusion of N independently-ranked hit lists (Task 9).
+
+    ``score(hit) = sum over each rank_list containing hit of
+    1 / (_RRF_K + rank_in_that_list + 1)`` — a hit near the top of several
+    lists outranks one appearing only in a single list, without needing the
+    lists' raw scores to be on comparable scales (ts_rank, the lexical CASE
+    tiers, and cosine similarity are NOT comparable numbers, which is exactly
+    why RRF -- rank-based, not score-based -- is used to combine them).
+
+    Deliberately scoped: this is used by :meth:`SearchService._search_entity_type`
+    ONLY when a semantic rank list is non-empty for that entity type (see call
+    site). When only fulltext+lexical are present, :func:`_merge_hits` (keep
+    max score per id) is used instead, unchanged from pre-Task-9 behaviour --
+    replacing it universally would flatten the lexical tiers' large absolute
+    scores (>= 1.5, deliberately dominant, see module header) down into RRF's
+    tiny (<= 1/(_RRF_K+1) ~= 0.016) range, which would make an exact-title
+    lexical match in a semantic-eligible type rank BELOW an unrelated
+    full-text match in a type with no embedding column -- a real cross-type
+    regression this task's brief explicitly warns against introducing.
+
+    Returns hits sorted by fused score descending, each hit's
+    ``relevance_score`` replaced with its fused RRF score.
+    """
+    scores: Dict[str, float] = {}
+    hits_by_id: Dict[str, SearchHit] = {}
+    for rank_list in rank_lists:
+        for rank, hit in enumerate(rank_list):
+            scores[hit.id] = scores.get(hit.id, 0.0) + 1.0 / (_RRF_K + rank + 1)
+            hits_by_id[hit.id] = hit
+    ordered_ids = sorted(scores, key=lambda hit_id: -scores[hit_id])
+    return [
+        dataclass_replace(hits_by_id[hit_id], relevance_score=scores[hit_id])
+        for hit_id in ordered_ids
+    ]
+
+
+def _embedding_field_dimensions(entity_type: str) -> Optional[int]:
+    """Return the declared ``VectorField(dimensions=...)`` for *entity_type*'s
+    ``embedding`` column, or ``None`` if it has none / is unknown.
+
+    Mirrors ``RequirementService._generate_and_store_embedding``'s identical
+    ``Model._meta.get_field("embedding").dimensions`` lookup on the write
+    side (Task 12) -- kept local to each call site rather than a shared
+    helper module, since both are small, single-line lookups against
+    already-imported models and a third module would be overkill for this.
+    """
+    if entity_type == "Requirement":
+        return Requirement._meta.get_field("embedding").dimensions
+    if entity_type == "TraceLink":
+        return TraceLink._meta.get_field("embedding").dimensions
+    if entity_type == "IcdVersion":
+        from icd.models import IcdVersion  # local import, see _dispatch below
+
+        return IcdVersion._meta.get_field("embedding").dimensions
+    return None
+
+
+def _run_semantic_query(
+    entity_type: str,
+    query_embedding: Optional[List[float]],
+    tenant_id: Any,
+    workspace_id: Optional[UUID],
+) -> List[SearchHit]:
+    """Cosine-similarity pass over ``entity_type``'s ``embedding`` column.
+
+    REQ-L2-VS-004 (Task 9). Only Requirement/TraceLink/IcdVersion carry an
+    ``embedding`` VectorField today -- everything else (and a missing/empty
+    ``query_embedding``, e.g. no embedding provider configured) returns [].
+
+    Uses the Django ORM + pgvector's ``CosineDistance`` (mirroring
+    ``memory.backends.PgvectorMemoryBackend.query()``), NOT the raw-SQL
+    ``_TableSpec`` machinery the fulltext/lexical passes use above: pgvector's
+    cosine-distance operator needs the ORM's vector-aware query compiler, and
+    ``_TableSpec`` only ever described plain string/id columns.
+
+    Degrades to [] on ANY error and NEVER raises -- REQ-L3-SEARCH-009's
+    "degrade gracefully" precedent (same philosophy as
+    ``memory/context_builder.py``). This matters concretely, not just
+    theoretically: ``Requirement.embedding``/``TraceLink.embedding``/
+    ``IcdVersion.embedding`` are hardcoded 1536-dim (OpenAI-shaped) columns,
+    while the new default ``EMBEDDING_PROVIDER=sentence-transformers``
+    produces 384-dim vectors -- so under the shipped default configuration,
+    every query embedding is dimension-mismatched against these columns and
+    pgvector raises a DB-level error the moment the comparison actually
+    touches a non-NULL embedding row. Semantic search must never take
+    fulltext/lexical results down with it when that happens.
+
+    The whole query additionally runs inside its own ``transaction.atomic()``
+    savepoint: a dimension-mismatch error is a real Postgres-level error
+    (``DataError``/``InternalError``, not a Python-level one), and an
+    uncaught DB error inside an ambient transaction leaves that *transaction*
+    aborted -- every subsequent query on the same connection would then raise
+    "current transaction is aborted" until a rollback happens, silently
+    breaking whichever entity types are searched *after* this one in
+    :meth:`SearchService.search`'s loop (e.g. under pytest-django, which wraps
+    each test in one transaction, or any production caller that wraps
+    ``search()`` in its own ``atomic()`` block). The savepoint means only this
+    one query's failure is rolled back, not the whole surrounding transaction.
+    """
+    if entity_type not in _EMBEDDABLE_TYPES or not query_embedding:
+        return []
+
+    # Final whole-branch review Finding 5: under the shipped default
+    # (EMBEDDING_PROVIDER=sentence-transformers, 384-dim) every query
+    # embedding is dimension-mismatched against these hardcoded 1536-dim
+    # (OpenAI-shaped) columns -- see this function's docstring. Without this
+    # guard, EVERY search request touching a non-NULL embedding row hit the
+    # DB-level DataError caught below, logged via logger.exception (full
+    # traceback), forever, on every default deployment. Short-circuit BEFORE
+    # issuing the query, exactly mirroring the write-side guard already in
+    # place (RequirementService._generate_and_store_embedding, Task 12):
+    # compare the vector length against the column's declared dimension and
+    # skip cleanly instead of paying for a doomed DB round-trip.
+    field_dimensions = _embedding_field_dimensions(entity_type)
+    if field_dimensions is not None and len(query_embedding) != field_dimensions:
+        # logger.debug (not .exception/.warning): this is now an EXPECTED,
+        # handled condition under the default config, not an anomaly -- a
+        # full traceback (or even a one-line warning) on every single
+        # request would just be quieter log spam, not a fix. Mirrors
+        # RequirementService._generate_and_store_embedding's identical
+        # dimension-mismatch skip, which uses the same log level for the
+        # same reason.
+        logger.debug(
+            "SearchService: semantic query skipped for entity_type=%s -- "
+            "dimension mismatch (query embedding is %d-dim, %s.embedding "
+            "column expects %d-dim)",
+            entity_type,
+            len(query_embedding),
+            entity_type,
+            field_dimensions,
+        )
+        return []
+
+    def _dispatch() -> List[SearchHit]:
+        """Build+execute the per-type queryset. Runs inside the outer
+        ``transaction.atomic()``/``try`` below; a nested function (rather than
+        indenting the whole dispatch one level deeper) keeps this diff
+        reviewable against the pre-Task-9 shape of this branch-per-type body.
+        """
+        if entity_type == "Requirement":
+            # NOTE: filters via artifact__workspace_id, NOT the denormalized
+            # Requirement.workspace field -- the same choice the fulltext/
+            # lexical passes make above (_TABLE_SPECS["Requirement"].workspace_col
+            # = "a.workspace_id", joined through pl_artifact). Requirement.workspace
+            # is a #133 uniqueness-constraint helper kept in sync by
+            # RequirementService et al. on the *production* write path; it is
+            # not reliably populated everywhere a Requirement row can be
+            # created (e.g. test factories that construct rows directly), so
+            # using it here would silently under-match relative to the other
+            # two passes for the exact same entity type.
+            qs = Requirement.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
+            if workspace_id is not None:
+                qs = qs.filter(artifact__workspace_id=workspace_id)
+            qs = (
+                qs.annotate(
+                    distance=CosineDistance("embedding", query_embedding),
+                    ws_id=F("artifact__workspace_id"),
+                )
+                .order_by("distance")[:_SEMANTIC_TOP_K]
+            )
+            return [
+                SearchHit(
+                    id=str(obj.id),
+                    artifact_type=entity_type,
+                    title=obj.title or "",
+                    description=obj.description or "",
+                    relevance_score=1.0 - float(obj.distance),
+                    workspace_id=str(obj.ws_id) if obj.ws_id else "",
+                )
+                for obj in qs
+            ]
+
+        if entity_type == "TraceLink":
+            qs = TraceLink.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
+            if workspace_id is not None:
+                qs = qs.filter(source__workspace_id=workspace_id)
+            qs = (
+                qs.annotate(
+                    distance=CosineDistance("embedding", query_embedding),
+                    ws_id=F("source__workspace_id"),
+                )
+                .order_by("distance")[:_SEMANTIC_TOP_K]
+            )
+            return [
+                SearchHit(
+                    id=str(obj.id),
+                    artifact_type=entity_type,
+                    title=f"{obj.link_type}: {obj.source_id} -> {obj.target_id}",
+                    description="",
+                    relevance_score=1.0 - float(obj.distance),
+                    workspace_id=str(obj.ws_id) if obj.ws_id else "",
+                )
+                for obj in qs
+            ]
+
+        if entity_type == "IcdVersion":
+            # Local import: icd is an Ext-layer app; application (Layer 2) does
+            # not otherwise depend on it. Mirrors the existing lazy,
+            # module-local cross-layer import precedent (e.g.
+            # ArchitectureElement.get_role()'s Layer0 -> Layer1 import of
+            # workflow.services) rather than adding a module-level dependency
+            # for a code path only reached for one of ten entity types.
+            from icd.models import IcdVersion
+
+            qs = IcdVersion.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
+            if workspace_id is not None:
+                qs = qs.filter(icd__workspace_id=workspace_id)
+            qs = (
+                qs.annotate(
+                    distance=CosineDistance("embedding", query_embedding),
+                    ws_id=F("icd__workspace_id"),
+                )
+                .order_by("distance")[:_SEMANTIC_TOP_K]
+            )
+            return [
+                SearchHit(
+                    id=str(obj.id),
+                    artifact_type=entity_type,
+                    title=(obj.semantic_description or f"ICD contract v{obj.version_number}")[:200],
+                    description=obj.semantic_description or "",
+                    relevance_score=1.0 - float(obj.distance),
+                    workspace_id=str(obj.ws_id) if obj.ws_id else "",
+                )
+                for obj in qs
+            ]
+
+        return []
+
+    try:
+        with transaction.atomic():
+            return _dispatch()
+    except Exception:
+        logger.exception(
+            "SearchService: semantic pgvector query error entity_type=%s "
+            "(commonly an embedding-provider/column dimension mismatch)",
+            entity_type,
+        )
+        # REQ-L3-SEARCH-009: degrade gracefully -- a broken/mismatched
+        # semantic pass must never take the fulltext/lexical results down.
+        return []
 
 
 def _rows_to_hits(rows: Any, entity_type: str) -> List[SearchHit]:
@@ -447,6 +748,7 @@ class SearchService(ServiceBase):
         type_filter: Optional[List[str]] = None,
         page: int = _DEFAULT_PAGE,
         limit: int = _DEFAULT_LIMIT,
+        scope: str = "workspace",
     ) -> SearchResult:
         """Execute the search and return ranked, paginated results.
 
@@ -461,10 +763,18 @@ class SearchService(ServiceBase):
         Args:
             query: User-supplied search string.
             ctx: AuthContext (tenant + workspace isolation).
-            workspace_id: Optional workspace UUID filter.
+            workspace_id: Optional workspace UUID filter. Ignored when
+                ``scope="tenant"``.
             type_filter: Optional list of entity types to search.
             page: Page number (1-based, default 1).
             limit: Page size (default 20, max 100).
+            scope: ``"workspace"`` (default, unchanged behaviour: filters to
+                ``workspace_id`` if given, else the whole tenant with no RBAC
+                narrowing) or ``"tenant"`` (new: searches every workspace
+                ``ctx.user_id`` has an active role in, via
+                ``AuthorizationService.accessible_workspace_ids()`` --  an
+                explicit ``workspace_id`` is ignored in this mode, since
+                ``scope="tenant"`` means "all my workspaces", not one).
 
         Returns:
             SearchResult with ranked hits and pagination metadata.
@@ -501,31 +811,63 @@ class SearchService(ServiceBase):
         except Exception as exc:
             raise ValidationError(f"Failed to parse search query: {exc}") from exc
 
-        ws_uuid: Optional[UUID] = (
-            UUID(str(workspace_id)) if workspace_id is not None else None
-        )
-
-        # Execute per-type queries and merge
-        hits: List[SearchHit] = []
         tenant_id = ctx.tenant_id
+        hits: List[SearchHit] = []
 
-        for entity_type in effective_types:
-            try:
-                type_hits = self._search_entity_type(
-                    entity_type=entity_type,
-                    tsquery_str=tsquery_str,
-                    tenant_id=tenant_id,
-                    workspace_id=ws_uuid,
-                    raw_query=query,
-                )
-                hits.extend(type_hits)
-            except Exception:
-                logger.exception(
-                    "SearchService: error searching entity_type=%s query=%r",
-                    entity_type,
-                    tsquery_str,
-                )
-                # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
+        # Task 9 (REQ-L2-VS-004): computed once here, not per entity type --
+        # generate_embedding() never raises (its own contract: returns None on
+        # any provider error, e.g. no SDK installed or a dimension mismatch it
+        # can detect itself), so this is safe even when no embedding provider
+        # is configured. Still, gate it on effective_types actually containing
+        # an embeddable type: generate_embedding() is not free in general (a
+        # real network round-trip for the openai provider, model inference for
+        # sentence-transformers) -- a caller with e.g. type_filter=["TestCase"]
+        # (no embedding column at all) must not pay that cost just because
+        # Requirement/TraceLink/IcdVersion exist elsewhere in the codebase.
+        query_embedding: Optional[List[float]] = None
+        if _EMBEDDABLE_TYPES & set(effective_types):
+            query_embedding = generate_embedding(query)
+
+        if scope == "tenant":
+            # scope="tenant" means "every workspace I'm allowed to see", so an
+            # explicit workspace_id (if one was also passed) is ignored.
+            from auth_tenancy.services.authorization import AuthorizationService
+
+            accessible_ids = AuthorizationService().accessible_workspace_ids(
+                user_id=ctx.user_id, tenant_id=tenant_id
+            )
+            hits = self._search_multi_workspace(
+                entity_types=effective_types,
+                tsquery_str=tsquery_str,
+                tenant_id=tenant_id,
+                workspace_ids=accessible_ids,
+                raw_query=query,
+                query_embedding=query_embedding,
+            )
+        else:
+            ws_uuid: Optional[UUID] = (
+                UUID(str(workspace_id)) if workspace_id is not None else None
+            )
+
+            # Execute per-type queries and merge
+            for entity_type in effective_types:
+                try:
+                    type_hits = self._search_entity_type(
+                        entity_type=entity_type,
+                        tsquery_str=tsquery_str,
+                        tenant_id=tenant_id,
+                        workspace_id=ws_uuid,
+                        raw_query=query,
+                        query_embedding=query_embedding,
+                    )
+                    hits.extend(type_hits)
+                except Exception:
+                    logger.exception(
+                        "SearchService: error searching entity_type=%s query=%r",
+                        entity_type,
+                        tsquery_str,
+                    )
+                    # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
 
         # Sort by relevance DESC (lexical hits score >= 1.5 and therefore
         # always land above full-text hits), title ASC as a stable tiebreaker
@@ -555,17 +897,30 @@ class SearchService(ServiceBase):
         tenant_id: Any,
         workspace_id: Optional[UUID],
         raw_query: str = "",
+        query_embedding: Optional[List[float]] = None,
     ) -> List[SearchHit]:
-        """Return hits for one entity type from both search passes.
+        """Return hits for one entity type from all applicable search passes.
 
-        Runs the tsvector full-text pass (REQ-L3-SEARCH-001/003) and the
-        lexical title/uid/id pass (#345 Finding 2), then merges them keeping
-        the higher score per entity ID. Lexical scores are all >= 1.5 and
-        full-text ts_rank scores are far below that, so an exact or substring
-        title match always wins over a weak semantic match.
+        Runs the tsvector full-text pass (REQ-L3-SEARCH-001/003), the lexical
+        title/uid/id pass (#345 Finding 2), and -- for entity types with an
+        ``embedding`` column (Task 9, REQ-L2-VS-004) -- a cosine-similarity
+        semantic pass, then combines them.
+
+        Fusion (Task 9): when the semantic pass contributes at least one hit,
+        all three passes are combined via Reciprocal Rank Fusion
+        (:func:`_rrf_fuse`). Otherwise (no embedding column for this type, no
+        embedding provider configured, or a dimension mismatch -- see
+        :func:`_run_semantic_query`) this falls back to the pre-Task-9
+        max-score merge (:func:`_merge_hits`), unchanged: lexical scores are
+        all >= 1.5 and full-text ts_rank scores are far below that, so an
+        exact or substring title match always wins over a weak full-text
+        match. See :func:`_rrf_fuse`'s docstring for why the two are not
+        unconditionally unified into one algorithm.
 
         IF-AS-EXT-OUT-007: raw SQL via django.db.connection for expression
-        index compatibility (GIN index on the tsvector expression).
+        index compatibility (GIN index on the tsvector expression) backs the
+        fulltext/lexical passes; the semantic pass uses the Django ORM (see
+        :func:`_run_semantic_query`).
 
         SQL-injection safety: every user-supplied value (tsquery string,
         lexical pattern, tenant/workspace UUID) is parameterized via %s; only
@@ -575,15 +930,71 @@ class SearchService(ServiceBase):
         if spec is None:
             return []
 
-        merged: Dict[str, SearchHit] = {}
-        for hit in _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id):
-            merged[hit.id] = hit
-        for hit in _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id):
-            existing = merged.get(hit.id)
-            if existing is None or hit.relevance_score > existing.relevance_score:
-                merged[hit.id] = hit
+        fulltext_hits = _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id)
+        lexical_hits = _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id)
+        semantic_hits = _run_semantic_query(entity_type, query_embedding, tenant_id, workspace_id)
 
-        return list(merged.values())
+        if semantic_hits:
+            return _rrf_fuse(lexical_hits, fulltext_hits, semantic_hits)
+        return _merge_hits(fulltext_hits, lexical_hits)
+
+    @classmethod
+    def _search_multi_workspace(
+        cls,
+        entity_types: List[str],
+        tsquery_str: str,
+        tenant_id: Any,
+        workspace_ids: List[UUID],
+        raw_query: str,
+        query_embedding: Optional[List[float]] = None,
+    ) -> List[SearchHit]:
+        """Search every type in ``entity_types`` across all ``workspace_ids``.
+
+        Used for ``scope="tenant"``: runs the same per-type fusion
+        :meth:`_search_entity_type` already runs for a single workspace
+        (fulltext + lexical, plus the Task 9 semantic pass where applicable --
+        ``query_embedding`` is the same one computed once in
+        :meth:`search` and threaded through unchanged per workspace, since it
+        depends only on the query text, not the workspace), once per
+        accessible workspace, then merges the per-workspace results with the
+        same id-keyed/max-score dedup rule (:func:`_merge_hits`) -- a proper
+        cross-workspace merge, not just the existing two-pass merge repeated
+        in isolation per workspace.
+
+        An empty ``workspace_ids`` (caller has no accessible workspace) yields
+        no hits for any type, by construction.
+        """
+        hits: List[SearchHit] = []
+        for entity_type in entity_types:
+            per_workspace_hits: List[List[SearchHit]] = []
+            for ws_id in workspace_ids:
+                try:
+                    per_workspace_hits.append(
+                        cls._search_entity_type(
+                            entity_type=entity_type,
+                            tsquery_str=tsquery_str,
+                            tenant_id=tenant_id,
+                            workspace_id=ws_id,
+                            raw_query=raw_query,
+                            query_embedding=query_embedding,
+                        )
+                    )
+                except Exception:
+                    # A failure querying ONE accessible workspace must not
+                    # discard already-gathered hits from the OTHER accessible
+                    # workspaces for this same entity type -- REQ-L3-SEARCH-009
+                    # degrade-gracefully applies per workspace here, not per
+                    # entity type (unlike the single-workspace path in
+                    # search(), where "per type" and "per query" coincide).
+                    logger.exception(
+                        "SearchService: error searching entity_type=%s "
+                        "workspace_id=%s query=%r (tenant scope)",
+                        entity_type,
+                        ws_id,
+                        tsquery_str,
+                    )
+            hits.extend(_merge_hits(*per_workspace_hits))
+        return hits
 
 
 __all__ = [

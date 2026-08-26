@@ -184,6 +184,7 @@ REQFLOW_APPS = [
     "diagram",             # ARCH-L1-013 DiagramService
     "icd",                 # ARCH-L1-014 IcdManagement
     "context_graph",       # Workspace Context Graph — derived soft-edge layer (Issue #377)
+    "memory",              # AI Long-Term Memory — Workspace + Tenant-global (Spec 2026-08-24)
     "se_metrics",          # ARCH-L1-015 SeMetrics
     "resilience",          # ARCH-L1-016 ResilienceOrchestrator
     "admin_ops",           # AdminOps — Disaster Recovery foundation (REQ-L1-046)

@@ -614,6 +614,19 @@ class RequirementService(ServiceBase):
         version nor emits a domain event. Never raises: the embedding is
         supplementary to full-text search, so a provider/network failure must
         not fail the surrounding create/update transaction.
+
+        ``Requirement.embedding`` is a fixed-dimension pgvector column
+        (``vector(1536)``, OpenAI-shaped). Since Task 1 made
+        ``EMBEDDING_PROVIDER=sentence-transformers`` (384-dim) the default,
+        the generated vector no longer matches the column's dimension in the
+        common case. Postgres enforces that at the DB level (``DataError``),
+        and — because ``.update()`` runs inside the caller's ambient
+        transaction — an uncaught DataError here would poison that whole
+        transaction (every subsequent query on the connection then fails with
+        "current transaction is aborted") rather than just skip the
+        embedding. Guard by comparing the generated vector's length against
+        the column's declared dimension *before* issuing the write, so a
+        mismatch is a no-op skip, not a DB round-trip that fails.
         """
         try:
             from llm_adapter.embedding_service import (
@@ -622,9 +635,18 @@ class RequirementService(ServiceBase):
             )
 
             embedding = generate_embedding(get_embedding_text(requirement))
-            if embedding is not None:
+            field_dimensions = Requirement._meta.get_field("embedding").dimensions
+            if embedding is not None and len(embedding) == field_dimensions:
                 Requirement.objects.filter(id=requirement.id).update(
                     embedding=embedding
+                )
+            elif embedding is not None:
+                logger.debug(
+                    "RequirementService: embedding generation skipped for "
+                    "req=%s: dimension mismatch (got %d, column expects %d)",
+                    requirement.id,
+                    len(embedding),
+                    field_dimensions,
                 )
         except Exception as exc:  # noqa: BLE0001 — best-effort
             logger.debug(

@@ -285,6 +285,65 @@ class TestCreateTraceLink:
 
 
 # ---------------------------------------------------------------------------
+# _generate_and_store_embedding — dimension-mismatch guard (Task 12)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestEmbeddingDimensionGuard:
+    """Regression guard for the Task 12 fix: ``TraceLink.embedding`` is a
+    fixed ``vector(1536)`` column, but the shipped default
+    ``EMBEDDING_PROVIDER=sentence-transformers`` produces 384-dim vectors.
+    Before the fix, ``_generate_and_store_embedding`` handed the mismatched
+    vector straight to a bare ``.update()``, which Postgres rejected with a
+    ``DataError`` -- mirrors ``RequirementService``'s guard (see
+    ``test_requirement_service.py::TestEmbeddingDimensionGuard`` and the
+    Task 12 report).
+
+    Real DB, real ``create_trace_link`` call, real 1536-dim column -- this
+    file's other tests mock the DB (``_make_ctx``/``_resolve_artifact``
+    stubs), but that would hide the exact write-path this guard protects.
+    """
+
+    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+        from persistence.tests.factories import (
+            active_tenant,
+            editor_ctx,
+            make_requirement,
+            make_workspace,
+        )
+
+        # Simulates the real default provider's 384-dim output against the
+        # 1536-dim column. Patched at the source module because
+        # ``_generate_and_store_embedding`` imports ``generate_embedding``
+        # lazily, inside the method body.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * 384,
+        )
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            source = make_requirement(ws, title="Source requirement")
+            target = make_requirement(ws, title="Target requirement")
+            ctx = editor_ctx(tenant, ws)
+            link = TraceLinkService().create_trace_link(
+                source_id=source.id,
+                target_id=target.id,
+                link_type="traces",
+                ctx=ctx,
+            )
+            link.refresh_from_db()
+
+        # (1) No exception propagated. (2) Mismatched vector never written.
+        assert link.embedding is None
+        # (3) The rest of the save completed: the TraceLink itself IS
+        #     persisted (refresh_from_db() would raise otherwise), with its
+        #     real data intact.
+        assert link.link_type == "traces"
+
+
+# ---------------------------------------------------------------------------
 # cascade_delete_trace_links
 # ---------------------------------------------------------------------------
 

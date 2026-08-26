@@ -303,7 +303,7 @@ services:
       migrate:
         condition: service_completed_successfully
     command: >
-      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events"
+      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events,memory"
     networks:
       - reqogniloom-net-prod
 

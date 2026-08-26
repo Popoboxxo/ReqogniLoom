@@ -53,6 +53,12 @@ from admin_ops.theme_rest import (
     ThemePaletteListView,
     UserThemePreferenceView,
 )
+from memory.memory_rest import (
+    SystemMemorySettingsView,
+    SystemMemoryWorkspaceDeleteView,
+    SystemMemoryWorkspaceOverviewView,
+    WorkspaceMemorySettingsView,
+)
 from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
@@ -448,6 +454,32 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/context-graph-settings/rebuild/",
         ContextGraphRebuildView.as_view(),
         name="workspace-context-graph-rebuild",
+    ),
+    # AI Long-Term Memory — per-workspace settings toggle (Task 11). GET: any
+    # workspace member. PUT: editor or admin (workspace-scoped).
+    path(
+        "workspaces/<uuid:workspace_id>/memory-settings/",
+        WorkspaceMemorySettingsView.as_view(),
+        name="workspace-memory-settings",
+    ),
+    # AI Long-Term Memory — active env configuration visibility (Task 11).
+    # System-Admin only, mirrors system/theme-default/.
+    path(
+        "system/memory-settings/",
+        SystemMemorySettingsView.as_view(),
+        name="system-memory-settings",
+    ),
+    # AI Long-Term Memory — System-Admin workspace overview + delete
+    # (Memory Admin UI Phase 1, spec 2026-08-26).
+    path(
+        "system/memory/workspaces/",
+        SystemMemoryWorkspaceOverviewView.as_view(),
+        name="system-memory-workspace-overview",
+    ),
+    path(
+        "system/memory/workspaces/<uuid:workspace_id>/",
+        SystemMemoryWorkspaceDeleteView.as_view(),
+        name="system-memory-workspace-delete",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.

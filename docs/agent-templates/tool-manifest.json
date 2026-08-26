@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.7.0",
-  "tool_count": 168,
+  "tool_count": 171,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2501,6 +2501,86 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "memory.forget",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "Delete a memory entry. Requires ownership (own user memory) or workspace-admin (workspace memory).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "memory.list",
+      "prefix": "memory",
+      "is_write": false,
+      "description": "Chronological listing of recent memory entries, no similarity search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "user"
+            ]
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          }
+        },
+        "required": [
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "memory.query",
+      "prefix": "memory",
+      "is_write": false,
+      "description": "Semantic search over workspace or user-tenant-wide memory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "user"
+            ]
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "query": {
+            "type": "string"
+          },
+          "top_k": {
+            "type": "integer",
+            "default": 5
+          }
+        },
+        "required": [
+          "scope",
+          "query"
         ]
       }
     },

@@ -577,8 +577,22 @@ class TraceLinkService(ServiceBase):
             embedding = generate_embedding(
                 get_tracelink_embedding_text(joined or trace_link)
             )
-            if embedding is not None:
+            field_dimensions = TraceLink._meta.get_field("embedding").dimensions
+            if embedding is not None and len(embedding) == field_dimensions:
                 TraceLink.objects.filter(id=trace_link.id).update(embedding=embedding)
+            elif embedding is not None:
+                # Dimension mismatch (e.g. the default sentence-transformers
+                # provider is 384-dim but this column is a fixed vector(1536)
+                # — see RequirementService._generate_and_store_embedding for
+                # the full rationale): skip the write rather than let a
+                # Postgres-level DataError poison the ambient transaction.
+                logger.debug(
+                    "TraceLinkService: embedding generation skipped for "
+                    "link=%s: dimension mismatch (got %d, column expects %d)",
+                    getattr(trace_link, "id", None),
+                    len(embedding),
+                    field_dimensions,
+                )
         except Exception as exc:  # noqa: BLE001 — best-effort
             logger.debug(
                 "TraceLinkService: embedding generation skipped for link=%s: %s",

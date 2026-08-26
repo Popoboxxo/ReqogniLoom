@@ -33,6 +33,11 @@ class AuthMethod(str, Enum):
 
     BEARER_TOKEN = "bearer_token"
     API_KEY = "api_key"
+    #: Internal, non-request-bound contexts (e.g. a Celery task resolving a
+    #: prompt template on a tenant's behalf, with no specific user in play).
+    #: Never issued by AuthenticationService, never accepted by any REST/MCP
+    #: credential check — see :meth:`AuthContext.system`.
+    SYSTEM = "system"
 
 
 @dataclass(frozen=True)
@@ -114,6 +119,26 @@ class AuthContext:
     def has_role(self, role: str) -> bool:
         """Return whether ``role`` is among the active roles (case-insensitive)."""
         return role.lower() in {r.lower() for r in self.active_roles}
+
+    @classmethod
+    def system(cls, *, tenant_id: UUID) -> "AuthContext":
+        """Build a minimal internal context for background/system-only work.
+
+        Used ONLY for code paths that run with no specific authenticated
+        user in play (e.g. a Celery task resolving a prompt template for a
+        tenant). ``user_id`` is a placeholder nil UUID and ``active_roles``
+        is empty on purpose: this context must never be handed to a
+        REST/MCP permission check or any place that grants elevated access
+        based on roles — it exists solely so tenant-scoped helpers like
+        :func:`application.prompt_resolver.resolve_and_render` (which only
+        read ``ctx.tenant_id``) have a valid ``AuthContext`` to call with.
+        """
+        return cls(
+            user_id=UUID(int=0),
+            tenant_id=tenant_id,
+            active_roles=(),
+            auth_method=AuthMethod.SYSTEM,
+        )
 
 
 __all__ = [

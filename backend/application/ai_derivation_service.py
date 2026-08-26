@@ -233,6 +233,9 @@ Fields still needed (JSON list of {"name": ..., "type": ..., "choices": ...}):
 Possibly related existing artifacts (JSON):
 {grounding_snapshot_json}
 
+Relevant memory from earlier sessions (may be empty):
+{memory_context}
+
 Latest user message:
 {user_message}
 

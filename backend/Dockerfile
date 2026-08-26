@@ -23,6 +23,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
+# NOTE: the sentence-transformers model pre-download (REQ-L2-VS-004) does NOT
+# happen in this stage. `--prefix=/install` above installs packages under
+# /install/lib/python3.X/site-packages, which is not on THIS stage's
+# sys.path (it only becomes importable once copied to /usr/local in the
+# runtime stage below) -- `import sentence_transformers` here would raise
+# ModuleNotFoundError. See the runtime stage for the actual download step.
+
 # ─────────────────────────────────────────────────────────
 # Stage 2: runtime — minimal image with only runtime deps
 # ─────────────────────────────────────────────────────────
@@ -86,6 +93,25 @@ RUN addgroup --system app \
     && adduser --system --ingroup app --home /home/app --shell /usr/sbin/nologin app \
     && mkdir -p /home/app && chown app:app /home/app
 ENV HOME=/home/app
+
+# Pre-download sentence-transformers model (REQ-L2-VS-004) to avoid slow
+# first-request download at runtime and to keep the image self-contained (no
+# HuggingFace network access needed on first real embed call in production).
+#
+# This MUST run here -- in the runtime stage, after `COPY --from=builder
+# /install /usr/local` above made sentence-transformers importable, and
+# BEFORE the `USER app` switch further down -- and with an explicit HF_HOME.
+# Without HF_HOME, huggingface_hub caches under `$HOME/.cache/huggingface`;
+# running the download as root without it would put the cache under
+# /root/.cache, a path the non-root runtime user (HOME=/home/app) can
+# neither read nor reuse, causing a silent re-download from HuggingFace on
+# the first real request in production -- defeating the point of baking the
+# model in. /home/app already exists (created above), so the download is
+# run as root into HF_HOME and then handed off to the app user via chown.
+ENV HF_HOME=/home/app/.cache/huggingface
+RUN mkdir -p "${HF_HOME}" \
+    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && chown -R app:app "${HF_HOME}"
 
 # Ensure working directory is owned by app user
 RUN chown -R app:app /app

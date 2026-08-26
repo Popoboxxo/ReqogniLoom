@@ -25,10 +25,11 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — native Model Context Protocol server; 25 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, ai_derivation, diagram, custom_field, review, baseline, goal, main_goal), 40+ individual tools, for Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **MCP Server** — native Model Context Protocol server; 30 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, prompt_variable, ai_derivation, diagram, custom_field, review, baseline, goal, main_goal, context, interview, memory, requirement_bundle), 171 individual tools (`docs/agent-templates/tool-manifest.json`), for Claude Desktop, Cursor, and other MCP-capable LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
+- **AI Long-Term Memory** — Two-tier memory (per-workspace + per-user tenant-wide) consolidated from interview interactions; self-hosted by default (in-process `sentence-transformers` embeddings, Postgres/pgvector storage), with Ollama/OpenAI embeddings and an external Honcho backend as opt-in alternatives. Cross-workspace search scope and a semantic (RRF-fused) search pass round out the existing full-text search. Managed via a per-workspace on/off toggle (Workspace Settings) and the `memory.query`/`memory.list`/`memory.forget` MCP tools — no system-wide admin dashboard for browsing individual memory entries yet (v1 scope, see `docs/superpowers/plans/2026-08-24-ai-memory-and-search.md`)
 
 ### Enterprise Features
 - **Multi-Tenancy** — Row-level security with automatic tenant isolation
@@ -279,6 +280,25 @@ LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... docker-compose up
 - `mock` — Dry-run mode, no API calls (default)
 
 See `.env.example` for all available configuration options and per-provider examples.
+
+### 8a. (Optional) Configure AI Memory & Embeddings
+
+By default, ReqogniLoom runs fully self-hosted: `sentence-transformers` computes embeddings in-process inside the `backend`/`celery` containers (no extra service, no external API call), and memory entries are stored in this project's own Postgres via `pgvector`. No configuration is required to use the memory feature at its default settings.
+
+```bash
+# Optional: use Ollama for embeddings instead of the bundled sentence-transformers model
+EMBEDDING_PROVIDER=ollama OLLAMA_BASE_URL=http://ollama:11434 docker-compose up
+
+# Optional: use an external Honcho instance as the memory backend
+MEMORY_BACKEND=honcho HONCHO_BASE_URL=https://your-honcho-instance.example.com docker-compose up
+```
+
+**Supported `EMBEDDING_PROVIDER`** (`backend/llm_adapter/embedding_service.py`): `sentence-transformers` (default) | `ollama` | `openai` | `mock`
+**Supported `MEMORY_BACKEND`** (`backend/memory/backends.py`): `pgvector` (default) | `honcho` (optional; `query`/`list`/`forget` are not yet implemented for this backend — `upsert` only)
+
+⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data, and `Requirement`/`TraceLink`/`IcdVersion` embeddings (a separate, pre-existing feature, 1536-dimension) only get written when the configured provider's output dimension matches; see `backend/llm_adapter/embedding_service.py`'s module docstring if you're upgrading a deployment that already relied on OpenAI embeddings.
+
+See `.env.example` for all variables and `docker-compose.override.example.yml` for the matching optional-service Compose stubs.
 
 ### 8b. Verify Installation
 

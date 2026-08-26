@@ -76,6 +76,11 @@ class DomainEventOutbox(models.Model):
         STAKEHOLDER_NEED_DELETED = "StakeholderNeedDeleted"
         GOAL_CREATED = "GoalCreated"
         MAIN_GOAL_CREATED = "MainGoalCreated"
+        # ai-memory-and-search plan, Task 4: feed the memory projector
+        # (a later task) with interview-chat and formalize completion
+        # events. Purely additive -- no existing emitter changes.
+        INTERVIEW_CHAT_TURN = "InterviewChatTurn"
+        INTERVIEW_FORMALIZED = "InterviewFormalized"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)

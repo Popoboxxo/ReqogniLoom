@@ -70,8 +70,12 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
         "missing_fields_json",
         "grounding_snapshot_json",
         "user_message",
+        # memory plan Task 6: single-mode generate_chat_turn() only -- see
+        # InterviewService.generate_chat_turn's build_memory_context() call.
+        "memory_context",
     ),
     "architecture_decompose_tree": ("element_title",),
+    "memory.extract": ("interaction_text",),
 }
 
 
@@ -87,10 +91,12 @@ def get_prompt_slots() -> Dict[str, PromptSlotSpec]:
         ARCH_DECOMPOSE_PROMPT_TEMPLATE,
     )
     from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
+    from memory.prompts import MEMORY_PROMPT_DEFAULTS
 
     merged: Dict[str, str] = {
         **PROMPT_TEMPLATE_DEFAULTS,
         **INTERVIEW_PROTOCOL_DEFAULTS,
+        **MEMORY_PROMPT_DEFAULTS,
         # Spec §4: N1 no longer bypasses the catalog — its prompt is a regular
         # slot, editable through AiPromptsSection like every other one.
         "architecture_decompose_tree": ARCH_DECOMPOSE_PROMPT_TEMPLATE,

@@ -259,6 +259,63 @@ class TestCreateRequirement:
 
 
 # ---------------------------------------------------------------------------
+# _generate_and_store_embedding — dimension-mismatch guard (Task 12)
+# ---------------------------------------------------------------------------
+
+
+class TestEmbeddingDimensionGuard:
+    """Regression guard for the Task 12 fix: ``Requirement.embedding`` is a
+    fixed ``vector(1536)`` column (OpenAI-shaped, pre-dates this branch), but
+    the shipped default ``EMBEDDING_PROVIDER=sentence-transformers`` produces
+    384-dim vectors. Before the fix, ``_generate_and_store_embedding`` handed
+    the mismatched vector straight to a bare ``.update()`` inside the
+    caller's ambient (``@atomic_transaction``-wrapped) transaction, which
+    Postgres rejected with a ``DataError`` — poisoning that transaction for
+    every subsequent query in the same request/test (see
+    ``application/tests/test_adr_service.py``'s original failure mode,
+    documented in the Task 12 report).
+
+    This is a real, integration-level test (real DB, real
+    ``create_requirement`` call, real 1536-dim column) rather than a mock of
+    ``_generate_and_store_embedding`` itself, specifically so it would catch
+    a regression to the crash/poisoning behaviour, not just to a change in
+    how the guard is implemented.
+    """
+
+    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+
+        # Simulates the real default provider's 384-dim output against the
+        # 1536-dim column. Patched at the source module (not
+        # ``application.requirement_service``) because
+        # ``_generate_and_store_embedding`` imports ``generate_embedding``
+        # lazily, inside the method body — there is no module-level name to
+        # intercept.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * 384,
+        )
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            requirement = RequirementService().create_requirement(
+                workspace_id=ws.id, title="Dimension guard test", ctx=ctx
+            )
+            requirement.refresh_from_db()
+
+        # (1) No exception propagated (create_requirement returned normally,
+        #     we reached refresh_from_db()).
+        # (2) The mismatched vector was never written — embedding stays
+        #     unset, not a resized/truncated/padded one.
+        assert requirement.embedding is None
+        # (3) The rest of the save completed: the Requirement itself IS
+        #     persisted (refresh_from_db() above would raise
+        #     Requirement.DoesNotExist otherwise), with its real data intact.
+        assert requirement.title == "Dimension guard test"
+
+
+# ---------------------------------------------------------------------------
 # update_requirement
 # ---------------------------------------------------------------------------
 
