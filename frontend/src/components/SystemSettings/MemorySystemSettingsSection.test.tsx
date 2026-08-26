@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
@@ -68,6 +68,94 @@ describe("MemorySystemSettingsSection", () => {
 
     expect(await screen.findByTestId("embedding-provider-override-badge")).toBeInTheDocument();
     expect(screen.getByTestId("memory-backend-override-badge")).toBeInTheDocument();
+  });
+
+  it("renders the 4 connection-detail fields with their loaded effective values", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      embedding_model_name: "all-MiniLM-L6-v2",
+      ollama_base_url: "http://ollama:11434",
+      embedding_timeout: 30,
+      honcho_base_url: "http://honcho:8000",
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    expect(screen.getByTestId("memory-settings-embedding-model-name")).toHaveValue(
+      "all-MiniLM-L6-v2"
+    );
+    expect(screen.getByTestId("memory-settings-ollama-base-url")).toHaveValue(
+      "http://ollama:11434"
+    );
+    expect(screen.getByTestId("memory-settings-embedding-timeout")).toHaveValue(30);
+    expect(screen.getByTestId("memory-settings-honcho-base-url")).toHaveValue(
+      "http://honcho:8000"
+    );
+  });
+
+  it("shows override badges for the 4 connection-detail fields when overridden", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      embedding_model_name_is_override: true,
+      ollama_base_url_is_override: true,
+      embedding_timeout_is_override: true,
+      honcho_base_url_is_override: true,
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    expect(await screen.findByTestId("embedding-model-name-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("ollama-base-url-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("embedding-timeout-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("honcho-base-url-override-badge")).toBeInTheDocument();
+  });
+
+  it("changing the 4 connection-detail fields stages them and saves without a confirm dialog", async () => {
+    const user = userEvent.setup();
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    await user.type(
+      screen.getByTestId("memory-settings-embedding-model-name"),
+      "all-MiniLM-L6-v2"
+    );
+    await user.type(screen.getByTestId("memory-settings-ollama-base-url"), "http://ollama:11434");
+    // A single direct value change (e.g. paste, or the browser's numeric
+    // stepper) rather than clear()+type() char-by-char: clearing a
+    // controlled number input to "" round-trips through `undefined` (the
+    // "no pending change" sentinel), which the display's `?? settings...`
+    // fallback then redraws as the still-loaded effective value — so
+    // simulating a full backspace-then-retype here would concatenate onto
+    // that redrawn value instead of really starting from empty.
+    fireEvent.change(screen.getByTestId("memory-settings-embedding-timeout"), {
+      target: { value: "45" },
+    });
+    await user.type(screen.getByTestId("memory-settings-honcho-base-url"), "http://honcho:8000");
+    await user.click(screen.getByTestId("memory-settings-save-btn"));
+
+    expect(screen.queryByTestId("memory-settings-confirm-dialog")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
+        embedding_model_name: "all-MiniLM-L6-v2",
+        ollama_base_url: "http://ollama:11434",
+        embedding_timeout: 45,
+        honcho_base_url: "http://honcho:8000",
+      });
+    });
+  });
+
+  it("clearing the honcho_api_key field back to empty removes it from the pending change instead of staging a no-op empty string", async () => {
+    const user = userEvent.setup();
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const input = screen.getByTestId("memory-settings-honcho-api-key");
+    await user.type(input, "temp-secret");
+    expect(screen.getByTestId("memory-settings-save-btn")).toBeEnabled();
+
+    await user.clear(input);
+    expect(screen.getByTestId("memory-settings-save-btn")).toBeDisabled();
   });
 
   it("changing the embedding provider and saving shows a confirm dialog instead of calling update() directly", async () => {

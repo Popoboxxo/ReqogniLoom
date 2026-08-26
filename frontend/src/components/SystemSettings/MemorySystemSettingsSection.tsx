@@ -154,6 +154,71 @@ export function MemorySystemSettingsSection(): JSX.Element {
       </label>
 
       <label className={styles.field}>
+        {t("systemSettings.memorySettings.embeddingModelName")}
+        <input
+          type="text"
+          data-testid="memory-settings-embedding-model-name"
+          value={form.embedding_model_name ?? settings.embedding_model_name ?? ""}
+          onChange={(e) => setForm((f) => ({ ...f, embedding_model_name: e.target.value }))}
+        />
+        {settings.embedding_model_name_is_override && (
+          <span data-testid="embedding-model-name-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.ollamaBaseUrl")}
+        <input
+          type="text"
+          data-testid="memory-settings-ollama-base-url"
+          value={form.ollama_base_url ?? settings.ollama_base_url ?? ""}
+          onChange={(e) => setForm((f) => ({ ...f, ollama_base_url: e.target.value }))}
+        />
+        {settings.ollama_base_url_is_override && (
+          <span data-testid="ollama-base-url-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.embeddingTimeout")}
+        <input
+          type="number"
+          data-testid="memory-settings-embedding-timeout"
+          value={form.embedding_timeout ?? settings.embedding_timeout ?? ""}
+          onChange={(e) =>
+            setForm((f) => ({
+              ...f,
+              embedding_timeout: e.target.value === "" ? undefined : Number(e.target.value),
+            }))
+          }
+        />
+        {settings.embedding_timeout_is_override && (
+          <span data-testid="embedding-timeout-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoBaseUrl")}
+        <input
+          type="text"
+          data-testid="memory-settings-honcho-base-url"
+          value={form.honcho_base_url ?? settings.honcho_base_url ?? ""}
+          onChange={(e) => setForm((f) => ({ ...f, honcho_base_url: e.target.value }))}
+        />
+        {settings.honcho_base_url_is_override && (
+          <span data-testid="honcho-base-url-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
         {t("systemSettings.memorySettings.honchoApiKey")}
         <input
           type="password"
@@ -164,7 +229,12 @@ export function MemorySystemSettingsSection(): JSX.Element {
               : t("systemSettings.memorySettings.secretUnsetPlaceholder")
           }
           value={form.honcho_api_key ?? ""}
-          onChange={(e) => setForm((f) => ({ ...f, honcho_api_key: e.target.value }))}
+          onChange={(e) =>
+            setForm((f) => {
+              const { honcho_api_key: _honchoApiKey, ...rest } = f;
+              return e.target.value ? { ...rest, honcho_api_key: e.target.value } : rest;
+            })
+          }
         />
       </label>
 
