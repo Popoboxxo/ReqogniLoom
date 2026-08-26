@@ -15,11 +15,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from django.db.models import Count, Max
+
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import UserRole
 from auth_tenancy.services import AuthorizationService
 from memory.models import UserTenantMemory, WorkspaceMemory, WorkspaceMemorySettings
 from persistence.models import Workspace
+from persistence.transactions import atomic_transaction
 
 from .base import NotFoundError, PermissionDeniedError, ServiceBase
 
@@ -62,15 +65,19 @@ class MemoryAdminService(ServiceBase):
 
         overview: list[dict[str, Any]] = []
         for ws in Workspace.objects.all().order_by("name"):
-            ws_qs = WorkspaceMemory.objects.filter(workspace_id=ws.id)
-            ws_count = ws_qs.count()
-            last_ws = ws_qs.order_by("-created_at").values_list("created_at", flat=True).first()
+            ws_agg = WorkspaceMemory.objects.filter(workspace_id=ws.id).aggregate(
+                count=Count("id"), last=Max("created_at")
+            )
+            ws_count = ws_agg["count"]
+            last_ws = ws_agg["last"]
 
             member_ids = self._member_ids(ws.id)
             if member_ids:
-                user_qs = UserTenantMemory.objects.filter(user_id__in=member_ids)
-                user_count = user_qs.count()
-                last_user = user_qs.order_by("-created_at").values_list("created_at", flat=True).first()
+                user_agg = UserTenantMemory.objects.filter(user_id__in=member_ids).aggregate(
+                    count=Count("id"), last=Max("created_at")
+                )
+                user_count = user_agg["count"]
+                last_user = user_agg["last"]
             else:
                 user_count = 0
                 last_user = None
@@ -90,6 +97,7 @@ class MemoryAdminService(ServiceBase):
             )
         return overview
 
+    @atomic_transaction
     def delete_workspace_memory(self, ctx: AuthContext, workspace_id: UUID) -> dict[str, Any]:
         """Delete BOTH tiers for *workspace_id*: its own ``WorkspaceMemory``
         rows, and the ``UserTenantMemory`` rows of its CURRENT members.
@@ -109,6 +117,18 @@ class MemoryAdminService(ServiceBase):
         user_deleted = 0
         if member_ids:
             user_deleted, _ = UserTenantMemory.objects.filter(user_id__in=member_ids).delete()
+
+        self._audit(
+            ctx,
+            "delete",
+            "WorkspaceMemory",
+            workspace_id,
+            details={
+                "workspace_memory_deleted": ws_deleted,
+                "user_memory_deleted": user_deleted,
+                "affected_member_ids": [str(uid) for uid in member_ids],
+            },
+        )
 
         return {
             "workspace_id": workspace_id,

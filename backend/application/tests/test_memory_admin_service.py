@@ -61,9 +61,12 @@ class TestMemoryAdminServiceListOverview:
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         with active_tenant() as tenant:
             ws = make_workspace(tenant, name="Isolated WS")
+            member = make_user(tenant)
+            assign_role(member, ws, "editor")
             outsider = make_user(tenant)  # never assigned a role in ws
 
             backend = get_memory_backend()
+            backend.upsert(tenant.id, "user", member.id, "member fact")
             backend.upsert(tenant.id, "user", outsider.id, "outsider fact")
 
             admin_user = make_user(tenant)
@@ -72,7 +75,7 @@ class TestMemoryAdminServiceListOverview:
             overview = MemoryAdminService().list_workspace_overview(ctx)
 
             row = next(r for r in overview if r["workspace_id"] == ws.id)
-            assert row["user_entry_count"] == 0
+            assert row["user_entry_count"] == 1
 
     def test_denies_non_admin(self):
         with active_tenant() as tenant:
@@ -126,3 +129,37 @@ class TestMemoryAdminServiceDelete:
 
             with pytest.raises(PermissionDeniedError):
                 MemoryAdminService().delete_workspace_memory(ctx, ws.id)
+
+    def test_suspended_member_excluded_from_delete(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            suspended_member = make_user(tenant)
+            assign_role(suspended_member, ws, "editor", suspended=True)
+
+            backend = get_memory_backend()
+            backend.upsert(tenant.id, "user", suspended_member.id, "suspended member fact")
+
+            admin_user = make_user(tenant)
+            ctx = ctx_for_user(tenant, admin_user, roles=("admin",))
+
+            result = MemoryAdminService().delete_workspace_memory(ctx, ws.id)
+
+            assert result["user_memory_deleted"] == 0
+            assert UserTenantMemory.objects.filter(user_id=suspended_member.id).count() == 1
+
+    def test_delete_does_not_touch_other_tenant_workspace(self):
+        other_ws_id = None
+
+        # Create workspace in tenant_b first
+        with active_tenant() as tenant_b:
+            other_ws = make_workspace(tenant_b)
+            other_ws_id = other_ws.id
+
+        # Then try to delete it as admin in tenant_a
+        with active_tenant() as tenant_a:
+            admin_user = make_user(tenant_a)
+            ctx = ctx_for_user(tenant_a, admin_user, roles=("admin",))
+
+            with pytest.raises(NotFoundError):
+                MemoryAdminService().delete_workspace_memory(ctx, other_ws_id)
