@@ -355,6 +355,27 @@ def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
     ]
 
 
+def _embedding_field_dimensions(entity_type: str) -> Optional[int]:
+    """Return the declared ``VectorField(dimensions=...)`` for *entity_type*'s
+    ``embedding`` column, or ``None`` if it has none / is unknown.
+
+    Mirrors ``RequirementService._generate_and_store_embedding``'s identical
+    ``Model._meta.get_field("embedding").dimensions`` lookup on the write
+    side (Task 12) -- kept local to each call site rather than a shared
+    helper module, since both are small, single-line lookups against
+    already-imported models and a third module would be overkill for this.
+    """
+    if entity_type == "Requirement":
+        return Requirement._meta.get_field("embedding").dimensions
+    if entity_type == "TraceLink":
+        return TraceLink._meta.get_field("embedding").dimensions
+    if entity_type == "IcdVersion":
+        from icd.models import IcdVersion  # local import, see _dispatch below
+
+        return IcdVersion._meta.get_field("embedding").dimensions
+    return None
+
+
 def _run_semantic_query(
     entity_type: str,
     query_embedding: Optional[List[float]],
@@ -398,6 +419,37 @@ def _run_semantic_query(
     one query's failure is rolled back, not the whole surrounding transaction.
     """
     if entity_type not in _EMBEDDABLE_TYPES or not query_embedding:
+        return []
+
+    # Final whole-branch review Finding 5: under the shipped default
+    # (EMBEDDING_PROVIDER=sentence-transformers, 384-dim) every query
+    # embedding is dimension-mismatched against these hardcoded 1536-dim
+    # (OpenAI-shaped) columns -- see this function's docstring. Without this
+    # guard, EVERY search request touching a non-NULL embedding row hit the
+    # DB-level DataError caught below, logged via logger.exception (full
+    # traceback), forever, on every default deployment. Short-circuit BEFORE
+    # issuing the query, exactly mirroring the write-side guard already in
+    # place (RequirementService._generate_and_store_embedding, Task 12):
+    # compare the vector length against the column's declared dimension and
+    # skip cleanly instead of paying for a doomed DB round-trip.
+    field_dimensions = _embedding_field_dimensions(entity_type)
+    if field_dimensions is not None and len(query_embedding) != field_dimensions:
+        # logger.debug (not .exception/.warning): this is now an EXPECTED,
+        # handled condition under the default config, not an anomaly -- a
+        # full traceback (or even a one-line warning) on every single
+        # request would just be quieter log spam, not a fix. Mirrors
+        # RequirementService._generate_and_store_embedding's identical
+        # dimension-mismatch skip, which uses the same log level for the
+        # same reason.
+        logger.debug(
+            "SearchService: semantic query skipped for entity_type=%s -- "
+            "dimension mismatch (query embedding is %d-dim, %s.embedding "
+            "column expects %d-dim)",
+            entity_type,
+            len(query_embedding),
+            entity_type,
+            field_dimensions,
+        )
         return []
 
     def _dispatch() -> List[SearchHit]:

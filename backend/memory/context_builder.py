@@ -23,6 +23,25 @@ logger = logging.getLogger(__name__)
 _TOP_K_PER_SCOPE = 5
 
 
+def _is_workspace_memory_enabled(workspace_id: UUID) -> bool:
+    """Mirror ``memory.projector.MemoryProjector._is_workspace_memory_enabled``.
+
+    This module runs inside an already-request-scoped call (interview_service
+    already has an active tenant context here, unlike the projector, which
+    runs off the event bus), so the default manager is used rather than
+    ``unscoped`` -- consistent with ``memory_rest.WorkspaceMemorySettingsView.
+    get``'s own lookup.
+    """
+    from memory.models import WorkspaceMemorySettings
+
+    row = (
+        WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id)
+        .values_list("enabled", flat=True)
+        .first()
+    )
+    return True if row is None else row
+
+
 def build_memory_context(tenant_id: UUID, workspace_id: UUID, user_id: UUID, query_text: str) -> str:
     """Return a rendered memory-context block for *query_text*, or ``""``.
 
@@ -30,8 +49,19 @@ def build_memory_context(tenant_id: UUID, workspace_id: UUID, user_id: UUID, que
     prompt to render, so any backend failure (unreachable embedding
     provider, misconfigured ``MEMORY_BACKEND``, etc.) degrades to an empty
     context rather than raising (see spec Fehlerfälle).
+
+    Defensive workspace-toggle check (final whole-branch review Finding 4):
+    ``MemoryProjector`` already refuses to enqueue consolidation for a
+    disabled workspace, but this is the READ side -- checked independently
+    so that even if something ever bypasses the projector (or a workspace is
+    disabled after facts were already consolidated), reading memory for a
+    disabled workspace still returns empty rather than surfacing
+    previously-collected content.
     """
     try:
+        if not _is_workspace_memory_enabled(workspace_id):
+            return ""
+
         backend: MemoryBackend = get_memory_backend()
         workspace_hits = backend.query(tenant_id, "workspace", workspace_id, query_text, top_k=_TOP_K_PER_SCOPE)
         user_hits = backend.query(tenant_id, "user", user_id, query_text, top_k=_TOP_K_PER_SCOPE)

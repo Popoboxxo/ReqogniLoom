@@ -100,11 +100,40 @@ class MemoryToolGroup(BaseToolGroup):
             return require_uuid(params, "workspace_id")
         return auth_context.user_id
 
+    def _check_workspace_membership(self, workspace_id: UUID, auth_context: AuthContext) -> bool:
+        """True if the caller holds at least one active role in *workspace_id*.
+
+        Final whole-branch review Finding 6: ``scope="workspace"`` on
+        ``memory.query``/``memory.list`` used to trust any caller-supplied
+        ``workspace_id`` outright -- any API key valid for tenant T could
+        read memory content from ANY workspace in T, not just ones it has
+        access to (``scope="user"`` was already safe: it forces
+        ``scope_id = auth_context.user_id``, no caller-supplied id
+        involved). Mirrors ``_handle_forget``'s own
+        ``AuthorizationService.active_roles_for`` check exactly, except this
+        gates READ access so ANY active role suffices (not admin-only, which
+        ``_handle_forget`` requires because it is a destructive write).
+
+        ``active_roles_for`` reads the RLS-gated ``UserRole`` table, so --
+        same reasoning as ``_handle_forget``'s module-docstring paragraph --
+        this must run inside an active tenant context, not rely on a bare
+        ``TenantContext.set_tenant(...)`` alone.
+        """
+        with _tenant_context(auth_context.tenant_id):
+            roles = AuthorizationService().active_roles_for(
+                user_id=auth_context.user_id, workspace_id=workspace_id
+            )
+        return bool(roles)
+
     def _handle_query(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         """Semantic search over memory entries (read-only)."""
         scope = params.get("scope")
         query_text = require_param(params, "query")
         scope_id = self._resolve_scope_id(params, auth_context)
+        if scope == "workspace" and not self._check_workspace_membership(scope_id, auth_context):
+            return ToolResult.error(
+                "PERMISSION_DENIED", "no active role in the requested workspace"
+            )
         backend = get_memory_backend()
         entries = backend.query(
             auth_context.tenant_id, scope, scope_id, query_text, top_k=params.get("top_k", 5)
@@ -115,6 +144,10 @@ class MemoryToolGroup(BaseToolGroup):
         """Chronological listing of recent memory entries (read-only)."""
         scope = params.get("scope")
         scope_id = self._resolve_scope_id(params, auth_context)
+        if scope == "workspace" and not self._check_workspace_membership(scope_id, auth_context):
+            return ToolResult.error(
+                "PERMISSION_DENIED", "no active role in the requested workspace"
+            )
         backend = get_memory_backend()
         entries = backend.list_recent(auth_context.tenant_id, scope, scope_id, limit=params.get("limit", 20))
         return ToolResult.ok({"entries": [{"id": str(e.entry_id), "content": e.content} for e in entries]})

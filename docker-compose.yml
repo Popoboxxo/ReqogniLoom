@@ -304,8 +304,12 @@ services:
       redis:
         condition: service_healthy
     # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqogniloom project
-    # REQ-077: single worker consumes all queues. Split into dedicated workers
-    # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
+    # REQ-077: single worker consumes all queues, including `memory` (AI-memory
+    # consolidation, ai-memory-and-search plan). Split into dedicated workers
+    # (e.g. a high-concurrency -Q llm worker, or an isolated -Q memory worker so
+    # consolidation cannot starve time-critical LLM calls under shared
+    # --concurrency) when workloads need to scale apart -- see report for why
+    # this v1 shares one worker/pool across queues instead.
     #
     # --concurrency is pinned instead of left at Celery's default (INFRA-03):
     # the default is `os.cpu_count()`, so the number of prefork children — and
@@ -326,7 +330,7 @@ services:
     # that is indented deeper keeps its newline, and the flag would end up as a
     # separate shell command instead of a celery argument.
     command: >
-      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events --concurrency=${CELERY_CONCURRENCY:-4}"
+      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events,memory --concurrency=${CELERY_CONCURRENCY:-4}"
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)

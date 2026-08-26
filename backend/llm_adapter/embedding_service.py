@@ -22,6 +22,26 @@ Contract:
         mock                   -> deterministic pseudo-random vector (stable per
                                   input text), so local/CI similarity queries
                                   return sensible orderings.
+
+UPGRADE NOTE (ai-memory-and-search plan, Task 1): ``EMBEDDING_PROVIDER``'s
+default changed from ``openai`` to ``sentence-transformers`` in this branch.
+``Requirement.embedding``/``TraceLink.embedding``/``IcdVersion.embedding`` are
+fixed ``vector(1536)`` columns (OpenAI-shaped, pre-dating this change).
+sentence-transformers produces 384-dim vectors, so an EXISTING deployment
+that relied on these columns being populated (i.e. had ``LLM_PROVIDER=openai``
+configured for the old embedding path) gets NO new embeddings written for any
+requirement/trace-link/ICD-version artifact created or updated after
+upgrading, unless it explicitly keeps/sets ``EMBEDDING_PROVIDER=openai``.
+This degrades silently, not loudly: the dimension mismatch is caught by a
+guard on both the write side (``RequirementService.
+_generate_and_store_embedding`` et al., Task 12) and the read side
+(``application.search_service._run_semantic_query``, final whole-branch
+review Finding 5) and simply skips the write / semantic search pass rather
+than raising -- by design (embeddings are always best-effort here), but that
+means there is no error to notice on upgrade.
+
+    Set ``EMBEDDING_PROVIDER=openai`` to preserve the pre-existing 1536-dim
+    embedding behavior for Requirement/TraceLink/IcdVersion.
 """
 from __future__ import annotations
 

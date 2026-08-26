@@ -104,6 +104,64 @@ class TestMemoryToolGroupHandlers:
             )
             assert allowed.success
 
+    def test_query_denies_workspace_caller_has_no_role_in(self, monkeypatch):
+        """Final whole-branch review Finding 6: a caller valid for tenant T
+        must not read memory content from a workspace in T it has no role
+        in -- scope="workspace" used to trust any caller-supplied
+        workspace_id outright."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            other_ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", other_ws.id, "Secret fact.")
+            # ctx has a role in `ws`, NOT in `other_ws`.
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group._handle_query(
+                params={"scope": "workspace", "workspace_id": str(other_ws.id), "query": "secret"},
+                auth_context=ctx,
+                api_key=None,
+            )
+            assert not result.success
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_list_denies_workspace_caller_has_no_role_in(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            other_ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", other_ws.id, "Secret fact.")
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group._handle_list(
+                params={"scope": "workspace", "workspace_id": str(other_ws.id)},
+                auth_context=ctx,
+                api_key=None,
+            )
+            assert not result.success
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_query_scope_user_never_needs_workspace_membership(self, monkeypatch):
+        """scope="user" was already safe (forces scope_id=auth_context.user_id)
+        -- pin that the new membership check does not regress it."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "user", user.id, "A user fact.")
+            ctx = ctx_for_user(tenant, user)  # no workspace, no UserRole row at all
+            group = MemoryToolGroup()
+            result = group._handle_query(
+                params={"scope": "user", "query": "fact"}, auth_context=ctx, api_key=None
+            )
+            assert result.success
+            assert len(result.data["entries"]) == 1
+
     def test_query_malformed_workspace_id_is_validation_error(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         with active_tenant() as tenant:

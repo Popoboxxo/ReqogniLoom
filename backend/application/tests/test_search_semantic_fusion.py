@@ -117,6 +117,46 @@ class TestSemanticFusion:
 
         assert any(hit.id == str(req.id) for hit in result.results)
 
+    def test_dimension_mismatch_short_circuits_before_any_db_query(self, monkeypatch, caplog):
+        """Final whole-branch review Finding 5: a dimension mismatch must be
+        caught BEFORE issuing the DB query (cheap, no DataError, no
+        traceback) -- not caught-and-logged AFTER a doomed pgvector query,
+        which used to log a full traceback via ``logger.exception`` on every
+        single request under the shipped default config.
+
+        Proven two ways: (1) the Requirement queryset is never even touched
+        (patched to raise if called), and (2) no ERROR-level log record is
+        produced -- only the low-noise ``logger.debug`` mirroring
+        ``RequirementService._generate_and_store_embedding``'s write-side
+        guard (Task 12).
+        """
+        import logging
+
+        from application.search_service import _run_semantic_query
+        from persistence.models import Requirement
+
+        def _boom(*args, **kwargs):
+            raise AssertionError(
+                "Requirement.objects.filter must not be called when the "
+                "dimension guard already knows the query embedding cannot "
+                "match this column's dimension"
+            )
+
+        monkeypatch.setattr(Requirement.objects, "filter", _boom)
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            with caplog.at_level(logging.DEBUG, logger="application.search_service"):
+                hits = _run_semantic_query("Requirement", [0.1] * 384, tenant.id, ws.id)
+
+        assert hits == []
+        assert not any(record.levelno >= logging.WARNING for record in caplog.records), (
+            "dimension mismatch must degrade at DEBUG level, not "
+            "WARNING/ERROR/EXCEPTION -- this is an expected, handled "
+            "condition under the shipped default config, not an anomaly"
+        )
+        assert any("dimension mismatch" in record.message for record in caplog.records)
+
     def test_exact_lexical_match_still_ranks_correctly_when_rrf_activates(self, monkeypatch):
         """Review finding 2: the RRF-vs-_merge_hits scoring-scale seam.
 

@@ -1240,6 +1240,12 @@ class InterviewService(ServiceBase):
                         "user_message": user_message,
                         "reply": reply,
                         "extracted_fields": list(extracted.keys()),
+                        # memory.projector's MemoryProjector reads this to
+                        # resolve who the consolidated fact belongs to
+                        # (DomainEvent carries no actor identity of its own,
+                        # see application/base.py::_make_event) -- final
+                        # whole-branch review Finding 2.
+                        "user_id": str(ctx.user_id),
                     },
                 )
             )
@@ -1358,6 +1364,9 @@ class InterviewService(ServiceBase):
                         "user_message": user_message,
                         "reply": reply,
                         "has_proposal": proposal is not None,
+                        # See generate_chat_turn's identical addition above
+                        # -- final whole-branch review Finding 2.
+                        "user_id": str(ctx.user_id),
                     },
                 )
             )
