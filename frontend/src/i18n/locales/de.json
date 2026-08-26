@@ -117,7 +117,9 @@
       "celery_worker": "Celery Worker",
       "celery_beat": "Celery Beat",
       "mcp_server": "MCP-Server",
-      "llm_provider": "LLM-Provider"
+      "llm_provider": "LLM-Provider",
+      "memory_embedding": "Memory-Embedding",
+      "memory_backend": "Memory-Backend"
     }
   },
   "banners": {

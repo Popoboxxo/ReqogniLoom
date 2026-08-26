@@ -101,8 +101,9 @@ class TestSystemHealthResponseShape:
     """GET returns the components + recent_events shape for an admin caller."""
 
     def test_admin_gets_200_with_expected_shape(
-        self, admin_ctx: AuthContext, tenant_a
+        self, admin_ctx: AuthContext, tenant_a, monkeypatch
     ) -> None:
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         patches = _patch_infra_checks()
         for p in patches:
             p.start()
@@ -127,6 +128,8 @@ class TestSystemHealthResponseShape:
             "celery_beat",
             "mcp_server",
             "llm_provider",
+            "memory_embedding",
+            "memory_backend",
         ]
         for component in body["components"]:
             assert set(component.keys()) == {"name", "status", "detail"}
@@ -262,3 +265,48 @@ class TestIndividualCheckGuards:
         assert result["name"] == "llm_provider"
         # Default settings run with LLM_PROVIDER=mock -> always ok.
         assert result["status"] == STATUS_OK
+
+
+class TestSystemHealthMemoryComponents:
+    """The two new memory-admin-phase-2 component checks."""
+
+    def test_memory_embedding_ok_with_mock_provider(
+        self, admin_ctx: AuthContext, tenant_a, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        patches = _patch_infra_checks()
+        for p in patches:
+            p.start()
+        try:
+            with active_tenant(tenant_a):
+                request = _make_request(admin_ctx)
+                response = SystemHealthView().get(request)
+        finally:
+            for p in patches:
+                p.stop()
+
+        component = next(
+            c for c in response.data["components"] if c["name"] == "memory_embedding"
+        )
+        assert component["status"] == STATUS_OK
+
+    def test_memory_backend_ok_with_pgvector(
+        self, admin_ctx: AuthContext, tenant_a, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+        patches = _patch_infra_checks()
+        for p in patches:
+            p.start()
+        try:
+            with active_tenant(tenant_a):
+                request = _make_request(admin_ctx)
+                response = SystemHealthView().get(request)
+        finally:
+            for p in patches:
+                p.stop()
+
+        component = next(
+            c for c in response.data["components"] if c["name"] == "memory_backend"
+        )
+        assert component["status"] == STATUS_OK

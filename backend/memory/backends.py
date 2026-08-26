@@ -100,6 +100,16 @@ class MemoryBackend(ABC):
         """Permanently delete the entry identified by ``entry_id``."""
         ...
 
+    @abstractmethod
+    def health_check(self) -> tuple[bool, str]:
+        """Return ``(is_healthy, detail_message)`` for this backend.
+
+        A quick, bounded connectivity check — never raises; callers (the
+        System Health dashboard) treat any exception as equivalent to
+        ``(False, str(exc))``.
+        """
+        ...
+
 
 MEMORY_BACKEND_REGISTRY: Dict[str, Type[MemoryBackend]] = {}
 
@@ -240,6 +250,16 @@ class PgvectorMemoryBackend(MemoryBackend):
             deleted, _ = WorkspaceMemory.objects.filter(id=entry_id).delete()
             if deleted == 0:
                 UserTenantMemory.objects.filter(id=entry_id).delete()
+
+    def health_check(self) -> tuple[bool, str]:
+        from django.db import connection
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM mem_workspace_memory LIMIT 1")
+            return True, "mem_workspace_memory table reachable"
+        except Exception as exc:
+            return False, str(exc)
 
 
 __all__ = [

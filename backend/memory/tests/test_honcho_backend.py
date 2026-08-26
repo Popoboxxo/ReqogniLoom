@@ -1,3 +1,4 @@
+from unittest import mock
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -35,3 +36,28 @@ class TestHonchoPeerNamespacing:
         honcho_ws_id = backend._workspace_id(tenant_id, workspace_id)
         assert str(tenant_id) in honcho_ws_id
         assert str(workspace_id) in honcho_ws_id
+
+
+class TestHonchoMemoryBackendHealthCheck:
+    def test_health_check_down_when_base_url_not_configured(self, monkeypatch):
+        monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
+        backend = HonchoMemoryBackend()
+        ok, detail = backend.health_check()
+        assert ok is False
+        assert "not configured" in detail.lower()
+
+    def test_health_check_reports_down_on_connection_failure(self, monkeypatch):
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho-does-not-exist.invalid:9999")
+        backend = HonchoMemoryBackend()
+        ok, detail = backend.health_check()
+        assert ok is False
+
+    def test_health_check_does_not_import_honcho_sdk(self, monkeypatch):
+        """Guards Global Constraint: must never attempt `import honcho` (uninstalled SDK)."""
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho-does-not-exist.invalid:9999")
+        backend = HonchoMemoryBackend()
+        with mock.patch.object(
+            backend, "_ensure_client", side_effect=AssertionError("must not be called")
+        ) as mocked:
+            backend.health_check()
+        mocked.assert_not_called()

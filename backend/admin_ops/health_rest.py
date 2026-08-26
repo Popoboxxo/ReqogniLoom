@@ -3,7 +3,8 @@ admin_ops — REST adapter for the system health dashboard (admin-only).
 
 Drives ``GET /api/v1/admin/health/``: a single, fast, non-blocking snapshot
 of the runtime infrastructure (database, redis, celery worker/beat, MCP
-server, LLM provider config) plus the most recent audit-log entries.
+server, LLM provider config, memory embedding provider, memory backend)
+plus the most recent audit-log entries.
 
 Design constraints:
 
@@ -15,7 +16,9 @@ Design constraints:
   raises past the view — a broken Redis must not turn this into a 500,
   it must show up as one ``"down"`` row in the response.
 * Every check uses short, explicit timeouts (socket/inspect timeouts of
-  ~1s) so a slow/unreachable dependency cannot make this endpoint hang.
+  ~1s) for network-backed dependencies; the in-process embedding check
+  avoids probing an unloaded model instead of blocking (see
+  ``_check_memory_embedding``).
 * ``celery_beat`` cannot verify that a beat *process* is actually
   running from inside a web worker without side effects (e.g. writing a
   heartbeat key), so it intentionally reports ``"unknown"`` rather than
@@ -188,6 +191,91 @@ def _check_llm_provider() -> dict[str, str]:
     }
 
 
+def _check_memory_embedding() -> dict[str, str]:
+    """Check the configured EmbeddingProvider by embedding a short string.
+
+    Uses the normal env-derived config but overrides ``timeout`` to
+    ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
+    ``openai``) to ~1s. The default in-process ``sentence-transformers``
+    provider ignores ``config.timeout`` entirely -- its ``encode()`` call is
+    local/CPU-bound, not network I/O, so there is nothing to time out; a cold
+    model load or a slow CPU can still take longer than ~1s for that provider.
+
+    Special case: the in-process sentence-transformers provider's model is a
+    lazy class-level singleton (see SentenceTransformersEmbeddingProvider).
+    If it has not been loaded yet by real usage, this check deliberately
+    does NOT trigger a cold load — that can take 20-30s (dominated by the
+    torch/sentence_transformers import + model construction), which would
+    race this dashboard's own frontend request timeout and could blank out
+    every OTHER row on the dashboard too. Reports "unknown" instead,
+    mirroring _check_celery_beat's existing side-effect-avoidance policy.
+    """
+    try:
+        import dataclasses
+
+        from llm_adapter.embedding_service import (  # noqa: PLC0415
+            SentenceTransformersEmbeddingProvider,
+            _read_env_config,
+            get_embedding_provider,
+        )
+
+        cfg = dataclasses.replace(_read_env_config(), timeout=_CHECK_TIMEOUT_S)
+        provider = get_embedding_provider(cfg)
+
+        if (
+            isinstance(provider, SentenceTransformersEmbeddingProvider)
+            and SentenceTransformersEmbeddingProvider._model is None
+        ):
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_UNKNOWN,
+                "detail": (
+                    "in-process sentence-transformers model not yet loaded in "
+                    "this worker process; skipped to avoid a slow cold load "
+                    "(will report ok/down once loaded by real usage)"
+                ),
+            }
+
+        vector = provider.embed("ping")
+        if vector is None:
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_DOWN,
+                "detail": "embed() returned no vector",
+            }
+        if len(vector) != provider.dimensions:
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_DEGRADED,
+                "detail": f"expected {provider.dimensions} dims, got {len(vector)}",
+            }
+        return {
+            "name": "memory_embedding",
+            "status": STATUS_OK,
+            "detail": f"{provider.dimensions}-dim vector returned",
+        }
+    except Exception as exc:  # noqa: BLE001 - provider unreachable/misconfigured
+        logger.warning("System health: memory embedding check failed - %s", exc)
+        return {"name": "memory_embedding", "status": STATUS_DOWN, "detail": str(exc)}
+
+
+def _check_memory_backend() -> dict[str, str]:
+    """Check the configured MemoryBackend via its own health_check()."""
+    try:
+        from memory.backends import get_memory_backend  # noqa: PLC0415
+
+        backend = get_memory_backend()
+        ok, detail = backend.health_check()
+        return {
+            "name": "memory_backend",
+            "status": STATUS_OK if ok else STATUS_DOWN,
+            "detail": detail,
+        }
+    except Exception as exc:  # noqa: BLE001 - backend unreachable/misconfigured
+        logger.warning("System health: memory backend check failed - %s", exc)
+        return {"name": "memory_backend", "status": STATUS_DOWN, "detail": str(exc)}
+
+
 def _recent_audit_events(limit: int = _RECENT_EVENTS_LIMIT) -> list[dict[str, Any]]:
     """Return the most recent audit-log entries, newest first.
 
@@ -235,7 +323,9 @@ class SystemHealthView(APIView):
             {"name": "celery_worker", "status": "ok", "detail": "..."},
             {"name": "celery_beat", "status": "unknown", "detail": "..."},
             {"name": "mcp_server", "status": "ok", "detail": "..."},
-            {"name": "llm_provider", "status": "ok", "detail": "..."}
+            {"name": "llm_provider", "status": "ok", "detail": "..."},
+            {"name": "memory_embedding", "status": "ok", "detail": "..."},
+            {"name": "memory_backend", "status": "ok", "detail": "..."}
           ],
           "recent_events": [ {...AuditEntry...}, ... ]
         }
@@ -274,6 +364,8 @@ class SystemHealthView(APIView):
             _check_celery_beat(),
             _check_mcp_server(),
             _check_llm_provider(),
+            _check_memory_embedding(),
+            _check_memory_backend(),
         ]
         return Response(
             {
