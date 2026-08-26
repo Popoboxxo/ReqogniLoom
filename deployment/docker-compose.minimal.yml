@@ -254,7 +254,7 @@ services:
       backend:
         condition: service_healthy
     command: >
-      sh -c "celery -A reqogniloom worker -B --loglevel=info -Q default,llm,events --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+      sh -c "celery -A reqogniloom worker -B --loglevel=info -Q default,llm,events,memory --scheduler django_celery_beat.schedulers:DatabaseScheduler"
 
   # ─────────────────────────────────────────────────────────
   # React Frontend — ARCH-L1-001 ReactFrontend

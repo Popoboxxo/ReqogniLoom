@@ -12,10 +12,10 @@ event type; this one is simply narrower since there is nothing to do for
 any other event.
 
 The handler itself does no heavy DB work and holds no tenant context open
-beyond a lightweight, ``unscoped`` settings/tenant lookup -- the actual
-consolidation work (LLM call + memory upsert, Task 5's heavier logic) is
-enqueued onto the ``memory.consolidate_interaction`` Celery task, which runs
-in a worker process and manages its own tenant-context activation (see
+beyond a lightweight settings lookup -- the actual consolidation work (LLM
+call + memory upsert, Task 5's heavier logic) is enqueued onto the
+``memory.consolidate_interaction`` Celery task, which runs in a worker
+process and manages its own tenant-context activation (see
 ``memory/tasks.py`` and ``memory/backends.py``'s ``_tenant_context``).
 
 Contract correction (final whole-branch review, Finding 2): earlier versions
@@ -27,9 +27,6 @@ took the "missing tenant/user" skip branch and no memory was ever
 consolidated from a real interaction. Fixed to mirror
 ``ContextGraphProjector``'s exact pattern:
 
-* ``tenant_id`` is resolved from ``event.workspace_id`` via the ``unscoped``
-  escape hatch (this handler runs outside any request/tenant-context), not
-  read from the payload.
 * ``user_id`` is read from the payload -- ``DomainEvent``/``ServiceBase.
   _make_event`` carry no actor identity today (verified: neither
   ``application/base.py::_make_event`` nor ``application/event_bus.py::
@@ -43,13 +40,55 @@ consolidated from a real interaction. Fixed to mirror
   no-op guard -- no facts are (or should be) extracted from a formalize
   event, which carries no conversational text.
 
+Tenant resolution correction (final whole-branch review ROUND 2, Finding A):
+the version fixing Finding 2 above resolved ``tenant_id`` from
+``event.workspace_id`` via ``Workspace.unscoped.filter(...)``, mirroring
+``ContextGraphProjector._resolve_tenant_id`` -- but that mirror carries over
+a bug that happens to be invisible in ``ContextGraphProjector``'s own tests
+too: ``unscoped`` is a Django-ORM-manager-level escape hatch ONLY. It does
+**not** bypass PostgreSQL Row-Level Security, and ``pl_workspace`` has
+``ENABLE + FORCE ROW LEVEL SECURITY`` (persistence/migrations/
+0003_rls_policies.py). The real Celery worker connects as the least-privilege,
+NOSUPERUSER ``reqogniloom_app`` role (persistence/db_roles.py, REQ-L2-PL-010)
+-- RLS applies to it regardless of ``unscoped`` -- and ``poll_and_dispatch``
+(application/event_bus.py) never arms ``app.current_tenant`` before dispatch
+(chicken-and-egg: arming it is exactly what resolving the tenant was for).
+So the ``Workspace`` SELECT was silently hidden by RLS (0 rows) for every
+real event, ``_resolve_tenant_id`` always returned ``None``, and
+``handle_event`` always took the "workspace gone" skip branch -- the SAME
+end symptom as Finding 2 (no memory ever consolidated from a real
+interaction), just via a subtler, still-RLS-shaped cause. Every test in this
+module's and ``memory/tests/test_consolidation_e2e.py``'s suites ran inside
+``persistence.tests.factories.active_tenant()``, which arms
+``app.current_tenant`` BEFORE the test body runs, so this never showed up
+there; the least-privilege ``reqogniloom_app`` role also never applied to
+the (superuser) test DB connection to begin with -- see
+``memory/tests/test_projector_rls_tenant_resolution.py`` for the
+regression test that reproduces both conditions together.
+
+Fix: mirror ``llm_adapter.tasks.run_capability``'s established solution to
+the exact same chicken-and-egg problem (a Celery task that needs a tenant_id
+before any tenant context exists to query anything with) -- resolve
+``tenant_id`` at EVENT-EMISSION time, when real request-scoped tenant
+context (``ctx.tenant_id``) genuinely is available, and stamp it onto the
+payload directly, exactly like ``user_id`` above. Both ``INTERVIEW_CHAT_TURN``
+emission sites in ``interview_service.py`` now set
+``"tenant_id": str(ctx.tenant_id)``. This sidesteps the RLS problem
+entirely: no ``Workspace`` lookup is needed in the projector at all.
+``INTERVIEW_FORMALIZED`` events never reach this point (empty interaction
+text always short-circuits first), so they never need a ``tenant_id``.
+
 Finding 4 (workspace memory on/off toggle): also mirrors
-``ContextGraphProjector``'s settings check -- looked up via ``unscoped``
-BEFORE tenant context / Celery dispatch, so a disabled workspace's
-interactions never reach the LLM extraction call or write any
-``WorkspaceMemory``/``UserTenantMemory`` row (the toggle is documented as
-DSGVO-relevant; the cheapest and most complete place to enforce it is here,
-before the Celery task is even enqueued). ``UserTenantMemory`` is
+``ContextGraphProjector``'s settings check, but -- also part of round-2
+Finding A -- the ``WorkspaceMemorySettings`` lookup is now wrapped in
+``memory.backends._tenant_context(tenant_id)`` using the payload-resolved
+``tenant_id`` from above, instead of an ``unscoped`` query with no context
+armed. Without this, a disabled-workspace row would be RLS-hidden in the
+real deployment and silently misread as "no settings row -> enabled=True"
+-- the right-looking default for the wrong (RLS-blocked), DSGVO-relevant
+reason. The toggle is enforced BEFORE Celery dispatch, so a disabled
+workspace's interactions never reach the LLM extraction call or write any
+``WorkspaceMemory``/``UserTenantMemory`` row. ``UserTenantMemory`` is
 tenant-wide, not workspace-scoped, but this toggle is intentionally
 interpreted as "was this interaction, which happened in this workspace,
 allowed to be consolidated" -- so a disabled workspace suppresses BOTH
@@ -62,6 +101,7 @@ from uuid import UUID
 
 from application.event_bus import DomainEvent, get_event_bus
 from application.models import DomainEventOutbox
+from memory.backends import _tenant_context
 from memory.tasks import consolidate_interaction_task
 
 logger = logging.getLogger(__name__)
@@ -90,12 +130,23 @@ class MemoryProjector:
         if not interaction_text:
             return
 
-        if not self._is_workspace_memory_enabled(event.workspace_id):
-            return  # not an error -- event for a disabled workspace is "handled"
-
-        tenant_id = self._resolve_tenant_id(event.workspace_id)
-        if tenant_id is None:
-            return  # workspace gone (race with a concurrent delete) -- nothing left to project
+        # tenant_id is stamped onto the payload at emission time (see module
+        # docstring, round-2 Finding A) -- NOT resolved here via a
+        # Workspace DB query, which would be RLS-blocked with no tenant
+        # context armed yet in the real Celery worker.
+        tenant_id = payload.get("tenant_id")
+        if not tenant_id:
+            # Producer forgot to stamp tenant_id onto the event payload --
+            # nothing safe to resolve/consolidate without it (the settings
+            # lookup below and the Celery task both need it). Logged, not
+            # raised: one malformed event must not block dispatch of others.
+            logger.warning(
+                "MemoryProjector: skipping event %s (type=%s) -- missing "
+                "tenant_id in payload",
+                event.event_id,
+                event.event_type,
+            )
+            return
 
         user_id = payload.get("user_id")
         if not user_id:
@@ -113,6 +164,14 @@ class MemoryProjector:
                 event.event_type,
             )
             return
+
+        # Arm both isolation layers with the payload-resolved tenant_id
+        # (nesting-safe -- see _tenant_context's docstring) around the
+        # settings lookup, so it is subject to RLS the same way it would be
+        # in the real deployment, instead of running unscoped/context-free.
+        with _tenant_context(UUID(str(tenant_id))):
+            if not self._is_workspace_memory_enabled(event.workspace_id):
+                return  # not an error -- event for a disabled workspace is "handled"
 
         consolidate_interaction_task.delay(
             tenant_id=str(tenant_id),
@@ -144,36 +203,26 @@ class MemoryProjector:
         return user_message or reply
 
     # ------------------------------------------------------------------
-    # Tenant resolution (mirrors ContextGraphProjector._resolve_tenant_id)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _resolve_tenant_id(workspace_id: UUID):
-        from persistence.models import Workspace
-
-        return (
-            Workspace.unscoped.filter(id=workspace_id)
-            .values_list("tenant_id", flat=True)
-            .first()
-        )
-
-    # ------------------------------------------------------------------
     # Settings lookup (Finding 4 -- mirrors ContextGraphProjector's
     # WorkspaceContextSettings check, but memory's "missing row" convention
     # is enabled=True, not enabled=False -- see WorkspaceMemorySettings'
     # docstring and memory_rest.WorkspaceMemorySettingsView.get).
+    #
+    # Round-2 Finding A: this MUST be called with `tenant_id` already armed
+    # via `memory.backends._tenant_context` (see handle_event above) -- the
+    # tenant-scoped `.objects` manager below raises TenantContextNotSetError
+    # otherwise, and even a plain `.unscoped` query would be silently
+    # RLS-hidden (0 rows -> misread as "no settings row -> enabled=True",
+    # the right-looking default for the wrong, RLS-blocked reason) against
+    # the real, least-privilege, FORCE-RLS `reqogniloom_app` connection.
     # ------------------------------------------------------------------
 
     @staticmethod
     def _is_workspace_memory_enabled(workspace_id: UUID) -> bool:
         from memory.models import WorkspaceMemorySettings
 
-        # unscoped: this runs before tenant context is established for this
-        # event (resolving settings is how we decide whether to bother
-        # doing anything at all) -- mirrors _resolve_tenant_id above and
-        # ContextGraphProjector._load_settings.
         row = (
-            WorkspaceMemorySettings.unscoped.filter(workspace_id=workspace_id)
+            WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id)
             .values_list("enabled", flat=True)
             .first()
         )

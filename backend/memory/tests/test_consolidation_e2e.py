@@ -53,7 +53,9 @@ import pytest
 
 from application.event_bus import poll_and_dispatch
 from application.interview_service import InterviewService
+from memory.backends import _tenant_context
 from memory.models import WorkspaceMemory
+from persistence.tenancy import TenantContext
 from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -215,3 +217,70 @@ class TestFullMemoryConsolidationLoop:
             poll_and_dispatch()
 
             assert not WorkspaceMemory.objects.filter(workspace_id=ws.id).exists()
+
+    def test_full_loop_survives_no_ambient_tenant_context_at_dispatch(self, monkeypatch):
+        """Final whole-branch review ROUND 2, Finding A -- proven end-to-end.
+
+        The real Celery worker's ``poll_and_dispatch`` (application/
+        event_bus.py) runs with NO ambient tenant context: nothing calls
+        ``persistence.middleware.set_request_tenant`` before dispatching to
+        ``MemoryProjector.handle_event``. Both tests above (and every other
+        test in this module) call ``poll_and_dispatch()`` from INSIDE
+        ``with active_tenant():``, which pre-arms both isolation layers for
+        the whole block -- structurally unable to catch a tenant-resolution
+        bug that only manifests with no context armed (see
+        memory/projector.py's module docstring for the RLS root cause this
+        guards against).
+
+        This test moves ``poll_and_dispatch()`` OUTSIDE the ``active_tenant()``
+        block (whose ``__exit__`` already clears both layers) to genuinely
+        reproduce the real worker's starting condition, then re-arms tenant
+        context only for the final read-side assertion.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            session = InterviewService().start(ctx, "Requirement", ws.id)
+
+            chat_provider = _ChatFakeProvider(
+                '{"extracted_fields": {}, "reply": "Noted, thanks."}'
+            )
+            monkeypatch.setattr(
+                InterviewService, "_resolve_provider", lambda self: (chat_provider, "anthropic", None)
+            )
+            fake_extraction_response = (
+                '{"facts": [{"content": "The project uses hexagonal architecture.", '
+                '"scope": "workspace"}]}'
+            )
+            monkeypatch.setattr("memory.tasks._call_llm", lambda prompt: fake_extraction_response)
+
+            InterviewService().generate_chat_turn(
+                ctx, session.id, "We are building this with hexagonal architecture."
+            )
+            tenant_id, ws_id = tenant.id, ws.id
+
+        # active_tenant()'s __exit__ already cleared both isolation layers;
+        # assert it explicitly so this test genuinely proves the
+        # no-ambient-context case, not an accident of ordering.
+        assert not TenantContext.is_set()
+
+        processed = poll_and_dispatch()
+        assert processed >= 1, (
+            "poll_and_dispatch found nothing to dispatch with no ambient "
+            "tenant context -- check the outbox wiring, not this test"
+        )
+
+        with _tenant_context(tenant_id):
+            stored = WorkspaceMemory.objects.filter(workspace_id=ws_id)
+            assert stored.exists(), (
+                "no WorkspaceMemory row was written when poll_and_dispatch ran "
+                "with NO ambient tenant context -- MemoryProjector's tenant "
+                "resolution still depends on context being pre-armed by the "
+                "caller (round-2 Finding A: this is exactly the real Celery "
+                "worker's starting condition, which the other tests in this "
+                "module (running inside active_tenant()) cannot exercise)"
+            )
+            assert "hexagonal architecture" in stored.first().content

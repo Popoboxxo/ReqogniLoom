@@ -266,7 +266,7 @@ services:
     # REQ-077: single worker consumes all queues. Split into dedicated workers
     # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
     command: >
-      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events"
+      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events,memory"
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)

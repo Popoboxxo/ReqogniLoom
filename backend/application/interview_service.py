@@ -1246,6 +1246,17 @@ class InterviewService(ServiceBase):
                         # see application/base.py::_make_event) -- final
                         # whole-branch review Finding 2.
                         "user_id": str(ctx.user_id),
+                        # Stamped here, at emission time, because THIS is the
+                        # only place real request-scoped tenant context is
+                        # available -- the projector runs in a Celery worker
+                        # outside any request/tenant context, and resolving
+                        # workspace_id -> tenant_id there via a DB query would
+                        # be RLS-blocked (no app.current_tenant session
+                        # variable armed yet, chicken-and-egg -- see
+                        # memory/projector.py's module docstring, final
+                        # whole-branch review round-2 Finding A). Same fix
+                        # shape as user_id above.
+                        "tenant_id": str(ctx.tenant_id),
                     },
                 )
             )
@@ -1367,6 +1378,9 @@ class InterviewService(ServiceBase):
                         # See generate_chat_turn's identical addition above
                         # -- final whole-branch review Finding 2.
                         "user_id": str(ctx.user_id),
+                        # See generate_chat_turn's identical addition above
+                        # -- final whole-branch review round-2 Finding A.
+                        "tenant_id": str(ctx.tenant_id),
                     },
                 )
             )
