@@ -17,6 +17,8 @@ import logging
 from typing import Any, Optional
 from uuid import UUID
 
+from django.db import transaction
+
 from memory.models import SYSTEM_MEMORY_SETTINGS_ID, SystemMemorySettings
 from persistence.transactions import atomic_transaction
 
@@ -72,20 +74,32 @@ class MemorySettingsService:
         so an audit write can fail for reasons (missing tenant context on a
         non-request caller) that must not roll back a legitimate config
         change. Field NAMES only — never values, the row holds a secret.
+
+        Runs inside its own nested ``transaction.atomic()`` (a SAVEPOINT,
+        since this always runs inside the caller's outer
+        ``@atomic_transaction``): a DB-level failure in ``log_write`` (e.g.
+        a missing monthly ``AuditEntry`` partition, ADR-L3-AL001-04) issues
+        real SQL that poisons the current transaction. Without the nested
+        savepoint, catching that exception here would not un-poison the
+        OUTER transaction, so the caller's actual config write would still
+        silently roll back on commit despite this ``except`` — i.e. the
+        surrounding ``try/except`` alone does not protect the config write,
+        only a savepoint does.
         """
         if user_id is None:
             return
         try:
-            from audit.services import log_write
+            with transaction.atomic():
+                from audit.services import log_write
 
-            log_write(
-                actor=str(user_id),
-                actor_type="user",
-                operation=operation,
-                entity_type="SystemMemorySettings",
-                entity_id=SYSTEM_MEMORY_SETTINGS_ID,
-                change_reason=f"fields={sorted(changed_fields)}" if changed_fields else "reset",
-            )
+                log_write(
+                    actor=str(user_id),
+                    actor_type="user",
+                    operation=operation,
+                    entity_type="SystemMemorySettings",
+                    entity_id=SYSTEM_MEMORY_SETTINGS_ID,
+                    change_reason=f"fields={sorted(changed_fields)}" if changed_fields else "reset",
+                )
         except Exception:  # noqa: BLE001 - see docstring: attribution is best-effort
             logger.warning(
                 "MemorySettingsService: audit entry for %s could not be written", operation,

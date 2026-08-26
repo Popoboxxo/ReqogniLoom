@@ -405,6 +405,50 @@ class TestMemorySettingsRest:
             assert entry.op == "update"
             assert "embedding_provider" in (entry.change_reason or "")
 
+    def test_put_persists_config_even_if_db_level_audit_write_fails(self, monkeypatch):
+        """Regression test for N-2.
+
+        ``_audit_config_write`` runs inside the same ``@atomic_transaction``
+        as the actual config write. A DB-level failure in ``log_write``
+        (e.g. AuditEntry's monthly partitioning, ADR-L3-AL001-04, missing
+        the target partition) issues real SQL that poisons the transaction
+        — without a nested savepoint around the audit call, the broad
+        ``except Exception: pass`` around it does NOT stop that poisoned
+        transaction from rolling back the config write, too, even though
+        the caller still gets HTTP 200. Reproduced here by forcing
+        ``log_write`` to raise a DB-level error and asserting the config
+        change WAS still persisted.
+        """
+        from django.db import connection
+
+        def _raise_db_error(*args, **kwargs):
+            # A plain Python exception here would never poison the real DB
+            # transaction (nothing was actually sent to Postgres), so it
+            # would pass even against the pre-fix code and prove nothing.
+            # Issuing real invalid SQL puts the underlying DB transaction
+            # itself into an aborted state, exactly like a genuine
+            # DB-level failure (e.g. a missing AuditEntry partition) would.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+
+        monkeypatch.setattr("audit.services.log_write", _raise_db_error)
+
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json"
+            )
+
+            assert response.status_code == 200
+
+            from memory.models import SystemMemorySettings
+
+            row = SystemMemorySettings.objects.first()
+            assert row is not None
+            assert row.embedding_provider == "mock"
+
 
 @pytest.mark.django_db
 class TestSystemMemorySettingsRuntimeRoundTrip:
