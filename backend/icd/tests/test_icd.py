@@ -384,6 +384,48 @@ class TestIcdCreate:
 
 
 @pytest.mark.django_db
+class TestIcdEmbeddingDimensionGuard:
+    """Regression guard for the Task 12 fix: ``IcdVersion.embedding`` is a
+    fixed ``vector(1536)`` column, but the shipped default
+    ``EMBEDDING_PROVIDER=sentence-transformers`` produces 384-dim vectors.
+
+    Unlike ``RequirementService``/``TraceLinkService`` (which use a bare
+    ``.update()`` after the row already exists), ``icd_manager._apply_embedding``
+    only sets ``version.embedding`` in-memory -- the actual INSERT happens
+    later, entirely outside its ``try/except`` (``IcdVersion`` is immutable,
+    so the embedding MUST be assigned before the initial INSERT). Before the
+    fix, an unguarded dimension mismatch here surfaced as an *uncaught*
+    ``DataError`` at that INSERT, not just a swallowed one -- see the Task 12
+    report.
+    """
+
+    def test_dimension_mismatch_is_skipped_not_written(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        from icd.services import create_icd
+
+        # Simulates the real default provider's 384-dim output against the
+        # 1536-dim column. Patched at the source module because
+        # ``_apply_embedding`` imports ``generate_embedding`` lazily, inside
+        # the function body.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * 384,
+        )
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                result = create_icd(dto)
+
+        # (1) No exception propagated. (2) Mismatched vector never assigned.
+        assert result.current_version.embedding is None
+        # (3) The rest of the save completed: the IcdVersion (and its
+        #     immutable INSERT) itself succeeded, with its real data intact.
+        assert result.current_version.version_number == 1
+
+
+@pytest.mark.django_db
 class TestIcdGetAndDelete:
     """REQ-066: get_icd / delete_icd service entry points (ORM out of views)."""
 

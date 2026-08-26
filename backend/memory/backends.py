@@ -134,7 +134,7 @@ def _model_for_scope(scope: str):
 
 def resolve_memory_entry_owner(
     entry_id: UUID,
-) -> "tuple[Optional[UserTenantMemory], Optional[WorkspaceMemory]]":
+) -> tuple[Optional[UserTenantMemory], Optional[WorkspaceMemory]]:
     """Resolve *entry_id* to its owning row, for forget-permission checks.
 
     Returns ``(user_entry, None)`` if *entry_id* is a ``UserTenantMemory`` row,
