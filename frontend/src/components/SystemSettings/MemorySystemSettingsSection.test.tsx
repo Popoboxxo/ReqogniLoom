@@ -60,7 +60,7 @@ describe("MemorySystemSettingsSection", () => {
       ...SETTINGS,
       embedding_provider: "ollama",
       embedding_provider_is_override: true,
-      memory_backend: "honcho",
+      memory_backend: "pgvector",
       memory_backend_is_override: true,
     });
 
@@ -68,6 +68,23 @@ describe("MemorySystemSettingsSection", () => {
 
     expect(await screen.findByTestId("embedding-provider-override-badge")).toBeInTheDocument();
     expect(screen.getByTestId("memory-backend-override-badge")).toBeInTheDocument();
+  });
+
+  it("offers openai as a selectable embedding provider and does NOT offer the honcho backend", async () => {
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const providerOptions = Array.from(
+      screen.getByTestId("memory-settings-embedding-provider").querySelectorAll("option")
+    ).map((o) => o.value);
+    expect(providerOptions).toEqual(["sentence-transformers", "ollama", "openai", "mock"]);
+
+    // C-2: HonchoMemoryBackend is a non-functional skeleton — it must not be
+    // selectable, otherwise picking it breaks memory for the whole deployment.
+    const backendOptions = Array.from(
+      screen.getByTestId("memory-settings-backend").querySelectorAll("option")
+    ).map((o) => o.value);
+    expect(backendOptions).toEqual(["pgvector"]);
   });
 
   it("renders the 4 connection-detail fields with their loaded effective values", async () => {
@@ -145,6 +162,27 @@ describe("MemorySystemSettingsSection", () => {
     });
   });
 
+  it("clearing an overridden text field stages null (clear the override), not an empty string", async () => {
+    const user = userEvent.setup();
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      ollama_base_url: "http://ollama:11434",
+      ollama_base_url_is_override: true,
+    });
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const input = screen.getByTestId("memory-settings-ollama-base-url");
+    await user.clear(input);
+    // The cleared input must stay empty, not redraw the loaded value.
+    expect(input).toHaveValue("");
+
+    await user.click(screen.getByTestId("memory-settings-save-btn"));
+    await waitFor(() => {
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({ ollama_base_url: null });
+    });
+  });
+
   it("clearing the honcho_api_key field back to empty removes it from the pending change instead of staging a no-op empty string", async () => {
     const user = userEvent.setup();
     render(<MemorySystemSettingsSection />);
@@ -175,14 +213,18 @@ describe("MemorySystemSettingsSection", () => {
     render(<MemorySystemSettingsSection />);
 
     await screen.findByTestId("memory-system-settings-section");
-    await user.selectOptions(screen.getByTestId("memory-settings-backend"), "honcho");
+    // Provider change (not backend): "pgvector" is now the only selectable
+    // backend, so a backend change can no longer be staged at all.
+    await user.selectOptions(screen.getByTestId("memory-settings-embedding-provider"), "openai");
     await user.click(screen.getByTestId("memory-settings-save-btn"));
 
     const dialog = await screen.findByTestId("memory-settings-confirm-dialog");
     await user.click(screen.getByTestId("memory-settings-confirm-btn"));
 
     await waitFor(() => {
-      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({ memory_backend: "honcho" });
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
+        embedding_provider: "openai",
+      });
     });
     await waitFor(() => {
       expect(screen.queryByTestId("memory-settings-confirm-dialog")).not.toBeInTheDocument();

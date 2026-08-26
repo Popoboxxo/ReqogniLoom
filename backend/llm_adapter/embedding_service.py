@@ -163,15 +163,23 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     dimensions = 384
     _DEFAULT_MODEL = "all-MiniLM-L6-v2"
     _model = None  # class-level lazy singleton -- loading the model is expensive (~100ms+)
+    # Which model name _model was actually built from. The cache is KEYED by
+    # this name: without it, an EMBEDDING_MODEL_NAME change (env or, since
+    # Memory Admin UI Phase 3, a SystemMemorySettings override) would be
+    # silently ignored by every worker that had already loaded some model,
+    # while the admin UI reported the new value as active.
+    _loaded_model_name: Optional[str] = None
 
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._model_name = config.model_name or self._DEFAULT_MODEL
 
     def _get_model(self):
-        if SentenceTransformersEmbeddingProvider._model is None:
+        cls = SentenceTransformersEmbeddingProvider
+        if cls._model is None or cls._loaded_model_name != self._model_name:
             from sentence_transformers import SentenceTransformer
-            SentenceTransformersEmbeddingProvider._model = SentenceTransformer(self._model_name)
-        return SentenceTransformersEmbeddingProvider._model
+            cls._model = SentenceTransformer(self._model_name)
+            cls._loaded_model_name = self._model_name
+        return cls._model
 
     def embed(self, text: str) -> Optional[List[float]]:
         if not text or not text.strip():

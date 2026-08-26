@@ -16,8 +16,28 @@ import {
 import { Dialog } from "../shared/Dialog";
 import styles from "./MemorySystemSettingsSection.module.css";
 
-const EMBEDDING_PROVIDERS: EmbeddingProviderName[] = ["sentence-transformers", "ollama", "mock"];
-const MEMORY_BACKENDS: MemoryBackendName[] = ["pgvector", "honcho"];
+// "openai" is a registered, documented backend provider (1536-dim); a
+// deployment configured that way must be able to see/keep it selected.
+const EMBEDDING_PROVIDERS: EmbeddingProviderName[] = [
+  "sentence-transformers",
+  "ollama",
+  "openai",
+  "mock",
+];
+// "honcho" deliberately omitted: the backend's HonchoMemoryBackend is an
+// unregistered, partially-implemented skeleton, so offering it here would let
+// an admin silently break memory for the whole deployment. The backend's
+// serializer rejects it too. Re-add only once Honcho support really works.
+const MEMORY_BACKENDS: MemoryBackendName[] = ["pgvector"];
+
+/**
+ * Display value for an optional text field: a staged `null` (user cleared the
+ * input) must render as empty, NOT fall back to the loaded effective value —
+ * `??` alone would redraw the old value under the user's cursor.
+ */
+function textFieldValue(staged: string | null | undefined, loaded: string | null): string {
+  return staged !== undefined ? (staged ?? "") : (loaded ?? "");
+}
 
 export function MemorySystemSettingsSection(): JSX.Element {
   const { t } = useTranslation();
@@ -158,8 +178,13 @@ export function MemorySystemSettingsSection(): JSX.Element {
         <input
           type="text"
           data-testid="memory-settings-embedding-model-name"
-          value={form.embedding_model_name ?? settings.embedding_model_name ?? ""}
-          onChange={(e) => setForm((f) => ({ ...f, embedding_model_name: e.target.value }))}
+          value={textFieldValue(form.embedding_model_name, settings.embedding_model_name)}
+          onChange={(e) =>
+            // Empty input -> send `null` (clear the override), never `""`:
+            // the runtime overlay ignores an empty string, so storing one
+            // would report an active override that does not actually apply.
+            setForm((f) => ({ ...f, embedding_model_name: e.target.value || null }))
+          }
         />
         {settings.embedding_model_name_is_override && (
           <span data-testid="embedding-model-name-override-badge" className={styles.overrideBadge}>
@@ -173,8 +198,8 @@ export function MemorySystemSettingsSection(): JSX.Element {
         <input
           type="text"
           data-testid="memory-settings-ollama-base-url"
-          value={form.ollama_base_url ?? settings.ollama_base_url ?? ""}
-          onChange={(e) => setForm((f) => ({ ...f, ollama_base_url: e.target.value }))}
+          value={textFieldValue(form.ollama_base_url, settings.ollama_base_url)}
+          onChange={(e) => setForm((f) => ({ ...f, ollama_base_url: e.target.value || null }))}
         />
         {settings.ollama_base_url_is_override && (
           <span data-testid="ollama-base-url-override-badge" className={styles.overrideBadge}>
@@ -208,8 +233,8 @@ export function MemorySystemSettingsSection(): JSX.Element {
         <input
           type="text"
           data-testid="memory-settings-honcho-base-url"
-          value={form.honcho_base_url ?? settings.honcho_base_url ?? ""}
-          onChange={(e) => setForm((f) => ({ ...f, honcho_base_url: e.target.value }))}
+          value={textFieldValue(form.honcho_base_url, settings.honcho_base_url)}
+          onChange={(e) => setForm((f) => ({ ...f, honcho_base_url: e.target.value || null }))}
         />
         {settings.honcho_base_url_is_override && (
           <span data-testid="honcho-base-url-override-badge" className={styles.overrideBadge}>

@@ -290,6 +290,25 @@ class TestSystemHealthMemoryComponents:
         )
         assert component["status"] == STATUS_OK
 
+    def test_memory_embedding_honours_the_db_override(self, tenant_a, monkeypatch) -> None:
+        """The embedding check must health-check the EFFECTIVE provider.
+
+        Regression test for I-1: it used to read ``_read_env_config()``, so
+        after a SystemMemorySettings override it reported on the wrong
+        provider (unlike the sibling backend check, which already resolved
+        the override). Env here is deliberately unresolvable, so passing
+        proves the override — not the env var — was used.
+        """
+        from admin_ops import health_rest
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "not-a-real-provider")
+        SystemMemorySettings.objects.create(embedding_provider="mock")
+
+        result = health_rest._check_memory_embedding()
+
+        assert result["status"] == STATUS_OK
+
     def test_memory_backend_ok_with_pgvector(
         self, admin_ctx: AuthContext, tenant_a, monkeypatch
     ) -> None:

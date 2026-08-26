@@ -9,8 +9,16 @@
 
 import { apiClient } from "./client";
 
-export type EmbeddingProviderName = "sentence-transformers" | "ollama" | "mock";
-export type MemoryBackendName = "pgvector" | "honcho";
+export type EmbeddingProviderName = "sentence-transformers" | "ollama" | "openai" | "mock";
+/**
+ * SELECTABLE memory backends. "honcho" is deliberately absent: the backend's
+ * HonchoMemoryBackend is an unregistered, partially-implemented skeleton
+ * (NotImplementedError stubs), so selecting it would break memory for the
+ * whole deployment. Re-add only once it is really implemented + registered.
+ * A deployment can still REPORT another effective value via its env var —
+ * hence `SystemMemorySettings.memory_backend` below is a plain string.
+ */
+export type MemoryBackendName = "pgvector";
 
 /** Effective (override-or-env) configuration, with per-field override flags. */
 export interface SystemMemorySettings {
@@ -22,7 +30,8 @@ export interface SystemMemorySettings {
   ollama_base_url_is_override: boolean;
   embedding_timeout: number;
   embedding_timeout_is_override: boolean;
-  memory_backend: MemoryBackendName;
+  /** Effective value — may be any env-configured name, not just a selectable one. */
+  memory_backend: string;
   memory_backend_is_override: boolean;
   honcho_base_url: string | null;
   honcho_base_url_is_override: boolean;

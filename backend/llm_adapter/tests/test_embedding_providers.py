@@ -49,6 +49,69 @@ class TestEmbeddingProviderRegistry:
         assert generate_embedding("   ") is None
 
 
+class TestSentenceTransformersModelCache:
+    """The class-level model singleton must be KEYED by model name.
+
+    Without the key, an ``EMBEDDING_MODEL_NAME`` change (env var or a
+    ``SystemMemorySettings`` override made through the admin UI) is silently
+    ignored by every worker that already loaded some model, while the UI
+    reports the new name as active (final whole-branch review I-2).
+    """
+
+    @staticmethod
+    def _fake_sentence_transformers(monkeypatch, loaded: list[str]):
+        """Install a fake ``sentence_transformers`` module recording every
+        model construction, so no real (~90MB) model is downloaded here."""
+        import sys
+        import types
+
+        module = types.ModuleType("sentence_transformers")
+
+        class _FakeSentenceTransformer:
+            def __init__(self, model_name):
+                loaded.append(model_name)
+                self.model_name = model_name
+
+        module.SentenceTransformer = _FakeSentenceTransformer
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+    def test_same_model_name_is_loaded_once(self, monkeypatch):
+        from llm_adapter.embedding_service import SentenceTransformersEmbeddingProvider
+
+        monkeypatch.setattr(SentenceTransformersEmbeddingProvider, "_model", None)
+        monkeypatch.setattr(SentenceTransformersEmbeddingProvider, "_loaded_model_name", None)
+        loaded: list[str] = []
+        self._fake_sentence_transformers(monkeypatch, loaded)
+
+        cfg = EmbeddingProviderConfig(provider_name="sentence-transformers", model_name="model-a")
+        SentenceTransformersEmbeddingProvider(cfg)._get_model()
+        SentenceTransformersEmbeddingProvider(cfg)._get_model()
+
+        assert loaded == ["model-a"]
+
+    def test_changed_model_name_triggers_a_reload(self, monkeypatch):
+        from llm_adapter.embedding_service import SentenceTransformersEmbeddingProvider
+
+        monkeypatch.setattr(SentenceTransformersEmbeddingProvider, "_model", None)
+        monkeypatch.setattr(SentenceTransformersEmbeddingProvider, "_loaded_model_name", None)
+        loaded: list[str] = []
+        self._fake_sentence_transformers(monkeypatch, loaded)
+
+        first = SentenceTransformersEmbeddingProvider(
+            EmbeddingProviderConfig(provider_name="sentence-transformers", model_name="model-a")
+        )
+        first._get_model()
+
+        second = SentenceTransformersEmbeddingProvider(
+            EmbeddingProviderConfig(provider_name="sentence-transformers", model_name="model-b")
+        )
+        model = second._get_model()
+
+        assert loaded == ["model-a", "model-b"]
+        assert model.model_name == "model-b"
+        assert SentenceTransformersEmbeddingProvider._loaded_model_name == "model-b"
+
+
 class TestEmbeddingServiceDbOverride:
     @pytest.mark.django_db
     def test_db_override_wins_over_env(self, monkeypatch):

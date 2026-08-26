@@ -194,8 +194,11 @@ def _check_llm_provider() -> dict[str, str]:
 def _check_memory_embedding() -> dict[str, str]:
     """Check the configured EmbeddingProvider by embedding a short string.
 
-    Uses the normal env-derived config but overrides ``timeout`` to
-    ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
+    Uses the normal effective config — ``_read_config()``, i.e. the
+    ``SystemMemorySettings`` DB override overlaid on the env vars, matching
+    what ``get_embedding_provider()`` resolves at real call sites and what
+    the sibling ``_check_memory_backend`` already does — but overrides
+    ``timeout`` to ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
     ``openai``) to ~1s. The default in-process ``sentence-transformers``
     provider ignores ``config.timeout`` entirely -- its ``encode()`` call is
     local/CPU-bound, not network I/O, so there is nothing to time out; a cold
@@ -215,11 +218,11 @@ def _check_memory_embedding() -> dict[str, str]:
 
         from llm_adapter.embedding_service import (  # noqa: PLC0415
             SentenceTransformersEmbeddingProvider,
-            _read_env_config,
+            _read_config,
             get_embedding_provider,
         )
 
-        cfg = dataclasses.replace(_read_env_config(), timeout=_CHECK_TIMEOUT_S)
+        cfg = dataclasses.replace(_read_config(), timeout=_CHECK_TIMEOUT_S)
         provider = get_embedding_provider(cfg)
 
         if (
