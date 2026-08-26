@@ -27,8 +27,8 @@ export interface UserThemePreference {
 }
 
 export interface TenantThemeDefault {
-  palette_key: string;
-  mode: ThemeMode;
+  palette_key: string | null;
+  mode: ThemeMode | null;
 }
 
 export const themePalettesApi = {
