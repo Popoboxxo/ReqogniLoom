@@ -58,6 +58,6 @@ class TestHonchoMemoryBackendHealthCheck:
         backend = HonchoMemoryBackend()
         with mock.patch.object(
             backend, "_ensure_client", side_effect=AssertionError("must not be called")
-        ):
-            ok, detail = backend.health_check()
-        assert ok is False
+        ) as mocked:
+            backend.health_check()
+        mocked.assert_not_called()

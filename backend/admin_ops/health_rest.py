@@ -192,8 +192,11 @@ def _check_memory_embedding() -> dict[str, str]:
     """Check the configured EmbeddingProvider by embedding a short string.
 
     Uses the normal env-derived config but overrides ``timeout`` to
-    ``_CHECK_TIMEOUT_S`` so a slow/unreachable embedding backend (ollama,
-    openai) cannot make this endpoint hang past its ~1s budget.
+    ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
+    ``openai``) to ~1s. The default in-process ``sentence-transformers``
+    provider ignores ``config.timeout`` entirely -- its ``encode()`` call is
+    local/CPU-bound, not network I/O, so there is nothing to time out; a cold
+    model load or a slow CPU can still take longer than ~1s for that provider.
     """
     try:
         import dataclasses
