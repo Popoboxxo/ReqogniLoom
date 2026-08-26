@@ -1,3 +1,4 @@
+from unittest import mock
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -53,9 +54,10 @@ class TestHonchoMemoryBackendHealthCheck:
 
     def test_health_check_does_not_import_honcho_sdk(self, monkeypatch):
         """Guards Global Constraint: must never attempt `import honcho` (uninstalled SDK)."""
-        monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho-does-not-exist.invalid:9999")
         backend = HonchoMemoryBackend()
-        # If health_check() called _ensure_client(), this would raise ImportError
-        # (honcho is not installed) instead of returning a normal (False, ...) tuple.
-        ok, detail = backend.health_check()
-        assert isinstance(ok, bool)
+        with mock.patch.object(
+            backend, "_ensure_client", side_effect=AssertionError("must not be called")
+        ):
+            ok, detail = backend.health_check()
+        assert ok is False

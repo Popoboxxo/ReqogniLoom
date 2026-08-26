@@ -189,11 +189,22 @@ def _check_llm_provider() -> dict[str, str]:
 
 
 def _check_memory_embedding() -> dict[str, str]:
-    """Check the configured EmbeddingProvider by embedding a short string."""
-    try:
-        from llm_adapter.embedding_service import get_embedding_provider  # noqa: PLC0415
+    """Check the configured EmbeddingProvider by embedding a short string.
 
-        provider = get_embedding_provider()
+    Uses the normal env-derived config but overrides ``timeout`` to
+    ``_CHECK_TIMEOUT_S`` so a slow/unreachable embedding backend (ollama,
+    openai) cannot make this endpoint hang past its ~1s budget.
+    """
+    try:
+        import dataclasses
+
+        from llm_adapter.embedding_service import (  # noqa: PLC0415
+            _read_env_config,
+            get_embedding_provider,
+        )
+
+        cfg = dataclasses.replace(_read_env_config(), timeout=_CHECK_TIMEOUT_S)
+        provider = get_embedding_provider(cfg)
         vector = provider.embed("ping")
         if vector is None:
             return {
