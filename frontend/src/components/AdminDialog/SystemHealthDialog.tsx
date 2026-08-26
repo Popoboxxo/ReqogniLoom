@@ -4,9 +4,10 @@
  * leaf_id: COMP-RF-001 (NavigationShell — WorkspaceSettings admin tab)
  *
  * Modal showing a live snapshot of runtime infrastructure (database,
- * redis, celery worker/beat, MCP server, LLM provider config) plus the
- * most recent audit-log entries. Fetched once when the dialog opens (and
- * again on explicit refresh) via ``adminOpsApi.getSystemHealth()``.
+ * redis, celery worker/beat, MCP server, LLM provider config, memory
+ * embedding provider, memory backend) plus the most recent audit-log
+ * entries. Fetched once when the dialog opens (and again on explicit
+ * refresh) via ``adminOpsApi.getSystemHealth()``.
  *
  * Modal chrome mirrors NavigationShell's CreateWorkspaceModal pattern
  * (overlay/dialog/header/body/footer + backdrop-click-to-close).
