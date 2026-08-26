@@ -634,3 +634,102 @@ class TestMemoryAdminWorkspaceDeleteRest:
             response = client.delete(f"/api/v1/system/memory/workspaces/{uuid.uuid4()}/")
 
             assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestMemorySelfServiceRest:
+    """Tests for ``GET/DELETE /api/v1/memory/me/`` (Memory Admin UI Phase 4,
+    spec 2026-08-26). Any authenticated user, own ``UserTenantMemory`` only —
+    never ``WorkspaceMemory`` (plan Ruling 1), no role check (plan Ruling 3).
+    """
+
+    def test_get_zero_entries(self):
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get("/api/v1/memory/me/")
+
+            assert response.status_code == 200
+            assert response.data["entry_count"] == 0
+            assert response.data["last_updated_at"] is None
+
+    def test_get_with_entries_reports_count_and_newest_timestamp(self):
+        from memory.models import UserTenantMemory
+
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            UserTenantMemory.objects.create(tenant=tenant, user=user, content="fact 1")
+            newest = UserTenantMemory.objects.create(tenant=tenant, user=user, content="fact 2")
+
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get("/api/v1/memory/me/")
+
+            assert response.status_code == 200
+            assert response.data["entry_count"] == 2
+            assert response.data["last_updated_at"] == newest.created_at
+
+    def test_get_unauthenticated_returns_401(self):
+        client = APIClient()
+        response = client.get("/api/v1/memory/me/")
+        assert response.status_code == 401
+
+    def test_delete_unauthenticated_returns_401(self):
+        client = APIClient()
+        response = client.delete("/api/v1/memory/me/")
+        assert response.status_code == 401
+
+    def test_delete_removes_only_callers_own_rows(self):
+        from memory.models import UserTenantMemory
+
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            other_user = make_user(tenant)
+            UserTenantMemory.objects.create(tenant=tenant, user=user, content="mine")
+            UserTenantMemory.objects.create(tenant=tenant, user=other_user, content="not mine")
+
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete("/api/v1/memory/me/")
+
+            assert response.status_code == 200
+            assert response.data["deleted"] == 1
+            assert UserTenantMemory.objects.filter(user_id=user.id).count() == 0
+            assert UserTenantMemory.objects.filter(user_id=other_user.id).count() == 1
+
+    def test_delete_never_touches_workspace_memory(self):
+        from memory.backends import get_memory_backend
+        from memory.models import UserTenantMemory, WorkspaceMemory
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            UserTenantMemory.objects.create(tenant=tenant, user=user, content="mine")
+
+            backend = get_memory_backend()
+            backend.upsert(tenant.id, "workspace", ws.id, "ws fact")
+            assert WorkspaceMemory.objects.filter(workspace_id=ws.id).count() == 1
+
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete("/api/v1/memory/me/")
+
+            assert response.status_code == 200
+            assert response.data["deleted"] == 1
+            assert WorkspaceMemory.objects.filter(workspace_id=ws.id).count() == 1
+
+    def test_delete_with_zero_entries_is_not_an_error(self):
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.delete("/api/v1/memory/me/")
+
+            assert response.status_code == 200
+            assert response.data["deleted"] == 0

@@ -1199,6 +1199,16 @@
     "empty": "Noch keine Token vorhanden.",
     "newKeyLabel": "API-Key"
   },
+  "memorySelfService": {
+    "title": "Mein Memory",
+    "hint": "Das KI-Langzeitgedächtnis speichert Kontext über dich, um Antworten zu personalisieren. Du kannst deine eigenen Einträge jederzeit vollständig löschen.",
+    "countLabel": "Gespeicherte Einträge",
+    "lastUpdatedLabel": "Zuletzt aktualisiert",
+    "empty": "Noch keine Memory-Einträge vorhanden.",
+    "deleteButton": "Mein Memory löschen",
+    "deleteConfirm": "Alle deine eigenen Memory-Einträge löschen? Dies entfernt alles, was die KI sich über dich gemerkt hat, und kann nicht rückgängig gemacht werden.",
+    "error": "Memory konnte nicht geladen oder gelöscht werden."
+  },
   "users": {
     "newUser": "Neuer Nutzer"
   },
