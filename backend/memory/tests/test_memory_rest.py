@@ -142,6 +142,45 @@ class TestMemorySettingsRest:
             )
             assert response.data["warning"] is None
 
+    def test_put_omitted_field_leaves_existing_override_unchanged(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put("/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json")
+
+            # Second PUT omits embedding_provider entirely -> must NOT reset it.
+            client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_model_name": "some-model"},
+                format="json",
+            )
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["embedding_provider"] == "mock"
+            assert get_response.data["embedding_model_name"] == "some-model"
+
+    def test_put_explicit_null_clears_override_back_to_env(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        with active_tenant() as tenant:
+            user, token = admin_user_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            client.put("/api/v1/system/memory-settings/", {"embedding_provider": "mock"}, format="json")
+
+            # Explicit null -> clears the override, falls back to env.
+            null_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"embedding_provider": None},
+                format="json",
+            )
+            assert null_response.status_code == 200
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["embedding_provider"] == "sentence-transformers"
+            assert get_response.data["embedding_provider_is_override"] is False
+
     def test_honcho_api_key_never_returned_plaintext(self):
         with active_tenant() as tenant:
             user, token = admin_user_and_token(tenant)

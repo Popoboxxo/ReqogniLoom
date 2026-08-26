@@ -40,7 +40,9 @@ class MemorySettingsService:
     def get_effective_settings(self) -> dict[str, Any]:
         """Read-only: never creates a row (issue #276 precedent)."""
         row = SystemMemorySettings.objects.first()
-        return self._serialize(row)
+        result = self._serialize(row)
+        result["warning"] = None
+        return result
 
     @atomic_transaction
     def update_settings(self, data: dict[str, Any]) -> dict[str, Any]:
