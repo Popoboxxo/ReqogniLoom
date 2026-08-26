@@ -1640,11 +1640,25 @@
     "themes.tenantDefaultLabel": "Tenant default:",
     "themes.tenantDefaultSave": "Save as default",
     "themes.tenantDefaultSaved": "Saved",
+    "memory.heading": "Memory Overview",
+    "memory.hint": "Per workspace: memory status, entry counts per tier, last consolidation. Deleting permanently removes workspace memory and the tenant memory of the workspace's current members.",
+    "memory.colWorkspace": "Workspace",
+    "memory.colEnabled": "Enabled",
+    "memory.colWorkspaceEntries": "Workspace Entries",
+    "memory.colUserEntries": "User Entries (Tenant-wide)",
+    "memory.colLastConsolidated": "Last Consolidated",
+    "memory.deleteButton": "Delete",
+    "memory.deleteConfirmTitle": "Delete Memory",
+    "memory.deleteConfirmBody": "{{wsCount}} workspace entries and {{userCount}} user entries (tenant-wide memory of current members, including other workspaces) for \"{{workspace}}\" will be permanently deleted.",
+    "memory.deleteConfirmButton": "Permanently Delete",
+    "memory.noWorkspaces": "No workspaces found.",
+    "memory.loadError": "Failed to load memory overview.",
     "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow Defaults",
-      "permissionDefaults": "Permission Defaults"
+      "permissionDefaults": "Permission Defaults",
+      "memory": "Memory"
     },
     "permissionDefaults": {
       "globalMatrixTitle": "Global Permission Matrix",

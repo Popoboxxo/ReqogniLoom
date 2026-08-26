@@ -24,14 +24,16 @@ import { WorkspaceAdminSection } from "./WorkspaceAdminSection";
 import { BannerSection } from "./BannerSection";
 import { ThemeManagementSection } from "./ThemeManagementSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
+import { MemoryManagementSection } from "./MemoryManagementSection";
 import { PageHeader } from "../shared/PageHeader";
 
-type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults";
+type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults" | "memory";
 
 const TAB_IDS: SystemTabId[] = [
   "administration",
   "workflow-defaults",
   "permission-defaults",
+  "memory",
 ];
 
 function isSystemTab(value: string | null): value is SystemTabId {
@@ -71,6 +73,7 @@ export default function SystemSettings(): JSX.Element {
     { id: "administration", label: t("systemSettings.tabs.administration", "Administration") },
     { id: "workflow-defaults", label: t("systemSettings.tabs.workflowDefaults", "Workflow Defaults") },
     { id: "permission-defaults", label: t("systemSettings.tabs.permissionDefaults", "Permission Defaults") },
+    { id: "memory", label: t("systemSettings.tabs.memory", "Memory") },
   ];
 
   const isEditorTab = activeTab === "workflow-defaults";
@@ -160,6 +163,7 @@ export default function SystemSettings(): JSX.Element {
           </div>
         )}
         {activeTab === "permission-defaults" && <PermissionDefaultsTab />}
+        {activeTab === "memory" && <MemoryManagementSection />}
       </div>
     </div>
   );

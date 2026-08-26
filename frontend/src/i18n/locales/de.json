@@ -1640,11 +1640,25 @@
     "themes.tenantDefaultLabel": "Tenant-Standard:",
     "themes.tenantDefaultSave": "Als Standard speichern",
     "themes.tenantDefaultSaved": "Gespeichert",
+    "memory.heading": "Memory-Übersicht",
+    "memory.hint": "Pro Workspace: Memory-Status, Anzahl Einträge je Ebene, letzte Konsolidierung. Löschen entfernt Workspace-Memory und das Tenant-Memory der aktuellen Workspace-Mitglieder unwiderruflich.",
+    "memory.colWorkspace": "Workspace",
+    "memory.colEnabled": "Aktiv",
+    "memory.colWorkspaceEntries": "Workspace-Einträge",
+    "memory.colUserEntries": "User-Einträge (Tenant-weit)",
+    "memory.colLastConsolidated": "Letzte Konsolidierung",
+    "memory.deleteButton": "Löschen",
+    "memory.deleteConfirmTitle": "Memory löschen",
+    "memory.deleteConfirmBody": "{{wsCount}} Workspace-Einträge und {{userCount}} User-Einträge (tenant-weites Memory der aktuellen Mitglieder, auch aus anderen Workspaces) für \"{{workspace}}\" werden unwiderruflich gelöscht.",
+    "memory.deleteConfirmButton": "Endgültig löschen",
+    "memory.noWorkspaces": "Keine Workspaces gefunden.",
+    "memory.loadError": "Memory-Übersicht konnte nicht geladen werden.",
     "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow-Standards",
-      "permissionDefaults": "Berechtigungs-Standards"
+      "permissionDefaults": "Berechtigungs-Standards",
+      "memory": "Memory"
     },
     "permissionDefaults": {
       "globalMatrixTitle": "Globale Berechtigungsmatrix",
