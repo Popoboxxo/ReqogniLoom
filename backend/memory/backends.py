@@ -132,6 +132,26 @@ def _model_for_scope(scope: str):
     raise ValueError(f"unknown memory scope: {scope!r}")
 
 
+def resolve_memory_entry_owner(
+    entry_id: UUID,
+) -> "tuple[Optional[UserTenantMemory], Optional[WorkspaceMemory]]":
+    """Resolve *entry_id* to its owning row, for forget-permission checks.
+
+    Returns ``(user_entry, None)`` if *entry_id* is a ``UserTenantMemory`` row,
+    ``(None, ws_entry)`` if it is a ``WorkspaceMemory`` row, or ``(None, None)``
+    if neither table has a matching row. Both underlying tables are RLS-gated,
+    so this MUST be called with an active tenant context (see
+    :func:`_tenant_context`) around it -- kept in this module (rather than the
+    caller, e.g. an MCP tool) so ``mcp_server/tools/*.py`` never needs a
+    direct ``.objects`` access (ADR-01, issue #124 ratchet).
+    """
+    user_entry = UserTenantMemory.objects.filter(id=entry_id).first()
+    if user_entry is not None:
+        return user_entry, None
+    ws_entry = WorkspaceMemory.objects.filter(id=entry_id).first()
+    return None, ws_entry
+
+
 @contextlib.contextmanager
 def _tenant_context(tenant_id: UUID) -> Iterator[None]:
     """Activate ``tenant_id`` for both isolation layers (see module docstring).

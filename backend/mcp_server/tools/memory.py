@@ -9,14 +9,16 @@ ownership/admin check below.
 Tenant-context note: ``MemoryBackend.query()``/``.list_recent()``/``.forget()``
 already activate tenant context internally per call (see
 ``memory.backends._tenant_context``), so the handlers below do not need to
-arm it for those calls. ``_handle_forget`` additionally does direct ORM
-lookups against ``UserTenantMemory``/``WorkspaceMemory`` BEFORE calling the
-backend, to decide ownership -- those two RLS-gated tables DO require an
-explicitly active tenant context around them (same bug class already fixed
-in Tasks 3/5/6 of this branch), so this handler wraps them (and the
-subsequent ``AuthorizationService.active_roles_for`` call, which reads the
-also-RLS-gated ``UserRole`` table) in a single ``_tenant_context`` block
-using the same ``persistence.middleware.set_request_tenant``/
+arm it for those calls. ``_handle_forget`` additionally resolves ownership
+BEFORE calling the backend, via ``memory.backends.resolve_memory_entry_owner``
+(kept there rather than a direct ``.objects`` lookup here, per ADR-01's
+Single-Entry-Point pattern and the issue #124 ratchet on ``mcp_server/tools/``
+modules) -- ``UserTenantMemory``/``WorkspaceMemory`` are RLS-gated tables that
+DO require an explicitly active tenant context around them (same bug class
+already fixed in Tasks 3/5/6 of this branch), so this handler wraps that call
+(and the subsequent ``AuthorizationService.active_roles_for`` call, which
+reads the also-RLS-gated ``UserRole`` table) in a single ``_tenant_context``
+block using the same ``persistence.middleware.set_request_tenant``/
 ``clear_request_tenant`` primitives ``memory/backends.py`` itself uses --
 NOT ``TenantContext.set_tenant(...)`` alone, which only satisfies the
 Django-ORM-level filter and leaves Postgres RLS's session variable unset.
@@ -30,8 +32,7 @@ from auth_tenancy.context import AuthContext
 from auth_tenancy.services.authorization import AuthorizationService
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, ParameterError, require_param, require_uuid
-from memory.backends import _tenant_context, get_memory_backend
-from memory.models import UserTenantMemory, WorkspaceMemory
+from memory.backends import _tenant_context, get_memory_backend, resolve_memory_entry_owner
 
 
 class MemoryToolGroup(BaseToolGroup):
@@ -127,14 +128,13 @@ class MemoryToolGroup(BaseToolGroup):
         """
         entry_id = require_uuid(params, "entry_id")
         with _tenant_context(auth_context.tenant_id):
-            user_entry = UserTenantMemory.objects.filter(id=entry_id).first()
+            user_entry, ws_entry = resolve_memory_entry_owner(entry_id)
             if user_entry is not None:
                 if user_entry.user_id != auth_context.user_id:
                     return ToolResult.error("PERMISSION_DENIED", "cannot forget another user's memory")
                 get_memory_backend().forget(auth_context.tenant_id, entry_id)
                 return ToolResult.ok({"deleted": True})
 
-            ws_entry = WorkspaceMemory.objects.filter(id=entry_id).first()
             if ws_entry is None:
                 return ToolResult.error("NOT_FOUND", "memory entry not found")
 

@@ -1,0 +1,36 @@
+# docker-compose.override.example.yml
+#
+# Documentation only -- this file is NOT read by Docker Compose (it must be
+# named `docker-compose.override.yml` for that). Copy it and uncomment what
+# you need.
+#
+# Neither service below is required by default -- ReqogniLoom's memory and
+# embedding features work fully self-contained without either of these:
+#   - Embeddings default to the in-process `sentence-transformers` provider
+#     (384 dims, bundled in the backend/celery images, no external service).
+#   - Memory defaults to the built-in pgvector-backed MemoryBackend (no
+#     external service).
+#
+# Use this override only if you want to swap in an external Ollama embedding
+# service or an external Honcho memory service instead of the defaults.
+
+# services:
+#   ollama:
+#     image: ollama/ollama:latest
+#     ports: ["11434:11434"]
+#     volumes: ["ollama_data:/root/.ollama"]
+#
+#   backend:
+#     environment:
+#       EMBEDDING_PROVIDER: ollama
+#       OLLAMA_BASE_URL: http://ollama:11434
+#
+#   # For an external Honcho instance (not self-hosted here):
+#   # backend:
+#   #   environment:
+#   #     MEMORY_BACKEND: honcho
+#   #     HONCHO_BASE_URL: https://your-honcho-instance.example.com
+#   #     HONCHO_API_KEY: ${HONCHO_API_KEY}
+
+# volumes:
+#   ollama_data:
