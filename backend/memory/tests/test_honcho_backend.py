@@ -2,6 +2,8 @@ from unittest import mock
 from unittest.mock import patch
 from uuid import uuid4
 
+import pytest
+
 from memory.honcho_backend import HonchoMemoryBackend
 
 
@@ -61,3 +63,20 @@ class TestHonchoMemoryBackendHealthCheck:
         ) as mocked:
             backend.health_check()
         mocked.assert_not_called()
+
+
+class TestHonchoBackendDbOverride:
+    @pytest.mark.django_db
+    def test_db_override_base_url_wins_over_env(self, monkeypatch):
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://env-honcho.invalid")
+        SystemMemorySettings.objects.create(honcho_base_url="http://db-honcho.invalid")
+        backend = HonchoMemoryBackend()
+        assert backend._base_url == "http://db-honcho.invalid"
+
+    @pytest.mark.django_db
+    def test_falls_back_to_env_when_no_override_row(self, monkeypatch):
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://env-honcho.invalid")
+        backend = HonchoMemoryBackend()
+        assert backend._base_url == "http://env-honcho.invalid"

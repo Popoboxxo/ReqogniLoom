@@ -1,6 +1,7 @@
 import pytest
 
 from memory.backends import PgvectorMemoryBackend, get_memory_backend
+from memory.honcho_backend import HonchoMemoryBackend
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
 
@@ -64,3 +65,13 @@ class TestPgvectorMemoryBackendHealthCheck:
         ok, detail = backend.health_check()
         assert ok is True
         assert "reachable" in detail.lower() or "ok" in detail.lower()
+
+
+class TestGetMemoryBackendDbOverride:
+    @pytest.mark.django_db
+    def test_db_override_wins_over_env(self, monkeypatch):
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+        SystemMemorySettings.objects.create(memory_backend="honcho")
+        assert isinstance(get_memory_backend(), HonchoMemoryBackend)

@@ -19,10 +19,13 @@ per-workspace enable/disable toggle for the memory feature. Missing row =
 feature ON (``enabled`` defaults ``True``), mirroring the "missing row =
 default state" convention already used by ``LlmSettings``.
 """
+from uuid import UUID
+
 from django.db import models
 from pgvector.django import HnswIndex, VectorField
 
-from persistence.models import TenantScopedModel, Workspace
+from persistence.encryption import decrypt_secret, encrypt_secret
+from persistence.models import AuditableModel, TenantScopedModel, Workspace
 
 
 class WorkspaceMemory(TenantScopedModel):
@@ -95,3 +98,47 @@ class WorkspaceMemorySettings(TenantScopedModel):
 
     class Meta:
         db_table = "mem_workspace_memory_settings"
+
+
+SYSTEM_MEMORY_SETTINGS_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+class SystemMemorySettings(AuditableModel):
+    """Process-wide singleton: DB override for the memory feature's
+    environment configuration (Memory Admin UI Phase 3, spec 2026-08-26).
+
+    Deliberately NOT ``TenantScopedModel`` — see Phase 3 plan Ruling 1.
+    ``get_embedding_provider()``/``get_memory_backend()`` are process-global
+    functions with no tenant parameter; this table backs exactly the env
+    vars they already read (``EMBEDDING_PROVIDER``, ``MEMORY_BACKEND``, ...).
+
+    Every field is nullable: ``NULL`` means "no override, environment wins".
+    Singleton enforced by ``save()`` always forcing the same primary key —
+    there is only ever one row, created lazily on first write (issue #276
+    precedent: reads never create a row, only PUT/reset do).
+    """
+
+    embedding_provider = models.CharField(max_length=32, null=True, blank=True)
+    embedding_model_name = models.CharField(max_length=128, null=True, blank=True)
+    ollama_base_url = models.CharField(max_length=255, null=True, blank=True)
+    embedding_timeout = models.PositiveIntegerField(null=True, blank=True)
+    memory_backend = models.CharField(max_length=32, null=True, blank=True)
+    honcho_base_url = models.CharField(max_length=255, null=True, blank=True)
+    # Fernet ciphertext, mirrors LlmSettings.api_key_encrypted. Never read/write
+    # directly -- use the honcho_api_key property below.
+    honcho_api_key_encrypted = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "mem_system_memory_settings"
+
+    def save(self, *args, **kwargs) -> None:
+        self.pk = SYSTEM_MEMORY_SETTINGS_ID
+        super().save(*args, **kwargs)
+
+    @property
+    def honcho_api_key(self) -> str:
+        return decrypt_secret(self.honcho_api_key_encrypted)
+
+    @honcho_api_key.setter
+    def honcho_api_key(self, value: str) -> None:
+        self.honcho_api_key_encrypted = encrypt_secret(value or "")

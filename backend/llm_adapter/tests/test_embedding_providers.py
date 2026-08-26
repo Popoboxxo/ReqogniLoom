@@ -5,6 +5,7 @@ import pytest
 from llm_adapter.embedding_service import (
     EMBEDDING_PROVIDER_REGISTRY,
     EmbeddingProviderConfig,
+    _read_config,
     generate_embedding,
     get_embedding_provider,
 )
@@ -46,3 +47,29 @@ class TestEmbeddingProviderRegistry:
     def test_empty_text_returns_none(self):
         assert generate_embedding("") is None
         assert generate_embedding("   ") is None
+
+
+class TestEmbeddingServiceDbOverride:
+    @pytest.mark.django_db
+    def test_db_override_wins_over_env(self, monkeypatch):
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        SystemMemorySettings.objects.create(embedding_provider="mock")
+        cfg = _read_config()
+        assert cfg.provider_name == "mock"
+
+    @pytest.mark.django_db
+    def test_falls_back_to_env_when_no_override_row(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        cfg = _read_config()
+        assert cfg.provider_name == "mock"
+
+    @pytest.mark.django_db
+    def test_falls_back_to_env_when_field_is_null(self, monkeypatch):
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        SystemMemorySettings.objects.create()  # every field NULL
+        cfg = _read_config()
+        assert cfg.provider_name == "mock"

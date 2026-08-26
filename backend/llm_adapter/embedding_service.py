@@ -90,6 +90,37 @@ def _read_env_config() -> EmbeddingProviderConfig:
     )
 
 
+def _apply_db_settings(cfg: EmbeddingProviderConfig) -> EmbeddingProviderConfig:
+    """Overlay a persisted SystemMemorySettings override onto an env-based
+    config (Memory Admin UI Phase 3). Mirrors llm_adapter.providers's own
+    _apply_db_settings for LlmSettings -- same best-effort semantics: any
+    failure (no row, DB unavailable) leaves cfg untouched, env stays the
+    fallback. Lazy import avoids a memory<->llm_adapter circular import.
+    """
+    try:
+        from memory.models import SystemMemorySettings
+
+        row = SystemMemorySettings.objects.first()
+        if row is None:
+            return cfg
+        if row.embedding_provider:
+            cfg.provider_name = row.embedding_provider
+        if row.embedding_model_name:
+            cfg.model_name = row.embedding_model_name
+        if row.ollama_base_url:
+            cfg.base_url = row.ollama_base_url
+        if row.embedding_timeout:
+            cfg.timeout = float(row.embedding_timeout)
+        return cfg
+    except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+        logger.debug("SystemMemorySettings lookup skipped; falling back to environment.")
+        return cfg
+
+
+def _read_config() -> EmbeddingProviderConfig:
+    return _apply_db_settings(_read_env_config())
+
+
 EMBEDDING_PROVIDER_REGISTRY: Dict[str, Type[EmbeddingProvider]] = {}
 
 
@@ -101,7 +132,7 @@ def register_embedding_provider(name: str) -> Callable[[Type[EmbeddingProvider]]
 
 
 def get_embedding_provider(config: Optional[EmbeddingProviderConfig] = None) -> EmbeddingProvider:
-    cfg = config or _read_env_config()
+    cfg = config or _read_config()
     provider_cls = EMBEDDING_PROVIDER_REGISTRY.get(cfg.provider_name)
     if provider_cls is None:
         raise ValueError(f"unknown embedding provider: {cfg.provider_name!r}")

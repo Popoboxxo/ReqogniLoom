@@ -38,14 +38,30 @@ class HonchoMemoryBackend(MemoryBackend):
     """
 
     def __init__(self) -> None:
-        self._base_url = os.environ.get("HONCHO_BASE_URL", "").rstrip("/")
-        self._api_key = os.environ.get("HONCHO_API_KEY")
+        base_url, api_key = self._resolve_config()
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
         # Lazily initialized on first use (see ``_ensure_client``), stored as a
         # plain instance attribute rather than behind a property so tests can
         # swap it via ``unittest.mock.patch.object(backend, "_client", ...)``
         # without ever triggering the real (currently un-installed) ``honcho``
         # SDK import.
         self._client = None
+
+    @staticmethod
+    def _resolve_config() -> tuple[str, Optional[str]]:
+        """SystemMemorySettings override (Phase 3) wins over env vars if set."""
+        try:
+            from memory.models import SystemMemorySettings
+
+            row = SystemMemorySettings.objects.first()
+            if row is not None:
+                base_url = row.honcho_base_url or os.environ.get("HONCHO_BASE_URL", "")
+                api_key = row.honcho_api_key or os.environ.get("HONCHO_API_KEY")
+                return base_url, api_key
+        except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+            pass
+        return os.environ.get("HONCHO_BASE_URL", ""), os.environ.get("HONCHO_API_KEY")
 
     def _ensure_client(self):
         if self._client is None:
