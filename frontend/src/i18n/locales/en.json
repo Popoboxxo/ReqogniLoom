@@ -1199,6 +1199,16 @@
     "empty": "No tokens yet.",
     "newKeyLabel": "API Key"
   },
+  "memorySelfService": {
+    "title": "My Memory",
+    "hint": "The AI long-term memory stores context about you to personalize answers. You can delete your own entries completely at any time.",
+    "countLabel": "Stored entries",
+    "lastUpdatedLabel": "Last updated",
+    "empty": "No memory entries yet.",
+    "deleteButton": "Delete my memory",
+    "deleteConfirm": "Delete ALL of your own memory entries? This removes everything the AI has remembered about you and cannot be undone.",
+    "error": "Memory could not be loaded or deleted."
+  },
   "users": {
     "newUser": "New User"
   },

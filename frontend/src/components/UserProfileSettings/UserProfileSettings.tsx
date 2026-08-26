@@ -13,6 +13,7 @@
 
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { MemorySection } from "./MemorySection";
 import { ProfileSection } from "./ProfileSection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
@@ -93,6 +94,8 @@ export default function UserProfileSettings(): JSX.Element {
       <ProfileSection />
 
       <ApiKeysSection />
+
+      <MemorySection />
 
       {activeWorkspace && (
         <section style={{

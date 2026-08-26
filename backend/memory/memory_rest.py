@@ -32,6 +32,11 @@ Endpoints:
         System-Admin only. Deletes both memory tiers for a workspace.
         Delegates to
         :meth:`application.memory_admin_service.MemoryAdminService.delete_workspace_memory`.
+    GET/DELETE /api/v1/memory/me/
+        Any authenticated user, no role required (Memory Admin UI Phase 4,
+        spec 2026-08-26). Self-service over the caller's OWN
+        ``UserTenantMemory`` rows only — never ``WorkspaceMemory``. See
+        :class:`MemorySelfServiceView`.
 
 Both views rely on the tenant context already activated by
 ``AuthTenancyAuthentication`` during DRF authentication (COMP-AT-003
@@ -51,6 +56,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db.models import Count, Max
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -61,7 +67,7 @@ from application.memory_admin_service import MemoryAdminService
 from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
-from memory.models import WorkspaceMemorySettings
+from memory.models import UserTenantMemory, WorkspaceMemorySettings
 from persistence.models import User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
@@ -385,10 +391,59 @@ class SystemMemoryWorkspaceDeleteView(APIView):
         return Response(result)
 
 
+class MemorySelfServiceView(APIView):
+    """``/api/v1/memory/me/`` — any authenticated user, no role required.
+
+    Memory Admin UI Phase 4 (spec 2026-08-26). Self-service over the
+    caller's OWN ``UserTenantMemory`` rows only — never ``WorkspaceMemory``,
+    which is team-owned (see plan Ruling 1). No admin gate: the ``user_id``
+    filter on every query IS the authorization boundary, mirroring
+    ``ApiKeyViewSet``'s own-data-only self-service pattern.
+
+    GET: ``{"entry_count": int, "last_updated_at": str | None}``.
+    DELETE: deletes all of the caller's ``UserTenantMemory`` rows, returns
+    ``{"deleted": int}`` — 200 even when nothing existed to delete.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        agg = UserTenantMemory.objects.filter(user_id=ctx.user_id).aggregate(
+            count=Count("id"), last=Max("created_at")
+        )
+        return Response(
+            {
+                "entry_count": agg["count"] or 0,
+                "last_updated_at": agg["last"],
+            }
+        )
+
+    def delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        deleted, _ = UserTenantMemory.objects.filter(user_id=ctx.user_id).delete()
+        return Response({"deleted": deleted})
+
+
 __all__ = [
     "SystemMemorySettingsView",
     "SystemMemorySettingsResetView",
     "WorkspaceMemorySettingsView",
     "SystemMemoryWorkspaceOverviewView",
     "SystemMemoryWorkspaceDeleteView",
+    "MemorySelfServiceView",
 ]

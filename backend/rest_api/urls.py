@@ -54,6 +54,7 @@ from admin_ops.theme_rest import (
     UserThemePreferenceView,
 )
 from memory.memory_rest import (
+    MemorySelfServiceView,
     SystemMemorySettingsResetView,
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
@@ -486,6 +487,13 @@ urlpatterns = [
         "system/memory/workspaces/<uuid:workspace_id>/",
         SystemMemoryWorkspaceDeleteView.as_view(),
         name="system-memory-workspace-delete",
+    ),
+    # AI Long-Term Memory — user self-service (Memory Admin UI Phase 4,
+    # spec 2026-08-26). Any authenticated user, own UserTenantMemory only.
+    path(
+        "memory/me/",
+        MemorySelfServiceView.as_view(),
+        name="memory-self-service",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.
