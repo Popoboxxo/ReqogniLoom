@@ -119,15 +119,15 @@ class MemoryAdminService(ServiceBase):
             user_deleted, _ = UserTenantMemory.objects.filter(user_id__in=member_ids).delete()
 
         self._audit(
-            ctx,
-            "delete",
-            "WorkspaceMemory",
-            workspace_id,
-            details={
-                "workspace_memory_deleted": ws_deleted,
-                "user_memory_deleted": user_deleted,
-                "affected_member_ids": [str(uid) for uid in member_ids],
-            },
+            ctx=ctx,
+            operation="delete",
+            entity_type="WorkspaceMemory",
+            entity_id=workspace_id,
+            change_reason=(
+                f"workspace_memory_deleted={ws_deleted} "
+                f"user_memory_deleted={user_deleted} "
+                f"affected_member_ids={[str(uid) for uid in member_ids]}"
+            ),
         )
 
         return {
