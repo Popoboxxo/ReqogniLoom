@@ -88,7 +88,7 @@ gitignore:
   generated: true
   settings: true
 context_file:
-  mode: compact
+  mode: full
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
