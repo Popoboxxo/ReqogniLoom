@@ -444,7 +444,10 @@ class TestSetTarget:
 
         result = InterviewService().formalize(ctx, session.id)
 
-        assert result["resulting_artifact_ids"] == [str(existing.artifact_id)]
+        # Issue #736: resulting_artifact_ids carries the Requirement's own
+        # id (resolvable via requirement.get()/get_requirement()), not the
+        # backing Artifact's id.
+        assert result["resulting_artifact_ids"] == [str(existing.id)]
         updated = RequirementService().get_requirement(existing.id, ctx)
         assert updated.title == "New title"
         # No second Requirement was created -- the update branch was taken,
@@ -509,6 +512,18 @@ class TestFormalize:
         assert refreshed.status == InterviewSession.STATUS_COMPLETED
         assert refreshed.resulting_artifact_ids == result["resulting_artifact_ids"]
 
+        # Issue #736 regression: the id returned in resulting_artifact_ids
+        # must be the Requirement's own id -- the same id
+        # RequirementService.get_requirement()/requirement.get() resolve --
+        # not the backing Artifact's id, which is a distinct UUID.
+        from application.requirement_service import RequirementService
+
+        resolved = RequirementService().get_requirement(
+            uuid.UUID(result["resulting_artifact_ids"][0]), ctx
+        )
+        assert resolved.title == "SSO login support"
+        assert resolved.description == "Reduce password fatigue"
+
     def test_formalize_with_target_updates_existing_requirement(self, ctx, workspace):
         from application.requirement_service import RequirementService
 
@@ -531,9 +546,12 @@ class TestFormalize:
 
         result = InterviewService().formalize(ctx, session.id)
 
+        # Issue #736: resulting_artifact_ids carries the Requirement's own
+        # id (resolvable via requirement.get()/get_requirement()), not the
+        # backing Artifact's id.
+        assert result["resulting_artifact_ids"] == [str(existing.id)]
         updated = RequirementService().get_requirement(existing.id, ctx)
         assert updated.title == "New title"
-        assert result["resulting_artifact_ids"] == [str(existing.artifact_id)]
         assert result["status"] == "completed"
 
     def test_formalize_reraises_if_target_artifact_deleted_mid_session(self, ctx, workspace):

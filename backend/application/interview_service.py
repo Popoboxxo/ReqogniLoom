@@ -874,7 +874,14 @@ class InterviewService(ServiceBase):
                 title=title,
                 description=session.collected_fields.get("rationale"),
             )
-            resulting_ids.append(str(updated.artifact_id))
+            # Issue #736: resulting_artifact_ids must carry the Requirement's
+            # own id (the "user-facing" id returned by
+            # requirement.create/get, resolvable via
+            # RequirementService.get_requirement's ``id=`` lookup), not the
+            # backing Artifact's id -- the two are distinct UUIDs (see
+            # Requirement.artifact OneToOneField). artifact.get_tree() still
+            # resolves this id too, via TraceLinkService._resolve_artifact.
+            resulting_ids.append(str(updated.id))
         else:
             created = svc.create_requirement(
                 workspace_id=session.workspace_id,
@@ -882,7 +889,9 @@ class InterviewService(ServiceBase):
                 ctx=ctx,
                 description=session.collected_fields.get("rationale", ""),
             )
-            resulting_ids.append(str(created.artifact_id))
+            # Issue #736: see comment above -- return Requirement.id, not
+            # Requirement.artifact_id.
+            resulting_ids.append(str(created.id))
 
         session.resulting_artifact_ids = resulting_ids
         session.version = F("version") + 1
