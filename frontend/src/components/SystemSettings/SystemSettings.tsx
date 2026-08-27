@@ -26,6 +26,7 @@ import { ThemeManagementSection } from "./ThemeManagementSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { MemoryManagementSection } from "./MemoryManagementSection";
 import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
+import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { PageHeader } from "../shared/PageHeader";
 
 type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults" | "memory";
@@ -168,6 +169,7 @@ export default function SystemSettings(): JSX.Element {
           <>
             <MemorySystemSettingsSection />
             <MemoryManagementSection />
+            <MemoryVisualizationSection />
           </>
         )}
       </div>

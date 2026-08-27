@@ -32,6 +32,14 @@ Endpoints:
         System-Admin only. Deletes both memory tiers for a workspace.
         Delegates to
         :meth:`application.memory_admin_service.MemoryAdminService.delete_workspace_memory`.
+    GET /api/v1/system/memory/entries/
+        System-Admin only (Memory Admin UI Phase 5, spec 2026-08-26).
+        Paginated, full-text-filterable list of live consolidated memory
+        entries across both tiers. See :class:`SystemMemoryEntriesListView`.
+    GET /api/v1/system/memory/projection/
+        System-Admin only (Memory Admin UI Phase 5). 2D PCA projection +
+        similarity clustering of the scoped embedding vectors. See
+        :class:`SystemMemoryProjectionView`.
     GET/DELETE /api/v1/memory/me/
         Any authenticated user, no role required (Memory Admin UI Phase 4,
         spec 2026-08-26). Self-service over the caller's OWN
@@ -55,6 +63,7 @@ method runs.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from django.db.models import Count, Max
 from rest_framework import serializers, status
@@ -62,7 +71,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.base import NotFoundError, PermissionDeniedError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.memory_admin_service import MemoryAdminService
 from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.rest import HasOperationPermission
@@ -391,6 +400,146 @@ class SystemMemoryWorkspaceDeleteView(APIView):
         return Response(result)
 
 
+class _SystemMemoryVisualizationView(APIView):
+    """Shared scope/workspace_id query-param parsing for the Phase 5 views.
+
+    Both subclasses are System-Admin gated INSIDE ``MemoryAdminService`` via
+    ``_assert_system_admin`` (Phase 5 plan Ruling 3) — deliberately not via
+    the older, view-level :func:`_is_system_admin` helper that
+    ``SystemMemorySettingsView`` still uses. ``permission_classes`` /
+    no ``required_operation`` mirrors ``SystemMemoryWorkspaceOverviewView``:
+    the default ``RbacPermission`` would deny a pure System-Admin outright on
+    a URL that carries no ``workspace_id`` kwarg.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    @staticmethod
+    def _parse_scope_params(request: Request) -> tuple[str, Any]:
+        """Return ``(scope, workspace_id)``.
+
+        Raises :class:`ValidationError` for a malformed ``workspace_id``; an
+        absent or unknown ``scope`` is left to the service, which owns the
+        scope vocabulary and raises the same exception type.
+        """
+        scope = request.query_params.get("scope", "")
+        raw_workspace_id = request.query_params.get("workspace_id") or None
+        workspace_id = None
+        if raw_workspace_id is not None:
+            try:
+                workspace_id = UUID(raw_workspace_id)
+            except (ValueError, AttributeError, TypeError) as exc:
+                raise ValidationError(f"Invalid workspace_id: {raw_workspace_id!r}") from exc
+        return scope, workspace_id
+
+
+class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
+    """``GET /api/v1/system/memory/entries/`` — System-Admin only.
+
+    Memory Admin UI Phase 5 (spec 2026-08-26). Query params: ``scope``
+    (``workspace``|``global``), ``workspace_id`` (required for
+    ``scope=workspace``), ``page`` (1-indexed), ``page_size``, ``q``
+    (case-insensitive substring filter on ``content``). Returns
+    ``{results, count, page, page_size}``.
+    """
+
+    #: Upper bound on ``page_size`` — this endpoint merges two tiers in
+    #: Python, so an unbounded page size would be a trivial memory amplifier.
+    MAX_PAGE_SIZE = 200
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            scope, workspace_id = self._parse_scope_params(request)
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("page_size", 25))
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="page and page_size must be integers."
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        page = max(1, page)
+        page_size = max(1, min(page_size, self.MAX_PAGE_SIZE))
+        q = (request.query_params.get("q") or "").strip() or None
+
+        try:
+            result = MemoryAdminService().list_entries(
+                ctx, scope=scope, workspace_id=workspace_id, page=page, page_size=page_size, q=q
+            )
+        except PermissionDeniedError:
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(result)
+
+
+class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
+    """``GET /api/v1/system/memory/projection/`` — System-Admin only.
+
+    Memory Admin UI Phase 5 (spec 2026-08-26). Query params: ``scope``
+    (``workspace``|``global``), ``workspace_id`` (required for
+    ``scope=workspace``). Returns ``{points, sampled, sample_size,
+    total_size, excluded_no_embedding}``; the heavy numeric work (PCA +
+    clustering) happens in the service and is Redis-cached there.
+    """
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            scope, workspace_id = self._parse_scope_params(request)
+            result = MemoryAdminService().get_projection(
+                ctx, scope=scope, workspace_id=workspace_id
+            )
+        except PermissionDeniedError:
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(result)
+
+
 class MemorySelfServiceView(APIView):
     """``/api/v1/memory/me/`` — any authenticated user, no role required.
 
@@ -445,5 +594,7 @@ __all__ = [
     "WorkspaceMemorySettingsView",
     "SystemMemoryWorkspaceOverviewView",
     "SystemMemoryWorkspaceDeleteView",
+    "SystemMemoryEntriesListView",
+    "SystemMemoryProjectionView",
     "MemorySelfServiceView",
 ]

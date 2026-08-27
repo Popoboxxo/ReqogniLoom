@@ -1,8 +1,11 @@
 """Tests for the Memory Settings REST endpoints (Spec 2026-08-24, Task 11)."""
+import uuid
+
 import pytest
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import TenantRole, UserRole
+from memory.models import UserTenantMemory, WorkspaceMemory
 from persistence.tests.factories import (
     _FACTORY_PASSWORD,
     _login_for_token,
@@ -733,3 +736,253 @@ class TestMemorySelfServiceRest:
 
             assert response.status_code == 200
             assert response.data["deleted"] == 0
+
+
+_ENTRIES_URL = "/api/v1/system/memory/entries/"
+_PROJECTION_URL = "/api/v1/system/memory/projection/"
+
+
+def _one_hot(index: int, *, tilt: float = 0.0) -> list[float]:
+    """384-dim one-hot embedding; ``tilt`` produces a near-identical neighbour."""
+    vec = [0.0] * 384
+    vec[index] = 1.0
+    if tilt:
+        vec[(index + 1) % 384] = tilt
+    return vec
+
+
+def _admin_client(tenant):
+    _user, token = admin_user_and_token(tenant)
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return client
+
+
+@pytest.mark.django_db
+class TestSystemMemoryEntriesRest:
+    """``GET /api/v1/system/memory/entries/`` (Memory Admin UI Phase 5)."""
+
+    def test_unauthenticated_returns_401(self):
+        response = APIClient().get(f"{_ENTRIES_URL}?scope=global")
+        assert response.status_code == 401
+
+    def test_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get(f"{_ENTRIES_URL}?scope=global")
+
+            assert response.status_code == 403
+
+    def test_denies_workspace_scoped_admin_without_tenant_role(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get(f"{_ENTRIES_URL}?scope=global")
+
+            assert response.status_code == 403
+
+    def test_missing_scope_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(_ENTRIES_URL)
+            assert response.status_code == 400
+
+    def test_unknown_scope_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_ENTRIES_URL}?scope=galaxy")
+            assert response.status_code == 400
+
+    def test_workspace_scope_without_workspace_id_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_ENTRIES_URL}?scope=workspace")
+            assert response.status_code == 400
+
+    def test_malformed_workspace_id_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(
+                f"{_ENTRIES_URL}?scope=workspace&workspace_id=not-a-uuid"
+            )
+            assert response.status_code == 400
+
+    def test_non_integer_page_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_ENTRIES_URL}?scope=global&page=abc")
+            assert response.status_code == 400
+
+    def test_nonexistent_workspace_id_returns_404(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(
+                f"{_ENTRIES_URL}?scope=workspace&workspace_id={uuid.uuid4()}"
+            )
+            assert response.status_code == 404
+
+    def test_happy_path_shape(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant, name="Entries WS")
+            member = make_user(tenant)
+            assign_role(member, ws, "editor")
+            WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="team fact")
+            UserTenantMemory.objects.create(tenant=tenant, user=member, content="user fact")
+
+            response = _admin_client(tenant).get(
+                f"{_ENTRIES_URL}?scope=workspace&workspace_id={ws.id}"
+            )
+
+            assert response.status_code == 200
+            assert response.data["count"] == 2
+            assert response.data["page"] == 1
+            assert response.data["page_size"] == 25
+            row = response.data["results"][0]
+            assert set(row) == {
+                "id",
+                "content",
+                "created_at",
+                "confidence",
+                "owner_type",
+                "owner_id",
+                "owner_label",
+            }
+            labels = {r["owner_label"] for r in response.data["results"]}
+            assert labels == {"Entries WS", member.email}
+
+    def test_q_and_pagination_params_are_forwarded(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="dark mode")
+            WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="metric units")
+
+            response = _admin_client(tenant).get(
+                f"{_ENTRIES_URL}?scope=global&q=dark&page=1&page_size=1"
+            )
+
+            assert response.status_code == 200
+            assert response.data["count"] == 1
+            assert response.data["page_size"] == 1
+            assert response.data["results"][0]["content"] == "dark mode"
+
+    def test_page_size_is_capped(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_ENTRIES_URL}?scope=global&page_size=99999")
+            assert response.status_code == 200
+            assert response.data["page_size"] == 200
+
+
+@pytest.mark.django_db
+class TestSystemMemoryProjectionRest:
+    """``GET /api/v1/system/memory/projection/`` (Memory Admin UI Phase 5)."""
+
+    def test_unauthenticated_returns_401(self):
+        response = APIClient().get(f"{_PROJECTION_URL}?scope=global")
+        assert response.status_code == 401
+
+    def test_denies_non_admin(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get(f"{_PROJECTION_URL}?scope=global")
+
+            assert response.status_code == 403
+
+    def test_denies_workspace_scoped_admin_without_tenant_role(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            response = client.get(f"{_PROJECTION_URL}?scope=global")
+
+            assert response.status_code == 403
+
+    def test_unknown_scope_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_PROJECTION_URL}?scope=galaxy")
+            assert response.status_code == 400
+
+    def test_workspace_scope_without_workspace_id_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_PROJECTION_URL}?scope=workspace")
+            assert response.status_code == 400
+
+    def test_malformed_workspace_id_returns_400(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(
+                f"{_PROJECTION_URL}?scope=workspace&workspace_id=not-a-uuid"
+            )
+            assert response.status_code == 400
+
+    def test_nonexistent_workspace_id_returns_404(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(
+                f"{_PROJECTION_URL}?scope=workspace&workspace_id={uuid.uuid4()}"
+            )
+            assert response.status_code == 404
+
+    def test_happy_path_shape(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant, name="Projection WS")
+            WorkspaceMemory.objects.create(
+                tenant=tenant, workspace=ws, content="a", embedding=_one_hot(0)
+            )
+            WorkspaceMemory.objects.create(
+                tenant=tenant, workspace=ws, content="b", embedding=_one_hot(0, tilt=0.05)
+            )
+            WorkspaceMemory.objects.create(
+                tenant=tenant, workspace=ws, content="c", embedding=_one_hot(200)
+            )
+            WorkspaceMemory.objects.create(
+                tenant=tenant, workspace=ws, content="pending", embedding=None
+            )
+
+            response = _admin_client(tenant).get(
+                f"{_PROJECTION_URL}?scope=workspace&workspace_id={ws.id}"
+            )
+
+            assert response.status_code == 200
+            assert set(response.data) == {
+                "points",
+                "sampled",
+                "sample_size",
+                "total_size",
+                "excluded_no_embedding",
+            }
+            assert response.data["total_size"] == 3
+            assert response.data["sample_size"] == 3
+            assert response.data["sampled"] is False
+            assert response.data["excluded_no_embedding"] == 1
+            point = response.data["points"][0]
+            assert set(point) == {
+                "id",
+                "x",
+                "y",
+                "cluster_id",
+                "owner_type",
+                "owner_id",
+                "owner_label",
+            }
+            # Cluster membership, never absolute coordinates (SVD sign is not
+            # deterministic across numpy/BLAS builds).
+            by_content = {
+                str(m.id): m.content
+                for m in WorkspaceMemory.objects.filter(workspace_id=ws.id)
+            }
+            clusters = {by_content[p["id"]]: p["cluster_id"] for p in response.data["points"]}
+            assert clusters["a"] == clusters["b"]
+            assert clusters["c"] != clusters["a"]
+
+    def test_empty_dataset_returns_no_points(self):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(f"{_PROJECTION_URL}?scope=global")
+
+            assert response.status_code == 200
+            assert response.data["points"] == []
+            assert response.data["total_size"] == 0
