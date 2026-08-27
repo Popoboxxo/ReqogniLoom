@@ -577,6 +577,23 @@ CELERY_BEAT_SCHEDULE = {
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # ---------------------------------------------------------------------------
+# Task Time Limits (P0 Fix: SYSTEMAUDIT_2026-08-27)
+# ---------------------------------------------------------------------------
+# Prevent hung LLM tasks from blocking the worker indefinitely. Read from
+# LLM_SYNC_TIMEOUT and LLM_LONG_RUNNING_TIMEOUT env vars (same as llm_adapter/timeouts.py).
+# Soft limit (SigTerm) gives graceful shutdown; hard limit (SigKill) is final backstop.
+# See dispatcher.py lines 26-27 for env var documentation.
+_LLM_SYNC_TIMEOUT_ENV: int = config("LLM_SYNC_TIMEOUT", default=25, cast=int)
+_LLM_LONG_RUNNING_TIMEOUT_ENV: int = config("LLM_LONG_RUNNING_TIMEOUT", default=180, cast=int)
+
+# Global per-task timeout (applies to all tasks not explicitly routed).
+# Set to the longer timeout since most tasks complete quickly and the tight
+# sync default (25s) would starve long-running workspace-wide LLM calls.
+# Individual tasks can override via task.apply_async(time_limit=...).
+CELERY_TASK_SOFT_TIME_LIMIT: int = max(_LLM_LONG_RUNNING_TIMEOUT_ENV - 20, 160)  # Soft: 160s, or configured-20
+CELERY_TASK_TIME_LIMIT: int = max(_LLM_LONG_RUNNING_TIMEOUT_ENV, 180)  # Hard: 180s or configured
+
+# ---------------------------------------------------------------------------
 # Cache — Redis-backed shared cache (REQ-033, DEEP_SYSTEM_ANALYSIS.md BE-2)
 #
 # Without an explicit CACHES setting Django falls back to LocMemCache, which is
