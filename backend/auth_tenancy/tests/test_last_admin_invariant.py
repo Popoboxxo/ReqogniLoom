@@ -262,6 +262,31 @@ def test_revoke_tenant_admin_allowed_when_another_remains():
     assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is False
 
 
+@pytest.mark.django_db
+def test_revoke_tenant_admin_blocked_when_other_admin_is_deactivated():
+    """Issue #708: a deactivated user's ``TenantRole`` row must not count
+    towards the last-admin invariant. Without filtering on
+    ``user__is_active``, the sole remaining *active* tenant-admin could
+    revoke their own admin role as long as another, already-deactivated
+    user still held a tenant-admin row — stranding the tenant with zero
+    active admins, recoverable only via a direct DB fix.
+    """
+    tenant, admin, _role = _make_tenant_with_admin("revoke-deactivated-other")
+    second = User.objects.create(
+        username="ta-second-deactivated", email="ta-second-deactivated@t.test", tenant=tenant
+    )
+    TenantRole.objects.create(tenant=tenant, user=second, role=TenantRole.ROLE_ADMIN)
+    second.is_active = False
+    second.save(update_fields=["is_active"])
+    service = AuthorizationService()
+
+    with pytest.raises(LastAdminError):
+        service.revoke_tenant_admin(
+            actor_is_tenant_admin=True, target_user_id=admin.id, tenant_id=tenant.id
+        )
+    assert service.is_tenant_admin(user_id=admin.id, tenant_id=tenant.id) is True
+
+
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_revoke_of_last_two_tenant_admins_only_one_succeeds():
     """Tenant-level race-condition guard: two threads try to revoke the last
