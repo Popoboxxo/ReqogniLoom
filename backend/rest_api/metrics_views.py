@@ -8,6 +8,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -21,6 +22,8 @@ from application.workspace_service import WorkspaceService
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 from se_metrics.services import compute_metrics
+
+logger = logging.getLogger(__name__)
 
 
 class MetricsViewSet(ViewSet):
@@ -76,8 +79,17 @@ class MetricsViewSet(ViewSet):
             )
             data = result.to_dict()
             return Response(data, status=status.HTTP_200_OK)
-        except Exception as exc:
+        except Exception:
+            # fix #108 / SYSTEMAUDIT-2026-08-27 finding B (CWE-209): compute_metrics
+            # aggregates straight over the ORM, so an unmapped failure here is a
+            # DatabaseError/ProgrammingError whose str() carries SQL fragments and
+            # table/column names. Same policy as rest_api.views._service_error_response:
+            # the real detail goes to the log, the client gets the canonical
+            # localised message that build_error_response derives from the code.
+            logger.exception(
+                "compute_metrics failed for workspace %s", workspace_id
+            )
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

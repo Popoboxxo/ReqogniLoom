@@ -53,6 +53,10 @@ from rest_framework.throttling import SimpleRateThrottle
 __all__ = [
     "AuthContextAnonRateThrottle",
     "AuthContextUserRateThrottle",
+    # Public because mcp_server.throttling builds on it: the MCP transport
+    # endpoints are plain Django views and need the same settings-driven,
+    # test-overridable rate resolution rather than a second mechanism.
+    "DynamicRateThrottle",
     "LoginIpRateThrottle",
     "LoginRateThrottle",
     "RefreshRateThrottle",
@@ -61,7 +65,7 @@ __all__ = [
 ]
 
 
-class _DynamicRateThrottle(SimpleRateThrottle):
+class DynamicRateThrottle(SimpleRateThrottle):
     """``SimpleRateThrottle`` that resolves its rate on every instantiation.
 
     DRF freezes ``SimpleRateThrottle.THROTTLE_RATES`` at *class definition*
@@ -104,7 +108,7 @@ def _auth_user_id(request: Any) -> str | None:
     return str(user_id) if user_id is not None else None
 
 
-class AuthContextUserRateThrottle(_DynamicRateThrottle):
+class AuthContextUserRateThrottle(DynamicRateThrottle):
     """Per-user cap for every authenticated endpoint (#269 finding 1).
 
     Returns ``None`` (= not applicable) for anonymous requests so
@@ -122,7 +126,7 @@ class AuthContextUserRateThrottle(_DynamicRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": user_id}
 
 
-class AuthContextAnonRateThrottle(_DynamicRateThrottle):
+class AuthContextAnonRateThrottle(DynamicRateThrottle):
     """Per-IP cap for unauthenticated requests (schema, health, login page).
 
     .. note:: DRF runs authentication and permission checks *before*
@@ -143,7 +147,7 @@ class AuthContextAnonRateThrottle(_DynamicRateThrottle):
         }
 
 
-class _FailureCountingThrottle(_DynamicRateThrottle):
+class _FailureCountingThrottle(DynamicRateThrottle):
     """A throttle whose bucket is filled explicitly, not by every request.
 
     ``SimpleRateThrottle.allow_request`` records the request it is checking.
@@ -249,7 +253,7 @@ class LoginIpRateThrottle(_FailureCountingThrottle):
         }
 
 
-class RefreshRateThrottle(_DynamicRateThrottle):
+class RefreshRateThrottle(DynamicRateThrottle):
     """#135: rate-limit the public refresh endpoint.
 
     Unlike login this stays a plain per-IP counter over *all* requests: the

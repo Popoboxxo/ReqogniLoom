@@ -384,6 +384,29 @@ LOGIN_IP_THROTTLE_RATE: str = _throttle_rate(
 REFRESH_THROTTLE_RATE: str = _throttle_rate(
     "REFRESH_THROTTLE_RATE", prod="30/min", non_prod="1000/min"
 )
+# SYSTEMAUDIT-2026-08-27 finding A: the /mcp/* endpoints are plain Django views,
+# so DEFAULT_THROTTLE_CLASSES above never reached them and they accepted an
+# unbounded rate. Enforced by mcp_server.throttling on the same cache backend.
+#
+# Per API key (or, on /mcp/messages/, per SSE session). 240/min = 4 rps
+# sustained for a single credential. An MCP client that drives tools
+# conversationally issues a call every few seconds, and even a scripted bulk
+# import stays far below this; an LLM-backed tool takes seconds per call and
+# can never approach it. Deliberately below API_RATE_LIMIT_USER (600/min)
+# because an MCP call is on average far more expensive than a REST read.
+MCP_RATE_LIMIT_KEY: str = _throttle_rate(
+    "MCP_RATE_LIMIT_KEY", prod="240/min", non_prod="20000/min"
+)
+# Per client IP across all credentials, including requests presenting none.
+# Bounds an unauthenticated flood against the SSE handshake (each one would
+# otherwise allocate a Redis binding and a streaming connection). Must stay
+# clearly above MCP_RATE_LIMIT_KEY: NUM_PROXIES is unset, so behind a proxy
+# that drops X-Forwarded-For every caller shares this one bucket, and a tight
+# value would become a self-inflicted outage — the same per-IP lockout trap
+# #269 finding 2 documents for the login endpoint.
+MCP_RATE_LIMIT_IP: str = _throttle_rate(
+    "MCP_RATE_LIMIT_IP", prod="1200/min", non_prod="20000/min"
+)
 
 # ---------------------------------------------------------------------------
 # Django REST Framework — ARCH-L1-002 RestApiAdapter
@@ -433,6 +456,13 @@ REST_FRAMEWORK = {
         # #135: throttle the refresh endpoint like login — it is unauthenticated
         # (validated only via the refresh cookie) and public.
         "refresh": REFRESH_THROTTLE_RATE or None,
+        # SYSTEMAUDIT-2026-08-27 finding A. The scopes live here (rather than in
+        # a separate MCP-only dict) so mcp_server.throttling resolves its rates
+        # through the very same DynamicRateThrottle/api_settings path as the
+        # REST throttles — one mechanism, one place to reconfigure, and
+        # override_settings works identically in both test suites.
+        "mcp_key": MCP_RATE_LIMIT_KEY or None,
+        "mcp_ip": MCP_RATE_LIMIT_IP or None,
     },
 }
 
