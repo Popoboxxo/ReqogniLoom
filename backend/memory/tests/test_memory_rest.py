@@ -120,6 +120,25 @@ class TestMemorySettingsRest:
             response = client.get("/api/v1/system/memory-settings/")
             assert response.status_code == 403
 
+    def test_system_memory_settings_get_denies_workspace_scoped_admin(self):
+        """Regression: a caller who is only admin of ONE workspace (no
+        tenant-wide TenantRole) must not read the deployment-global
+        effective config. Previously ``_is_system_admin``'s
+        ``ctx.has_role("admin") or ...`` let this through, because
+        ``has_role`` resolves from the tenant-wide UNION of the caller's
+        UserRole rows on an endpoint with no workspace_id in scope — the
+        exact over-broad-access class every sibling System-Admin endpoint
+        in this file (MemoryAdminService._assert_system_admin) already
+        guards against.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.get("/api/v1/system/memory-settings/")
+            assert response.status_code == 403
+
     def test_put_sets_db_override(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
         with active_tenant() as tenant:
