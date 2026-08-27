@@ -83,12 +83,23 @@ from rest_api.serializers import build_error_response, detect_lang
 
 
 def _is_system_admin(ctx) -> bool:
-    """Same System-Admin check as GlobalBannerView / TenantThemeDefaultView.
+    """True tenant-admin only — READ-side gate for ``SystemMemorySettingsView``.
 
-    READ-side gate only. Deliberately NOT used for the write side of
-    ``/api/v1/system/memory-settings/`` — see :func:`_is_superuser`.
+    Tightened per a 5-phase Memory Admin UI review: this endpoint carries no
+    ``workspace_id``, so the previous ``ctx.has_role("admin") or ...`` form
+    let a caller who is merely admin of ONE workspace through — ``has_role``
+    resolves from the tenant-wide UNION of the caller's ``UserRole`` rows
+    when no workspace is in scope. That let a workspace-scoped admin read
+    the deployment-global effective config (embedding provider/model,
+    ollama_base_url, whether a Honcho API key is set) for every tenant, the
+    exact class of over-broad access :func:`_is_superuser`'s docstring
+    already calls out for the write side. Now matches the same
+    tenant-admin-only bar every sibling System-Admin endpoint in this file
+    uses (``MemoryAdminService._assert_system_admin``, Phase 1/5). Deliberately
+    NOT used for the write side of ``/api/v1/system/memory-settings/`` — see
+    :func:`_is_superuser`, which requires Django superuser, stricter still.
     """
-    return ctx.has_role("admin") or AuthorizationService().is_tenant_admin(
+    return AuthorizationService().is_tenant_admin(
         user_id=ctx.user_id, tenant_id=ctx.tenant_id
     )
 
