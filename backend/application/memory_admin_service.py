@@ -27,7 +27,6 @@ a view-level coercion loop that a cached response would have to repeat.
 """
 from __future__ import annotations
 
-import math
 from typing import Any
 from uuid import UUID
 
@@ -71,8 +70,14 @@ def _deterministic_sample(rows: list[Any], max_size: int) -> tuple[list[Any], bo
     total = len(rows)
     if total <= max_size:
         return rows, False
-    step = math.ceil(total / max_size)
-    return rows[::step], True
+    # floor (not ceil) division for the stride: ceil-rounding the step
+    # overshoots as soon as total exceeds max_size by even one row (e.g.
+    # total=5001, max_size=5000 -> ceil gives step=2, halving the sample to
+    # ~2501 instead of the ~5000 intended). A floor step can in turn yield
+    # slightly MORE than max_size rows when total isn't an exact multiple,
+    # so the explicit [:max_size] slice enforces the hard cap either way.
+    step = max(1, total // max_size)
+    return rows[::step][:max_size], True
 
 
 def _pca_2d(matrix: Any) -> Any:

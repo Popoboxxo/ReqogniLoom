@@ -11,14 +11,13 @@ import { apiClient } from "./client";
 
 export type EmbeddingProviderName = "sentence-transformers" | "ollama" | "openai" | "mock";
 /**
- * SELECTABLE memory backends. "honcho" is deliberately absent: the backend's
- * HonchoMemoryBackend is an unregistered, partially-implemented skeleton
- * (NotImplementedError stubs), so selecting it would break memory for the
- * whole deployment. Re-add only once it is really implemented + registered.
+ * SELECTABLE memory backends. "honcho" delegates memory to an external Honcho
+ * instance and additionally needs a Honcho base URL configured (below);
+ * without one it saves fine but reports unhealthy in System Health.
  * A deployment can still REPORT another effective value via its env var —
  * hence `SystemMemorySettings.memory_backend` below is a plain string.
  */
-export type MemoryBackendName = "pgvector";
+export type MemoryBackendName = "pgvector" | "honcho";
 
 /** Effective (override-or-env) configuration, with per-field override flags. */
 export interface SystemMemorySettings {

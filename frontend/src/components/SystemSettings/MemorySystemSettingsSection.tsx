@@ -24,11 +24,10 @@ const EMBEDDING_PROVIDERS: EmbeddingProviderName[] = [
   "openai",
   "mock",
 ];
-// "honcho" deliberately omitted: the backend's HonchoMemoryBackend is an
-// unregistered, partially-implemented skeleton, so offering it here would let
-// an admin silently break memory for the whole deployment. The backend's
-// serializer rejects it too. Re-add only once Honcho support really works.
-const MEMORY_BACKENDS: MemoryBackendName[] = ["pgvector"];
+// "honcho" routes memory to an external Honcho service; it also needs the
+// Honcho base URL field below to be filled in, which System Health surfaces.
+// Keep in sync with SystemMemorySettingsWriteSerializer.memory_backend.
+const MEMORY_BACKENDS: MemoryBackendName[] = ["pgvector", "honcho"];
 
 /**
  * Display value for an optional text field: a staged `null` (user cleared the
@@ -36,6 +35,11 @@ const MEMORY_BACKENDS: MemoryBackendName[] = ["pgvector"];
  * `??` alone would redraw the old value under the user's cursor.
  */
 function textFieldValue(staged: string | null | undefined, loaded: string | null): string {
+  return staged !== undefined ? (staged ?? "") : (loaded ?? "");
+}
+
+/** Same staged-vs-loaded distinction as {@link textFieldValue}, for the one numeric field. */
+function numberFieldValue(staged: number | null | undefined, loaded: number | null): number | string {
   return staged !== undefined ? (staged ?? "") : (loaded ?? "");
 }
 
@@ -213,11 +217,11 @@ export function MemorySystemSettingsSection(): JSX.Element {
         <input
           type="number"
           data-testid="memory-settings-embedding-timeout"
-          value={form.embedding_timeout ?? settings.embedding_timeout ?? ""}
+          value={numberFieldValue(form.embedding_timeout, settings.embedding_timeout)}
           onChange={(e) =>
             setForm((f) => ({
               ...f,
-              embedding_timeout: e.target.value === "" ? undefined : Number(e.target.value),
+              embedding_timeout: e.target.value === "" ? null : Number(e.target.value),
             }))
           }
         />
@@ -306,6 +310,11 @@ export function MemorySystemSettingsSection(): JSX.Element {
           }
         >
           <p>{t("systemSettings.memorySettings.confirmBody")}</p>
+          {saveError && (
+            <p role="alert" data-testid="memory-settings-confirm-dialog-error" className={styles.error}>
+              {saveError}
+            </p>
+          )}
         </Dialog>
       )}
     </section>

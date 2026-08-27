@@ -28,6 +28,26 @@ services:
     # uvicorn matches the production entry point (see backend/Dockerfile:
     # gunicorn -k uvicorn.workers.UvicornWorker) and `--reload` (WatchFiles)
     # preserves the hot-reload that runserver provided.
+    #
+    # INFRA-05: same pitfall as INFRA-02 below, for the backend image. The
+    # base file pins `image: ghcr.io/.../reqogniloom-backend:1.7.0` (a
+    # published release) — without a `build:` override here, `docker compose
+    # up` just reuses that already-pulled/cached tag forever and never runs
+    # `pip install -r requirements.txt` again, so a dependency added to
+    # requirements.txt AFTER 1.7.0 was published (e.g. the sentence-transformers
+    # bump backing the AI Memory feature) silently does not exist in a freshly
+    # recreated dev container — `import numpy`/`import sentence_transformers`
+    # fails at runtime even though the code and requirements.txt both look
+    # correct, because the container is quietly still running last release's
+    # image. `pull_policy: build` (not just `build:`) forces a rebuild on every
+    # `up`, exactly like the frontend override. This same fix is applied to
+    # `migrate`/`celery`/`celery-beat` below since all four pin the identical
+    # base image.
+    image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-backend:dev
+    pull_policy: build
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     environment:
       # DJANGO_ENV=development lets the settings hardening honour DEBUG=True here;
       # in production (no override) DJANGO_ENV defaults to "production" and DEBUG
@@ -54,6 +74,13 @@ services:
   migrate:
     # Development: run current source so the REQ-188 post_migrate self-init
     # applies without a rebuild (matches the backend/celery hot-reload mounts).
+    # INFRA-05 (see backend above): same stale-pinned-image fix, same shared
+    # base image.
+    image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-backend:dev
+    pull_policy: build
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     environment:
       DJANGO_ENV: ${DJANGO_ENV:-development}
       DEBUG: ${DEBUG:-True}
@@ -76,6 +103,17 @@ services:
     # child for the prod path. Dev is given the wider margin because it is the
     # service the audit found OOM-killed and because an unused memory limit
     # costs nothing. Lower it only together with CELERY_CONCURRENCY.
+    #
+    # INFRA-05 (see backend above): same stale-pinned-image fix, same shared
+    # base image — the memory consolidation pipeline (MemoryProjector/
+    # memory.consolidate_interaction task) runs in THIS container, so a stale
+    # image here silently drops the same embedding dependencies celery needs
+    # for the memory queue.
+    image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-backend:dev
+    pull_policy: build
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     deploy:
       resources:
         limits:
@@ -96,6 +134,13 @@ services:
     # Development: same hot-reload mount as backend/celery (#171 — without this
     # mount the built image cannot resolve the `reqogniloom` module and the
     # container restart-loops with "Unable to load celery application").
+    # INFRA-05 (see backend above): same stale-pinned-image fix, same shared
+    # base image.
+    image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-backend:dev
+    pull_policy: build
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     environment:
       DJANGO_ENV: ${DJANGO_ENV:-development}
       DEBUG: ${DEBUG:-True}

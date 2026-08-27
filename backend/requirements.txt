@@ -102,3 +102,23 @@ openai>=1.40,<2.0
 # (SentenceTransformer(model_name).encode(text, normalize_embeddings=True))
 # is unchanged across this range (llm_adapter/embedding_service.py).
 sentence-transformers>=6.0.0,<7.0
+
+# PCA + cosine-similarity clustering for the Memory Admin UI Phase 5
+# visualization endpoint (application/memory_admin_service.py::_pca_2d/
+# _cluster_ids). The Phase 5 plan deliberately left this off requirements.txt,
+# betting on numpy already being present transitively via sentence-transformers/
+# torch — confirmed in practice to NOT hold reliably (a numpy-less container
+# state was observed making GET /api/v1/system/memory/projection/ 500), so
+# pinning it explicitly per that same plan's own escape hatch ("add it only if
+# the transitive-dependency assumption fails").
+numpy>=1.26,<3.0
+
+# Optional external memory backend (MEMORY_BACKEND=honcho, memory/honcho_backend.py).
+# NOTE: "honcho-ai" is the Plastic Labs agent-memory SDK (github.com/plastic-labs/honcho).
+# Do NOT substitute the PyPI package named plain "honcho" — that is an unrelated
+# legacy Procfile process manager and would import as the same `honcho` module name.
+# 2.3.0 is the release whose API this backend was written against (conclusions
+# scope: create/query/list/delete); capped below 3.0 because the SDK renamed this
+# surface at least once already (`observations` -> `conclusions`).
+# Only httpx/pydantic are pulled in, both already present in this file's closure.
+honcho-ai>=2.3.0,<3.0

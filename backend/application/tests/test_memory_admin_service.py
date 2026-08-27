@@ -478,6 +478,13 @@ class TestDeterministicSample:
         rows = list(range(1000))
         assert _deterministic_sample(rows, 300)[0] == _deterministic_sample(rows, 300)[0]
 
+    def test_does_not_undersample_just_above_the_limit(self):
+        # Regression: a ceil-rounded stride previously halved the sample
+        # (~2501 rows) the moment total exceeded max_size by even one row.
+        sample, sampled = _deterministic_sample(list(range(5001)), 5000)
+        assert sampled is True
+        assert len(sample) == 5000
+
 
 @pytest.mark.django_db
 class TestMemoryAdminServiceProjection:
