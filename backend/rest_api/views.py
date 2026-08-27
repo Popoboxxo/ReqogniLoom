@@ -5208,17 +5208,106 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        # fix #235: see partial_update() above — no delete semantics exist
-        # for Goal (GoalService has no delete method); return a clean 405
-        # instead of the base class's NotImplementedError crash.
+        # fix #235: see partial_update() above — Goal has no hard-delete
+        # semantics (GoalService has no delete method); return a clean 405
+        # instead of the base class's NotImplementedError crash. #739: taking
+        # a Goal out of active use is available via the dedicated
+        # POST .../outdate/ action below — Goal cannot reuse plain DELETE for
+        # that the way other artifact types do, because its archived state
+        # isn't the generic "outdated" escape hatch (see outdate()'s
+        # docstring).
         return Response(
             build_error_response(
                 "VALIDATION_ERROR",
                 detect_lang(request),
-                message="Goals cannot be deleted.",
+                message=(
+                    "Goals cannot be deleted. POST .../outdate/ to archive "
+                    "a Goal version instead."
+                ),
             ),
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
+
+    @action(detail=True, methods=["post"], url_path="outdate")
+    def outdate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/goals/{pk}/outdate/ — archive a Goal version (#739).
+
+        REST parity for the MCP ``goal.delete`` tool. Goals are immutable,
+        lineage-versioned rows (see class docstring), so neither a hard
+        DELETE (``destroy()`` above) nor the generic
+        ``WorkflowTransitionsMixin`` DELETE-based soft-delete convention used
+        by other artifact types applies here: that convention force-writes
+        the system-wide "outdated" state, which is foreign to the Goal
+        workflow and — because ``Goal`` is mirrored into
+        ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` — would make the
+        row slip past the ``Archiviert`` filters ``GoalService.list_current``
+        applies (see ``GoalService.archive``'s docstring). This calls that
+        exact ``GoalService.archive()`` / ``WorkflowFacade`` path instead —
+        the same one the MCP ``goal.delete`` tool uses — so role and
+        change_reason gates apply identically. Reversible via
+        ``reactivate()`` below.
+
+        Body: ``{"change_reason": "..."}`` (optional, subject to preset
+        gates). Returns 200 with the refreshed Goal on success.
+        """
+        lang = detect_lang(request)
+        change_reason = (
+            request.data.get("change_reason")
+            if isinstance(request.data, dict)
+            else None
+        )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().archive(UUID(pk), ctx, change_reason=change_reason)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(GoalSerializer(_goal_to_dict(item)).data)
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/goals/{pk}/reactivate/ — restore an archived Goal version.
+
+        Overrides ``WorkflowTransitionsMixin.reactivate``: the inherited
+        action only restores an item whose current state is literally
+        "outdated" — the system-wide escape-hatch state ``outdate()`` above
+        deliberately avoids for Goal — so the inherited action would always
+        answer 400 ("item not currently outdated") for a Goal. This instead
+        calls ``GoalService.restore()``, the exact path the MCP
+        ``goal.reactivate`` tool uses, which always resets the version to the
+        workflow's initial state rather than its pre-archive state (see that
+        method's docstring for why).
+
+        Body: ``{"change_reason": "..."}`` (optional; ``GoalService.restore``
+        defaults to ``"reactivated"`` when the workspace's Goal workflow
+        requires a non-empty reason for this transition). Returns 200 with
+        the refreshed Goal on success.
+        """
+        lang = detect_lang(request)
+        change_reason = (
+            request.data.get("change_reason")
+            if isinstance(request.data, dict)
+            else None
+        )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().restore(UUID(pk), ctx, change_reason=change_reason)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(GoalSerializer(_goal_to_dict(item)).data)
 
 
 class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):

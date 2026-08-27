@@ -366,6 +366,157 @@ def test_goal_list_negative_limit_returns_400():
     assert resp.status_code == 400
 
 
+# ---------------------------------------------------------------------------
+# #739: POST /api/v1/goals/{pk}/outdate/ and .../reactivate/ (REST parity
+# with the MCP goal.delete / goal.reactivate tools; see
+# mcp_server/tests/test_goal_query_delete.py for the MCP-side equivalents
+# this mirrors).
+# ---------------------------------------------------------------------------
+
+
+def test_goal_outdate_archives_a_draft_goal():
+    """Equivalent of MCP's test_goal_delete_archives_a_draft_goal."""
+    tenant, workspace = _new_tenant_and_workspace(
+        "T13", name="W13", goals_enabled=True
+    )
+    _provision_goal_workflow(workspace)
+    ctx = _make_auth_context(tenant_id=tenant.id, roles=("admin",))
+    factory = APIRequestFactory()
+
+    created = _create_goal(factory, ctx, workspace.id, "Goal to archive")
+    assert created["status"] == "Entwurf"
+    goal_id = created["id"]
+
+    outdate_req = factory.post(f"/api/v1/goals/{goal_id}/outdate/", {}, format="json")
+    outdate_req.auth_context = ctx
+    outdate_resp = GoalViewSet.as_view({"post": "outdate"})(outdate_req, pk=goal_id)
+
+    assert outdate_resp.status_code == 200
+    assert outdate_resp.data["status"] == "Archiviert"
+    assert outdate_resp.data["id"] == goal_id
+
+    retrieve_req = factory.get(f"/api/v1/goals/{goal_id}/")
+    retrieve_req.auth_context = ctx
+    retrieve_resp = GoalViewSet.as_view({"get": "retrieve"})(retrieve_req, pk=goal_id)
+    assert retrieve_resp.data["status"] == "Archiviert"
+
+
+def test_goal_outdate_matches_mcp_goal_delete_outcome():
+    """REST .../outdate/ and MCP goal.delete must reach the same end state.
+
+    Drives one goal through each path in the same workspace and asserts both
+    land on the identical status ("Archiviert") via the identical
+    GoalService.archive() call — i.e. the two entry points are not diverging
+    implementations of "archive a goal".
+    """
+    from mcp_server.tools.goals import GoalToolGroup
+
+    tenant, workspace = _new_tenant_and_workspace(
+        "T14", name="W14", goals_enabled=True
+    )
+    _provision_goal_workflow(workspace)
+    ctx = _make_auth_context(tenant_id=tenant.id, roles=("admin",))
+    factory = APIRequestFactory()
+
+    rest_goal = _create_goal(factory, ctx, workspace.id, "REST-archived goal")
+    outdate_req = factory.post(
+        f"/api/v1/goals/{rest_goal['id']}/outdate/", {}, format="json"
+    )
+    outdate_req.auth_context = ctx
+    rest_resp = GoalViewSet.as_view({"post": "outdate"})(
+        outdate_req, pk=rest_goal["id"]
+    )
+    assert rest_resp.status_code == 200
+
+    group = GoalToolGroup()
+    mcp_goal = group.execute_tool(
+        tool_name="goal.create",
+        params={"workspace_id": str(workspace.id), "title": "MCP-archived goal"},
+        auth_context=ctx,
+        api_key="reqlo_testkey1234",
+    )
+    mcp_result = group.execute_tool(
+        tool_name="goal.delete",
+        params={"goal_id": mcp_goal.data["id"]},
+        auth_context=ctx,
+        api_key="reqlo_testkey1234",
+    )
+    assert mcp_result.success is True, mcp_result.message
+
+    assert rest_resp.data["status"] == mcp_result.data["status"] == "Archiviert"
+
+
+def test_goal_outdate_rejects_role_without_approver_permission():
+    """Equivalent of MCP's test_goal_delete_rejects_role_without_approver_permission."""
+    tenant, workspace = _new_tenant_and_workspace(
+        "T15", name="W15", goals_enabled=True
+    )
+    _provision_goal_workflow(workspace)
+    admin_ctx = _make_auth_context(tenant_id=tenant.id, roles=("admin",))
+    editor_ctx = _make_auth_context(tenant_id=tenant.id, roles=("editor",))
+    factory = APIRequestFactory()
+
+    created = _create_goal(factory, admin_ctx, workspace.id, "Goal A")
+
+    outdate_req = factory.post(
+        f"/api/v1/goals/{created['id']}/outdate/", {}, format="json"
+    )
+    outdate_req.auth_context = editor_ctx
+    resp = GoalViewSet.as_view({"post": "outdate"})(outdate_req, pk=created["id"])
+
+    assert resp.status_code == 403
+
+
+def test_goal_outdate_unknown_id_returns_404():
+    """Equivalent of MCP's test_goal_delete_unknown_id_returns_not_found."""
+    tenant = Tenant.objects.create(name="T16")
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    missing_id = str(uuid.uuid4())
+    outdate_req = factory.post(f"/api/v1/goals/{missing_id}/outdate/", {}, format="json")
+    outdate_req.auth_context = ctx
+    resp = GoalViewSet.as_view({"post": "outdate"})(outdate_req, pk=missing_id)
+
+    assert resp.status_code == 404
+
+
+def test_goal_reactivate_restores_an_archived_goal_to_draft():
+    """A Goal archived via .../outdate/ can be restored via .../reactivate/.
+
+    GoalService.restore() always resets to the workflow's initial state
+    ("Entwurf"), mirroring MCP's goal.reactivate contract.
+    """
+    tenant, workspace = _new_tenant_and_workspace(
+        "T17", name="W17", goals_enabled=True
+    )
+    _provision_goal_workflow(workspace)
+    ctx = _make_auth_context(tenant_id=tenant.id, roles=("admin",))
+    factory = APIRequestFactory()
+
+    created = _create_goal(factory, ctx, workspace.id, "Goal to restore")
+    goal_id = created["id"]
+
+    outdate_req = factory.post(f"/api/v1/goals/{goal_id}/outdate/", {}, format="json")
+    outdate_req.auth_context = ctx
+    outdate_resp = GoalViewSet.as_view({"post": "outdate"})(outdate_req, pk=goal_id)
+    assert outdate_resp.status_code == 200
+    assert outdate_resp.data["status"] == "Archiviert"
+
+    reactivate_req = factory.post(
+        f"/api/v1/goals/{goal_id}/reactivate/",
+        {"change_reason": "Restore for rework."},
+        format="json",
+    )
+    reactivate_req.auth_context = ctx
+    reactivate_resp = GoalViewSet.as_view({"post": "reactivate"})(
+        reactivate_req, pk=goal_id
+    )
+
+    assert reactivate_resp.status_code == 200
+    assert reactivate_resp.data["status"] == "Entwurf"
+
+
 def test_goal_list_status_filter():
     """Regression test for #236: ?status= was silently ignored.
 
