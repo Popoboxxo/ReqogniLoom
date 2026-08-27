@@ -356,13 +356,28 @@ class InterviewService(ServiceBase):
                 f"InterviewSession {session_id} is {session.status}, cannot answer."
             )
         # issue #542: validate against the protocol's declared field type
-        # before storing. A field name that isn't in the protocol at all is
-        # left unvalidated on purpose -- answer() has always been permissive
-        # about unknown field names; only type-check fields that resolve.
+        # before storing. issue #738 (supersedes #542's "permissive about
+        # unknown field names" decision): a field name that resolves to no
+        # protocol field across any phase is rejected outright instead of
+        # being echoed back into collected_fields unvalidated -- letting an
+        # arbitrary caller-supplied field name persist into session state
+        # (and from there into the LLM context / eventually the formalized
+        # artifact) is confusing session state at best and a prompt-shaping
+        # attack surface at worst. Answering an already-collected field
+        # again is still allowed: _find_protocol_field looks across every
+        # phase's required_fields, not just the current phase's still-
+        # missing ones.
         protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
         protocol_field = self._find_protocol_field(protocol, field)
-        if protocol_field is not None:
-            self._validate_field_value_type(protocol_field, value)
+        if protocol_field is None:
+            valid_names = sorted(
+                {f.name for phase in protocol.phases for f in phase.required_fields}
+            )
+            raise ValidationError(
+                f"Unknown field {field!r} for artifact_type={session.artifact_type!r}; "
+                f"valid fields are {valid_names!r}."
+            )
+        self._validate_field_value_type(protocol_field, value)
         session.collected_fields = {**session.collected_fields, field: value}
         session.version = F("version") + 1
         session.save(update_fields=["collected_fields", "modified_at", "version"])

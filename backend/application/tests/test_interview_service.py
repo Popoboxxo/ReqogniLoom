@@ -156,7 +156,8 @@ def _install_number_and_enum_protocol(ctx, workspace) -> None:
 
 class TestAnswerFieldTypeValidation:
     """issue #542: answer() validates a submitted value against the
-    protocol's declared field type before storing it."""
+    protocol's declared field type before storing it. issue #738: answer()
+    also rejects field names that don't resolve to any protocol field."""
 
     def test_answer_rejects_non_numeric_value_for_number_field(self, ctx, workspace):
         _install_number_and_enum_protocol(ctx, workspace)
@@ -183,16 +184,32 @@ class TestAnswerFieldTypeValidation:
         assert state["collected_fields"]["priority"] == 5
         assert state["collected_fields"]["element_type"] == "b"
 
-    def test_answer_does_not_validate_unknown_field_names(self, ctx, workspace):
-        """A field name absent from the protocol entirely stays permissive
-        (pre-existing behavior, must not regress) -- only fields that
-        resolve to a real protocol field get type-checked."""
+    def test_answer_rejects_unknown_field_name(self, ctx, workspace):
+        """issue #738: a field name absent from the protocol entirely must
+        be rejected with a clean ValidationError instead of being echoed
+        back into collected_fields unvalidated (supersedes #542's
+        "permissive about unknown field names" behavior, which allowed
+        arbitrary field names to pollute session state)."""
         session = InterviewService().start(ctx, "Requirement", workspace.id)
 
-        InterviewService().answer(ctx, session.id, "not_a_real_field", 12345)
+        with pytest.raises(ValidationError):
+            InterviewService().answer(ctx, session.id, "not_a_real_field", 12345)
+
+        state = InterviewService().get_state(ctx, session.id)
+        assert "not_a_real_field" not in state["collected_fields"]
+
+    def test_answer_accepts_already_answered_field_again(self, ctx, workspace):
+        """Re-answering a field that was already moved out of missing_fields
+        must still work -- the valid-field set is the protocol's full
+        required_fields across every phase, not just the current phase's
+        still-missing subset."""
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+
+        InterviewService().answer(ctx, session.id, "title", "First draft")
+        InterviewService().answer(ctx, session.id, "title", "Revised title")
         state = InterviewService().get_state(ctx, session.id)
 
-        assert state["collected_fields"]["not_a_real_field"] == 12345
+        assert state["collected_fields"]["title"] == "Revised title"
 
 
 class TestListAndGet:

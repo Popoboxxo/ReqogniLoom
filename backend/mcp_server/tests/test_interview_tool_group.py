@@ -248,6 +248,31 @@ class TestInterviewToolGroup:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
+    def test_answer_unknown_field_returns_validation_error(self):
+        """issue #738: a field name the service can't resolve against the
+        protocol must surface as a clean VALIDATION_ERROR through the MCP
+        layer too (InterviewService.answer is the source of truth; this
+        confirms the tool group's existing ValidationError -> VALIDATION_ERROR
+        mapping also covers the new unknown-field rejection)."""
+        group, svc = self._group()
+        svc.answer.side_effect = ValidationError(
+            "Unknown field 'hack_field_xyz' for artifact_type='Requirement'; "
+            "valid fields are ['rationale', 'title']."
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.answer",
+            params={
+                "session_id": str(SESSION_UUID),
+                "field": "hack_field_xyz",
+                "value": "x",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
     def test_answer_missing_value_param_returns_validation_error(self):
         """value is schema-required; an omitted value must not silently
         record None as the answer."""
