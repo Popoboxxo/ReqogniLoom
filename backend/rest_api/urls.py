@@ -55,6 +55,8 @@ from admin_ops.theme_rest import (
 )
 from memory.memory_rest import (
     MemorySelfServiceView,
+    SystemMemoryEntriesListView,
+    SystemMemoryProjectionView,
     SystemMemorySettingsResetView,
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
@@ -487,6 +489,18 @@ urlpatterns = [
         "system/memory/workspaces/<uuid:workspace_id>/",
         SystemMemoryWorkspaceDeleteView.as_view(),
         name="system-memory-workspace-delete",
+    ),
+    # AI Long-Term Memory — System-Admin visualization: entry list +
+    # PCA/cluster projection (Memory Admin UI Phase 5, spec 2026-08-26).
+    path(
+        "system/memory/entries/",
+        SystemMemoryEntriesListView.as_view(),
+        name="system-memory-entries",
+    ),
+    path(
+        "system/memory/projection/",
+        SystemMemoryProjectionView.as_view(),
+        name="system-memory-projection",
     ),
     # AI Long-Term Memory — user self-service (Memory Admin UI Phase 4,
     # spec 2026-08-26). Any authenticated user, own UserTenantMemory only.
