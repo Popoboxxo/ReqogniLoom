@@ -162,6 +162,18 @@ def consolidate_interaction(
                 # Mark the OLD entry as superseded by the freshly-created one;
                 # both rows stay in the table (history preserved), only the
                 # old one's superseded_by points forward.
+                #
+                # NOTE: this branch writes to the pgvector tables directly and
+                # is therefore only valid for PgvectorMemoryBackend. The
+                # ``distance is not None`` guard above is what keeps it that
+                # way: ``superseded_by`` is a pgvector-only column, and only
+                # that backend reports a per-result distance. HonchoMemoryBackend
+                # leaves distance at None (Honcho scores nothing and models
+                # contradictions itself, as a "contradiction" conclusion level),
+                # so it never reaches this ORM write -- which would otherwise
+                # feed a Honcho nanoid into a UUIDField lookup. Any future
+                # backend that starts reporting a distance MUST either issue
+                # UUID entry ids or gate this branch explicitly.
                 model, _scope_field = _model_for_scope(scope)
                 model.objects.filter(id=existing[0].entry_id).update(
                     superseded_by_id=new_ref.entry_id

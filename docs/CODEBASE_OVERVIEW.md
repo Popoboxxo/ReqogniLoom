@@ -1,7 +1,7 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
-> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057)  
-> **Letzte Aktualisierung:** 2026-07-19  
+> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057) + v1.2 Memory Admin UI (Phasen 1–5)  
+> **Letzte Aktualisierung:** 2026-08-27  
 > **Branch:** `feat/se-implementation`  
 > **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
@@ -314,6 +314,52 @@ from diagram.services import (
 
 ---
 
+#### `memory/` (ARCH-L1-017)
+**Modell:** AI Long-Term Memory Storage mit pluggable Backends (pgvector/HNSW, Honcho) und 2D-PCA-Visualisierung für Clustering.
+
+**Exportierte API (Memory Models + Backends + Projector):**
+```python
+from memory.models import (
+    WorkspaceMemory,              # Consolidated facts scoped to workspace
+    UserTenantMemory,             # Consolidated facts scoped to user (follows across workspaces)
+    WorkspaceMemorySettings,      # Per-workspace enable/disable toggle
+    SystemMemorySettings,         # System-wide override (Django superuser only)
+)
+from memory.backends import MemoryBackend          # ABC für pluggable Backends
+from memory.honcho_backend import HonchoMemoryBackend
+from memory.pgvector_backend import PgVectorMemoryBackend
+from memory.projector import MemoryProjector      # PCA 2D projection + clustering
+```
+
+**Komponenten:**
+- `models.py` — `WorkspaceMemory`, `UserTenantMemory` (with pgvector HNSW indexes), `WorkspaceMemorySettings`, `SystemMemorySettings`
+- `backends.py` — `MemoryBackend` (ABC) für pluggable Implementierungen
+- `pgvector_backend.py` — PostgreSQL pgvector + HNSW Index Backend
+- `honcho_backend.py` — Honcho Remote Memory Service Backend
+- `context_builder.py` — Ereilt Speicherkontext aus Live-Daten
+- `projector.py` — PCA 2D-Projektion + Ähnlichkeits-Clustering (HNSW-ähnlich)
+- `tasks.py` — Async Consolidation/Embedding Tasks (Celery)
+- `memory_rest.py` — REST-Adapter (Siehe Layer 3)
+
+**Endpoints (siehe REST-API-Sektion):**
+- `GET/PUT /api/v1/workspaces/{id}/memory-settings/` — Per-Workspace Toggle
+- `GET/PUT /api/v1/system/memory-settings/` — System-Admin Override
+- `POST /api/v1/system/memory-settings/reset/` — Reset Overrides
+- `GET /api/v1/system/memory/workspaces/` — Workspace-Übersicht
+- `DELETE /api/v1/system/memory/workspaces/{id}/` — Workspace-Memory Löschen
+- `GET /api/v1/system/memory/entries/` — Live Entries List + Full-Text Filter
+- `GET /api/v1/system/memory/projection/` — 2D PCA Projection + Clustering
+- `GET/DELETE /api/v1/memory/me/` — User Self-Service
+
+**Modell-Besonderheiten:**
+- `WorkspaceMemory` + `UserTenantMemory` speichern Embeddings (384D, pgvector) + `superseded_by`-FK für Consolidation-Historie ohne zu löschen
+- `WorkspaceMemorySettings` folgt der "missing row = default state" Konvention (wie `LlmSettings`, `WorkspaceContextSettings`)
+- `SystemMemorySettings` ist eine Deployment-globale Row (Cross-Tenant), nur für Django Superuser editierbar
+
+**Test-Coverage:** 50+ Tests (Models, Backends, Projector, Consolidation, RLS)
+
+---
+
 #### `icd/` (ARCH-L1-014)
 **Modell:** Interface Control Document Management (Versionierung + Breaking-Change-Detection).
 
@@ -340,7 +386,7 @@ from icd.services import (
 #### `application/` (ARCH-L1-004)
 **Modell:** Central Facade mit 16 Domain Services (ADR-01: Single Entry Point). Alle höheren Schichten rufen nur `ApplicationService` auf.
 
-**Exportierte API (19 Services — 16 Core + 3 v1.1):**
+**Exportierte API (21 Services — 13 Core + 3 v1.1 + 2 v1.2):**
 ```python
 from application.services import (
     # Core
@@ -379,10 +425,14 @@ from application.services import (
     ImportService,                 # CSV bulk import
     TestRunService,                # Test-Run-Protokollierung
     ArtifactDiffService,           # Strukturiertes Feld-Level-Diff
+    
+    # v1.2 New Features (Memory Admin)
+    MemoryAdminService,            # System-Admin Memory-Operationen (Phase 1+5)
+    MemorySettingsService,         # Memory-Settings-Verwaltung (Phase 3)
 )
 ```
 
-**Komponenten (16 im `services/` Subpackage — 13 Core + 3 v1.1):**
+**Komponenten (18 im `services/` Subpackage — 13 Core + 3 v1.1 + 2 v1.2):**
 - `artifact_service.py` — `ArtifactService`
 - `requirement_service.py` — `RequirementService`
 - `architecture_service.py` — `ArchitectureService`
@@ -402,6 +452,8 @@ from application.services import (
 - `import_service.py` — `ImportService` (COMP-AS-009, v1.1 CSV-Bulk-Import)
 - `test_run_service.py` — `TestRunService` (COMP-AS-017, v1.1 Test-Run-Protokollierung)
 - `artifact_diff_service.py` — `ArtifactDiffService` (COMP-AS-019, v1.1 Feld-Level-Diff)
+- `memory_admin_service.py` — `MemoryAdminService` (v1.2, Memory Admin UI Phasen 1+5: Workspace-Übersicht, Löschen, Visualisierung)
+- `memory_settings_service.py` — `MemorySettingsService` (v1.2, Memory Admin UI Phase 3: System-Settings-Override)
 
 **Signature (Beispiel):**
 ```python
@@ -512,6 +564,34 @@ class MermaidSourceView(APIView):
 
 class MermaidPreviewView(APIView):
     # GET /api/v1/diagrams/{id}/mermaid-preview/ — rendered preview data
+
+# Memory Management (v1.2, Memory Admin UI Phasen 1–5)
+class WorkspaceMemorySettingsView(APIView):
+    # GET  /api/v1/workspaces/{id}/memory-settings/ — view settings (any workspace member)
+    # PUT  /api/v1/workspaces/{id}/memory-settings/ — toggle enabled (editor/admin)
+
+class SystemMemorySettingsView(APIView):
+    # GET /api/v1/system/memory-settings/  — effective config (System-Admin; env fallback)
+    # PUT /api/v1/system/memory-settings/  — override (Django superuser only)
+
+class SystemMemorySettingsResetView(APIView):
+    # POST /api/v1/system/memory-settings/reset/ — clear all overrides (Django superuser only)
+
+class SystemMemoryWorkspacesListView(APIView):
+    # GET /api/v1/system/memory/workspaces/ — Workspace-Übersicht (System-Admin)
+
+class SystemMemoryWorkspacesDeleteView(APIView):
+    # DELETE /api/v1/system/memory/workspaces/{id}/ — Löschen (System-Admin)
+
+class SystemMemoryEntriesListView(APIView):
+    # GET /api/v1/system/memory/entries/ — Paginated List + Full-Text-Filter (System-Admin, Phase 5)
+
+class SystemMemoryProjectionView(APIView):
+    # GET /api/v1/system/memory/projection/ — 2D PCA + Clustering (System-Admin, Phase 5)
+
+class MemorySelfServiceView(APIView):
+    # GET    /api/v1/memory/me/ — User's own UserTenantMemory (any authenticated user, Phase 4)
+    # DELETE /api/v1/memory/me/ — Delete (any authenticated user, Phase 4)
 ```
 
 **Auth-Endpoints:**
@@ -546,9 +626,9 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server mit 20 Tools in 4 Gruppen, direkt gegen ApplicationService (ADR-01).
+**Modell:** MCP-Server mit 23 Tools in 5 Gruppen, direkt gegen ApplicationService (ADR-01).
 
-**Exportierte API (20 MCP Tools):**
+**Exportierte API (23 MCP Tools):**
 
 **Group 1: Requirements (6 Tools)**
 ```
@@ -586,9 +666,16 @@ query_tracelinks        # artifact_id, direction="both" → List[TraceLink]
 report_coverage         # requirement_id/workspace_id → coverage%
 ```
 
+**Group 5: Memory (3 Tools, v1.2)**
+```
+memory.query            # Semantic search over workspace or user-tenant memory
+memory.list             # List recent memory entries (workspace or user-tenant scoped)
+memory.forget           # Delete a memory entry (ownership/admin-gated)
+```
+
 **Komponenten:**
 - `server.py` — MCP Server-Instanz
-- `tools/` — 4 Tool-Group-Module
+- `tools/` — 5 Tool-Group-Module
 - `handlers/` — Request-Handler pro Tool
 - `schemas/` — JSON-Schema für Tool-Inputs/-Outputs
 
@@ -761,7 +848,7 @@ DATABASES = {
     }
 }
 
-# Installed Apps (16 + Django standard)
+# Installed Apps (17 + Django standard; +1 v1.2)
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -779,6 +866,7 @@ INSTALLED_APPS = [
     'traceability',
     'workflow',
     'baseline',
+    'memory',  # v1.2: AI Long-Term Memory
     'application',
     'rest_api',
     'mcp_server',

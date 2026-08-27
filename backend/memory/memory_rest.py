@@ -130,13 +130,15 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     embedding_model_name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=128)
     ollama_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     embedding_timeout = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-    # "honcho" is deliberately NOT selectable: memory.honcho_backend is a
-    # partial skeleton (its own docstring says so), is never registered in a
-    # real process, and has NotImplementedError stubs — selecting it would
-    # make get_memory_backend() raise for the whole deployment. Re-add only
-    # once the backend is really implemented and registered (tracked bug).
+    # "honcho" is selectable again: memory.honcho_backend now implements the
+    # full MemoryBackend contract against the verified honcho-ai SDK and is
+    # registered at startup via memory.apps.MemoryConfig.ready(), so
+    # get_memory_backend() resolves it instead of raising. It still requires
+    # HONCHO_BASE_URL (or the honcho_base_url override below) to be set —
+    # that is surfaced as a health-check failure, not a save-time error, so an
+    # admin can configure the URL and the backend in either order.
     memory_backend = serializers.ChoiceField(
-        choices=["pgvector"], required=False, allow_null=True
+        choices=["pgvector", "honcho"], required=False, allow_null=True
     )
     honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)

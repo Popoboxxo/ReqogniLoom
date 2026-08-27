@@ -79,12 +79,14 @@ describe("MemorySystemSettingsSection", () => {
     ).map((o) => o.value);
     expect(providerOptions).toEqual(["sentence-transformers", "ollama", "openai", "mock"]);
 
-    // C-2: HonchoMemoryBackend is a non-functional skeleton — it must not be
-    // selectable, otherwise picking it breaks memory for the whole deployment.
+    // C-2: only backends that are really registered on the server may be
+    // offered — picking an unregistered one breaks memory deployment-wide.
+    // "honcho" qualifies now that HonchoMemoryBackend is fully implemented.
+    // Keep in sync with SystemMemorySettingsWriteSerializer.memory_backend.
     const backendOptions = Array.from(
       screen.getByTestId("memory-settings-backend").querySelectorAll("option")
     ).map((o) => o.value);
-    expect(backendOptions).toEqual(["pgvector"]);
+    expect(backendOptions).toEqual(["pgvector", "honcho"]);
   });
 
   it("renders the 4 connection-detail fields with their loaded effective values", async () => {
@@ -196,6 +198,25 @@ describe("MemorySystemSettingsSection", () => {
     expect(screen.getByTestId("memory-settings-save-btn")).toBeDisabled();
   });
 
+  it("switching the memory backend to honcho stages the change and confirms before saving", async () => {
+    const user = userEvent.setup();
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    await user.selectOptions(screen.getByTestId("memory-settings-backend"), "honcho");
+    await user.click(screen.getByTestId("memory-settings-save-btn"));
+
+    // Swapping the memory backend repoints every read/write at another store,
+    // so it must go through the same confirm gate as an embedding change.
+    expect(await screen.findByTestId("memory-settings-confirm-dialog")).toBeInTheDocument();
+    expect(systemMemorySettingsApi.update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("memory-settings-confirm-btn"));
+    await waitFor(() => {
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({ memory_backend: "honcho" });
+    });
+  });
+
   it("changing the embedding provider and saving shows a confirm dialog instead of calling update() directly", async () => {
     const user = userEvent.setup();
     render(<MemorySystemSettingsSection />);
@@ -213,8 +234,8 @@ describe("MemorySystemSettingsSection", () => {
     render(<MemorySystemSettingsSection />);
 
     await screen.findByTestId("memory-system-settings-section");
-    // Provider change (not backend): "pgvector" is now the only selectable
-    // backend, so a backend change can no longer be staged at all.
+    // Staged via the embedding provider rather than the backend select; the
+    // backend select has its own risky-change coverage below.
     await user.selectOptions(screen.getByTestId("memory-settings-embedding-provider"), "openai");
     await user.click(screen.getByTestId("memory-settings-save-btn"));
 

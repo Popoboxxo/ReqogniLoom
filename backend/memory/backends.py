@@ -37,7 +37,7 @@ import contextlib
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterator, List, Optional, Type
+from typing import Callable, Dict, Iterator, List, Optional, Type, Union
 from uuid import UUID
 
 from pgvector.django import CosineDistance
@@ -46,6 +46,23 @@ from llm_adapter.embedding_service import generate_embedding
 from memory.models import UserTenantMemory, WorkspaceMemory
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
+
+
+#: Identifier of a persisted memory entry, as issued by the *active* backend.
+#:
+#: ``PgvectorMemoryBackend`` issues Django ``UUIDField`` primary keys, but a
+#: backend is free to use the external service's own id format and generally
+#: has no way to force one: Honcho, for instance, issues 21-character nanoids
+#: (``src/models.py``: ``mapped_column(TEXT, default=generate_nanoid)``, with a
+#: ``length(public_id) = 21`` / ``^[A-Za-z0-9_-]+$`` check constraint), which
+#: are not parseable as UUIDs. Typing this as a bare ``UUID`` therefore baked a
+#: pgvector-specific assumption into the provider-agnostic facade.
+#:
+#: Consumers must treat this as an opaque token: stringify it for transport
+#: (``mcp_server.tools.memory`` already does) and never feed it to a Django
+#: ``.filter(id=...)`` without first confirming the active backend is the one
+#: that issued it (see :func:`resolve_memory_entry_owner`).
+MemoryEntryId = Union[UUID, str]
 
 
 @dataclass
@@ -60,7 +77,7 @@ class MemoryEntryRef:
     with existing callers/tests that construct a ``MemoryEntryRef`` directly.
     """
 
-    entry_id: UUID
+    entry_id: MemoryEntryId
     content: str
     confidence: float = 1.0
     distance: Optional[float] = None
@@ -96,8 +113,12 @@ class MemoryBackend(ABC):
         ...
 
     @abstractmethod
-    def forget(self, tenant_id: UUID, entry_id: UUID) -> None:
-        """Permanently delete the entry identified by ``entry_id``."""
+    def forget(self, tenant_id: UUID, entry_id: MemoryEntryId) -> None:
+        """Permanently delete the entry identified by ``entry_id``.
+
+        ``entry_id`` must be an id this same backend issued (see
+        :data:`MemoryEntryId`) — ids are not portable between backends.
+        """
         ...
 
     @abstractmethod
@@ -259,7 +280,7 @@ class PgvectorMemoryBackend(MemoryBackend):
                 MemoryEntryRef(entry_id=e.id, content=e.content, confidence=e.confidence) for e in qs
             ]
 
-    def forget(self, tenant_id: UUID, entry_id: UUID) -> None:
+    def forget(self, tenant_id: UUID, entry_id: MemoryEntryId) -> None:
         with _tenant_context(tenant_id):
             deleted, _ = WorkspaceMemory.objects.filter(id=entry_id).delete()
             if deleted == 0:
@@ -277,6 +298,7 @@ class PgvectorMemoryBackend(MemoryBackend):
 
 
 __all__ = [
+    "MemoryEntryId",
     "MemoryEntryRef",
     "MemoryBackend",
     "MEMORY_BACKEND_REGISTRY",

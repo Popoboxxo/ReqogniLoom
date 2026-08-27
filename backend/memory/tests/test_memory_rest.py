@@ -323,16 +323,34 @@ class TestMemorySettingsRest:
 
     # --- C-2 / I-4: selectable choices ----------------------------------
 
-    def test_put_rejects_honcho_memory_backend(self):
-        """HonchoMemoryBackend is an unregistered, partially-implemented
-        skeleton — selecting it would make get_memory_backend() raise for
-        the whole deployment, so it must not be a valid PUT value (C-2)."""
+    def test_put_accepts_honcho_memory_backend(self):
+        """HonchoMemoryBackend now implements the full MemoryBackend contract
+        and self-registers via memory.apps.MemoryConfig.ready(), so selecting
+        it must be allowed. The C-2 rule it used to violate was that
+        get_memory_backend() would raise for the whole deployment — the
+        registry assertion below is the part that actually guards that."""
+        from memory.backends import MEMORY_BACKEND_REGISTRY
+
+        assert "honcho" in MEMORY_BACKEND_REGISTRY
         with active_tenant() as tenant:
             user, token = _superuser_and_token(tenant)
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
             response = client.put(
                 "/api/v1/system/memory-settings/", {"memory_backend": "honcho"}, format="json"
+            )
+            assert response.status_code == 200
+            assert response.data["memory_backend"] == "honcho"
+
+    def test_put_rejects_unknown_memory_backend(self):
+        """The choice list must still reject a backend that has no registry
+        entry — otherwise get_memory_backend() raises deployment-wide (C-2)."""
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"memory_backend": "nope"}, format="json"
             )
             assert response.status_code == 400
 

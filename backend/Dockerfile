@@ -21,6 +21,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements and install Python dependencies to a custom prefix
 COPY requirements.txt .
+# CPU-only torch first: sentence-transformers pulls in `torch`, whose default
+# PyPI wheel bundles the full NVIDIA CUDA runtime as separate `nvidia-*`
+# packages (several GB) even though this deployment (ADR-08, self-hosted,
+# no GPU) never uses CUDA. Installing the CPU-only build from PyTorch's own
+# index FIRST means the subsequent requirements.txt install finds torch
+# already satisfied and never pulls the CUDA variant. Without this, the
+# runtime stage below can exceed several GB of otherwise-dead weight.
+RUN pip install --no-cache-dir --prefix=/install torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # NOTE: the sentence-transformers model pre-download (REQ-L2-VS-004) does NOT
