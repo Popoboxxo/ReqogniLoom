@@ -68,6 +68,11 @@ services:
         condition: service_healthy
     environment:
       DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
+      # If you're using a non-1536-dim embedding model (option (b) below),
+      # this MUST be set here too, matching `honcho`'s value, BEFORE the
+      # first migration against a fresh volume -- see the PITFALL note on
+      # the `honcho` service's EMBEDDING_MODEL_CONFIG block.
+      # EMBEDDING_VECTOR_DIMENSIONS: "768"
     command: alembic upgrade head
 
   honcho:
@@ -141,6 +146,7 @@ services:
       #       docker-compose.override.example.yml -- add that `ollama`
       #       service to this stack too, `docker exec ... ollama pull
       #       nomic-embed-text`, then):
+      #         EMBEDDING_VECTOR_DIMENSIONS: "768"   # see pitfall below
       #         EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
       #         EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
       #         EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://ollama:11434/v1
@@ -150,6 +156,23 @@ services:
       # reads (list/query on already-written data) work without this; only
       # NEW writes need it. Uncomment one of the two option blocks above
       # once you've picked.
+      #
+      # PITFALL, verified live against a real ollama.nomic-embed-text setup:
+      # the pgvector column's dimension is baked into the schema at MIGRATE
+      # time from `EMBEDDING_VECTOR_DIMENSIONS` (default 1536, i.e. OpenAI's
+      # dimension) -- setting the var on the SERVER but migrating (or having
+      # already migrated) with the default still crashes it at boot with
+      # `documents.embedding dim (1536) does not match
+      # EMBEDDING_VECTOR_DIMENSIONS (768)`. Any non-1536-dim model (which
+      # nomic-embed-text is) needs `EMBEDDING_VECTOR_DIMENSIONS` set on BOTH
+      # `honcho-migrate` above AND here BEFORE the very first migration runs
+      # against a fresh `honcho_postgres_data` volume -- dropping the schema
+      # and re-migrating after the fact was NOT sufficient in testing; Honcho
+      # points at its own `scripts/configure_embeddings.py` (inside the
+      # image, not yet verified by this project) as the supported path to
+      # change dimensions on an already-migrated database. text-embedding-
+      # 3-small in option (a) sidesteps this entirely (1536-dim, matches the
+      # untouched default).
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 10s
