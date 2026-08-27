@@ -4091,6 +4091,15 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         "uid": getattr(issue, "uid", None),
         "status": getattr(issue, "status", "Open"),
         "tags": issue.tags if isinstance(issue.tags, list) else [],
+        # GH-737 follow-up audit: `version` was the one field IssueSerializer
+        # declares (read-only, LOCK_VERSION_HELP_TEXT) that this dict never
+        # supplied. DRF silently drops a missing read-only field instead of
+        # erroring, so every Issue response shipped without the lock counter
+        # while the OpenAPI schema and the frontend `Issue` type both declared
+        # it as present — and GET /issues/{id}/versions/ kept handing out
+        # version numbers the entity payload could not be correlated with.
+        # Every other versioned entity's _*_to_dict already includes it.
+        "version": issue.version,
         "created_at": issue.created_at,
         "updated_at": issue.updated_at,
     }

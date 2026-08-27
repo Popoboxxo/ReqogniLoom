@@ -58,6 +58,8 @@ from persistence.models import (
     StakeholderNeed,
     TestCase,
 )
+from traceability.types import normalize_artifact_type
+
 from application.models import Adr, Goal, Issue, MainGoal, Risk
 
 from application.base import NotFoundError, ServiceBase
@@ -190,7 +192,12 @@ class ArtifactDiffService(ServiceBase):
         if artifact is None:
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
-        entity_type = artifact.artifact_type
+        # #737: TestCase tags Artifact.artifact_type with a sub-type suffix
+        # (e.g. "TestCase:Unit") for filtering elsewhere (TestService.list),
+        # but _ENTITY_FIELDS/_ENTITY_MODELS key on the plain type name — an
+        # un-normalised lookup silently fell through to "unsupported type"
+        # for every real TestCase, raising NotFoundError here.
+        entity_type = normalize_artifact_type(artifact.artifact_type)
         if entity_type not in _ENTITY_FIELDS:
             raise NotFoundError(
                 f"Diff not supported for artifact type '{entity_type}'"
@@ -417,7 +424,10 @@ class ArtifactDiffService(ServiceBase):
         if artifact is None:
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
-        entity_type = artifact.artifact_type
+        # #737: same sub-type-suffix normalisation as diff() above — without
+        # it, list_versions() silently degraded to "only the creation
+        # baseline exists" for every TestCase (model_class resolved to None).
+        entity_type = normalize_artifact_type(artifact.artifact_type)
         model_class = _ENTITY_MODELS.get(entity_type)
         if model_class is None:
             return [creation_baseline_entry()]
