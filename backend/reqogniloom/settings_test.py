@@ -111,6 +111,30 @@ LLM_API_KEY = ""
 LLM_BASE_URL = ""
 LLM_MODEL = ""
 
+# REQ-084 (SYSTEMAUDIT_2026-08-27 P0): pinned, independent of the ambient
+# LLM_SYNC_TIMEOUT env var. settings.py reads it via config("LLM_SYNC_TIMEOUT",
+# default=25) — a root .env raising it for a real deployment (e.g. to 240s)
+# silently leaked into the suite and broke
+# llm_adapter/tests/test_long_running_timeout.py, which asserts the
+# per-artifact cap stays at the production default (<= 30s). Hardcoded here,
+# matching settings.py's own default, so the assertion no longer depends on
+# whichever .env happens to be on disk.
+LLM_SYNC_TIMEOUT_SECONDS = 25
+
+# REQ-138 (SYSTEMAUDIT_2026-08-27 P0): pinned, independent of the ambient
+# CSRF_TRUSTED_ORIGINS env var. settings.py reads it via
+# config("CSRF_TRUSTED_ORIGINS", default=...) — a root .env listing
+# deployment-specific LAN origins instead of the default dropped the
+# localhost origins backend/tests/test_csrf_trusted_origins.py asserts on.
+# Hardcoded here, matching settings.py's own default, so the assertion no
+# longer depends on whichever .env happens to be on disk.
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 # ---------------------------------------------------------------------------
 # Password hashing — MD5 is much faster than the default PBKDF2 hasher and is
 # acceptable because no test password needs to be secure.

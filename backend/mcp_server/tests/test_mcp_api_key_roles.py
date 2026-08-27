@@ -37,11 +37,6 @@ import urllib.parse
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
-    reason="MCP live-stack tests require a running Django server (skipped in CI)",
-)
-
 # ---------------------------------------------------------------------------
 # Stack base URLs — match docker-compose port mapping
 # ---------------------------------------------------------------------------
@@ -56,22 +51,43 @@ pytestmark = pytest.mark.skipif(
 # host, so it silently only ever worked in the two cases named above. Probes
 # each candidate's /health/ endpoint (fast, unauthenticated, no side
 # effects) and uses whichever answers first.
-def _resolve_backend_url() -> str:
+def _resolve_backend_url() -> tuple[str, bool]:
     for candidate in ("http://localhost:8000", "http://backend:8000"):
         try:
             with urllib.request.urlopen(f"{candidate}/health/", timeout=2):
-                return candidate
+                return candidate, True
         except (urllib.error.URLError, OSError):
             continue
     # Neither reachable — keep the original default so the resulting
     # connection-refused error still names a concrete, debuggable URL
     # instead of failing this resolution step itself.
-    return "http://localhost:8000"
+    return "http://localhost:8000", False
 
 
-BACKEND_URL = _resolve_backend_url()
+BACKEND_URL, _STACK_REACHABLE = _resolve_backend_url()
 MCP_URL = f"{BACKEND_URL}/mcp/"
 REST_URL = f"{BACKEND_URL}/api/v1"
+
+# This module drives the real HTTP/urllib stack against a live Django server
+# instead of Django test fixtures (see module docstring) — it is an
+# integration test, not a unit test, and must not run unattended in the
+# normal unit suite:
+#   - explicitly skipped in CI (no live stack there), and
+#   - skipped locally whenever the live stack isn't actually reachable,
+#     so `pytest` without `docker-compose up` reports a clean skip instead
+#     of a wall of connection-refused failures.
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
+        reason="MCP live-stack tests require a running Django server (skipped in CI)",
+    ),
+    pytest.mark.skipif(
+        not _STACK_REACHABLE,
+        reason=f"MCP live-stack tests require a running Django server "
+        f"(none reachable at {BACKEND_URL})",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
