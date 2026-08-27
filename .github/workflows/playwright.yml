@@ -9,7 +9,14 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # GH-682: this is a *safety net*, not the test budget. The test budget is
+    # `globalTimeout` in e2e/playwright.config.ts (10 min), which lets
+    # Playwright stop itself and still write its report. Hitting the job cap
+    # instead means GitHub cancels the job, which also skips the
+    # `if: always()` report upload below — leaving no evidence of what failed.
+    # Setup (~5-8 min) + globalTimeout (10 min) + upload must therefore fit
+    # comfortably inside this value. Normal runs finish in 8-12 min.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
