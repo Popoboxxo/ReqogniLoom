@@ -201,7 +201,7 @@ export function CreateWorkspaceModal({
             disabled={isCreating}
             style={{
               background: "var(--color-primary)",
-              color: "white",
+              color: "var(--color-on-primary)",
               border: "none",
               borderRadius: "var(--radius-sm)",
               padding: "var(--space-2) var(--space-4)",

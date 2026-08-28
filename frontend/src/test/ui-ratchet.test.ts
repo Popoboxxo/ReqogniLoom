@@ -411,9 +411,21 @@ const STYLE_BRACE_BASELINE = 1070;
 // false-positive cases above; every other target file dropped to 0. This
 // closes out the plan's `.tsx` scope. Baseline lowered in the same change
 // per the ratchet rule above.
+//
+// Contrast-audit follow-up (#140/#161 blast-radius analysis, 2026-08-28):
+// `workspace-tree.tsx`'s L2 level badge (`#06B6D4`, checkpoint 1's only
+// remaining migratable `.tsx` hex literal) moved onto a new
+// `--color-level-l2` token backed by a new `--palette-cyan-500` primitive
+// (exact value, no hue change — see tokens.css's own comment for why this
+// was previously left as raw hex). Re-measured (same script as above): 3
+// files / 17 occurrences — `CanvasEditor.tsx` (15, still genuinely
+// unmigratable, Fabric.js/`<input type="color">`) and `GraphEdge.tsx` (1,
+// still no collision-free primitive match) and `SidebarNavigation.tsx` (1,
+// still the `#317` issue-number false positive) are unchanged. Baseline
+// lowered in the same change per the ratchet rule above.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 18;
-const HEX_LITERAL_FILE_BASELINE = 4;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 17;
+const HEX_LITERAL_FILE_BASELINE = 3;
 
 // --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
 //
@@ -486,7 +498,17 @@ const HEX_LITERAL_FILE_BASELINE = 4;
 // entries (--palette-teal-500/-orange-500/-rose-500), same rationale as the
 // raise above — the artifact-type color ramp needs distinct families that
 // did not exist yet. Still 1 file; semantic blocks untouched.
-const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 200;
+//
+// Contrast-audit follow-up (#140/#161 blast-radius analysis, 2026-08-28):
+// +3 more primitive-layer entries — `--palette-bauhaus-terracotta-650` (new
+// WCAG-AA-safe danger rung, see its own tokens.css comment), `--palette-
+// cyan-500` (workspace-tree.tsx's L2 badge, see the .tsx baseline comment
+// above) and `--palette-gray-500` (MetricsDashboard.tsx's neutral-tile bg).
+// Same raise rationale as above — primitive-layer growth is expected, not a
+// leak; every accompanying `-rgb` triplet added in the same change is a
+// plain number list, not a hex literal, and does not affect this count.
+// Re-measured: still 1 file, 203 occurrences. Semantic blocks untouched.
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 203;
 const HEX_LITERAL_CSS_FILE_BASELINE = 1;
 
 // --- (c) Duplicate tree implementations ------------------------------------

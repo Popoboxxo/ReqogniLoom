@@ -49,6 +49,24 @@ function getTypeColor(type?: RequirementType): string {
 }
 
 /**
+ * Contrast-audit follow-up (#140/#161 blast-radius analysis): the badge below
+ * used a single hardcoded `color: 'white'` for all 4 background variants
+ * above. Recomputed WCAG contrast for the frozen (theme-independent) reqtype
+ * palette found white only clears AA on `-default` (gray-600, 7.53:1) —
+ * `-syreq`/`-usecase`/`-featurereq` measure 2.54:1/3.96:1/2.15:1 with white,
+ * all under the 4.5:1 floor, but clear it with black (8.29:1/5.31:1/9.78:1).
+ * Hence a companion text-color lookup instead of a static value.
+ */
+function getTypeTextColor(type?: RequirementType): string {
+  switch (type) {
+    case 'SyReq': return 'var(--color-reqtype-syreq-text)';
+    case 'UseCase': return 'var(--color-reqtype-usecase-text)';
+    case 'FeatureReq': return 'var(--color-reqtype-featurereq-text)';
+    default:      return 'var(--color-reqtype-default-text)';
+  }
+}
+
+/**
  * Issue #394: V-model level badge prefix (`L0`-`L4`), rendered in front of
  * the type abbreviation — analogous to the `L{n}` badge ArchitectureElement
  * already shows (issue root cause: "L1/L2 requirements are visually
@@ -75,7 +93,7 @@ function reqToNode(req: Requirement, typeLabel?: string, levelLabel?: string): W
     ? {
         text: reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type),
         bg: getTypeColor(req.type),
-        color: 'white',
+        color: getTypeTextColor(req.type),
         title: levelLabel ? `${levelLabel} · ${typeLabel ?? ''}` : typeLabel,
       }
     : undefined;
@@ -287,7 +305,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
             data-testid="req-confirm-delete-btn"
             onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null); }}
             style={{
-              background: 'var(--color-danger)', color: 'white', border: 'none',
+              background: 'var(--color-danger)', color: 'var(--color-on-danger)', border: 'none',
               borderRadius: 'var(--radius-md)', padding: '2px 8px',
               fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer',
               whiteSpace: 'nowrap',

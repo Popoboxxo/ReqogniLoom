@@ -220,7 +220,7 @@ export function LoginPage(): JSX.Element {
                 height: "10px",
                 borderRadius: "var(--radius-full)",
                 background: "var(--color-primary)",
-                boxShadow: "0 0 0 3px rgba(99,102,241,0.20)",
+                boxShadow: "0 0 0 3px rgba(var(--color-primary-rgb), 0.20)",
               }}
             />
             <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0, color: "var(--color-text)" }}>

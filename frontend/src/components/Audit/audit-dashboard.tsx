@@ -708,7 +708,7 @@ function refreshButtonStyle(isLoading: boolean): CSSProperties {
   return {
     padding: "var(--space-2) var(--space-4)",
     background: "var(--color-primary)",
-    color: "white",
+    color: "var(--color-on-primary)",
     border: "none",
     borderRadius: "var(--radius-md)",
     cursor: isLoading ? "not-allowed" : "pointer",
@@ -746,7 +746,7 @@ function countBadgeStyle(kind: "danger" | "warning" | "neutral"): CSSProperties 
 const adoptButtonStyle = (isPending: boolean): CSSProperties => ({
   padding: "var(--space-1) var(--space-3)",
   background: "var(--color-success)",
-  color: "white",
+  color: "var(--color-on-success)",
   border: "none",
   borderRadius: "var(--radius-md)",
   cursor: isPending ? "not-allowed" : "pointer",

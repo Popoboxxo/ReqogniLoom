@@ -62,7 +62,7 @@ const inputStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -82,7 +82,7 @@ const cardStyle: React.CSSProperties = {
 
 const dangerButtonStyle: React.CSSProperties = {
   background: "var(--color-danger)",
-  color: "white",
+  color: "var(--color-on-danger)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-1) var(--space-3)",
@@ -366,7 +366,7 @@ export function ApiKeysSection(): JSX.Element {
                     fontWeight: 600,
                     background: key.revoked
                       ? "var(--color-surface-raised)"
-                      : "rgba(22,163,74,0.12)",
+                      : "rgba(var(--color-success-rgb), 0.12)",
                     color: key.revoked
                       ? "var(--color-text-muted)"
                       : "var(--color-success)",

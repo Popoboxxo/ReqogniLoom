@@ -94,7 +94,7 @@ export const formInputStyle = {
 export const formPrimaryButtonStyle: React.CSSProperties = {
   padding: "var(--space-2) var(--space-4)",
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   cursor: "pointer",

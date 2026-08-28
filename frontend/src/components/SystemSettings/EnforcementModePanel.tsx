@@ -57,7 +57,7 @@ const pillBase: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -145,7 +145,7 @@ export function EnforcementModePanel(): JSX.Element {
                 style={{
                   ...pillBase,
                   background: isAuthoritative
-                    ? "rgba(22,163,74,0.12)"
+                    ? "rgba(var(--color-success-rgb), 0.12)"
                     : "var(--color-surface-raised)",
                   color: isAuthoritative
                     ? "var(--color-success)"

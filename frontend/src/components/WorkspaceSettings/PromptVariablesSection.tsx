@@ -109,7 +109,7 @@ const selectStyle: CSSProperties = {
 
 const primaryButtonStyle: CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-1) var(--space-3)",
