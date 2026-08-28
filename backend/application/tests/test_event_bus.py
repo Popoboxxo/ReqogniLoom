@@ -11,20 +11,25 @@ Coverage:
   - DomainEventBus (singleton): get_event_bus returns same instance,
     register_subscriber / unregister_subscriber delegation,
     get_subscriber_registry snapshot
-  - publish: on_commit hook enqueues _insert; _insert creates DomainEventOutbox row
+  - publish: INSERTs the outbox row inline, in the caller's transaction (SA-02)
   - dispatch_to_subscribers: calls each subscriber, logs-and-continues on failure
     (graceful degradation REQ-L3-DEB-008), timeout warning logged
-  - poll_and_dispatch: marks records published, moves to DLQ after MAX_RETRIES
-  - Outbox: DomainEvent inserted on commit, not on rollback (verified via mock)
+  - poll_and_dispatch: claims, dispatches outside the claim TX (SA-04), marks
+    records published, moves to DLQ after MAX_RETRIES
+  - Outbox: mutation and event commit or roll back together (real COMMIT test)
 """
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch, call
+from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db import transaction as django_transaction
+from django.utils import timezone
 
 from application.event_bus import (
+    CLAIM_TIMEOUT_SECONDS,
     DomainEvent,
     DomainEventBus,
     SubscriberRegistry,
@@ -212,32 +217,23 @@ class TestDomainEventBusSubscriberManagement:
 
 
 # ---------------------------------------------------------------------------
-# DomainEventBus.publish — Outbox via on_commit
+# DomainEventBus.publish — Transactional Outbox (SA-02)
 # ---------------------------------------------------------------------------
 
 
 class TestPublish:
-    """REQ-L3-DEB-002, REQ-L2-AS-029."""
+    """REQ-L3-DEB-002, REQ-L2-AS-029.
 
-    def test_publish_registers_on_commit_callback(self):
-        """publish() calls transaction.on_commit with a callable."""
-        bus = DomainEventBus()
-        event = DomainEvent(
-            event_type="RequirementCreated",
-            entity_id=uuid.uuid4(),
-            workspace_id=uuid.uuid4(),
-        )
+    SA-02 changed the contract these tests pin down. ``publish()`` used to defer
+    the outbox INSERT to a ``transaction.on_commit`` hook — i.e. the row was
+    written *after* the mutation had already committed, so a crash in that
+    window lost the event permanently, and an insert failure was swallowed. The
+    tests below assert the replacement contract: the INSERT happens inline, in
+    the caller's transaction, and is allowed to fail it.
+    """
 
-        with patch("application.event_bus.transaction.on_commit") as mock_on_commit:
-            bus.publish(event)
-
-        mock_on_commit.assert_called_once()
-        # The callback must be callable
-        callback = mock_on_commit.call_args[0][0]
-        assert callable(callback)
-
-    def test_on_commit_callback_inserts_outbox_row(self):
-        """The on_commit callback inserts a DomainEventOutbox record."""
+    def test_publish_inserts_outbox_row_inline(self):
+        """publish() INSERTs immediately — no on_commit deferral (SA-02)."""
         bus = DomainEventBus()
         entity_id = uuid.uuid4()
         workspace_id = uuid.uuid4()
@@ -248,32 +244,26 @@ class TestPublish:
             payload={"title": "T"},
         )
 
-        captured_callback = None
-
-        def capture_callback(fn):
-            nonlocal captured_callback
-            captured_callback = fn
-
-        with patch(
-            "application.event_bus.transaction.on_commit", side_effect=capture_callback
+        with (
+            patch("application.event_bus.transaction.on_commit") as mock_on_commit,
+            patch("application.models.DomainEventOutbox.objects.create") as mock_create,
         ):
             bus.publish(event)
 
-        assert captured_callback is not None
-
-        with patch(
-            "application.models.DomainEventOutbox.objects.create"
-        ) as mock_create:
-            captured_callback()
-
+        mock_on_commit.assert_not_called()
         mock_create.assert_called_once()
         kwargs = mock_create.call_args.kwargs
         assert kwargs["event_type"] == "RequirementCreated"
         assert kwargs["workspace_id"] == workspace_id
         assert kwargs["entity_id"] == entity_id
 
-    def test_on_commit_callback_logs_exception_on_db_error(self):
-        """The on_commit callback swallows DB errors and logs them."""
+    def test_publish_propagates_db_error(self):
+        """An outbox INSERT failure must fail the caller, not be swallowed.
+
+        The whole point of the pattern is "no event -> no mutation". Swallowing
+        here (the pre-SA-02 behaviour) let the mutation commit with the event
+        silently missing.
+        """
         bus = DomainEventBus()
         event = DomainEvent(
             event_type="RequirementCreated",
@@ -281,28 +271,95 @@ class TestPublish:
             workspace_id=uuid.uuid4(),
         )
 
-        captured_callback = None
-
-        def capture_callback(fn):
-            nonlocal captured_callback
-            captured_callback = fn
-
         with patch(
-            "application.event_bus.transaction.on_commit", side_effect=capture_callback
+            "application.models.DomainEventOutbox.objects.create",
+            side_effect=RuntimeError("DB error"),
         ):
-            bus.publish(event)
+            with pytest.raises(RuntimeError, match="DB error"):
+                bus.publish(event)
+
+    def test_publish_outside_transaction_warns(self):
+        """Publishing with no atomic block open is a contract violation."""
+        bus = DomainEventBus()
+        event = DomainEvent(
+            event_type="RequirementCreated",
+            entity_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        )
+
+        connection = MagicMock()
+        connection.in_atomic_block = False
 
         with (
             patch(
-                "application.models.DomainEventOutbox.objects.create",
-                side_effect=Exception("DB error"),
+                "application.event_bus.transaction.get_connection",
+                return_value=connection,
             ),
+            patch("application.models.DomainEventOutbox.objects.create"),
             patch("application.event_bus.logger") as mock_logger,
         ):
-            # Should not raise — failure is logged
-            captured_callback()
+            bus.publish(event)
 
-        mock_logger.exception.assert_called_once()
+        mock_logger.warning.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestPublishTransactionalOutboxGuarantee:
+    """SA-02: the outbox row and the mutation must be one atomic unit.
+
+    ``transaction=True`` is required: these tests need real COMMIT/ROLLBACK
+    semantics, which the default test-case-wrapped-in-a-transaction fixture
+    cannot express (every write is inside one outer transaction there, so
+    "committed" and "rolled back" are indistinguishable).
+    """
+
+    def _make_event(self):
+        return DomainEvent(
+            event_type="RequirementCreated",
+            entity_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        )
+
+    def test_outbox_row_survives_commit(self):
+        from django.db import transaction as db_transaction
+
+        from application.models import DomainEventOutbox
+
+        bus = DomainEventBus()
+        event = self._make_event()
+
+        with db_transaction.atomic():
+            DomainEventOutbox.objects.filter(event_id=event.event_id).delete()
+            bus.publish(event)
+
+        assert DomainEventOutbox.objects.filter(event_id=event.event_id).exists()
+        DomainEventOutbox.objects.filter(event_id=event.event_id).delete()
+
+    def test_outbox_row_rolls_back_with_the_mutation(self):
+        """Rolling the caller's transaction back must take the event with it."""
+        from django.db import transaction as db_transaction
+
+        from application.models import DomainEventOutbox
+
+        bus = DomainEventBus()
+        event = self._make_event()
+
+        class _Boom(Exception):
+            pass
+
+        with pytest.raises(_Boom):
+            with db_transaction.atomic():
+                bus.publish(event)
+                # Inside the same transaction the row is already visible …
+                assert DomainEventOutbox.objects.filter(
+                    event_id=event.event_id
+                ).exists()
+                raise _Boom  # … and this rolls it back again.
+
+        # … but it never reached the database. Before SA-02 this held for a
+        # different reason (the on_commit callback simply never fired); the
+        # point of the test is that it still holds now that the INSERT is real.
+        assert not DomainEventOutbox.objects.filter(event_id=event.event_id).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -500,136 +557,218 @@ class TestPollAndDispatch:
 
 
 # ---------------------------------------------------------------------------
-# poll_and_dispatch — atomic claim (REQ-020 / S-01)
+# poll_and_dispatch — claim / dispatch / write-back (REQ-020, S-01, SA-04, SA-05)
 # ---------------------------------------------------------------------------
 
 
-class TestPollAndDispatchAtomicClaim:
-    """REQ-020, S-01: each outbox record is claimed atomically via
-    select_for_update(skip_locked=True) inside transaction.atomic() so that
-    concurrent Celery workers cannot dispatch the same event twice."""
+def _make_outbox_row(**overrides):
+    """Create a real, unclaimed DomainEventOutbox row."""
+    from application.models import DomainEventOutbox
 
-    def _make_atomic_ctx(self, mock_atomic: MagicMock) -> None:
-        """Configure mock_atomic to act as a no-op context manager."""
-        mock_atomic.return_value.__enter__ = MagicMock(return_value=None)
-        mock_atomic.return_value.__exit__ = MagicMock(return_value=False)
+    defaults = dict(
+        event_id=uuid.uuid4(),
+        event_type="RequirementCreated",
+        workspace_id=uuid.uuid4(),
+        entity_id=uuid.uuid4(),
+        payload={},
+    )
+    defaults.update(overrides)
+    return DomainEventOutbox.objects.create(**defaults)
 
-    def test_skip_locked_record_not_dispatched(self):
-        """When select_for_update raises DoesNotExist (row locked by a peer
-        worker), poll_and_dispatch skips that record without calling
-        dispatch_to_subscribers — no duplicate dispatch. REQ-020."""
-        from application.models import DomainEventOutbox
 
-        bus = get_event_bus()
-        candidate_pk = 42
+class TestPollAndDispatchClaim:
+    """REQ-020, S-01, SA-04.
 
-        with (
-            patch("application.event_bus.DomainEventOutbox") as mock_outbox_cls,
-            patch("application.event_bus.DomainEventDLQ"),
-            patch("application.event_bus.transaction.atomic") as mock_atomic,
-            patch.object(bus, "dispatch_to_subscribers") as mock_dispatch,
-        ):
-            self._make_atomic_ctx(mock_atomic)
-
-            # Candidate PK query returns [42]
-            (
-                mock_outbox_cls.objects
-                .filter.return_value
-                .order_by.return_value
-                .values_list.return_value
-                .__getitem__
-            ) = MagicMock(return_value=[candidate_pk])
-
-            # Atomic claim raises DoesNotExist — row is locked by another worker
-            mock_outbox_cls.DoesNotExist = DomainEventOutbox.DoesNotExist
-            (
-                mock_outbox_cls.objects
-                .select_for_update.return_value
-                .get
-            ).side_effect = DomainEventOutbox.DoesNotExist
-
-            result = poll_and_dispatch()
-
-        assert result == 0
-        mock_dispatch.assert_not_called()
+    These run against real rows rather than a mocked ORM chain on purpose: the
+    behaviour under test *is* the sequence of queries (claim commits, then
+    dispatch, then write back), and a mocked ``objects.filter(...)`` chain
+    asserts nothing about it — it only re-encodes whatever shape the code
+    happened to have when the test was written.
+    """
 
     def test_claimed_record_dispatched_and_published(self):
-        """When select_for_update succeeds, dispatch_to_subscribers is called
-        exactly once and the record is saved as published. REQ-020."""
         from application.models import DomainEventOutbox
 
         bus = get_event_bus()
-        candidate_pk = 99
-        record = MagicMock()
-        record.pk = candidate_pk
-        record.event_id = uuid.uuid4()
-        record.event_type = "RequirementCreated"
-        record.entity_id = uuid.uuid4()
-        record.workspace_id = uuid.uuid4()
-        record.payload = {}
-        record.retry_count = 0
-        record.published = False
+        row = _make_outbox_row()
 
-        with (
-            patch("application.event_bus.DomainEventOutbox") as mock_outbox_cls,
-            patch("application.event_bus.DomainEventDLQ"),
-            patch("application.event_bus.transaction.atomic") as mock_atomic,
-            patch.object(bus, "dispatch_to_subscribers") as mock_dispatch,
-        ):
-            self._make_atomic_ctx(mock_atomic)
+        with patch.object(
+            bus, "dispatch_to_subscribers", return_value=[]
+        ) as mock_dispatch:
+            processed = poll_and_dispatch()
 
-            # Candidate PK query returns [candidate_pk]
-            (
-                mock_outbox_cls.objects
-                .filter.return_value
-                .order_by.return_value
-                .values_list.return_value
-                .__getitem__
-            ) = MagicMock(return_value=[candidate_pk])
-
-            # Atomic claim succeeds — first (and only) worker gets the row
-            mock_outbox_cls.DoesNotExist = DomainEventOutbox.DoesNotExist
-            (
-                mock_outbox_cls.objects
-                .select_for_update.return_value
-                .get
-            ).return_value = record
-
-            result = poll_and_dispatch()
-
-        assert result == 1
+        assert processed == 1
         mock_dispatch.assert_called_once()
-        assert record.published is True
-        record.save.assert_called_with(update_fields=["published", "published_at"])
+        row.refresh_from_db()
+        assert row.published is True
+        assert row.published_at is not None
+        # The claim is released again so the row never looks "in flight".
+        assert row.claimed_at is None
+        assert not DomainEventOutbox.objects.filter(
+            pk=row.pk, published=False
+        ).exists()
 
-    def test_select_for_update_called_with_skip_locked(self):
-        """poll_and_dispatch passes skip_locked=True to select_for_update,
-        ensuring the database-level SKIP LOCKED hint is active. REQ-020."""
+    def test_freshly_claimed_row_is_skipped(self):
+        """A row another worker is currently dispatching must not be picked up."""
+        bus = get_event_bus()
+        _make_outbox_row(claimed_at=timezone.now())
+
+        with patch.object(
+            bus, "dispatch_to_subscribers", return_value=[]
+        ) as mock_dispatch:
+            processed = poll_and_dispatch()
+
+        assert processed == 0
+        mock_dispatch.assert_not_called()
+
+    def test_stale_claim_is_reclaimed(self):
+        """A worker that died mid-dispatch must not strand the row forever."""
+        bus = get_event_bus()
+        stale = timezone.now() - timedelta(seconds=CLAIM_TIMEOUT_SECONDS + 60)
+        row = _make_outbox_row(claimed_at=stale)
+
+        with patch.object(bus, "dispatch_to_subscribers", return_value=[]):
+            processed = poll_and_dispatch()
+
+        assert processed == 1
+        row.refresh_from_db()
+        assert row.published is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_claim_is_committed_before_dispatch(self):
+        """SA-04: the claim transaction must be closed when subscribers run.
+
+        This is the whole point of the restructure — WebhookDispatcher does
+        outbound HTTP with retries and back-off sleeps (~65s worst case per
+        subscription), and the previous implementation held a SELECT FOR UPDATE
+        row lock and an open Postgres transaction for that entire time.
+
+        ``transaction=True`` is mandatory here: the plain ``django_db`` fixture
+        wraps the whole test in one transaction, so ``in_atomic_block`` would
+        read True no matter what the production code does — the assertion below
+        would pass on the *old*, broken implementation just as happily.
+        """
         from application.models import DomainEventOutbox
 
         bus = get_event_bus()
+        row = _make_outbox_row()
+        observed = {}
 
-        with (
-            patch("application.event_bus.DomainEventOutbox") as mock_outbox_cls,
-            patch("application.event_bus.DomainEventDLQ"),
-            patch("application.event_bus.transaction.atomic") as mock_atomic,
-            patch.object(bus, "dispatch_to_subscribers"),
-        ):
-            self._make_atomic_ctx(mock_atomic)
+        def _spy(event, timeout_seconds=30):
+            observed["in_atomic_block"] = (
+                django_transaction.get_connection().in_atomic_block
+            )
+            # The claim must already be durable, not merely pending.
+            observed["claimed_at"] = (
+                DomainEventOutbox.objects.filter(pk=row.pk)
+                .values_list("claimed_at", flat=True)
+                .first()
+            )
+            return []
 
-            # No candidates — poll returns immediately after the first query
-            (
-                mock_outbox_cls.objects
-                .filter.return_value
-                .order_by.return_value
-                .values_list.return_value
-                .__getitem__
-            ) = MagicMock(return_value=[])
-
+        with patch.object(bus, "dispatch_to_subscribers", side_effect=_spy):
             poll_and_dispatch()
 
-        # select_for_update must not be called when there are no candidates.
-        # The important guarantee is: when it IS called, skip_locked=True is set.
-        # Verified by test_claimed_record_dispatched_and_published above via mock
-        # chain — this test confirms the no-candidates fast-path returns cleanly.
-        mock_outbox_cls.objects.select_for_update.assert_not_called()
+        assert observed["in_atomic_block"] is False, (
+            "subscribers ran inside the claim transaction — the row lock is "
+            "still held across external I/O"
+        )
+        assert observed["claimed_at"] is not None
+
+    def test_failed_dispatch_increments_retry_and_releases_claim(self):
+        bus = get_event_bus()
+        row = _make_outbox_row()
+
+        with patch.object(bus, "dispatch_to_subscribers", return_value=["boom"]):
+            processed = poll_and_dispatch()
+
+        assert processed == 0
+        row.refresh_from_db()
+        assert row.published is False
+        assert row.retry_count == 1
+        assert row.claimed_at is None
+
+    def test_dispatch_raising_is_contained(self):
+        """dispatch_to_subscribers is contractually non-raising; if it does
+        anyway, the row must land on the retry path, not crash the cycle."""
+        bus = get_event_bus()
+        row = _make_outbox_row()
+
+        with patch.object(
+            bus, "dispatch_to_subscribers", side_effect=RuntimeError("kaboom")
+        ):
+            processed = poll_and_dispatch()
+
+        assert processed == 0
+        row.refresh_from_db()
+        assert row.retry_count == 1
+        assert row.claimed_at is None
+
+
+class TestPollAndDispatchDlq:
+    """REQ-021, REQ-L3-DEB-007, SA-05."""
+
+    def test_event_moved_to_dlq_after_max_retries(self):
+        from application.models import DomainEventDLQ, DomainEventOutbox
+
+        bus = get_event_bus()
+        row = _make_outbox_row(retry_count=MAX_RETRIES - 1)
+
+        with patch.object(bus, "dispatch_to_subscribers", return_value=["boom"]):
+            poll_and_dispatch()
+
+        assert not DomainEventOutbox.objects.filter(pk=row.pk).exists()
+        dlq = DomainEventDLQ.objects.get(event_id=row.event_id)
+        assert dlq.retry_count == MAX_RETRIES
+        assert "boom" in dlq.error_message
+
+    def test_dlq_move_failure_keeps_the_retry_increment(self):
+        """SA-05: a failing DLQ move must not roll back the claim bookkeeping.
+
+        Previously the move ran inside the claim transaction, so a DLQ insert
+        error also discarded the retry_count increment and the row went back
+        into the poll set completely unchanged — a permanently stuck
+        ``published=False`` row that never reached the DLQ and never stopped
+        being retried.
+        """
+
+        bus = get_event_bus()
+        row = _make_outbox_row(retry_count=MAX_RETRIES - 1)
+
+        with (
+            patch.object(bus, "dispatch_to_subscribers", return_value=["boom"]),
+            patch(
+                "application.event_bus.DomainEventDLQ.objects.get_or_create",
+                side_effect=RuntimeError("DLQ table unavailable"),
+            ),
+        ):
+            # Must not propagate — one poisoned row may not abort the cycle.
+            poll_and_dispatch()
+
+        row.refresh_from_db()
+        assert row.retry_count == MAX_RETRIES, (
+            "the retry increment was rolled back with the failed DLQ move"
+        )
+        assert row.claimed_at is None, "the claim was not released"
+
+    def test_dlq_move_is_retry_safe(self):
+        """A leftover DLQ row from a half-finished move must not block a retry."""
+        from application.models import DomainEventDLQ, DomainEventOutbox
+
+        bus = get_event_bus()
+        row = _make_outbox_row(retry_count=MAX_RETRIES - 1)
+        DomainEventDLQ.objects.create(
+            event_id=row.event_id,
+            event_type=row.event_type,
+            workspace_id=row.workspace_id,
+            entity_id=row.entity_id,
+            payload=row.payload,
+            error_message="earlier attempt",
+            retry_count=MAX_RETRIES,
+        )
+
+        with patch.object(bus, "dispatch_to_subscribers", return_value=["boom"]):
+            poll_and_dispatch()
+
+        assert not DomainEventOutbox.objects.filter(pk=row.pk).exists()
+        assert DomainEventDLQ.objects.filter(event_id=row.event_id).count() == 1

@@ -16,9 +16,15 @@ Regenerate `requirements.lock` whenever you modify `requirements.txt`:
 
 ### Prerequisites
 
-- Python 3.12+ (must match the Docker image runtime)
-- `pip-tools` installed: `pip install pip-tools`
-- A clean virtual environment (recommended)
+- Docker (the resolution runs inside a `python:3.12-slim` container)
+- Network access to PyPI
+
+**Do not run `pip-compile` on your host.** Dependency resolution is
+platform-dependent — `torch` (pulled in by `sentence-transformers`) declares its
+`nvidia-*` and `triton` wheels behind Linux environment markers only. A lock
+generated on Windows or macOS silently omits ~20 packages and therefore does not
+describe the image that is actually deployed. The container also pins CPython to
+3.12, matching `backend/Dockerfile`.
 
 ### Steps
 
@@ -26,30 +32,29 @@ Regenerate `requirements.lock` whenever you modify `requirements.txt`:
 # 1. Navigate to backend directory
 cd backend
 
-# 2. (OPTIONAL) Create a fresh venv to ensure clean state
-python3.12 -m venv /tmp/reqlo-lock-venv
-source /tmp/reqlo-lock-venv/bin/activate
+# 2. Regenerate the lock file from requirements.txt (linux/amd64, CPython 3.12)
+docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+  'pip install -q --upgrade pip pip-tools && \
+   pip-compile requirements.txt --output-file requirements.lock \
+     --no-header --no-annotate --strip-extras'
 
-# 3. Install pip-tools
-pip install --upgrade pip-tools
+# 3. Re-apply the provenance header.
+#    pip-compile emits a bare pin list; the comment block at the top of
+#    requirements.lock (platform, regeneration command, "installed by nothing")
+#    is maintained by hand — copy it back above the first pin.
 
-# 4. Regenerate the lock file from requirements.txt
-pip-compile requirements.txt --output-file requirements.lock
-
-# 5. Verify the lock file was generated correctly
+# 4. Verify the lock file was generated correctly.
+#    NOTE: pip-compile normalises distribution names to lower case, so the
+#    pins read `django==`, not `Django==`.
 # - Check Django version: should be >= 5.2.17
 # - Check cryptography version: should be >= 50.0.0
 # - Check sentence-transformers: should be >= 6.0.0
 # - Check pypdf: should be >= 6.16.1
 # - Check anthropic: should be >= 0.122.0
 
-grep "^Django==" requirements.lock
-grep "^cryptography==" requirements.lock
-grep "^sentence-transformers==" requirements.lock
-grep "^pypdf==" requirements.lock
-grep "^anthropic==" requirements.lock
+grep -iE "^(django|cryptography|sentence-transformers|pypdf|anthropic)==" requirements.lock
 
-# 6. Stage and commit the updated lock file
+# 5. Stage and commit the updated lock file
 git add requirements.lock
 git commit -m "chore: regenerate requirements.lock from requirements.txt"
 ```
@@ -85,4 +90,16 @@ A: This is normal. The lock file grows as transitive dependencies increase. Each
 
 **Q: Can I edit the lock file manually?**
 
-A: Not recommended. Any manual edits will be lost on the next regeneration. Always regenerate via `pip-compile`.
+A: Not recommended, with one exception: the provenance header block at the top of
+the file is hand-maintained and must be re-applied after every regeneration
+(`--no-header` suppresses pip-compile's own banner). Everything below the header
+is generated — manual edits there will be lost on the next regeneration.
+
+**Q: Why did the pre-2026-08-28 lock file contain `playwright`, `ruff`, `pywin32`, `graphifyy`…?**
+
+A: It was never a `pip-compile` output despite claiming to be one. It was a
+`pip freeze` taken on a developer workstation, so it carried ~120 packages that
+are not in this project's dependency closure at all, while pinning Django 4.2.30
+and cryptography 49.0.0 — both below the security floors `requirements.txt`
+requires. If you find the lock and `requirements.txt` disagreeing on a
+security-critical floor again, regenerate rather than hand-patching the pin.

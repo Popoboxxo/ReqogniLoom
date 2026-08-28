@@ -11,7 +11,8 @@ the ApplicationServiceSystem. Subclasses (ArtifactService, RequirementService,
 
   - _assert_permission(ctx, required_role): RBAC gate
   - _set_tenant_context(ctx): thread-local propagation for ORM queries
-  - _emit_event(event): schedules a DomainEvent in the on_commit hook
+  - _emit_event(event): writes a DomainEvent to the outbox in the current
+    transaction (SA-02 — was previously deferred to an on_commit hook)
   - _audit(ctx, operation, entity_type, entity_id, **kw): synchronous AuditLog
     write inside the current transaction (MVP path; async path via event bus)
 
@@ -34,7 +35,7 @@ Reference:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -204,16 +205,24 @@ class ServiceBase:
 
     @staticmethod
     def _emit_event(event: DomainEvent) -> None:
-        """Schedule *event* for post-commit outbox insertion.
+        """Write *event* to the outbox inside the current transaction.
 
         Transaction boundary (REQ-073, see docs/ARCHITECTURE.md):
-        Domain events fire *after* the surrounding transaction commits. The
-        outbox row is written in a ``transaction.on_commit`` hook, so a rolled
-        back transaction never produces an event. Contrast with ``_audit``,
-        which writes synchronously inside the same transaction.
+        the outbox row is INSERTed synchronously, in the same transaction as the
+        mutation — exactly like ``_audit``. A rolled back transaction therefore
+        produces no event, and a crash cannot separate the two. *Delivery* to
+        subscribers still happens asynchronously afterwards, driven by
+        ``application.dispatch_outbox_events``.
+
+        SA-02: this used to defer the INSERT to a ``transaction.on_commit``
+        hook, which left a window between COMMIT and the callback in which a
+        crash lost the event permanently.
+
+        Must be called inside an active ``transaction.atomic()`` block. Failures
+        of the outbox INSERT propagate and roll the caller's mutation back —
+        see ``DomainEventBus.publish``.
 
         REQ-L2-AS-029: Event is atomically bound to the current transaction.
-        Must be called inside an active transaction.atomic() block.
         """
         get_event_bus().publish(event)
 

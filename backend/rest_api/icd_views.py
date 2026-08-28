@@ -91,6 +91,61 @@ def _internal_error(lang: str, context: str) -> Response:
     )
 
 
+#: Exception types whose ``str()`` this module is allowed to forward to a client
+#: (SA-03, issue #697). Membership is tested by **exact type**, never
+#: ``isinstance`` — deliberately, and this is the whole point of the list:
+#: ``except ValueError`` also catches ``json.JSONDecodeError``,
+#: ``UnicodeDecodeError`` and every third-party ``ValueError`` subclass, whose
+#: messages carry raw input fragments, byte offsets and library internals.
+#: Exact-type matching is the same mechanism ``rest_api.views``
+#: ``_service_error_response`` uses (``_EXC_TO_CODE.get(type(exc))``).
+#:
+#: Every type listed here is only ever raised from ``backend/icd/`` with a
+#: hand-written message that contains nothing but text the caller already
+#: supplied (an id it passed, a field name it sent):
+#:   ValueError                 — icd_manager / icd_parameter_service validation
+#:                                (#104 contract: the client needs this text to
+#:                                know *which* field it got wrong), plus the
+#:                                harmless ``UUID(pk)`` / ``int(version)`` parse
+#:                                errors that echo the caller's own input.
+#:   Icd.DoesNotExist,          — "<Model> <id> not found"
+#:   IcdVersion.DoesNotExist
+#:   IcdParameterNotFoundError
+#:
+#: Notably **absent**: ``IcdPgVectorUnavailableError``. Its messages name the
+#: backing technology ("pgvector extension not available") — infrastructure
+#: disclosure is exactly what CWE-209 is about, and the client can do nothing
+#: with it. It becomes the canonical 503 text; the operator reads the log.
+_CLIENT_SAFE_EXCEPTIONS: frozenset[type] = frozenset(
+    {
+        ValueError,
+        Icd.DoesNotExist,
+        IcdVersion.DoesNotExist,
+        IcdParameterNotFoundError,
+    }
+)
+
+
+def _client_message(exc: Exception, context: str) -> str | None:
+    """Return *exc*'s message if it is safe to surface, else ``None``.
+
+    ``None`` makes ``build_error_response`` fall back to the canonical,
+    localised message for the error code, so the HTTP status and error code of
+    the response are unchanged — only the free-text detail is withheld.
+
+    Must be called from inside an ``except`` block: on the masking path
+    ``logger.exception`` reads the active exception from ``sys.exc_info()``.
+    """
+    if type(exc) in _CLIENT_SAFE_EXCEPTIONS:
+        return str(exc) or None
+    logger.exception(
+        "Masked non-allow-listed %s in ICD endpoint '%s'",
+        type(exc).__name__,
+        context,
+    )
+    return None
+
+
 class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
     """REST ViewSet for ICD CRUD operations.
 
@@ -270,7 +325,11 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             # not a server fault, so map it to 400 instead of falling through
             # to the generic 500 handler below.
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "create"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:
@@ -344,7 +403,11 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             # #104: see create() — syntax/size validation errors are client
             # errors (400), not server faults.
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "partial_update"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:
@@ -501,12 +564,20 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             )
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "similar"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except IcdPgVectorUnavailableError as exc:
             return Response(
-                build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
+                build_error_response(
+                    "SERVICE_UNAVAILABLE",
+                    lang,
+                    message=_client_message(exc, "similar"),
+                ),
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception:
@@ -557,7 +628,11 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 )
             except IcdVersion.DoesNotExist as exc:
                 return Response(
-                    build_error_response("NOT_FOUND", lang, message=str(exc)),
+                    build_error_response(
+                        "NOT_FOUND",
+                        lang,
+                        message=_client_message(exc, "parameters_list"),
+                    ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
             except Exception:
@@ -595,12 +670,20 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             item = create_icd_parameter(payload, tenant_id=ctx.tenant_id)
         except IcdVersion.DoesNotExist as exc:
             return Response(
-                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                build_error_response(
+                    "NOT_FOUND",
+                    lang,
+                    message=_client_message(exc, "parameters_create"),
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "parameters_create"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:
@@ -634,7 +717,11 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 delete_icd_parameter(UUID(parameter_id), tenant_id=ctx.tenant_id)
             except IcdParameterNotFoundError as exc:
                 return Response(
-                    build_error_response("NOT_FOUND", lang, message=str(exc)),
+                    build_error_response(
+                        "NOT_FOUND",
+                        lang,
+                        message=_client_message(exc, "parameters_delete"),
+                    ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
             except Exception:
@@ -671,12 +758,20 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             )
         except IcdParameterNotFoundError as exc:
             return Response(
-                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                build_error_response(
+                    "NOT_FOUND",
+                    lang,
+                    message=_client_message(exc, "parameters_update"),
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "parameters_update"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:
