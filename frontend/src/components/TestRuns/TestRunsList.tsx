@@ -461,7 +461,16 @@ export function TestRunsList(): JSX.Element {
                 <li
                   key={item.id}
                   data-testid={`testrun-item-${item.id}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
                   onClick={() => setSelectedId(item.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedId(item.id);
+                    }
+                  }}
                   style={{
                     padding: "var(--space-3) var(--space-3)",
                     marginBottom: "var(--space-2)",

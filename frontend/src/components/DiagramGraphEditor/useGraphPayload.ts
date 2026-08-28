@@ -16,6 +16,7 @@
  * goes through these, so the schema mapping has exactly one place to drift.
  */
 
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Position } from "@xyflow/react";
 import { diagramsApi } from "../../api/diagrams";
@@ -148,6 +149,16 @@ export interface UseGraphPayloadResult {
   isLoading: boolean;
   error: Error | null;
   save: (payload: NodeGraphPayload) => Promise<void>;
+  /**
+   * UI-02: best-effort, fire-and-forget persistence for the editor's unmount
+   * flush (see `useGraphAutosave`). It deliberately bypasses `saveMutation`:
+   * by the time the page unmounts, that mutation's observer is being torn
+   * down, so its `onSuccess` — and with it the cache invalidation the detail
+   * pane depends on — is no longer guaranteed to run. Going straight through
+   * `diagramsApi` + the app-scoped `queryClient` (which outlives the page)
+   * keeps both the write and the invalidation intact.
+   */
+  flush: (payload: NodeGraphPayload) => void;
   isSaving: boolean;
   saveError: string | null;
   resetSaveError: () => void;
@@ -178,6 +189,23 @@ export function useGraphPayload(diagramId: string | undefined): UseGraphPayloadR
     },
   });
 
+  const flush = useCallback(
+    (payload: NodeGraphPayload): void => {
+      if (!diagramId) return;
+      void diagramsApi
+        .update(diagramId, {
+          payload_format: "node_graph",
+          content: JSON.stringify(payload),
+        })
+        .then(() => queryClient.invalidateQueries({ queryKey: diagramKeys.detail(diagramId) }))
+        .catch((err: unknown) => {
+          // Nothing left to render this into — the editor is already gone.
+          console.error("Graph editor flush-on-exit failed", err);
+        });
+    },
+    [diagramId, queryClient]
+  );
+
   return {
     payload: detailQuery.data ? parseNodeGraphContent(detailQuery.data.content) : null,
     diagramName: detailQuery.data?.name ?? "",
@@ -186,6 +214,7 @@ export function useGraphPayload(diagramId: string | undefined): UseGraphPayloadR
     save: async (payload) => {
       await saveMutation.mutateAsync(payload);
     },
+    flush,
     isSaving: saveMutation.isPending,
     saveError: saveMutation.error ? apiErrorMessage(saveMutation.error) : null,
     resetSaveError: () => saveMutation.reset(),

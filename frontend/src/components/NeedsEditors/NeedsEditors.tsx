@@ -15,6 +15,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { NeedList } from './NeedList';
 import { NeedForm } from './NeedForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
@@ -41,6 +42,14 @@ export default function NeedsEditors(): JSX.Element {
   const [newDescription, setNewDescription] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Systemaudit 2026-08-27 UI-06: does the currently-open NeedForm have
+  // unsaved local edits? Reported by the form itself via onDirtyChange.
+  // `pendingSelectId` holds a tree-node click that arrived while dirty, so
+  // it can be confirmed or discarded instead of silently overwriting the
+  // open edit — mirrors RequirementEditors' issue #672 handling.
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
 
   const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
     moscow_priority: true,
@@ -126,6 +135,33 @@ export default function NeedsEditors(): JSX.Element {
     refresh();
   };
 
+  /**
+   * Systemaudit 2026-08-27 UI-06: mirrors RequirementEditors'
+   * `selectRequirement` (issue #672) — a tree-row click used to call
+   * `navigate()` directly, which swaps the URL (and therefore the `need`
+   * prop the open NeedForm is bound to) immediately, discarding any unsaved
+   * edit with no warning. Unsaved edits now gate the navigation behind a
+   * confirmation instead.
+   */
+  const selectNeed = useCallback(
+    (id: string): void => {
+      if (isFormDirty && id !== selectedId) {
+        setPendingSelectId(id);
+        return;
+      }
+      navigate(`/needs/${id}`);
+    },
+    [isFormDirty, navigate, selectedId]
+  );
+
+  const confirmPendingSelect = useCallback((): void => {
+    if (!pendingSelectId) return;
+    const target = pendingSelectId;
+    setPendingSelectId(null);
+    setIsFormDirty(false);
+    navigate(`/needs/${target}`);
+  }, [pendingSelectId, navigate]);
+
   // Trace spine (Task 3.3 — UI concept ch. 5).
   const derivationChain = useDerivationChain(
     need?.artifact_id ?? need?.id ?? null,
@@ -168,6 +204,16 @@ export default function NeedsEditors(): JSX.Element {
 
   return (
     <>
+      {pendingSelectId && (
+        <ConfirmDialog
+          title={t('editor.unsavedChangesTitle')}
+          message={t('editor.unsavedChangesMessage')}
+          confirmLabel={t('editor.discardChanges')}
+          onConfirm={confirmPendingSelect}
+          onCancel={() => setPendingSelectId(null)}
+          testId="need-unsaved-changes-dialog"
+        />
+      )}
       {/* Page header — issue #172 / #315: this page previously had no
           heading at all and buried "+ New" under the filter row (and then
           in the list's ListToolbar); now matches the Architecture/Glossary/
@@ -217,6 +263,7 @@ export default function NeedsEditors(): JSX.Element {
           onSubmitCreate={handleCreateNew}
           createError={createError}
           onCreateClick={handleCreateNewClick}
+          onSelect={selectNeed}
         />
       }
       rightPanel={
@@ -243,6 +290,7 @@ export default function NeedsEditors(): JSX.Element {
               onSaved={handleSaved}
               onDeleted={handleDeleted}
               attributeVisibility={attributeVisibility}
+              onDirtyChange={setIsFormDirty}
             />
           </div>
           {/* ArtifactInspector — REQ-L1-095, REQ-L2-RF-034 (detail only).

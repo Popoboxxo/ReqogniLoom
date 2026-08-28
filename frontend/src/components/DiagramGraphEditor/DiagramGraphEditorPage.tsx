@@ -39,7 +39,8 @@ import {
   payloadToFlowNodes,
   useGraphPayload,
 } from "./useGraphPayload";
-import type { GraphEdge, GraphHandlePosition, GraphNode } from "../../types";
+import { useGraphAutosave } from "./useGraphAutosave";
+import type { GraphEdge, GraphHandlePosition, GraphNode, NodeGraphPayload } from "../../types";
 import styles from "./DiagramGraphEditor.module.css";
 
 // Stable empty-array identities so `nodes`/`edges` below don't produce a new
@@ -70,7 +71,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
   const navigate = useNavigate();
   const { id: diagramId } = useParams<{ id: string }>();
 
-  const { payload, diagramName, isLoading, error, save, isSaving, saveError, resetSaveError } =
+  const { payload, diagramName, isLoading, error, save, flush, isSaving, saveError, resetSaveError } =
     useGraphPayload(diagramId);
 
   const [draft, setDraft] = useState<{ nodes: GraphFlowNode[]; edges: GraphFlowEdge[] } | null>(null);
@@ -279,14 +280,69 @@ export function DiagramGraphEditorPage(): JSX.Element {
     [nodes, edges, payload?.viewport]
   );
 
+  /**
+   * Serializes the draft on demand for the autosave hook. Returns `null`
+   * while no diagram has been loaded, so the hook can tell "empty graph" (a
+   * legitimate saveable state) apart from "nothing loaded yet" — which
+   * `currentPayload` above cannot, since it falls back to the empty
+   * node/edge arrays.
+   */
+  const buildPayload = useCallback(
+    (): NodeGraphPayload | null =>
+      draft ? flowToPayload(draft.nodes, draft.edges, payload?.viewport) : null,
+    [draft, payload?.viewport]
+  );
+
+  // UI-02 (SYSTEMAUDIT_2026-08-27, AP-3): the draft used to live purely in
+  // local state, so navigating away — or closing the tab — discarded the
+  // whole edit session silently. This adds a debounced autosave, a visible
+  // dirty/save-status indicator and both exit guards. The manual Save button
+  // below is deliberately left untouched and unconditional: autosave is
+  // additive, it does not replace the explicit save path.
+  const { status: saveStatus, isDirty, saveNow } = useGraphAutosave({
+    draft,
+    buildPayload,
+    save,
+    flush,
+    // After an in-place route change to another diagram (both URLs match the
+    // same <Route>, so this component is reused) `draft` still holds the
+    // previous diagram's graph until the new content arrives, while `save`
+    // already targets the new id — autosaving in that window would write the
+    // old graph over the new diagram. `resetKey` is what actually closes that
+    // window; the `loadedForId === diagramId` clause is a deliberate second,
+    // independent barrier (verified redundant today by removing it and
+    // re-running "never autosaves a draft that belongs to a different
+    // diagram" — it still passed), kept because it states the invariant at
+    // the call site rather than relying on effect ordering inside the hook.
+    enabled: !!diagramId && !isLoading && !error && loadedForId === diagramId,
+    resetKey: diagramId,
+  });
+
   const handleSave = useCallback(async (): Promise<void> => {
-    try {
-      await save(currentPayload);
-      flashToast(t("diagramGraph.toast.saved"));
-    } catch {
-      // Error surfaced via saveError below.
-    }
-  }, [save, currentPayload, flashToast, t]);
+    // `saveNow` never rejects; it resolves false when the request failed, and
+    // the reason is surfaced through `saveError` below.
+    if (await saveNow()) flashToast(t("diagramGraph.toast.saved"));
+  }, [saveNow, flashToast, t]);
+
+  const saveStatusLabel =
+    saveStatus === "saving"
+      ? t("diagramGraph.status.saving")
+      : saveStatus === "saved"
+      ? t("diagramGraph.status.saved")
+      : saveStatus === "error"
+      ? t("diagramGraph.status.error")
+      : isDirty
+      ? t("diagramGraph.status.unsaved")
+      : "";
+
+  const saveStatusClassName =
+    saveStatus === "saved"
+      ? styles.saveStatusSaved
+      : saveStatus === "error"
+      ? styles.saveStatusError
+      : isDirty || saveStatus === "dirty"
+      ? styles.saveStatusDirty
+      : "";
 
   const toggleEditMode = useCallback((): void => {
     setEditMode((v) => {
@@ -358,6 +414,25 @@ export function DiagramGraphEditorPage(): JSX.Element {
             {editMode ? t("diagramGraph.header.editing") : t("diagramGraph.header.readOnly")}
           </span>
         </button>
+
+        {/*
+          UI-02: dirty / autosave indicator. Always mounted (so `data-status`
+          is a stable contract for tests) but renders no text in the `idle`
+          state, where there is nothing to report.
+        */}
+        <span
+          className={`${styles.saveStatus} ${saveStatusClassName}`}
+          data-testid="graph-editor-save-status"
+          data-status={saveStatus}
+          data-dirty={isDirty ? "true" : "false"}
+          role={saveStatus === "error" ? "alert" : "status"}
+          aria-live={saveStatus === "error" ? "assertive" : "polite"}
+        >
+          {saveStatusLabel !== "" && (
+            <span className={styles.saveStatusDot} aria-hidden="true" />
+          )}
+          {saveStatusLabel}
+        </span>
 
         <button
           type="button"

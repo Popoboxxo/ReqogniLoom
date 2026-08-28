@@ -434,7 +434,16 @@ export default function GlossaryView(): JSX.Element {
               <div
                 key={term.id}
                 data-testid={`glossary-row-${term.id}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
                 onClick={() => handleSelect(term)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleSelect(term);
+                  }
+                }}
                 className={`${styles.row} ${isSelected ? styles.rowSelected : styles.rowIdle}`}
               >
                 <div className={styles.minWidth0}>

@@ -12,10 +12,11 @@
  * Search + filter + sort remain in ListToolbar; WorkspaceTree receives the
  * already-filtered/sorted list with showSearch=false.
  *
- * TODO (future): wire delete via WorkspaceTree context menu once that feature
- * is added in a later iteration. Currently, delete happens via the form's
- * delete button; the inline two-step confirm overlay in this component is
- * kept as a fallback but not triggered from the tree rows.
+ * Delete is triggered per-row via a small "x" button next to each
+ * <ArtifactRow> (renderRow below), which opens the two-step confirm overlay
+ * above the tree. Previously this overlay's `confirmDeleteId` state had no
+ * caller at all, making delete unreachable from the UI (Systemaudit
+ * 2026-08-27 UI-05).
  */
 
 import React, { useState, useMemo } from 'react';
@@ -366,28 +367,62 @@ export const RequirementList: React.FC<RequirementListProps> = ({
             const req = reqById.get(node.id);
             if (!req) return null;
             return (
-              <ArtifactRow
-                id={req.uid}
-                idFallback={req.id.slice(0, 8)}
-                levelLabel={
-                  req.type
-                    ? reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type)
-                    : undefined
-                }
-                levelTitle={
-                  req.type
-                    ? req.level != null
-                      ? `${t(`reqLevel.L${req.level}`)} · ${t(`reqType.${req.type}`)}`
-                      : t(`reqType.${req.type}`)
-                    : undefined
-                }
-                title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
-                status={req.status}
-                statusLabel={getWorkflowStatusLabel(req.status)}
-                version={req.version}
-                selected={isSelected}
-                testId={`req-row-${req.id}`}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 'var(--space-1)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <ArtifactRow
+                    id={req.uid}
+                    idFallback={req.id.slice(0, 8)}
+                    levelLabel={
+                      req.type
+                        ? reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type)
+                        : undefined
+                    }
+                    levelTitle={
+                      req.type
+                        ? req.level != null
+                          ? `${t(`reqLevel.L${req.level}`)} · ${t(`reqType.${req.type}`)}`
+                          : t(`reqType.${req.type}`)
+                        : undefined
+                    }
+                    title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
+                    status={req.status}
+                    statusLabel={getWorkflowStatusLabel(req.status)}
+                    version={req.version}
+                    selected={isSelected}
+                    testId={`req-row-${req.id}`}
+                  />
+                </div>
+                {/* Issue-#-tracked gap (RequirementEditors.test.tsx): the
+                    confirm overlay above already exists, but nothing ever
+                    called setConfirmDeleteId with a real id — this button is
+                    that missing trigger. stopPropagation keeps the click from
+                    also selecting the row (the <li> above owns onSelect). */}
+                <button
+                  type="button"
+                  data-testid={`req-row-delete-${req.id}`}
+                  aria-label={t('actions.delete')}
+                  title={t('actions.delete')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDeleteId(req.id);
+                  }}
+                  style={{
+                    flexShrink: 0,
+                    width: '22px',
+                    height: '22px',
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--color-text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    lineHeight: 1,
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
             );
           }}
         />

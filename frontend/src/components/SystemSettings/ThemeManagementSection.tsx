@@ -14,6 +14,7 @@ import {
   type ThemeMode,
   type ThemePalette,
 } from "../../api/themePalettes";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./ThemeManagementSection.module.css";
 
 export function ThemeManagementSection(): JSX.Element {
@@ -24,6 +25,9 @@ export function ThemeManagementSection(): JSX.Element {
   const [tenantDefaultMode, setTenantDefaultMode] = useState<ThemeMode>("dark");
   const [tenantDefaultSaved, setTenantDefaultSaved] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // UI-09 (system audit P4): deleting a palette is destructive and
+  // irreversible — require explicit confirmation.
+  const [pendingDelete, setPendingDelete] = useState<ThemePalette | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +105,12 @@ export function ThemeManagementSection(): JSX.Element {
     themePalettesApi.deletePalette(key).then(reload).catch(() => undefined);
   }
 
+  function confirmDelete(): void {
+    if (!pendingDelete) return;
+    handleDelete(pendingDelete.key);
+    setPendingDelete(null);
+  }
+
   async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -165,7 +175,7 @@ export function ThemeManagementSection(): JSX.Element {
               <button
                 type="button"
                 data-testid={`theme-delete-${p.key}`}
-                onClick={() => handleDelete(p.key)}
+                onClick={() => setPendingDelete(p)}
               >
                 {t("systemSettings.themes.delete")}
               </button>
@@ -219,6 +229,19 @@ export function ThemeManagementSection(): JSX.Element {
           </span>
         )}
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={t("systemSettings.themes.deleteConfirmTitle")}
+          message={t("systemSettings.themes.deleteConfirmMessage", {
+            label: pendingDelete.label,
+          })}
+          confirmLabel={t("systemSettings.themes.delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+          testId="theme-delete-confirm"
+        />
+      )}
     </section>
   );
 }

@@ -43,6 +43,15 @@ interface NeedListProps {
   onSubmitCreate?: () => void;
   createError?: string | null;
   onCreateClick?: () => void;
+  /**
+   * UI-06 (Systemaudit 2026-08-27): optional select gate. When provided,
+   * called instead of navigating directly — the parent (NeedsEditors) uses
+   * it to intercept a row click while the open NeedForm has unsaved edits
+   * (same pattern as RequirementEditors' selectRequirement). Falls back to
+   * a direct `navigate()` when omitted, so existing callers/tests that don't
+   * pass it keep working unchanged.
+   */
+  onSelect?: (id: string) => void;
 }
 
 type NeedSortKey = 'default' | 'title' | 'status' | 'updated';
@@ -103,6 +112,7 @@ export function NeedList({
   onSubmitCreate,
   createError,
   onCreateClick,
+  onSelect,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -355,7 +365,7 @@ export function NeedList({
           data-testid="need-list-tree"
           nodes={treeNodes}
           selectedId={selectedId}
-          onSelect={(id) => navigate(`/needs/${id}`)}
+          onSelect={onSelect ?? ((id) => navigate(`/needs/${id}`))}
           showSearch={false}
           virtualize
         />

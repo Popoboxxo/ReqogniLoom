@@ -330,7 +330,10 @@ export function ArchitectureForm({
     setIsSaving(true);
     setSaveError(null);
     try {
-      const payload: Partial<ArchitectureElement> & { change_reason?: string } = {
+      const payload: Partial<ArchitectureElement> & {
+        change_reason?: string;
+        expected_version?: number;
+      } = {
         title,
         description,
         element_type: elementType,
@@ -339,6 +342,11 @@ export function ArchitectureForm({
         make_or_buy: makeOrBuy,
         // REQ-L2-AS-037: always send custom_fields (backend validates the map).
         custom_fields: customFields,
+        // Systemaudit 2026-08-27 UI-08: without this the backend's 409
+        // optimistic-lock guard (ArchitectureService.update_architecture_element)
+        // could never actually fire from this UI — every save silently
+        // overwrote whatever the server currently held, race or not.
+        expected_version: element.version,
       };
       if (isExtendedPreset && changeReason.trim()) {
         payload.change_reason = changeReason.trim();
@@ -367,6 +375,7 @@ export function ArchitectureForm({
     }
   }, [
     element.id,
+    element.version,
     title,
     description,
     elementType,

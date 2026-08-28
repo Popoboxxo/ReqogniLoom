@@ -90,7 +90,20 @@ export const architectureApi = {
         | "make_or_buy"
         | "custom_fields"
       >
-    > & { change_reason?: string }
+    > & {
+      change_reason?: string;
+      /**
+       * Systemaudit 2026-08-27 UI-08: optimistic-concurrency guard (mirrors
+       * the backend's `ArchitectureElementSerializer.expected_version` /
+       * `ArchitectureService.update_architecture_element`). When provided
+       * and it no longer matches the element's current `version`, the
+       * backend rejects the PATCH with 409 CONFLICT instead of silently
+       * overwriting a concurrent edit. Omit to keep the previous
+       * backwards-compatible (unchecked) behavior — e.g. `reparent()` below,
+       * which is a narrow drag & drop move, not a full-form save.
+       */
+      expected_version?: number;
+    }
   ): Promise<ArchitectureElement> {
     return apiClient.patch<ArchitectureElement>(`/architecture/${id}/`, data);
   },

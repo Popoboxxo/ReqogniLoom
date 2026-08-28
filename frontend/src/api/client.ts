@@ -160,6 +160,7 @@ const _LONG_RUNNING_PATH_SEGMENTS = [
   "/architecture/decompose/", // architectureDecompose.ts generate()/commit() (LLM + commit)
   "/requirement-bundle/", // requirementBundle.ts exportCompressed (mode=compressed, GitHub #445)
   "/main-goals/generate/", // main-goal.ts generate() (LLM aggregation)
+  "/interviews/", // interviews.ts (InterviewService, LLM-driven turns)
 ];
 
 function defaultTimeoutMsFor(path: string): number {

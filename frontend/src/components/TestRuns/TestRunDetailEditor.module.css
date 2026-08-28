@@ -1,0 +1,15 @@
+/*
+ * <TestRunDetailEditor> — styles added with the UI-04 result-entry grid.
+ *
+ * Deliberately minimal: the rest of this component still carries its
+ * historical inline styles, which are counted by the frozen inline-style
+ * ratchet in src/test/ui-ratchet.test.ts. New markup goes here instead so
+ * the ratchet only ever moves downwards. All values come from
+ * styles/tokens.css.
+ */
+
+.syncError {
+  margin: var(--space-2) 0 0;
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
+}

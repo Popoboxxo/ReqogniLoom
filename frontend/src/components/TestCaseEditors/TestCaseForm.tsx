@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { testcasesApi, type TestCase } from '../../api/testcases';
+import type { CustomFields } from '../../types';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
 import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
@@ -9,14 +10,36 @@ import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useEntityReset } from '../../hooks/use-entity-reset';
+import { useFormDirty } from '../../hooks/use-form-dirty';
 
 interface TestCaseFormProps {
   testCase: TestCase | null;
   onSaved: () => void;
   onDeleted?: () => void;
+  /**
+   * Systemaudit 2026-08-27 UI-07: invoked whenever this form's "has unsaved
+   * local edits" state changes, so the parent (TestCaseEditors) can warn
+   * before navigating away to a different test case and silently discarding
+   * them. Mirrors RequirementForm's `onDirtyChange` (issue #672).
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
-export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps): JSX.Element {
+/**
+ * Systemaudit 2026-08-27 UI-07: mirrors `RequirementFormValues`
+ * (RequirementForm.tsx) — a snapshot of every locally-editable field, shared
+ * between the entity-switch reset, the `isDirty` baseline and the post-save
+ * `markClean` call, so all three always agree on the same shape.
+ */
+interface TestCaseFormValues {
+  title: string;
+  description: string;
+  customFields: CustomFields;
+  changeReason: string;
+}
+
+export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: TestCaseFormProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   // REQ-162: Extended preset captures a change_reason on every update
@@ -30,15 +53,56 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Systemaudit 2026-08-27 UI-07: "has unsaved local edits" tracking, so the
+  // parent (TestCaseEditors) can warn before navigating away to a different
+  // test case — mirrors RequirementForm's issue #672 handling. The baseline
+  // is re-anchored explicitly from the entity-switch reset below and from a
+  // successful Save, never implicitly from the raw `testCase` prop (see
+  // `useFormDirty`'s own docstring for why).
+  const formValues = useMemo<TestCaseFormValues>(
+    () => ({
+      title: formData.title ?? '',
+      description: formData.description ?? '',
+      customFields: formData.custom_fields ?? {},
+      changeReason,
+    }),
+    [formData.title, formData.description, formData.custom_fields, changeReason]
+  );
+  const { isDirty, markClean } = useFormDirty(formValues, formValues);
+
   useEffect(() => {
-    if (testCase) setFormData({ ...testCase });
-    else setFormData({});
+    onDirtyChange?.(isDirty);
+    // Cleanup: report "not dirty" on unmount so a stale `true` from a
+    // previous mount (e.g. after Delete) can't make the parent show an
+    // unsaved-changes dialog for a form that no longer exists.
+    return () => {
+      onDirtyChange?.(false);
+    };
+  }, [isDirty, onDirtyChange]);
+
+  // Systemaudit 2026-08-27 UI-07: keyed on `testCase?.id` (via the shared
+  // `useEntityReset`, matching RequirementForm/ArchitectureForm/NeedForm),
+  // NOT on the whole `testCase` object — a refetch of the SAME test case
+  // (e.g. right after Save, via `onSaved()`'s refresh, or an unrelated
+  // background reload) must not blindly overwrite local edits still in
+  // flight. `'__none__'` is a stable sentinel for "no test case selected".
+  useEntityReset(testCase?.id ?? '__none__', () => {
+    const next: TestCaseFormValues = testCase
+      ? {
+          title: testCase.title,
+          description: testCase.description ?? '',
+          customFields: testCase.custom_fields ?? {},
+          changeReason: '',
+        }
+      : { title: '', description: '', customFields: {}, changeReason: '' };
+    setFormData(testCase ? { ...testCase } : {});
     // Reset transient action state when switching to a different test case.
-    setChangeReason('');
+    setChangeReason(next.changeReason);
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
-  }, [testCase]);
+    markClean(next);
+  });
 
   const handleChange = <K extends keyof TestCase>(field: K, value: TestCase[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -65,6 +129,13 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
         custom_fields: formData.custom_fields,
         ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });
+      // Systemaudit 2026-08-27 UI-07: `change_reason` annotates *this* edit
+      // only — clear it on a successful save (mirrors RequirementForm/
+      // NeedForm) and re-anchor the isDirty baseline to exactly what was
+      // just submitted, not to whatever `testCase` next resolves with via
+      // `onSaved()`'s refresh, which lags this by a network round trip.
+      setChangeReason('');
+      markClean({ ...formValues, changeReason: '' });
       onSaved();
     } catch (err) {
       console.error(err);

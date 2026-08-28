@@ -6,8 +6,9 @@
  *          REQ-050 (Container/Presenter decomposition of TestRunsList)
  *
  * Right-panel detail view for a single test run. Loads the run's per-TestCase
- * results (C5) and offers the close-in-place action (REQ-012). Receives the
- * run and lifecycle callbacks as props from the TestRunsList container.
+ * results (C5), hosts the result-entry grid (UI-04) and offers the
+ * close-in-place action (REQ-012). Receives the run and lifecycle callbacks
+ * as props from the TestRunsList container.
  *
  * TODO(REQ-050): the results fetch (testRunsApi.listResults) still lives here
  * as local state; a future pass can lift it into a useTestRunResults query hook.
@@ -20,6 +21,30 @@ import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
 import type { TestRun, TestRunResult } from "../../types";
 import { getTestRunStatusLabel } from "./testRunStatusLabel";
+import { TestRunResultEntryGrid } from "./TestRunResultEntryGrid";
+import styles from "./TestRunDetailEditor.module.css";
+
+/**
+ * UI-04 lifecycle gate: which run states still accept result entry.
+ *
+ * `"closed"` is the only genuinely frozen state. Per
+ * `TestRunService._sync_run_status_from_results`
+ * (backend/application/test_run_service.py) a run explicitly finalized as
+ * `"closed"` "is never touched again" — that status is only ever produced by
+ * `close_test_run()` on a run *without* results, i.e. a deliberate human
+ * verdict. The derived terminal states (`passed` / `failed` / `partial`) are
+ * explicitly documented as re-derivable: "a run whose last red result is
+ * re-reported green must end up passed". Blocking entry there would break
+ * that documented correction path, so the gate is exactly `!== "closed"`.
+ *
+ * Note this is a UI guard, not an enforcement boundary: the backend still
+ * accepts a POST to a closed run's results (it only skips the status
+ * re-derivation). Anyone needing a hard guarantee has to add it in
+ * `TestRunService.add_result` / `add_results_bulk`.
+ */
+function acceptsResultEntry(run: TestRun): boolean {
+  return run.status !== "closed";
+}
 
 export interface TestRunDetailEditorProps {
   testRun: TestRun;
@@ -42,6 +67,10 @@ export function TestRunDetailEditor({
   const [results, setResults] = useState<TestRunResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(true);
   const [resultsError, setResultsError] = useState<string | null>(null);
+  // Bumped after a successful result write to re-run the load effect below
+  // without giving up its cancellation guard (UI-04).
+  const [resultsReloadToken, setResultsReloadToken] = useState(0);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Load the per-TestCase results belonging to this run (C5): the assigned
   // test cases are otherwise invisible inside a TestRun's detail view.
@@ -68,7 +97,35 @@ export function TestRunDetailEditor({
     return () => {
       cancelled = true;
     };
-  }, [testRun.id, t]);
+  }, [testRun.id, t, resultsReloadToken]);
+
+  /**
+   * Post-write refresh (UI-04). A result write can change the *run's* status
+   * as a side effect — `TestRunService._sync_run_status_from_results` re-derives
+   * `passed`/`failed`/`partial`/`in_progress` inside the same transaction — so
+   * the header badge and the "Close Run" action (gated on `in_progress`) are
+   * stale until the run itself is refetched, not just its results.
+   */
+  const handleResultsSaved = async (): Promise<void> => {
+    setSyncError(null);
+    setResultsReloadToken((token) => token + 1);
+    try {
+      const refreshed = await testRunsApi.get(testRun.id);
+      onUpdated(refreshed);
+    } catch (err) {
+      // Non-fatal: the write itself succeeded and the grid already reports
+      // its own failures. Surfaced rather than swallowed because the header
+      // badge is now knowingly stale.
+      console.error("Failed to refresh test run after result save:", err);
+      setSyncError(
+        t(
+          "testRuns.resultEntry.refreshFailed",
+          "Ergebnisse gespeichert, der Testlauf konnte aber nicht neu geladen werden.",
+        ),
+      );
+    }
+    await onRefresh();
+  };
 
   const handleClose = async (): Promise<void> => {
     setIsClosing(true);
@@ -306,33 +363,21 @@ export function TestRunDetailEditor({
             {t("testRuns.resultsEmpty", "Diesem Testlauf sind keine Testfälle zugewiesen.")}
           </p>
         ) : (
-          <ul
-            data-testid="testrun-results-list"
-            style={{ listStyle: "none", padding: 0, margin: 0 }}
+          <TestRunResultEntryGrid
+            testRunId={testRun.id}
+            results={results}
+            editable={acceptsResultEntry(testRun)}
+            onSaved={handleResultsSaved}
+          />
+        )}
+        {syncError && (
+          <p
+            role="alert"
+            data-testid="testrun-results-sync-error"
+            className={styles.syncError}
           >
-            {results.map((result) => (
-              <li
-                key={result.id}
-                data-testid={`testrun-result-${result.id}`}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "var(--space-2)",
-                  padding: "var(--space-2) var(--space-3)",
-                  marginBottom: "var(--space-2)",
-                  background: "var(--color-surface-raised)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                }}
-              >
-                <span style={{ color: "var(--color-text)" }}>
-                  {result.test_case_title || result.test_case_id}
-                </span>
-                <StatusBadge status={result.status} label={getTestRunStatusLabel(result.status)} />
-              </li>
-            ))}
-          </ul>
+            {syncError}
+          </p>
         )}
       </div>
 

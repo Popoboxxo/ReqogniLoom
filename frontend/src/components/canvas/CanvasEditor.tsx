@@ -1064,8 +1064,17 @@ export function CanvasEditor({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       // Delete / Backspace removes the selection (REQ-L2-CV-001..004). Skipped
-      // while a text box is in edit mode so keys reach the text input.
+      // while a text box is in edit mode so keys reach the text input, and
+      // skipped when the event actually originates from an unrelated
+      // input/textarea/contentEditable element outside the canvas (same
+      // target-check pattern as DiagramGraphEditor/GraphCanvas.tsx) so typing
+      // elsewhere on the page doesn't delete the current canvas selection.
       if (e.key === "Delete" || e.key === "Backspace") {
+        const target = e.target as HTMLElement | null;
+        const tag = target?.tagName;
+        const typing =
+          tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!target?.isContentEditable;
+        if (typing) return;
         const canvas = fabricRef.current;
         if (!canvas) return;
         const active = canvas.getActiveObject?.();

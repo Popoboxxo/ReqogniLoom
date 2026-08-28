@@ -122,6 +122,10 @@ describe("CustomFieldsSection (REQ-016)", () => {
     render(<CustomFieldsSection workspaceId={WS} />);
     const delBtn = await screen.findByTestId("custom-field-delete-def-1");
     await userEvent.click(delBtn);
+    // UI-09 (system audit P4): deleting a custom field is destructive —
+    // requires an explicit confirmation before the API call fires.
+    const confirmBtn = await screen.findByTestId("custom-field-delete-confirm-confirm");
+    await userEvent.click(confirmBtn);
     await waitFor(() =>
       expect(cfModule.customFieldsApi.deleteDefinition).toHaveBeenCalledWith(
         "def-1"

@@ -226,7 +226,15 @@ function ArtifactTreeNode({
   const toggleDisabled = atMaxDepth || isCycle;
 
   return (
-    <div style={{ marginLeft: depth === 0 ? 0 : "var(--space-5)" }}>
+    <div
+      role="treeitem"
+      aria-expanded={toggleDisabled ? undefined : expanded}
+      aria-label={`${displayType} ${displayTitle}`}
+      // No selection concept in this tree (only expand/collapse) — always false,
+      // but jsx-a11y/role-has-required-aria-props requires it be present.
+      aria-selected={false}
+      style={{ marginLeft: depth === 0 ? 0 : "var(--space-5)" }}
+    >
       <div
         data-testid="impact-tree-node"
         data-depth={depth}
@@ -289,7 +297,7 @@ function ArtifactTreeNode({
       </div>
 
       {expanded && (
-        <div>
+        <div role="group">
           {loading && (
             <p
               role="status"
@@ -613,13 +621,15 @@ export function ImpactView(): JSX.Element {
                 {t("impact.onlyActive", "Nur aktive Verknüpfungen")}
               </label>
 
-              <ArtifactTreeNode
-                workspaceId={activeWorkspace.id}
-                node={rootArtifact}
-                depth={0}
-                onlyActive={onlyActive}
-                visitedIds={EMPTY_VISITED}
-              />
+              <div role="tree" aria-label={t("nav.impact", "Impact-Analyse")}>
+                <ArtifactTreeNode
+                  workspaceId={activeWorkspace.id}
+                  node={rootArtifact}
+                  depth={0}
+                  onlyActive={onlyActive}
+                  visitedIds={EMPTY_VISITED}
+                />
+              </div>
             </section>
           )}
         </>

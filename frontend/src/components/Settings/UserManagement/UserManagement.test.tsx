@@ -109,6 +109,9 @@ describe("UserManagement", () => {
     await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
     const user = userEvent.setup();
     await user.click(screen.getByTestId("user-management-toggle-active-u1"));
+    // UI-09 (system audit P4): deactivating a user is destructive — requires
+    // an explicit confirmation before the API call fires.
+    await user.click(await screen.findByTestId("user-management-deactivate-confirm-confirm"));
     await waitFor(() =>
       expect(screen.getByTestId("user-management-error")).toHaveTextContent(
         /keinen aktiven Admin mehr/i
@@ -132,6 +135,9 @@ describe("UserManagement", () => {
     await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
     const user = userEvent.setup();
     await user.click(screen.getByTestId("user-management-toggle-active-u1"));
+    // UI-09 (system audit P4): deactivating a user is destructive — requires
+    // an explicit confirmation before the API call fires.
+    await user.click(await screen.findByTestId("user-management-deactivate-confirm-confirm"));
     await waitFor(() =>
       expect(screen.getByTestId("user-management-error")).toHaveTextContent(
         /keinen aktiven Admin mehr/i
@@ -179,6 +185,9 @@ describe("UserManagement", () => {
     await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
     const user = userEvent.setup();
     await user.click(screen.getByTestId("user-management-toggle-admin-u1"));
+    // UI-09 (system audit P4): revoking tenant-admin is destructive — requires
+    // an explicit confirmation before the API call fires.
+    await user.click(await screen.findByTestId("user-management-revoke-admin-confirm-confirm"));
     await waitFor(() => expect(usersApi.revokeTenantAdmin).toHaveBeenCalledWith("u1"));
   });
 

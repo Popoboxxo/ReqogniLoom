@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { Dialog } from '../shared/Dialog';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { TestCaseList } from './TestCaseList';
 import { TestCaseForm } from './TestCaseForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
@@ -34,6 +35,14 @@ export default function TestCaseEditors(): JSX.Element {
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Systemaudit 2026-08-27 UI-07: does the currently-open TestCaseForm have
+  // unsaved local edits? Reported by the form itself via onDirtyChange.
+  // `pendingSelectId` holds a list-row click that arrived while dirty, so it
+  // can be confirmed or discarded instead of silently overwriting the open
+  // edit — mirrors RequirementEditors' issue #672 handling.
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
 
   // 12.1/14.2: named after the result ("New Test Case"), not the gesture
   // ("+ New"); also the dialog title, matching ch. 12.8 ("dialog title
@@ -87,6 +96,33 @@ export default function TestCaseEditors(): JSX.Element {
   const handleSaved = () => { refresh(); };
   const handleDeleted = () => { navigate('/testcases'); refresh(); };
 
+  /**
+   * Systemaudit 2026-08-27 UI-07: mirrors RequirementEditors'
+   * `selectRequirement` (issue #672) — a list-row click used to call
+   * `navigate()` directly, which swaps the URL (and therefore the
+   * `testCase` prop the open TestCaseForm is bound to) immediately,
+   * discarding any unsaved edit with no warning. Unsaved edits now gate the
+   * navigation behind a confirmation instead.
+   */
+  const selectTestCase = useCallback(
+    (id: string): void => {
+      if (isFormDirty && id !== selectedId) {
+        setPendingSelectId(id);
+        return;
+      }
+      navigate(`/testcases/${id}`);
+    },
+    [isFormDirty, navigate, selectedId]
+  );
+
+  const confirmPendingSelect = useCallback((): void => {
+    if (!pendingSelectId) return;
+    const target = pendingSelectId;
+    setPendingSelectId(null);
+    setIsFormDirty(false);
+    navigate(`/testcases/${target}`);
+  }, [pendingSelectId, navigate]);
+
   // Trace spine (Task 3.3 — UI concept ch. 5). Test cases are not their own
   // station type in the derivation-chain model (useDerivationChain docs) —
   // they attach to the station of whatever they verify — but the currently
@@ -134,6 +170,16 @@ export default function TestCaseEditors(): JSX.Element {
 
   return (
     <div data-testid="testcases-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {pendingSelectId && (
+        <ConfirmDialog
+          title={t('editor.unsavedChangesTitle')}
+          message={t('editor.unsavedChangesMessage')}
+          confirmLabel={t('editor.discardChanges')}
+          onConfirm={confirmPendingSelect}
+          onCancel={() => setPendingSelectId(null)}
+          testId="tc-unsaved-changes-dialog"
+        />
+      )}
       {/* 12.1: exactly one <h1>, always-visible summary, one primary action —
           replaces the bare "+ New" button that used to live inside
           TestCaseList (issue: the create action sat in the list toolbar, in
@@ -163,7 +209,7 @@ export default function TestCaseEditors(): JSX.Element {
             <TestCaseList
               items={items}
               selectedId={selectedId}
-              onSelect={(id) => navigate(`/testcases/${id}`)}
+              onSelect={selectTestCase}
               onCreateNew={openCreateDialog}
             />
           }
@@ -179,7 +225,12 @@ export default function TestCaseEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
-                <TestCaseForm testCase={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                <TestCaseForm
+                  testCase={item}
+                  onSaved={handleSaved}
+                  onDeleted={handleDeleted}
+                  onDirtyChange={setIsFormDirty}
+                />
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
