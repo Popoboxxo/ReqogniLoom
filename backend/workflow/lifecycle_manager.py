@@ -95,6 +95,71 @@ _STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
 }
 
 
+# SYSTEMAUDIT P1-16: denormalized `lifecycle_status` mirror.
+#
+# ``persistence.models.LifecycleStatus`` ("active"/"outdated"/"deprecated"/
+# "deleted") exists on four models, but until this change *nothing in
+# production code ever wrote it* — every soft-delete path routes through
+# ``workflow.services.outdate()``, which only writes WorkflowItemState plus the
+# ``status`` mirror above. The column therefore read "active" on every row
+# forever, including the two types whose ``LifecycleStatus`` docstring claims
+# it exists for.
+#
+# Only ArchitectureElement and GlossaryTerm are wired up here, on purpose:
+#   * Both are absent from ``_STATUS_MIRROR_MODELS`` (no ``status`` column), so
+#     ``lifecycle_status`` is the ONLY lifecycle signal they can expose to
+#     readers that do not join WorkflowItemState — the REST GlossaryTerm
+#     serializer (issue #440), the CSV export, the frontend's
+#     ArchitectureEditors/GlossaryView status filters, and most importantly
+#     ``baseline.state_capture``, which snapshots ``ae.lifecycle_status`` and
+#     captures no other status field for ArchitectureElement (so a deprecation
+#     was structurally invisible to every baseline diff, issue #398).
+#   * Requirement and StakeholderNeed also carry a (equally never-written)
+#     ``lifecycle_status`` column, but they ARE in ``_STATUS_MIRROR_MODELS``:
+#     their real state is already mirrored into ``status`` and already captured
+#     by ``baseline.state_capture``. Writing their ``lifecycle_status`` too
+#     would only duplicate that signal and make every workflow transition
+#     surface as *two* field-level baseline diffs. Left legacy/read-only.
+#
+# WorkflowItemState remains authoritative: this is a projection for readers
+# that cannot join it, exactly like ``status``. Filters that must be exact
+# (``workflow.services.outdated_item_ids``) keep querying WorkflowItemState,
+# which also stays correct for rows written before this change.
+_LIFECYCLE_MIRROR_MODELS: dict[str, tuple[str, str]] = {
+    "ArchitectureElement": ("persistence.models", "ArchitectureElement"),
+    "GlossaryTerm": ("persistence.models", "GlossaryTerm"),
+}
+
+# Workflow state -> ``persistence.models.LifecycleStatus`` value. Looked up
+# case-insensitively so a workspace that renamed its states in Title Case
+# (Extended preset, ADR-06) still mirrors correctly. Every other state —
+# "draft", "in_review", "approved", or anything a custom workflow invents —
+# maps to "active": the entity is a live artifact.
+#
+# ``LifecycleStatus.DELETED`` is deliberately never written. It is a legacy
+# value from before Phase 0 (rows still carrying it are the input of
+# ``workflow.management.commands.backfill_outdated_from_legacy_status``); the
+# workflow engine's equivalent is "outdated".
+_LIFECYCLE_STATUS_BY_STATE: dict[str, str] = {
+    "outdated": "outdated",
+    "deprecated": "deprecated",
+}
+_LIFECYCLE_STATUS_DEFAULT = "active"
+
+
+def map_lifecycle_status(new_state: str | None) -> str:
+    """Map a workflow state name onto a ``LifecycleStatus`` value.
+
+    Args:
+        new_state: ``WorkflowItemState.current_state`` after the transition.
+
+    Returns:
+        One of ``"active"`` / ``"outdated"`` / ``"deprecated"``.
+    """
+    key = (new_state or "").strip().lower()
+    return _LIFECYCLE_STATUS_BY_STATE.get(key, _LIFECYCLE_STATUS_DEFAULT)
+
+
 class StateLifecycleManager:
     """Manages WorkflowItemState lifecycle and append-only history.
 
@@ -333,6 +398,9 @@ class StateLifecycleManager:
         # entity atomically within this same transaction, so the read-only
         # projection can never diverge from WorkflowItemState.current_state.
         self._sync_status_mirror(item_id, item_type, target_state)
+        # SYSTEMAUDIT P1-16: same for the `lifecycle_status` mirror of the
+        # types that have no `status` column (ArchitectureElement/GlossaryTerm).
+        self._sync_lifecycle_mirror(item_id, item_type, target_state)
 
         # Append-only history entry (REQ-L2-WE-003, ADR-L3-WE003-03).
         # Use the unscoped manager to bypass TenantManager.get_queryset()
@@ -414,6 +482,11 @@ class StateLifecycleManager:
         )
 
         self._sync_status_mirror(item_id, item_type, target_state)
+        # SYSTEMAUDIT P1-16: outdate()/reactivate() reach the persistence layer
+        # exclusively through force_transition, so this is the call that makes
+        # a soft-deleted ArchitectureElement/GlossaryTerm report "outdated" on
+        # its own row instead of "active" forever.
+        self._sync_lifecycle_mirror(item_id, item_type, target_state)
 
         return TransitionOutcome(
             item_state_id=item_state.pk,
@@ -447,6 +520,36 @@ class StateLifecycleManager:
         module = import_module(mapping[0])
         model = getattr(module, mapping[1])
         model.unscoped.filter(pk=item_id).update(status=new_state)
+
+    @staticmethod
+    def _sync_lifecycle_mirror(item_id: UUID, item_type: str, new_state: str) -> None:
+        """Write the denormalized ``lifecycle_status`` mirror (SYSTEMAUDIT P1-16).
+
+        Sibling of :meth:`_sync_status_mirror` for the two mirror-less types
+        listed in ``_LIFECYCLE_MIRROR_MODELS``. Same guarantees: written only
+        from inside a transition's atomic transaction, via the ``unscoped``
+        manager filtered on the primary key (no TenantContext needed), and via
+        a bare ``.update()`` so the entity ``version`` is not bumped and no
+        domain event is emitted — a workflow transition is not a content edit.
+
+        The value is a *mapping* of the workflow state, not the state itself
+        (see :func:`map_lifecycle_status`): ``lifecycle_status`` has a fixed
+        four-value vocabulary while ``current_state`` is per-preset free text,
+        so writing the raw state would produce values outside
+        ``LifecycleStatus.choices``.
+
+        Unknown item types (every type not in the map) are a silent no-op.
+        """
+        mapping = _LIFECYCLE_MIRROR_MODELS.get(item_type)
+        if mapping is None:
+            return
+        from importlib import import_module
+
+        module = import_module(mapping[0])
+        model = getattr(module, mapping[1])
+        model.unscoped.filter(pk=item_id).update(
+            lifecycle_status=map_lifecycle_status(new_state)
+        )
 
     # -- Read helpers ---------------------------------------------------------
 

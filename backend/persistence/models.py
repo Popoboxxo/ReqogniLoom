@@ -152,12 +152,35 @@ def derive_architecture_role(*, has_parent: bool, has_children: bool) -> str:
 
 
 class LifecycleStatus(models.TextChoices):
-    """Soft-delete lifecycle status for entities that must not be hard-deleted by users.
+    """Denormalized lifecycle projection for entities that are never hard-deleted.
 
-    REQ-006: Replaces physical deletion for ArchitectureElement and GlossaryTerm.
-    Entities with status 'deleted' are excluded from normal list queries but
-    remain in the database for audit purposes. Hard-delete is available only
-    via the Django admin panel.
+    REQ-006 introduced this as the soft-delete marker for ArchitectureElement
+    and GlossaryTerm. Phase 0 (status-model unification) then moved every
+    soft-delete onto ``workflow.services.outdate()``, and this column was left
+    behind unwritten — it read ``"active"`` on every row regardless of the real
+    state. SYSTEMAUDIT P1-16 made it a real mirror again:
+    ``workflow.lifecycle_manager.StateLifecycleManager._sync_lifecycle_mirror``
+    now projects ``WorkflowItemState.current_state`` onto it inside the
+    transition's transaction, exactly like the ``status`` mirror of the types
+    listed in ``lifecycle_manager._STATUS_MIRROR_MODELS``.
+
+    Read-only for application code:
+
+    * **Authoritative source is ``WorkflowItemState``**, not this column. Exact
+      filters (``workflow.services.outdated_item_ids``) must query there; this
+      column exists for readers that cannot join it — serializers, CSV export,
+      the frontend status filters and ``baseline.state_capture``.
+    * Mirrored for **ArchitectureElement** and **GlossaryTerm** only (the two
+      types with no ``status`` column). ``Requirement`` and ``StakeholderNeed``
+      also declare the field, but their state is already mirrored into
+      ``status``; theirs stays a legacy, unwritten column on purpose (see the
+      registry comment in ``lifecycle_manager``).
+    * ``DELETED`` is a legacy value only — the workflow engine writes
+      ``OUTDATED`` for a soft-delete. Rows still carrying ``"deleted"`` are the
+      input of the ``backfill_outdated_from_legacy_status`` management command
+      and are never overwritten by the mirror backfill.
+
+    Hard-delete remains available only via the Django admin panel.
     """
 
     ACTIVE = "active", "Active"
@@ -1231,11 +1254,13 @@ class ArchitectureElement(TenantScopedModel):
         children so a parent whose only child was removed correctly collapses
         back to a leaf.
 
-        ArchitectureElement has no denormalized status mirror — ``outdate()``
-        (``workflow.services``) writes only to ``WorkflowItemState``, never
-        ``lifecycle_status`` (dead column for this type). The children check
-        therefore excludes against ``workflow.services.outdated_item_ids``
-        instead. This is a deliberate, narrow Layer 0 -> Layer 1 import
+        ArchitectureElement has no denormalized ``status`` mirror. Since
+        SYSTEMAUDIT P1-16 ``outdate()`` (``workflow.services``) does project
+        the state onto ``lifecycle_status``, but ``WorkflowItemState`` stays
+        the authoritative source, so the children check keeps excluding
+        against ``workflow.services.outdated_item_ids`` — that is also the
+        only variant that is correct for rows soft-deleted before the mirror
+        existed. This is a deliberate, narrow Layer 0 -> Layer 1 import
         (lazy, local to this method) mirroring the same escape hatch already
         used by ``ArchitectureService``/``GlossaryService`` at Layer 2 — the
         alternative (re-adding a real status column just to keep this method
