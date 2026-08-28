@@ -152,4 +152,9 @@ USER app
 # Production: Gunicorn managing uvicorn ASGI workers (REQ-044).
 # ASGI is required so the async MCP SSE transport streams without blocking a
 # sync worker per connected client. Multi-worker deployment (4 workers).
-CMD ["gunicorn", "reqogniloom.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4"]
+# SA-49: Added timeout flags to prevent hung requests and allow graceful shutdown:
+#   --timeout: hard limit on a single request (30s)
+#   --graceful-timeout: soft limit before SIGKILL during shutdown (30s)
+#   --max-requests: recycle workers after N requests to prevent memory leaks (1000)
+#   --max-requests-jitter: randomize to avoid thundering herd (50)
+CMD ["gunicorn", "reqogniloom.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "30", "--graceful-timeout", "30", "--max-requests", "1000", "--max-requests-jitter", "50"]

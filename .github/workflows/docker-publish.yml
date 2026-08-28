@@ -20,6 +20,8 @@ on:
 permissions:
   contents: read
   packages: write
+  # H2: upload-sarif needs security-events:write
+  security-events: write
 
 jobs:
   build-and-push:
@@ -98,7 +100,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
-          push: true
+          # H4: Load image locally before scanning (Trivy runs locally first, then push)
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -109,6 +112,69 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       - name: Build and push (frontend)
+        if: matrix.image == 'frontend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
+          # H4: Load image locally before scanning (Trivy runs locally first, then push)
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      # H4: Extract first tag from multi-line output (steps.meta.outputs.tags may contain
+      # multiple tags separated by newlines, e.g., "vX.Y.Z" and "latest"). Trivy expects
+      # a single image reference.
+      - name: Extract first image tag (H4)
+        id: first_tag
+        run: echo "tag=$(echo '${{ steps.meta.outputs.tags }}' | head -n1)" >> "$GITHUB_OUTPUT"
+
+      # H4: Security scan for container image vulnerabilities using Trivy.
+      # Scans the locally-loaded image BEFORE pushing to GHCR. Fails if CRITICAL or HIGH
+      # vulnerabilities are found (prevents known-vulnerable images from reaching prod).
+      # Uses the first tag from steps.first_tag.outputs.tag (extracted above).
+      - name: Run Trivy vulnerability scan (SA-44)
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          # H3: Use v-prefixed tag (v0.28.0 instead of 0.28.0)
+          # H4: Use extracted single tag (not multi-line raw output)
+          image-ref: ${{ steps.first_tag.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          # H4: Exit with failure code if vulnerabilities found (not just SARIF upload)
+          exit-code: '1'
+          # Ignore vulnerabilities with no fix available (focus on actionable issues)
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to GitHub Security (SA-44)
+        # H3: v2 is retired; use v3
+        uses: github/codeql-action/upload-sarif@v3
+        # N2: Only upload if trivy-results.sarif exists (prevents failure if Trivy didn't run)
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-${{ matrix.image }}'
+
+      # H4: Push images to GHCR AFTER Trivy scan succeeds (prevents vulnerable images)
+      - name: Push to GHCR (backend)
+        if: matrix.image == 'backend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.build_meta.outputs.app_version }}
+            GIT_COMMIT_SHA=${{ steps.build_meta.outputs.git_commit_sha }}
+            BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Push to GHCR (frontend)
         if: matrix.image == 'frontend'
         uses: docker/build-push-action@v7
         with:

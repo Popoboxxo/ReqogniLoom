@@ -93,6 +93,22 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
+      - name: Lint backend with ruff (SA-45)
+        if: matrix.test-set.id == 'set-1-core'
+        working-directory: backend
+        run: |
+          pip install ruff==0.16.5
+          echo "Running ruff linter (Pyflakes only - F rules)..."
+          # H1: First merge: lint F (Pyflakes) only — detects undefined names, unused imports.
+          # E/W (style) rules will be ratcheted in gradually after the codebase is clean.
+          # Line-length now configured in pyproject.toml (line-length=100 matches code style).
+          # Narrow scope: only real interpreter-level bugs (undefined names — the two concrete cases
+          # this closed were ValidationResult/VCRMRow). Broader F401/F811/F405/F841/F541 cleanup
+          # needs its own dedicated PR with careful per-file review — see
+          # docs/SYSTEMAUDIT_2026-08-27_RESTPLAN.md AP-4/H1.
+          ruff check . --select=F821,F822
+        continue-on-error: false
+
       - name: Run pytest for ${{ matrix.test-set.id }}
         working-directory: backend
         env:

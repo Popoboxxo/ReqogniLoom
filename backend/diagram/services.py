@@ -39,6 +39,7 @@ from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  
 from diagram.models import Diagram, DiagramVersion  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
 from diagram.traceability_connector import sync_node_links
+from diagram.validator import ValidationResult  # noqa: F401  (H1: re-exported)
 from persistence.transactions import atomic_transaction
 
 if TYPE_CHECKING:
@@ -466,7 +467,6 @@ def validate_mermaid_source(
 
     REQ-L2-DS-007, REQ-L1-057
     """
-    from diagram.validator import ValidationResult
     return _mermaid_renderer.validate_mermaid_source(source, diagram_type)
 
 

@@ -16,7 +16,6 @@ Environment variables (see .env.example for full list):
 """
 from __future__ import annotations
 
-import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -72,7 +71,23 @@ DEBUG: bool = _debug_requested and DJANGO_ENV in _NON_PROD_ENVS
 # Browsers silently drop a `Secure` cookie on such a connection, so the
 # httpOnly access cookie would never round-trip. This lets those deployments
 # opt out of `Secure` without disabling other DEBUG-driven behavior.
+# SA-41: All cookie security settings follow the same pattern — environment-
+# controlled with prod-safe defaults (not DEBUG, but overridable for local/HTTP dev).
 AUTH_COOKIE_SECURE: bool = config("AUTH_COOKIE_SECURE", default=not DEBUG, cast=bool)
+SESSION_COOKIE_SECURE: bool = config("SESSION_COOKIE_SECURE", default=not DEBUG, cast=bool)
+CSRF_COOKIE_SECURE: bool = config("CSRF_COOKIE_SECURE", default=not DEBUG, cast=bool)
+# TLS redirect and proxy headers — only active if a reverse proxy terminates TLS
+# and forwards traffic as HTTP with X-Forwarded-Proto. SECURE_SSL_REDIRECT defaults
+# to False (opt-in). Set to True ONLY if a TLS-terminating reverse proxy is in front
+# (nginx, Traefik, HAProxy, etc.); otherwise every request redirects to https://
+# where nothing is listening and deployment breaks. See .env.example for documentation.
+SECURE_SSL_REDIRECT: bool = config("SECURE_SSL_REDIRECT", default=False, cast=bool)
+# N3: SECURE_PROXY_SSL_HEADER must be gated on SECURE_SSL_REDIRECT, not DEBUG. Only
+# trust X-Forwarded-Proto if a TLS-terminating proxy is explicitly configured; otherwise
+# clients can forge HTTPS headers to bypass security checks.
+SECURE_PROXY_SSL_HEADER: tuple[str, str] | None = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if SECURE_SSL_REDIRECT else None
+)
 ALLOWED_HOSTS: list[str] = config(
     "ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv()
 )
@@ -197,6 +212,15 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + REQFLOW_APPS
 # ---------------------------------------------------------------------------
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # SA-40: WhiteNoise serves /static/ from Django without requiring nginx config.
+    # Must sit after SecurityMiddleware, before other middleware.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    # M3: Request-ID correlation for structured logging.
+    # Moved here (right after WhiteNoise) to capture Request-ID on ALL responses,
+    # including early 401/403/CSRF short-circuits — the responses we most need
+    # to trace. Injects a UUID per request into X-Request-ID response header and
+    # thread-local context so log messages carry the ID for tracing (SA-46).
+    "reqogniloom.middleware.RequestIdMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     # #36: activates request.LANGUAGE_CODE from the Accept-Language header
     # (or the "django_language" session/cookie value) so translatable
@@ -289,6 +313,24 @@ DATABASES = {
         "PASSWORD": _get_required_secret("DB_PASSWORD"),
         "HOST": config("DB_HOST", default="postgres"),
         "PORT": config("DB_PORT", default="5432"),
+        # SA-43: Connection pooling to avoid exhausting available connections.
+        # CONN_MAX_AGE = 60 means connections idle for >60s are recycled,
+        # reducing per-request overhead. (Default 0 creates a new connection
+        # per request and discards it — wasteful under load.)
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=60, cast=int),
+        # M2: Detect and transparently refresh stale connections after PG restart
+        # or network disruption (e.g., PgBouncer reconnect). Without this, requests
+        # on a recycled connection that PG no longer recognizes fail with "connection lost".
+        "CONN_HEALTH_CHECKS": True,
+        "OPTIONS": {
+            "connect_timeout": 10,  # seconds
+            # M1: statement_timeout (milliseconds) prevents long-running queries
+            # (especially index-building migrations on large prod DBs) from blocking
+            # indefinitely. Made env-configurable: DB_STATEMENT_TIMEOUT_MS (default 30000).
+            # Migrations set this to 0 via environment override (docker-compose.yml)
+            # to allow unbounded schema work; CONN_HEALTH_CHECKS is unaffected.
+            "options": f"-c statement_timeout={config('DB_STATEMENT_TIMEOUT_MS', default=30000, cast=int)}",
+        },
     }
 }
 
@@ -321,10 +363,21 @@ LANGUAGES = [
 ]
 
 # ---------------------------------------------------------------------------
-# Static files
+# Static files (SA-40: WhiteNoise)
 # ---------------------------------------------------------------------------
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# SA-40: WhiteNoise serves static files with compression and manifest versioning.
+# CompressedManifestStaticFilesStorage compresses on collectstatic, then
+# WhiteNoise serves the compressed versions directly.
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Auth user model — use the persistence-layer User (REQ-L1-010).
@@ -674,18 +727,27 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "json": {
-            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+            "()": "pythonjsonlogger.json.JsonFormatter",
+            # M4: Include request_id in every log line for distributed tracing.
+            # The RequestIdMiddleware sets it in thread-local context via ContextVar;
+            # the logging filter below injects it into every LogRecord.
+            "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },
         "verbose": {
-            "format": "{levelname} {asctime} {module} {message}",
+            "format": "{levelname} {asctime} {module} {request_id} {message}",
             "style": "{",
+        },
+    },
+    "filters": {
+        "request_id": {
+            "()": "reqogniloom.middleware.RequestIdFilter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose" if DEBUG else "json",
+            "filters": ["request_id"],
         },
     },
     "root": {

@@ -1,3 +1,10 @@
+[tool.ruff]
+# H1: Line length configuration for ruff (SA-45).
+# The codebase is written with lines up to ~100+ chars, which is appropriate for
+# this project. E501 (line-too-long) warnings noise up the output if line-length
+# is left at the default 88. Setting it to 100 matches the actual code style.
+line-length = 100
+
 [tool.pytest.ini_options]
 # REQ-037: isolate the test suite from production config (cache/celery/llm).
 # pytest-django reads the uppercase DJANGO_SETTINGS_MODULE ini option.
