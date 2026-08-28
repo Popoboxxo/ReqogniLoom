@@ -43,6 +43,15 @@ services:
       resources:
         limits:
           memory: 384M
+        # L2: Reserve soft memory hint for pgvector/HNSW indexing.
+        # Memory reservation is a soft Compose/Swarm scheduling hint:
+        # under host memory pressure, containers exceeding their reservation
+        # may be evicted. This is NOT a hard limit — it does NOT prevent
+        # an OOM-kill when the hard limit is breached. Reservation here gives
+        # the scheduler guidance to co-locate services less aggressively
+        # when host memory is tight, reducing contention on HNSW operations.
+        reservations:
+          memory: 256M
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-reqogniloom}
@@ -128,6 +137,11 @@ services:
         limits:
           memory: 512M
     restart: unless-stopped
+    # SA-51: Export REDIS_PASSWORD as REDISCLI_AUTH for healthcheck.
+    # This allows redis-cli to authenticate without exposing the password in
+    # the process command line (which would be visible in `ps` output).
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -142,7 +156,11 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      # M6: SA-51 + verify redis-cli actually succeeds.
+      # redis-cli ping outputs "PONG" on success, or "AUTH <error>" on auth failure
+      # (both with exit code 0). Grep for PONG to fail the healthcheck on auth errors.
+      # REDISCLI_AUTH env var (set above) prevents password leaking in `ps` output.
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -157,6 +175,10 @@ services:
       resources:
         limits:
           memory: 512M
+    # SA-49: Grace period for Gunicorn to finish in-flight requests before SIGKILL.
+    # Gunicorn's --graceful-timeout (default 30s) waits for workers to finish;
+    # this stop timeout must be >= graceful-timeout to allow full termination.
+    stop_grace_period: 45s
     restart: unless-stopped
     env_file: .env
     environment:
@@ -239,6 +261,11 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
+      # M1: Remove statement_timeout for migrations to allow unbounded index builds.
+      # Index creation (fulltext_indexes, pgvector HNSW) on large production
+      # databases may exceed the default 30s limit and must not be interrupted.
+      # Development/staging defaults to 30s; only migrations bypass it.
+      DB_STATEMENT_TIMEOUT_MS: "0"
       # Read by persistence/migrations/0048_app_role.py to (re-)create the
       # least-privilege runtime role that backend/celery/celery-beat use.
       DB_APP_USER: ${DB_APP_USER:-reqogniloom_app}
@@ -271,6 +298,8 @@ services:
       resources:
         limits:
           memory: 384M
+    # SA-49: Grace period for Celery to finish in-flight tasks.
+    stop_grace_period: 60s
     restart: unless-stopped
     env_file: .env
     environment:
@@ -346,6 +375,8 @@ services:
       resources:
         limits:
           memory: 256M
+    # SA-49: Grace period for Celery Beat to shut down gracefully.
+    stop_grace_period: 30s
     restart: unless-stopped
     env_file: .env
     environment:
@@ -399,7 +430,9 @@ services:
       resources:
         limits:
           memory: 128M
-    user: root
+    # SA-48: Run as non-root user (nginx-unprivileged or app-specific user).
+    # The frontend image is built to run as non-root (UID 101 nginx user).
+    # Removed the `user: root` override that bypassed security hardening.
     tmpfs:
       - /var/cache/nginx
     restart: unless-stopped

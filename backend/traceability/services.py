@@ -61,6 +61,7 @@ from traceability.types import (  # noqa: F401  (re-exported)
     TraceGraphData,
     TransitiveResult,
     VCRMMatrix,
+    VCRMRow,  # H1: Bug fix — was in __all__ but not imported
     VALID_LINK_TYPES,
 )
 from traceability.vcrm_report_generator import VCRMReportGenerator

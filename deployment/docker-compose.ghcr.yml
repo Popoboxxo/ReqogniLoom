@@ -111,6 +111,9 @@ services:
         limits:
           memory: 512M
     restart: unless-stopped
+    # SA-51: Use REDISCLI_AUTH env var to hide password from process list.
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -125,7 +128,9 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      # SA-51: Use REDISCLI_AUTH env var instead of CLI argument.
+      # M6: Verify PONG response with grep -q to ensure Redis is fully responsive
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -160,6 +165,8 @@ services:
       # least-privilege runtime role that backend/celery/celery-beat use.
       DB_APP_USER: ${DB_APP_USER:-reqogniloom_app}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      # M1: Allow DDL operations to take longer; prevents migration timeouts on large schemas
+      DB_STATEMENT_TIMEOUT_MS: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       SYSTEM_ADMIN_USERNAME: ${SYSTEM_ADMIN_USERNAME:-admin}
       SYSTEM_ADMIN_EMAIL: ${SYSTEM_ADMIN_EMAIL:-admin@demo.local}
@@ -180,6 +187,8 @@ services:
   backend:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # SA-49: Grace period for graceful shutdown.
+    stop_grace_period: 45s
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqogniloom.settings
@@ -234,6 +243,8 @@ services:
   celery:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # SA-49: Grace period for Celery to finish in-flight tasks.
+    stop_grace_period: 60s
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqogniloom.settings
@@ -274,8 +285,10 @@ services:
         condition: service_completed_successfully
     # REQ-077: single worker consumes all queues. Split into dedicated workers
     # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
+    # SA-42: Concurrency pinned to match the memory limit (same as root docker-compose.yml).
+    # Prevents OOM kill when host CPU count exceeds available memory for prefork children.
     command: >
-      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events,memory"
+      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events,memory --concurrency=${CELERY_CONCURRENCY:-4}"
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
@@ -283,6 +296,8 @@ services:
   celery-beat:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # SA-49: Grace period for Celery Beat to shut down gracefully.
+    stop_grace_period: 30s
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqogniloom.settings
