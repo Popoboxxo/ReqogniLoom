@@ -238,6 +238,8 @@ export function PermissionsSection({
 
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
 
@@ -337,13 +339,6 @@ export function PermissionsSection({
 
   const handleRevoke = useCallback(
     async (permissionId: string): Promise<void> => {
-      if (
-        !window.confirm(
-          t("permissions.revokeConfirm", "Revoke this permission rule?")
-        )
-      ) {
-        return;
-      }
       setRevokingId(permissionId);
       setError(null);
       try {
@@ -359,8 +354,15 @@ export function PermissionsSection({
         setRevokingId(null);
       }
     },
-    [workspaceId, filterUserId, loadPermissions, t]
+    [workspaceId, filterUserId, loadPermissions]
   );
+
+  const confirmRevoke = useCallback((): void => {
+    if (!pendingRevokeId) return;
+    const permissionId = pendingRevokeId;
+    setPendingRevokeId(null);
+    void handleRevoke(permissionId);
+  }, [pendingRevokeId, handleRevoke]);
 
   const loadMembers = useCallback(async (): Promise<void> => {
     try {
@@ -773,7 +775,7 @@ export function PermissionsSection({
                   <button
                     type="button"
                     data-testid={`permission-revoke-${perm.id}`}
-                    onClick={() => void handleRevoke(perm.id)}
+                    onClick={() => setPendingRevokeId(perm.id)}
                     disabled={revokingId === perm.id}
                     style={{
                       background: "transparent",
@@ -807,6 +809,17 @@ export function PermissionsSection({
           onConfirm={() => void confirmSuspendRole()}
           onCancel={() => setPendingSuspend(null)}
           testId="workspace-member-suspend-confirm"
+        />
+      )}
+
+      {pendingRevokeId && (
+        <ConfirmDialog
+          title={t("permissions.revoke", "Revoke")}
+          message={t("permissions.revokeConfirm", "Revoke this permission rule?")}
+          confirmLabel={t("permissions.revoke", "Revoke")}
+          onConfirm={confirmRevoke}
+          onCancel={() => setPendingRevokeId(null)}
+          testId="permission-revoke-confirm"
         />
       )}
     </section>

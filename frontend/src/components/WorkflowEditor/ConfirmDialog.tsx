@@ -41,6 +41,7 @@ export function ConfirmDialog({
     <WorkflowModal
       title={title}
       onClose={onClose}
+      preventClose={busy}
       testId="workflow-confirm-dialog"
       footer={
         <>

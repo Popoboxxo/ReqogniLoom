@@ -73,7 +73,14 @@ export function useRequirementData(
     linkedTitles: detailQuery.data?.linkedTitles ?? {},
     linkedRoutes: detailQuery.data?.linkedRoutes ?? {},
     isLoading: listQuery.isLoading,
-    error: detailQuery.error ? extractErrorMessage(detailQuery.error) : null,
+    // UI-31: previously only detailQuery.error was surfaced, so a failed list
+    // fetch silently looked like an empty list instead of an error. Mirror
+    // useNeedData's pattern and propagate whichever query failed.
+    error: detailQuery.error
+      ? extractErrorMessage(detailQuery.error)
+      : listQuery.error
+        ? extractErrorMessage(listQuery.error)
+        : null,
     refresh,
   };
 }

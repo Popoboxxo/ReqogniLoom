@@ -166,6 +166,7 @@ export function IcdDetailPane({
             </button>
             <button
               type="button"
+              data-testid="icd-new-version-cancel"
               onClick={() => {
                 setShowNewVersion(false);
                 setFormError(null);

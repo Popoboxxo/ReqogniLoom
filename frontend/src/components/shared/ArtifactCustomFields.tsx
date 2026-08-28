@@ -152,7 +152,11 @@ export function ArtifactCustomFields({
                     onChange={(e) => setValue(row.definition_id, e.target.value)}
                     style={inputStyle}
                   >
-                    <option value="">--</option>
+                    {/* UI-37: literal "--" placeholder replaced with a real,
+                        translated empty-selection label (was unstyled dash
+                        clutter shown for every empty dropdown custom field,
+                        including on the ADR form). */}
+                    <option value="">{t("customFields.noSelection", "-- No selection --")}</option>
                     {row.options.map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}

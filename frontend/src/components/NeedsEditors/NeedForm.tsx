@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import type { ArchitectureElement, StakeholderNeed, MoscowPriority, CustomFields } from '../../types';
+import type { ArchitectureElement, StakeholderNeed, MoscowPriority, CustomFields, Requirement } from '../../types';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
@@ -99,8 +99,16 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     }
     setIsManualDeriving(true);
     setDeriveError(null);
+    // UI-33 (Systemaudit 2026-08-27 AP-5): this is three independent REST
+    // calls (create Requirement, create 'derives-from' link, optionally
+    // create 'allocated-to' link), not one DB transaction — a failure on
+    // either link call used to leave `created` as an orphaned Requirement
+    // (persisted, but never linked back to the Need) while the user only
+    // saw a generic "derive failed" message with no indication anything had
+    // been written at all.
+    let created: Requirement | null = null;
     try {
-      const created = await requirementsApi.create({
+      created = await requirementsApi.create({
         workspace_id: need.workspace_id,
         title: deriveTitle.trim(),
       });
@@ -124,7 +132,33 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     } catch (err) {
       console.error(err);
       const apiErr = err as { error?: { message?: string } };
-      setDeriveError(apiErr?.error?.message ?? t('needs.deriveFailed'));
+      const baseMessage = apiErr?.error?.message ?? t('needs.deriveFailed');
+      if (created) {
+        // Best-effort compensating action: soft-delete the orphan instead
+        // of leaving it silently in the working set, and tell the user
+        // explicitly whether that cleanup succeeded — never just "derive
+        // failed" once something was actually persisted.
+        try {
+          await requirementsApi.delete(created.id);
+          setDeriveError(
+            t('needs.deriveRolledBack', {
+              message: baseMessage,
+              defaultValue: `${baseMessage} The already-created requirement was rolled back (archived).`,
+            }),
+          );
+        } catch (rollbackErr) {
+          console.error(rollbackErr);
+          setDeriveError(
+            t('needs.derivePartialFailure', {
+              message: baseMessage,
+              id: created.id,
+              defaultValue: `${baseMessage} Warning: a requirement was already created, but linking it to the need failed and the automatic rollback failed too. Please check manually (requirement id: ${created.id}).`,
+            }),
+          );
+        }
+      } else {
+        setDeriveError(baseMessage);
+      }
     } finally {
       setIsManualDeriving(false);
     }
@@ -400,7 +434,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
                 </button>
               </>
             )}
-            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+            <button data-testid="need-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>

@@ -4733,6 +4733,54 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @action(detail=True, methods=["post"], url_path="supersede")
+    def supersede(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/adrs/{pk}/supersede/ — mark this ADR as superseded (REQ-L3-ADR-005).
+
+        UI-32 (Systemaudit 2026-08-27 AP-5): ``AdrService.transition_status``
+        has always accepted a ``superseded_by_id`` and recorded the successor
+        via a ``decides`` TraceLink, but the generic
+        ``WorkflowTransitionsMixin.transitions()`` POST action — the only
+        endpoint ``AdrViewSet`` exposed for status changes — calls
+        ``WorkflowFacade.transition()`` directly and has no concept of that
+        parameter, so the capability was unreachable from the REST API. This
+        dedicated action is the missing entry point; it does not duplicate
+        the generic transition (role/change_reason/signature gates still run
+        inside ``WorkflowFacade.transition``, which this delegates to via
+        ``AdrService.transition_status``).
+
+        Body: ``{superseded_by_id, change_reason?, credential?}``.
+        """
+        lang = detect_lang(request)
+        superseded_by_raw = request.data.get("superseded_by_id")
+        if not superseded_by_raw:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="superseded_by_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().transition_status(
+                UUID(pk),
+                "Superseded",
+                ctx,
+                change_reason=request.data.get("change_reason") or "",
+                superseded_by_id=UUID(str(superseded_by_raw)),
+                credential=request.data.get("credential") or "",
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(AdrSerializer(_adr_to_dict(item)).data)
+
 
 # ---------------------------------------------------------------------------
 # RiskViewSet — COMP-AS-014 (REQ-L1-029)
@@ -5441,8 +5489,14 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # UI-28: `is_mock_fallback` is not a persisted MainGoal field (it only
+        # describes how THIS generate call was served), so it must be merged
+        # in from the service's response dict here rather than re-derived
+        # from the freshly re-fetched `item`.
+        data = _main_goal_to_dict(item)
+        data["is_mock_fallback"] = bool(result.get("is_mock_fallback", False))
         return Response(
-            MainGoalSerializer(_main_goal_to_dict(item)).data,
+            MainGoalSerializer(data).data,
             status=status.HTTP_201_CREATED,
         )
 

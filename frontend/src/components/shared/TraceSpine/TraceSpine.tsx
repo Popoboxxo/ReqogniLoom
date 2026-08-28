@@ -203,6 +203,8 @@ export function TraceSpine({
                       className={styles.warning}
                       data-testid={`${testId}-no-coverage`}
                       title={t("traceSpine.noCoverage", "Keine Abdeckung")}
+                      role="img"
+                      aria-label={t("traceSpine.noCoverage", "Keine Abdeckung")}
                     >
                       ⚠
                     </span>

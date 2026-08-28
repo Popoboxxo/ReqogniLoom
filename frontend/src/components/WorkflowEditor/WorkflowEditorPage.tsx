@@ -12,7 +12,7 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
@@ -91,10 +91,33 @@ export function WorkflowEditorPage({
   const [editMode, setEditMode] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
 
-  const flashToast = useCallback((message: string): void => {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 3000);
+  // UI-38: the toast auto-dismiss timers were fire-and-forget window.setTimeout
+  // calls with no cleanup — if the component unmounted (route change) before
+  // the timer fired, setToast(null) ran on an unmounted component. Track the
+  // pending timer so it can be cleared on unmount or superseded by a newer
+  // toast.
+  const toastTimerRef = useRef<number | null>(null);
+
+  const clearToastTimer = useCallback((): void => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
   }, []);
+
+  const flashToast = useCallback(
+    (message: string, durationMs = 3000): void => {
+      clearToastTimer();
+      setToast(message);
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast(null);
+        toastTimerRef.current = null;
+      }, durationMs);
+    },
+    [clearToastTimer]
+  );
+
+  useEffect(() => clearToastTimer, [clearToastTimer]);
 
   const handlePropagated = useCallback(
     (count: number): void => {
@@ -149,10 +172,9 @@ export function WorkflowEditorPage({
     const text = toMermaid(graph);
     void navigator.clipboard
       ?.writeText(text)
-      .then(() => setToast(t("workflow.toast.copiedMermaid")))
-      .catch(() => setToast(t("workflow.toast.clipboardError")));
-    window.setTimeout(() => setToast(null), 2000);
-  }, [graph, t]);
+      .then(() => flashToast(t("workflow.toast.copiedMermaid"), 2000))
+      .catch(() => flashToast(t("workflow.toast.clipboardError"), 2000));
+  }, [graph, t, flashToast]);
 
   const toggleEditMode = useCallback((): void => {
     setEditMode((v) => {

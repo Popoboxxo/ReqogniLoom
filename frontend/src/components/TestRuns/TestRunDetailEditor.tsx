@@ -14,6 +14,7 @@
  * as local state; a future pass can lift it into a useTestRunResults query hook.
  */
 
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { testRunsApi } from "../../api/test-runs";
@@ -42,6 +43,14 @@ import styles from "./TestRunDetailEditor.module.css";
  * re-derivation). Anyone needing a hard guarantee has to add it in
  * `TestRunService.add_result` / `add_results_bulk`.
  */
+// UI-56: named style object instead of an inline JSX style object literal
+// (ui-ratchet.test.ts style-brace ceiling).
+const closedTerminalHintStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+  fontStyle: "italic",
+};
+
 function acceptsResultEntry(run: TestRun): boolean {
   return run.status !== "closed";
 }
@@ -181,6 +190,20 @@ export function TestRunDetailEditor({
           }}
         >
           <StatusBadge status={testRun.status} label={getTestRunStatusLabel(testRun.status)} />
+          {/* UI-56: "closed" is the one genuinely terminal status (see
+              acceptsResultEntry() above) — make that explicit instead of
+              leaving the user to infer it from the missing Close button. */}
+          {testRun.status === "closed" && (
+            <span
+              data-testid="testrun-closed-terminal-hint"
+              style={closedTerminalHintStyle}
+            >
+              {t(
+                "testRuns.closedTerminalHint",
+                "This test run is closed and cannot be reopened or edited.",
+              )}
+            </span>
+          )}
           {typeof testRun.version === "number" && (
             <VersionBadge version={testRun.version} />
           )}
@@ -440,7 +463,14 @@ export function TestRunDetailEditor({
                   color: "var(--color-text-muted)",
                 }}
               >
-                {t("testRuns.closeConfirm", "Close this test run?")}
+                {/* UI-56: previously "Close this test run?" alone gave no
+                    indication that closing is a one-way, terminal action
+                    (acceptsResultEntry() above / TestRunService: "closed" is
+                    never re-derived, unlike passed/failed/partial). */}
+                {t(
+                  "testRuns.closeConfirmIrreversible",
+                  "Close this test run? This cannot be undone — a closed test run can no longer be edited or reopened.",
+                )}
               </span>
               <button
                 type="button"

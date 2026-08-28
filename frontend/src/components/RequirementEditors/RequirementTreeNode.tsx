@@ -26,7 +26,7 @@
  * never traversed again.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { tracelinksApi } from '../../api/tracelinks';
@@ -70,6 +70,25 @@ interface RequirementTreeNodeProps {
 const EMPTY_VISITED: ReadonlySet<UUID> = new Set<UUID>();
 const NO_ENTITY_IDS: Readonly<Record<UUID, UUID>> = {};
 
+/* Hoisted out of JSX: the inline-style ratchet (`ui-ratchet.test.ts`) counts
+   `style={{` literals under components/ and only allows the frozen baseline. */
+const TREE_ERROR_STYLE: CSSProperties = {
+  color: 'var(--color-danger)',
+  fontSize: 'var(--font-size-sm)',
+  margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
+};
+
+const TREE_RETRY_BUTTON_STYLE: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  color: 'var(--color-primary)',
+  fontSize: 'var(--font-size-sm)',
+  fontFamily: 'inherit',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+};
+
 export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
   workspaceId,
   node,
@@ -100,6 +119,48 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
     [visitedIds, node.artifactId]
   );
 
+  /**
+   * Fetches this node's hierarchy neighbours.
+   *
+   * On failure `childNodes` deliberately stays `null`: it is the "not loaded
+   * yet" marker that `toggle` checks, so writing `[]` here (as this used to)
+   * made the failure permanent — collapsing and re-expanding took the
+   * already-loaded path and the node stayed empty for the rest of its life
+   * with no way to retry short of a page reload (UI-58).
+   */
+  const loadChildren = async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await tracelinksApi.listForArtifact(workspaceId, node.artifactId);
+      const links = resp.results;
+      const nodes: HierarchyNode[] = [];
+      const seen = new Set<UUID>();
+      for (const link of links) {
+        // `selfIds` always contains this node's Artifact id (it is what the
+        // request was made with), so no inference is needed here.
+        const hierarchy = hierarchyRelation(link, selfIds);
+        if (!hierarchy) continue;
+        const { relation, neighbor } = hierarchy;
+        if (seen.has(neighbor.endpoint.id)) continue;
+        seen.add(neighbor.endpoint.id);
+        nodes.push({
+          artifactId: neighbor.endpoint.id,
+          entityId: entityIdByArtifactId[neighbor.endpoint.id],
+          title: neighbor.endpoint.title,
+          artifactType: neighbor.endpoint.artifactType,
+          relation,
+        });
+      }
+      setChildNodes(nodes);
+    } catch (err: unknown) {
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? String(err);
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggle = async (): Promise<void> => {
     if (toggleDisabled) return;
 
@@ -109,38 +170,9 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
     }
 
     if (childNodes === null) {
-      setLoading(true);
-      setError(null);
-      try {
-        const resp = await tracelinksApi.listForArtifact(workspaceId, node.artifactId);
-        const links = resp.results;
-        const nodes: HierarchyNode[] = [];
-        const seen = new Set<UUID>();
-        for (const link of links) {
-          // `selfIds` always contains this node's Artifact id (it is what the
-          // request was made with), so no inference is needed here.
-          const hierarchy = hierarchyRelation(link, selfIds);
-          if (!hierarchy) continue;
-          const { relation, neighbor } = hierarchy;
-          if (seen.has(neighbor.endpoint.id)) continue;
-          seen.add(neighbor.endpoint.id);
-          nodes.push({
-            artifactId: neighbor.endpoint.id,
-            entityId: entityIdByArtifactId[neighbor.endpoint.id],
-            title: neighbor.endpoint.title,
-            artifactType: neighbor.endpoint.artifactType,
-            relation,
-          });
-        }
-        setChildNodes(nodes);
-      } catch (err: unknown) {
-        const msg =
-          (err as { error?: { message?: string } })?.error?.message ?? String(err);
-        setError(msg);
-        setChildNodes([]);
-      } finally {
-        setLoading(false);
-      }
+      setExpanded(true);
+      await loadChildren();
+      return;
     }
     setExpanded(true);
   };
@@ -191,11 +223,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           disabled={toggleDisabled}
           aria-expanded={expanded}
           aria-label={expanded ? t('editor.collapseNode', 'Collapse') : t('editor.expandNode', 'Expand')}
-          title={
-            isCycle
-              ? t('traceability.cycleNode', 'Bereits im Pfad enthalten (Zyklus)')
-              : undefined
-          }
+          title={isCycle ? t('traceability.cycleNode') : undefined}
           style={{
             background: 'none',
             border: 'none',
@@ -264,16 +292,22 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           )}
 
           {error && (
-            <p
+            <div
               role="alert"
-              style={{
-                color: 'var(--color-danger)',
-                fontSize: 'var(--font-size-sm)',
-                margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
-              }}
+              data-testid="req-tree-error"
+              style={TREE_ERROR_STYLE}
             >
-              {error}
-            </p>
+              <span>{error}</span>{' '}
+              <button
+                type="button"
+                data-testid="req-tree-retry"
+                onClick={() => void loadChildren()}
+                disabled={loading}
+                style={TREE_RETRY_BUTTON_STYLE}
+              >
+                {t('editor.retryLoadChildren')}
+              </button>
+            </div>
           )}
 
           {!loading && !error && childNodes && childNodes.length === 0 && (

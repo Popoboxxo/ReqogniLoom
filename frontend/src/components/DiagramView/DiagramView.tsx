@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { Dialog } from "../shared/Dialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { DiagramCreateForm } from "./DiagramCreateForm";
 import { DiagramDetailView } from "./DiagramDetailView";
 import { DiagramList } from "./DiagramList";
@@ -32,15 +33,14 @@ export default function DiagramView(): JSX.Element {
   const { items, isLoading, refresh, deleteDiagram } = useDiagramList();
   const [showCreate, setShowCreate] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // F-08 (Dialog migration): without this, Dialog's focus trap would default
   // to its own × close button on open — point it at the name field instead.
   const diagramNameInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleDelete = useCallback(
     async (diagramId: string): Promise<void> => {
-      if (!window.confirm(t("diagrams.deleteConfirm", "Really delete this diagram?"))) {
-        return;
-      }
       try {
         setDeleteError(null);
         await deleteDiagram(diagramId);
@@ -52,6 +52,13 @@ export default function DiagramView(): JSX.Element {
     },
     [id, deleteDiagram, navigate, t],
   );
+
+  const confirmDelete = useCallback((): void => {
+    if (!pendingDeleteId) return;
+    const diagramId = pendingDeleteId;
+    setPendingDeleteId(null);
+    void handleDelete(diagramId);
+  }, [pendingDeleteId, handleDelete]);
 
   if (isLoading) {
     return <p role="status">{t("loading", "Loading...")}</p>;
@@ -106,7 +113,7 @@ export default function DiagramView(): JSX.Element {
               navigate(`/diagrams/${item.id}`);
             }}
             onCreateNew={openCreateForm}
-            onDelete={(diagramId) => void handleDelete(diagramId)}
+            onDelete={(diagramId) => setPendingDeleteId(diagramId)}
           />
         }
         rightPanel={
@@ -151,6 +158,17 @@ export default function DiagramView(): JSX.Element {
         }
       />
       </div>
+
+      {pendingDeleteId && (
+        <ConfirmDialog
+          title={t("diagrams.deleteConfirmTitle", "Delete diagram?")}
+          message={t("diagrams.deleteConfirm", "Really delete this diagram?")}
+          confirmLabel={t("diagrams.delete", "Delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+          testId="diagram-list-delete-confirm"
+        />
+      )}
     </div>
   );
 }

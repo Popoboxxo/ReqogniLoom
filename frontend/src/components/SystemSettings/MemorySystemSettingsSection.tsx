@@ -14,6 +14,7 @@ import {
   type SystemMemorySettingsUpdate,
 } from "../../api/system-memory-settings";
 import { Dialog } from "../shared/Dialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./MemorySystemSettingsSection.module.css";
 
 // "openai" is a registered, documented backend provider (1536-dim); a
@@ -51,6 +52,8 @@ export function MemorySystemSettingsSection(): JSX.Element {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingWarningConfirm, setPendingWarningConfirm] = useState(false);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [pendingResetConfirm, setPendingResetConfirm] = useState(false);
 
   const reload = useCallback((): void => {
     systemMemorySettingsApi
@@ -104,7 +107,6 @@ export function MemorySystemSettingsSection(): JSX.Element {
   }, [isRiskyChange, doSave]);
 
   const handleReset = useCallback(async (): Promise<void> => {
-    if (!window.confirm(t("systemSettings.memorySettings.resetConfirm"))) return;
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -287,10 +289,24 @@ export function MemorySystemSettingsSection(): JSX.Element {
         >
           {isSaving ? "…" : t("actions.save", "Save")}
         </button>
-        <button type="button" data-testid="memory-settings-reset-btn" disabled={isSaving} onClick={() => void handleReset()}>
+        <button type="button" data-testid="memory-settings-reset-btn" disabled={isSaving} onClick={() => setPendingResetConfirm(true)}>
           {t("systemSettings.memorySettings.resetButton")}
         </button>
       </div>
+
+      {pendingResetConfirm && (
+        <ConfirmDialog
+          title={t("systemSettings.memorySettings.resetButton")}
+          message={t("systemSettings.memorySettings.resetConfirm")}
+          confirmLabel={t("systemSettings.memorySettings.resetButton")}
+          onConfirm={() => {
+            setPendingResetConfirm(false);
+            void handleReset();
+          }}
+          onCancel={() => setPendingResetConfirm(false)}
+          testId="memory-settings-reset-confirm"
+        />
+      )}
 
       {pendingWarningConfirm && (
         <Dialog

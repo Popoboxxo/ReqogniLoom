@@ -369,20 +369,25 @@ export function BackupRestoreSection(): JSX.Element {
                           flexWrap: "wrap",
                         }}
                       >
-                        <span style={{ fontSize: "var(--font-size-sm)" }}>
+                        <label
+                          htmlFor="restore-confirmation-input"
+                          style={{ fontSize: "var(--font-size-sm)" }}
+                        >
                           {t("adminOps.restoreCaptchaPrompt", {
                             defaultValue:
                               'Type "{{captcha}}" to confirm — current data will be overwritten.',
                             captcha: RESTORE_CONFIRMATION_TEXT,
                           })}
-                        </span>
+                        </label>
                         <input
+                          id="restore-confirmation-input"
                           data-testid="restore-confirmation-input"
                           type="text"
                           value={confirmationText}
                           onChange={(e) => setConfirmationText(e.target.value)}
                           placeholder={RESTORE_CONFIRMATION_TEXT}
                           disabled={isRestoring}
+                          aria-required="true"
                           style={{ ...inputStyle, width: "160px" }}
                         />
                         <button

@@ -84,7 +84,20 @@ export function TransitionEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
             role="button"
-            tabIndex={-1}
+            // UI-27 (systemaudit 2026-08-27): this was tabIndex={-1} —
+            // programmatically focusable only, never reachable via Tab, which
+            // made the onKeyDown handler below permanently dead for a
+            // keyboard-only user (nothing in this codebase ever called
+            // `.focus()` on it). React Flow's own edge wrapper (the `<g>`
+            // this label is portaled out of via EdgeLabelRenderer) is already
+            // tabIndex=0 and reachable, but its built-in Enter/Space handling
+            // only toggles internal selection state (`addSelectedEdges`) —
+            // it does NOT invoke the app-level `onEdgeClick` this label's own
+            // dispatched click relies on (verified against
+            // @xyflow/react's EdgeWrapper onKeyDown). tabIndex=0 here is
+            // therefore the real fix, not the wrapper's, even though it adds
+            // a second tab stop for the same logical edge.
+            tabIndex={0}
             aria-label={t("workflow.canvas.transitionAriaLabel", {
               name: transition.name,
               from: transition.from_state,

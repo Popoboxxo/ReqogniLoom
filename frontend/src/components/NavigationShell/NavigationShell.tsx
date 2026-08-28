@@ -123,6 +123,7 @@ function AppShell(): JSX.Element {
           errorTitle={t("errors.generic")}
           reloadLabel={t("actions.reload")}
           backLabel={t("actions.back")}
+          unknownErrorLabel={t("errors.unknown")}
         >
           <Suspense fallback={<div role="status" data-testid="route-suspense-fallback">{t("loading")}</div>}>
             <Routes>

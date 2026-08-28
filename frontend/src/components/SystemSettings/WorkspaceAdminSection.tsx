@@ -18,6 +18,7 @@ import { BackupRestoreSection } from "../WorkspaceSettings/BackupRestoreSection"
 import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
 import { TriLabelOverviewDialog } from "../AdminDialog/TriLabelOverviewDialog";
 import { Dialog } from "../shared/Dialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 const cardStyle: React.CSSProperties = {
   background: "var(--color-surface)",
@@ -63,9 +64,11 @@ export function WorkspaceAdminSection(): JSX.Element {
   const [isClosing, setIsClosing] = useState(false);
   const [cloneName, setCloneName] = useState("");
   const [isCloning, setIsCloning] = useState(false);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const handleCloseWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !window.confirm(t("settings.closeConfirm"))) return;
+    if (!activeWorkspace) return;
     setSaveError(null);
     setIsClosing(true);
     try {
@@ -77,7 +80,7 @@ export function WorkspaceAdminSection(): JSX.Element {
     } finally {
       setIsClosing(false);
     }
-  }, [activeWorkspace, reloadWorkspaces, t]);
+  }, [activeWorkspace, reloadWorkspaces]);
 
   const handleReactivateWorkspace = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
@@ -207,7 +210,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           <button
             type="button"
             data-testid="close-workspace-btn"
-            onClick={() => void handleCloseWorkspace()}
+            onClick={() => setShowCloseConfirm(true)}
             disabled={isClosing}
             style={{
               background: "var(--color-warning)",
@@ -381,6 +384,20 @@ export function WorkspaceAdminSection(): JSX.Element {
         <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
           {t("settings.saved")}
         </div>
+      )}
+
+      {showCloseConfirm && (
+        <ConfirmDialog
+          title={t("settings.closeWorkspace", "Close Workspace")}
+          message={t("settings.closeConfirm")}
+          confirmLabel={t("settings.closeWorkspace", "Close Workspace")}
+          onConfirm={() => {
+            setShowCloseConfirm(false);
+            void handleCloseWorkspace();
+          }}
+          onCancel={() => setShowCloseConfirm(false)}
+          testId="close-workspace-confirm"
+        />
       )}
     </>
   );

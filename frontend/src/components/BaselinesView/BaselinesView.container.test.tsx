@@ -28,6 +28,10 @@ import React from "react";
 vi.mock("../../api/baselines");
 vi.mock("../../api/artifacts");
 vi.mock("../../context/WorkspaceContext");
+// UI-21: BaselinesView now reads `roles` to gate the GH-513 override panel.
+vi.mock("../../context/AuthContext", () => ({
+  useAuth: () => ({ roles: ["admin"] }),
+}));
 vi.mock("react-i18next", () => {
   // Second arg is either a string fallback or an i18n interpolation options object.
   // In tests we just return the key so the component renders without crashing.

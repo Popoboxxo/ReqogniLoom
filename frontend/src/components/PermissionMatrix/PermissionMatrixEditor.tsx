@@ -20,6 +20,7 @@ import {
   type PermissionMatrix,
   type RoleKey,
 } from "../../api/permission-defaults";
+import { Spinner } from "../shared/Spinner/Spinner";
 
 interface PermissionMatrixEditorProps {
   /** Current effective matrix (pre-fills the grid). */
@@ -100,6 +101,26 @@ export function PermissionMatrixEditor({
   }, [value]);
 
   const dirty = !matricesEqual(draft, normalized);
+
+  // UI-40: unlike the Requirement/Need/TestCase forms (issue #672), this
+  // editor is not embedded in a SplitView with in-app entity-to-entity
+  // navigation to guard — its two hosts (Global Permission Defaults /
+  // workspace override settings) are standalone settings pages. The
+  // realistic loss path here is a tab close/reload with pending checkbox
+  // edits, so this mirrors the same `beforeunload` guard already
+  // established for `useGraphAutosave` (DiagramGraphEditor), registered
+  // only while `dirty` is true.
+  useEffect(() => {
+    if (!dirty) return undefined;
+
+    function handleBeforeUnload(event: BeforeUnloadEvent): void {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
 
   const toggle = (role: RoleKey, cap: CapabilityKey): void => {
     setDraft((prev) => ({
@@ -207,7 +228,7 @@ export function PermissionMatrixEditor({
             cursor: saving || !dirty ? "not-allowed" : "pointer",
           }}
         >
-          {saving ? "…" : t("actions.save")}
+          {saving ? <Spinner label={t("actions.saving")} /> : t("actions.save")}
         </button>
         {onCancel && (
           <button

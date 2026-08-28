@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import type { Adr } from '../../types';
+import type { Adr, TraceLink } from '../../types';
 import { adrsApi } from '../../api/adrs';
+import { tracelinksApi } from '../../api/tracelinks';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
 import { getWorkflowStatusLabel } from '../../utils/workflowStatus';
@@ -11,13 +12,59 @@ import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
+// UI-32: hoisted named style constants for the ADR-Supersede-Flow instead of
+// inline literals (ui-ratchet.test.ts style-brace ceiling).
+const supersededByTextStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--color-text-muted)',
+  margin: 0,
+};
+const supersedePanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-2)',
+  padding: 'var(--space-3)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  background: 'var(--color-surface-raised)',
+};
+const supersedeTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  padding: 'var(--space-3)',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--font-size-base)',
+  marginBottom: 'var(--space-4)',
+  color: 'var(--color-text)',
+  background: 'var(--color-surface)',
+  boxSizing: 'border-box',
+  resize: 'vertical',
+};
+const supersedeErrorStyle: React.CSSProperties = {
+  color: 'var(--color-danger)',
+  fontSize: 'var(--font-size-sm)',
+  margin: 0,
+};
+const supersedeActionsRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 'var(--space-2)',
+};
+
 interface AdrFormProps {
   adr: Adr | null;
+  /**
+   * UI-32 (Systemaudit 2026-08-27 AP-5): the other ADRs in the same
+   * workspace, offered as candidate successors in the "Supersede durch..."
+   * picker. Excludes `adr` itself (the caller passes the full workspace
+   * list; this component filters it).
+   */
+  otherAdrs: Adr[];
   onSaved: () => void;
   onDeleted: () => void;
 }
 
-export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element {
+export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   // REQ-162: Extended preset captures a change_reason on every update
@@ -31,6 +78,14 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // UI-32: ADR-Supersede-Flow (REQ-L3-ADR-005).
+  const [supersedeOpen, setSupersedeOpen] = useState(false);
+  const [supersedeTargetId, setSupersedeTargetId] = useState('');
+  const [supersedeReason, setSupersedeReason] = useState('');
+  const [isSuperseding, setIsSuperseding] = useState(false);
+  const [supersedeError, setSupersedeError] = useState<string | null>(null);
+  const [supersededByLink, setSupersededByLink] = useState<TraceLink | null>(null);
+
   useEffect(() => {
     if (adr) setFormData({ ...adr });
     else setFormData({});
@@ -39,7 +94,73 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
+    setSupersedeOpen(false);
+    setSupersedeTargetId('');
+    setSupersedeReason('');
+    setSupersedeError(null);
   }, [adr]);
+
+  // UI-32: resolve "Abgelöst durch: [ADR-XXX]" from the `decides` TraceLink
+  // `AdrService.transition_status` creates (source=successor, target=this
+  // ADR) — there is no dedicated `superseded_by` column on Adr, the
+  // TraceLink graph is the single source of truth (REQ-L3-ADR-005).
+  useEffect(() => {
+    let cancelled = false;
+    if (!adr || adr.status !== 'Superseded' || !activeWorkspace) {
+      setSupersededByLink(null);
+      return undefined;
+    }
+    void (async () => {
+      try {
+        const resp = await tracelinksApi.listForArtifact(activeWorkspace.id, adr.id);
+        if (cancelled) return;
+        const link = resp.results.find(
+          (l) => l.link_type === 'decides' && l.target_id === adr.id && l.source_type === 'Adr',
+        );
+        setSupersededByLink(link ?? null);
+      } catch {
+        // Degrades to "no successor shown" — same contract every other
+        // best-effort lookup in this codebase uses (e.g. MainGoalPanel's
+        // archive-transition lookup).
+        if (!cancelled) setSupersededByLink(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adr, activeWorkspace]);
+
+  const candidateSuccessors = adr ? otherAdrs.filter((other) => other.id !== adr.id) : [];
+
+  const openSupersede = useCallback((): void => {
+    setSupersedeError(null);
+    setSupersedeTargetId('');
+    setSupersedeReason('');
+    setSupersedeOpen(true);
+  }, []);
+
+  const closeSupersede = useCallback((): void => {
+    setSupersedeOpen(false);
+    setSupersedeError(null);
+  }, []);
+
+  const handleSupersede = async (): Promise<void> => {
+    if (!adr || !supersedeTargetId) return;
+    setIsSuperseding(true);
+    setSupersedeError(null);
+    try {
+      await adrsApi.supersede(adr.id, supersedeTargetId, supersedeReason.trim());
+      setSupersedeOpen(false);
+      onSaved();
+    } catch (err) {
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t('adrs.supersedeFailed', 'Supersede fehlgeschlagen. Bitte erneut versuchen.');
+      setSupersedeError(msg);
+    } finally {
+      setIsSuperseding(false);
+    }
+  };
 
   const handleChange = <K extends keyof Adr>(field: K, value: Adr[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -144,7 +265,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
                 </button>
               </>
             )}
-            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+            <button data-testid="adr-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
@@ -161,26 +282,29 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
-            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" placeholder={t('adrs.titlePlaceholder', 'Titel der Architekturentscheidung')} />
+            <label htmlFor="adr-title" style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+            <input id="adr-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" placeholder={t('adrs.titlePlaceholder', 'Titel der Architekturentscheidung')} />
           </div>
           <div style={{ marginBottom: 'var(--space-4)' }}>
-            <label style={labelStyle}>{t('editor.description')}</label>
-            <MarkdownPreview value={formData.description || ''} onChange={(v) => handleChange('description', v)} />
+            <label htmlFor="adr-description" style={labelStyle}>{t('editor.description')}</label>
+            <MarkdownPreview id="adr-description" value={formData.description || ''} onChange={(v) => handleChange('description', v)} />
           </div>
           <div>
-            <label style={labelStyle}>{t('adrs.context')}</label>
-            <MarkdownPreview value={formData.context || ''} onChange={(v) => handleChange('context', v)} />
+            <label htmlFor="adr-context" style={labelStyle}>{t('adrs.context')}</label>
+            <MarkdownPreview id="adr-context" value={formData.context || ''} onChange={(v) => handleChange('context', v)} />
           </div>
           <div>
-            <label style={labelStyle}>{t('adrs.consequences')}</label>
-            <MarkdownPreview value={formData.consequences || ''} onChange={(v) => handleChange('consequences', v)} />
+            <label htmlFor="adr-consequences" style={labelStyle}>{t('adrs.consequences')}</label>
+            <MarkdownPreview id="adr-consequences" value={formData.consequences || ''} onChange={(v) => handleChange('consequences', v)} />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('editor.status')}</label>
+            <div role="group" aria-labelledby="adr-status-label" style={{ flex: 1 }}>
+              <span id="adr-status-label" style={labelStyle}>{t('editor.status')}</span>
               {/* REQ-165: WorkflowEngine-driven status editor (replaces the
-                  hardcoded STATUS_OPTIONS select). */}
+                  hardcoded STATUS_OPTIONS select). role="group" +
+                  aria-labelledby (not a <label htmlFor>) because
+                  WorkflowStatusEditor renders a group of transition
+                  buttons, not a single form control. */}
               <WorkflowStatusEditor
                 artifactType="adr"
                 artifactId={adr.id}
@@ -190,6 +314,99 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
               />
             </div>
           </div>
+
+          {/* UI-32 (Systemaudit 2026-08-27 AP-5): ADR-Supersede-Flow
+              (REQ-L3-ADR-005) — the backend capability
+              (AdrService.transition_status(superseded_by_id=...)) existed
+              with no UI entry point at all. */}
+          {adr.status === 'Superseded' ? (
+            supersededByLink && (
+              <p
+                data-testid="adr-superseded-by"
+                style={supersededByTextStyle}
+              >
+                {t('adrs.supersededBy', {
+                  title: supersededByLink.source_title || supersededByLink.source_id.slice(0, 8),
+                  defaultValue: 'Abgelöst durch: {{title}}',
+                })}
+              </p>
+            )
+          ) : (
+            <div>
+              {!supersedeOpen ? (
+                <button
+                  type="button"
+                  data-testid="adr-supersede-btn"
+                  className="btn-secondary"
+                  onClick={openSupersede}
+                  disabled={candidateSuccessors.length === 0}
+                  title={
+                    candidateSuccessors.length === 0
+                      ? t('adrs.supersedeNoCandidates', 'Keine anderen ADRs in diesem Workspace vorhanden.')
+                      : undefined
+                  }
+                >
+                  {t('adrs.supersedeAction', 'Supersede durch...')}
+                </button>
+              ) : (
+                <div style={supersedePanelStyle}>
+                  <label htmlFor="adr-supersede-target" style={labelStyle}>
+                    {t('adrs.supersedeTargetLabel', 'Abgelöst durch')}
+                  </label>
+                  <select
+                    id="adr-supersede-target"
+                    data-testid="adr-supersede-target-select"
+                    value={supersedeTargetId}
+                    onChange={(e) => setSupersedeTargetId(e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="">{t('adrs.supersedeTargetPlaceholder', 'ADR auswählen...')}</option>
+                    {candidateSuccessors.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.title || candidate.id.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                  <label htmlFor="adr-supersede-reason" style={labelStyle}>
+                    {t('adrs.supersedeReasonLabel', 'Begründung')}
+                  </label>
+                  <textarea
+                    id="adr-supersede-reason"
+                    data-testid="adr-supersede-reason-input"
+                    value={supersedeReason}
+                    onChange={(e) => setSupersedeReason(e.target.value)}
+                    rows={2}
+                    style={supersedeTextareaStyle}
+                  />
+                  {supersedeError && (
+                    <p role="alert" style={supersedeErrorStyle}>
+                      {supersedeError}
+                    </p>
+                  )}
+                  <div style={supersedeActionsRowStyle}>
+                    <button
+                      type="button"
+                      data-testid="adr-supersede-confirm-btn"
+                      className="btn-primary"
+                      onClick={() => void handleSupersede()}
+                      disabled={isSuperseding || !supersedeTargetId}
+                    >
+                      {isSuperseding ? t('actions.saving', 'Speichert...') : t('adrs.supersedeConfirm', 'Supersede bestätigen')}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="adr-supersede-cancel-btn"
+                      className="btn-secondary"
+                      onClick={closeSupersede}
+                      disabled={isSuperseding}
+                    >
+                      {t('actions.cancel', 'Abbrechen')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 12.11: workspace-defined custom fields, typed and persisted per
               artifact instance. Only shown for an existing ADR that already

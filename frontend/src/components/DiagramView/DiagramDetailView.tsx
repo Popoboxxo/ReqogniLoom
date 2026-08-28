@@ -33,6 +33,7 @@ import { useNavigate } from "react-router-dom";
 import { sanitizeSvg } from "../../utils/sanitizeSvg";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { GraphCanvas } from "../DiagramGraphEditor/GraphCanvas";
 import {
@@ -125,6 +126,8 @@ export function DiagramDetailView({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Code/Visual toggle (REQ-L1-057) — mermaid sources can be rendered
   // client-side via mermaid.js; other payload formats stay code-only.
@@ -264,11 +267,6 @@ export function DiagramDetailView({
   };
 
   const handleDelete = async (): Promise<void> => {
-    if (
-      !window.confirm(t("diagrams.deleteConfirm", "Really delete this diagram?"))
-    ) {
-      return;
-    }
     try {
       await deleteDiagram();
       await onChanged();
@@ -276,6 +274,11 @@ export function DiagramDetailView({
     } catch (err) {
       console.error("Failed to delete diagram", err);
     }
+  };
+
+  const confirmDelete = (): void => {
+    setShowDeleteConfirm(false);
+    void handleDelete();
   };
 
   if (isLoading) {
@@ -409,7 +412,7 @@ export function DiagramDetailView({
           <button
             type="button"
             data-testid="diagram-delete-btn"
-            onClick={() => void handleDelete()}
+            onClick={() => setShowDeleteConfirm(true)}
             style={formDangerButtonStyle}
           >
             {t("diagrams.delete", "Delete")}
@@ -592,6 +595,17 @@ export function DiagramDetailView({
         artifactId={diagramId}
         currentVersion={currentVersion}
       />
+
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title={t("diagrams.deleteConfirmTitle", "Delete diagram?")}
+          message={t("diagrams.deleteConfirm", "Really delete this diagram?")}
+          confirmLabel={t("diagrams.delete", "Delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+          testId="diagram-delete-confirm"
+        />
+      )}
     </div>
   );
 }

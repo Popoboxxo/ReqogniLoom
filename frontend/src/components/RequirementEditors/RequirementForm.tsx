@@ -688,7 +688,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           <label htmlFor="req-description" style={{ ...labelStyle, marginBottom: 'var(--space-1)' }}>
             {t('editor.description')}
           </label>
-          <MarkdownPreview value={description} onChange={setDescription} />
+          <MarkdownPreview id="req-description" value={description} onChange={setDescription} />
 
           {/* #412: acceptance_criteria has a persistence.models field and is
               part of `mandatory_fields` for the 'standard'/'extended' presets

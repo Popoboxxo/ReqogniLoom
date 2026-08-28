@@ -467,12 +467,15 @@ export function PromptVariablesSection({
             style={rowStyle}
             data-testid={`prompt-variable-row-${variable.name}`}
           >
-            <span style={nameStyle}>{`{${variable.name}}`}</span>
+            <label htmlFor={`prompt-variable-${variable.name}-input`} style={nameStyle}>
+              {`{${variable.name}}`}
+            </label>
             <span style={descriptionStyle}>{variable.description}</span>
             {variable.is_editable ? (
               <>
                 {variable.var_type === "bool" ? (
                   <BoolValueSelect
+                    id={`prompt-variable-${variable.name}-input`}
                     testId={`prompt-variable-${variable.name}-input`}
                     value={value}
                     disabled={isBusy}
@@ -484,6 +487,7 @@ export function PromptVariablesSection({
                   />
                 ) : (
                   <input
+                    id={`prompt-variable-${variable.name}-input`}
                     data-testid={`prompt-variable-${variable.name}-input`}
                     value={value}
                     disabled={isBusy}

@@ -391,6 +391,10 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     const adoptBtn = await screen.findByTestId("audit-adopt-0");
     fireEvent.click(adoptBtn);
 
+    // UI-57: Adopt now interposes a confirmation before firing the mutation.
+    const confirmBtn = await screen.findByTestId("audit-adopt-confirm-confirm");
+    fireEvent.click(confirmBtn);
+
     await waitFor(() => {
       expect(screen.queryByTestId("audit-finding-0")).not.toBeInTheDocument();
     });
@@ -414,6 +418,10 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
 
     const adoptBtn = await screen.findByTestId("audit-adopt-0");
     fireEvent.click(adoptBtn);
+
+    // UI-57: Adopt now interposes a confirmation before firing the mutation.
+    const confirmBtn = await screen.findByTestId("audit-adopt-confirm-confirm");
+    fireEvent.click(confirmBtn);
 
     const modifyBtn = await screen.findByTestId("audit-modify-0");
     // #451: the fallback is a usable manual action, not a dead disabled button.

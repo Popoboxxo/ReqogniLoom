@@ -69,6 +69,8 @@ export function DeriveRequirementForm({
   testIdPrefix,
 }: DeriveRequirementFormProps): JSX.Element {
   const { t } = useTranslation();
+  const titleInputId = React.useId();
+  const archSelectId = React.useId();
 
   if (!isOpen) {
     return (
@@ -94,8 +96,9 @@ export function DeriveRequirementForm({
         background: 'var(--color-surface-raised)',
       }}
     >
-      <label style={labelStyle}>{t('traceability.deriveTitle')} *</label>
+      <label htmlFor={titleInputId} style={labelStyle}>{t('traceability.deriveTitle')} *</label>
       <input
+        id={titleInputId}
         type="text"
         data-testid={`${testIdPrefix}-derive-title-input`}
         value={title}
@@ -107,13 +110,14 @@ export function DeriveRequirementForm({
 
       {showArchitectureField && (
         <>
-          <label style={labelStyle}>
+          <label htmlFor={archSelectId} style={labelStyle}>
             {architectureRequired
               ? t('traceability.deriveArchitectureElement')
               : t('needs.deriveArchOptional')}
             {architectureRequired ? ' *' : ''}
           </label>
           <select
+            id={archSelectId}
             data-testid={`${testIdPrefix}-derive-arch-select`}
             value={architectureElementId}
             onChange={(e) => onArchitectureElementChange(e.target.value)}

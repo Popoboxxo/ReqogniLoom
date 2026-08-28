@@ -19,6 +19,13 @@ interface WorkflowModalProps {
   children: ReactNode;
   footer: ReactNode;
   testId?: string;
+  /**
+   * UI-24: while a state/transition/confirm mutation is in flight (``busy``
+   * in the calling dialog), Escape and a backdrop click must not discard the
+   * dialog — the request keeps running with no dialog left to report back
+   * to. Callers pass their own `busy` flag through here.
+   */
+  preventClose?: boolean;
 }
 
 export function WorkflowModal({
@@ -27,9 +34,19 @@ export function WorkflowModal({
   children,
   footer,
   testId,
+  preventClose = false,
 }: WorkflowModalProps): JSX.Element {
   return (
-    <Dialog title={title} onClose={onClose} size="sm" testId={testId} footer={footer}>
+    <Dialog
+      title={title}
+      onClose={() => {
+        if (!preventClose) onClose();
+      }}
+      closeOnBackdropClick={!preventClose}
+      size="sm"
+      testId={testId}
+      footer={footer}
+    >
       {children}
     </Dialog>
   );

@@ -236,7 +236,12 @@ export function VersionPanel({
           {t("sidebar.version.error", "Could not load versions.")}
           {errorMessage ? ` (${errorMessage})` : ""}
         </span>
-        <button type="button" className={styles.retryButton} onClick={(): void => void load()}>
+        <button
+          type="button"
+          className={styles.retryButton}
+          data-testid="version-retry"
+          onClick={(): void => void load()}
+        >
           {/* TODO(i18n): add sidebar.version.retry key. */}
           {t("actions.reload", "Reload")}
         </button>

@@ -30,6 +30,7 @@ import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
 import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
@@ -587,6 +588,7 @@ export default function GlossaryView(): JSX.Element {
       <div className={styles.formActions}>
         <button
           type="button"
+          data-testid="glossary-form-cancel"
           onClick={() => {
             setIsFormOpen(false);
             setFormError(null);
@@ -595,7 +597,7 @@ export default function GlossaryView(): JSX.Element {
         >
           {t("actions.cancel", "Cancel")}
         </button>
-        <button type="submit" className={styles.btn}>
+        <button type="submit" data-testid="glossary-form-save" className={styles.btn}>
           {t("actions.save", "Save")}
         </button>
       </div>
@@ -642,12 +644,29 @@ export default function GlossaryView(): JSX.Element {
 
       {renderSynonyms(selectedTerm)}
 
-      {/* Usages: trace links referencing this glossary entry (REQ-006 C9). */}
+      {/* Usages + Versions/Diff (REQ-142, UI-59): trace links referencing this
+          glossary entry (C9), plus the version history + field-level diff
+          that the shared VersionPanel/DiffPanel already support for
+          kind="glossary" — only wiring `currentVersion` was missing, which
+          previously forced this panel into its undefined/degraded state. */}
       <div className={styles.usagesSection}>
         <h3 className={styles.usagesHeading}>
           {t("glossary.usages", "Verwendungen")}
         </h3>
-        <RightSidebar kind="glossary" artifactId={selectedTerm.id} currentVersion={undefined} />
+        <RightSidebar
+          kind="glossary"
+          artifactId={selectedTerm.id}
+          currentVersion={
+            typeof selectedTerm.version === "number"
+              ? ({
+                  version: selectedTerm.version,
+                  label: `v${selectedTerm.version}`,
+                  createdAt: selectedTerm.updated_at ?? null,
+                  baselineIds: [],
+                } satisfies VersionRef)
+              : undefined
+          }
+        />
       </div>
     </div>
   ) : (

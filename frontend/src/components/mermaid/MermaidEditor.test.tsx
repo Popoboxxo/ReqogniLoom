@@ -127,6 +127,25 @@ vi.mock("../../styles/components/MermaidEditor.module.css", () => ({
 describe("MermaidEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // `clearAllMocks` only resets call/instance/result history, not a queued
+    // `mockResolvedValueOnce`. Several tests below queue one but never
+    // actually trigger the source-change debounce that would consume it
+    // (fetchMermaidPreview only fires from an edit, never on mount alone) —
+    // the queued value then sits in the FIFO queue and gets consumed by
+    // whichever *later* test happens to be the first to make a real edit,
+    // regardless of which test queued it. That was invisible while autosave
+    // ignored validation state; now that UI-23 gates autosave on it, a
+    // leaked `fallback_mode: true` silently blocks an unrelated test's
+    // autosave assertion. Force a clean, non-error default per test.
+    mockFetchMermaidPreview.mockReset();
+    mockFetchMermaidPreview.mockResolvedValue({
+      diagram_id: "test-id",
+      source: "flowchart TD\n  A --> B",
+      diagram_type: "flowchart",
+      render_hints: null,
+      fallback_mode: false,
+      error_message: "",
+    });
   });
 
   it("renders the mermaid editor with split view", async () => {
@@ -213,6 +232,13 @@ describe("MermaidEditor", () => {
   });
 
   it("shows error banner when validation fails", async () => {
+    // Regression guard: `mockResolvedValueOnce` only resolves the *next* call
+    // to `fetchMermaidPreview` — that call only happens from a source-change
+    // debounce (see `handleSourceChange`), never on mount alone. Without
+    // driving an actual edit here, this queued value went unconsumed and
+    // leaked into whichever later test's edit triggered the first real
+    // preview fetch (breaking UI-23's autosave-validation-guard test).
+    cm.listener = null;
     mockFetchMermaidPreview.mockResolvedValueOnce({
       diagram_id: "test-id",
       source: "invalid source",
@@ -229,10 +255,24 @@ describe("MermaidEditor", () => {
       />
     );
 
-    // Error should be shown after preview fetch
     await waitFor(() => {
-      // May or may not appear depending on timing
-      expect(screen.getByTestId("mermaid-editor")).toBeInTheDocument();
+      expect(cm.listener).not.toBeNull();
+    });
+
+    act(() => {
+      cm.listener?.({
+        docChanged: true,
+        state: { doc: { toString: () => "invalid source" } },
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockFetchMermaidPreview).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("mermaid-error")).toHaveTextContent(
+        "Syntax error at line 1"
+      );
     });
   });
 

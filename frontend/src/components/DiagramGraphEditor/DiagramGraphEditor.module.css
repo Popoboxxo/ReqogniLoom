@@ -604,6 +604,11 @@
 }
 
 .sectionLabel {
+  /* UI-25 (systemaudit 2026-08-27): now rendered as <label htmlFor> (was a
+     bare <div>) so the inspector's fields have a real accessible name —
+     <label> defaults to display:inline, which would silently drop the
+     vertical margin below and collapse the field spacing. */
+  display: block;
   font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;

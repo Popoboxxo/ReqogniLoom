@@ -493,8 +493,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 
       {showForm && (
         <form onSubmit={(e) => void submitForm(e)} style={{ marginBottom: 'var(--space-4)' }}>
-          <label style={labelStyle}>{t('traceability.target')}</label>
+          <label htmlFor="req-tracelink-target-select" style={labelStyle}>{t('traceability.target')}</label>
           <select
+            id="req-tracelink-target-select"
             data-testid="req-tracelink-target-select"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
@@ -535,8 +536,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             )}
           </select>
 
-          <label style={labelStyle}>{t('traceability.linkType')}</label>
+          <label htmlFor="req-tracelink-type-select" style={labelStyle}>{t('traceability.linkType')}</label>
           <select
+            id="req-tracelink-type-select"
             data-testid="req-tracelink-type-select"
             value={linkType}
             onChange={(e) => setLinkType(e.target.value as LinkType)}

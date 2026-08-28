@@ -40,9 +40,15 @@ vi.mock("../context/WorkspaceContext", () => ({
 
 // Isolate from the ArtifactInspector sidebar — its own data fetching is out
 // of scope for this test (TracePanel behavior for glossary is covered by the
-// pre-existing "backend gap" documentation, not re-tested here).
+// pre-existing "backend gap" documentation, not re-tested here). Captures the
+// props GlossaryView passes in (UI-59: `currentVersion` wiring) without
+// rendering the real sidebar.
+const rightSidebarPropsSpy = vi.hoisted(() => vi.fn());
 vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
+  RightSidebar: (props: unknown) => {
+    rightSidebarPropsSpy(props);
+    return null;
+  },
 }));
 
 // Stub CreateTraceLinkDialog so this test only asserts GlossaryView passes
@@ -198,5 +204,53 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
     expect(screen.getByLabelText("glossary.abbreviation")).toBeInTheDocument();
     expect(screen.getByLabelText("glossary.definition *")).toBeInTheDocument();
     expect(screen.getByLabelText("glossary.synonyms")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------
+  // UI-59 (Systemaudit 2026-08-27 AP-5): version-history/diff wiring.
+  //
+  // The shared VersionPanel/DiffPanel (REQ-142) already fully support
+  // kind="glossary" (glossaryApi.versions/.diff) — the only gap was
+  // GlossaryView always passing `currentVersion={undefined}`, which the
+  // panel treats as "no version to compare against" and disables the
+  // compare/is-current affordances for. These tests pin the actual prop
+  // GlossaryView now builds from `selectedTerm.version`.
+  // -------------------------------------------------------------------
+  describe("version history / diff wiring (UI-59)", () => {
+    it("passes a real currentVersion into RightSidebar once a versioned term is selected", async () => {
+      const versionedTerm: GlossaryTerm = { ...TERM_A, version: 3, updated_at: "2026-02-01T00:00:00Z" };
+      vi.mocked(glossaryApi.list).mockResolvedValue([versionedTerm, TERM_B]);
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("glossary-row-term-a"));
+
+      await waitFor(() => {
+        const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
+          | { kind: string; artifactId: string; currentVersion?: { version: number; label: string } }
+          | undefined;
+        expect(lastCall?.kind).toBe("glossary");
+        expect(lastCall?.artifactId).toBe("term-a");
+        expect(lastCall?.currentVersion).toEqual(
+          expect.objectContaining({ version: 3, label: "v3" }),
+        );
+      });
+    });
+
+    it("falls back to currentVersion=undefined for a term with no version field (legacy/optimistic data)", async () => {
+      // TERM_B has no `version` field at all.
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("glossary-row-term-b"));
+
+      await waitFor(() => {
+        const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
+          | { artifactId: string; currentVersion?: unknown }
+          | undefined;
+        expect(lastCall?.artifactId).toBe("term-b");
+        expect(lastCall?.currentVersion).toBeUndefined();
+      });
+    });
   });
 });

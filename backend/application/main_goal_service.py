@@ -191,7 +191,10 @@ class MainGoalService(ServiceBase):
                 "No approved (Freigegeben) Goals exist for this workspace to aggregate"
             )
 
-        from application.ai_derivation_service import AiDerivationService
+        from application.ai_derivation_service import (
+            MOCK_FALLBACK_MARKER,
+            AiDerivationService,
+        )
 
         ai_svc = AiDerivationService()
         goals_text = "\n".join(
@@ -218,11 +221,28 @@ class MainGoalService(ServiceBase):
             },
         )
 
+        # UI-28 (Systemaudit 2026-08-27 AP-5): `_complete()` signals a
+        # degraded/mock answer by prefixing the text with
+        # `MOCK_FALLBACK_MARKER` (same contract `ai_review_service`,
+        # `architecture_decompose_service` and `traceability_suggest_service`
+        # already rely on) instead of a separate flag, because this is the
+        # single-text `_complete()` path, not the JSON-list one that already
+        # returns `is_mock_fallback` explicitly. Strip the marker before
+        # persisting it as the MainGoal's actual content — a saved MainGoal
+        # must never carry the debug marker in its stored text — and surface
+        # the flag itself on the returned dict so the caller (the REST view)
+        # can pass it through to the client without a DB migration; it is
+        # deliberately NOT a persisted field, only a signal about how *this*
+        # generation call was served.
+        is_mock_fallback = content.startswith(MOCK_FALLBACK_MARKER)
+        if is_mock_fallback:
+            content = content[len(MOCK_FALLBACK_MARKER):].strip()
+
         # Only the persistence step is atomic (REQ-L3-PL003-001/002):
         # _create_row derives the next sequence_number from a read and then
         # writes an Artifact + MainGoal, so those must stay in one unit.
         with transaction.atomic():
-            return self._create_row(
+            result = self._create_row(
                 workspace=workspace,
                 tenant=tenant,
                 content=content,
@@ -230,6 +250,8 @@ class MainGoalService(ServiceBase):
                 generated_from_goal_ids=[str(g.id) for g in goals],
                 ctx=ctx,
             )
+        result["is_mock_fallback"] = is_mock_fallback
+        return result
 
     def _resolve_tenant_and_workspace(
         self, workspace_id: uuid.UUID, ctx: Any

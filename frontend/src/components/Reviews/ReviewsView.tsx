@@ -33,7 +33,7 @@
  *   IF-RF-EXT-OUT-001 → GET  /api/v1/requirements/{id}/diff/, /versions/
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
@@ -46,6 +46,29 @@ import { ForbiddenError } from "../../api/errors";
 import { useReviewsData } from "./useReviewsData";
 import { SignatureDialog } from "./SignatureDialog";
 import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
+import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
+
+// UI-34 (Systemaudit 2026-08-27 AP-5): the queue rendered every loaded item
+// in one unbounded `<ul>` with no pagination controls at all. This paginates
+// what `useReviewsData` already loaded (mirrors the client-side pagination
+// pattern other list views use); it does not change how many items are
+// fetched per page from the backend — see the caveat on `PAGE_SIZE` in the
+// component below.
+const REVIEWS_PAGE_SIZE = 20;
+
+// UI-34: hoisted named style constants for the pagination row instead of
+// inline literals (ui-ratchet.test.ts style-brace ceiling).
+const paginationRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "var(--space-3)",
+  marginTop: "var(--space-3)",
+};
+const paginationIndicatorStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
 
 type ReviewTab = "details" | "history";
 
@@ -190,6 +213,26 @@ export default function ReviewsView({
     );
   }, [items, search]);
 
+  // UI-34: page state for the queue list, reset whenever the filtered set's
+  // origin changes (new search term or a different artifact type) so a page
+  // number from a longer previous result set cannot point past the end of a
+  // shorter one.
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / REVIEWS_PAGE_SIZE));
+  const clampedPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () =>
+      filtered.slice(
+        (clampedPage - 1) * REVIEWS_PAGE_SIZE,
+        clampedPage * REVIEWS_PAGE_SIZE
+      ),
+    [filtered, clampedPage]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, selectedArtifactType]);
+
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
     [items, selectedId]
@@ -284,14 +327,56 @@ export default function ReviewsView({
   // REQ-168: keep the generic "Approve"/"Reject" wording for the default
   // requirement-style targets, but surface the concrete state name for types
   // whose approve/reject lands somewhere else (e.g. "Mitigated", "Accepted").
+  // UI-34 (Systemaudit 2026-08-27 AP-5): this used to run the raw target
+  // state through `toTitleCase` (a mechanical word-capitalizer), not through
+  // the shared `getWorkflowStatusLabel` i18n-aware mapping every other
+  // workflow view (AdrForm, WorkflowStatusEditor's badge, ...) already uses
+  // — so e.g. a Goal's "Freigegeben" target rendered as the raw German word
+  // instead of going through the same label pipeline as everywhere else.
   const approveLabel =
     APPROVE_TARGET === "approved"
       ? t("reviews.approve", "Approve")
-      : toTitleCase(APPROVE_TARGET);
+      : getWorkflowStatusLabel(APPROVE_TARGET);
   const rejectLabel =
     REJECT_TARGET === "draft"
       ? t("reviews.reject", "Reject")
-      : toTitleCase(REJECT_TARGET);
+      : getWorkflowStatusLabel(REJECT_TARGET);
+
+  // UI-34: the Approve/Reject buttons disabled themselves whenever the
+  // target state was missing from `allowed_transitions` with no indication
+  // why — the GET .../transitions/ contract only lists moves that ARE
+  // allowed, so a disabled button could mean "still loading", "already in
+  // that state", or "role/precondition denied" with no way to tell them
+  // apart from the response alone. This surfaces the one case the frontend
+  // *can* distinguish (already in the target state) and otherwise names the
+  // two remaining possibilities together, rather than leaving the disabled
+  // button unexplained.
+  const buildDisabledReason = useCallback(
+    (targetState: string, allowed: AllowedTransition | undefined): string | undefined => {
+      if (!selected) return undefined;
+      if (transitionsLoading) {
+        return t("reviews.disabledLoading", "Loading available actions...");
+      }
+      if (allowed) return undefined;
+      if (transitions && transitions.current_state === targetState) {
+        return t("reviews.disabledAlreadyInState", {
+          state: getWorkflowStatusLabel(targetState),
+          defaultValue: `Already ${getWorkflowStatusLabel(targetState)}.`,
+        });
+      }
+      // Reuses the existing `transitionUnavailable` copy (already shown as
+      // the action-error banner on a stale click) rather than a near-
+      // duplicate string, since the frontend cannot distinguish "role
+      // missing" from "precondition not met" from the GET response alone.
+      return t(
+        "reviews.transitionUnavailable",
+        "This transition is not available (role or workflow configuration)."
+      );
+    },
+    [selected, transitionsLoading, transitions, t]
+  );
+  const approveDisabledReason = buildDisabledReason(APPROVE_TARGET, approveAllowed);
+  const rejectDisabledReason = buildDisabledReason(REJECT_TARGET, rejectAllowed);
 
   const listPanel = (
     <div data-testid="reviews-list">
@@ -365,7 +450,7 @@ export default function ReviewsView({
       )}
 
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {filtered.map((r) => (
+        {paged.map((r) => (
           <li key={r.id}>
             <button
               type="button"
@@ -395,6 +480,39 @@ export default function ReviewsView({
           </li>
         ))}
       </ul>
+
+      {filtered.length > REVIEWS_PAGE_SIZE && (
+        <div
+          data-testid="reviews-pagination"
+          style={paginationRowStyle}
+        >
+          <button
+            type="button"
+            data-testid="reviews-pagination-prev"
+            className="btn-secondary"
+            disabled={clampedPage <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            {t("actions.previous", "Previous")}
+          </button>
+          <span style={paginationIndicatorStyle}>
+            {t("reviews.pageIndicator", {
+              page: clampedPage,
+              totalPages,
+              defaultValue: `Page ${clampedPage} / ${totalPages}`,
+            })}
+          </span>
+          <button
+            type="button"
+            data-testid="reviews-pagination-next"
+            className="btn-secondary"
+            disabled={clampedPage >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            {t("actions.next", "Next")}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -487,6 +605,12 @@ export default function ReviewsView({
               className="btn-primary"
               disabled={isActing || transitionsLoading || !approveAllowed}
               onClick={() => handleAction(APPROVE_TARGET)}
+              title={!isActing ? approveDisabledReason : undefined}
+              aria-label={
+                !isActing && approveDisabledReason
+                  ? `${approveLabel}: ${approveDisabledReason}`
+                  : undefined
+              }
             >
               {isActing ? t("reviews.approving", "Approving...") : approveLabel}
             </button>
@@ -496,6 +620,12 @@ export default function ReviewsView({
               className="btn-danger"
               disabled={isActing || transitionsLoading || !rejectAllowed}
               onClick={() => handleAction(REJECT_TARGET)}
+              title={!isActing ? rejectDisabledReason : undefined}
+              aria-label={
+                !isActing && rejectDisabledReason
+                  ? `${rejectLabel}: ${rejectDisabledReason}`
+                  : undefined
+              }
             >
               {isActing ? t("reviews.rejecting", "Rejecting...") : rejectLabel}
             </button>

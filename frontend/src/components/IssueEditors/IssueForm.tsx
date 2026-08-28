@@ -151,7 +151,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
                 </button>
               </>
             )}
-            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+            <button data-testid="issue-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
@@ -182,10 +182,12 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
                 {SEVERITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('editor.status')}</label>
+            <div role="group" aria-labelledby="issue-status-label" style={{ flex: 1 }}>
+              <span id="issue-status-label" style={labelStyle}>{t('editor.status')}</span>
               {/* REQ-165: WorkflowEngine-driven status editor (replaces the
-                  hardcoded status select). */}
+                  hardcoded status select). role="group" + aria-labelledby
+                  because WorkflowStatusEditor renders a group of transition
+                  buttons, not a single form control. */}
               <WorkflowStatusEditor
                 artifactType="issue"
                 artifactId={issue.id}
@@ -202,8 +204,9 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
             </div>
           </div>
           <div>
-            <label style={labelStyle}>{t('issues.tags')}</label>
+            <label htmlFor="issue-tags" style={labelStyle}>{t('issues.tags')}</label>
             <TagInput
+              inputId="issue-tags"
               data-testid="issue-tags-input"
               tags={formData.tags ?? []}
               onChange={(tags) => handleChange('tags', tags)}

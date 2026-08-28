@@ -62,13 +62,13 @@ describe("MemorySection", () => {
     expect(btn).not.toBeDisabled();
   });
 
-  it("delete flow with confirm=true: calls deleteAll and resets the UI to empty", async () => {
+  it("delete flow, confirmed: calls deleteAll and resets the UI to empty", async () => {
+    // UI-20: window.confirm replaced by the shared ConfirmDialog.
     vi.mocked(memorySelfServiceApi.get).mockResolvedValue({
       entry_count: 4,
       last_updated_at: "2026-08-20T10:00:00Z",
     });
     vi.mocked(memorySelfServiceApi.deleteAll).mockResolvedValue({ deleted: 4 });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const user = userEvent.setup();
     render(<MemorySection />);
@@ -76,6 +76,7 @@ describe("MemorySection", () => {
     const btn = await screen.findByTestId("memory-self-service-delete-btn");
     expect(btn).not.toBeDisabled();
     await user.click(btn);
+    await user.click(await screen.findByTestId("memory-self-service-delete-confirm-confirm"));
 
     await waitFor(() => {
       expect(memorySelfServiceApi.deleteAll).toHaveBeenCalledTimes(1);
@@ -88,18 +89,18 @@ describe("MemorySection", () => {
     expect(await screen.findByTestId("memory-self-service-empty")).toBeInTheDocument();
   });
 
-  it("delete flow with confirm=false: does not call deleteAll", async () => {
+  it("delete flow, cancelled: does not call deleteAll", async () => {
     vi.mocked(memorySelfServiceApi.get).mockResolvedValue({
       entry_count: 4,
       last_updated_at: "2026-08-20T10:00:00Z",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
 
     const user = userEvent.setup();
     render(<MemorySection />);
 
     const btn = await screen.findByTestId("memory-self-service-delete-btn");
     await user.click(btn);
+    await user.click(await screen.findByTestId("memory-self-service-delete-confirm-cancel"));
 
     expect(memorySelfServiceApi.deleteAll).not.toHaveBeenCalled();
     expect(screen.getByTestId("memory-self-service-count")).toHaveTextContent("4");
@@ -123,13 +124,13 @@ describe("MemorySection", () => {
     vi.mocked(memorySelfServiceApi.deleteAll).mockRejectedValue({
       error: { message: "delete failed" },
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const user = userEvent.setup();
     render(<MemorySection />);
 
     const btn = await screen.findByTestId("memory-self-service-delete-btn");
     await user.click(btn);
+    await user.click(await screen.findByTestId("memory-self-service-delete-confirm-confirm"));
 
     expect(await screen.findByTestId("memory-self-service-error")).toHaveTextContent(
       "delete failed"

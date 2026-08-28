@@ -17,6 +17,7 @@ import {
   type EnforcementStatus,
 } from "../../api/permission-defaults";
 import { EnforcementFlipDialog } from "./EnforcementFlipDialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -80,6 +81,8 @@ export function EnforcementModePanel(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const [showFlipDialog, setShowFlipDialog] = useState(false);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -99,13 +102,6 @@ export function EnforcementModePanel(): JSX.Element {
   }, [load]);
 
   const handleRollback = useCallback(async (): Promise<void> => {
-    if (
-      !window.confirm(
-        t("systemSettings.enforcementMode.confirmRollback")
-      )
-    ) {
-      return;
-    }
     setRollingBack(true);
     setError(null);
     try {
@@ -122,6 +118,11 @@ export function EnforcementModePanel(): JSX.Element {
     setShowFlipDialog(false);
     void load();
   }, [load]);
+
+  const confirmRollback = useCallback((): void => {
+    setShowRollbackConfirm(false);
+    void handleRollback();
+  }, [handleRollback]);
 
   const isAuthoritative = status?.enforcement_mode === "authoritative";
 
@@ -189,7 +190,7 @@ export function EnforcementModePanel(): JSX.Element {
                 <button
                   type="button"
                   data-testid="enforcement-rollback-btn"
-                  onClick={() => void handleRollback()}
+                  onClick={() => setShowRollbackConfirm(true)}
                   disabled={rollingBack}
                   style={{
                     background: "transparent",
@@ -225,6 +226,17 @@ export function EnforcementModePanel(): JSX.Element {
           windowDays={WINDOW_DAYS}
           onClose={() => setShowFlipDialog(false)}
           onFlipped={handleFlipped}
+        />
+      )}
+
+      {showRollbackConfirm && (
+        <ConfirmDialog
+          title={t("systemSettings.enforcementMode.rollbackButton")}
+          message={t("systemSettings.enforcementMode.confirmRollback")}
+          confirmLabel={t("systemSettings.enforcementMode.rollbackButton")}
+          onConfirm={confirmRollback}
+          onCancel={() => setShowRollbackConfirm(false)}
+          testId="enforcement-rollback-confirm"
         />
       )}
     </section>

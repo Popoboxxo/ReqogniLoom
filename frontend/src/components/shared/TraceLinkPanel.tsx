@@ -160,6 +160,7 @@ export function TraceLinkPanel({
         {route ? (
           <button
              type="button"
+             data-testid={`trace-link-open-${trace.id}`}
              onClick={() => navigate(route)}
              style={{
                fontFamily: "monospace",
@@ -178,6 +179,7 @@ export function TraceLinkPanel({
           <span style={{ fontSize: "0.85rem", color: "var(--color-text)", fontFamily: "monospace" }}>{label}</span>
         )}
         <button
+          data-testid={`trace-link-delete-${trace.id}`}
           onClick={() => void handleDelete(trace.id)}
           style={{
             marginLeft: "auto",
@@ -220,6 +222,7 @@ export function TraceLinkPanel({
           {onDerive && (
             <button
               className="btn-primary"
+              data-testid="trace-link-derive-btn"
               onClick={onDerive}
               disabled={isDeriving}
               style={{

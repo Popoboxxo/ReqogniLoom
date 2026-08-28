@@ -87,6 +87,15 @@ export function MermaidEditor({
   // current when the timer fires.
   const isDirtyRef = useRef(false);
 
+  // UI-23: mirror of `validationError` for the same reason as `isDirtyRef`
+  // above — `performAutoSave` runs from a 2s timer scheduled during an
+  // earlier render and must see the *current* validation state, not the one
+  // captured when the timer was set.
+  const validationErrorRef = useRef<string>("");
+  useEffect(() => {
+    validationErrorRef.current = validationError;
+  }, [validationError]);
+
   // Always points at the newest `handleSourceChange`. The CodeMirror instance
   // is created once per `diagramId` and its `updateListener` closes over
   // whatever binding existed at that moment — without this indirection the
@@ -318,12 +327,22 @@ export function MermaidEditor({
   // -----------------------------------------------------------------------
 
   const performAutoSave = useCallback(
-    async (currentSource: string) => {
+    async (currentSource: string, options?: { auto?: boolean }) => {
       // Read the ref, not the `isDirty` state: this function is invoked from a
       // debounce timer scheduled by an older render, so the state variable
       // captured here would still be the mount-time `false` and would abort
       // every auto-save.
       if (!isDirtyRef.current) return;
+
+      // UI-23: the 2s autosave timer used to check only `isDirtyRef`, so a
+      // syntactically broken source was persisted the moment the user
+      // stopped typing — the invalid state silently became "the diagram".
+      // An explicit manual save (the Save button) still goes through: that
+      // is a deliberate action, not a silent background write.
+      const isAutoTriggered = options?.auto ?? true;
+      if (isAutoTriggered && validationErrorRef.current) {
+        return;
+      }
 
       setSaveStatus("saving");
       try {
@@ -351,9 +370,10 @@ export function MermaidEditor({
     [diagramId, queryClient]
   );
 
-  // Manual save
+  // Manual save — an explicit user action, so it is allowed to persist an
+  // invalid source (unlike the silent 2s autosave timer, see UI-23 above).
   const handleManualSave = useCallback(() => {
-    void performAutoSave(source);
+    void performAutoSave(source, { auto: false });
   }, [performAutoSave, source]);
 
   // Cleanup timers

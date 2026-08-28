@@ -129,6 +129,18 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // AI Decompose panel state
   const [showDecomposePanel, setShowDecomposePanel] = useState(false);
+  // UI-24: an Escape/backdrop close while a generated draft is awaiting
+  // review (or a commit is in flight) must not discard it silently.
+  const [decomposeHasPendingWork, setDecomposeHasPendingWork] = useState(false);
+  const [showDecomposeCloseConfirm, setShowDecomposeCloseConfirm] = useState(false);
+
+  const requestCloseDecomposePanel = useCallback((): void => {
+    if (decomposeHasPendingWork) {
+      setShowDecomposeCloseConfirm(true);
+      return;
+    }
+    setShowDecomposePanel(false);
+  }, [decomposeHasPendingWork]);
 
   // Requirement Bundle Export panel state
   const [showBundleExportPanel, setShowBundleExportPanel] = useState(false);
@@ -757,19 +769,39 @@ export default function ArchitectureEditors(): JSX.Element {
         <Dialog
           title={t("archDecompose.title")}
           description={element.title}
-          onClose={() => setShowDecomposePanel(false)}
+          onClose={requestCloseDecomposePanel}
           size="lg"
           testId="arch-decompose-dialog"
         >
           <ArchitectureDecomposePanel
             workspaceId={activeWorkspace.id}
             element={{ id: element.id, title: element.title }}
+            onPendingWorkChange={setDecomposeHasPendingWork}
             onCommitted={() => {
+              setDecomposeHasPendingWork(false);
               setShowDecomposePanel(false);
               refresh();
             }}
           />
         </Dialog>
+      )}
+
+      {/* UI-24: interposed before an Escape/backdrop close would otherwise
+          silently discard a generated-but-not-yet-committed decompose draft
+          (or one currently being committed). */}
+      {showDecomposeCloseConfirm && (
+        <ConfirmDialog
+          title={t("archDecompose.discardDraftTitle")}
+          message={t("archDecompose.discardDraftMessage")}
+          confirmLabel={t("archDecompose.discardDraftConfirm")}
+          onConfirm={() => {
+            setShowDecomposeCloseConfirm(false);
+            setDecomposeHasPendingWork(false);
+            setShowDecomposePanel(false);
+          }}
+          onCancel={() => setShowDecomposeCloseConfirm(false)}
+          testId="arch-decompose-discard-confirm"
+        />
       )}
 
       {showBundleExportPanel && element && activeWorkspace && (

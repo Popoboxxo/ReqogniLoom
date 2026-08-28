@@ -50,6 +50,7 @@ export function StateDialog({
           : t("workflow.stateDialog.editTitle")
       }
       onClose={onClose}
+      preventClose={busy}
       testId="workflow-state-dialog"
       footer={
         <>

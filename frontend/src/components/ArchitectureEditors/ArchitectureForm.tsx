@@ -144,7 +144,7 @@ function DeleteConfirmationDialog({
       testId="arch-form-delete-dialog"
       footer={
         <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-          <button className="btn-secondary" onClick={onCancel}>
+          <button data-testid="arch-cancel-delete-btn" className="btn-secondary" onClick={onCancel}>
             {t('actions.cancel')}
           </button>
           <button data-testid="confirm-delete-btn" className="btn-danger" onClick={onConfirm}>

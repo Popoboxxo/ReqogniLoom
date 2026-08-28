@@ -102,6 +102,21 @@ const labelStyle: React.CSSProperties = {
   fontSize: 'var(--font-size-sm)',
 };
 
+/** Reset default <fieldset> chrome so it matches the plain label+block look
+ * used elsewhere in this dialog, while keeping the native grouping semantics
+ * (fieldset/legend) that associate the "Source"/"Target" caption with the
+ * whole composite picker (search + type tabs + list) for assistive tech. */
+const fieldsetStyle: React.CSSProperties = {
+  border: 'none',
+  margin: 0,
+  padding: 0,
+};
+
+const legendStyle: React.CSSProperties = {
+  ...labelStyle,
+  padding: 0,
+};
+
 const elementListStyle: React.CSSProperties = {
   maxHeight: '200px',
   overflowY: 'auto',
@@ -483,7 +498,13 @@ export function CreateTraceLinkDialog({
   return (
     <Dialog
       title={t('createTraceLinkDialog.title', 'Create Trace Link')}
-      onClose={onClose}
+      onClose={() => {
+        // UI-24: Escape used to close the dialog even mid-submit, leaving
+        // the create request running with nothing left to report its
+        // result to.
+        if (!isSubmitting) onClose();
+      }}
+      closeOnBackdropClick={!isSubmitting}
       size="md"
       testId="create-trace-link-dialog"
       footer={
@@ -518,11 +539,11 @@ export function CreateTraceLinkDialog({
             list instead of a plain unfiltered <select>, for a consistent
             pattern on both sides of the dialog. */}
         {isGlobalMode && (
-          <div>
-            <label style={labelStyle}>
+          <fieldset style={fieldsetStyle}>
+            <legend style={legendStyle}>
               {t('traceability.source', 'Source')}{' '}
               <span style={{ color: 'var(--color-danger)' }}>*</span>
-            </label>
+            </legend>
             <ElementPicker
               elements={sourceElements}
               isLoading={isLoadingElements}
@@ -535,15 +556,15 @@ export function CreateTraceLinkDialog({
               testIdPrefix="create-trace-link-source"
               visibleTypeFilters={visibleTypeFilters}
             />
-          </div>
+          </fieldset>
         )}
 
         {/* Target picker with search */}
-        <div>
-          <label style={labelStyle}>
+        <fieldset style={fieldsetStyle}>
+          <legend style={legendStyle}>
             {t('traceability.target', 'Target')}{' '}
             <span style={{ color: 'var(--color-danger)' }}>*</span>
-          </label>
+          </legend>
           <ElementPicker
             elements={targetElements}
             isLoading={isLoadingElements}
@@ -552,7 +573,7 @@ export function CreateTraceLinkDialog({
             testIdPrefix="create-trace-link-target"
             visibleTypeFilters={visibleTypeFilters}
           />
-        </div>
+        </fieldset>
 
         {/* Link type selector */}
         <div>

@@ -28,6 +28,7 @@
   "customFields": {
     "section": "Benutzerdefinierte Felder",
     "workspaceSection": "Workspace-Felder",
+    "noSelection": "-- Keine Auswahl --",
     "saveValues": "Felder speichern",
     "empty": "Keine benutzerdefinierten Felder. Feld hinzufügen, um zu beginnen.",
     "addField": "Feld hinzufügen",
@@ -178,7 +179,8 @@
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "not_found": "Ressource nicht gefunden.",
     "unauthorized": "Sie sind nicht berechtigt, diese Aktion auszuführen.",
-    "llm_not_configured": "LLM-Provider ist nicht konfiguriert. KI-Features sind nicht verfügbar."
+    "llm_not_configured": "LLM-Provider ist nicht konfiguriert. KI-Features sind nicht verfügbar.",
+    "unknown": "Unbekannter Fehler"
   },
   "login": {
     "title": "Anmelden",
@@ -196,6 +198,8 @@
   "actions": {
     "add": "Hinzufügen",
     "edit": "Bearbeiten",
+    "previous": "Zurück",
+    "next": "Weiter",
     "save": "Speichern",
     "saved": "Gespeichert.",
     "saving": "Speichert...",
@@ -217,7 +221,8 @@
     "deriving": "Leitet ab...",
     "deleting": "Löscht...",
     "confirmDelete": "Ja, löschen",
-    "deleteConfirmPrompt": "Löschen?"
+    "deleteConfirmPrompt": "Löschen?",
+    "removeTag": "Tag „{{tag}}“ entfernen"
   },
   "workflowEditor": {
     "changeStatus": "Status ändern",
@@ -246,6 +251,8 @@
     "visibleFields": "Felder",
     "visible": "Sichtbar",
     "required": "Pflicht",
+    "visibleFieldLabel": "{{field}}: sichtbar",
+    "requiredFieldLabel": "{{field}}: Pflichtfeld",
     "saved": "Konfiguration erfolgreich gespeichert."
   },
   "dashboard": {
@@ -306,7 +313,8 @@
     "status": "Status",
     "viewDiff": "Diff anzeigen",
     "hideDiff": "Diff verbergen",
-    "resetFilters": "Filter zurücksetzen"
+    "resetFilters": "Filter zurücksetzen",
+    "retryLoadChildren": "Erneut laden"
   },
   "arch": {
     "deriveRequirement": "Anforderung ableiten",
@@ -416,7 +424,8 @@
     "allCoveredTitle": "Alle Anforderungen sind verifiziert",
     "allCoveredDescription": "Jede Anforderung hat mindestens einen verifizierenden Testfall.",
     "deleteConfirmTitle": "TraceLink löschen",
-    "deleteConfirmMessage": "Diesen TraceLink löschen? Diese Aktion kann nicht rückgängig gemacht werden."
+    "deleteConfirmMessage": "Diesen TraceLink löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "cycleNode": "Bereits im Pfad enthalten (Zyklus)"
   },
   "tracelinks": {
     "panelTitle": "Trace-Links",
@@ -460,6 +469,9 @@
     "changeReasonRequired": "Für diesen Übergang ist eine Begründung erforderlich.",
     "transitionUnavailable": "Dieser Übergang ist nicht verfügbar (Rolle oder Workflow-Konfiguration).",
     "forbidden": "Dir fehlt die für diesen Übergang erforderliche Freigeberrolle.",
+    "disabledLoading": "Verfügbare Aktionen werden geladen...",
+    "disabledAlreadyInState": "Bereits {{state}}.",
+    "pageIndicator": "Seite {{page}} / {{totalPages}}",
     "approve": "Freigeben",
     "approving": "Wird freigegeben...",
     "reject": "Ablehnen",
@@ -506,9 +518,12 @@
     "created": "Erstellt",
     "noArtifacts": "Keine Artefakte vorhanden",
     "artifactRequired": "Bitte ein Artefakt auswählen.",
+    "deleteConfirmTitle": "Baseline löschen?",
+    "deleteConfirm": "Diese Baseline wirklich löschen?",
     "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
     "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 10 Zeichen).",
     "overrideSubmit": "Baseline mit Ausnahme erstellen",
+    "overrideNoPermission": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Nur Admin oder Approver können die Baseline trotzdem erstellen — wende dich an eine berechtigte Person, oder behebe die gemeldeten Findings.",
     "compare": "Vergleichen",
     "compareTitle": "Baselines vergleichen",
     "compareRun": "Vergleichen"
@@ -552,7 +567,7 @@
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
-    "newTitlePlaceholder": "z.B. Als Benutzer möchte ich...",
+    "newTitlePlaceholder": "z.B. PostgreSQL als primären Datenspeicher einsetzen",
     "contextPlaceholder": "Was ist der Kontext / das Problem?",
     "decisionPlaceholder": "Was ist die Entscheidung und ihre Konsequenzen?",
     "context": "Kontext",
@@ -570,6 +585,8 @@
     "deriveStarted": "Task gestartet: {{taskId}}. Warte auf Abschluss...",
     "deriveSuccess": "Systemanforderungen erfolgreich abgeleitet!",
     "deriveFailed": "Ableitung fehlgeschlagen.",
+    "deriveRolledBack": "{{message}} Das bereits angelegte Requirement wurde zurückgenommen (archiviert).",
+    "derivePartialFailure": "{{message}} Achtung: Ein Requirement wurde bereits angelegt, aber die Verknüpfung zum Bedarf ist fehlgeschlagen und die automatische Rücknahme ebenfalls. Bitte manuell prüfen (Requirement-ID: {{id}}).",
     "deriveEmpty": "Die KI hat keine Systemanforderungen vorgeschlagen.",
     "deriveCreated": "{{count}} Systemanforderung(en) angelegt und verknüpft.",
     "deriveArchOptional": "Architekturelement zuweisen (optional)",
@@ -590,6 +607,8 @@
     "rationale": "Begründung",
     "accept": "Ausgewählte anlegen",
     "accepting": "Wird angelegt...",
+    "acceptingProgress": "Wird angelegt: {{done}}/{{total}}...",
+    "partialFailure": "{{created}} von {{total}} Requirements wurden angelegt, dann: {{message}}",
     "discard": "Verwerfen"
   },
   "adrs": {
@@ -607,7 +626,15 @@
     "summary_other": "{{count}} ADRs",
     "emptyTitle": "Noch keine ADRs",
     "emptyDescription": "Architekturentscheidungen dokumentieren, warum das System so gebaut ist, wie es gebaut ist.",
-    "untitled": "Unbenannt"
+    "untitled": "Unbenannt",
+    "supersedeAction": "Supersede durch...",
+    "supersedeNoCandidates": "Keine anderen ADRs in diesem Workspace vorhanden.",
+    "supersedeTargetLabel": "Abgelöst durch",
+    "supersedeTargetPlaceholder": "ADR auswählen...",
+    "supersedeReasonLabel": "Begründung",
+    "supersedeConfirm": "Supersede bestätigen",
+    "supersedeFailed": "Supersede fehlgeschlagen. Bitte erneut versuchen.",
+    "supersededBy": "Abgelöst durch: {{title}}"
   },
   "risks": {
     "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",
@@ -618,6 +645,13 @@
     "severity": "Schweregrad",
     "probability": "Wahrscheinlichkeit",
     "impact": "Auswirkung",
+    "detection": "Entdeckbarkeit (1-10)",
+    "matrixTitle": "Risikomatrix (Wahrscheinlichkeit × Auswirkung)",
+    "score": "Score",
+    "computedScores": "Berechnete Kennzahlen",
+    "riskScoreLabel": "Risiko-Score",
+    "rpnLabel": "RPZ (FMEA)",
+    "rpnHint": "Risiko-Score = Wahrscheinlichkeit × Auswirkung. RPZ = Wahrscheinlichkeit × Auswirkung × Entdeckbarkeit. Wird beim Speichern neu berechnet.",
     "category": "Kategorie",
     "owner": "Verantwortlicher",
     "mitigationStrategy": "Maßnahmen",
@@ -636,7 +670,9 @@
     "cycleDetected": "Bereits im Pfad enthalten (Zyklus)",
     "maxDepthReached": "Maximale Tiefe erreicht",
     "load": "Artefakt laden",
-    "searchPlaceholder": "Start-Artefakt suchen (Name oder ID)…",
+    "searchLabel": "Start-Artefakt suchen",
+    "searchPlaceholder": "Name oder ID…",
+    "searchNoResults": "0 Treffer für „{{query}}“.",
     "noLinks": "Keine weiteren Verknüpfungen.",
     "onlyActive": "Nur aktive Verknüpfungen"
   },
@@ -679,6 +715,9 @@
       "optional": "optional",
       "workflow": "Workflow"
     },
+    "presetDowngradeConfirmTitle": "Preset heruntersetzen?",
+    "presetDowngradeConfirmMessage": "Der Wechsel zu \"{{preset}}\" deaktiviert Funktionen des aktuellen Presets (z. B. Baselines, Pflicht-Änderungsgrund oder den Freigabe-Workflow). Das lässt sich später zurücksetzen, aber Daten, die von den deaktivierten Funktionen abhingen, bleiben unverändert.",
+    "presetDowngradeConfirm": "Herunterstufen",
     "terminologyProfile": "Terminologie-Profil",
     "language": "Sprache",
     "theme": "Theme",
@@ -749,6 +788,10 @@
     "closeConfirm": "Sind Sie sicher, dass Sie diesen Workspace schließen möchten? Daten bleiben erhalten, aber Sie können nicht mehr bearbeiten.",
     "deleteConfirmTitle": "Workspace löschen",
     "deleteConfirmButton": "Endgültig löschen",
+    "workflowReset": "Workflow zurücksetzen",
+    "workflowResetConfirm": "Diesen Workflow auf den aktuellen globalen Standard zurücksetzen? Workspace-spezifische Änderungen gehen dabei verloren.",
+    "permissionReset": "Berechtigungsmatrix zurücksetzen",
+    "permissionResetConfirm": "Die Berechtigungsmatrix dieses Workspaces auf den aktuellen globalen Standard zurücksetzen?",
     "promptTemplates": {
       "title": "KI-Prompt-Vorlagen",
       "description": "Passe die Prompts für die KI-gestützte Ableitung an. Verfügbare Platzhalter: {n} (Anzahl gewünschter Entwürfe), {need_title} und {need_description} (Stakeholder Need), {req_title} und {req_description} (Anforderung), {arch_elements_json} (Kandidaten-Architekturelemente). Unbekannte oder fehlende Platzhalter bleiben unverändert, bestehende Vorlagen funktionieren also weiter.",
@@ -920,6 +963,12 @@
     "testCaseOptionsLoading": "Lade Testfälle...",
     "testCaseOptionsLoadFailed": "Testfälle konnten nicht geladen werden.",
     "noTestCases": "Keine Testfälle im Workspace vorhanden",
+    "testCaseSearchPlaceholder": "Testfälle filtern...",
+    "testCaseSearchNoResults": "Keine passenden Testfälle.",
+    "selectAllTestCases": "Alle auswählen",
+    "selectedCount": "{{count}} ausgewählt",
+    "closeConfirmIrreversible": "Diesen Test-Run abschließen? Das kann nicht rückgängig gemacht werden — ein abgeschlossener Test-Run kann danach nicht mehr bearbeitet oder wiedereröffnet werden.",
+    "closedTerminalHint": "Dieser Test-Run ist abgeschlossen und kann nicht wiedereröffnet oder bearbeitet werden.",
     "resultEntry": {
       "bulkStatusLabel": "Status für Auswahl",
       "applyToSelected": "Auf Auswahl anwenden",
@@ -973,7 +1022,35 @@
     "reqifSkipped": "übersprungen",
     "reqifWarnings": "Warnungen",
     "reqifMoreErrors": "… und {{count}} weitere Fehler",
-    "reqifMoreWarnings": "… und {{count}} weitere Warnungen"
+    "reqifMoreWarnings": "… und {{count}} weitere Warnungen",
+    "dropZoneLabel": "CSV-Datei auswählen oder hier ablegen",
+    "reqifDropZoneLabel": "ReqIF-Datei auswählen",
+    "previewTitle": "Vorschau",
+    "previewSummary": "Datenzeilen: {{rows}} · Spalten: {{columns}} · Vorschau: {{shown}}",
+    "previewTableCaption": "Die ersten Zeilen der ausgewählten CSV-Datei",
+    "previewRowColumn": "Zeile",
+    "previewUnparsable": "Die Datei konnte nicht als CSV gelesen werden.",
+    "previewUnknownColumns": "Unbekannte Spalten, deren Daten NICHT importiert werden: {{columns}}",
+    "previewDuplicateColumns": "Mehrfach vorhandene Spalten (nur die letzte wird verwendet): {{columns}}",
+    "previewMissingTitleColumn": "Die Pflichtspalte „title“ fehlt — der Import wird komplett abgelehnt.",
+    "previewEmptyTitleRows_one": "{{count}} Zeile ohne „title“ (Zeile {{rows}}) — der Import wird komplett abgelehnt.",
+    "previewEmptyTitleRows_other": "{{count}} Zeilen ohne „title“ (u. a. Zeile {{rows}}) — der Import wird komplett abgelehnt.",
+    "previewRowLimit": "Mehr als {{max}} Datenzeilen — der Import wird abgelehnt. Datei aufteilen.",
+    "partialSuccess": "{{count}} Zeilen importiert — aber nicht alle Daten wurden übernommen.",
+    "statusLabel": "Status",
+    "failedValidation": "Import abgelehnt — die Datei enthält Fehler.",
+    "failedRollback": "Import abgebrochen — Datenbankfehler, es wurde zurückgerollt.",
+    "nothingWritten_one": "Es wurde nichts gespeichert: der Import läuft in einer einzigen Transaktion, alle {{count}} Zeilen wurden verworfen.",
+    "nothingWritten_other": "Es wurde nichts gespeichert: der Import läuft in einer einzigen Transaktion, alle {{count}} Zeilen wurden verworfen.",
+    "errorRow": "Zeile {{row}} — {{field}}: {{message}}",
+    "moreErrors_one": "… und {{count}} weiteren Fehler anzeigen",
+    "moreErrors_other": "… und {{count}} weitere Fehler anzeigen",
+    "showFewerErrors": "Weniger anzeigen",
+    "statusValue": {
+      "ok": "OK",
+      "validation_error": "Validierungsfehler",
+      "rollback": "Zurückgerollt"
+    }
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
@@ -1030,6 +1107,7 @@
     "create": "Neues Diagramm",
     "edit": "Quelle bearbeiten",
     "delete": "Löschen",
+    "deleteConfirmTitle": "Diagramm löschen?",
     "deleteConfirm": "Dieses Diagramm wirklich löschen?",
     "deleteFailed": "Diagramm konnte nicht gelöscht werden.",
     "type": "Typ",
@@ -1089,7 +1167,8 @@
       "emptyHintReadOnly": "Aktiviere den Bearbeitungsmodus, um Knoten hinzuzufügen.",
       "newNodeLabel": "Neuer Knoten",
       "nodeAriaLabel": "Knoten {{label}} ({{type}})",
-      "nodeLinkedAriaLabel": "Verknüpft mit {{entityType}}"
+      "nodeLinkedAriaLabel": "Verknüpft mit {{entityType}}",
+      "edgeAriaLabel": "Kante {{label}} ({{type}})"
     },
     "toolbar": {
       "ariaLabel": "Diagramm-Werkzeugleiste",
@@ -1216,6 +1295,12 @@
       "neutral": "Info"
     },
     "pageSummary": "SE-Prozess-Kennzahlen: Traceability-Coverage, Volatilität, Workflow-Lücken und Risiken auf einen Blick.",
+    "notComputed": "Nicht berechnet",
+    "thresholdLowerBad": "Warnung < {{warning}}{{unit}} · Kritisch < {{critical}}{{unit}}",
+    "thresholdHigherBad": "Warnung ≥ {{warning}}{{unit}} · Kritisch ≥ {{critical}}{{unit}}",
+    "showHelp": "Hilfe anzeigen",
+    "hideHelp": "Hilfe ausblenden",
+    "trendLabel": "{{metric}} Trend",
     "help": {
       "coverage": "Prozentsatz der Anforderungen mit mindestens einer Trace-Verbindung zu Testfällen oder Architektur-Elementen.",
       "volatility": "Durchschnittliche Anzahl von Änderungen pro Anforderung über die Projektlaufzeit. Höhere Werte zeigen unstabile Anforderungen an.",
@@ -1252,6 +1337,9 @@
   },
   "users": {
     "newUser": "Neuer Nutzer"
+  },
+  "splitView": {
+    "resizeDivider": "Bereiche in der Größe anpassen"
   },
   "sidebar": {
     "inspector": {
@@ -1352,6 +1440,8 @@
     "adopt": "Übernehmen",
     "adopting": "Wird übernommen...",
     "adoptSuccess": "Behoben — die Korrektur wurde angewendet.",
+    "adoptConfirmTitle": "Korrektur übernehmen?",
+    "adoptConfirmMessage": "Die automatische Korrektur für {{ruleId}} wird sofort angewendet. Es gibt kein Rückgängig.",
     "modify": "Anpassen",
     "modifyReasonPrefix": "Nicht automatisch korrigierbar",
     "modifyHint": "Betroffenes Artefakt öffnen, um es manuell zu korrigieren.",
@@ -1376,7 +1466,10 @@
     "committing": "Wird übernommen...",
     "discard": "Verwerfen",
     "committed": "Übernommen: {{elements}} Elemente, {{requirements}} Anforderungen, {{links}} Links.",
-    "verified": "Auditor bestanden"
+    "verified": "Auditor bestanden",
+    "discardDraftTitle": "Entwurf verwerfen?",
+    "discardDraftMessage": "Der generierte KI-Entwurf wurde noch nicht übernommen. Beim Schließen geht er unwiderruflich verloren.",
+    "discardDraftConfirm": "Entwurf verwerfen"
   },
   "bundleExport": {
     "trigger": "Requirement-Bundle exportieren",
@@ -1581,7 +1674,9 @@
     "mainGoalNoneHint": "Das Haupt-Ziel fasst die freigegebenen Ziele des Workspace zusammen. Erzeuge es per KI oder schreibe es selbst.",
     "mainGoalDraft": "Entwurf",
     "generate": "Haupt-Ziel per KI erzeugen",
+    "generating": "Wird erzeugt...",
     "generateDisabledHint": "KI-Generierung ist für diesen Workspace deaktiviert.",
+    "mockFallback": "Hinweis: deterministischer Mock-Output (kein echter LLM-Provider konfiguriert).",
     "manualOpen": "Haupt-Ziel selbst schreiben",
     "manualCancel": "Eingabe abbrechen",
     "manualPlaceholder": "Haupt-Ziel",
@@ -1599,6 +1694,8 @@
     "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe für das Haupt-Ziel.",
     "editHint": "Bearbeiten legt eine neue Version desselben Ziels an. Die bisherige Version bleibt in der Historie erhalten.",
     "archiveConfirm": "„{{title}}“ wird archiviert und verschwindet aus der Liste. Die Version bleibt in der Historie erhalten.",
+    "archiveReasonLabel": "Begründung (Pflichtfeld)",
+    "archiveReasonPlaceholder": "Warum wird dieses Artefakt archiviert?",
     "transition": {
       "Freigegeben": "Freigeben",
       "Entwurf": "Zurück zu Entwurf",
@@ -1798,6 +1895,8 @@
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."
   },
   "permissions": {
+    "revoke": "Widerrufen",
+    "revokeConfirm": "Diese Berechtigungsregel widerrufen?",
     "members": {
       "title": "Workspace-Mitglieder",
       "empty": "Keine Workspace-Mitglieder.",
@@ -1861,11 +1960,20 @@
     "multiEntry": "Ich weiß noch nicht genau, was ich brauche",
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",
+      "transcriptLabel": "Chat-Verlauf",
       "send": "Senden",
       "proposalHeading": "Vorgeschlagene Artefakte",
       "confirm": "Diese Artefakte anlegen",
       "resultHeading": "Angelegte Artefakte",
       "createdBadge": "Angelegt via Interview"
+    }
+  },
+  "workspaceSettings": {
+    "defaultStatus": {
+      "noSource": "Keine globale Vorlage",
+      "customized": "Angepasst",
+      "onDefault": "Auf Standard",
+      "resetToDefault": "Auf Standard zurücksetzen"
     }
   }
 }

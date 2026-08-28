@@ -19,6 +19,15 @@ export interface ConfirmDialogProps {
   onConfirm: () => void;
   onCancel: () => void;
   testId?: string;
+  /**
+   * UI-24: while a confirm action is in flight (async `onConfirm`), Escape
+   * and a backdrop click used to close the dialog anyway — the caller's
+   * mutation kept running detached from any visible dialog. Callers that
+   * track their own submitting state pass it here to suppress Escape/
+   * backdrop/close-button dismissal and disable both footer buttons until
+   * the action settles.
+   */
+  isSubmitting?: boolean;
 }
 
 export function ConfirmDialog({
@@ -29,13 +38,17 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   testId = 'confirm-dialog',
+  isSubmitting = false,
 }: ConfirmDialogProps): JSX.Element {
   const { t } = useTranslation();
 
   return (
     <Dialog
       title={title}
-      onClose={onCancel}
+      onClose={() => {
+        if (!isSubmitting) onCancel();
+      }}
+      closeOnBackdropClick={!isSubmitting}
       testId={testId}
       size="sm"
       footer={
@@ -45,6 +58,7 @@ export function ConfirmDialog({
             className="btn-secondary"
             data-testid={`${testId}-cancel`}
             onClick={onCancel}
+            disabled={isSubmitting}
           >
             {cancelLabel ?? t('actions.cancel', 'Abbrechen')}
           </button>
@@ -53,6 +67,7 @@ export function ConfirmDialog({
             className="btn-danger"
             data-testid={`${testId}-confirm`}
             onClick={onConfirm}
+            disabled={isSubmitting}
           >
             {confirmLabel}
           </button>

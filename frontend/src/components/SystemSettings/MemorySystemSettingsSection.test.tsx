@@ -267,26 +267,27 @@ describe("MemorySystemSettingsSection", () => {
     expect(screen.queryByTestId("memory-settings-confirm-dialog")).not.toBeInTheDocument();
   });
 
-  it("reset button calls reset() after confirming the browser confirm dialog", async () => {
+  it("reset button calls reset() after confirming the ConfirmDialog", async () => {
+    // UI-20: window.confirm replaced by the shared ConfirmDialog.
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<MemorySystemSettingsSection />);
 
     await screen.findByTestId("memory-system-settings-section");
     await user.click(screen.getByTestId("memory-settings-reset-btn"));
+    await user.click(await screen.findByTestId("memory-settings-reset-confirm-confirm"));
 
     await waitFor(() => {
       expect(systemMemorySettingsApi.reset).toHaveBeenCalled();
     });
   });
 
-  it("does not call reset() when the browser confirm dialog is dismissed", async () => {
+  it("does not call reset() when the ConfirmDialog is cancelled", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<MemorySystemSettingsSection />);
 
     await screen.findByTestId("memory-system-settings-section");
     await user.click(screen.getByTestId("memory-settings-reset-btn"));
+    await user.click(await screen.findByTestId("memory-settings-reset-confirm-cancel"));
 
     expect(systemMemorySettingsApi.reset).not.toHaveBeenCalled();
   });

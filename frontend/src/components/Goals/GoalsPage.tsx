@@ -203,31 +203,25 @@ export default function GoalsPage(): JSX.Element {
   );
 
   const runTransition = useCallback(
-    async (goal: Goal, transition: WorkflowAllowedTransition): Promise<void> => {
+    async (
+      goal: Goal,
+      transition: WorkflowAllowedTransition,
+      userReason?: string,
+    ): Promise<void> => {
       setError(null);
       setIsSubmitting(true);
       try {
-        // The WorkflowEngine rejects an empty reason where the transition
-        // demands one (`requires_change_reason`), so send a canned one for
-        // exactly those moves rather than for every move.
-        //
-        // Issue #221 finding 1 (scope boundary): this is a computed string,
-        // not a real user-entered audit reason — it undermines the intent of
-        // the change-reason gate for every non-archive transition. A real
-        // fix would prompt for a reason the same way `ArchiveConfirmDialog`
-        // confirms the archive move, but that dialog (see ArchiveConfirmDialog
-        // .tsx) has no reason textarea to reuse today — it only confirms with
-        // a static body text. Adding one, and wiring a reason prompt into
-        // every `requires_change_reason` transition (here and in
-        // MainGoalPanel.handleArchive), is a state-management change across
-        // two components, not a one-line fix — out of scope for this polish
-        // pass. Kept minimal-invasive: the fallback text below explicitly
-        // reads as a mechanical status description ("Statuswechsel nach
-        // X"), not as a human-authored justification, so an auditor reading
-        // the change_reason later is not misled into thinking a person
-        // typed it.
+        // UI-29 (Systemaudit 2026-08-27 AP-5): the archive move now prompts
+        // for a real reason via `ArchiveConfirmDialog` (see confirmArchive
+        // below) and passes it in as `userReason`. The computed fallback
+        // stays only as a defense-in-depth safety net for
+        // `requires_change_reason` transitions that reach this function
+        // without a dialog-sourced reason (there are none today, since the
+        // only such move on this route is the archive one, but a future
+        // customised workflow could add another).
         const changeReason = transition.requires_change_reason
-          ? t("goals.transitionReason", {
+          ? userReason?.trim() ||
+            t("goals.transitionReason", {
               state: transition.target_state,
               defaultValue: `Statuswechsel nach ${transition.target_state}.`,
             })
@@ -261,12 +255,15 @@ export default function GoalsPage(): JSX.Element {
     [runTransition],
   );
 
-  const confirmArchive = useCallback((): void => {
-    if (!pendingArchive) return;
-    const { goal, transition } = pendingArchive;
-    setPendingArchive(null);
-    void runTransition(goal, transition);
-  }, [pendingArchive, runTransition]);
+  const confirmArchive = useCallback(
+    (changeReason: string): void => {
+      if (!pendingArchive) return;
+      const { goal, transition } = pendingArchive;
+      setPendingArchive(null);
+      void runTransition(goal, transition, changeReason);
+    },
+    [pendingArchive, runTransition],
+  );
 
   const handleEdit = useCallback((goal: Goal): void => {
     setError(null);
@@ -410,6 +407,7 @@ export default function GoalsPage(): JSX.Element {
             `goals.transition.${pendingArchive.transition.target_state}`,
             { defaultValue: pendingArchive.transition.target_state },
           )}
+          requiresChangeReason={pendingArchive.transition.requires_change_reason}
           isSubmitting={isSubmitting}
           onConfirm={confirmArchive}
           onCancel={() => setPendingArchive(null)}

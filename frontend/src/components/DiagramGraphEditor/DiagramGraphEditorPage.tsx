@@ -40,6 +40,7 @@ import {
   useGraphPayload,
 } from "./useGraphPayload";
 import { useGraphAutosave } from "./useGraphAutosave";
+import { useToast } from "../shared/Toast/useToast";
 import type { GraphEdge, GraphHandlePosition, GraphNode, NodeGraphPayload } from "../../types";
 import styles from "./DiagramGraphEditor.module.css";
 
@@ -79,7 +80,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
   const [editMode, setEditMode] = useState(false);
   const [viewMode, setViewMode] = useState<"visual" | "code">("visual");
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
 
   // Seed the draft exactly once per loaded diagram — after that, all edits
   // live only in `draft` until Save. Re-seeding on every `payload` change
@@ -93,10 +94,6 @@ export function DiagramGraphEditorPage(): JSX.Element {
   const nodes = draft?.nodes ?? EMPTY_FLOW_NODES;
   const edges = draft?.edges ?? EMPTY_FLOW_EDGES;
 
-  const flashToast = useCallback((message: string): void => {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 3000);
-  }, []);
 
   // --- draft mutations (local only, until Save) ---------------------------
 
@@ -321,8 +318,8 @@ export function DiagramGraphEditorPage(): JSX.Element {
   const handleSave = useCallback(async (): Promise<void> => {
     // `saveNow` never rejects; it resolves false when the request failed, and
     // the reason is surfaced through `saveError` below.
-    if (await saveNow()) flashToast(t("diagramGraph.toast.saved"));
-  }, [saveNow, flashToast, t]);
+    if (await saveNow()) toast.show(t("diagramGraph.toast.saved"));
+  }, [saveNow, toast, t]);
 
   const saveStatusLabel =
     saveStatus === "saving"
@@ -485,9 +482,9 @@ export function DiagramGraphEditorPage(): JSX.Element {
         )}
       </div>
 
-      {toast && (
+      {toast.message && (
         <div className={styles.statusBar} role="status" data-testid="graph-editor-toast">
-          {toast}
+          {toast.message}
         </div>
       )}
       {saveError && (

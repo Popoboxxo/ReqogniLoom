@@ -262,6 +262,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
               aria-pressed={active}
               data-chip="true"
               data-value={lt}
+              data-testid={`trace-filter-chip-${lt}`}
               className={`${styles.chip} ${active ? styles.chipActive : ""}`}
               onClick={(): void => toggleFilter(lt)}
               onKeyDown={(e): void => onChipKeyDown(e, idx)}
@@ -273,6 +274,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
         <button
           type="button"
           className={styles.clearButton}
+          data-testid="trace-filter-toggle-all"
           onClick={allSelected ? clearFilters : selectAllFilters}
         >
           {allSelected
@@ -289,6 +291,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
         <button
           type="button"
           className={styles.rowButton}
+          data-testid={`trace-row-open-${link.id}`}
           // #261: react-router 7's navigate() returns void | Promise<void>
           // (async view-transition support) — an explicit `: void` return
           // annotation here no longer type-checks against that.
@@ -342,7 +345,12 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
           {t("sidebar.trace.error", "Could not load trace links.")}
           {errorMessage ? ` (${errorMessage})` : ""}
         </span>
-        <button type="button" className={styles.retryButton} onClick={(): void => void load()}>
+        <button
+          type="button"
+          className={styles.retryButton}
+          data-testid="trace-retry"
+          onClick={(): void => void load()}
+        >
           {t("actions.reload", "Reload")}
         </button>
       </div>

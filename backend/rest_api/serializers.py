@@ -1249,6 +1249,12 @@ class MainGoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    # UI-28 (Systemaudit 2026-08-27 AP-5): not a persisted column — only
+    # `MainGoalViewSet.generate()` ever populates it (from
+    # `MainGoalService.generate_ai()`'s response dict), every other action
+    # falls back to the default below so a mock-served draft can be flagged
+    # to the client right after generation without a schema migration.
+    is_mock_fallback = serializers.BooleanField(read_only=True, required=False, default=False)
 
 
 class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
