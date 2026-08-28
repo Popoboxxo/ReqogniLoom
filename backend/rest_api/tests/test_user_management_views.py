@@ -1,4 +1,12 @@
 # backend/rest_api/tests/test_user_management_views.py
+"""UserViewSet REST tests.
+
+Error shape (systemaudit 2026-08-27, P1 item 13): ``_err`` now delegates to
+``rest_api.serializers.build_error_response``, so failures carry the
+project-wide envelope ``{"error": {"code", "message", "details"}}``. The code
+literals (``LAST_ADMIN``, ``PERMISSION_DENIED``, ``NOT_FOUND``, ...) are
+unchanged; only the nesting is, hence ``["error"]["code"]`` below.
+"""
 from __future__ import annotations
 
 import pytest
@@ -70,7 +78,7 @@ def test_deactivate_blocks_last_tenant_admin(tenant, workspace):
         clear_request_tenant()
     resp = client.post(f"/api/v1/users/{target.id}/deactivate/")
     assert resp.status_code == 409, resp.content
-    assert resp.json()["error"] == "LAST_ADMIN"
+    assert resp.json()["error"]["code"] == "LAST_ADMIN"
 
 
 @pytest.mark.django_db
@@ -129,7 +137,7 @@ def test_activate_rejects_cross_tenant_target(tenant, workspace):
 
     resp = client.post(f"/api/v1/users/{foreign_user.id}/activate/")
     assert resp.status_code == 403, resp.content
-    assert resp.json()["error"] == "PERMISSION_DENIED"
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
 
     set_request_tenant(other_tenant.id)
     try:
@@ -159,7 +167,7 @@ def test_deactivate_rejects_cross_tenant_target(tenant, workspace):
 
     resp = client.post(f"/api/v1/users/{foreign_user.id}/deactivate/")
     assert resp.status_code == 403, resp.content
-    assert resp.json()["error"] == "PERMISSION_DENIED"
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
 
     set_request_tenant(other_tenant.id)
     try:
@@ -190,7 +198,7 @@ def test_grant_tenant_admin_rejects_cross_tenant_target(tenant, workspace):
 
     resp = client.post(f"/api/v1/users/{foreign_user.id}/tenant-admin/")
     assert resp.status_code == 403, resp.content
-    assert resp.json()["error"] == "PERMISSION_DENIED"
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
 
     set_request_tenant(tenant.id)
     try:
@@ -225,7 +233,7 @@ def test_grant_tenant_admin_returns_404_for_unknown_user(tenant, workspace):
     unknown_id = "00000000-0000-0000-0000-000000000000"
     resp = client.post(f"/api/v1/users/{unknown_id}/tenant-admin/")
     assert resp.status_code == 404, resp.content
-    assert resp.json()["error"] == "NOT_FOUND"
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
 @pytest.mark.django_db

@@ -51,11 +51,18 @@ target workspace for ``uid`` values that already exist so a second run of
 this command imports nothing twice.
 
 V-model level mapping: docs/se's own requirement numbering (L1 System / L2
-Subsystem / L3 Component) does NOT line up 1:1 with the
-``persistence.models.RequirementLevel`` enum (L0_SYSTEM=0 .. L4_MATERIAL=4).
-This command maps REQ-L1 -> level 0, REQ-L2 -> level 1, REQ-L3 -> level 2 (see
-``_REQ_LEVEL_MAP``); it deliberately leaves L4 unused since docs/se has no L4
-documents to import.
+Subsystem / L3 Component) now lines up 1:1 with the
+``persistence.models.RequirementLevel`` enum (``L1_SYSTEM=1 ..
+L4_PRESENTATION=4``), so ``_REQ_LEVEL_MAP`` is the identity mapping REQ-L1 ->
+level 1, REQ-L2 -> level 2, REQ-L3 -> level 3. It deliberately leaves L4
+unused since docs/se has no L4 documents to import.
+
+This used to be an off-by-one translation (REQ-L1 -> 0, REQ-L2 -> 1, REQ-L3 ->
+2) because the enum spelled a differently-numbered physical decomposition
+scale. SYSTEMAUDIT_2026-08-27 P1-9 realigned the enum with the cascade every
+other part of the system already used, and migration ``0067`` shifted the rows
+this command had previously written — so re-running it after that migration
+produces the same levels the migration assigned, not a second shift.
 
 Known ImportService quirk (NOT patched here — mitigated in this command
 only, per the "do not touch import_service.py without a genuine blocking
@@ -147,9 +154,13 @@ _COMP_FOLDER_RE = re.compile(r"(COMP-[A-Z]+-\d+)_")
 _ADR_FILENAME_RE = re.compile(r"^(ADR-\d+)")
 _ADR_STATUS_RE = re.compile(r"^\*\*Status:\*\*\s*(.+)$", re.MULTILINE)
 
-# docs/se REQ-Lx numbering -> persistence.models.RequirementLevel (see module
-# docstring: the two numbering schemes are NOT the same).
-_REQ_LEVEL_MAP = {"L1": 0, "L2": 1, "L3": 2}
+# docs/se REQ-Lx numbering -> persistence.models.RequirementLevel. Identity
+# since P1-9 (see module docstring): the enum's integer IS the cascade level,
+# so "L2" is level 2. Kept as an explicit dict rather than parsing the digit
+# out of the uid, so the legal set stays enumerated and an unexpected "L5"
+# raises KeyError in _requirement_level instead of silently importing an
+# out-of-choices value.
+_REQ_LEVEL_MAP = {"L1": 1, "L2": 2, "L3": 3}
 
 # ---------------------------------------------------------------------------
 # Post-import passes (run AFTER the four CSV entity buckets are imported)
@@ -546,7 +557,7 @@ def _requirement_table_row(
     workspace's WorkflowEngineDefinition states (or a safe fallback) — see
     ``application.import_service._insert_rows`` / ``reqif_import_service._map_status``
     — so this command does not need to know about workflow states at all.
-    ``level`` (V-model L0-L4) is deliberately left unset: docs/REQUIREMENTS.md
+    ``level`` (V-model L1-L4) is deliberately left unset: docs/REQUIREMENTS.md
     predates that numbering and none of its rows can be mapped to it without
     guessing (persistence.models.RequirementLevel: NULL = "not yet assigned").
     """

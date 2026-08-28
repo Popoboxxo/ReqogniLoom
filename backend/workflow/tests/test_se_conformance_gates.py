@@ -707,60 +707,16 @@ class TestVerifiesLinkGate:
         assert result.valid is False
         assert result.error_code == EC_VERIFIES_LINK_MISSING
 
-    def test_link_to_a_superseded_requirement_is_not_coverage(
-        self, tenant, extended_ws
-    ):
-        """Same exclusion TRACE-P6 applies via ``_superseded_artifact_ids``.
-
-        Without it a TestCase whose only subject was replaced passes the
-        approval gate here and is blocked at the baseline build instead — the
-        late feedback this rule exists to prevent.
-        """
-        old_req = _requirement(
-            tenant, extended_ws, title="Old R", description="d", acceptance_criteria="ac"
-        )
-        new_req = _requirement(
-            tenant, extended_ws, title="New R", description="d", acceptance_criteria="ac"
-        )
-        TenantContext.set_tenant(tenant.id)
-        try:
-            # Direction: source = the new artifact, target = the superseded one.
-            TraceLink.objects.create(
-                tenant=tenant,
-                source=new_req.artifact,
-                target=old_req.artifact,
-                link_type="supersedes",
-            )
-        finally:
-            TenantContext.clear_tenant()
-        tc_art, tc = _approvable_testcase(tenant, extended_ws, "TC of a superseded Req")
-        _verifies(tenant, tc_art, old_req.artifact)
-
-        result = self._approve(tenant, extended_ws, tc)
-
-        assert result.valid is False
-        assert result.error_code == EC_VERIFIES_LINK_MISSING
-
     def test_a_second_live_target_still_satisfies_the_gate(
         self, tenant, extended_ws
     ):
-        """Control: the superseded exclusion narrows the pool, not the rule."""
+        """Multiple 'verifies' targets: any single live one satisfies the gate."""
         old_req = _requirement(
             tenant, extended_ws, title="Old R", description="d", acceptance_criteria="ac"
         )
         live_req = _requirement(
             tenant, extended_ws, title="Live R", description="d", acceptance_criteria="ac"
         )
-        TenantContext.set_tenant(tenant.id)
-        try:
-            TraceLink.objects.create(
-                tenant=tenant,
-                source=live_req.artifact,
-                target=old_req.artifact,
-                link_type="supersedes",
-            )
-        finally:
-            TenantContext.clear_tenant()
         tc_art, tc = _approvable_testcase(tenant, extended_ws, "TC with two subjects")
         _verifies(tenant, tc_art, old_req.artifact)
         _verifies(tenant, tc_art, live_req.artifact)

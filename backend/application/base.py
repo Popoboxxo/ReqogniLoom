@@ -38,6 +38,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from persistence.tenancy import TenantContext
 
 from application.event_bus import DomainEvent, get_event_bus
@@ -47,19 +48,13 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
+#
+# PermissionDeniedError, NotFoundError and ValidationError now live in
+# persistence/errors.py (Layer 0) — re-exported here unchanged so every
+# existing `from application.base import NotFoundError` (etc.) keeps working.
+# See persistence/errors.py's module docstring for why (SYSTEMAUDIT_2026-08-27
+# P1-12).
 # ---------------------------------------------------------------------------
-
-
-class PermissionDeniedError(PermissionError):
-    """Raised when an operation is attempted without the required role."""
-
-
-class NotFoundError(LookupError):
-    """Raised when a requested entity does not exist in the active tenant."""
-
-
-class ValidationError(ValueError):
-    """Raised when domain validation fails (cycle detection, missing fields, …)."""
 
 
 class BaselineGateBlockedError(ValidationError):

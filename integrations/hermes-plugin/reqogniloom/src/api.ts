@@ -20,15 +20,20 @@ interface WorkspaceListResponse {
   results: Workspace[];
 }
 
-// Most backend errors go through rest_api/error_envelope.py and arrive nested:
-// {"error": {"code", "message", "details"}}. Auth failures are the one common
-// exception: AuthTenancyAuthentication builds its body via
-// auth_tenancy/errors.py::build_error_body(), where "error" is already a plain
-// string (the error code) rather than an object — and the exception handler's
-// "already normalised" bypass (`if isinstance(data, dict) and "error" in data`)
-// lets that flat shape through unchanged. So a bad/expired API key arrives as
-// {"error": "invalid_api_key", "message": "...", "doc_url": "..."}. Both
-// shapes must be handled when extracting a human-readable message.
+// Backend errors go through rest_api/error_envelope.py and arrive nested:
+// {"error": {"code", "message", "details"}}. Since the 2026-08-27 system audit
+// (P1 item 13) auth failures use that same envelope — auth_tenancy/errors.py::
+// build_error_body() used to emit a flat body where "error" was a plain string
+// (the error code) rather than an object, with "doc_url" at the top level. A
+// bad/expired API key now arrives as
+// {"error": {"code": "invalid_api_key", "message": "...",
+//            "details": [{"doc_url": "..."}]}}.
+//
+// The flat shape is still handled below on purpose, for two reasons: several
+// REST modules outside that audit item's scope (auth_tenancy/
+// rest_workspace_members.py, rest_item_permission.py, admin_ops/rest.py and
+// banner_rest.py) still answer flat, and this plugin is versioned separately
+// from the backend it talks to, so it may face an older server.
 export interface NestedErrorEnvelope {
   error: {
     code: string;

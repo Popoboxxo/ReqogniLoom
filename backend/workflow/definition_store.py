@@ -693,7 +693,26 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         # explicitly marked as the auto-approve target so _auto_approve
         # crosses that one gate and then stops (never continues on to the
         # business-terminal "Superseded").
-        "state_meta": {"Approved": {"auto_approve_target": True}},
+        #
+        # SYSTEMAUDIT P1-16: "Rejected" and "Superseded" are this preset's
+        # terminal dead-ends — a rejected ADR was never adopted, a superseded
+        # one has been replaced by its successor (adr_service links the two
+        # via ``superseded_by_id``). Both carry the same meaning as
+        # ``ccb_approval``'s "rejected", ``issue_default``'s "Wontfix" and
+        # ``interview_default``'s "abandoned", so they get the same flag: no
+        # automatic policy (``ai_derivation_service._auto_approve``,
+        # ``review.approve``) may ever walk an item *into* them.
+        # NOTE: this preset is the first with TWO is_outdated_equivalent
+        # states. Any future consumer that resolves "the" outdated-equivalent
+        # state by taking the first match in ``states`` (as
+        # ``GoalService._resolve_archive_state`` does for goal_default) would
+        # pick "Rejected" here — which is a rejection, not an archive. Such a
+        # consumer must scope its lookup, not assume uniqueness.
+        "state_meta": {
+            "Approved": {"auto_approve_target": True},
+            "Rejected": {"is_outdated_equivalent": True},
+            "Superseded": {"is_outdated_equivalent": True},
+        },
     },
     "risk_default": {
         "states": ["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
@@ -703,7 +722,19 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         # sits directly before the approver-only "Closed" gate, and matches
         # the intermediate state already asserted by the regression test
         # (test_auto_approve_stops_before_approval_gate_for_risk).
-        "state_meta": {"Mitigated": {"auto_approve_target": True}},
+        #
+        # SYSTEMAUDIT P1-16: "Closed" is the terminal disposition — the risk
+        # is off the register and no longer actively managed. Flagging it
+        # keeps the automatic policies off it, exactly as "Mitigated"
+        # (a genuine steady state) stays reachable. This does NOT hide closed
+        # risks from any list: is_outdated_equivalent is a "never transition
+        # into this automatically" marker, not a visibility filter — the
+        # soft-delete filter is the mirrored ``Risk.status == "outdated"``
+        # column (see lifecycle_manager._STATUS_MIRROR_MODELS).
+        "state_meta": {
+            "Mitigated": {"auto_approve_target": True},
+            "Closed": {"is_outdated_equivalent": True},
+        },
     },
     "issue_default": {
         "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],

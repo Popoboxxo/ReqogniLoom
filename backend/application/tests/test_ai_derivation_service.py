@@ -211,7 +211,10 @@ def test_derive_requirements_from_need_returns_drafts(auth_context, workspace):
         auth_context, need.id, n=2
     )
 
-    assert list(result.keys()) == ["drafts"]
+    # Systemaudit item 11: every flow now also reports whether the answer
+    # came from the mock fallback instead of the configured provider.
+    assert set(result.keys()) == {"drafts", "is_mock_fallback"}
+    assert result["is_mock_fallback"] is False
     assert len(result["drafts"]) == 2
     for draft in result["drafts"]:
         assert set(draft.keys()) == {
@@ -582,7 +585,10 @@ def test_old_template_with_only_req_title_still_renders(
         auth_context, req.id
     )
 
-    assert result == {"suggested_arch_element_ids": []}
+    # Systemaudit item 11: `is_mock_fallback` is False here — the configured
+    # provider answered; the flag only marks an *unplanned* degradation to
+    # MockLlmProvider (a MOCK_FALLBACK_MARKER-prefixed completion).
+    assert result == {"suggested_arch_element_ids": [], "is_mock_fallback": False}
     prompt = provider.calls[0]["prompt"]
     assert prompt == "Legacy prompt for Legacy Requirement Title only."
 

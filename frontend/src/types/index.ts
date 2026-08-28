@@ -94,14 +94,20 @@ export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
 export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 
 /**
- * Issue #394: V-model hierarchy level (`persistence.models.RequirementLevel`).
- * `null`/`undefined` means the level has not been assigned yet — mirrors the
- * backend field, which is nullable and not backfilled for existing rows.
+ * Issue #394: V-model cascade level (`persistence.models.RequirementLevel`).
+ * The number *is* the cascade level: 1=System, 2=Subsystem, 3=Component,
+ * 4=Presentation. `null`/`undefined` means the level has not been assigned yet
+ * — mirrors the backend field, which is nullable and not backfilled.
+ *
+ * SYSTEMAUDIT_2026-08-27 P1-9: `0` was dropped along with the backend enum's
+ * old off-by-one vocabulary (`0=System .. 4=Material`). L0 is a Stakeholder
+ * Need, a separate entity type, never a Requirement — see backend migration
+ * `0067_requirement_level_cascade_vocabulary`, which remapped stored rows.
  */
-export type RequirementLevel = 0 | 1 | 2 | 3 | 4;
+export type RequirementLevel = 1 | 2 | 3 | 4;
 
-/** Ordered L0-L4 levels for select inputs; mirrors the backend enum order. */
-export const REQUIREMENT_LEVELS: RequirementLevel[] = [0, 1, 2, 3, 4];
+/** Ordered L1-L4 levels for select inputs; mirrors the backend enum order. */
+export const REQUIREMENT_LEVELS: RequirementLevel[] = [1, 2, 3, 4];
 
 export interface StakeholderNeed {
   id: UUID;
@@ -139,8 +145,8 @@ export interface Requirement {
   moscow_priority?: MoscowPriority;
   complexity_fibonacci?: number;
   verification_method?: VerificationMethod;
-  // Issue #394: V-model hierarchy level (0=System ... 4=Material). NULL until
-  // assigned explicitly.
+  // Issue #394: V-model cascade level (1=System ... 4=Presentation). NULL
+  // until assigned explicitly. See `RequirementLevel` above.
   level?: RequirementLevel | null;
   suspect?: boolean;
   change_reason?: string;

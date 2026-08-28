@@ -178,7 +178,7 @@ class TestTraceP1b:
                 tenant_a,
                 workspace_a,
                 title="L4 leaf",
-                level=RequirementLevel.L4_MATERIAL,
+                level=RequirementLevel.L4_PRESENTATION,
             )
 
             result = _run("standard", workspace_a, tenant_a)

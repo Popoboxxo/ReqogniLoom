@@ -17,7 +17,7 @@ only check graph-wide structural/derivation consistency at audit time, reading
 raw TraceLink rows via ``AuditContext.iter_trace_links()``.
 
 L4 (Presentation) is out of scope for the whole Section 2.2 matrix (Section 2.2
-closing note): a Requirement with ``level == RequirementLevel.L4_MATERIAL`` is
+closing note): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
 never required to carry a ``derives-from`` link by TRACE-P5/ARCH-003.
 
 --------------------------------------------------------------------------
@@ -75,12 +75,12 @@ from traceability.types import LinkType
 
 
 def _l4_level() -> int:
-    """Return ``RequirementLevel.L4_MATERIAL`` (deferred import — persistence is
+    """Return ``RequirementLevel.L4_PRESENTATION`` (deferred import — persistence is
     Layer 0 but the audit package defers model imports to check-time, mirroring
     ``AuditContext.iter_trace_links``)."""
     from persistence.models import RequirementLevel
 
-    return RequirementLevel.L4_MATERIAL
+    return RequirementLevel.L4_PRESENTATION
 
 
 def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, Optional[str]]]:

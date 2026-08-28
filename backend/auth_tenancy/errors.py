@@ -161,25 +161,56 @@ def build_error_body(
 ) -> dict[str, Any]:
     """Build the standardised error body for ``code`` (REQ-L3-AT001-004).
 
+    Emits the single project-wide REST error envelope
+    (``rest_api.serializers.build_error_response``, REQ-L2-RA-009)::
+
+        {"error": {"code": ..., "message": ..., "details": [{...}]}}
+
+    **Shape change (systemaudit 2026-08-27, P1 item 13).** This function used
+    to return a third, competing shape — a flat ``{"error": "<code>",
+    "message": ..., "doc_url": ...}`` — alongside the nested envelope used by
+    the rest of the REST surface. The two extra keys now live in ``details``
+    rather than at the top level:
+
+    * ``details[0]["doc_url"]`` — always present, the public docs link.
+    * ``details[0]["required_role"]`` — only for 403
+      ``insufficient_permissions`` with a role hint (REQ-L2-AT-010).
+
+    A single ``details`` entry (not one per key) keeps the lookup a stable
+    ``details[0]``; the existing field-level convention
+    (``{"field": ..., "errors": [...]}``) does not apply here because neither
+    value is a per-field rejection.
+
+    ``code`` and the localised ``message`` are unchanged, so a client matching
+    on the code only has to move from ``body["error"]`` to
+    ``body["error"]["code"]``.
+
     Args:
         code: Error code present in the catalog.
         accept_language: Raw ``Accept-Language`` header for DE/EN selection.
         required_role: Role hint added to 403 ``insufficient_permissions``.
 
     Returns:
-        Dict with ``error``, ``message`` and ``doc_url`` keys (plus
-        ``required_role`` for permission errors). Never contains sensitive data.
+        The nested error envelope. Never contains sensitive data.
     """
-    status, messages = _ERROR_CATALOG[code]
+    _status, messages = _ERROR_CATALOG[code]
     language = _normalise_language(accept_language)
-    body: dict[str, Any] = {
-        "error": code,
-        "message": messages[language],
-        "doc_url": f"{_DOC_BASE}/{code}",
-    }
+
+    detail: dict[str, Any] = {"doc_url": f"{_DOC_BASE}/{code}"}
     if code == "insufficient_permissions" and required_role:
-        body["required_role"] = required_role
-    return body
+        detail["required_role"] = required_role
+
+    # Imported lazily and not at module scope on purpose: this module is Layer 0
+    # and is imported by the DRF authentication class during app loading, while
+    # ``rest_api.serializers`` imports ``persistence.models`` at import time. A
+    # top-level import would tie Layer 0's import graph to Layer 3's and risks
+    # AppRegistryNotReady. Deferring keeps the envelope single-sourced without
+    # duplicating its literal shape here.
+    from rest_api.serializers import build_error_response
+
+    return build_error_response(
+        code=code, details=[detail], message=messages[language]
+    )
 
 
 def error_response_tuple(

@@ -636,11 +636,35 @@ def outdated_item_ids(
     *item_type* (Phase 0 status-model unification follow-up).
 
     Entity types without a denormalized status mirror (see
-    ``lifecycle_manager._STATUS_MIRROR_MODELS`` — e.g. ``ArchitectureElement``,
-    ``GlossaryTerm``) have their soft-delete state recorded *only* in
-    ``WorkflowItemState``; the dead ``lifecycle_status`` column is never
-    written by ``outdate()``. Any caller that needs to exclude soft-deleted
-    rows of such a type must filter here instead of on ``lifecycle_status``.
+    ``lifecycle_manager._STATUS_MIRROR_MODELS`` — ``ArchitectureElement``,
+    ``GlossaryTerm``, ``Icd``, ``Diagram``) have their soft-delete state
+    recorded in ``WorkflowItemState``, which stays the authoritative source.
+    Any caller that needs to exclude soft-deleted rows of such a type must
+    filter here.
+
+    **Contract: this matches the literal state ``"outdated"`` and nothing
+    else — deliberately.** ``"outdated"`` is the universal soft-delete state
+    written by :func:`outdate` *outside* every preset's declared state list,
+    so it means exactly one thing for every entity type. Do not "generalise"
+    this to also match states flagged ``is_outdated_equivalent`` in the
+    workflow definition's ``state_meta``: that flag marks a preset's terminal
+    dead-end (``"deprecated"``, ``"Rejected"``, ``"Wontfix"``, ``"Closed"``)
+    so that automatic policies never transition *into* it — it is not a
+    visibility marker. Honouring it here would hide every ``deprecated``
+    ArchitectureElement / GlossaryTerm / Diagram from lists, audit rules,
+    validators and the workspace context, while the mirror-backed types
+    (Requirement, TestCase, StakeholderNeed …) keep their ``deprecated`` rows
+    visible because they only exclude ``status == "outdated"`` — the two
+    families would diverge in opposite directions. It would also cost the
+    laziness of the returned queryset, which callers embed as an
+    ``id__in=`` subquery: ``state_meta`` is per workspace, so the state names
+    could no longer be resolved without a second, materialised query.
+
+    Adr and Risk are intentionally *not* callers: both are wired into
+    ``_STATUS_MIRROR_MODELS`` and filter soft-deletes on their own
+    ``status == "outdated"`` column (``AdrService``/``RiskService.list``).
+    Their "Rejected"/"Superseded"/"Closed" states are business-terminal, not
+    deleted, and stay visible on purpose.
 
     Args:
         item_type: Entity type key (e.g. ``"ArchitectureElement"``).

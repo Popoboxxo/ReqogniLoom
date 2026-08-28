@@ -567,11 +567,11 @@ class RequirementSerializer(
     level = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=0,
+        min_value=1,
         max_value=4,
         help_text=(
-            "V-model hierarchy level (0=System, 1=Subsystem, 2=Component, "
-            "3=Part, 4=Material). NULL until assigned explicitly."
+            "V-model hierarchy level (1=System, 2=Subsystem, 3=Component, "
+            "4=Presentation). NULL until assigned explicitly."
         ),
     )
     uid = serializers.CharField(
@@ -1662,6 +1662,22 @@ class GlossaryTermSerializer(serializers.Serializer):
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
+    # Declared so the GlossaryTerm read endpoints keep reporting the
+    # soft-delete state (issue #440): GlossaryTerm has no mirrored ``status``
+    # column, so ``lifecycle_status`` is the ONLY place a soft-deleted term is
+    # visible, and both the SPA's status filter/sort (GlossaryView.tsx) and
+    # test_soft_delete_semantics_443.py read it. The ViewSet used to answer
+    # with the raw DTO ``__dict__``, which carried the field implicitly;
+    # routing those responses through this serializer would otherwise have
+    # dropped it silently.
+    #
+    # Read-only AND listed in ``_PROTECTED_PATCH_FIELDS`` (see
+    # rest_api/mixins/workflow_transitions.py): declaring a field here also
+    # adds it to the PATCH allow-list, so without the protected-list entry a
+    # ``PATCH {"lifecycle_status": "deleted"}`` would flip from a 400 to a
+    # silent 200 no-op — exactly the mass-assignment hole #269 finding 5
+    # closed. Lifecycle changes go through DELETE / reactivate.
+    lifecycle_status = serializers.CharField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)

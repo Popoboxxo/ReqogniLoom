@@ -11,8 +11,8 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     // the standardised AuthAndTenancy code path uses 401. Both indicate unauthenticated.
     expect([401, 403]).toContain(response.status());
     const body = await response.json();
-    // Accept either DRF default shape {"detail": "..."} or the AuthAndTenancy
-    // standardised body {error, message, doc_url} (REQ-L3-AT001-004).
+    // Accept either DRF default shape {"detail": "..."} or the standardised
+    // envelope {error: {code, message, details}} (REQ-L3-AT001-004).
     const hasErrorField = 'error' in body || 'detail' in body;
     expect(hasErrorField).toBeTruthy();
   });
@@ -23,9 +23,9 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     });
     expect(response.status()).toBe(401);
     const body = await response.json();
-    expect(body.error).toBe('invalid_token');
-    expect(body.message).toBeDefined();
-    expect(body.doc_url).toContain('invalid_token');
+    expect(body.error.code).toBe('invalid_token');
+    expect(body.error.message).toBeDefined();
+    expect(body.error.details[0].doc_url).toContain('invalid_token');
   });
 
   test('[REQ-L3-AT001-002] invalid API key -> 401 invalid_api_key', async ({ request }) => {
@@ -34,9 +34,9 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     });
     expect(response.status()).toBe(401);
     const body = await response.json();
-    expect(body.error).toBe('invalid_api_key');
-    expect(body.message).toBeDefined();
-    expect(body.doc_url).toContain('invalid_api_key');
+    expect(body.error.code).toBe('invalid_api_key');
+    expect(body.error.message).toBeDefined();
+    expect(body.error.details[0].doc_url).toContain('invalid_api_key');
   });
 
   test('[REQ-L3-AT001-003] API key lifecycle (create/list/revoke) via REST', async ({ request }) => {
@@ -96,18 +96,21 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     }
   });
 
-  test('[REQ-L3-AT001-004] auth error body has error + message + doc_url fields', async ({ request }) => {
+  test('[REQ-L3-AT001-004] auth error body has code + message + doc_url', async ({ request }) => {
     const response = await request.get(`${BACKEND_URL}/api/v1/requirements/`, {
       headers: { Authorization: 'Bearer malformed.jwt.value' },
     });
     expect(response.status()).toBe(401);
     const body = await response.json();
+    // Systemaudit 2026-08-27 (P1 item 13): auth failures now use the single
+    // project-wide envelope. `doc_url` moved from the top level into
+    // `details[0]`; the code and the localised message are unchanged.
     expect(body).toHaveProperty('error');
-    expect(body).toHaveProperty('message');
-    expect(body).toHaveProperty('doc_url');
-    expect(typeof body.error).toBe('string');
-    expect(typeof body.message).toBe('string');
-    expect(body.doc_url).toMatch(/^https?:\/\//);
+    expect(typeof body.error).toBe('object');
+    expect(typeof body.error.code).toBe('string');
+    expect(typeof body.error.message).toBe('string');
+    expect(Array.isArray(body.error.details)).toBeTruthy();
+    expect(body.error.details[0].doc_url).toMatch(/^https?:\/\//);
   });
 
   test('[REQ-L3-AT001-004] login with wrong password returns standardized error envelope', async ({ request }) => {
@@ -116,9 +119,9 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     });
     expect(response.status()).toBe(401);
     const body = await response.json();
-    expect(body).toHaveProperty('error');
-    expect(body).toHaveProperty('message');
-    expect(body).toHaveProperty('doc_url');
+    expect(body.error.code).toBe('invalid_credentials');
+    expect(body.error.message).toBeDefined();
+    expect(body.error.details[0].doc_url).toContain('invalid_credentials');
   });
 
   test('[REQ-L1-010] login success returns token + user + tenant_id + roles', async ({ request }) => {

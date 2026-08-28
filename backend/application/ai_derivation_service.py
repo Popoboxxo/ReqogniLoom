@@ -418,7 +418,11 @@ class AiDerivationService(ServiceBase):
                 this from a hard-coded 3 into catalog configuration.
 
         Returns:
-            ``{"drafts": [{title, description, rationale, suggested_parent_id}]}``.
+            ``{"drafts": [{title, description, rationale,
+            suggested_parent_id}], "is_mock_fallback": <bool>}``.
+            ``is_mock_fallback`` is True when the drafts are mock-provider
+            placeholders rather than a real LLM's proposal (see
+            :meth:`_complete_json_list`).
 
         Raises:
             NotFoundError: The stakeholder need does not exist for this tenant.
@@ -464,7 +468,7 @@ class AiDerivationService(ServiceBase):
             need_description=truncate_prompt_content(need.description or ""),
         )
 
-        items = self._complete_json_list(
+        items, is_mock_fallback = self._complete_json_list(
             prompt,
             purpose="need_to_sysreq",
             artifact_id=need.artifact_id,
@@ -480,7 +484,7 @@ class AiDerivationService(ServiceBase):
             }
             for item in items
         ]
-        return {"drafts": drafts}
+        return {"drafts": drafts, "is_mock_fallback": is_mock_fallback}
 
     def suggest_architecture_for_requirement(
         self,
@@ -498,7 +502,10 @@ class AiDerivationService(ServiceBase):
             requirement_id: Requirement to find responsible elements for.
 
         Returns:
-            ``{"suggested_arch_element_ids": [<uuid-str>, ...]}``.
+            ``{"suggested_arch_element_ids": [<uuid-str>, ...],
+            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            the suggestion came from the mock provider rather than the
+            configured one (see :meth:`_complete_json_list`).
 
         Raises:
             NotFoundError: The requirement does not exist for this tenant.
@@ -542,7 +549,7 @@ class AiDerivationService(ServiceBase):
 
         # require_objects=False: this flow's array carries bare id strings, not
         # draft objects (see _complete_json_list).
-        suggested = self._complete_json_list(
+        suggested, is_mock_fallback = self._complete_json_list(
             prompt,
             purpose="sysreq_to_arch_assign",
             artifact_id=req.artifact_id,
@@ -557,7 +564,10 @@ class AiDerivationService(ServiceBase):
             for item in suggested
             if isinstance(item, (str, int)) and str(item) in available_ids
         ]
-        return {"suggested_arch_element_ids": result_ids}
+        return {
+            "suggested_arch_element_ids": result_ids,
+            "is_mock_fallback": is_mock_fallback,
+        }
 
     def decompose_requirement_next_level(
         self,
@@ -575,7 +585,10 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"drafts": [{title, description, rationale,
-            suggested_arch_element_id}], "parent_requirement_id": <uuid-str>}``.
+            suggested_arch_element_id}], "parent_requirement_id": <uuid-str>,
+            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            the drafts are mock-provider placeholders rather than a real
+            LLM's proposal (see :meth:`_complete_json_list`).
             When ``drafts`` is empty an additional ``note`` key explains why
             (issue #311) — additive, present only in that case, mirroring how
             the write path only adds ``failed`` when something failed.
@@ -621,7 +634,7 @@ class AiDerivationService(ServiceBase):
             arch_elements_json=json.dumps(arch_payload),
         )
 
-        items = self._complete_json_list(
+        items, is_mock_fallback = self._complete_json_list(
             prompt,
             purpose="sysreq_decompose_next_level",
             artifact_id=req.artifact_id,
@@ -644,6 +657,7 @@ class AiDerivationService(ServiceBase):
         result: Dict[str, Any] = {
             "drafts": drafts,
             "parent_requirement_id": str(req.id),
+            "is_mock_fallback": is_mock_fallback,
         }
         if not drafts:
             result["note"] = self._empty_decomposition_note(req)
@@ -710,7 +724,9 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``{"draft": {"title": str, "description": str, "steps":
             [{"step": str, "expected_result": str}, ...]}, "requirement_id":
-            <uuid-str>}``.
+            <uuid-str>, "is_mock_fallback": <bool>}``. ``is_mock_fallback``
+            is True when the draft is a mock-provider placeholder rather than
+            a real LLM's proposal (see :meth:`_complete_json_object`).
 
         Raises:
             NotFoundError: The requirement does not exist for this tenant.
@@ -729,7 +745,7 @@ class AiDerivationService(ServiceBase):
             req_description=truncate_prompt_content(req.description or ""),
         )
 
-        parsed = self._complete_json_object(
+        parsed, is_mock_fallback = self._complete_json_object(
             prompt,
             purpose="test_derive_from_requirement",
             artifact_id=req.artifact_id,
@@ -751,7 +767,11 @@ class AiDerivationService(ServiceBase):
             "description": str(parsed.get("description", "")),
             "steps": steps,
         }
-        return {"draft": draft, "requirement_id": str(req.id)}
+        return {
+            "draft": draft,
+            "requirement_id": str(req.id),
+            "is_mock_fallback": is_mock_fallback,
+        }
 
     def derive_risks_from_architecture(
         self,
@@ -780,7 +800,10 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"drafts": [{title, description, probability, impact,
-            category}], "architecture_element_id": <uuid-str>}``.
+            category}], "architecture_element_id": <uuid-str>,
+            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            the drafts are mock-provider placeholders rather than a real
+            LLM's proposal (see :meth:`_complete_json_list`).
 
         Raises:
             NotFoundError: The architecture element does not exist for this
@@ -800,7 +823,7 @@ class AiDerivationService(ServiceBase):
             ae_description=truncate_prompt_content(ae.description or ""),
         )
 
-        items = self._complete_json_list(
+        items, is_mock_fallback = self._complete_json_list(
             prompt,
             purpose="derive_risks_from_architecture",
             artifact_id=ae.artifact_id,
@@ -823,7 +846,11 @@ class AiDerivationService(ServiceBase):
             }
             for item in items
         ]
-        return {"drafts": drafts, "architecture_element_id": str(ae.id)}
+        return {
+            "drafts": drafts,
+            "architecture_element_id": str(ae.id),
+            "is_mock_fallback": is_mock_fallback,
+        }
 
     def derive_glossary_from_workspace(
         self,
@@ -851,7 +878,10 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"drafts": [{term, definition, synonyms, abbreviation}],
-            "workspace_id": <uuid-str>}``.
+            "workspace_id": <uuid-str>, "is_mock_fallback": <bool>}``.
+            ``is_mock_fallback`` is True when the drafts are mock-provider
+            placeholders rather than a real LLM's proposal (see
+            :meth:`_complete_json_list`).
 
         Raises:
             NotFoundError: The workspace does not exist for this tenant.
@@ -887,7 +917,7 @@ class AiDerivationService(ServiceBase):
         )
         prompt = self._render(template, workspace_text=workspace_text)
 
-        items = self._complete_json_list(
+        items, is_mock_fallback = self._complete_json_list(
             prompt,
             purpose="derive_glossary_from_workspace",
             artifact_id=str(workspace.id),
@@ -907,7 +937,11 @@ class AiDerivationService(ServiceBase):
             }
             for item in items
         ]
-        return {"drafts": drafts, "workspace_id": str(workspace.id)}
+        return {
+            "drafts": drafts,
+            "workspace_id": str(workspace.id),
+            "is_mock_fallback": is_mock_fallback,
+        }
 
     def derive_adr_from_decision(
         self,
@@ -939,7 +973,10 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"draft": {"title": str, "description": str, "context": str,
-            "consequences": str}, "workspace_id": <uuid-str>}``.
+            "consequences": str}, "workspace_id": <uuid-str>,
+            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            the draft is a mock-provider placeholder rather than a real LLM's
+            proposal (see :meth:`_complete_json_object`).
 
         Raises:
             NotFoundError: The workspace does not exist for this tenant.
@@ -957,7 +994,7 @@ class AiDerivationService(ServiceBase):
             decision_description=truncate_prompt_content(decision_description or ""),
         )
 
-        parsed = self._complete_json_object(
+        parsed, is_mock_fallback = self._complete_json_object(
             prompt,
             purpose="derive_adr_from_decision",
             artifact_id=str(workspace.id),
@@ -970,7 +1007,11 @@ class AiDerivationService(ServiceBase):
             "context": str(parsed.get("context", "")),
             "consequences": str(parsed.get("consequences", "")),
         }
-        return {"draft": draft, "workspace_id": str(workspace.id)}
+        return {
+            "draft": draft,
+            "workspace_id": str(workspace.id),
+            "is_mock_fallback": is_mock_fallback,
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1631,7 +1672,11 @@ class AiDerivationService(ServiceBase):
             get_provider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
         from persistence.tenancy import TenantContext, TenantContextNotSetError
 
         provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
@@ -1766,8 +1811,8 @@ class AiDerivationService(ServiceBase):
 
         # REQ-106: best-effort usage record; provider.complete() only returns
         # text (no token counts), so this call is logged with a real audit
-        # entry but without a token count — still closing the "zero audit
-        # trail" gap called out by fix #115.
+        # entry but without an exact token count — still closing the "zero
+        # audit trail" gap called out by fix #115.
         audit_logger.log_llm_call(
             provider=provider_name,
             capability=purpose,
@@ -1776,10 +1821,21 @@ class AiDerivationService(ServiceBase):
             success=True,
             error=None,
         )
+        # Systemaudit 2026-08-27 item 14: this used to hardcode
+        # ``input_tokens=0``, which made the per-tenant daily budget checked
+        # by ``is_over_daily_limit()`` above structurally blind to this whole
+        # sync path — the limit aggregates TokenUsageRecord rows, so rows that
+        # are always 0 can never move it, and no amount of sync free-form
+        # spend could ever trip a configured limit. The prompt and the
+        # completion are estimated client-side instead (see
+        # ``approximate_token_count``: a ~4-chars-per-token heuristic, not a
+        # real tokenizer) so the budget sees an order-of-magnitude-correct
+        # figure rather than a guaranteed zero.
         record_token_usage(
             provider=provider_name,
             capability=purpose,
-            input_tokens=0,
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(result),
         )
 
         # Never cache a fallback-marked (degraded) response (REQ-105), and
@@ -1806,7 +1862,7 @@ class AiDerivationService(ServiceBase):
         context: Optional[Dict[str, Any]],
         max_retries: int,
         parse: Callable[[str], Any],
-    ) -> Tuple[Any, str]:
+    ) -> Tuple[Any, str, bool]:
         """Shared complete+parse retry loop behind the two ``_complete_json_*``
         methods (issue #311, #652).
 
@@ -1820,9 +1876,26 @@ class AiDerivationService(ServiceBase):
         instead of failing hard.
 
         Returns:
-            ``(parsed, cache_key)`` — the cache key is returned so a caller
-            can evict on a *later*, non-retriable validation failure (e.g.
-            :meth:`_usable_entries`) using the same key.
+            ``(parsed, cache_key, is_mock_fallback)``.
+
+            *cache_key* is returned so a caller can evict on a *later*,
+            non-retriable validation failure (e.g. :meth:`_usable_entries`)
+            using the same key.
+
+            *is_mock_fallback* is True when :meth:`_complete` degraded to
+            :class:`MockLlmProvider` for the attempt whose answer is being
+            returned — i.e. the drafts built from it are deterministic
+            placeholders, not a real LLM's proposal. The signal is read off
+            the ``MOCK_FALLBACK_MARKER`` prefix here, *before* handing the
+            text to *parse*, because both parsers strip that prefix before
+            ``json.loads()``-ing the payload and would otherwise discard the
+            only evidence that the answer was degraded (Systemaudit
+            2026-08-27 item 11). Detecting it per attempt (rather than once
+            up front) is what makes the flag describe the attempt that
+            actually succeeded: a first attempt may fall back to the mock and
+            fail to parse while the retry reaches the real provider, or vice
+            versa. A cache hit is never marked — fallback answers are never
+            cached (REQ-105).
 
         Raises:
             LlmResponseError: *parse* kept failing through the last attempt.
@@ -1832,8 +1905,9 @@ class AiDerivationService(ServiceBase):
             raw, cache_key = self._complete(
                 prompt, purpose=purpose, artifact_id=artifact_id, context=context
             )
+            is_mock_fallback = bool(raw) and raw.startswith(MOCK_FALLBACK_MARKER)
             try:
-                return parse(raw), cache_key
+                return parse(raw), cache_key, is_mock_fallback
             except LlmResponseError as exc:
                 last_error = exc
                 self._discard_cached_completion(
@@ -1853,7 +1927,7 @@ class AiDerivationService(ServiceBase):
         context: Optional[Dict[str, Any]] = None,
         require_objects: bool = True,
         max_retries: int = 1,
-    ) -> List[Any]:
+    ) -> Tuple[List[Any], bool]:
         """Run a completion and return its JSON array (issue #311, #652).
 
         The single entry point for every array-shaped flow: it chains
@@ -1870,12 +1944,19 @@ class AiDerivationService(ServiceBase):
             max_retries: Number of extra attempts after the first failure.
 
         Returns:
-            The parsed array; only its object entries when *require_objects*.
+            ``(items, is_mock_fallback)``. *items* is the parsed array — only
+            its object entries when *require_objects*. *is_mock_fallback* is
+            True when the answer came from the mock fallback instead of the
+            configured provider; every flow surfaces it under the same
+            ``is_mock_fallback`` response key so a caller can tell a real
+            proposal from a degraded placeholder (Systemaudit 2026-08-27
+            item 11, mirroring ``BundleCompressionService``'s
+            ``CompressionResult.is_mock_fallback``).
 
         Raises:
             LlmResponseError: The response was not a usable JSON array.
         """
-        items, cache_key = self._complete_retrying(
+        items, cache_key, is_mock_fallback = self._complete_retrying(
             prompt,
             purpose=purpose,
             artifact_id=artifact_id,
@@ -1896,7 +1977,7 @@ class AiDerivationService(ServiceBase):
                     cache_key, purpose=purpose, artifact_id=artifact_id
                 )
                 raise
-        return items
+        return items, is_mock_fallback
 
     def _complete_json_object(
         self,
@@ -1906,7 +1987,7 @@ class AiDerivationService(ServiceBase):
         artifact_id: UUID | str,
         context: Optional[Dict[str, Any]] = None,
         max_retries: int = 1,
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], bool]:
         """Object-shaped sibling of :meth:`_complete_json_list` (issue #311, #652).
 
         Used by the single-draft flows (``derive_testcase_from_requirement``,
@@ -1914,10 +1995,14 @@ class AiDerivationService(ServiceBase):
         grounds: a response the flow cannot parse must not be replayed from the
         cache for the rest of the TTL.
 
+        Returns:
+            ``(obj, is_mock_fallback)`` — see :meth:`_complete_json_list` for
+            the meaning of the flag.
+
         Raises:
             LlmResponseError: The response was not a JSON object.
         """
-        obj, _cache_key = self._complete_retrying(
+        obj, _cache_key, is_mock_fallback = self._complete_retrying(
             prompt,
             purpose=purpose,
             artifact_id=artifact_id,
@@ -1925,7 +2010,7 @@ class AiDerivationService(ServiceBase):
             max_retries=max_retries,
             parse=self._parse_json_object,
         )
-        return obj
+        return obj, is_mock_fallback
 
     def _discard_cached_completion(
         self, cache_key: Optional[str], *, purpose: str, artifact_id: UUID | str

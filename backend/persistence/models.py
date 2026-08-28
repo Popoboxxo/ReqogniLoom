@@ -152,12 +152,35 @@ def derive_architecture_role(*, has_parent: bool, has_children: bool) -> str:
 
 
 class LifecycleStatus(models.TextChoices):
-    """Soft-delete lifecycle status for entities that must not be hard-deleted by users.
+    """Denormalized lifecycle projection for entities that are never hard-deleted.
 
-    REQ-006: Replaces physical deletion for ArchitectureElement and GlossaryTerm.
-    Entities with status 'deleted' are excluded from normal list queries but
-    remain in the database for audit purposes. Hard-delete is available only
-    via the Django admin panel.
+    REQ-006 introduced this as the soft-delete marker for ArchitectureElement
+    and GlossaryTerm. Phase 0 (status-model unification) then moved every
+    soft-delete onto ``workflow.services.outdate()``, and this column was left
+    behind unwritten — it read ``"active"`` on every row regardless of the real
+    state. SYSTEMAUDIT P1-16 made it a real mirror again:
+    ``workflow.lifecycle_manager.StateLifecycleManager._sync_lifecycle_mirror``
+    now projects ``WorkflowItemState.current_state`` onto it inside the
+    transition's transaction, exactly like the ``status`` mirror of the types
+    listed in ``lifecycle_manager._STATUS_MIRROR_MODELS``.
+
+    Read-only for application code:
+
+    * **Authoritative source is ``WorkflowItemState``**, not this column. Exact
+      filters (``workflow.services.outdated_item_ids``) must query there; this
+      column exists for readers that cannot join it — serializers, CSV export,
+      the frontend status filters and ``baseline.state_capture``.
+    * Mirrored for **ArchitectureElement** and **GlossaryTerm** only (the two
+      types with no ``status`` column). ``Requirement`` and ``StakeholderNeed``
+      also declare the field, but their state is already mirrored into
+      ``status``; theirs stays a legacy, unwritten column on purpose (see the
+      registry comment in ``lifecycle_manager``).
+    * ``DELETED`` is a legacy value only — the workflow engine writes
+      ``OUTDATED`` for a soft-delete. Rows still carrying ``"deleted"`` are the
+      input of the ``backfill_outdated_from_legacy_status`` management command
+      and are never overwritten by the mirror backfill.
+
+    Hard-delete remains available only via the Django admin panel.
     """
 
     ACTIVE = "active", "Active"
@@ -183,13 +206,42 @@ class RequirementLevel(models.IntegerChoices):
     Makes the L0-L4 traceability hierarchy an explicit, queryable field instead
     of a naming convention only. NULL means the level has not been assigned yet;
     it must be set deliberately going forward (no backfill for existing rows).
+
+    Numbering: **the integer IS the cascade level** — ``level == 3`` means "L3
+    Component", full stop. This holds by construction and every consumer
+    (``RequirementService.decompose``'s ``parent.level + 1`` derivation, the
+    CONS-P11 audit rule, ``migrate_se_docs._REQ_LEVEL_MAP``, the frontend
+    ``reqLevel.L{n}`` i18n keys) relies on it.
+
+    Vocabulary (SYSTEMAUDIT_2026-08-27 P1-9)
+    ----------------------------------------
+    This enum used to spell a *physical* decomposition scale offset by one
+    from the project's documented V-model cascade::
+
+        L0_SYSTEM = 0, L1_SUBSYSTEM = 1, L2_COMPONENT = 2,
+        L3_PART = 3, L4_MATERIAL = 4
+
+    Every other part of the system — the ``REQ-L0-*``/``REQ-L1-*``/``REQ-L2-*``
+    ID convention (CLAUDE.md, AGENTS.md, ``docs/se/traceability-matrix.md``),
+    the ``docs/se/L1/<system>/L2/<subsystem>/Components/`` folder tree, and the
+    SE-Auditor rule modules' own level vocabulary (see
+    ``traceability/audit/rules/trace_derivation_allocation.py``'s docstring,
+    which already documented "L1 = root/SystemRequirement" and "L4 =
+    Presentation") — uses the cascade spelling instead. The enum was the sole
+    dissenter, so it was realigned rather than the twenty-odd places that
+    agreed with each other.
+
+    **L0 is deliberately absent.** L0 (Stakeholder Need) is a separate Django
+    model (:class:`StakeholderNeed`), never a ``Requirement`` row, so
+    ``Requirement.level`` spans L1..L4 only. A ``level`` of ``0`` is therefore
+    not a legal value any more; migration ``0067`` remaps the pre-existing
+    integers (see its docstring for the old→new table and the lossy edge).
     """
 
-    L0_SYSTEM = 0, "L0 System"
-    L1_SUBSYSTEM = 1, "L1 Subsystem"
-    L2_COMPONENT = 2, "L2 Component"
-    L3_PART = 3, "L3 Part"
-    L4_MATERIAL = 4, "L4 Material"
+    L1_SYSTEM = 1, "L1 System"
+    L2_SUBSYSTEM = 2, "L2 Subsystem"
+    L3_COMPONENT = 3, "L3 Component"
+    L4_PRESENTATION = 4, "L4 Presentation"
 
 
 class MoSCoWPriority(models.TextChoices):
@@ -865,8 +917,10 @@ class Requirement(TenantScopedModel):
         blank=True,
         choices=RequirementLevel.choices,
         help_text=(
-            "K3: V-model hierarchy level (0=System, 1=Subsystem, 2=Component, "
-            "3=Part, 4=Material). NULL until assigned explicitly."
+            "K3: V-model cascade level (1=System, 2=Subsystem, 3=Component, "
+            "4=Presentation). The integer is the cascade level itself. L0 "
+            "(Stakeholder Need) is a separate model and never a Requirement. "
+            "NULL until assigned explicitly."
         ),
     )
     complexity_fibonacci = models.IntegerField(
@@ -1200,11 +1254,13 @@ class ArchitectureElement(TenantScopedModel):
         children so a parent whose only child was removed correctly collapses
         back to a leaf.
 
-        ArchitectureElement has no denormalized status mirror — ``outdate()``
-        (``workflow.services``) writes only to ``WorkflowItemState``, never
-        ``lifecycle_status`` (dead column for this type). The children check
-        therefore excludes against ``workflow.services.outdated_item_ids``
-        instead. This is a deliberate, narrow Layer 0 -> Layer 1 import
+        ArchitectureElement has no denormalized ``status`` mirror. Since
+        SYSTEMAUDIT P1-16 ``outdate()`` (``workflow.services``) does project
+        the state onto ``lifecycle_status``, but ``WorkflowItemState`` stays
+        the authoritative source, so the children check keeps excluding
+        against ``workflow.services.outdated_item_ids`` — that is also the
+        only variant that is correct for rows soft-deleted before the mirror
+        existed. This is a deliberate, narrow Layer 0 -> Layer 1 import
         (lazy, local to this method) mirroring the same escape hatch already
         used by ``ArchitectureService``/``GlossaryService`` at Layer 2 — the
         alternative (re-adding a real status column just to keep this method

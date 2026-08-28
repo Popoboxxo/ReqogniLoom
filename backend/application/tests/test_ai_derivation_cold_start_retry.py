@@ -21,12 +21,17 @@ class TestColdStartRetry:
             ('[{"title": "Derived requirement"}]', "cache-key-2"),
         ]
         with patch.object(service, "_complete", side_effect=empty_then_valid):
-            result = service._complete_json_list(
+            # Systemaudit item 11: _complete_json_list now returns
+            # (items, is_mock_fallback) instead of a bare list.
+            items, is_mock_fallback = service._complete_json_list(
                 prompt="derive from need X",
                 purpose="need_to_sysreq",
                 artifact_id="test-artifact-id",
             )
-        assert result == [{"title": "Derived requirement"}]
+        assert items == [{"title": "Derived requirement"}]
+        # The patched _complete never emits MOCK_FALLBACK_MARKER, so the
+        # successful retry is reported as a genuine provider answer.
+        assert is_mock_fallback is False
 
     def test_raises_a_distinct_error_for_empty_completion_vs_malformed_json(self):
         service = AiDerivationService()

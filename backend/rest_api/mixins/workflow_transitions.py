@@ -48,6 +48,13 @@ _PROTECTED_PATCH_FIELDS = frozenset(
         "created_by_id",
         "id",
         "is_admin",
+        # Server-owned soft-delete state, moved only by DELETE / reactivate.
+        # Needed here because ``GlossaryTermSerializer`` declares it (so the
+        # read endpoints can report it, issue #440) and a declared field would
+        # otherwise become PATCH-able. No serializer accepts it as a write and
+        # no handler reads it from ``request.data``, so this only sharpens the
+        # rejection message ("read-only" instead of "unknown field").
+        "lifecycle_status",
         "modified_by_id",
         "tenant_id",
         "updated_at",

@@ -440,7 +440,13 @@ class TestTestCaseLifecycleTools:
         )
 
         assert result.success and result_explicit_preview.success
-        assert set(result.data.keys()) == {"draft", "requirement_id"}
+        # Systemaudit item 11: the preview forwards the service dict
+        # verbatim, which now also carries the mock-fallback flag.
+        assert set(result.data.keys()) == {
+            "draft",
+            "requirement_id",
+            "is_mock_fallback",
+        }
         assert result.data == result_explicit_preview.data
 
     def test_derive_from_requirement_write_mode_persists_testcase_and_verifies_link(self):

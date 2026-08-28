@@ -97,6 +97,12 @@ def _make_requirement(**kwargs):
     req.category = kwargs.get("category", "Functional")
     req.status = kwargs.get("status", "draft")
     req.version = kwargs.get("version", 1)
+    # P1-9: must be a real value, not an auto-created MagicMock attribute.
+    # ``decompose()`` derives the child's cascade level from ``parent.level``
+    # and compares it against RequirementLevel.L4_PRESENTATION; a bare
+    # MagicMock raises TypeError on ``>=`` instead of behaving like the real
+    # nullable column, whose default is NULL.
+    req.level = kwargs.get("level", None)
     artifact = MagicMock()
     artifact.id = uuid.uuid4()
     artifact.workspace_id = kwargs.get("workspace_id", WS_ID)

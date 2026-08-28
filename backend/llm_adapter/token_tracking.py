@@ -31,6 +31,47 @@ logger = logging.getLogger(__name__)
 # Error code surfaced when a tenant exceeds its configured daily token budget.
 LLM_TOKEN_LIMIT_EXCEEDED = "LLM_TOKEN_LIMIT_EXCEEDED"
 
+# Rough characters-per-token ratio for English text. Used only as a fallback
+# when no real token count is available (see :func:`approximate_token_count`).
+_APPROX_CHARS_PER_TOKEN = 4
+
+
+def approximate_token_count(text: str) -> int:
+    """Approximate the token count of *text* without a real tokenizer.
+
+    ``provider.complete()`` (``llm_adapter.providers``) returns a plain ``str``
+    with no token-usage figure attached, unlike the capability methods whose
+    results are dataclasses carrying a real ``.token_usage``. Real HTTP
+    providers *do* compute a token count internally but discard it before
+    returning; surfacing it would mean changing ``complete()``'s return type,
+    which ripples through all of its call sites.
+
+    Every sync free-form flow therefore used to record ``input_tokens=0``,
+    leaving :func:`is_over_daily_limit` blind to its own spend (REQ-106): the
+    budget aggregates ``TokenUsageRecord`` rows, so a permanently-zero row
+    contributes nothing and the sync path could never exhaust a limit no
+    matter how large its prompts were.
+
+    This applies the industry-standard ~4-characters-per-token heuristic for
+    English text instead, so budget accounting is a reasonable
+    order-of-magnitude estimate rather than a guaranteed zero. It is NOT a
+    substitute for a real BPE tokenizer and deliberately does not pull one in
+    (no ``tiktoken`` dependency, no per-provider vocabulary): revisit only if
+    precise accounting for free-form calls becomes a real requirement.
+
+    Args:
+        text: The prompt or completion text to estimate. ``None``/empty is
+            tolerated and yields 0.
+
+    Returns:
+        An estimated token count; at least 1 for any non-empty text, 0 for
+        empty text.
+    """
+    length = len(text or "")
+    if not length:
+        return 0
+    return max(1, length // _APPROX_CHARS_PER_TOKEN)
+
 
 def record_token_usage(
     provider: str,
@@ -204,6 +245,7 @@ def is_over_daily_limit() -> bool:
 
 __all__ = [
     "LLM_TOKEN_LIMIT_EXCEEDED",
+    "approximate_token_count",
     "record_token_usage",
     "get_daily_usage",
     "aggregate_usage",

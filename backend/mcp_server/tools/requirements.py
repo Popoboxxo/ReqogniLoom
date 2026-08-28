@@ -169,10 +169,16 @@ class RequirementsToolGroup(BaseToolGroup):
                     },
                     "level": {
                         "type": "integer",
-                        "enum": [0, 1, 2, 3, 4],
+                        # Mirrors persistence.models.RequirementLevel (migration
+                        # 0067). The integer IS the V-model cascade level. L0
+                        # (Stakeholder Need) is a separate entity type, never a
+                        # Requirement, so 0 is not a legal value here.
+                        "enum": [1, 2, 3, 4],
                         "description": (
-                            "V-model hierarchy level (0=System, 1=Subsystem, "
-                            "2=Component, 3=Part, 4=Material)."
+                            "V-model cascade level (1=System, 2=Subsystem, "
+                            "3=Component, 4=Presentation). Omit to leave "
+                            "unassigned; a decomposed child inherits "
+                            "parent + 1 automatically."
                         ),
                     },
                 },

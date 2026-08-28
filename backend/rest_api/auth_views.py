@@ -15,8 +15,10 @@ round-trip through ``BearerTokenAuthentication`` (the same token can immediately
 authenticate subsequent requests).
 
 Error shape: authentication failures use the standardised AuthAndTenancy error
-body (``{"error", "message", "doc_url"}``, REQ-L3-AT001-004), consistent with the
-rest of the auth surface.
+body (REQ-L3-AT001-004), which since the 2026-08-27 system audit (P1 item 13) is
+the same envelope as the rest of the REST surface (REQ-L2-RA-009)::
+
+    {"error": {"code": ..., "message": ..., "details": [{"doc_url": ...}]}}
 """
 from __future__ import annotations
 

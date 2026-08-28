@@ -125,8 +125,10 @@ def test_derive_forwards_an_explicit_n_as_a_config_override(ctx_workspace, monke
         "application.ai_derivation_service.AiDerivationService._resolve_and_render",
         staticmethod(_fake_render),
     )
+    # Systemaudit item 11: _complete_json_list returns
+    # (items, is_mock_fallback), so the stub must too.
     monkeypatch.setattr(
-        AiDerivationService, "_complete_json_list", lambda *a, **k: []
+        AiDerivationService, "_complete_json_list", lambda *a, **k: ([], False)
     )
 
     AiDerivationService().derive_requirements_from_need(ctx, need.id, n=5)

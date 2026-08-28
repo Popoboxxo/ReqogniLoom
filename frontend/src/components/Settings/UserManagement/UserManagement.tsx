@@ -17,16 +17,23 @@
  * non-admin who somehow reaches this component still gets 403s from every
  * `usersApi` call.
  *
- * `LastAdminError` (409, `error: "LAST_ADMIN"`): the backend
- * (`user_management_views.py`'s `_err()`) returns a FLAT
- * `{error, message}` body, and `apiClient.apiFetch` (client.ts) throws that
- * body directly for a non-2xx response — NOT an axios-style
- * `{response: {status, data}}` wrapper. `message` is a fixed-format English
- * sentence ("Cannot complete this action: it would leave {scope}
- * {identifier} with no active admin."); `parseLastAdminMessage` below
- * extracts `{scope, identifier}` from it so the UI can render the
+ * `LastAdminError` (409, code `LAST_ADMIN`): the backend
+ * (`user_management_views.py`'s `_err()`) returns the project-wide error
+ * envelope `{error: {code, message, details}}`, and `apiClient.apiFetch`
+ * (client.ts) throws that body directly for a non-2xx response — NOT an
+ * axios-style `{response: {status, data}}` wrapper. `error.message` is a
+ * fixed-format English sentence ("Cannot complete this action: it would
+ * leave {scope} {identifier} with no active admin."); `parseLastAdminMessage`
+ * below extracts `{scope, identifier}` from it so the UI can render the
  * LOCALIZED `settings.userManagement.lastAdminError` copy (DE/EN) instead
  * of always leaking the backend's English sentence into a German UI.
+ *
+ * Until the 2026-08-27 system audit (P1 item 13) `_err()` emitted a FLAT
+ * `{error: "<code>", message}` body. Both shapes are still accepted below:
+ * `PermissionsSection.tsx` reads the same `LAST_ADMIN` code from
+ * `auth_tenancy/rest_workspace_members.py`, which was out of that audit
+ * item's scope and still answers flat — so the tolerant read is what keeps
+ * the two mirrored components genuinely interchangeable.
  *
  * Styling follows the CSS-Module convention (Dialog/Goals precedent) rather
  * than WorkspaceSettings.tsx's legacy inline object-literal style props —
@@ -46,26 +53,48 @@ import styles from "./UserManagement.module.css";
 // LAST_ADMIN error handling
 // ---------------------------------------------------------------------------
 
-interface ApiErrorBody {
-  error: string;
-  message: string;
+/** Nested envelope (current) or flat body (legacy) — see the file docstring. */
+type ApiErrorBody =
+  | { error: { code: string; message: string } }
+  | { error: string; message: string };
+
+/** Read the machine code out of either envelope shape. */
+function errorCode(err: unknown): string | null {
+  const candidate = err as
+    | { error?: unknown; message?: unknown }
+    | null
+    | undefined;
+  if (!candidate || typeof candidate !== "object") return null;
+  const nested = candidate.error as { code?: unknown } | undefined;
+  if (nested && typeof nested === "object" && typeof nested.code === "string") {
+    return nested.code;
+  }
+  return typeof candidate.error === "string" ? candidate.error : null;
+}
+
+/**
+ * Read the human-readable sentence out of either envelope shape.
+ *
+ * Kept separate from `client.ts`'s `extractApiErrorMessage`: that helper
+ * prefers `details[0].errors[0]` (field-level serializer rejections), whereas
+ * every error this component shows — including the `LAST_ADMIN` sentence
+ * `parseLastAdminMessage` needs verbatim — lives in the top-level `message`.
+ */
+function extractMessage(err: unknown): string | null {
+  const candidate = err as
+    | { error?: unknown; message?: unknown }
+    | null
+    | undefined;
+  if (!candidate || typeof candidate !== "object") return null;
+  const nested = candidate.error as { message?: unknown } | undefined;
+  if (nested && typeof nested === "object" && typeof nested.message === "string") {
+    return nested.message;
+  }
+  return typeof candidate.message === "string" ? candidate.message : null;
 }
 
 function isLastAdminError(err: unknown): err is ApiErrorBody {
-  const candidate = err as Partial<ApiErrorBody> | null | undefined;
-  return (
-    !!candidate &&
-    typeof candidate === "object" &&
-    candidate.error === "LAST_ADMIN" &&
-    typeof candidate.message === "string"
-  );
-}
-
-function extractMessage(err: unknown): string | null {
-  const candidate = err as { message?: unknown } | null | undefined;
-  return candidate && typeof candidate === "object" && typeof candidate.message === "string"
-    ? candidate.message
-    : null;
+  return errorCode(err) === "LAST_ADMIN" && extractMessage(err) !== null;
 }
 
 // Matches `LastAdminError.__init__`'s fixed message format
@@ -129,14 +158,18 @@ export function UserManagement(): JSX.Element {
 
   const handleApiError = useCallback((err: unknown): void => {
     if (isLastAdminError(err)) {
-      const parsed = parseLastAdminMessage(err.message);
+      const lastAdminMessage = extractMessage(err) ?? "";
+      const parsed = parseLastAdminMessage(lastAdminMessage);
       setError(
         parsed
           ? tRef.current("settings.userManagement.lastAdminError", {
               scope: parsed.scope,
               identifier: parsed.identifier,
             })
-          : err.message
+          : // Unparseable sentence (backend wording drift) — fall back to the
+            // server's raw text rather than a generic failure, so the user
+            // still learns *why* the action was refused.
+            lastAdminMessage
       );
       return;
     }

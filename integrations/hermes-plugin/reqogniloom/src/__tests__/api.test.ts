@@ -126,10 +126,12 @@ describe("listWorkspaces", () => {
   });
 
   it("propagates the top-level message from a FLAT auth-failure error body (invalid API key)", async () => {
-    // AuthTenancyAuthentication (backend/auth_tenancy/errors.py::build_error_body)
-    // returns a body where "error" is a plain string code, not a nested object,
-    // and the exception handler's "already normalised" bypass lets it through
-    // unchanged: {"error": "<code>", "message": "...", "doc_url": "..."}.
+    // The flat body {"error": "<code>", "message": "...", "doc_url": "..."}.
+    // build_error_body() emitted this until the 2026-08-27 system audit (P1
+    // item 13) and now uses the nested envelope, but several other REST
+    // modules still answer flat (rest_workspace_members.py,
+    // rest_item_permission.py, admin_ops/rest.py, banner_rest.py) and this
+    // plugin may face an older backend — so the flat path stays covered.
     const errorBody = JSON.stringify({
       error: "invalid_api_key",
       message: "Invalid or expired API key.",

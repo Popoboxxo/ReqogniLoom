@@ -26,7 +26,7 @@ hierarchy representations it must *not* be unified with).
 
 L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
 of §2.2): a Requirement with an *explicitly assigned*
-``level == RequirementLevel.L4_MATERIAL`` is skipped by VERIF-P8. Rows with
+``level == RequirementLevel.L4_PRESENTATION`` is skipped by VERIF-P8. Rows with
 ``level IS NULL`` (the overwhelming majority) are never treated as L4 and are
 NOT skipped — same rationale as the sibling rule modules.
 
@@ -59,13 +59,14 @@ but the RuleEngine guarantees zero findings and never calls their ``check``
 for any tier. Implementing them for real is follow-up work, gated on the
 ``LinkType`` enum actually gaining ``CONFLICTS_WITH``/``SUPERCEDES`` members.
 
---------------------------------------------------------------------------
-TRACE-P6 / VERIF-P8 "supersedes" note
---------------------------------------------------------------------------
-TRACE-P6 already filters trace links by the literal string ``"supersedes"``
-(via :func:`_superseded_artifact_ids`) — that pre-existing behaviour is out of
-scope for this change (TRACE-P6 stays active and unmodified) and is left as
-is; only CONS-P9/CONS-P10 are deferred here.
+TRACE-P6 used to carry its own string-literal ``"supersedes"`` exclusion
+(``_superseded_artifact_ids``) on top of this — that filter could never match
+a real link either (same validation gap as CONS-P9/CONS-P10), so it was
+removed rather than deferred: it was live, unconditional code silently
+promising an exclusion that no user-created data could ever trigger.
+SYSTEMAUDIT_2026-08-27 P1-15; the mirror-image filter in
+``workflow.precondition_rules.check_verifies_link`` (Rule 7) was removed for
+the same reason in the same change.
 
 None of the four rules re-implement endpoint-type legality — that is
 ``traceability.types.check_se_link_semantics`` territory (§2.1). They only
@@ -93,11 +94,6 @@ from traceability.audit.registry import (
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
 from workflow.services import outdated_item_ids
-
-# Used by TRACE-P6 only (_superseded_artifact_ids below); see the
-# "TRACE-P6 / VERIF-P8 'supersedes' note" section of the module docstring —
-# out of scope for the CONS-P9/CONS-P10 deferral in this module.
-_SUPERCEDES = "supersedes"
 
 # ---------------------------------------------------------------------------
 # Shared, read-only data access helpers (audit infrastructure — mirrors the
@@ -184,32 +180,15 @@ def _targets_by_source(
     return result
 
 
-def _superseded_artifact_ids(context: AuditContext) -> FrozenSet[str]:
-    """Return the artifact-id set of artifacts replaced by a SUPERCEDES link.
-
-    Direction convention (consistent with ``DERIVES_FROM``/``ALLOCATED_TO``
-    etc., §2.2 header note "Source -> Target, ... der Link zeigt aber vom
-    Requirement zum Need"): source = the NEW artifact, target = the OLD
-    (superseded) one — mirrors the existing Adr lifecycle
-    (``Approved -> Superseded``, an approved decision is superseded by a
-    later one, never the other way round).
-    """
-    return frozenset(
-        link["target_id"]
-        for link in context.iter_trace_links()
-        if link["link_type"] == _SUPERCEDES
-    )
-
-
 # ---------------------------------------------------------------------------
-# TRACE-P6 — every TestCase verifies >=1 existing, non-superseded
-# Requirement/ArchitectureElement. Standard + Extended.
+# TRACE-P6 — every TestCase verifies >=1 existing Requirement/ArchitectureElement.
+# Standard + Extended.
 # ---------------------------------------------------------------------------
 
 
 @register_rule
 class TestCaseVerifiesExistingArtifactRule(Rule):
-    """TRACE-P6: every TestCase verifies an existing, non-superseded target."""
+    """TRACE-P6: every TestCase verifies an existing target."""
 
     rule_id = TRACE_P6
 
@@ -221,13 +200,12 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
         requirement_ids = frozenset(_active_requirements(context))
         arch_ids = frozenset(_active_architecture_elements(context))
         target_pool = requirement_ids | arch_ids
-        superseded_ids = _superseded_artifact_ids(context)
         verifies = _targets_by_source(context, frozenset({LinkType.VERIFIES.value}))
 
         findings: List[Finding] = []
         for tc_id, title in sorted(test_cases.items()):
             targets = verifies.get(tc_id, set())
-            valid_targets = (targets & target_pool) - superseded_ids
+            valid_targets = targets & target_pool
             if valid_targets:
                 continue
             findings.append(
@@ -236,8 +214,8 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
                     severity=Severity.BLOCKER,
                     message=(
                         f"[TRACE-P6] TestCase '{title}' ({tc_id}) has no "
-                        "'verifies' link to an existing, non-superseded "
-                        "Requirement or ArchitectureElement."
+                        "'verifies' link to an existing Requirement or "
+                        "ArchitectureElement."
                     ),
                     artifact_ids=(tc_id,),
                 )
@@ -265,7 +243,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         non_l4_ids = frozenset(
             artifact_id
             for artifact_id, (_, level) in requirements.items()
-            if level != RequirementLevel.L4_MATERIAL
+            if level != RequirementLevel.L4_PRESENTATION
         )
         if not non_l4_ids:
             return []

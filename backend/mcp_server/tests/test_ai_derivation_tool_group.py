@@ -291,7 +291,9 @@ def test_derive_requirements_preview_mode_unchanged(ai_ctx):
     )
 
     assert result.success and result_explicit_preview.success
-    assert list(result.data.keys()) == ["drafts"]
+    # Systemaudit item 11: the preview forwards the service dict verbatim,
+    # which now also carries the mock-fallback flag.
+    assert set(result.data.keys()) == {"drafts", "is_mock_fallback"}
     assert result.data == result_explicit_preview.data
 
 

@@ -187,8 +187,13 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
       json: async () => ({
         // #271: the login endpoint reports "invalid_credentials";
         // "invalid_token" is reserved for JWT parse/expiry failures.
-        error: "invalid_credentials",
-        message: "Invalid username or password",
+        // Systemaudit 2026-08-27 (P1 item 13): the auth error body is now the
+        // project-wide envelope, so the code/message are nested under `error`.
+        error: {
+          code: "invalid_credentials",
+          message: "Invalid username or password",
+          details: [{ doc_url: "https://docs.reqogniloom.local/errors/invalid_credentials" }],
+        },
       }),
     });
 

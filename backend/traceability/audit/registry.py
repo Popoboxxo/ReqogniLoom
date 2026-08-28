@@ -63,6 +63,10 @@ ARCH_003 = "ARCH-003"
 VERIF_P8 = "VERIF-P8"
 CONS_P9 = "CONS-P9"
 CONS_P10 = "CONS-P10"
+#: P1-9 (SYSTEMAUDIT_2026-08-27) — not part of the original §2.2
+#: Pflichtmatrix; added when RequirementLevel was realigned with the
+#: documented V-model cascade. See rules/level_progression.py.
+CONS_P11 = "CONS-P11"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -89,6 +93,7 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
         TRACE_P7,
         ARCH_003,
         VERIF_P8,
+        CONS_P11,
     }
 )
 
@@ -283,4 +288,5 @@ __all__ = [
     "VERIF_P8",
     "CONS_P9",
     "CONS_P10",
+    "CONS_P11",
 ]

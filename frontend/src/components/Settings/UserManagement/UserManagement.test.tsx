@@ -93,11 +93,17 @@ describe("UserManagement", () => {
 
   it("surfaces a LAST_ADMIN error inline, not as a generic failure", async () => {
     // Real production shape thrown by `apiClient` for a non-2xx JSON error
-    // body (see `apiFetch`'s `throw body` in client.ts) — flat, not
-    // axios-style `{response: {status, data}}`.
+    // body (see `apiFetch`'s `throw body` in client.ts) — the raw body, not
+    // an axios-style `{response: {status, data}}` wrapper. Since the
+    // 2026-08-27 system audit (P1 item 13) `user_management_views.py`'s
+    // `_err()` emits the project-wide envelope `{error: {code, message}}`.
     vi.mocked(usersApi.deactivate).mockRejectedValue({
-      error: "LAST_ADMIN",
-      message: "Cannot complete this action: it would leave tenant abc123 with no active admin.",
+      error: {
+        code: "LAST_ADMIN",
+        message:
+          "Cannot complete this action: it would leave tenant abc123 with no active admin.",
+        details: [],
+      },
     });
     render(<UserManagement />);
     await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
@@ -111,6 +117,26 @@ describe("UserManagement", () => {
     // Names the blocking scope + identifier, not a generic message.
     expect(screen.getByTestId("user-management-error")).toHaveTextContent(/Tenant/);
     expect(screen.getByTestId("user-management-error")).toHaveTextContent(/abc123/);
+  });
+
+  it("still understands the legacy flat LAST_ADMIN body", async () => {
+    // `auth_tenancy/rest_workspace_members.py` was out of scope for the P1
+    // error-shape unification and still answers flat. `PermissionsSection.tsx`
+    // mirrors this component, so the tolerant read must keep working.
+    vi.mocked(usersApi.deactivate).mockRejectedValue({
+      error: "LAST_ADMIN",
+      message:
+        "Cannot complete this action: it would leave tenant abc123 with no active admin.",
+    });
+    render(<UserManagement />);
+    await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("user-management-toggle-active-u1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("user-management-error")).toHaveTextContent(
+        /keinen aktiven Admin mehr/i
+      )
+    );
   });
 
   it("opens the create-user dialog and calls usersApi.create", async () => {

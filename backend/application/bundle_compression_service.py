@@ -576,7 +576,11 @@ class BundleCompressionService(ServiceBase):
             MockLlmProvider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
 
         audit_logger = LlmAuditLogger()
         entity_id = str(root_id)
@@ -663,10 +667,19 @@ class BundleCompressionService(ServiceBase):
         # path exactly (code review finding: without this, bundle
         # compression's own spend was invisible to the is_over_daily_limit()
         # check above, since that check aggregates TokenUsageRecord rows).
+        # Systemaudit 2026-08-27 item 14: the recorded count used to be a
+        # hardcoded 0, which reinstated exactly the blindness the row was
+        # added to fix — a row that is always 0 contributes nothing to the
+        # aggregate. Estimated client-side instead, identically to
+        # AiDerivationService._complete (see ``approximate_token_count``:
+        # a ~4-chars-per-token heuristic, not a real tokenizer). Bundle
+        # prompts are the largest in the codebase, so this is the call path
+        # where the zero hurt the budget most.
         record_token_usage(
             provider=provider_name,
             capability=PROMPT_TEMPLATE_NAME,
-            input_tokens=0,
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(result),
         )
         return result, False
 

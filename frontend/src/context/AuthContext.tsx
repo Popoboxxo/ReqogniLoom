@@ -185,8 +185,16 @@ export function AuthProvider({
         let message = "Invalid credentials";
         try {
           const body = await response.json();
-          if (body?.message) message = body.message;
-          else if (body?.error) message = body.error;
+          // The login endpoint answers with the project-wide error envelope
+          // `{"error": {"code", "message", "details"}}` (backend
+          // auth_tenancy/errors.py::build_error_body). Before the 2026-08-27
+          // system audit it used a flat `{"error": "<code>", "message": ...}`,
+          // so both are read here: the nested form first, then the flat one.
+          // Without the nested branch `body.error` is an *object* and the
+          // alert renders "[object Object]".
+          if (typeof body?.error?.message === "string") message = body.error.message;
+          else if (typeof body?.message === "string") message = body.message;
+          else if (typeof body?.error === "string") message = body.error;
         } catch {
           // use default
         }
