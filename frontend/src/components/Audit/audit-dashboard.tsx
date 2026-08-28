@@ -61,6 +61,7 @@ import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import type { Artifact } from "../../types";
 import { PageHeader } from "../shared/PageHeader";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { primaryTarget, useFindingTargets } from "./use-finding-targets";
 import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
 
@@ -126,6 +127,10 @@ export function AuditDashboard(): JSX.Element {
   const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
   const [actionState, setActionState] = useState<Record<number, ActionState>>({});
   const [toast, setToast] = useState<string | null>(null);
+  // UI-57: Adopt applies an automatic correction with no undo — interpose a
+  // confirmation instead of firing the remediation call straight from the
+  // row button.
+  const [pendingAdopt, setPendingAdopt] = useState<AuditFinding | null>(null);
 
   // ---- Load artifacts once per workspace (needed for the document-scope picker) ----
   useEffect(() => {
@@ -241,6 +246,20 @@ export function AuditDashboard(): JSX.Element {
     },
     [activeWorkspace, scope, scopeArtifactId, t]
   );
+
+  // UI-57: Adopt has no undo (it PATCHes/creates trace links straight away) —
+  // the row button opens the confirmation, the confirmation fires the actual
+  // mutation. Mirrors UserManagement's request/confirm split.
+  const requestAdopt = useCallback((finding: AuditFinding): void => {
+    setPendingAdopt(finding);
+  }, []);
+
+  const confirmAdopt = useCallback((): void => {
+    if (!pendingAdopt) return;
+    const finding = pendingAdopt;
+    setPendingAdopt(null);
+    void handleAdopt(finding);
+  }, [pendingAdopt, handleAdopt]);
 
   // ---- Modify workflow (GitHub #451) ----
   // A finding is cleared by correcting the artifact it points at, so "Modify"
@@ -470,11 +489,26 @@ export function AuditDashboard(): JSX.Element {
               findings={groupFindings}
               actionState={actionState}
               targets={targets}
-              onAdopt={handleAdopt}
+              onAdopt={requestAdopt}
               onModify={handleModify}
             />
           ))}
         </div>
+      )}
+
+      {pendingAdopt && (
+        <ConfirmDialog
+          title={t("audit.adoptConfirmTitle", "Apply correction?")}
+          message={t(
+            "audit.adoptConfirmMessage",
+            "This applies the automatic correction for {{ruleId}} right away. There is no undo.",
+            { ruleId: pendingAdopt.rule_id },
+          )}
+          confirmLabel={t("audit.adopt", "Adopt")}
+          onConfirm={confirmAdopt}
+          onCancel={() => setPendingAdopt(null)}
+          testId="audit-adopt-confirm"
+        />
       )}
     </div>
   );

@@ -173,7 +173,7 @@ export default function AdrEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
-                <AdrForm adr={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                <AdrForm adr={item} otherAdrs={items} onSaved={handleSaved} onDeleted={handleDeleted} />
                 {/* TraceLinkPanel stays: it is the create/delete CRUD surface
                     for trace links (Task 3.3 decision — the Spine above is a
                     read-only derivation-chain view, not a link editor). */}
@@ -205,6 +205,7 @@ export default function AdrEditors(): JSX.Element {
             <>
               <button
                 type="button"
+                data-testid="adr-create-cancel-btn"
                 className="btn-secondary"
                 onClick={closeCreateDialog}
                 disabled={isCreating}
@@ -240,7 +241,7 @@ export default function AdrEditors(): JSX.Element {
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('adr.newTitlePlaceholder')}
+              placeholder={t('adr.newTitlePlaceholder', 'e.g. Use PostgreSQL as the primary datastore')}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',

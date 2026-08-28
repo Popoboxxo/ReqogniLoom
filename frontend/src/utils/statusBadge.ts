@@ -39,6 +39,18 @@ const VARIANT_COLORS: Record<BadgeVariant, { bg: string; color: string }> = {
  * Maps raw status/type strings (any casing, space or underscore separated)
  * to a badge variant. Keys are lowercase; both `in_progress` and
  * `in progress` style spellings are covered.
+ *
+ * **One flat table across all domains — deliberate, not an oversight.**
+ * The UI audit flagged that run status, result status and workflow status
+ * share it, so a string cannot mean two things (`accepted` is approval for an
+ * ADR but deliberate exposure for a Risk). Splitting it per domain was
+ * rejected: `components/Goals/goal-workflow.ts` uses the *variant* as a
+ * semantic classifier — `resolveBadgeVariant(state) === 'warning'` is how the
+ * archive transition is found and `=== 'success'` how an approved goal is
+ * counted, precisely so no German state name is hardcoded (issue #220). A
+ * per-domain table would silently reclassify those states and break the Goal
+ * lifecycle. Domain-specific colouring therefore goes through the explicit
+ * `badgeVariant` argument at the call site, never through a second table.
  */
 const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   // Positive / done
@@ -81,6 +93,15 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   outdated: 'warning',
   archiviert: 'warning',
   archived: 'warning',
+  // Test-result vocabulary (`mcp_server/tools/tests.py::
+  // _VALID_RUN_RESULT_STATUSES` = passed|failed|blocked|not_run, plus the
+  // ReqIF/baseline "skipped"). Both were missing entirely, so a blocked
+  // result rendered in the same neutral grey as an untouched `not_run` one —
+  // i.e. "we tried and could not" was indistinguishable from "nobody looked
+  // at it yet" (UI-55). `blocked` is a reported outcome that needs attention,
+  // `skipped` is a deliberate omission.
+  blocked: 'warning',
+  skipped: 'warning',
 
   // Neutral / draft / terminal
   draft: 'neutral',

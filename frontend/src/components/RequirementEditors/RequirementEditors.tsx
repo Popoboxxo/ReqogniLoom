@@ -355,7 +355,9 @@ export default function RequirementEditors(): JSX.Element {
     return (
       <div role="alert">
         <p style={{ color: 'var(--color-danger)' }}>{error}</p>
-        <button onClick={refresh}>{t('actions.reload')}</button>
+        <button data-testid="requirements-reload-btn" onClick={refresh}>
+          {t('actions.reload')}
+        </button>
       </div>
     );
   }

@@ -139,8 +139,9 @@ function NodeInspector({
 
   return (
     <div data-testid="graph-inspector-node">
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.label")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-node-label">{t("diagramGraph.inspector.label")}</label>
       <input
+        id="graph-inspector-node-label"
         className={styles.fieldInput}
         value={node.label}
         disabled={!editMode}
@@ -148,8 +149,9 @@ function NodeInspector({
         data-testid="graph-inspector-node-label"
       />
 
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.type")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-node-type">{t("diagramGraph.inspector.type")}</label>
       <select
+        id="graph-inspector-node-type"
         className={styles.fieldSelect}
         value={node.type}
         disabled={!editMode}
@@ -163,8 +165,9 @@ function NodeInspector({
         ))}
       </select>
 
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.accent")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-node-accent">{t("diagramGraph.inspector.accent")}</label>
       <select
+        id="graph-inspector-node-accent"
         className={styles.fieldSelect}
         value={node.style?.accent ?? "default"}
         disabled={!editMode}
@@ -180,8 +183,9 @@ function NodeInspector({
 
       {groupNodes.length > 0 && (
         <>
-          <div className={styles.sectionLabel}>{t("diagramGraph.inspector.parentGroup")}</div>
+          <label className={styles.sectionLabel} htmlFor="graph-inspector-node-parent">{t("diagramGraph.inspector.parentGroup")}</label>
           <select
+            id="graph-inspector-node-parent"
             className={styles.fieldSelect}
             value={node.parent_id ?? ""}
             disabled={!editMode}
@@ -276,8 +280,9 @@ function ArtifactRefPicker({
 
   return (
     <div data-testid="graph-inspector-artifact-ref">
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.artifactRef")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-artifact-entity-type">{t("diagramGraph.inspector.artifactRef")}</label>
       <select
+        id="graph-inspector-artifact-entity-type"
         className={styles.fieldSelect}
         value={draftEntityType}
         disabled={!editMode}
@@ -295,8 +300,10 @@ function ArtifactRefPicker({
         ))}
       </select>
       <input
+        id="graph-inspector-artifact-id"
         className={styles.fieldInput}
         placeholder={t("diagramGraph.inspector.artifactIdPlaceholder")}
+        aria-label={t("diagramGraph.inspector.artifactIdPlaceholder")}
         value={draftRefId}
         disabled={!editMode}
         onChange={(e) => {
@@ -352,8 +359,9 @@ function EdgeInspector({
 
   return (
     <div data-testid="graph-inspector-edge">
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.label")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-edge-label">{t("diagramGraph.inspector.label")}</label>
       <input
+        id="graph-inspector-edge-label"
         className={styles.fieldInput}
         value={edge.label ?? ""}
         disabled={!editMode}
@@ -361,8 +369,9 @@ function EdgeInspector({
         data-testid="graph-inspector-edge-label"
       />
 
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.type")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-edge-type">{t("diagramGraph.inspector.type")}</label>
       <select
+        id="graph-inspector-edge-type"
         className={styles.fieldSelect}
         value={edge.type}
         disabled={!editMode}
@@ -376,8 +385,9 @@ function EdgeInspector({
         ))}
       </select>
 
-      <div className={styles.sectionLabel}>{t("diagramGraph.inspector.lineStyle")}</div>
+      <label className={styles.sectionLabel} htmlFor="graph-inspector-edge-line">{t("diagramGraph.inspector.lineStyle")}</label>
       <select
+        id="graph-inspector-edge-line"
         className={styles.fieldSelect}
         value={edge.style?.line ?? "solid"}
         disabled={!editMode}
@@ -389,8 +399,9 @@ function EdgeInspector({
       </select>
 
       <div className={styles.rulesGrid}>
-        <span className={styles.ruleKey}>{t("diagramGraph.inspector.sourceHandle")}</span>
+        <label className={styles.ruleKey} htmlFor="graph-inspector-edge-source-handle">{t("diagramGraph.inspector.sourceHandle")}</label>
         <select
+          id="graph-inspector-edge-source-handle"
           className={styles.fieldSelect}
           value={edge.source_handle ?? "bottom"}
           disabled={!editMode}
@@ -403,8 +414,9 @@ function EdgeInspector({
             </option>
           ))}
         </select>
-        <span className={styles.ruleKey}>{t("diagramGraph.inspector.targetHandle")}</span>
+        <label className={styles.ruleKey} htmlFor="graph-inspector-edge-target-handle">{t("diagramGraph.inspector.targetHandle")}</label>
         <select
+          id="graph-inspector-edge-target-handle"
           className={styles.fieldSelect}
           value={edge.target_handle ?? "top"}
           disabled={!editMode}

@@ -19,6 +19,7 @@ import {
   type ApiKeyCreateResult,
   type ApiKeyMetadata,
 } from "../../api/api-keys";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -100,6 +101,8 @@ export function ApiKeysSection(): JSX.Element {
   const [isCreating, setIsCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<ApiKeyCreateResult | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setIsLoading(true);
@@ -136,16 +139,6 @@ export function ApiKeysSection(): JSX.Element {
 
   const handleRevoke = useCallback(
     async (id: string): Promise<void> => {
-      if (
-        !window.confirm(
-          t(
-            "apiKeys.revokeConfirm",
-            "Revoke this API key? Clients using it will lose access immediately."
-          )
-        )
-      ) {
-        return;
-      }
       setRevokingId(id);
       setError(null);
       try {
@@ -158,8 +151,15 @@ export function ApiKeysSection(): JSX.Element {
         setRevokingId(null);
       }
     },
-    [createdKey, load, t]
+    [createdKey, load]
   );
+
+  const confirmRevoke = useCallback((): void => {
+    if (!pendingRevokeId) return;
+    const id = pendingRevokeId;
+    setPendingRevokeId(null);
+    void handleRevoke(id);
+  }, [pendingRevokeId, handleRevoke]);
 
   return (
     <section style={sectionStyle} data-testid="api-keys-section">
@@ -272,6 +272,7 @@ export function ApiKeysSection(): JSX.Element {
             </button>
             <button
               type="button"
+              data-testid="api-key-dismiss"
               onClick={() => setCreatedKey(null)}
               style={{
                 background: "transparent",
@@ -383,7 +384,7 @@ export function ApiKeysSection(): JSX.Element {
                   <button
                     type="button"
                     data-testid={`api-key-revoke-${key.id}`}
-                    onClick={() => void handleRevoke(key.id)}
+                    onClick={() => setPendingRevokeId(key.id)}
                     disabled={revokingId === key.id}
                     style={{
                       ...dangerButtonStyle,
@@ -398,6 +399,20 @@ export function ApiKeysSection(): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+
+      {pendingRevokeId && (
+        <ConfirmDialog
+          title={t("apiKeys.revoke", "Revoke")}
+          message={t(
+            "apiKeys.revokeConfirm",
+            "Revoke this API key? Clients using it will lose access immediately."
+          )}
+          confirmLabel={t("apiKeys.revoke", "Revoke")}
+          onConfirm={confirmRevoke}
+          onCancel={() => setPendingRevokeId(null)}
+          testId="api-key-revoke-confirm"
+        />
       )}
     </section>
   );

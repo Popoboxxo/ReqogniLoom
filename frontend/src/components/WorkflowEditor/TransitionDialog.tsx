@@ -89,6 +89,7 @@ export function TransitionDialog({
           : t("workflow.transitionDialog.editTitle")
       }
       onClose={onClose}
+      preventClose={busy}
       testId="workflow-transition-dialog"
       footer={
         <>

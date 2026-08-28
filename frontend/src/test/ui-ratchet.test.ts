@@ -216,8 +216,36 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `WorkspaceTree`'s `renderRow` slot, and the page/detail-pane layout
 // wrappers moved onto the same CSS Module. Re-measured after that change:
 // 1070. Baseline lowered in the same PR per the ratchet rule above.
+//
+// Systemaudit 2026-08-27 AP-5 review follow-up (F1/F2): the AP-5 batch (5
+// sub-batches, 117 files) added 10 new static `style={{...}}` literals across
+// 4 files — `AdrForm.tsx` (+5, the ADR-Supersede-Flow panel), `ReviewsView.tsx`
+// (+2, the queue's pagination row), `ArchiveConfirmDialog.tsx` (+2, the
+// mandatory archive-reason field) and `MainGoalPanel.tsx` (+1, the mock-
+// fallback hint) — pushing the count to 1078 and turning this test red. All
+// 10 were hoisted onto named `React.CSSProperties` constants (module-level in
+// `AdrForm.tsx`/`ReviewsView.tsx`/`MainGoalPanel.tsx`; the existing
+// `Goals.module.css` `.label`/`.textarea` classes in `ArchiveConfirmDialog.tsx`,
+// which already existed and additionally restores the `:focus-visible`
+// outline the inline version had been suppressing).
+//
+// Re-measuring after that fix landed at 1068, not 1070 — 2 *below* this
+// baseline, not exactly on it. Traced via `git diff HEAD -- frontend/src/
+// components | grep 'style={{'`: the same AP-5 batch separately hoisted two
+// unrelated static literals in `MetricsDashboard.tsx` (the "not computed"
+// value span and the metric-value span, now `notComputedValueStyle`/
+// `currentValueStyle`) onto named constants — a legitimate, independent
+// reduction already present in the batch before this fix touched anything.
+// Net effect: +10 (the 4 files above) - 2 (MetricsDashboard, pre-existing in
+// the same batch) = +8 against the previous 1070 baseline, landing at 1078;
+// undoing only the +10 this fix is scoped to correctly lands at 1068, not
+// 1070. Restoring the two `MetricsDashboard.tsx` literals purely to hit the
+// old baseline number would mean deliberately reintroducing static inline
+// styles that were already correctly fixed — the opposite of what this
+// ratchet exists to enforce. Baseline lowered to the genuinely measured
+// value in the same change per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1070;
+const STYLE_BRACE_BASELINE = 1068;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -605,6 +633,42 @@ const TREE_IMPLEMENTATION_BASELINE = 1;
 const KNOWN_STATUS_BADGE_IMPLEMENTATIONS = [join(COMPONENTS_DIR, "shared", "StatusBadge.tsx")];
 const STATUS_BADGE_IMPLEMENTATION_BASELINE = 1;
 
+// --- (e) Page-local toast re-implementations (UI-51) -----------------------
+//
+// The UI audit found four hand-rolled toasts (WorkflowEditorPage,
+// PermissionDefaultsTab, audit-dashboard, DiagramGraphEditorPage) with the
+// same shape — `useState<string | null>` plus a `window.setTimeout` — but
+// three different auto-dismiss timings and, in three of them, a timer that was
+// never cleared (a `setState` scheduled against an unmounted component). The
+// primitive is now `shared/Toast/useToast`, which owns the timing and cancels
+// the pending timer on re-show and on unmount.
+//
+// Two call sites still hold their own state and are counted here:
+// `audit-dashboard.tsx` (its timer *is* cleaned up via a `useEffect`, so it
+// leaks nothing — pure duplication) and `WorkflowEditorPage.tsx` (tracked
+// separately as UI-38, the actual leak). Both were left alone in this pass
+// only because they were being edited concurrently in the same worktree;
+// migrating them is a mechanical `useToast()` swap. Lower the baseline in the
+// same change that migrates one.
+const LOCAL_TOAST_STATE_PATTERN = /const \[toast, setToast\]/g;
+const LOCAL_TOAST_BASELINE = 2;
+
+// --- (f) Duplicated primary-button fill (UI-50) ----------------------------
+//
+// `global.css` defines the four canonical button classes
+// (`btn-primary/-secondary/-danger/-ghost`), but component CSS modules keep
+// re-declaring the primary fill under their own class names — the "5 parallel
+// button style systems" verdict. `background: var(--color-primary)` inside a
+// component module is the machine-checkable core of that: it is the one
+// declaration `.btn-primary` exists to own.
+//
+// Not every occurrence is a button (a selected tab or an active chip uses the
+// same fill legitimately), which is why this is a frozen ceiling rather than a
+// zero-target: it stops the count from growing while the migration happens
+// file by file. Lower the constant whenever a module drops one.
+const PRIMARY_FILL_PATTERN = /background:\s*var\(--color-primary\)\s*;/g;
+const PRIMARY_FILL_BASELINE = 29;
+
 describe("UI concept ratchet (Task 7.4)", () => {
   it("does not add new inline style={{ usages beyond the frozen baseline", () => {
     const files = collectNonTestTsxFiles(COMPONENTS_DIR);
@@ -679,6 +743,24 @@ describe("UI concept ratchet (Task 7.4)", () => {
       }
     });
     expect(existing.length).toBeLessThanOrEqual(TREE_IMPLEMENTATION_BASELINE);
+  });
+
+  it("does not add new page-local toast implementations (UI-51)", () => {
+    const files = collectNonTestTsxFiles(COMPONENTS_DIR);
+    let total = 0;
+    for (const file of files) {
+      total += countOccurrences(readFileSync(file, "utf-8"), LOCAL_TOAST_STATE_PATTERN);
+    }
+    expect(total).toBeLessThanOrEqual(LOCAL_TOAST_BASELINE);
+  });
+
+  it("does not re-declare the primary-button fill beyond the frozen baseline (UI-50)", () => {
+    let total = 0;
+    for (const file of collectCssFiles(COMPONENTS_DIR)) {
+      const content = readFileSync(file, "utf-8").replace(/\/\*[\s\S]*?\*\//g, "");
+      total += countOccurrences(content, PRIMARY_FILL_PATTERN);
+    }
+    expect(total).toBeLessThanOrEqual(PRIMARY_FILL_BASELINE);
   });
 
   it("does not exceed the frozen status-badge-implementation baseline", () => {

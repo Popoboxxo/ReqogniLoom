@@ -121,7 +121,15 @@ export function WorkspaceCard({
         role="button"
         tabIndex={0}
         onClick={() => onSelect(workspace)}
-        onKeyDown={(e) => e.key === "Enter" && onSelect(workspace)}
+        onKeyDown={(e) => {
+          // WCAG 2.1.1 (Keyboard): a role="button" element must respond to
+          // both activation keys, not just Enter — Space is the native
+          // <button> activation key too.
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect(workspace);
+          }
+        }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{

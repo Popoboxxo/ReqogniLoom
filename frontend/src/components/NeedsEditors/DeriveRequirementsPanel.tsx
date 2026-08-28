@@ -109,6 +109,13 @@ export function DeriveRequirementsPanel({
   );
   const [isAccepting, setIsAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // UI-33 (Systemaudit 2026-08-27 AP-5): simple progress tracking for the
+  // sequential accept loop — previously the whole multi-second operation
+  // showed a single static spinner with no indication of how far it had
+  // gotten, on top of the silent-partial-failure gap fixed below.
+  const [acceptProgress, setAcceptProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
 
   const updateRow = useCallback((index: number, patch: Partial<DraftRow>) => {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -121,28 +128,64 @@ export function DeriveRequirementsPanel({
     if (selected.length === 0) return;
     setIsAccepting(true);
     setError(null);
+    setAcceptProgress({ done: 0, total: selected.length });
+    let createdCount = 0;
     try {
       // Sequential on purpose: each requirement must exist before its
       // 'derives-from' link is written, and the backend applies per-artifact
       // versioning we do not want to race.
       for (const row of selected) {
-        const created = await requirementsApi.create({
-          workspace_id: workspaceId,
-          title: row.title.trim(),
-          description: row.description,
-        });
-        await tracelinksApi.create({
-          source_id: created.id,
-          target_id: needArtifactId,
-          link_type: "derives-from",
-        });
+        let created: { id: string } | null = null;
+        try {
+          created = await requirementsApi.create({
+            workspace_id: workspaceId,
+            title: row.title.trim(),
+            description: row.description,
+          });
+          await tracelinksApi.create({
+            source_id: created.id,
+            target_id: needArtifactId,
+            link_type: "derives-from",
+          });
+        } catch (rowErr) {
+          // UI-33: a mid-loop failure previously stopped silently with a
+          // generic "derive failed" message, giving no indication that some
+          // drafts were already persisted, and — if it was the TraceLink
+          // step that threw — left the in-flight draft's Requirement
+          // orphaned (created but never linked back to the Need). Report
+          // exactly how many succeeded and best-effort roll back the orphan
+          // before surfacing the error, then stop instead of silently
+          // abandoning the remaining drafts.
+          if (created) {
+            try {
+              await requirementsApi.delete(created.id);
+            } catch {
+              // Best-effort only — the partial-failure message below
+              // already tells the user to check manually.
+            }
+          }
+          const apiErr = rowErr as { error?: { message?: string } };
+          const baseMessage = apiErr?.error?.message ?? t("needs.deriveFailed");
+          setError(
+            createdCount > 0
+              ? t("deriveRequirements.partialFailure", {
+                  created: createdCount,
+                  total: selected.length,
+                  message: baseMessage,
+                  defaultValue: `${createdCount} of ${selected.length} requirements were created, then: ${baseMessage}`,
+                })
+              : baseMessage,
+          );
+          if (createdCount > 0) onAccepted?.(createdCount);
+          return;
+        }
+        createdCount += 1;
+        setAcceptProgress({ done: createdCount, total: selected.length });
       }
-      onAccepted?.(selected.length);
-    } catch (err) {
-      const apiErr = err as { error?: { message?: string } };
-      setError(apiErr?.error?.message ?? t("needs.deriveFailed"));
+      onAccepted?.(createdCount);
     } finally {
       setIsAccepting(false);
+      setAcceptProgress(null);
     }
   }, [rows, workspaceId, needArtifactId, onAccepted, t]);
 
@@ -207,7 +250,17 @@ export function DeriveRequirementsPanel({
           data-testid="derive-requirements-accept"
         >
           {isAccepting ? (
-            <Spinner label={t("deriveRequirements.accepting")} />
+            <Spinner
+              label={
+                acceptProgress
+                  ? t("deriveRequirements.acceptingProgress", {
+                      done: acceptProgress.done,
+                      total: acceptProgress.total,
+                      defaultValue: `Creating ${acceptProgress.done}/${acceptProgress.total}...`,
+                    })
+                  : t("deriveRequirements.accepting")
+              }
+            />
           ) : (
             t("deriveRequirements.accept")
           )}

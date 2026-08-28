@@ -28,6 +28,7 @@
   "customFields": {
     "section": "Custom Fields",
     "workspaceSection": "Workspace Fields",
+    "noSelection": "-- No selection --",
     "saveValues": "Save fields",
     "empty": "No custom fields yet. Add a field to get started.",
     "addField": "Add field",
@@ -178,7 +179,8 @@
     "generic": "An unexpected error occurred.",
     "not_found": "Resource not found.",
     "unauthorized": "You are not authorized to perform this action.",
-    "llm_not_configured": "LLM provider is not configured. AI features are unavailable."
+    "llm_not_configured": "LLM provider is not configured. AI features are unavailable.",
+    "unknown": "Unknown error"
   },
   "login": {
     "title": "Sign In",
@@ -196,6 +198,8 @@
   "actions": {
     "add": "Add",
     "edit": "Edit",
+    "previous": "Previous",
+    "next": "Next",
     "save": "Save",
     "saved": "Saved.",
     "saving": "Saving...",
@@ -217,7 +221,8 @@
     "closing": "Closing...",
     "confirm": "Confirm",
     "confirmDelete": "Yes, delete",
-    "deleteConfirmPrompt": "Delete?"
+    "deleteConfirmPrompt": "Delete?",
+    "removeTag": "Remove tag “{{tag}}”"
   },
   "workflowEditor": {
     "changeStatus": "Change status",
@@ -246,6 +251,8 @@
     "visibleFields": "Fields",
     "visible": "Visible",
     "required": "Required",
+    "visibleFieldLabel": "{{field}}: visible",
+    "requiredFieldLabel": "{{field}}: required",
     "saved": "Configuration saved successfully."
   },
   "dashboard": {
@@ -306,7 +313,8 @@
     "status": "Status",
     "viewDiff": "View Diff",
     "hideDiff": "Hide Diff",
-    "resetFilters": "Reset filters"
+    "resetFilters": "Reset filters",
+    "retryLoadChildren": "Retry"
   },
   "arch": {
     "deriveRequirement": "Derive requirement",
@@ -416,7 +424,8 @@
     "allCoveredTitle": "All requirements are verified",
     "allCoveredDescription": "Every requirement has at least one verifying test case.",
     "deleteConfirmTitle": "Delete TraceLink",
-    "deleteConfirmMessage": "Delete this trace link? This action cannot be undone."
+    "deleteConfirmMessage": "Delete this trace link? This action cannot be undone.",
+    "cycleNode": "Already on this path (cycle)"
   },
   "tracelinks": {
     "panelTitle": "Trace Links",
@@ -460,6 +469,9 @@
     "changeReasonRequired": "A reason is required for this transition.",
     "transitionUnavailable": "This transition is not available (role or workflow configuration).",
     "forbidden": "You do not have the approver role required for this transition.",
+    "disabledLoading": "Loading available actions...",
+    "disabledAlreadyInState": "Already {{state}}.",
+    "pageIndicator": "Page {{page}} / {{totalPages}}",
     "approve": "Approve",
     "approving": "Approving...",
     "reject": "Reject",
@@ -506,9 +518,12 @@
     "created": "Created",
     "noArtifacts": "No artifacts available",
     "artifactRequired": "Please select an artifact.",
+    "deleteConfirmTitle": "Delete baseline?",
+    "deleteConfirm": "Really delete this baseline?",
     "overrideLabel": "Override justification (SE-Auditor)",
     "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 10 characters).",
     "overrideSubmit": "Create baseline with override",
+    "overrideNoPermission": "The SE-Auditor reports blocking findings for this workspace. Only an Admin or Approver can create the baseline anyway — ask someone with that role, or resolve the reported findings.",
     "compare": "Compare",
     "compareTitle": "Compare baselines",
     "compareRun": "Compare"
@@ -552,7 +567,7 @@
   },
   "adr": {
     "titlePlaceholder": "ADR title",
-    "newTitlePlaceholder": "e.g. As a user, I need...",
+    "newTitlePlaceholder": "e.g. Use PostgreSQL as the primary datastore",
     "contextPlaceholder": "What is the context / problem?",
     "decisionPlaceholder": "What is the decision and its consequences?",
     "context": "Context",
@@ -570,6 +585,8 @@
     "deriveStarted": "Task started: {{taskId}}. Waiting for completion...",
     "deriveSuccess": "System requirements derived successfully!",
     "deriveFailed": "Derivation failed.",
+    "deriveRolledBack": "{{message}} The already-created requirement was rolled back (archived).",
+    "derivePartialFailure": "{{message}} Warning: a requirement was already created, but linking it to the need failed and the automatic rollback failed too. Please check manually (requirement id: {{id}}).",
     "deriveEmpty": "The AI proposed no system requirements.",
     "deriveCreated": "Created and linked {{count}} system requirement(s).",
     "deriveArchOptional": "Assign architecture element (optional)",
@@ -590,6 +607,8 @@
     "rationale": "Rationale",
     "accept": "Create selected",
     "accepting": "Creating...",
+    "acceptingProgress": "Creating {{done}}/{{total}}...",
+    "partialFailure": "{{created}} of {{total}} requirements were created, then: {{message}}",
     "discard": "Discard"
   },
   "adrs": {
@@ -607,7 +626,15 @@
     "summary_other": "{{count}} ADRs",
     "emptyTitle": "No ADRs yet",
     "emptyDescription": "Architecture decision records capture why the system is built the way it is.",
-    "untitled": "Untitled"
+    "untitled": "Untitled",
+    "supersedeAction": "Supersede with...",
+    "supersedeNoCandidates": "No other ADRs exist in this workspace.",
+    "supersedeTargetLabel": "Superseded by",
+    "supersedeTargetPlaceholder": "Select an ADR...",
+    "supersedeReasonLabel": "Reason",
+    "supersedeConfirm": "Confirm supersede",
+    "supersedeFailed": "Supersede failed. Please try again.",
+    "supersededBy": "Superseded by: {{title}}"
   },
   "risks": {
     "selectRisk": "Select a risk from the list to view details.",
@@ -618,6 +645,13 @@
     "severity": "Severity",
     "probability": "Probability",
     "impact": "Impact",
+    "detection": "Detection (1-10)",
+    "matrixTitle": "Risk Matrix (Probability × Impact)",
+    "score": "Score",
+    "computedScores": "Computed Scores",
+    "riskScoreLabel": "Risk Score",
+    "rpnLabel": "RPN (FMEA)",
+    "rpnHint": "Risk Score = Probability × Impact. RPN = Probability × Impact × Detection. Recalculated on save.",
     "category": "Category",
     "owner": "Owner",
     "mitigationStrategy": "Mitigation Strategy",
@@ -636,7 +670,9 @@
     "cycleDetected": "Already on this path (cycle)",
     "maxDepthReached": "Maximum depth reached",
     "load": "Load Artifact",
-    "searchPlaceholder": "Search starting artifact (name or ID)…",
+    "searchLabel": "Search starting artifact",
+    "searchPlaceholder": "Name or ID…",
+    "searchNoResults": "0 results for \"{{query}}\".",
     "noLinks": "No further links.",
     "onlyActive": "Active links only"
   },
@@ -679,6 +715,9 @@
       "optional": "optional",
       "workflow": "Workflow"
     },
+    "presetDowngradeConfirmTitle": "Downgrade preset?",
+    "presetDowngradeConfirmMessage": "Switching to \"{{preset}}\" disables features of the current preset (e.g. baselines, mandatory change reason, or the approval workflow). This can be reverted later, but any data that depended on the disabled features stays as-is.",
+    "presetDowngradeConfirm": "Downgrade",
     "terminologyProfile": "Terminology Profile",
     "language": "Language",
     "theme": "Theme",
@@ -749,6 +788,10 @@
     "closeConfirm": "Are you sure you want to close this workspace? Data will be preserved but you can't edit it.",
     "deleteConfirmTitle": "Delete Workspace",
     "deleteConfirmButton": "Permanently Delete",
+    "workflowReset": "Reset workflow",
+    "workflowResetConfirm": "Reset this workflow to the current global default? Workspace-specific changes will be discarded.",
+    "permissionReset": "Reset permission matrix",
+    "permissionResetConfirm": "Reset this workspace's permission matrix to the current global default?",
     "promptTemplates": {
       "title": "AI Prompt Templates",
       "description": "Customise the prompts used for AI-assisted derivation. Available placeholders: {n} (number of drafts requested), {need_title} and {need_description} (stakeholder need), {req_title} and {req_description} (requirement), and {arch_elements_json} (candidate architecture elements). Unknown or omitted placeholders are left as-is, so existing templates keep working.",
@@ -920,6 +963,12 @@
     "testCaseOptionsLoading": "Loading test cases...",
     "testCaseOptionsLoadFailed": "Test cases could not be loaded.",
     "noTestCases": "No test cases available in this workspace",
+    "testCaseSearchPlaceholder": "Filter test cases...",
+    "testCaseSearchNoResults": "No matching test cases.",
+    "selectAllTestCases": "Select all",
+    "selectedCount": "{{count}} selected",
+    "closeConfirmIrreversible": "Close this test run? This cannot be undone — a closed test run can no longer be edited or reopened.",
+    "closedTerminalHint": "This test run is closed and cannot be reopened or edited.",
     "resultEntry": {
       "bulkStatusLabel": "Status for selection",
       "applyToSelected": "Apply to selection",
@@ -973,7 +1022,35 @@
     "reqifSkipped": "skipped",
     "reqifWarnings": "Warnings",
     "reqifMoreErrors": "… and {{count}} more errors",
-    "reqifMoreWarnings": "… and {{count}} more warnings"
+    "reqifMoreWarnings": "… and {{count}} more warnings",
+    "dropZoneLabel": "Select a CSV file or drop it here",
+    "reqifDropZoneLabel": "Select a ReqIF file",
+    "previewTitle": "Preview",
+    "previewSummary": "Data rows: {{rows}} · Columns: {{columns}} · Preview: {{shown}}",
+    "previewTableCaption": "First rows of the selected CSV file",
+    "previewRowColumn": "Row",
+    "previewUnparsable": "The file could not be read as CSV.",
+    "previewUnknownColumns": "Unrecognized columns, their data will NOT be imported: {{columns}}",
+    "previewDuplicateColumns": "Duplicate columns (only the last one is used): {{columns}}",
+    "previewMissingTitleColumn": "The required column “title” is missing — the import will be rejected entirely.",
+    "previewEmptyTitleRows_one": "{{count}} row without a “title” (row {{rows}}) — the import will be rejected entirely.",
+    "previewEmptyTitleRows_other": "{{count}} rows without a “title” (e.g. row {{rows}}) — the import will be rejected entirely.",
+    "previewRowLimit": "More than {{max}} data rows — the import will be rejected. Split the file.",
+    "partialSuccess": "Imported {{count}} rows — but not all data was taken over.",
+    "statusLabel": "Status",
+    "failedValidation": "Import rejected — the file contains errors.",
+    "failedRollback": "Import aborted — database error, everything was rolled back.",
+    "nothingWritten_one": "Nothing was saved: the import runs in a single transaction, all {{count}} rows were discarded.",
+    "nothingWritten_other": "Nothing was saved: the import runs in a single transaction, all {{count}} rows were discarded.",
+    "errorRow": "Row {{row}} — {{field}}: {{message}}",
+    "moreErrors_one": "… show {{count}} more error",
+    "moreErrors_other": "… show {{count}} more errors",
+    "showFewerErrors": "Show fewer",
+    "statusValue": {
+      "ok": "OK",
+      "validation_error": "Validation error",
+      "rollback": "Rolled back"
+    }
   },
   "icds": {
     "title": "Interface Control Documents",
@@ -1030,6 +1107,7 @@
     "create": "New Diagram",
     "edit": "Edit Source",
     "delete": "Delete",
+    "deleteConfirmTitle": "Delete diagram?",
     "deleteConfirm": "Really delete this diagram?",
     "deleteFailed": "Failed to delete diagram.",
     "type": "Type",
@@ -1089,7 +1167,8 @@
       "emptyHintReadOnly": "Enable edit mode to add nodes.",
       "newNodeLabel": "New Node",
       "nodeAriaLabel": "Node {{label}} ({{type}})",
-      "nodeLinkedAriaLabel": "Linked to {{entityType}}"
+      "nodeLinkedAriaLabel": "Linked to {{entityType}}",
+      "edgeAriaLabel": "Edge {{label}} ({{type}})"
     },
     "toolbar": {
       "ariaLabel": "Diagram toolbar",
@@ -1216,6 +1295,12 @@
       "neutral": "Info"
     },
     "pageSummary": "SE process metrics: traceability coverage, volatility, workflow gaps and risks at a glance.",
+    "notComputed": "Not calculated",
+    "thresholdLowerBad": "Warning < {{warning}}{{unit}} · Critical < {{critical}}{{unit}}",
+    "thresholdHigherBad": "Warning ≥ {{warning}}{{unit}} · Critical ≥ {{critical}}{{unit}}",
+    "showHelp": "Show help",
+    "hideHelp": "Hide help",
+    "trendLabel": "{{metric}} trend",
     "help": {
       "coverage": "Percentage of requirements with at least one trace link to test cases or architecture elements.",
       "volatility": "Average number of changes per requirement over the project lifetime. Higher values indicate unstable requirements.",
@@ -1252,6 +1337,9 @@
   },
   "users": {
     "newUser": "New User"
+  },
+  "splitView": {
+    "resizeDivider": "Resize panels"
   },
   "sidebar": {
     "inspector": {
@@ -1352,6 +1440,8 @@
     "adopt": "Adopt",
     "adopting": "Adopting...",
     "adoptSuccess": "Resolved — the correction was applied.",
+    "adoptConfirmTitle": "Apply correction?",
+    "adoptConfirmMessage": "This applies the automatic correction for {{ruleId}} right away. There is no undo.",
     "modify": "Modify",
     "modifyReasonPrefix": "Not auto-fixable",
     "modifyHint": "Open the affected artifact to correct it manually.",
@@ -1376,7 +1466,10 @@
     "committing": "Committing...",
     "discard": "Discard",
     "committed": "Committed: {{elements}} elements, {{requirements}} requirements, {{links}} links.",
-    "verified": "Auditor passed"
+    "verified": "Auditor passed",
+    "discardDraftTitle": "Discard draft?",
+    "discardDraftMessage": "The generated AI draft has not been committed yet. Closing now discards it permanently.",
+    "discardDraftConfirm": "Discard draft"
   },
   "bundleExport": {
     "trigger": "Export Requirement Bundle",
@@ -1581,7 +1674,9 @@
     "mainGoalNoneHint": "The main goal summarises the approved goals of this workspace. Generate it with AI or write it yourself.",
     "mainGoalDraft": "Draft",
     "generate": "Generate main goal with AI",
+    "generating": "Generating...",
     "generateDisabledHint": "AI generation is disabled for this workspace.",
+    "mockFallback": "Note: deterministic mock output (no real LLM provider configured).",
     "manualOpen": "Write main goal yourself",
     "manualCancel": "Cancel input",
     "manualPlaceholder": "Main goal",
@@ -1599,6 +1694,8 @@
     "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal.",
     "editHint": "Editing creates a new version of the same goal. The previous version stays in the history.",
     "archiveConfirm": "\"{{title}}\" will be archived and disappear from the list. The version stays in the history.",
+    "archiveReasonLabel": "Reason (required)",
+    "archiveReasonPlaceholder": "Why is this artifact being archived?",
     "transition": {
       "Freigegeben": "Approve",
       "Entwurf": "Back to draft",
@@ -1798,6 +1895,8 @@
     "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types."
   },
   "permissions": {
+    "revoke": "Revoke",
+    "revokeConfirm": "Revoke this permission rule?",
     "members": {
       "title": "Workspace Members",
       "empty": "No workspace members.",
@@ -1861,11 +1960,20 @@
     "multiEntry": "I'm not sure yet what I need",
     "multi": {
       "chatPlaceholder": "Describe your problem...",
+      "transcriptLabel": "Chat transcript",
       "send": "Send",
       "proposalHeading": "Proposed artifacts",
       "confirm": "Create these artifacts",
       "resultHeading": "Created artifacts",
       "createdBadge": "Created via interview"
+    }
+  },
+  "workspaceSettings": {
+    "defaultStatus": {
+      "noSource": "No Global Source",
+      "customized": "Customized",
+      "onDefault": "On Default",
+      "resetToDefault": "Reset to Default"
     }
   }
 }

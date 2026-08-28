@@ -43,6 +43,20 @@ export interface DecompositionDraft {
   nodes: DraftNode[];
 }
 
+/**
+ * UI-40: one SE-Auditor/invariant (I1-I5) finding, as carried by
+ * `DecompositionAuditError.findings` on a 422 commit rollback — mirrors
+ * `traceability.audit.types.Finding.to_dict()`.
+ */
+export interface DecomposeFinding {
+  rule_id: string;
+  severity: string;
+  message: string;
+  artifact_ids: string[];
+  scope: string | null;
+  scope_artifact_id: string | null;
+}
+
 export interface CommitResult {
   committed: boolean;
   root_element_id: string;

@@ -10,6 +10,9 @@
  * always visible text (never color-only) for accessibility.
  */
 
+import { useTranslation } from "react-i18next";
+
+import { Spinner } from "../shared/Spinner/Spinner";
 import { StatusBadge } from "../shared/StatusBadge";
 
 interface DefaultStatusBadgeProps {
@@ -22,11 +25,13 @@ export function DefaultStatusBadge({
   isCustomized,
   hasSource,
 }: DefaultStatusBadgeProps): JSX.Element {
+  const { t } = useTranslation();
+
   if (!hasSource) {
     return (
       <StatusBadge
         status="no-source"
-        label="No Global Source"
+        label={t("workspaceSettings.defaultStatus.noSource")}
         badgeVariant="neutral"
         testId="default-status-badge"
       />
@@ -36,7 +41,7 @@ export function DefaultStatusBadge({
     return (
       <StatusBadge
         status="customized"
-        label="Customized"
+        label={t("workspaceSettings.defaultStatus.customized")}
         badgeVariant="warning"
         testId="default-status-badge"
       />
@@ -45,7 +50,7 @@ export function DefaultStatusBadge({
   return (
     <StatusBadge
       status="on-default"
-      label="On Default"
+      label={t("workspaceSettings.defaultStatus.onDefault")}
       badgeVariant="success"
       testId="default-status-badge"
     />
@@ -71,6 +76,7 @@ export function ResetToDefaultButton({
   title,
   testId = "reset-to-default-btn",
 }: ResetToDefaultButtonProps): JSX.Element {
+  const { t } = useTranslation();
   const isDisabled = disabled || busy;
   return (
     <button
@@ -91,7 +97,11 @@ export function ResetToDefaultButton({
         opacity: isDisabled ? 0.5 : 1,
       }}
     >
-      {busy ? "…" : "Reset to Default"}
+      {busy ? (
+        <Spinner label={t("actions.saving")} />
+      ) : (
+        t("workspaceSettings.defaultStatus.resetToDefault")
+      )}
     </button>
   );
 }

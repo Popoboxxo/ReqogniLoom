@@ -175,14 +175,22 @@ export function SystemHealthDialog({
     };
   }, [isOpen]);
 
-  // Prevent background scroll while the dialog is open (same as CreateWorkspaceModal).
+  // UI-41 (systemaudit 2026-08-27): this used to *also* set/reset
+  // `body.style.overflow` itself, duplicating the shared `<Dialog>`'s own
+  // scroll-lock below. `<Dialog>` correctly saves and restores whatever
+  // overflow value was present before it mounted (so it never clobbers a
+  // lock some other, already-open view had set) — but effect cleanups run
+  // parent-after-child on unmount, so this component's unconditional
+  // `overflow = ""` cleanup ran *after* Dialog's cleanup and blindly
+  // overwrote whatever Dialog had correctly restored. Only the scrollbar-
+  // width compensation is genuinely this component's own concern (Dialog's
+  // lock does not compensate for the disappearing scrollbar); the
+  // hide/restore of `overflow` itself is entirely `<Dialog>`'s job now.
   useEffect(() => {
     if (!isOpen) return;
     const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-    document.body.style.overflow = "hidden";
     document.body.style.paddingRight = `${scrollbarWidth}px`;
     return () => {
-      document.body.style.overflow = "";
       document.body.style.paddingRight = "";
     };
   }, [isOpen]);

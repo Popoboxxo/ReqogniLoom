@@ -205,6 +205,7 @@ export default function IssueEditors(): JSX.Element {
             <>
               <button
                 type="button"
+                data-testid="issue-create-cancel-btn"
                 className="btn-secondary"
                 onClick={closeCreateDialog}
                 disabled={isCreating}

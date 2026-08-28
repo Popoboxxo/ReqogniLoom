@@ -7,11 +7,22 @@
  *          REQ-L2-RF-016 (Frontend CSV import UI)
  *
  * Features:
- *   - File picker / drop zone for CSV upload
+ *   - File picker / drop zone for CSV upload (pointer and keyboard operable)
  *   - Entity-type selector (Requirement / ArchitectureElement / TestCase)
+ *   - Pre-flight row preview with column recognition (UI-30)
  *   - Progress indicator during upload
- *   - Result display (success count, per-row errors)
+ *   - Result display: imported / partially-imported / rejected, with the full
+ *     per-row error report (UI-30)
  *   - i18n support (de/en)
+ *
+ * UI-30 outcome model — why there is no row-level "partial success":
+ * `ImportService.import_csv` writes every row inside a single
+ * `transaction.atomic()` (REQ-L3-IMP-002), so a file either lands completely
+ * or not at all; `imported_count > 0` together with `errors` is unreachable by
+ * construction. The state the audit was after does exist though, one level up:
+ * an import can succeed *and* have silently dropped an unrecognised column
+ * (`warnings`, fix #120). That is the "partial" outcome rendered below, and it
+ * is deliberately not painted green.
  */
 
 import { useState, useCallback, useRef } from "react";
@@ -25,7 +36,16 @@ import {
 } from "../../api/import";
 import { exportApi, type ExportEntityType } from "../../api/export";
 import { PageHeader } from "../shared/PageHeader";
+import { Spinner } from "../shared/Spinner/Spinner";
 import { ENTITY_TYPE_I18N_KEYS } from "../../constants/entityTypeLabels";
+import {
+  buildCsvPreview,
+  previewHasBlockingIssue,
+  readTextFile,
+  MAX_CSV_ROWS,
+  PREVIEW_ROW_LIMIT,
+  type CsvPreview,
+} from "./csvPreview";
 import styles from "./CsvImport.module.css";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +66,27 @@ const EXPORT_ENTITY_TYPES: ExportEntityType[] = [
   "ArchitectureElement",
 ];
 
+/**
+ * Error rows shown before the "show all" toggle. The list used to be sliced to
+ * this many entries with no way back — a 400-row file reported 10 problems and
+ * hid the rest (UI-30).
+ */
+const ERROR_PREVIEW_LIMIT = 10;
+
+/**
+ * Semantic outcome of a finished import, derived from the backend result.
+ *
+ * `partial` is *not* "some rows failed" (impossible, see the module docstring)
+ * but "all rows landed, yet the file carried columns the backend does not know
+ * and threw their data away".
+ */
+type ImportOutcome = "imported" | "partial" | "rejected";
+
+function outcomeOf(result: ImportResult): ImportOutcome {
+  if (!result.success) return "rejected";
+  return result.warnings.length > 0 ? "partial" : "imported";
+}
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -63,6 +104,8 @@ export function CsvImport(): JSX.Element {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [preview, setPreview] = useState<CsvPreview | null>(null);
+  const [showAllErrors, setShowAllErrors] = useState(false);
 
   const [exportEntityType, setExportEntityType] = useState<ExportEntityType>("Requirement");
   const [isExporting, setIsExporting] = useState(false);
@@ -79,14 +122,37 @@ export function CsvImport(): JSX.Element {
   const [reqifImportResult, setReqifImportResult] = useState<ReqifImportResult | null>(null);
   const [reqifImportError, setReqifImportError] = useState<string | null>(null);
 
-  const handleFileSelect = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>): void => {
-      const file = event.target.files?.[0] ?? null;
+  /**
+   * Accepts a picked/dropped file and builds the pre-flight preview.
+   *
+   * The preview is best-effort: if the file cannot be read the import stays
+   * available and the backend keeps the final word.
+   */
+  const acceptFile = useCallback(
+    async (file: File | null): Promise<void> => {
       setSelectedFile(file);
       setResult(null);
       setError(null);
+      setShowAllErrors(false);
+
+      if (!file) {
+        setPreview(null);
+        return;
+      }
+      try {
+        setPreview(buildCsvPreview(await readTextFile(file), entityType));
+      } catch {
+        setPreview(null);
+      }
     },
-    []
+    [entityType]
+  );
+
+  const handleFileSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      void acceptFile(event.target.files?.[0] ?? null);
+    },
+    [acceptFile]
   );
 
   const handleDrop = useCallback(
@@ -95,10 +161,22 @@ export function CsvImport(): JSX.Element {
       setIsDragOver(false);
       const file = event.dataTransfer.files?.[0] ?? null;
       if (file && file.name.toLowerCase().endsWith(".csv")) {
-        setSelectedFile(file);
-        setResult(null);
-        setError(null);
+        void acceptFile(file);
       }
+    },
+    [acceptFile]
+  );
+
+  /**
+   * Enter/Space on the drop zone opens the file dialog. The zone is a plain
+   * `<div>`: a native button element cannot host the file input without
+   * swallowing its click, so `role`/`tabIndex`/key handling are explicit.
+   */
+  const handleDropZoneKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      (event.currentTarget.querySelector("input[type=file]") as HTMLInputElement | null)?.click();
     },
     []
   );
@@ -119,12 +197,31 @@ export function CsvImport(): JSX.Element {
     []
   );
 
+  /**
+   * Switching the entity type re-runs the column check: the same header is
+   * valid for one type and unknown for another, so a stale preview would
+   * assert the wrong verdict.
+   */
+  const handleEntityTypeChange = useCallback(
+    (type: EntityType): void => {
+      setEntityType(type);
+      setResult(null);
+      setShowAllErrors(false);
+      if (!selectedFile) return;
+      void readTextFile(selectedFile)
+        .then((text) => setPreview(buildCsvPreview(text, type)))
+        .catch(() => setPreview(null));
+    },
+    [selectedFile]
+  );
+
   const handleUpload = useCallback(async (): Promise<void> => {
     if (!selectedFile || !activeWorkspace) return;
 
     setIsUploading(true);
     setError(null);
     setResult(null);
+    setShowAllErrors(false);
 
     try {
       const importResult = await importApi.importCsv(
@@ -181,6 +278,8 @@ export function CsvImport(): JSX.Element {
     setSelectedFile(null);
     setResult(null);
     setError(null);
+    setPreview(null);
+    setShowAllErrors(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -257,7 +356,7 @@ export function CsvImport(): JSX.Element {
                 name="entityType"
                 value={type}
                 checked={entityType === type}
-                onChange={() => setEntityType(type)}
+                onChange={() => handleEntityTypeChange(type)}
                 data-testid={`entity-type-${type}`}
               />
               {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
@@ -271,10 +370,14 @@ export function CsvImport(): JSX.Element {
         <h3 className={styles.cardTitle}>{t("import.selectFile", "Select CSV File")}</h3>
         <div
           data-testid="csv-drop-zone"
+          role="button"
+          tabIndex={0}
+          aria-label={t("import.dropZoneLabel")}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => fileInputRef.current?.click()}
+          onKeyDown={handleDropZoneKeyDown}
           className={isDragOver ? styles.dropZoneActive : styles.dropZone}
         >
           <input
@@ -282,6 +385,7 @@ export function CsvImport(): JSX.Element {
             type="file"
             accept=".csv"
             onChange={handleFileSelect}
+            onClick={(event) => event.stopPropagation()}
             data-testid="csv-file-input"
             className={styles.hiddenFileInput}
           />
@@ -298,6 +402,110 @@ export function CsvImport(): JSX.Element {
         </div>
       </section>
 
+      {/* Pre-flight preview (UI-30) — what the backend will see, before the
+          upload costs a round-trip. */}
+      {preview && (
+        <section data-testid="csv-preview" className={styles.card}>
+          <h3 className={styles.cardTitle}>{t("import.previewTitle")}</h3>
+
+          {preview.parseError ? (
+            <p data-testid="csv-preview-parse-error" role="alert" className={styles.failText}>
+              {t("import.previewUnparsable")}
+            </p>
+          ) : (
+            <>
+              <p data-testid="csv-preview-summary" className={styles.fileMeta}>
+                {t("import.previewSummary", {
+                  rows: preview.totalRows,
+                  columns: preview.headers.length,
+                  shown: Math.min(preview.rows.length, PREVIEW_ROW_LIMIT),
+                })}
+              </p>
+
+              {previewHasBlockingIssue(preview) && (
+                <ul data-testid="csv-preview-blocking" role="alert" className={styles.blockingList}>
+                  {preview.missingRequiredColumn && (
+                    <li>{t("import.previewMissingTitleColumn")}</li>
+                  )}
+                  {preview.rowsWithEmptyTitle.length > 0 && (
+                    <li>
+                      {t("import.previewEmptyTitleRows", {
+                        count: preview.rowsWithEmptyTitle.length,
+                        rows: preview.rowsWithEmptyTitle.slice(0, 5).join(", "),
+                      })}
+                    </li>
+                  )}
+                  {preview.exceedsRowLimit && (
+                    <li>{t("import.previewRowLimit", { max: MAX_CSV_ROWS })}</li>
+                  )}
+                </ul>
+              )}
+
+              {preview.unknownColumns.length > 0 && (
+                <p data-testid="csv-preview-unknown-columns" className={styles.warningText}>
+                  {t("import.previewUnknownColumns", {
+                    columns: preview.unknownColumns.join(", "),
+                  })}
+                </p>
+              )}
+
+              {preview.duplicateColumns.length > 0 && (
+                <p data-testid="csv-preview-duplicate-columns" className={styles.warningText}>
+                  {t("import.previewDuplicateColumns", {
+                    columns: preview.duplicateColumns.join(", "),
+                  })}
+                </p>
+              )}
+
+              {preview.rows.length > 0 && (
+                <div className={styles.previewTableWrap}>
+                  <table data-testid="csv-preview-table" className={styles.previewTable}>
+                    <caption className={styles.srOnly}>{t("import.previewTableCaption")}</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" className={styles.previewRowNumHeader}>
+                          {t("import.previewRowColumn")}
+                        </th>
+                        {preview.headers.map((header, idx) => (
+                          <th
+                            key={`${header}-${idx}`}
+                            scope="col"
+                            data-unknown={
+                              preview.unknownColumns.includes(header) ? "true" : undefined
+                            }
+                            className={
+                              preview.unknownColumns.includes(header)
+                                ? styles.previewHeaderUnknown
+                                : styles.previewHeader
+                            }
+                          >
+                            {header}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row) => (
+                        <tr key={row.rowNumber} data-testid="csv-preview-row">
+                          <th scope="row" className={styles.previewRowNum}>
+                            {row.rowNumber}
+                          </th>
+                          {row.cells.map((cell, idx) => (
+                            <td key={idx} className={styles.previewCell}>
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       {/* Upload button */}
       <div className={styles.actionsRow}>
         <button
@@ -307,9 +515,11 @@ export function CsvImport(): JSX.Element {
           disabled={!selectedFile || isUploading}
           className={styles.primaryBtn}
         >
-          {isUploading
-            ? t("import.uploading", "Importing...")
-            : t("import.upload", "Import")}
+          {isUploading ? (
+            <Spinner label={t("import.uploading")} />
+          ) : (
+            t("import.upload")
+          )}
         </button>
         {(result || error) && (
           <button
@@ -337,39 +547,96 @@ export function CsvImport(): JSX.Element {
         </div>
       )}
 
-      {/* Result display */}
+      {/* Result display — three outcomes, see `outcomeOf` / module docstring. */}
       {result && (
         <div
           data-testid="csv-import-result"
-          className={result.success ? styles.resultBoxSuccess : styles.resultBoxError}
+          data-outcome={outcomeOf(result)}
+          className={
+            outcomeOf(result) === "imported"
+              ? styles.resultBoxSuccess
+              : outcomeOf(result) === "partial"
+              ? styles.resultBoxWarning
+              : styles.resultBoxError
+          }
         >
           {result.success ? (
             <div>
-              <p data-testid="csv-import-success" className={styles.successText}>
-                {t("import.success", "Successfully imported {{count}} rows", {
-                  count: result.imported_count,
-                })}
+              <p
+                data-testid="csv-import-success"
+                className={
+                  outcomeOf(result) === "partial" ? styles.warningText : styles.successText
+                }
+              >
+                {outcomeOf(result) === "partial"
+                  ? t("import.partialSuccess", { count: result.imported_count })
+                  : t("import.success", { count: result.imported_count })}
               </p>
-              <p className={styles.fileMeta}>Status: {result.status}</p>
+              <p className={styles.fileMeta}>
+                {t("import.statusLabel")}: {t(`import.statusValue.${result.status}`)}
+              </p>
             </div>
           ) : (
             <div>
-              <p className={styles.failText}>{t("import.failed", "Import failed")}</p>
+              <p data-testid="csv-import-failed" className={styles.failText}>
+                {result.status === "rollback"
+                  ? t("import.failedRollback")
+                  : t("import.failedValidation")}
+              </p>
+              {/* REQ-L3-IMP-002: the import is one transaction, so a rejected
+                  file changed nothing at all. Saying so explicitly is the
+                  difference between "retry after fixing" and "check what
+                  landed". */}
+              <p data-testid="csv-import-atomicity-note" className={styles.fileMeta}>
+                {t("import.nothingWritten", { count: result.skipped_count })}
+              </p>
+
               {result.errors.length > 0 && (
-                <ul className={styles.errorList}>
-                  {result.errors.slice(0, 10).map((err, idx) => (
-                    <li key={idx} className={styles.errorListItem}>
-                      Row {err.row_number}: {err.field} — {err.message}
-                    </li>
-                  ))}
-                  {result.errors.length > 10 && (
-                    <li className={styles.errorListMore}>
-                      ... and {result.errors.length - 10} more errors
-                    </li>
+                <>
+                  <ul data-testid="csv-import-error-list" className={styles.errorList}>
+                    {(showAllErrors
+                      ? result.errors
+                      : result.errors.slice(0, ERROR_PREVIEW_LIMIT)
+                    ).map((err, idx) => (
+                      <li key={idx} className={styles.errorListItem}>
+                        {t("import.errorRow", {
+                          row: err.row_number,
+                          field: err.field,
+                          message: err.message,
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                  {result.errors.length > ERROR_PREVIEW_LIMIT && (
+                    <button
+                      type="button"
+                      data-testid="csv-import-toggle-errors"
+                      onClick={() => setShowAllErrors((shown) => !shown)}
+                      className={styles.linkBtn}
+                      aria-expanded={showAllErrors}
+                    >
+                      {showAllErrors
+                        ? t("import.showFewerErrors")
+                        : t("import.moreErrors", {
+                            count: result.errors.length - ERROR_PREVIEW_LIMIT,
+                          })}
+                    </button>
                   )}
-                </ul>
+                </>
               )}
             </div>
+          )}
+
+          {/* Dropped-column notice — the one signal a green "imported N rows"
+              box would otherwise swallow (fix #120). */}
+          {result.warnings.length > 0 && (
+            <ul data-testid="csv-import-warnings" className={styles.warningList}>
+              {result.warnings.map((warning, idx) => (
+                <li key={idx} className={styles.warningListItem}>
+                  {warning}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
@@ -381,7 +648,11 @@ export function CsvImport(): JSX.Element {
         <h3 className={styles.cardTitle}>{t("import.reqifSelectFile")}</h3>
         <div
           data-testid="reqif-file-picker"
+          role="button"
+          tabIndex={0}
+          aria-label={t("import.reqifDropZoneLabel")}
           onClick={() => reqifFileInputRef.current?.click()}
+          onKeyDown={handleDropZoneKeyDown}
           className={styles.filePicker}
         >
           <input
@@ -389,6 +660,7 @@ export function CsvImport(): JSX.Element {
             type="file"
             accept=".reqif,.xml"
             onChange={handleReqifFileSelect}
+            onClick={(event) => event.stopPropagation()}
             data-testid="reqif-file-input"
             className={styles.hiddenFileInput}
           />
@@ -422,11 +694,13 @@ export function CsvImport(): JSX.Element {
             disabled={!selectedReqifFile || isImportingReqif}
             className={styles.primaryBtn}
           >
-            {isImportingReqif
-              ? t("import.uploading", "Importing...")
-              : reqifDryRun
-              ? t("import.reqifPreview")
-              : t("import.reqifUpload")}
+            {isImportingReqif ? (
+              <Spinner label={t("import.uploading")} />
+            ) : reqifDryRun ? (
+              t("import.reqifPreview")
+            ) : (
+              t("import.reqifUpload")
+            )}
           </button>
           {(reqifImportResult || reqifImportError) && (
             <button
@@ -540,9 +814,11 @@ export function CsvImport(): JSX.Element {
             disabled={isExporting}
             className={styles.primaryBtn}
           >
-            {isExporting
-              ? t("export.downloading", "Exporting...")
-              : t("export.download", "Export CSV")}
+            {isExporting ? (
+              <Spinner label={t("export.downloading")} />
+            ) : (
+              t("export.download")
+            )}
           </button>
 
           {/* REQ-146: ReqIF 1.2 export — whole-workspace (Needs + Requirements
@@ -558,9 +834,11 @@ export function CsvImport(): JSX.Element {
             )}
             className={styles.secondaryBtn}
           >
-            {isExportingReqif
-              ? t("export.downloading", "Exporting...")
-              : t("export.downloadReqif", "Export ReqIF")}
+            {isExportingReqif ? (
+              <Spinner label={t("export.downloading")} />
+            ) : (
+              t("export.downloadReqif")
+            )}
           </button>
         </div>
 

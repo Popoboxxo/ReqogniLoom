@@ -16,6 +16,7 @@ import {
   memorySelfServiceApi,
   type MemorySelfServiceOverview,
 } from "../../api/memory-self-service";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./MemorySection.module.css";
 
 function extractErrorMessage(err: unknown): string {
@@ -43,6 +44,8 @@ export function MemorySection(): JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     setIsLoading(true);
@@ -62,16 +65,6 @@ export function MemorySection(): JSX.Element {
   }, [load]);
 
   const handleDelete = useCallback(async (): Promise<void> => {
-    if (
-      !window.confirm(
-        t(
-          "memorySelfService.deleteConfirm",
-          "Delete ALL of your own memory entries? This removes everything the AI has remembered about you and cannot be undone."
-        )
-      )
-    ) {
-      return;
-    }
     setIsDeleting(true);
     setError(null);
     try {
@@ -82,7 +75,7 @@ export function MemorySection(): JSX.Element {
     } finally {
       setIsDeleting(false);
     }
-  }, [t]);
+  }, []);
 
   return (
     <section className={styles.section} data-testid="memory-self-service-section">
@@ -131,7 +124,7 @@ export function MemorySection(): JSX.Element {
             <button
               type="button"
               data-testid="memory-self-service-delete-btn"
-              onClick={() => void handleDelete()}
+              onClick={() => setShowDeleteConfirm(true)}
               disabled={overview.entry_count === 0 || isDeleting}
               className={styles.deleteBtn}
             >
@@ -139,6 +132,23 @@ export function MemorySection(): JSX.Element {
             </button>
           </div>
         </div>
+      )}
+
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title={t("memorySelfService.deleteButton", "Mein Memory löschen")}
+          message={t(
+            "memorySelfService.deleteConfirm",
+            "Delete ALL of your own memory entries? This removes everything the AI has remembered about you and cannot be undone."
+          )}
+          confirmLabel={t("memorySelfService.deleteButton", "Mein Memory löschen")}
+          onConfirm={() => {
+            setShowDeleteConfirm(false);
+            void handleDelete();
+          }}
+          onCancel={() => setShowDeleteConfirm(false)}
+          testId="memory-self-service-delete-confirm"
+        />
       )}
     </section>
   );

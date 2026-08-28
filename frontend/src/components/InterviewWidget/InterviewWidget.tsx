@@ -113,11 +113,13 @@ export function InterviewWidget(): JSX.Element {
         className={styles.toggle}
         onClick={toggle}
         aria-label="Interview assistant"
+        aria-expanded={open}
+        aria-controls="interview-widget-panel"
       >
         {"\u{1F4AC}"}
       </button>
       {open && (
-        <div data-testid="interview-widget-panel" className={styles.panel}>
+        <div id="interview-widget-panel" data-testid="interview-widget-panel" className={styles.panel}>
           {session ? (
             <>
               {/* session_kind is stamped from local start-time state (see

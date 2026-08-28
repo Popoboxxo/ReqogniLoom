@@ -9,6 +9,7 @@
  */
 
 import { useState, type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -51,6 +52,7 @@ export function GraphEdge({
   data,
   selected,
 }: EdgeProps<GraphFlowEdge>): JSX.Element {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -100,10 +102,30 @@ export function GraphEdge({
             className={`${styles.edgeLabel} ${selected ? styles.edgeLabelSelected : ""}`}
             style={labelTransform}
             role="button"
-            tabIndex={-1}
+            // UI-27 (systemaudit 2026-08-27): this was tabIndex={-1} with
+            // no aria-label and no onKeyDown at all — a role="button" a
+            // screen reader would announce as interactive but that did
+            // nothing on activation (worse than merely unreachable) and a
+            // keyboard user could never reach in the first place. Modelled
+            // on TransitionEdge.tsx (see its comment): React Flow's own
+            // edge wrapper here is already tabIndex=0 and its built-in
+            // Enter/Space only toggles internal selection, it does not call
+            // the app-level `onEdgeClick` (GraphCanvas.tsx) that this label's
+            // dispatched click relies on via React's portal event bubbling.
+            tabIndex={0}
+            aria-label={t("diagramGraph.canvas.edgeAriaLabel", {
+              label: edge.label || edgeType,
+              type: edgeType,
+            })}
             data-testid={`graph-edge-${edge.id}`}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.currentTarget.click();
+              }
+            }}
           >
             <span className={styles.edgeLabelText}>{edge.label || edgeType}</span>
           </div>

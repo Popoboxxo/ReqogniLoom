@@ -14,6 +14,7 @@
  * refreshes).
  */
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -46,6 +47,13 @@ interface MetricTileSpec {
   direction: "higher-bad" | "lower-bad" | "info";
   /** thresholds for warning / critical classification */
   thresholds: { warning: number; critical: number };
+  /**
+   * UI-35: returns true when the metric has no meaningful basis to compute
+   * from (e.g. zero requirements to cover, zero requirements to average
+   * volatility over) — the tile should show a "not calculated" empty state
+   * instead of a misleading 0/0-derived value with a healthy-looking color.
+   */
+  notComputed?: (m: MetricsResult) => boolean;
 }
 
 const TILES: MetricTileSpec[] = [
@@ -57,6 +65,7 @@ const TILES: MetricTileSpec[] = [
     value: (m) => m.traceability_coverage.coverage_percent,
     direction: "lower-bad",
     thresholds: { warning: 80, critical: 50 },
+    notComputed: (m) => m.traceability_coverage.total === 0,
   },
   {
     name: "volatility",
@@ -66,6 +75,7 @@ const TILES: MetricTileSpec[] = [
     value: (m) => m.volatility.avg_changes_per_req,
     direction: "higher-bad",
     thresholds: { warning: 2, critical: 5 },
+    notComputed: (m) => m.volatility.total_requirements === 0,
   },
   {
     name: "workflowGap",
@@ -147,6 +157,36 @@ const STATUS_COLORS: Record<Status, { fg: string; bg: string; labelKey: string }
 };
 
 // ---------------------------------------------------------------------------
+// UI-35: static per-element style objects, named instead of inline JSX style
+// object literals (see ui-ratchet.test.ts's style-brace ceiling).
+// ---------------------------------------------------------------------------
+
+const notComputedValueStyle: CSSProperties = {
+  fontSize: "var(--font-size-lg, 1.125rem)",
+  fontWeight: 500,
+  fontStyle: "italic",
+  color: "var(--color-text-muted)",
+};
+
+const currentValueStyle: CSSProperties = {
+  fontSize: "var(--font-size-2xl, 1.5rem)",
+  fontWeight: 700,
+  color: "var(--color-text)",
+  fontVariantNumeric: "tabular-nums",
+};
+
+const unitStyle: CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  fontWeight: 500,
+};
+
+const thresholdTextStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+};
+
+// ---------------------------------------------------------------------------
 // Sparkline — inline SVG path (no external library)
 // ---------------------------------------------------------------------------
 
@@ -155,6 +195,10 @@ interface SparklineProps {
   color: string;
   width?: number;
   height?: number;
+  /** UI-35: unique data-testid — 5 tiles previously shared "metric-sparkline". */
+  testId: string;
+  /** UI-35: unique accessible name — 5 tiles previously shared aria-label="trend". */
+  label: string;
 }
 
 function Sparkline({
@@ -162,6 +206,8 @@ function Sparkline({
   color,
   width = 120,
   height = 32,
+  testId,
+  label,
 }: SparklineProps): JSX.Element {
   // Guard: empty → render a flat baseline so the layout is stable.
   const points = values.length > 0 ? values : [0];
@@ -193,8 +239,8 @@ function Sparkline({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="trend"
-      data-testid="metric-sparkline"
+      aria-label={label}
+      data-testid={testId}
       style={{ display: "block" }}
     >
       <path
@@ -223,13 +269,24 @@ interface MetricTileProps {
   isStale: boolean;
   helpMode?: boolean;
   helpText?: string;
+  /** UI-35: true when the current metric has no basis to compute a value from. */
+  notComputed?: boolean;
 }
 
-function MetricTile({ spec, history, computedAt, isStale, helpMode = false, helpText }: MetricTileProps): JSX.Element {
+function MetricTile({
+  spec,
+  history,
+  computedAt,
+  isStale,
+  helpMode = false,
+  helpText,
+  notComputed = false,
+}: MetricTileProps): JSX.Element {
   const { t } = useTranslation();
   const current = history.length > 0 ? history[history.length - 1] : 0;
-  const status = classify(spec, current);
+  const status = notComputed ? "neutral" : classify(spec, current);
   const palette = STATUS_COLORS[status];
+  const tileTitle = t(spec.titleKey, spec.name);
 
   return (
     <div
@@ -264,7 +321,7 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
             letterSpacing: "0.05em",
           }}
         >
-          {t(spec.titleKey, spec.name)}
+          {tileTitle}
         </span>
         <span
           data-testid={`metric-status-${spec.name}`}
@@ -295,29 +352,48 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
           gap: "var(--space-1)",
         }}
       >
-        <span
-          data-testid={`metric-value-${spec.name}`}
-          style={{
-            fontSize: "var(--font-size-2xl, 1.5rem)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {spec.format(current)}
-        </span>
-        {spec.unit && (
+        {notComputed ? (
           <span
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-              fontWeight: 500,
-            }}
+            data-testid={`metric-value-${spec.name}`}
+            style={notComputedValueStyle}
           >
-            {spec.unit}
+            {t("metrics.notComputed", "Not calculated")}
           </span>
+        ) : (
+          <>
+            <span
+              data-testid={`metric-value-${spec.name}`}
+              style={currentValueStyle}
+            >
+              {spec.format(current)}
+            </span>
+            {spec.unit && (
+              <span style={unitStyle}>
+                {spec.unit}
+              </span>
+            )}
+          </>
         )}
       </div>
+
+      {spec.direction !== "info" && (
+        <span
+          data-testid={`metric-thresholds-${spec.name}`}
+          style={thresholdTextStyle}
+        >
+          {spec.direction === "lower-bad"
+            ? t("metrics.thresholdLowerBad", "Warning < {{warning}}{{unit}} · Critical < {{critical}}{{unit}}", {
+                warning: spec.thresholds.warning,
+                critical: spec.thresholds.critical,
+                unit: spec.unit,
+              })
+            : t("metrics.thresholdHigherBad", "Warning ≥ {{warning}}{{unit}} · Critical ≥ {{critical}}{{unit}}", {
+                warning: spec.thresholds.warning,
+                critical: spec.thresholds.critical,
+                unit: spec.unit,
+              })}
+        </span>
+      )}
 
       {helpMode && helpText && (
         <p
@@ -343,7 +419,12 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
           gap: "var(--space-2)",
         }}
       >
-        <Sparkline values={history} color={palette.fg} />
+        <Sparkline
+          values={history}
+          color={palette.fg}
+          testId={`metric-sparkline-${spec.name}`}
+          label={t("metrics.trendLabel", "{{metric}} trend", { metric: tileTitle })}
+        />
         <span
           style={{
             fontSize: "0.7rem",
@@ -491,7 +572,17 @@ export default function MetricsDashboard(): JSX.Element {
           type="button"
           data-testid="metrics-help-toggle-btn"
           onClick={() => setHelpMode((h) => !h)}
-          title={helpMode ? "Hide help" : "Show help"}
+          title={
+            helpMode
+              ? t("metrics.hideHelp", "Hide help")
+              : t("metrics.showHelp", "Show help")
+          }
+          aria-label={
+            helpMode
+              ? t("metrics.hideHelp", "Hide help")
+              : t("metrics.showHelp", "Show help")
+          }
+          aria-pressed={helpMode}
           style={{
             display: "flex",
             alignItems: "center",
@@ -614,6 +705,7 @@ export default function MetricsDashboard(): JSX.Element {
               isStale={isStale}
               helpMode={helpMode}
               helpText={t(`metrics.help.${spec.name}`, METRIC_HELP[spec.name])}
+              notComputed={metrics ? (spec.notComputed?.(metrics) ?? false) : false}
             />
           ))}
         </div>

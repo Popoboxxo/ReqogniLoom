@@ -381,6 +381,12 @@ export interface MainGoal {
   version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  /**
+   * UI-28 (Systemaudit 2026-08-27 AP-5): only ever `true`/`false` on the
+   * response of `POST /main-goals/generate/` — every other MainGoal
+   * response omits it (not a persisted field, see MainGoalSerializer).
+   */
+  is_mock_fallback?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +412,16 @@ export interface Risk {
   probability: RiskProbability;
   impact: RiskImpact;
   risk_score: number;
+  /**
+   * UI-39 (Systemaudit 2026-08-27 AP-5): FMEA detectability score
+   * (1=easy to detect .. 10=impossible), mirrors RiskSerializer.detection.
+   */
+  detection?: number;
+  /**
+   * UI-39: Risk Priority Number (probability × impact × detection),
+   * read-only computed property (RiskSerializer.rpn).
+   */
+  rpn?: number;
   severity: RiskSeverity;
   category: RiskCategory;
   owner: string;
@@ -955,6 +971,15 @@ export interface GlossaryTerm {
   is_global?: boolean;
   /** REQ-006: lifecycle status; 'deleted' terms are hidden in normal views */
   lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
+  /**
+   * UI-59 (Systemaudit 2026-08-27 AP-5): optimistic-lock version counter —
+   * mirrors GlossaryTermSerializer.version. Was missing here even though the
+   * wire payload always includes it, which forced GlossaryView.tsx to pass
+   * `currentVersion={undefined}` into the (otherwise fully wired) shared
+   * VersionPanel/DiffPanel, hiding the versions/diff UI that REQ-142 already
+   * built for every other artifact kind including "glossary".
+   */
+  version?: number;
   created_at?: string;
   updated_at?: string;
 }

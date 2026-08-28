@@ -15,3 +15,24 @@
   padding: 2px 8px;
   white-space: nowrap;
 }
+
+/* UI-36: real <label> for the search input (was placeholder-as-label) plus
+   its wrapping rows — new markup, so CSS Modules per the header note above. */
+.searchFieldGroup {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  flex-direction: column;
+}
+
+.searchLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.searchRow {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}

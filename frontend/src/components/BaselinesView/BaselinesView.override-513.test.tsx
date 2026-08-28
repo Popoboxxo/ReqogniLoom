@@ -37,6 +37,12 @@ vi.mock("../../api/baselines", async (importOriginal) => {
 });
 vi.mock("../../api/artifacts");
 vi.mock("../../context/WorkspaceContext");
+// UI-21: the waiver panel is now gated on 'admin'/'approver' — these tests
+// exercise the panel itself (offered/submits/withheld-for-non-waivable), not
+// the role gate, so the caller is granted the role throughout.
+vi.mock("../../context/AuthContext", () => ({
+  useAuth: () => ({ roles: ["admin"] }),
+}));
 vi.mock("react-i18next", () => {
   const t = (
     key: string,

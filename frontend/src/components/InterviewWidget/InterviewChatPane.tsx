@@ -129,7 +129,13 @@ export function InterviewChatPane({
 
   return (
     <div className={styles.pane}>
-      <div className={styles.transcript}>
+      <div
+        className={styles.transcript}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label={t("interview.multi.transcriptLabel", "Chat transcript")}
+      >
         {interview.transcript.map((msg, i) => (
           <p
             key={i}
@@ -179,6 +185,7 @@ export function InterviewChatPane({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={t("interview.multi.chatPlaceholder")}
+          aria-label={t("interview.multi.chatPlaceholder")}
           disabled={sending}
         />
         <button

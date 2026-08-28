@@ -70,6 +70,14 @@ const bodyStyle: React.CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
+// UI-28: hoisted named style constant for the mock-fallback hint instead of
+// an inline literal (ui-ratchet.test.ts style-brace ceiling).
+const mockFallbackHintStyle: React.CSSProperties = {
+  margin: "0 0 var(--space-2)",
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+};
+
 export function MainGoalPanel({
   workspaceId,
   aiEnabled,
@@ -81,6 +89,11 @@ export function MainGoalPanel({
   const [manualContent, setManualContent] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // UI-28 (Systemaudit 2026-08-27 AP-5): the Generate button had no busy
+  // state at all, so a double click (or an impatient repeat click while the
+  // LLM call is in flight) fired a second, fully independent
+  // `generate_ai` request — each one persists its own MainGoal draft row.
+  const [generating, setGenerating] = useState(false);
   const [archiveTransition, setArchiveTransition] =
     useState<WorkflowAllowedTransition | null>(null);
   const [archivePending, setArchivePending] = useState<WorkflowAllowedTransition | null>(
@@ -185,11 +198,17 @@ export function MainGoalPanel({
   }, [current]);
 
   const handleGenerate = async (): Promise<void> => {
+    // UI-28: re-entrancy guard — a click while a previous generate call is
+    // still in flight must be a no-op, not a second parallel LLM request.
+    if (generating) return;
     setError(null);
+    setGenerating(true);
     try {
       setDraft(await mainGoalApi.generate(workspaceId));
     } catch (err) {
       setError(extractErrorMessage(err));
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -218,23 +237,25 @@ export function MainGoalPanel({
   };
 
   const handleArchive = useCallback(
-    async (transition: WorkflowAllowedTransition): Promise<void> => {
+    async (transition: WorkflowAllowedTransition, userReason?: string): Promise<void> => {
       const target = current;
       if (!target) return;
       setError(null);
       try {
-        // Issue #221 finding 1 — same computed-string scope boundary as
-        // `GoalsPage.runTransition`: see the comment there for why this
-        // does not (yet) prompt for a real reason.
+        // UI-29 (Systemaudit 2026-08-27 AP-5): `ArchiveConfirmDialog` now
+        // prompts for a real reason (see confirmArchive below) instead of
+        // this computed string — kept only as a defense-in-depth fallback,
+        // mirroring `GoalsPage.runTransition`'s identical change.
         await workflowTransitionsApi.transition(
           "main-goal",
           target.id,
           transition.target_state,
           transition.requires_change_reason
-            ? t("goals.transitionReason", {
-                state: transition.target_state,
-                defaultValue: `Statuswechsel nach ${transition.target_state}.`,
-              })
+            ? userReason?.trim() ||
+                t("goals.transitionReason", {
+                  state: transition.target_state,
+                  defaultValue: `Statuswechsel nach ${transition.target_state}.`,
+                })
             : "",
         );
         // `MainGoalService.get_current()` returns the NEWEST `Freigegeben`
@@ -257,12 +278,15 @@ export function MainGoalPanel({
   // pattern as `GoalsPage.confirmArchive`), so a doubled click on the confirm
   // button cannot fire a second `transitions/` request — the button is gone
   // by the time the first request is even in flight.
-  const confirmArchive = useCallback((): void => {
-    if (!archivePending) return;
-    const transition = archivePending;
-    setArchivePending(null);
-    void handleArchive(transition);
-  }, [archivePending, handleArchive]);
+  const confirmArchive = useCallback(
+    (changeReason: string): void => {
+      if (!archivePending) return;
+      const transition = archivePending;
+      setArchivePending(null);
+      void handleArchive(transition, changeReason);
+    },
+    [archivePending, handleArchive],
+  );
 
   const archiveLabel = archiveTransition
     ? t(`goals.transition.${archiveTransition.target_state}`, {
@@ -360,6 +384,8 @@ export function MainGoalPanel({
           className="btn-secondary"
           data-testid="main-goal-generate-button"
           onClick={() => void handleGenerate()}
+          disabled={generating}
+          aria-busy={generating}
           title={
             aiEnabled
               ? undefined
@@ -369,7 +395,9 @@ export function MainGoalPanel({
                 )
           }
         >
-          {t("goals.generate", "Haupt-Ziel per KI erzeugen")}
+          {generating
+            ? t("goals.generating", "Wird erzeugt...")
+            : t("goals.generate", "Haupt-Ziel per KI erzeugen")}
         </button>
         <button
           type="button"
@@ -480,6 +508,23 @@ export function MainGoalPanel({
             <StatusBadge status={draft.status} testId="main-goal-draft-status" />
             <VersionBadge version={draft.sequence_number} hideWhenFirst />
           </div>
+          {/* UI-28: `MainGoalService.generate_ai()` flags a draft served by
+              the mock-provider degradation path (ADR-02) so it does not look
+              like genuine AI output. Only ever set on the response of the
+              generate call itself (see MainGoalSerializer), so this reads
+              `draft.is_mock_fallback` rather than re-deriving it. */}
+          {draft.is_mock_fallback && (
+            <p
+              data-testid="main-goal-mock-fallback"
+              role="status"
+              style={mockFallbackHintStyle}
+            >
+              {t(
+                "goals.mockFallback",
+                "Hinweis: deterministischer Mock-Output (kein echter LLM-Provider konfiguriert).",
+              )}
+            </p>
+          )}
           <p style={bodyStyle}>{draft.content}</p>
           <button
             type="button"
@@ -498,6 +543,7 @@ export function MainGoalPanel({
           testId="main-goal-archive-dialog"
           itemLabel={t("goals.mainGoal", "Haupt-Ziel")}
           confirmLabel={archiveLabel}
+          requiresChangeReason={archivePending.requires_change_reason}
           onConfirm={confirmArchive}
           onCancel={() => setArchivePending(null)}
         />

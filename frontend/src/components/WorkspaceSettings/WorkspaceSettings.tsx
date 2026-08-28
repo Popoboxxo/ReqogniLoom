@@ -32,6 +32,7 @@ import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
 import { WorkflowPermissionsSection } from "./WorkflowPermissionsSection";
 import { PermissionsSection } from "./PermissionsSection";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { AiPromptsSection } from "./AiPromptsSection";
@@ -43,11 +44,22 @@ import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { PageHeader } from "../shared/PageHeader";
+import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
   standard: { baselines: true,  changeReason: "optional", workflow: "Full (Draft/Approved/Deprecated)" },
   extended: { baselines: true,  changeReason: "required", workflow: "Full + Approval workflow" },
+};
+
+/** Ordinal rank for rigor comparison — a switch to a lower rank is a
+ * downgrade (UI-22: extended→minimal used to fire on the radio's onChange
+ * with no warning that it drops rigor-gated behaviour like baselines and
+ * the approval workflow). */
+const PRESET_RANK: Record<WorkspacePreset, number> = {
+  minimal: 0,
+  standard: 1,
+  extended: 2,
 };
 
 /**
@@ -110,6 +122,10 @@ export default function WorkspaceSettings(): JSX.Element {
 
   const isAdmin = roles.includes("admin");
 
+  // UI-22: a pending downgrade waits here for confirmation instead of
+  // switching the preset straight from the radio's onChange.
+  const [pendingPresetDowngrade, setPendingPresetDowngrade] = useState<WorkspacePreset | null>(null);
+
   const handlePresetChange = useCallback(async (preset: WorkspacePreset): Promise<void> => {
     if (!activeWorkspace || preset === activeWorkspace.preset) return;
     setSaveError(null);
@@ -122,6 +138,23 @@ export default function WorkspaceSettings(): JSX.Element {
       setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
     }
   }, [activeWorkspace, reloadWorkspaces]);
+
+  const requestPresetChange = useCallback((preset: WorkspacePreset): void => {
+    if (!activeWorkspace) return;
+    const isDowngrade = PRESET_RANK[preset] < PRESET_RANK[activeWorkspace.preset as WorkspacePreset];
+    if (isDowngrade) {
+      setPendingPresetDowngrade(preset);
+      return;
+    }
+    void handlePresetChange(preset);
+  }, [activeWorkspace, handlePresetChange]);
+
+  const confirmPresetDowngrade = useCallback((): void => {
+    if (!pendingPresetDowngrade) return;
+    const preset = pendingPresetDowngrade;
+    setPendingPresetDowngrade(null);
+    void handlePresetChange(preset);
+  }, [pendingPresetDowngrade, handlePresetChange]);
 
   const handleProfileChange = useCallback(async (profile: TerminologyProfile): Promise<void> => {
     if (!activeWorkspace || profile === activeWorkspace.terminology_profile) return;
@@ -286,6 +319,7 @@ export default function WorkspaceSettings(): JSX.Element {
         role="tablist"
         aria-label={t("nav.settings")}
         data-testid="settings-tablist"
+        onKeyDown={(e) => handleTablistKeyDown(e, SETTINGS_TAB_IDS, activeTab, setActiveTab)}
         style={{
           display: "flex",
           flexWrap: "wrap",
@@ -305,6 +339,7 @@ export default function WorkspaceSettings(): JSX.Element {
               data-testid={`settings-tab-${tab.id}`}
               aria-selected={isTabActive}
               aria-controls={`settings-panel-${tab.id}`}
+              tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setActiveTab(tab.id)}
               style={{
                 appearance: "none",
@@ -394,7 +429,7 @@ export default function WorkspaceSettings(): JSX.Element {
                         name="preset"
                         value={preset}
                         checked={isActive}
-                        onChange={() => void handlePresetChange(preset)}
+                        onChange={() => requestPresetChange(preset)}
                         data-testid={`preset-option-${preset}`}
                       />
                       <div>
@@ -691,6 +726,24 @@ export default function WorkspaceSettings(): JSX.Element {
         <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
           {t("settings.saved")}
         </div>
+      )}
+
+      {/* UI-22: extended→minimal (or extended→standard, standard→minimal)
+          drops rigor-gated behaviour (baselines, mandatory change reason,
+          the approval workflow) — confirm before it fires. */}
+      {pendingPresetDowngrade && (
+        <ConfirmDialog
+          title={t("settings.presetDowngradeConfirmTitle", "Downgrade preset?")}
+          message={t(
+            "settings.presetDowngradeConfirmMessage",
+            "Switching to \"{{preset}}\" disables rigor features the current preset provides (e.g. baselines, mandatory change reason, or the approval workflow). This can be reverted later, but any data that depended on the disabled features stays as-is.",
+            { preset: pendingPresetDowngrade },
+          )}
+          confirmLabel={t("settings.presetDowngradeConfirm", "Downgrade")}
+          onConfirm={confirmPresetDowngrade}
+          onCancel={() => setPendingPresetDowngrade(null)}
+          testId="preset-downgrade-confirm"
+        />
       )}
     </div>
   );

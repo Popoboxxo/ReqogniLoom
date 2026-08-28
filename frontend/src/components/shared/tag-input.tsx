@@ -12,12 +12,19 @@
  */
 
 import { useState, KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface TagInputProps {
   tags: string[];
   onChange: (tags: string[]) => void;
   placeholder?: string;
   'data-testid'?: string;
+  /**
+   * Id applied to the actual text `<input>` so an external `<label htmlFor>`
+   * resolves to a real form control (WCAG 1.3.1 / 4.1.2) instead of the
+   * non-interactive pill container.
+   */
+  inputId?: string;
 }
 
 export function TagInput({
@@ -25,7 +32,9 @@ export function TagInput({
   onChange,
   placeholder = 'tag1, tag2 ...',
   'data-testid': testId,
+  inputId,
 }: TagInputProps): JSX.Element {
+  const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
 
   const commitTag = (raw: string) => {
@@ -115,13 +124,14 @@ export function TagInput({
               opacity: 0.8,
               marginLeft: '2px',
             }}
-            aria-label={`Remove tag ${tag}`}
+            aria-label={t('actions.removeTag', { tag })}
           >
             &times;
           </button>
         </span>
       ))}
       <input
+        id={inputId}
         type="text"
         data-testid={testId ? `${testId}-input` : 'tag-input-field'}
         value={inputValue}

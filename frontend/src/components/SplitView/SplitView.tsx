@@ -51,6 +51,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Props for the generic SplitView component.
@@ -255,6 +256,8 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     },
     ref
   ) => {
+    const { t } = useTranslation();
+
     // -----------------------------------------------------------------------
     // State: left panel width (pixels), drag state
     // -----------------------------------------------------------------------
@@ -309,7 +312,16 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
         document.body.style.cursor = 'col-resize';
 
         if (dividerRef.current) {
+          // UI-41 (systemaudit 2026-08-27): `classList.add('dragging')` alone
+          // has no effect — this component's layout/feedback styles are all
+          // inline (see the module docstring on why SplitView.module.scss's
+          // `.dragging` rule is never actually attached to this element), so
+          // a *class name* toggle here does not translate to a visible
+          // style. Setting the highlighted gradient directly, the same way
+          // the hover handlers below already do, is what actually renders.
           dividerRef.current.classList.add('dragging');
+          dividerRef.current.style.background =
+            'linear-gradient(90deg, transparent 4px, var(--color-primary) 4px, var(--color-primary) 8px, transparent 8px)';
         }
 
         e.preventDefault();
@@ -321,6 +333,29 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
       localStorage.setItem(storageKey, String(width));
       onDividerMove?.(width);
     }, [storageKey, onDividerMove]);
+
+    // UI-27 (systemaudit 2026-08-27): the divider was mouse-only (WCAG 2.1.1
+    // Keyboard). Same ARIA APG "window splitter" step pattern as
+    // RightSidebar's resize handle: Left/Right adjust, Home/End snap to the
+    // configured bounds.
+    const DIVIDER_STEP_PX = 20;
+    const handleDividerKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLDivElement>): void => {
+        const containerWidth = dividerRef.current?.parentElement?.clientWidth ?? window.innerWidth;
+        const maxWidth = (containerWidth * leftMaxWidthPercent) / 100;
+        let next: number | null = null;
+        if (e.key === 'ArrowLeft') next = leftPanelWidth - DIVIDER_STEP_PX;
+        else if (e.key === 'ArrowRight') next = leftPanelWidth + DIVIDER_STEP_PX;
+        else if (e.key === 'Home') next = leftMinWidth;
+        else if (e.key === 'End') next = maxWidth;
+        if (next === null) return;
+        e.preventDefault();
+        const constrained = Math.max(leftMinWidth, Math.min(next, maxWidth));
+        setLeftPanelWidth(constrained);
+        persistWidth(constrained);
+      },
+      [leftPanelWidth, leftMinWidth, leftMaxWidthPercent, persistWidth]
+    );
 
     // -----------------------------------------------------------------------
     // Global mouse events: move and up
@@ -350,6 +385,11 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
 
         if (dividerRef.current) {
           dividerRef.current.classList.remove('dragging');
+          // Mirror the mouseleave reset — restore the resting gradient
+          // (see the mousedown handler's comment for why this must be an
+          // inline-style write, not a class toggle).
+          dividerRef.current.style.background =
+            'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)';
         }
 
         // Persist the final width
@@ -492,7 +532,14 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           ref={dividerRef}
           data-testid="splitview-divider"
           className={`splitview-divider ${dividerClassName || ''}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('splitView.resizeDivider', 'Resize panels')}
+          aria-valuenow={Math.round(leftPanelWidth)}
+          aria-valuemin={leftMinWidth}
+          tabIndex={0}
           onMouseDown={handleDividerMouseDown}
+          onKeyDown={handleDividerKeyDown}
           style={{
             flex: '0 0 12px',
             background: 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)',

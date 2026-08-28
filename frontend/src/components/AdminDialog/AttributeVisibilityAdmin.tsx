@@ -443,6 +443,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
                         checked={visibilityMap[attr] ?? true}
                         disabled={isIndisputable}
                         onChange={() => handleToggleAttribute(attr, 'visible')}
+                        aria-label={t('admin.visibleFieldLabel', '{{field}}: visible', { field: attr })}
                         style={{ cursor: isIndisputable ? 'not-allowed' : 'pointer', accentColor: 'var(--color-primary)' }}
                       />
                     </td>
@@ -452,6 +453,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
                         checked={requiredMap[attr] ?? false}
                         disabled={isIndisputable}
                         onChange={() => handleToggleAttribute(attr, 'required')}
+                        aria-label={t('admin.requiredFieldLabel', '{{field}}: required', { field: attr })}
                         style={{ cursor: isIndisputable ? 'not-allowed' : 'pointer', accentColor: 'var(--color-primary)' }}
                       />
                     </td>

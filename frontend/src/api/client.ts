@@ -306,16 +306,22 @@ async function apiFetch<T>(
   // showing a generic validation error (UMSETZUNGSPLAN_SYSENG_2.0.md §4).
   if (response.status === 422) {
     let detail: string | undefined;
+    // UI-40: `findings` (e.g. DecompositionAuditError.findings — the
+    // per-violation SE-Auditor/invariant detail behind an architecture
+    // decompose commit rollback) used to be discarded here, leaving callers
+    // with only the flat `message` string to render.
+    let findings: Array<Record<string, unknown>> | undefined;
     try {
       const body = await response.json();
       detail =
         (typeof body?.error?.message === "string" && body.error.message) ||
         (typeof body?.detail === "string" && body.detail) ||
         undefined;
+      if (Array.isArray(body?.findings)) findings = body.findings;
     } catch {
       // Non-JSON body → fall back to the default message.
     }
-    throw new UnprocessableEntityError(detail);
+    throw new UnprocessableEntityError(detail, findings);
   }
 
   if (!response.ok) {

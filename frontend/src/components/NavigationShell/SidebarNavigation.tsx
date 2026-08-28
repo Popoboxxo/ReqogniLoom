@@ -406,6 +406,19 @@ export function SidebarNavigation(): JSX.Element {
     setIsMobileNavOpen(false);
   }, [location.pathname]);
 
+  // UI-27 (systemaudit 2026-08-27): the mobile drawer's backdrop only closed
+  // on click, leaving no keyboard-operable way to dismiss it (WCAG 2.1.1
+  // Keyboard). Escape is the conventional dismiss key for this kind of
+  // non-modal overlay (same convention as the shared Dialog component).
+  React.useEffect(() => {
+    if (!isMobileNavOpen) return;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setIsMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileNavOpen]);
+
   const isItemActive = (path: string): boolean => {
     if (path === "/") {
       return location.pathname === "/";
@@ -429,6 +442,11 @@ export function SidebarNavigation(): JSX.Element {
       {isMobileNavOpen ? "✕" : "☰"}
     </button>
     {isMobileNavOpen && (
+      // Backdrop only — deliberately not focusable/role="button": a
+      // full-viewport overlay in the tab order would be a keyboard trap of
+      // its own. Keyboard dismissal is handled by the document-level Escape
+      // listener above (WCAG 2.1.1), not a handler on this element.
+      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
       <div
         className={styles.overlay}
         data-testid="sidebar-overlay"
@@ -458,6 +476,7 @@ export function SidebarNavigation(): JSX.Element {
         <input
           type="search"
           placeholder={t("nav.searchPlaceholder", "Suchen...")}
+          aria-label={t("nav.searchPlaceholder", "Suchen...")}
           data-testid="global-search"
           value={searchQuery}
           onChange={handleSearchChange}
@@ -480,6 +499,7 @@ export function SidebarNavigation(): JSX.Element {
                   <button
                     type="button"
                     role="option"
+                    aria-selected={false}
                     data-testid="global-search-result"
                     onClick={() => handleHitClick(hit)}
                     className={styles.searchResultButton}
@@ -700,7 +720,7 @@ export function SidebarNavigation(): JSX.Element {
         >
           {t("nav.profile")}
         </button>
-        <button onClick={logout} className={styles.footerBtn}>
+        <button data-testid="nav-logout" onClick={logout} className={styles.footerBtn}>
           {t("nav.logout")}
         </button>
         {versionInfo && (

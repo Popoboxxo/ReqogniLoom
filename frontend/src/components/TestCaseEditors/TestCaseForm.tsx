@@ -213,7 +213,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: Te
                 </button>
               </>
             )}
-            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+            <button data-testid="tc-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>

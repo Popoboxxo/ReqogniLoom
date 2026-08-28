@@ -112,6 +112,26 @@ export function InspectorPanel({
     [width]
   );
 
+  // UI-27 (systemaudit 2026-08-27): the handle was mouse-only (WCAG 2.1.1
+  // Keyboard). ARIA APG "window splitter" pattern, mirroring RightSidebar's
+  // and SplitView's resize handles: Left/Right adjust in fixed steps
+  // (dragging left widens here too, see the comment above), Home/End snap to
+  // the configured bounds.
+  const RESIZE_STEP_PX = 20;
+  const onResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      let next: number | null = null;
+      if (e.key === "ArrowLeft") next = width + RESIZE_STEP_PX;
+      else if (e.key === "ArrowRight") next = width - RESIZE_STEP_PX;
+      else if (e.key === "Home") next = MIN_WIDTH_PX;
+      else if (e.key === "End") next = MAX_WIDTH_PX;
+      if (next === null) return;
+      e.preventDefault();
+      setWidth(Math.max(MIN_WIDTH_PX, Math.min(MAX_WIDTH_PX, next)));
+    },
+    [width]
+  );
+
   useEffect(() => {
     function onMove(e: MouseEvent): void {
       if (!isResizingRef.current) return;
@@ -188,7 +208,12 @@ export function InspectorPanel({
         role="separator"
         aria-orientation="vertical"
         aria-label={t("workflow.inspector.resize")}
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH_PX}
+        aria-valuemax={MAX_WIDTH_PX}
+        tabIndex={0}
         onMouseDown={onResizeMouseDown}
+        onKeyDown={onResizeKeyDown}
         data-testid="workflow-inspector-resize"
       />
       <header className={styles.inspectorHeader}>

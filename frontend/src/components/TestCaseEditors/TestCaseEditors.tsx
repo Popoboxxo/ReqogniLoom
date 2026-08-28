@@ -256,6 +256,7 @@ export default function TestCaseEditors(): JSX.Element {
             <>
               <button
                 type="button"
+                data-testid="tc-create-cancel-btn"
                 className="btn-secondary"
                 onClick={closeCreateDialog}
                 disabled={isCreating}

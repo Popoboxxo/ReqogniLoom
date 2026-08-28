@@ -30,7 +30,7 @@ export function InterviewArtifactPane({
   return (
     <div className={styles.pane}>
       {interview.status === "in_progress" && (interview.grounding_snapshot.candidates ?? []).length > 0 && (
-        <ul className={styles.hints}>
+        <ul className={styles.hints} aria-label="Possibly related artifacts">
           {interview.grounding_snapshot.candidates!.map((c) => (
             <li key={c.artifact_id}>Possibly related: {c.title}</li>
           ))}

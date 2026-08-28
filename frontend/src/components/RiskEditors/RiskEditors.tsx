@@ -204,6 +204,7 @@ export default function RiskEditors(): JSX.Element {
             <>
               <button
                 type="button"
+                data-testid="risk-create-cancel-btn"
                 className="btn-secondary"
                 onClick={closeCreateDialog}
                 disabled={isCreating}

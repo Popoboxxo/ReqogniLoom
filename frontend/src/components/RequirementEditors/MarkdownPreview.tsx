@@ -17,12 +17,23 @@ interface MarkdownPreviewProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  /**
+   * Id applied to the underlying `<textarea>` so a caller's `<label htmlFor>`
+   * resolves to a real form control (WCAG 1.3.1 / 4.1.2). Without it, the
+   * label and the textarea are visually adjacent but programmatically
+   * unrelated to assistive tech.
+   */
+  id?: string;
+  /** Accessible name fallback when no external `<label htmlFor>` is used. */
+  ariaLabel?: string;
 }
 
 export function MarkdownPreview({
   value,
   onChange,
   disabled = false,
+  id,
+  ariaLabel,
 }: MarkdownPreviewProps): JSX.Element {
   const { t } = useTranslation();
   const [isPreview, setIsPreview] = useState(false);
@@ -119,6 +130,8 @@ export function MarkdownPreview({
         </div>
       ) : (
         <textarea
+          id={id}
+          aria-label={id ? undefined : ariaLabel}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}

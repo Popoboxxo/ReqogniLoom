@@ -26,10 +26,12 @@ import {
   type BaselineDiff,
   type BaselineScope,
 } from "../../api/baselines";
+import { useAuth } from "../../context/AuthContext";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
 import { ListToolbar } from "../shared/ListToolbar";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { Artifact } from "../../types";
 import {
   BaselineComparePanel,
@@ -73,6 +75,13 @@ function formatDate(iso: string): string {
 
 export default function BaselinesView(): JSX.Element {
   const { t } = useTranslation();
+  const { roles } = useAuth();
+  // UI-21 / GH-513: the backend only accepts an override justification from
+  // 'admin'/'approver' (AuthorizationService.WORKFLOW_APPROVAL, see
+  // baseline_facade._assert_override_permission) — everyone else used to see
+  // the full waiver panel anyway and only learned they lacked permission
+  // after typing a reason and hitting a raw 403 on submit.
+  const canOverrideAuditGate = roles.includes("admin") || roles.includes("approver");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // #181: list-panel search (by name) + scope filter (ListToolbar).
   const [listSearch, setListSearch] = useState<string>("");
@@ -165,11 +174,12 @@ export default function BaselinesView(): JSX.Element {
     [formArtifactId, formScope, overrideReason, t, createBaseline],
   );
 
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
+  // consistent styling/i18n/focus-trap with the rest of the app.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
-      if (!window.confirm(t("baselines.deleteConfirm", "Really delete this baseline?"))) {
-        return;
-      }
       try {
         await deleteBaseline(id);
         if (selectedId === id) setSelectedId(null);
@@ -177,8 +187,15 @@ export default function BaselinesView(): JSX.Element {
         // Failure surfaces via the hook's `error` (delete mutation error).
       }
     },
-    [deleteBaseline, selectedId, t]
+    [deleteBaseline, selectedId]
   );
+
+  const confirmDelete = useCallback((): void => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    void handleDelete(id);
+  }, [pendingDeleteId, handleDelete]);
 
   const handleCompare = useCallback(async (): Promise<void> => {
     if (!compareAId || !compareBId) {
@@ -614,8 +631,20 @@ export default function BaselinesView(): JSX.Element {
             {/* GH-513: waiver panel — shown only after the backend answered
                 SE_AUDITOR_BLOCKED. The button stays disabled until the
                 justification is long enough for the backend to accept it, so
-                the user is not sent into a second round-trip to learn that. */}
-            {gateBlocked && (
+                the user is not sent into a second round-trip to learn that.
+                UI-21: the backend only accepts the waiver from 'admin'/
+                'approver' — a caller without that role gets a plain hint
+                instead of a fillable form that only fails after submit. */}
+            {gateBlocked && !canOverrideAuditGate && (
+              <p
+                role="alert"
+                data-testid="baseline-override-no-permission"
+                className={styles.overrideHint}
+              >
+                {t("baselines.overrideNoPermission")}
+              </p>
+            )}
+            {gateBlocked && canOverrideAuditGate && (
               <div
                 data-testid="baseline-override-panel"
                 className={styles.overridePanel}
@@ -762,7 +791,7 @@ export default function BaselinesView(): JSX.Element {
             <button
               type="button"
               data-testid="baseline-delete-btn"
-              onClick={() => void handleDelete(selectedBaseline.id)}
+              onClick={() => setPendingDeleteId(selectedBaseline.id)}
               style={{
                 background: "var(--color-danger)",
                 color: "var(--color-on-primary)",
@@ -794,6 +823,17 @@ export default function BaselinesView(): JSX.Element {
         }
       />
       </div>
+
+      {pendingDeleteId && (
+        <ConfirmDialog
+          title={t("baselines.deleteConfirmTitle", "Delete baseline?")}
+          message={t("baselines.deleteConfirm", "Really delete this baseline?")}
+          confirmLabel={t("actions.delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+          testId="baseline-delete-confirm"
+        />
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   type PermissionMatrix,
 } from "../../api/permission-defaults";
 import { PermissionMatrixEditor } from "../PermissionMatrix/PermissionMatrixEditor";
+import { useToast } from "../shared/Toast/useToast";
 import { EnforcementModePanel } from "./EnforcementModePanel";
 import { MismatchReviewTable } from "./MismatchReviewTable";
 
@@ -56,7 +57,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -80,17 +81,16 @@ function GlobalPermissionMatrixCard(): JSX.Element {
       setSaving(true);
       setError(null);
       setSavedOk(false);
-      setToast(null);
+      toast.clear();
       try {
         const updated = await permissionDefaultsApi.replaceGlobal(matrix);
         setDef(updated);
         setSavedOk(true);
         if (typeof updated.propagated_workspace_count === "number") {
           const n = updated.propagated_workspace_count;
-          setToast(
+          toast.show(
             t("systemSettings.permissionDefaults.propagatedToast", { count: n })
           );
-          window.setTimeout(() => setToast(null), 3000);
         }
       } catch (err) {
         setError(extractErrorMessage(err));
@@ -116,7 +116,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
       ) : (
         def && (
           <>
-            {toast && (
+            {toast.message && (
               <p
                 data-testid="global-matrix-propagated-toast"
                 role="status"
@@ -126,7 +126,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
                   marginBottom: "var(--space-2)",
                 }}
               >
-                {toast}
+                {toast.message}
               </p>
             )}
             <PermissionMatrixEditor

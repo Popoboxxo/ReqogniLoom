@@ -28,6 +28,7 @@ import { MemoryManagementSection } from "./MemoryManagementSection";
 import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { PageHeader } from "../shared/PageHeader";
+import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 
 type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults" | "memory";
 
@@ -101,6 +102,7 @@ export default function SystemSettings(): JSX.Element {
         role="tablist"
         aria-label={t("nav.systemSettings", "System Settings")}
         data-testid="system-settings-tablist"
+        onKeyDown={(e) => handleTablistKeyDown(e, TAB_IDS, activeTab, setTab)}
         style={{
           display: "flex",
           flexWrap: "wrap",
@@ -120,6 +122,7 @@ export default function SystemSettings(): JSX.Element {
               data-testid={`system-settings-tab-${tab.id}`}
               aria-selected={isTabActive}
               aria-controls={`system-settings-panel-${tab.id}`}
+              tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setTab(tab.id)}
               style={{
                 appearance: "none",

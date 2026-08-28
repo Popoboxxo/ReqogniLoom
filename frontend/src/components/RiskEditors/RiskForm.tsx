@@ -19,6 +19,55 @@ interface RiskFormProps {
 const SEVERITY_OPTIONS = ['low', 'medium', 'high'];
 const PROBABILITY_OPTIONS = ['low', 'medium', 'high'];
 const IMPACT_OPTIONS = ['low', 'medium', 'high'];
+// UI-39: numeric mapping mirrors Risk._PROB_NUMERIC / _IMPACT_NUMERIC in
+// backend/application/models.py — needed client-side to render the
+// probability x impact matrix and preview the score before saving.
+const LEVEL_NUMERIC: Record<string, number> = { low: 1, medium: 2, high: 3 };
+
+/** UI-39: same low/medium/high score banding backend Risk.severity derives from. */
+function scoreBand(score: number): 'low' | 'medium' | 'high' {
+  if (score >= 9) return 'high';
+  if (score >= 4) return 'medium';
+  return 'low';
+}
+
+const SCORE_BAND_COLORS: Record<'low' | 'medium' | 'high', { fg: string; bg: string }> = {
+  low: { fg: 'var(--color-success)', bg: 'rgba(var(--color-success-rgb), 0.14)' },
+  medium: { fg: 'var(--color-warning)', bg: 'rgba(var(--color-warning-rgb), 0.16)' },
+  high: { fg: 'var(--color-danger)', bg: 'rgba(var(--color-danger-rgb), 0.16)' },
+};
+
+// UI-39: named style objects for the risk-matrix section, hoisted to module
+// scope (F6, Systemaudit 2026-08-27 AP-5 review) since none depend on
+// component state/props — a per-render re-allocation was pure waste. Mirrors
+// `AiPromptsSection.tsx`'s hoisted-style-constant precedent. `matrixLabelStyle`
+// duplicates `labelStyle`'s values instead of spreading it, since `labelStyle`
+// itself stays component-local (pre-existing, out of this fix's scope).
+const matrixLabelStyle: React.CSSProperties = {
+  fontWeight: 500, color: 'var(--color-text)', display: 'block', marginBottom: 'var(--space-2)',
+};
+const matrixSectionStyle: React.CSSProperties = {
+  display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start', flexWrap: 'wrap',
+  marginBottom: 'var(--space-2)', padding: 'var(--space-3)',
+  background: 'var(--color-surface-raised)', borderRadius: 'var(--radius-md)',
+};
+const matrixTableStyle: React.CSSProperties = { borderCollapse: 'collapse' };
+const matrixProbabilityAxisStyle: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)',
+  color: 'var(--color-text-muted)', marginTop: 'var(--space-1)', width: 'fit-content', minWidth: '100%',
+};
+const scoreDisplayStyle: React.CSSProperties = { fontSize: 'var(--font-size-sm)', color: 'var(--color-text)' };
+const rpnHintStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: 'var(--space-1)', maxWidth: 220,
+};
+const flexOneStyle: React.CSSProperties = { flex: 1 };
+const matrixCellStyle = (colors: { fg: string; bg: string }, isCurrent: boolean): React.CSSProperties => ({
+  width: 40, height: 32, textAlign: 'center', verticalAlign: 'middle',
+  fontSize: 'var(--font-size-xs)', fontWeight: isCurrent ? 700 : 500,
+  color: colors.fg, background: colors.bg,
+  border: isCurrent ? `2px solid ${colors.fg}` : '1px solid var(--color-border)',
+});
+
 // BUG-11 (Systemaudit 2026-08-18, §4): exported so RiskEditors' create
 // dialog can offer the same category choices as this edit form, instead of
 // duplicating the literal list.
@@ -102,7 +151,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
     const fields: Partial<Record<keyof Risk, unknown>> = {};
     // #263: `status` is deliberately absent. It is a read-only WorkflowEngine
     // mirror; lifecycle changes run through POST .../transitions/.
-    for (const key of ['title', 'description', 'severity', 'probability', 'impact', 'category', 'owner', 'mitigation_strategy'] as const) {
+    for (const key of ['title', 'description', 'severity', 'probability', 'impact', 'detection', 'category', 'owner', 'mitigation_strategy'] as const) {
       if (key in formData) fields[key] = formData[key];
     }
     return fields;
@@ -199,7 +248,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
                 </button>
               </>
             )}
-            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+            <button data-testid="risk-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
@@ -216,38 +265,131 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
-            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" />
+            <label htmlFor="risk-title" style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+            <input id="risk-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" />
           </div>
           <div>
-            <label style={labelStyle}>{t('editor.description')}</label>
-            <textarea value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} rows={4} style={inputStyle} />
+            <label htmlFor="risk-description" style={labelStyle}>{t('editor.description')}</label>
+            <textarea id="risk-description" value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} rows={4} style={inputStyle} />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('risks.severity')}</label>
-              <select value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value as RiskSeverity)} style={inputStyle}>
+              <label htmlFor="risk-severity" style={labelStyle}>{t('risks.severity')}</label>
+              <select id="risk-severity" value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value as RiskSeverity)} style={inputStyle}>
                 {SEVERITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('risks.probability')}</label>
-              <select value={formData.probability || 'medium'} onChange={(e) => handleChange('probability', e.target.value as RiskProbability)} style={inputStyle}>
+              <label htmlFor="risk-probability" style={labelStyle}>{t('risks.probability')}</label>
+              <select id="risk-probability" value={formData.probability || 'medium'} onChange={(e) => handleChange('probability', e.target.value as RiskProbability)} style={inputStyle}>
                 {PROBABILITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('risks.impact')}</label>
-              <select value={formData.impact || 'medium'} onChange={(e) => handleChange('impact', e.target.value as RiskImpact)} style={inputStyle}>
+              <label htmlFor="risk-impact" style={labelStyle}>{t('risks.impact')}</label>
+              <select id="risk-impact" value={formData.impact || 'medium'} onChange={(e) => handleChange('impact', e.target.value as RiskImpact)} style={inputStyle}>
                 {IMPACT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
+            <div style={flexOneStyle}>
+              {/* UI-39: FMEA detectability score (1=easy .. 10=impossible),
+                  feeds the Risk Priority Number alongside probability x impact.
+                  Backend field existed (RiskSerializer.detection) with no
+                  editor exposing it. */}
+              <label htmlFor="risk-detection" style={labelStyle}>
+                {t('risks.detection', 'Detection (1-10)')}
+              </label>
+              <input
+                id="risk-detection"
+                data-testid="risk-detection-input"
+                type="number"
+                min={1}
+                max={10}
+                step={1}
+                value={formData.detection ?? 5}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value);
+                  const clamped = Number.isFinite(parsed)
+                    ? Math.min(10, Math.max(1, Math.round(parsed)))
+                    : 5;
+                  handleChange('detection', clamped);
+                }}
+                style={inputStyle}
+              />
+            </div>
           </div>
+
+          {/* UI-39: risk_score was computed by the backend but never surfaced
+              in the UI; the probability x impact matrix gives at-a-glance
+              context for where this risk sits (no library, plain CSS grid). */}
+          <div
+            data-testid="risk-matrix-section"
+            style={matrixSectionStyle}
+          >
+            <div>
+              <div style={matrixLabelStyle}>
+                {t('risks.matrixTitle', 'Risk Matrix (Probability × Impact)')}
+              </div>
+              <table
+                data-testid="risk-matrix"
+                style={matrixTableStyle}
+                aria-label={t('risks.matrixTitle', 'Risk Matrix (Probability × Impact)')}
+              >
+                <tbody>
+                  {[...IMPACT_OPTIONS].reverse().map((impactLevel) => (
+                    <tr key={impactLevel}>
+                      {PROBABILITY_OPTIONS.map((probLevel) => {
+                        const cellScore = LEVEL_NUMERIC[impactLevel] * LEVEL_NUMERIC[probLevel];
+                        const band = scoreBand(cellScore);
+                        const colors = SCORE_BAND_COLORS[band];
+                        const isCurrent =
+                          (formData.probability || 'medium') === probLevel &&
+                          (formData.impact || 'medium') === impactLevel;
+                        return (
+                          <td
+                            key={`${impactLevel}-${probLevel}`}
+                            data-testid={`risk-matrix-cell-${impactLevel}-${probLevel}`}
+                            title={`${t('risks.impact')}: ${impactLevel} · ${t('risks.probability')}: ${probLevel} · ${t('risks.score', 'Score')}: ${cellScore}`}
+                            style={matrixCellStyle(colors, isCurrent)}
+                          >
+                            {cellScore}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={matrixProbabilityAxisStyle}>
+                <span>{t('risks.probability')} →</span>
+              </div>
+            </div>
+            <div>
+              <div style={matrixLabelStyle}>
+                {t('risks.computedScores', 'Computed Scores')}
+              </div>
+              <div data-testid="risk-score-display" style={scoreDisplayStyle}>
+                {t('risks.riskScoreLabel', 'Risk Score')}: <strong>{risk.risk_score ?? '—'}</strong>
+              </div>
+              <div data-testid="risk-rpn-display" style={scoreDisplayStyle}>
+                {t('risks.rpnLabel', 'RPN (FMEA)')}: <strong>{risk.rpn ?? '—'}</strong>
+              </div>
+              <p style={rpnHintStyle}>
+                {t(
+                  'risks.rpnHint',
+                  'Risk Score = Probability × Impact. RPN = Probability × Impact × Detection. Recalculated on save.'
+                )}
+              </p>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('editor.status')}</label>
+            <div role="group" aria-labelledby="risk-status-label" style={{ flex: 1 }}>
+              <span id="risk-status-label" style={labelStyle}>{t('editor.status')}</span>
               {/* REQ-165: WorkflowEngine-driven status editor (replaces the
-                  hardcoded status select). */}
+                  hardcoded status select). role="group" + aria-labelledby
+                  because WorkflowStatusEditor renders a group of transition
+                  buttons, not a single form control. */}
               <WorkflowStatusEditor
                 artifactType="risk"
                 artifactId={risk.id}
@@ -257,8 +399,8 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
               />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('risks.category')}</label>
-              <select value={formData.category || 'technical'} onChange={(e) => handleChange('category', e.target.value as RiskCategory)} style={inputStyle}>
+              <label htmlFor="risk-category" style={labelStyle}>{t('risks.category')}</label>
+              <select id="risk-category" value={formData.category || 'technical'} onChange={(e) => handleChange('category', e.target.value as RiskCategory)} style={inputStyle}>
                 {CATEGORY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
@@ -278,8 +420,9 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
               }
             }}
           >
-            <label style={labelStyle}>{t('risks.owner')}</label>
+            <label htmlFor="risk-owner" style={labelStyle}>{t('risks.owner')}</label>
             <input
+              id="risk-owner"
               type="text"
               value={formData.owner || ''}
               onChange={(e) => handleChange('owner', e.target.value)}
@@ -350,8 +493,8 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
             )}
           </div>
           <div>
-            <label style={labelStyle}>{t('risks.mitigationStrategy')}</label>
-            <textarea value={formData.mitigation_strategy || ''} onChange={(e) => handleChange('mitigation_strategy', e.target.value)} rows={3} style={inputStyle} />
+            <label htmlFor="risk-mitigation-strategy" style={labelStyle}>{t('risks.mitigationStrategy')}</label>
+            <textarea id="risk-mitigation-strategy" value={formData.mitigation_strategy || ''} onChange={(e) => handleChange('mitigation_strategy', e.target.value)} rows={3} style={inputStyle} />
           </div>
 
           {/* 12.11: workspace-defined custom fields, typed and persisted per

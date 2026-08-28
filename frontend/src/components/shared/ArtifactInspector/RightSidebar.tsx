@@ -222,6 +222,26 @@ export function RightSidebar({
     [width]
   );
 
+  // UI-27 (systemaudit 2026-08-27): the handle was mouse-only (WCAG 2.1.1
+  // Keyboard). ARIA APG "window splitter" pattern: Left/Right adjust in
+  // fixed steps (mirroring the mouse's "dragging left widens" direction —
+  // the handle sits on the sidebar's left edge), Home/End snap to the
+  // configured bounds.
+  const RESIZE_STEP_PX = 20;
+  const onResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      let next: number | null = null;
+      if (e.key === "ArrowLeft") next = width + RESIZE_STEP_PX;
+      else if (e.key === "ArrowRight") next = width - RESIZE_STEP_PX;
+      else if (e.key === "Home") next = MIN_WIDTH_PX;
+      else if (e.key === "End") next = MAX_WIDTH_PX;
+      if (next === null) return;
+      e.preventDefault();
+      setWidth(Math.max(MIN_WIDTH_PX, Math.min(MAX_WIDTH_PX, next)));
+    },
+    [width]
+  );
+
   useEffect(() => {
     function onMove(e: MouseEvent): void {
       if (!isResizingRef.current) return;
@@ -289,11 +309,22 @@ export function RightSidebar({
         >
           «
         </button>
+        {/* UI-27 (systemaudit 2026-08-27): these three icons had no onClick
+            at all — dead buttons, unreachable by mouse or keyboard alike.
+            The panels below have no per-section tab/anchor concept (they are
+            simply stacked — VersionPanel/DiffPanel/TracePanel render in a
+            fixed order, see the expanded return below), so "jump to this
+            section" cannot be wired without inventing that concept. Restoring
+            the one behavior that *is* well-defined — open the sidebar, same
+            as the "«" expand button — is the minimal, non-speculative fix;
+            a real deep-link-to-section affordance is a UX decision for
+            ui-ux-designer, not an a11y-only pass. */}
         <button
           type="button"
           className={styles.collapsedIconButton}
           aria-label={t("sidebar.version.title", "Version")}
           title={t("sidebar.version.title", "Version")}
+          onClick={(): void => setCollapsed(false)}
         >
           ⏱
         </button>
@@ -302,6 +333,7 @@ export function RightSidebar({
           className={styles.collapsedIconButton}
           aria-label={t("sidebar.diff.title", "Diff")}
           title={t("sidebar.diff.title", "Diff")}
+          onClick={(): void => setCollapsed(false)}
         >
           ≅
         </button>
@@ -311,6 +343,7 @@ export function RightSidebar({
             className={styles.collapsedIconButton}
             aria-label={t("sidebar.trace.title", "Trace Links")}
             title={t("sidebar.trace.title", "Trace Links")}
+            onClick={(): void => setCollapsed(false)}
           >
             🔗
           </button>
@@ -367,7 +400,12 @@ export function RightSidebar({
         role="separator"
         aria-orientation="vertical"
         aria-label={t("sidebar.inspector.resize", "Resize inspector")}
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH_PX}
+        aria-valuemax={MAX_WIDTH_PX}
+        tabIndex={0}
         onMouseDown={onResizeMouseDown}
+        onKeyDown={onResizeKeyDown}
         data-testid="artifact-inspector-resize"
       />
     );

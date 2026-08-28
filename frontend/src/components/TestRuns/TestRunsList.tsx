@@ -13,6 +13,7 @@
  * Resizable divider between panels (REQ-002 Masken-Standardisierung).
  */
 
+import type { CSSProperties } from "react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -35,6 +36,49 @@ const TEST_RUN_STATUSES = [
   "closed",
 ] as const;
 
+// UI-56: named style objects for the test-case picker's search/select-all
+// row, named instead of inline JSX style object literals (ui-ratchet.test.ts
+// style-brace ceiling).
+const testCasePickerToolbarStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  marginBottom: "var(--space-1)",
+};
+const testCasePickerSearchStyle: CSSProperties = {
+  flex: "1 1 auto",
+  padding: "var(--space-1) var(--space-2)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--color-border)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "inherit",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+const testCasePickerSelectedCountStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+  margin: "0 0 var(--space-1)",
+};
+const testCasePickerNoMatchStyle: CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  margin: 0,
+};
+
+/** UI-56: select-all label style — cursor depends on whether any row is selectable. */
+function selectAllLabelStyle(disabled: boolean): CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-1)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-text)",
+    whiteSpace: "nowrap",
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
 export function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -45,6 +89,9 @@ export function TestRunsList(): JSX.Element {
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [listSearch, setListSearch] = useState<string>("");
+  // UI-56: the create-run test-case picker had no way to filter or bulk-select
+  // from a workspace's full test-case catalog.
+  const [testCaseSearch, setTestCaseSearch] = useState<string>("");
 
   const {
     items,
@@ -84,7 +131,30 @@ export function TestRunsList(): JSX.Element {
     setNewName("");
     setValidationError(null);
     setSelectedTestCaseIds([]);
+    setTestCaseSearch("");
     resetCreateError();
+  };
+
+  // UI-56: filtered view of the workspace's test cases for the picker below.
+  const visibleTestCaseOptions = testCaseOptions.filter(
+    (tc) =>
+      !testCaseSearch.trim() ||
+      tc.title.toLowerCase().includes(testCaseSearch.trim().toLowerCase()),
+  );
+  const allVisibleSelected =
+    visibleTestCaseOptions.length > 0 &&
+    visibleTestCaseOptions.every((tc) => selectedTestCaseIds.includes(tc.id));
+
+  const toggleSelectAllVisible = (): void => {
+    setSelectedTestCaseIds((prev) => {
+      if (allVisibleSelected) {
+        const visibleIds = new Set(visibleTestCaseOptions.map((tc) => tc.id));
+        return prev.filter((id) => !visibleIds.has(id));
+      }
+      const merged = new Set(prev);
+      for (const tc of visibleTestCaseOptions) merged.add(tc.id);
+      return Array.from(merged);
+    });
   };
 
   // F-08 (Dialog migration): Escape / backdrop click / × must discard the
@@ -292,43 +362,92 @@ export function TestRunsList(): JSX.Element {
                   {t("testRuns.noTestCases", "Keine Testfälle im Workspace vorhanden")}
                 </p>
               ) : (
-                <div
-                  data-testid="testrun-create-testcases-list"
-                  style={{
-                    maxHeight: "160px",
-                    overflowY: "auto",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2)",
-                    background: "var(--color-surface)",
-                  }}
-                >
-                  {testCaseOptions.map((tc) => (
+                <>
+                  {/* UI-56: search + select-all were missing, forcing manual
+                      one-by-one scrolling/ticking through the full workspace
+                      test-case catalog to build a run. */}
+                  <div style={testCasePickerToolbarStyle}>
+                    <input
+                      type="search"
+                      data-testid="testrun-create-testcases-search"
+                      value={testCaseSearch}
+                      onChange={(e) => setTestCaseSearch(e.target.value)}
+                      placeholder={t("testRuns.testCaseSearchPlaceholder", "Testfälle filtern...")}
+                      disabled={isCreating}
+                      style={testCasePickerSearchStyle}
+                    />
                     <label
-                      key={tc.id}
-                      htmlFor={`testrun-create-testcase-${tc.id}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--space-2)",
-                        padding: "var(--space-1) 0",
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text)",
-                        cursor: "pointer",
-                      }}
+                      htmlFor="testrun-create-testcases-select-all"
+                      style={selectAllLabelStyle(visibleTestCaseOptions.length === 0)}
                     >
                       <input
-                        id={`testrun-create-testcase-${tc.id}`}
-                        data-testid={`testrun-create-testcase-${tc.id}`}
+                        id="testrun-create-testcases-select-all"
+                        data-testid="testrun-create-testcases-select-all"
                         type="checkbox"
-                        checked={selectedTestCaseIds.includes(tc.id)}
-                        onChange={() => toggleTestCaseSelection(tc.id)}
-                        disabled={isCreating}
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        disabled={isCreating || visibleTestCaseOptions.length === 0}
                       />
-                      {tc.title}
+                      {t("testRuns.selectAllTestCases", "Alle auswählen")}
                     </label>
-                  ))}
-                </div>
+                  </div>
+                  {selectedTestCaseIds.length > 0 && (
+                    <p
+                      data-testid="testrun-create-testcases-selected-count"
+                      style={testCasePickerSelectedCountStyle}
+                    >
+                      {t("testRuns.selectedCount", "{{count}} ausgewählt", {
+                        count: selectedTestCaseIds.length,
+                      })}
+                    </p>
+                  )}
+                  {visibleTestCaseOptions.length === 0 ? (
+                    <p
+                      data-testid="testrun-create-testcases-no-match"
+                      style={testCasePickerNoMatchStyle}
+                    >
+                      {t("testRuns.testCaseSearchNoResults", "Keine passenden Testfälle.")}
+                    </p>
+                  ) : (
+                    <div
+                      data-testid="testrun-create-testcases-list"
+                      style={{
+                        maxHeight: "160px",
+                        overflowY: "auto",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "var(--space-2)",
+                        background: "var(--color-surface)",
+                      }}
+                    >
+                      {visibleTestCaseOptions.map((tc) => (
+                        <label
+                          key={tc.id}
+                          htmlFor={`testrun-create-testcase-${tc.id}`}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "var(--space-2)",
+                            padding: "var(--space-1) 0",
+                            fontSize: "var(--font-size-sm)",
+                            color: "var(--color-text)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            id={`testrun-create-testcase-${tc.id}`}
+                            data-testid={`testrun-create-testcase-${tc.id}`}
+                            type="checkbox"
+                            checked={selectedTestCaseIds.includes(tc.id)}
+                            onChange={() => toggleTestCaseSelection(tc.id)}
+                            disabled={isCreating}
+                          />
+                          {tc.title}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             {formError && (

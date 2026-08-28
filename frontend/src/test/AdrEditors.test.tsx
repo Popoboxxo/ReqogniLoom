@@ -379,8 +379,9 @@ describe("AdrEditors i18n — ADR title placeholder (#658)", () => {
       expect(screen.getByTestId("adr-new-title-input")).toBeInTheDocument();
     });
 
+    // UI-37: see the English variant below for the full rationale.
     expect(
-      screen.getByPlaceholderText("z.B. Als Benutzer möchte ich...")
+      screen.getByPlaceholderText("z.B. PostgreSQL als primären Datenspeicher einsetzen")
     ).toBeInTheDocument();
   });
 
@@ -399,8 +400,11 @@ describe("AdrEditors i18n — ADR title placeholder (#658)", () => {
       expect(screen.getByTestId("adr-new-title-input")).toBeInTheDocument();
     });
 
+    // UI-37 (Systemaudit 2026-08-27 AP-5): this placeholder used to be a
+    // copy-pasted Need-style prompt ("e.g. As a user, I need...") on the
+    // ADR title field — fixed to an actual architecture-decision example.
     expect(
-      screen.getByPlaceholderText("e.g. As a user, I need...")
+      screen.getByPlaceholderText("e.g. Use PostgreSQL as the primary datastore")
     ).toBeInTheDocument();
   });
 

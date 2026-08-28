@@ -392,6 +392,10 @@ export function ImpactView(): JSX.Element {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [rootArtifact, setRootArtifact] = useState<TreeArtifact | null>(null);
   const [onlyActive, setOnlyActive] = useState<boolean>(false);
+  // UI-36: distinguishes "never searched" from "searched, 0 hits" — the
+  // latter needs its own empty-state message instead of silently rendering
+  // nothing where the results list would have been.
+  const [hasSearched, setHasSearched] = useState<boolean>(false);
 
   // issue #184: one-shot preset handoff from TraceabilityView's artifact
   // picker — read once on mount, then cleared so a later plain visit to
@@ -427,12 +431,14 @@ export function ImpactView(): JSX.Element {
         limit: 10,
       });
       setHits(resp.results);
+      setHasSearched(true);
     } catch (err: unknown) {
       const msg =
         (err as { error?: { message?: string } })?.error?.message ??
         String(err);
       setSearchError(msg);
       setHits([]);
+      setHasSearched(false);
     } finally {
       setSearching(false);
     }
@@ -445,6 +451,7 @@ export function ImpactView(): JSX.Element {
       artifactType: hit.artifact_type,
     });
     setHits([]);
+    setHasSearched(false);
     setQuery(hit.title);
   };
 
@@ -477,50 +484,62 @@ export function ImpactView(): JSX.Element {
               boxShadow: "var(--shadow-card)",
             }}
           >
-            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
-              <input
-                type="search"
-                data-testid="impact-search-input"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void runSearch();
-                  }
-                }}
-                placeholder={t(
-                  "impact.searchPlaceholder",
-                  "Start-Artefakt suchen (Name oder ID)…"
-                )}
-                style={{
-                  flex: "1 1 320px",
-                  padding: "var(--space-2) var(--space-3)",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--color-border)",
-                  fontSize: "var(--font-size-base)",
-                }}
-              />
-              <button
-                type="button"
-                data-testid="impact-search-btn"
-                onClick={() => void runSearch()}
-                disabled={!query.trim() || searching}
-                style={{
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-base)",
-                  fontWeight: 500,
-                  background: "var(--color-primary)",
-                  color: "var(--color-on-primary)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  cursor: !query.trim() || searching ? "not-allowed" : "pointer",
-                }}
+            <div className={styles.searchFieldGroup}>
+              <label
+                htmlFor="impact-search-input"
+                className={styles.searchLabel}
               >
-                {searching
-                  ? t("nav.searching", "Suche läuft...")
-                  : t("impact.load", "Artefakt laden")}
-              </button>
+                {t("impact.searchLabel", "Start-Artefakt suchen")}
+              </label>
+              <div className={styles.searchRow}>
+                <input
+                  id="impact-search-input"
+                  type="search"
+                  data-testid="impact-search-input"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setHasSearched(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runSearch();
+                    }
+                  }}
+                  placeholder={t(
+                    "impact.searchPlaceholder",
+                    "Name oder ID…"
+                  )}
+                  style={{
+                    flex: "1 1 320px",
+                    padding: "var(--space-2) var(--space-3)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--color-border)",
+                    fontSize: "var(--font-size-base)",
+                  }}
+                />
+                <button
+                  type="button"
+                  data-testid="impact-search-btn"
+                  onClick={() => void runSearch()}
+                  disabled={!query.trim() || searching}
+                  style={{
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-base)",
+                    fontWeight: 500,
+                    background: "var(--color-primary)",
+                    color: "var(--color-on-primary)",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    cursor: !query.trim() || searching ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {searching
+                    ? t("nav.searching", "Suche läuft...")
+                    : t("impact.load", "Artefakt laden")}
+                </button>
+              </div>
             </div>
 
             {searchError && (
@@ -587,6 +606,21 @@ export function ImpactView(): JSX.Element {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {hasSearched && !searching && !searchError && hits.length === 0 && (
+              <p
+                data-testid="impact-search-empty"
+                style={{
+                  color: "var(--color-text-muted)",
+                  fontSize: "var(--font-size-sm)",
+                  marginTop: "var(--space-3)",
+                }}
+              >
+                {t("impact.searchNoResults", "0 Treffer für „{{query}}“.", {
+                  query: query.trim(),
+                })}
+              </p>
             )}
           </section>
 

@@ -135,7 +135,7 @@
 
 .primaryBtn {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-5);
@@ -254,6 +254,113 @@
 .errorListMore {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+}
+
+/* --- UI-30: pre-flight preview + outcome states ------------------------- */
+
+.resultBoxWarning {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+}
+
+.warningText {
+  font-weight: 600;
+  color: var(--color-warning);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.warningList {
+  margin: var(--space-3) 0 0 0;
+  padding-left: var(--space-4);
+}
+
+.warningListItem {
+  font-size: var(--font-size-sm);
+  color: var(--color-warning);
+  margin-bottom: var(--space-1);
+}
+
+.blockingList {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-4);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.linkBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: var(--space-2);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.previewTableWrap {
+  margin-top: var(--space-4);
+  overflow-x: auto;
+}
+
+.previewTable {
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  width: 100%;
+}
+
+.previewTable th,
+.previewTable td {
+  border: 1px solid var(--color-border);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  white-space: nowrap;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewHeader {
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+/* An unrecognised column's data is discarded by the importer — flag it in the
+   header rather than only in the post-import warning list. */
+.previewHeaderUnknown {
+  font-weight: 600;
+  color: var(--color-warning);
+  background: var(--color-surface-raised);
+  text-decoration: line-through;
+}
+
+.previewRowNumHeader,
+.previewRowNum {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  text-align: right;
+}
+
+.previewCell {
+  color: var(--color-text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .checkboxLabel {

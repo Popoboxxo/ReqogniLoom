@@ -308,3 +308,66 @@ def test_post_unauthenticated():
     )
 
     assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# UI-30: frontend column mirror must not drift from the backend registry
+# ---------------------------------------------------------------------------
+
+
+def test_frontend_known_csv_columns_match_entity_field_specs():
+    """`csvPreview.ts` mirrors ``ENTITY_FIELD_SPECS`` — keep them identical.
+
+    The CSV import page runs the backend's own two header checks client-side
+    (unrecognised column, required ``title``) so the user gets the verdict
+    before paying for an upload round-trip. That mirror is only honest while it
+    lists exactly the columns this service accepts: a column added here but not
+    there would be reported to the user as "unknown, its data will NOT be
+    imported" while the backend happily imports it.
+
+    Guarding it from the Python side is deliberate — the TypeScript test suite
+    cannot import ``ENTITY_FIELD_SPECS``, so this is the only place where the
+    two lists can actually be compared.
+    """
+    import re
+    from pathlib import Path
+
+    from application.export_service import ENTITY_FIELD_SPECS
+
+    preview_ts = (
+        Path(__file__).resolve().parents[2]
+        / "frontend"
+        / "src"
+        / "components"
+        / "CsvImport"
+        / "csvPreview.ts"
+    )
+    if not preview_ts.is_file():
+        # The backend dev container mounts only `backend/` as /app, so the
+        # frontend tree is genuinely absent there. CI runs pytest against the
+        # full checkout (`working-directory: backend`), which is where this
+        # guard actually bites.
+        pytest.skip(f"frontend tree not available at {preview_ts}")
+
+    source = preview_ts.read_text(encoding="utf-8")
+    block = re.search(
+        r"export const KNOWN_CSV_COLUMNS[^=]*=\s*\{(.*?)\n\};",
+        source,
+        re.DOTALL,
+    )
+    assert block, "KNOWN_CSV_COLUMNS declaration not found in csvPreview.ts"
+
+    frontend: dict[str, set[str]] = {}
+    for entity, body in re.findall(r"(\w+):\s*\[(.*?)\]", block.group(1), re.DOTALL):
+        frontend[entity] = set(re.findall(r'"([^"]+)"', body))
+
+    # The import page only offers these three entity types (ENTITY_TYPES).
+    assert set(frontend) == {"Requirement", "ArchitectureElement", "TestCase"}
+
+    for entity, columns in frontend.items():
+        expected = {column for column, _kind in ENTITY_FIELD_SPECS[entity]}
+        assert columns == expected, (
+            f"csvPreview.ts KNOWN_CSV_COLUMNS['{entity}'] drifted from "
+            f"ENTITY_FIELD_SPECS: missing={sorted(expected - columns)}, "
+            f"extra={sorted(columns - expected)}"
+        )

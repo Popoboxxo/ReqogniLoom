@@ -165,3 +165,59 @@ describe("TestRunDetailEditor result entry (UI-04)", () => {
     expect(screen.queryByTestId("testrun-results-save-error")).not.toBeInTheDocument();
   });
 });
+
+// -----------------------------------------------------------------------
+// UI-56 (Systemaudit 2026-08-27 AP-5): close-terminality must be explicit.
+// -----------------------------------------------------------------------
+describe("TestRunDetailEditor close-terminality (UI-56)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(testRunsModule.testRunsApi.listResults).mockResolvedValue([RESULT]);
+  });
+
+  it("shows the terminal hint once a run is closed", async () => {
+    render(
+      <TestRunDetailEditor
+        testRun={makeRun("closed")}
+        onClose={vi.fn()}
+        onRefresh={vi.fn()}
+        onUpdated={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByTestId("testrun-closed-terminal-hint")).toBeInTheDocument();
+    // A closed run has no Close button to begin with (already gated on
+    // status === "in_progress").
+    expect(screen.queryByTestId("testrun-close-btn")).not.toBeInTheDocument();
+  });
+
+  it("does not show the terminal hint for a still-open run", async () => {
+    render(
+      <TestRunDetailEditor
+        testRun={makeRun("in_progress")}
+        onClose={vi.fn()}
+        onRefresh={vi.fn()}
+        onUpdated={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("testrun-close-btn");
+    expect(screen.queryByTestId("testrun-closed-terminal-hint")).not.toBeInTheDocument();
+  });
+
+  it("warns that closing is irreversible in the close-confirmation prompt", async () => {
+    const user = userEvent.setup();
+    render(
+      <TestRunDetailEditor
+        testRun={makeRun("in_progress")}
+        onClose={vi.fn()}
+        onRefresh={vi.fn()}
+        onUpdated={vi.fn()}
+      />,
+    );
+
+    await user.click(await screen.findByTestId("testrun-close-btn"));
+
+    expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument();
+  });
+});

@@ -30,8 +30,22 @@ export class ForbiddenError extends Error {
 export class UnprocessableEntityError extends Error {
   readonly status = 422;
 
-  constructor(message = "This action cannot be applied automatically.") {
+  /**
+   * UI-40: structured per-violation detail, when the backend supplied one
+   * (e.g. `DecompositionAuditError.findings` — the SE-Auditor/invariant
+   * findings that caused an architecture-decompose commit to roll back).
+   * Previously dropped entirely by the generic 422 handler in
+   * `client.ts`, forcing callers to render the flat `message` string as an
+   * unstructured wall of text instead of a per-finding list.
+   */
+  readonly findings?: ReadonlyArray<Record<string, unknown>>;
+
+  constructor(
+    message = "This action cannot be applied automatically.",
+    findings?: ReadonlyArray<Record<string, unknown>>
+  ) {
     super(message);
     this.name = "UnprocessableEntityError";
+    this.findings = findings;
   }
 }

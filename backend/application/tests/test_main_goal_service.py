@@ -1,8 +1,9 @@
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from application.ai_derivation_service import MOCK_FALLBACK_MARKER
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
@@ -337,6 +338,63 @@ class MainGoalServiceGenerateAiTests(TestCase):
         )
 
         self.assertEqual(result["generated_from_goal_ids"], [first["id"]])
+
+    def test_generate_ai_strips_mock_fallback_marker_and_flags_result(self):
+        """UI-28 (Systemaudit 2026-08-27 AP-5): when ``_complete()`` degrades
+        to the mock provider (``LlmNotConfiguredError``/
+        ``LlmProviderUnknownError`` from ``get_provider()``), the persisted
+        MainGoal content must not carry ``MOCK_FALLBACK_MARKER`` and the
+        returned dict must report ``is_mock_fallback=True`` so the REST view
+        (and, downstream, ``MainGoalPanel.tsx``'s mock-fallback hint) can
+        surface it — see ``MainGoalService.generate_ai``'s own comment on
+        this contract.
+        """
+        from llm_adapter.providers import LlmNotConfiguredError
+
+        workspace = Workspace.objects.create(
+            tenant=self.tenant,
+            name="W-mock-fallback",
+            goals_enabled=True,
+            goals_ai_enabled=True,
+        )
+        _provision_goal_workflow(workspace)
+        editor_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("editor",))
+        approver_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("approver",))
+
+        goal = GoalService().create_version(
+            workspace_id=workspace.id,
+            title="Reduce onboarding time",
+            description="Cut onboarding from 5 days to 2 days.",
+            lineage_id=None,
+            ctx=editor_ctx,
+        )
+        GoalService().transition_status(
+            uuid.UUID(goal["id"]),
+            "Freigegeben",
+            approver_ctx,
+            change_reason="Goal approved.",
+        )
+
+        # `_complete()` imports `get_provider` from `llm_adapter.providers`
+        # locally on every call, so patching it at its defining module (not
+        # `application.ai_derivation_service`) is what actually takes effect
+        # — mirrors `test_ai_derivation_service.py`'s
+        # `monkeypatch.setattr("llm_adapter.providers.get_provider", ...)`.
+        with patch(
+            "llm_adapter.providers.get_provider",
+            side_effect=LlmNotConfiguredError("no provider configured"),
+        ):
+            result = MainGoalService().generate_ai(
+                workspace_id=workspace.id, ctx=approver_ctx
+            )
+
+        self.assertTrue(result["is_mock_fallback"])
+        self.assertFalse(result["content"].startswith(MOCK_FALLBACK_MARKER))
+        self.assertNotIn(MOCK_FALLBACK_MARKER, result["content"])
+
+        main_goal = MainGoal.objects.get(id=result["id"])
+        self.assertFalse(main_goal.content.startswith(MOCK_FALLBACK_MARKER))
+        self.assertNotIn(MOCK_FALLBACK_MARKER, main_goal.content)
 
 
 class MainGoalServiceApproveTests(TestCase):
