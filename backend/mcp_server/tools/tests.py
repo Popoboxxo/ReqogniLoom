@@ -978,7 +978,20 @@ class McpTestToolGroup(BaseToolGroup):
             api_key=api_key,
             details={"source_requirement_id": str(requirement_id), "policy": policy},
         )
-        return ToolResult.ok({"written": result})
+        # Systemaudit 2026-08-27 item 11: mode="preview" forwards the
+        # service's dict verbatim (so its `is_mock_fallback` reaches the
+        # client for free), but this write-mode response is a fixed literal
+        # that would silently drop the flag — and knowing that the TestCase
+        # just persisted came from the mock fallback rather than a real
+        # provider matters more, not less, than knowing it about a draft.
+        # `.get` with a default keeps this tolerant of a service double that
+        # returns only `draft`.
+        return ToolResult.ok(
+            {
+                "written": result,
+                "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+            }
+        )
 
     # ------------------------------------------------------------------
     # test.outdate

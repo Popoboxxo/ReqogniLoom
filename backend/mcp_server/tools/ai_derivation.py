@@ -208,7 +208,17 @@ def derive_requirements_from_need(
             api_key=api_key,
             details={"source_need_id": str(need_id), "policy": policy},
         )
-    response: Dict[str, Any] = {"written": written}
+    # Systemaudit 2026-08-27 item 11: mode="preview" forwards the service's
+    # dict verbatim (so its `is_mock_fallback` reaches the client for free),
+    # but this write-mode response is a fixed literal that would silently
+    # drop the flag — and knowing that what was just *persisted* came from
+    # the mock fallback rather than a real provider matters more, not less,
+    # than knowing it about a throwaway draft. `.get` with a default keeps
+    # this tolerant of a service double that returns only `drafts`.
+    response: Dict[str, Any] = {
+        "written": written,
+        "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+    }
     if failed:
         response["failed"] = failed
     return ToolResult.ok(response)
@@ -450,9 +460,14 @@ class AiDerivationToolGroup(BaseToolGroup):
         # Looping allocate() over every suggested id would silently discard
         # all but the last one, which is not a "write everything the preview
         # returned" semantic worth pretending to support.
+        # See derive_requirements_from_need above (Systemaudit item 11) for
+        # why the write-mode literal carries the flag too.
+        is_mock_fallback = bool(preview.get("is_mock_fallback", False))
         suggested_ids = preview["suggested_arch_element_ids"]
         if not suggested_ids:
-            return ToolResult.ok({"written": []})
+            return ToolResult.ok(
+                {"written": [], "is_mock_fallback": is_mock_fallback}
+            )
 
         from application.trace_link_service import TraceLinkService
 
@@ -480,7 +495,12 @@ class AiDerivationToolGroup(BaseToolGroup):
             },
         )
         return ToolResult.ok(
-            {"written": [{"target_id": top_choice, "trace_link_id": str(link.id)}]}
+            {
+                "written": [
+                    {"target_id": top_choice, "trace_link_id": str(link.id)}
+                ],
+                "is_mock_fallback": is_mock_fallback,
+            }
         )
 
     def _handle_decompose_next_level(
@@ -553,7 +573,11 @@ class AiDerivationToolGroup(BaseToolGroup):
                 api_key=api_key,
                 details={"parent_requirement_id": str(requirement_id), "policy": policy},
             )
-        response: Dict[str, Any] = {"written": written}
+        # See derive_requirements_from_need above (Systemaudit item 11).
+        response: Dict[str, Any] = {
+            "written": written,
+            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        }
         if failed:
             response["failed"] = failed
         return ToolResult.ok(response)
@@ -631,7 +655,11 @@ class AiDerivationToolGroup(BaseToolGroup):
                     "policy": policy,
                 },
             )
-        response: Dict[str, Any] = {"written": written}
+        # See derive_requirements_from_need above (Systemaudit item 11).
+        response: Dict[str, Any] = {
+            "written": written,
+            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        }
         if failed:
             response["failed"] = failed
         return ToolResult.ok(response)
@@ -697,7 +725,11 @@ class AiDerivationToolGroup(BaseToolGroup):
                 api_key=api_key,
                 details={"source_workspace_id": str(workspace_id), "policy": policy},
             )
-        response: Dict[str, Any] = {"written": written}
+        # See derive_requirements_from_need above (Systemaudit item 11).
+        response: Dict[str, Any] = {
+            "written": written,
+            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        }
         if failed:
             response["failed"] = failed
         return ToolResult.ok(response)
@@ -763,7 +795,13 @@ class AiDerivationToolGroup(BaseToolGroup):
             api_key=api_key,
             details={"workspace_id": str(workspace_id), "policy": policy},
         )
-        return ToolResult.ok({"written": result})
+        # See derive_requirements_from_need above (Systemaudit item 11).
+        return ToolResult.ok(
+            {
+                "written": result,
+                "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+            }
+        )
 
 
 __all__ = ["AiDerivationToolGroup"]

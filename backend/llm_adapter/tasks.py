@@ -49,13 +49,8 @@ def _serialise(result: object) -> dict:
     return {"result": result}
 
 
-# Rough characters-per-token ratio for English text, used only as a fallback
-# when no real token count is available (see _approximate_completion_tokens).
-_APPROX_CHARS_PER_TOKEN = 4
-
-
 def _approximate_completion_tokens(prompt: str, result_text: str) -> int:
-    """Approximate a token count for a "complete" capability call.
+    """Approximate a combined token count for a "complete" capability call.
 
     ``complete()`` (``llm_adapter.providers``) returns a plain ``str`` with
     no token-usage figure attached, unlike the 4 original capabilities whose
@@ -68,14 +63,15 @@ def _approximate_completion_tokens(prompt: str, result_text: str) -> int:
     MCP cross_cutting tools) and is out of scope for wiring up the
     "complete" capability here.
 
-    This uses the common ~4-characters-per-token heuristic for English text
-    instead, so REQ-106 daily-budget accounting for "complete" calls is a
-    reasonable order-of-magnitude estimate rather than silently always 0.
-    NOT a substitute for a real count -- revisit if precise accounting for
-    "complete" calls becomes a real requirement.
+    Delegates to the shared ~4-characters-per-token heuristic in
+    ``llm_adapter.token_tracking`` (the same estimator the sync free-form
+    paths use) so a single definition of "approximate token count" applies
+    across the async and sync paths. Prompt and completion are estimated as
+    one combined string because this task records a single number.
     """
-    combined_length = len(prompt or "") + len(result_text or "")
-    return max(1, combined_length // _APPROX_CHARS_PER_TOKEN) if combined_length else 0
+    from llm_adapter.token_tracking import approximate_token_count  # noqa: PLC0415
+
+    return approximate_token_count((prompt or "") + (result_text or ""))
 
 
 @shared_task(bind=True, name="llm_adapter.run_capability")

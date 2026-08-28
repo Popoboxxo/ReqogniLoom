@@ -38,6 +38,8 @@ import logging
 import uuid
 from typing import Any, Optional
 
+from django.db import transaction
+
 from persistence.transactions import atomic_transaction
 
 from application.base import (
@@ -110,7 +112,6 @@ class MainGoalService(ServiceBase):
             ctx=ctx,
         )
 
-    @atomic_transaction
     def generate_ai(self, *, workspace_id: uuid.UUID, ctx: Any) -> dict:
         """Aggregate the workspace's current Goals into an AI-authored MainGoal.
 
@@ -121,6 +122,29 @@ class MainGoalService(ServiceBase):
         design spec 3/4.2), and runs it through the configured LLM
         provider (``AiDerivationService._complete``, with caching, daily
         token-limit enforcement and mock-provider degradation baked in).
+
+        Transaction scope (Systemaudit 2026-08-27 item 14): unlike every
+        other write method on this service, this one is deliberately NOT
+        decorated with ``@atomic_transaction``. The provider call below is a
+        synchronous outbound HTTP request with its own retry/timeout budget
+        (seconds, and up to the longer ``resolve_timeout_seconds`` cap),
+        which under the decorator ran with a DB transaction — and therefore a
+        pooled connection — held open for its full duration, for nothing: the
+        LLM call performs no DB work that could need rolling back. Only the
+        persistence step is wrapped in ``transaction.atomic()`` now, which
+        keeps ``_create_row``'s sequence-number read and its inserts in one
+        atomic unit exactly as before while cutting connection-hold time from
+        "however long the provider takes" down to the write itself.
+
+        This is safe for tenant isolation: RLS binds ``app.current_tenant``
+        with a session-scoped ``SET`` (not ``SET LOCAL``) in
+        ``persistence.middleware``, precisely because ``ATOMIC_REQUESTS`` is
+        off — so the tenant binding spans transaction boundaries and the
+        narrower block is still tenant-scoped. The trade-off is that the
+        feature-gate and Goal reads above now happen outside the write's
+        transaction; a workspace deleted in that window fails the insert on
+        its foreign key and rolls the write back, which is the same net
+        outcome the wider transaction produced.
 
         Args:
             workspace_id: Target workspace UUID.
@@ -180,6 +204,10 @@ class MainGoalService(ServiceBase):
         # tuple (fix #552) instead of stashing the cache key on
         # ``self._last_cache_key``; this flow has no eviction logic, so the
         # cache key is discarded here.
+        # Runs OUTSIDE any transaction on purpose — see this method's
+        # docstring (Systemaudit item 14): a multi-second outbound HTTP call
+        # must not hold a DB connection/transaction open, and it has nothing
+        # to roll back.
         content, _cache_key = ai_svc._complete(
             prompt,
             purpose="goal_aggregate",
@@ -190,14 +218,18 @@ class MainGoalService(ServiceBase):
             },
         )
 
-        return self._create_row(
-            workspace=workspace,
-            tenant=tenant,
-            content=content,
-            source="ai",
-            generated_from_goal_ids=[str(g.id) for g in goals],
-            ctx=ctx,
-        )
+        # Only the persistence step is atomic (REQ-L3-PL003-001/002):
+        # _create_row derives the next sequence_number from a read and then
+        # writes an Artifact + MainGoal, so those must stay in one unit.
+        with transaction.atomic():
+            return self._create_row(
+                workspace=workspace,
+                tenant=tenant,
+                content=content,
+                source="ai",
+                generated_from_goal_ids=[str(g.id) for g in goals],
+                ctx=ctx,
+            )
 
     def _resolve_tenant_and_workspace(
         self, workspace_id: uuid.UUID, ctx: Any
