@@ -432,18 +432,6 @@ _GRAPH_POLICY_FIELD = "traceability_target"
 #: ``traceability.types.SE_LINK_SEMANTICS``, so no other type can satisfy it.
 _VERIFIES_LINK_ENFORCED_TYPES = frozenset({"TestCase"})
 
-#: Raw link-type literal for "this artifact replaces that one". Deliberately a
-#: string, not a ``LinkType`` member: the enum has none (see the "LinkType gap"
-#: section of ``traceability/audit/rules/coverage_consistency.py``, which holds
-#: the same constant as ``_SUPERCEDES``). Rule 7 mirrors TRACE-P6's
-#: ``_superseded_artifact_ids`` so both apply *one* definition of a valid
-#: verification target; dropping it here would let a TestCase whose only
-#: subject was superseded pass the approval gate and be blocked at the baseline
-#: build instead — precisely the late feedback this rule exists to avoid.
-#: Direction: source = the new artifact, target = the superseded one.
-_SUPERSEDES_LINK_TYPE = "supersedes"
-
-
 def check_verifies_link(
     *,
     workspace_id: str,
@@ -454,9 +442,8 @@ def check_verifies_link(
     """Require a ``verifies`` link before a TestCase may be approved (#584).
 
     The link must point at a Requirement or ArchitectureElement that is alive
-    (not soft-deleted), not superseded, and lives in the same workspace — the
-    same target pool ``traceability.audit.rules.coverage_consistency``
-    (TRACE-P6) evaluates.
+    (not soft-deleted) and lives in the same workspace — the same target pool
+    ``traceability.audit.rules.coverage_consistency`` (TRACE-P6) evaluates.
 
     Args:
         workspace_id: Workspace UUID string (drives the tier lookup).
@@ -512,16 +499,6 @@ def check_verifies_link(
                 source_id=test_case.artifact_id,
             ).values_list("target_id", flat=True)
         )
-
-        # An artifact replaced via SUPERCEDES is not a valid subject —
-        # TRACE-P6 applies the same exclusion (_superseded_artifact_ids).
-        if target_ids:
-            target_ids -= set(
-                TraceLink.objects.filter(
-                    link_type=_SUPERSEDES_LINK_TYPE,
-                    target_id__in=target_ids,
-                ).values_list("target_id", flat=True)
-            )
 
         live_target_exists = False
         if target_ids:

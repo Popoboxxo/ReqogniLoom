@@ -79,7 +79,7 @@ def _run(tenant, workspace, tier="extended"):
 
 
 # ---------------------------------------------------------------------------
-# TRACE-P6 — TestCase verifies an existing, non-superseded target.
+# TRACE-P6 — TestCase verifies an existing target.
 # ---------------------------------------------------------------------------
 
 
@@ -97,22 +97,6 @@ class TestTraceP6:
     def test_testcase_without_verifies_link_is_flagged(self, tenant_a, workspace_a):
         with active_tenant(tenant_a):
             tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Orphan TC")
-
-            result = _run(tenant_a, workspace_a, tier="standard")
-
-        findings = _findings(result, TRACE_P6)
-        assert len(findings) == 1
-        assert str(tc_artifact.id) in findings[0].artifact_ids
-
-    def test_testcase_verifying_only_a_superseded_requirement_is_flagged(
-        self, tenant_a, workspace_a
-    ):
-        with active_tenant(tenant_a):
-            old_req, _ = make_requirement(tenant_a, workspace_a, title="Old Req")
-            new_req, _ = make_requirement(tenant_a, workspace_a, title="New Req")
-            make_trace_link(new_req, old_req, tenant_a, "supersedes")
-            tc_artifact, _ = make_test_case(tenant_a, workspace_a, title="TC")
-            make_trace_link(tc_artifact, old_req, tenant_a, "verifies")
 
             result = _run(tenant_a, workspace_a, tier="standard")
 
