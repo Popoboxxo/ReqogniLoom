@@ -577,6 +577,13 @@ class TestPollAndDispatchAtomicClaim:
             patch.object(bus, "dispatch_to_subscribers") as mock_dispatch,
         ):
             self._make_atomic_ctx(mock_atomic)
+            # dispatch_to_subscribers reports failures via its return value
+            # (a list of error strings, empty = all subscribers succeeded —
+            # see its docstring), not by raising. An unconfigured Mock's
+            # default return value is a truthy MagicMock(), which
+            # poll_and_dispatch's `if errors:` would treat as a dispatch
+            # failure and route to the retry/DLQ path instead of publishing.
+            mock_dispatch.return_value = []
 
             # Candidate PK query returns [candidate_pk]
             (
