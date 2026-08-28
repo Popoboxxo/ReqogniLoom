@@ -92,7 +92,11 @@ def noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workflow", "0014_testcase_status_lowercase"),
+        # Renumbered from 0015 during the P0/P1 audit-sprint merge — the
+        # unrelated P0 branch had already claimed 0015 for
+        # 0015_workflow_rls_policies. Depends on that leaf, not 0014, so both
+        # sprints' migrations chain linearly instead of forking the graph.
+        ("workflow", "0015_workflow_rls_policies"),
     ]
 
     operations = [

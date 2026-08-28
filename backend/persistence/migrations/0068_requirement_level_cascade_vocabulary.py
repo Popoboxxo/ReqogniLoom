@@ -112,7 +112,11 @@ def backwards(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('persistence', '0066_interview_multi_mode'),
+        # Renumbered from 0067 during the P0/P1 audit-sprint merge — the
+        # unrelated P0 branch had already claimed 0067 for
+        # 0067_rls_remaining_pl_tables. Depends on that leaf, not 0066, so
+        # both sprints' migrations chain linearly instead of forking the graph.
+        ('persistence', '0067_rls_remaining_pl_tables'),
     ]
 
     operations = [

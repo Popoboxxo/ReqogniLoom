@@ -32,7 +32,7 @@ from workflow.lifecycle_manager import (
     map_lifecycle_status,
 )
 
-_mig = import_module("workflow.migrations.0016_backfill_lifecycle_status_mirror")
+_mig = import_module("workflow.migrations.0017_backfill_lifecycle_status_mirror")
 backfill_lifecycle_status = _mig.backfill_lifecycle_status
 
 

@@ -30,7 +30,7 @@ from django.apps import apps as django_apps
 
 from workflow.definition_store import PRESET_SCHEMAS, get_state_meta
 
-_mig = import_module("workflow.migrations.0015_seed_adr_risk_outdated_equivalent_flags")
+_mig = import_module("workflow.migrations.0016_seed_adr_risk_outdated_equivalent_flags")
 seed_outdated_equivalent_flags = _mig.seed_outdated_equivalent_flags
 
 

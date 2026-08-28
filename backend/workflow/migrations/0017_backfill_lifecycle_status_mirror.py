@@ -93,10 +93,12 @@ def noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workflow", "0015_seed_adr_risk_outdated_equivalent_flags"),
+        # Renumbered from 0016 during the P0/P1 audit-sprint merge, see
+        # 0016_seed_adr_risk_outdated_equivalent_flags's dependency comment.
+        ("workflow", "0016_seed_adr_risk_outdated_equivalent_flags"),
         # Reads persistence.ArchitectureElement / GlossaryTerm at their latest
         # schema (both already declare `lifecycle_status`).
-        ("persistence", "0067_requirement_level_cascade_vocabulary"),
+        ("persistence", "0068_requirement_level_cascade_vocabulary"),
     ]
 
     operations = [
