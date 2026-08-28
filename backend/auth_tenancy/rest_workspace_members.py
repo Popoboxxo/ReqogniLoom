@@ -37,7 +37,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
+from application.base import ServiceBase
+from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied

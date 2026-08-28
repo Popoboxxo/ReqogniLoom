@@ -24,7 +24,7 @@ from uuid import UUID
 
 from django.db import transaction
 
-from application.base import NotFoundError
+from persistence.errors import NotFoundError
 from persistence.models import User, Workspace
 from presets.models import WorkspacePresetConfig
 
