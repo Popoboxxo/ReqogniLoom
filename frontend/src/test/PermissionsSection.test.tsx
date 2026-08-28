@@ -163,6 +163,10 @@ describe("PermissionsSection workspace members suspend/reactivate (Task 13)", ()
     const suspendBtn = await screen.findByTestId(`workspace-member-suspend-${BOB_ID}-editor`);
     await user.click(suspendBtn);
 
+    // Confirm dialog must be clicked before suspendRole is called
+    const confirmBtn = await screen.findByTestId("workspace-member-suspend-confirm-confirm");
+    await user.click(confirmBtn);
+
     await waitFor(() => {
       expect(workspaceMembersApi.suspendRole).toHaveBeenCalledWith("ws-1", BOB_ID, "editor");
     });
@@ -185,6 +189,10 @@ describe("PermissionsSection workspace members suspend/reactivate (Task 13)", ()
 
     const suspendBtn = await screen.findByTestId(`workspace-member-suspend-${BOB_ID}-editor`);
     await user.click(suspendBtn);
+
+    // Confirm dialog must be clicked before the suspend API call completes
+    const confirmBtn = await screen.findByTestId("workspace-member-suspend-confirm-confirm");
+    await user.click(confirmBtn);
 
     const reactivateBtn = await screen.findByTestId(
       `workspace-member-reactivate-${BOB_ID}-editor`
@@ -214,6 +222,10 @@ describe("PermissionsSection workspace members suspend/reactivate (Task 13)", ()
 
     const suspendBtn = await screen.findByTestId(`workspace-member-suspend-${BOB_ID}-editor`);
     await user.click(suspendBtn);
+
+    // Confirm dialog must be clicked before error handling is checked
+    const confirmBtn = await screen.findByTestId("workspace-member-suspend-confirm-confirm");
+    await user.click(confirmBtn);
 
     await waitFor(() => {
       expect(screen.getByTestId("workspace-members-error")).toHaveTextContent(

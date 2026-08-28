@@ -40,6 +40,7 @@ import {
   neighborOf,
   type HierarchyRelation,
 } from '../../utils/traceEndpoints';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';
 import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
@@ -123,6 +124,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
   const [deriveArchitectureElementId, setDeriveArchitectureElementId] = useState<string>('');
   const [isDeriving, setIsDeriving] = useState<boolean>(false);
   const [deriveError, setDeriveError] = useState<string | null>(null);
+  // UI-09 (system audit P4): deleting a trace link is destructive and
+  // irreversible — require explicit confirmation.
+  const [pendingDeleteLinkId, setPendingDeleteLinkId] = useState<UUID | null>(null);
 
   // Load TraceLinks
   useEffect(() => {
@@ -372,6 +376,13 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
     } catch (err: unknown) {
       console.error('Delete tracelink failed:', err);
     }
+  };
+
+  const confirmDeleteLink = async (): Promise<void> => {
+    if (!pendingDeleteLinkId) return;
+    const linkId = pendingDeleteLinkId;
+    setPendingDeleteLinkId(null);
+    await handleDelete(linkId);
   };
 
   const openDeriveForm = (): void => {
@@ -747,7 +758,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                         </button>
                         <button
                           data-testid="req-tracelink-delete-btn"
-                          onClick={() => void handleDelete(link.id)}
+                          onClick={() => setPendingDeleteLinkId(link.id)}
                           style={{
                             marginLeft: 'auto',
                             background: 'none',
@@ -843,7 +854,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                         </button>
                         <button
                           data-testid="req-tracelink-delete-btn"
-                          onClick={() => void handleDelete(link.id)}
+                          onClick={() => setPendingDeleteLinkId(link.id)}
                           style={{
                             marginLeft: 'auto',
                             background: 'none',
@@ -885,6 +896,20 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           testIdPrefix="req"
         />
       </div>
+
+      {pendingDeleteLinkId && (
+        <ConfirmDialog
+          title={t('traceability.deleteConfirmTitle', 'TraceLink löschen')}
+          message={t(
+            'traceability.deleteConfirmMessage',
+            'Diesen TraceLink löschen? Diese Aktion kann nicht rückgängig gemacht werden.'
+          )}
+          confirmLabel={t('actions.delete', 'Löschen')}
+          onConfirm={() => void confirmDeleteLink()}
+          onCancel={() => setPendingDeleteLinkId(null)}
+          testId="req-tracelink-delete-confirm"
+        />
+      )}
     </div>
   );
 };

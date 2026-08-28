@@ -134,7 +134,20 @@ function collectReferencedKeys(dir: string): Set<string> {
 // The remainder is real but unverified backlog (#619's own scan found 174 at
 // a different point in time; source has grown since), not immediately
 // actionable without confirming each one's actual rendered-language impact.
-const MISSING_KEY_BASELINE = 145;
+//
+// Lowered to 135 (Systemaudit 2026-08-27, UI-11): `adrs.summary`,
+// `risks.summary`, `issues.summary` were referenced via
+// `t('<x>.summary', {count})` but only the i18next-pluralized
+// `<x>.summary_one`/`<x>.summary_other` forms existed, so this scanner
+// (which only sees literal key strings, not i18next's plural-suffix
+// resolution) flagged the bare key as unresolved. Runtime rendering was
+// unaffected — i18next always resolves `_one`/`_other` for a `count`-bearing
+// call regardless of whether a bare key also exists — but the scan itself is
+// intentionally naive about that, so a bare `summary` key was added to both
+// locale files (mirroring `_other`) purely to keep this ratchet accurate.
+// The measured count had already drifted down to 138 since the 145 baseline
+// was set (unrelated fixes); this change's 3-key fix brings it to 135.
+const MISSING_KEY_BASELINE = 135;
 
 describe("i18n code-to-locale coverage (#619)", () => {
   it("does not reference more undefined translation keys than the frozen baseline", () => {

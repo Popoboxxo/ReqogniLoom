@@ -45,6 +45,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../context/AuthContext";
 import { usersApi, type ManagedUser } from "../../../api/users";
+import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { Dialog } from "../../shared/Dialog";
 import { PageHeader } from "../../shared/PageHeader";
 import styles from "./UserManagement.module.css";
@@ -137,6 +138,12 @@ export function UserManagement(): JSX.Element {
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
+  // UI-09 (system audit P4): deactivating a user or revoking tenant-admin
+  // are destructive/high-impact actions — require an explicit confirmation
+  // before firing the request. Activating / granting stay one-click.
+  const [pendingDeactivateUser, setPendingDeactivateUser] = useState<ManagedUser | null>(null);
+  const [pendingRevokeAdminUser, setPendingRevokeAdminUser] = useState<ManagedUser | null>(null);
+
   const reload = useCallback(async (): Promise<void> => {
     setIsLoading(true);
     try {
@@ -193,6 +200,23 @@ export function UserManagement(): JSX.Element {
     [reload, handleApiError]
   );
 
+  // Only deactivation is destructive (loses the user's session/access
+  // immediately) — activation stays a direct one-click action.
+  const requestToggleActive = useCallback((u: ManagedUser): void => {
+    if (u.is_active) {
+      setPendingDeactivateUser(u);
+    } else {
+      void handleToggleActive(u);
+    }
+  }, [handleToggleActive]);
+
+  const confirmDeactivate = useCallback(async (): Promise<void> => {
+    if (!pendingDeactivateUser) return;
+    const u = pendingDeactivateUser;
+    setPendingDeactivateUser(null);
+    await handleToggleActive(u);
+  }, [pendingDeactivateUser, handleToggleActive]);
+
   const handleToggleTenantAdmin = useCallback(
     async (u: ManagedUser): Promise<void> => {
       setError(null);
@@ -209,6 +233,23 @@ export function UserManagement(): JSX.Element {
     },
     [reload, handleApiError]
   );
+
+  // Only revoking tenant-admin is destructive (loses elevated access
+  // immediately) — granting stays a direct one-click action.
+  const requestToggleTenantAdmin = useCallback((u: ManagedUser): void => {
+    if (u.is_tenant_admin) {
+      setPendingRevokeAdminUser(u);
+    } else {
+      void handleToggleTenantAdmin(u);
+    }
+  }, [handleToggleTenantAdmin]);
+
+  const confirmRevokeAdmin = useCallback(async (): Promise<void> => {
+    if (!pendingRevokeAdminUser) return;
+    const u = pendingRevokeAdminUser;
+    setPendingRevokeAdminUser(null);
+    await handleToggleTenantAdmin(u);
+  }, [pendingRevokeAdminUser, handleToggleTenantAdmin]);
 
   const resetCreateForm = useCallback((): void => {
     setCreateUsername("");
@@ -300,7 +341,7 @@ export function UserManagement(): JSX.Element {
                     <button
                       type="button"
                       data-testid={`user-management-toggle-active-${u.id}`}
-                      onClick={() => void handleToggleActive(u)}
+                      onClick={() => requestToggleActive(u)}
                       className={styles.actionButton}
                     >
                       {u.is_active ? t("settings.userManagement.deactivate") : t("settings.userManagement.activate")}
@@ -308,7 +349,7 @@ export function UserManagement(): JSX.Element {
                     <button
                       type="button"
                       data-testid={`user-management-toggle-admin-${u.id}`}
-                      onClick={() => void handleToggleTenantAdmin(u)}
+                      onClick={() => requestToggleTenantAdmin(u)}
                       className={styles.actionButton}
                     >
                       {u.is_tenant_admin
@@ -327,6 +368,32 @@ export function UserManagement(): JSX.Element {
         <p role="alert" data-testid="user-management-error" className={styles.error}>
           {error}
         </p>
+      )}
+
+      {pendingDeactivateUser && (
+        <ConfirmDialog
+          title={t("settings.userManagement.deactivateConfirmTitle")}
+          message={t("settings.userManagement.deactivateConfirmMessage", {
+            username: pendingDeactivateUser.username,
+          })}
+          confirmLabel={t("settings.userManagement.deactivate")}
+          onConfirm={() => void confirmDeactivate()}
+          onCancel={() => setPendingDeactivateUser(null)}
+          testId="user-management-deactivate-confirm"
+        />
+      )}
+
+      {pendingRevokeAdminUser && (
+        <ConfirmDialog
+          title={t("settings.userManagement.revokeTenantAdminConfirmTitle")}
+          message={t("settings.userManagement.revokeTenantAdminConfirmMessage", {
+            username: pendingRevokeAdminUser.username,
+          })}
+          confirmLabel={t("settings.userManagement.revokeTenantAdmin")}
+          onConfirm={() => void confirmRevokeAdmin()}
+          onCancel={() => setPendingRevokeAdminUser(null)}
+          testId="user-management-revoke-admin-confirm"
+        />
       )}
 
       {showCreateDialog && (

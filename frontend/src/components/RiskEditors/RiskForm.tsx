@@ -263,7 +263,21 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
               </select>
             </div>
           </div>
-          <div style={{ position: 'relative' }}>
+          {/* UI-10 (system audit P4): close only when focus leaves the whole
+              field (input + dropdown), not when it moves from the input to a
+              suggestion — a plain setTimeout would close the list out from
+              under a keyboard user tabbing into it. The wrapper itself is not
+              an interactive element; it only observes focus leaving its
+              subtree (the input and the listbox remain the actual widgets). */}
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+          <div
+            style={{ position: 'relative' }}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setOwnerDropdownOpen(false);
+              }
+            }}
+          >
             <label style={labelStyle}>{t('risks.owner')}</label>
             <input
               type="text"
@@ -274,15 +288,18 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
                   setOwnerDropdownOpen(true);
                 }
               }}
-              onBlur={() => {
-                // Delay closing dropdown to allow click on suggestion to register
-                setTimeout(() => setOwnerDropdownOpen(false), 150);
-              }}
+              role="combobox"
+              aria-expanded={ownerDropdownOpen && ownerSuggestions.length > 0}
+              aria-controls="risk-owner-dropdown"
+              aria-autocomplete="list"
               style={inputStyle}
               data-testid="risk-owner-input"
             />
             {ownerDropdownOpen && ownerSuggestions.length > 0 && (
               <div
+                id="risk-owner-dropdown"
+                role="listbox"
+                aria-label={t('risks.owner')}
                 style={{
                   position: 'absolute',
                   top: '100%',
@@ -301,7 +318,16 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
                 {ownerSuggestions.map((suggestion) => (
                   <div
                     key={suggestion}
+                    role="option"
+                    aria-selected={suggestion === formData.owner}
+                    tabIndex={0}
                     onClick={() => handleOwnerSuggestionClick(suggestion)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleOwnerSuggestionClick(suggestion);
+                      }
+                    }}
                     style={{
                       padding: 'var(--space-2) var(--space-3)',
                       cursor: 'pointer',

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import type { ArchitectureElement, StakeholderNeed, MoscowPriority } from '../../types';
+import type { ArchitectureElement, StakeholderNeed, MoscowPriority, CustomFields } from '../../types';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useEntityReset } from '../../hooks/use-entity-reset';
+import { useFormDirty } from '../../hooks/use-form-dirty';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
@@ -20,15 +22,37 @@ import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 
+/**
+ * Systemaudit 2026-08-27 UI-06: mirrors `RequirementFormValues`
+ * (RequirementForm.tsx) — a snapshot of every locally-editable field, shared
+ * between the entity-switch reset, the `isDirty` baseline and the post-save
+ * `markClean` call, so all three always agree on the same shape.
+ */
+interface NeedFormValues {
+  title: string;
+  description: string;
+  category: string;
+  moscowPriority: MoscowPriority | undefined;
+  customFields: CustomFields;
+  changeReason: string;
+}
+
 interface NeedFormProps {
   need: StakeholderNeed | null;
   onSaved: () => void;
   onDeleted: () => void;
   attributeVisibility?: Record<string, boolean>;
   onNeedsChanged?: () => void;
+  /**
+   * Systemaudit 2026-08-27 UI-06: invoked whenever this form's "has unsaved
+   * local edits" state changes, so the parent (NeedsEditors) can warn before
+   * navigating away to a different need and silently discarding them.
+   * Mirrors RequirementForm's `onDirtyChange` (issue #672).
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
-export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, onNeedsChanged }: NeedFormProps): JSX.Element {
+export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, onNeedsChanged, onDirtyChange }: NeedFormProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
@@ -138,19 +162,74 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     if (onNeedsChanged) onNeedsChanged();
   };
 
+  // Systemaudit 2026-08-27 UI-06: "has unsaved local edits" tracking, so the
+  // parent (NeedsEditors) can warn before navigating away to a different
+  // need — mirrors RequirementForm's issue #672 handling. The baseline is
+  // re-anchored explicitly from the entity-switch reset below and from a
+  // successful Save, never implicitly from the raw `need` prop (see
+  // `useFormDirty`'s own docstring for why).
+  const formValues = useMemo<NeedFormValues>(
+    () => ({
+      title: formData.title ?? '',
+      description: formData.description ?? '',
+      category: formData.category ?? '',
+      moscowPriority: formData.moscow_priority,
+      customFields: formData.custom_fields ?? {},
+      changeReason,
+    }),
+    [
+      formData.title,
+      formData.description,
+      formData.category,
+      formData.moscow_priority,
+      formData.custom_fields,
+      changeReason,
+    ]
+  );
+  const { isDirty, markClean } = useFormDirty(formValues, formValues);
+
   useEffect(() => {
-    if (need) {
-      setFormData({ ...need });
-      setChangeReason(need.change_reason || '');
-    } else {
-      setFormData({});
-      setChangeReason('');
-    }
+    onDirtyChange?.(isDirty);
+    // Cleanup: report "not dirty" on unmount so a stale `true` from a
+    // previous mount (e.g. after Delete) can't make the parent show an
+    // unsaved-changes dialog for a form that no longer exists.
+    return () => {
+      onDirtyChange?.(false);
+    };
+  }, [isDirty, onDirtyChange]);
+
+  // Systemaudit 2026-08-27 UI-06: keyed on `need?.id` (via the shared
+  // `useEntityReset`, matching RequirementForm/ArchitectureForm), NOT on the
+  // whole `need` object — a refetch of the SAME need (e.g. right after Save,
+  // via `onSaved()`'s refresh, or an unrelated background reload) must not
+  // blindly overwrite local edits still in flight. `'__none__'` is a stable
+  // sentinel for "no need selected" so that case still resets exactly once.
+  useEntityReset(need?.id ?? '__none__', () => {
+    const next: NeedFormValues = need
+      ? {
+          title: need.title,
+          description: need.description ?? '',
+          category: need.category ?? '',
+          moscowPriority: need.moscow_priority,
+          customFields: need.custom_fields ?? {},
+          changeReason: need.change_reason || '',
+        }
+      : {
+          title: '',
+          description: '',
+          category: '',
+          moscowPriority: undefined,
+          customFields: {},
+          changeReason: '',
+        };
+    setFormData(need ? { ...need } : {});
+    setChangeReason(next.changeReason);
     // Reset transient action state when switching to a different need.
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
-  }, [need]);
+    markClean(next);
+  });
 
   const handleChange = <K extends keyof StakeholderNeed>(field: K, value: StakeholderNeed[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -185,6 +264,17 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
         updateData.change_reason = changeReason.trim();
       }
       await stakeholderNeedApi.update(need.id, updateData);
+
+      // Systemaudit 2026-08-27 UI-06: `change_reason` annotates *this* edit
+      // only — it never round-trips through the server — so it is cleared
+      // here explicitly on a successful save (mirrors RequirementForm's
+      // post-save behavior, issue #344/#672). The isDirty baseline is
+      // re-anchored to exactly what was just submitted, not to whatever
+      // `need` next resolves with via `onSaved()`'s refresh — which lags
+      // this by a network round trip and would otherwise show a spurious
+      // "unsaved changes" state until it resolves.
+      setChangeReason('');
+      markClean({ ...formValues, changeReason: '' });
       onSaved();
     } catch (err) {
       console.error(err);
@@ -411,6 +501,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             {t('customFields.section')}
           </h3>
           <CustomFieldsEditor
+            key={need.id}
             value={need.custom_fields}
             onChange={(newFields) => handleChange('custom_fields', newFields)}
             disabled={isSaving}

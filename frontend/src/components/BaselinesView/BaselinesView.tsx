@@ -395,9 +395,19 @@ export default function BaselinesView(): JSX.Element {
                 <li
                   key={bl.id}
                   data-testid="baseline-item"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
                   onClick={() => {
                     setShowForm(false);
                     setSelectedId(bl.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowForm(false);
+                      setSelectedId(bl.id);
+                    }
                   }}
                   style={{
                     padding: "var(--space-3) var(--space-4)",

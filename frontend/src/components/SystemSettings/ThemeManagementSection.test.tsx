@@ -70,6 +70,9 @@ describe("ThemeManagementSection", () => {
     (themePalettesApi.deletePalette as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
     render(<ThemeManagementSection />);
     fireEvent.click(await screen.findByTestId("theme-delete-custom-x"));
+    // UI-09 (system audit P4): deleting a palette is destructive — requires
+    // an explicit confirmation before the API call fires.
+    fireEvent.click(await screen.findByTestId("theme-delete-confirm-confirm"));
     await waitFor(() =>
       expect(themePalettesApi.deletePalette).toHaveBeenCalledWith("custom-x")
     );

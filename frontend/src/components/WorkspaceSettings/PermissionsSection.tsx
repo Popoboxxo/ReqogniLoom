@@ -54,6 +54,7 @@ import {
   type WorkspaceMember,
 } from "../../api/workspace-members";
 import { artifactsApi } from "../../api/artifacts";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { Artifact, UUID } from "../../types";
 
 function extractErrorMessage(err: unknown): string {
@@ -249,6 +250,11 @@ export function PermissionsSection({
   const [suspendedRoleSnapshots, setSuspendedRoleSnapshots] = useState<
     Record<string, WorkspaceMember>
   >({});
+  // UI-09 (system audit P4): suspending a role is destructive (immediately
+  // revokes it) — require explicit confirmation. Reactivation stays direct.
+  const [pendingSuspend, setPendingSuspend] = useState<
+    { member: WorkspaceMember; role: string } | null
+  >(null);
 
   // Load artifact options for the optional artifact-scoped rule.
   useEffect(() => {
@@ -406,6 +412,20 @@ export function PermissionsSection({
     [workspaceId, loadMembers, handleMembersApiError]
   );
 
+  const requestSuspendRole = useCallback(
+    (member: WorkspaceMember, role: string): void => {
+      setPendingSuspend({ member, role });
+    },
+    []
+  );
+
+  const confirmSuspendRole = useCallback(async (): Promise<void> => {
+    if (!pendingSuspend) return;
+    const { member, role } = pendingSuspend;
+    setPendingSuspend(null);
+    await handleSuspendRole(member, role);
+  }, [pendingSuspend, handleSuspendRole]);
+
   const handleReactivateRole = useCallback(
     async (member: WorkspaceMember, role: string): Promise<void> => {
       const key = memberRoleKey(member.user_id, role);
@@ -539,7 +559,7 @@ export function PermissionsSection({
                             <button
                               type="button"
                               data-testid={`workspace-member-suspend-${m.user_id}-${role}`}
-                              onClick={() => void handleSuspendRole(m, role)}
+                              onClick={() => requestSuspendRole(m, role)}
                               disabled={isPending}
                               style={isPending ? suspendActionPendingStyle : suspendActionStyle}
                             >
@@ -773,6 +793,21 @@ export function PermissionsSection({
             ))}
           </tbody>
         </table>
+      )}
+
+      {pendingSuspend && (
+        <ConfirmDialog
+          title={t("permissions.members.suspendConfirmTitle", "Suspend role")}
+          message={t(
+            "permissions.members.suspendConfirmMessage",
+            "Suspend role \"{{role}}\" for {{member}}? This immediately revokes it; it can be reactivated later.",
+            { role: pendingSuspend.role, member: memberLabel(pendingSuspend.member) }
+          )}
+          confirmLabel={t("permissions.members.suspend", "Suspend")}
+          onConfirm={() => void confirmSuspendRole()}
+          onCancel={() => setPendingSuspend(null)}
+          testId="workspace-member-suspend-confirm"
+        />
       )}
     </section>
   );

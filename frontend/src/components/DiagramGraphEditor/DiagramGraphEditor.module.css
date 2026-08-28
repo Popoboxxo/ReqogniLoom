@@ -718,6 +718,40 @@
 }
 
 /* --------------------------------------------------------------------------
+ * Autosave / dirty indicator (UI-02) — header badge next to the Save button
+ * ------------------------------------------------------------------------ */
+
+.saveStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 20px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.saveStatusDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.saveStatusDirty {
+  color: var(--color-warning);
+}
+
+.saveStatusSaved {
+  color: var(--color-success);
+}
+
+.saveStatusError {
+  color: var(--color-danger);
+}
+
+/* --------------------------------------------------------------------------
  * Status bar / toast
  * ------------------------------------------------------------------------ */
 

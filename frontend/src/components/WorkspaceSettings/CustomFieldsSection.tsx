@@ -17,6 +17,7 @@ import {
 } from "../../api/custom-fields";
 import { extractErrorMessage } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { UUID } from "../../types";
 
 const sectionStyle: React.CSSProperties = {
@@ -93,6 +94,10 @@ export function CustomFieldsSection({
   const [optionsText, setOptionsText] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
+  // UI-09 (system audit P4): deleting a custom field definition is
+  // destructive and irreversible — require explicit confirmation.
+  const [pendingDelete, setPendingDelete] = useState<CustomFieldDefinition | null>(null);
+
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -145,6 +150,13 @@ export function CustomFieldsSection({
     } catch (err) {
       setError(extractErrorMessage(err));
     }
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
+    await handleDelete(id);
   };
 
   const handleToggleRequired = async (
@@ -233,7 +245,7 @@ export function CustomFieldsSection({
                     <button
                       type="button"
                       data-testid={`custom-field-delete-${def.id}`}
-                      onClick={() => void handleDelete(def.id)}
+                      onClick={() => setPendingDelete(def)}
                       style={{
                         background: "transparent",
                         color: "var(--color-danger)",
@@ -320,6 +332,21 @@ export function CustomFieldsSection({
         >
           {error}
         </p>
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={t("settings.customFields.deleteConfirmTitle", "Feld löschen")}
+          message={t(
+            "settings.customFields.deleteConfirmMessage",
+            "Feld \"{{name}}\" löschen? Bereits gespeicherte Werte gehen dabei unwiderruflich verloren.",
+            { name: pendingDelete.name }
+          )}
+          confirmLabel={t("actions.delete", "Löschen")}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setPendingDelete(null)}
+          testId="custom-field-delete-confirm"
+        />
       )}
     </section>
   );
