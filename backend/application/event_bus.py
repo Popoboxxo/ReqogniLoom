@@ -137,14 +137,17 @@ class SubscriberRegistry:
 class DomainEventBus:
     """Central event-bus engine (Singleton pattern, thread-safe).
 
-    COMP-AS-016. Producers call publish(); the actual DB write happens in the
-    on_commit hook so that a TX rollback prevents the event.
+    COMP-AS-016. Producers call publish(); the outbox INSERT runs inline in
+    the caller's own transaction (SA-02) so that a TX rollback prevents the
+    event just as it prevents the mutation — a ``transaction.on_commit`` hook
+    could not offer that guarantee (see module docstring above).
 
     The OutboxPoller worker polls DomainEventOutbox and dispatches to subscribers.
     This class also exposes a dispatch_to_subscribers() method for use by the
     worker.
 
-    ADR-L3-DEB-01 (Transactional Outbox), ADR-L3-DEB-02 (post_commit hook).
+    ADR-L3-DEB-01 (Transactional Outbox). ADR-L3-DEB-02 (post_commit hook) is
+    superseded by SA-02 — see the docstring note in that architecture doc.
     """
 
     _instance: Optional["DomainEventBus"] = None
@@ -339,8 +342,23 @@ def _claim_event(pk: Any) -> Optional[DomainEventOutbox]:
             # Already published, deleted, freshly claimed, or row-locked by a
             # concurrent worker — all "someone else has it", all skip.
             return None
+
+        # F5: a non-null claimed_at here means this row survived its
+        # reclaim-cutoff filter above, i.e. this is a *reclaim* of an
+        # abandoned claim, not a first attempt. If the worker that held the
+        # previous claim died before reaching _finalize_failure (OOM, a
+        # Celery hard-limit kill), retry_count never got incremented and the
+        # row would otherwise be redelivered every CLAIM_TIMEOUT_SECONDS
+        # forever, never reaching MAX_RETRIES/the DLQ. Count the reclaim
+        # itself as a retry, committed now so it survives the very crash
+        # that caused it.
+        is_reclaim = record.claimed_at is not None
         record.claimed_at = timezone.now()
-        record.save(update_fields=["claimed_at"])
+        if is_reclaim:
+            record.retry_count += 1
+            record.save(update_fields=["claimed_at", "retry_count"])
+        else:
+            record.save(update_fields=["claimed_at"])
         return record
 
 
@@ -480,6 +498,18 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     for pk in candidate_pks:
         record = _claim_event(pk)
         if record is None:
+            continue
+
+        if record.retry_count >= MAX_RETRIES:
+            # F5: a reclaim (see _claim_event) already pushed this row's
+            # retry_count over the limit — a prior worker died mid-dispatch
+            # without ever reaching _finalize_failure. Route straight to the
+            # DLQ instead of dispatching it into the same worker-killing path
+            # again.
+            _move_to_dlq(
+                record,
+                "max retries exceeded after repeated stale-claim reclaim",
+            )
             continue
 
         domain_event = DomainEvent(

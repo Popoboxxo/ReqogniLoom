@@ -45,6 +45,7 @@ from django.conf import settings
 from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from persistence.transactions import atomic_transaction
 from traceability.types import (  # REQ-L1-030: single source of truth
     VALID_LINK_TYPES,
     MANUAL_LINK_TYPES,
@@ -80,8 +81,15 @@ class TraceEdgeDTO:
 class TraceLinkService(ServiceBase):
     """TraceLink CRUD and cascade-delete for COMP-AS-005.
 
-    All write operations run inside the caller's transaction context —
-    no internal transaction.atomic() wrapper is added here (ADR-L3-AS005-02).
+    ``create_trace_link``/``delete_trace_link`` wrap themselves in
+    ``@atomic_transaction`` so a failed domain-event outbox insert (SA-02)
+    rolls the mutation back instead of silently losing the event.
+    ``cascade_delete_trace_links`` is the one exception: per
+    ADR-L3-AS005-02 it deliberately runs inside the *caller's* transaction
+    context (its only caller, ``ArtifactService.delete_artifact``, is
+    itself ``@atomic_transaction``-wrapped) rather than nesting its own —
+    the ADR rejects an internal wrapper on complexity grounds (nested
+    savepoints), not because atomicity is unwanted there.
     """
 
     # ---------- IF-AS-INT-002 ----------
@@ -324,6 +332,7 @@ class TraceLinkService(ServiceBase):
         if error is not None:
             raise ValidationError(error)
 
+    @atomic_transaction
     def create_trace_link(
         self,
         source_id: UUID,
@@ -483,12 +492,16 @@ class TraceLinkService(ServiceBase):
         own id (falls back to the source artifact id if the link row is
         unavailable, e.g. a caller that only has the ids post-delete).
 
-        Best-effort, like :meth:`_generate_and_store_embedding` below: event
-        emission is additive and must never fail (or need an active tenant
-        context in unit tests, most of which mock ``_set_tenant_context``
-        away entirely per this file's own test suite convention) the
-        surrounding create/delete it's attached to — see Task 2's "Must not
-        break" clause.
+        Best-effort resolution, like :meth:`_generate_and_store_embedding`
+        below: looking up the workspace id must never fail (or need an
+        active tenant context in unit tests, most of which mock
+        ``_set_tenant_context`` away entirely per this file's own test
+        suite convention) the surrounding create/delete it's attached to —
+        see Task 2's "Must not break" clause. That guarantee covers only
+        the *lookup*: once a workspace id is known, the actual outbox
+        insert (:meth:`_emit_event`) runs unguarded, so a real write
+        failure there propagates and rolls back the enclosing
+        ``@atomic_transaction`` (SA-02) instead of being swallowed here.
         """
         try:
             from application.models import DomainEventOutbox
@@ -503,30 +516,32 @@ class TraceLinkService(ServiceBase):
                     .values_list("workspace_id", flat=True)
                     .first()
                 )
-            if workspace_id is None:
-                # Source artifact already gone (hard-delete cascade) — nothing
-                # left to scope the event to; skip rather than emit a
-                # malformed event with no workspace.
-                return
-
-            self._emit_event(
-                self._make_event(
-                    event_type=getattr(DomainEventOutbox.EventType, event_type_name),
-                    entity_id=link_id or source_artifact_id,
-                    workspace_id=workspace_id,
-                    payload={
-                        "source_artifact_id": str(source_artifact_id),
-                        "target_artifact_id": str(target_artifact_id),
-                    },
-                )
-            )
         except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
             logger.debug(
-                "TraceLinkService: %s event emission skipped for link=%s: %s",
+                "TraceLinkService: %s workspace lookup failed for link=%s: %s",
                 event_type_name,
                 link_id,
                 exc,
             )
+            return
+
+        if workspace_id is None:
+            # Source artifact already gone (hard-delete cascade) — nothing
+            # left to scope the event to; skip rather than emit a
+            # malformed event with no workspace.
+            return
+
+        self._emit_event(
+            self._make_event(
+                event_type=getattr(DomainEventOutbox.EventType, event_type_name),
+                entity_id=link_id or source_artifact_id,
+                workspace_id=workspace_id,
+                payload={
+                    "source_artifact_id": str(source_artifact_id),
+                    "target_artifact_id": str(target_artifact_id),
+                },
+            )
+        )
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 
@@ -733,6 +748,7 @@ class TraceLinkService(ServiceBase):
             )
         return deleted
 
+    @atomic_transaction
     def delete_trace_link(self, link_id: UUID, ctx: AuthContext) -> None:
         """Delete a single TraceLink by its own id (Codeberg #336).
 

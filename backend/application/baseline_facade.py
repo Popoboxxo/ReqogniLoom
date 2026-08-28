@@ -41,6 +41,7 @@ from application.base import (
 )
 from application.event_bus import DomainEvent
 from application.preset_policy_service import get_preset_policy_service
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ class BaselineFacade(ServiceBase):
 
     # ---------- Public API ----------
 
+    @atomic_transaction
     def create_baseline(
         self,
         scope: str,

@@ -20,7 +20,7 @@ schema_version: "1.0.0"
 
 ## 1. Verantwortlichkeit
 
-Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone Event-basierte Kommunikation im ApplicationServiceSystem. Er publiziert typisierte Domain-Events nach Datenbankänderungen (via post_commit-Hook), speichert diese in einem Transactional Outbox Store für Durability und stellt sie asynchron an registrierte Subscriber zu (AuditLog, WebhookDispatcher, Metrics). Der EventBus garantiert Exactly-Once-Delivery und FIFO-Ordering pro Workspace sowie Entkopplung von schreibenden Domain-Services.
+Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone Event-basierte Kommunikation im ApplicationServiceSystem. Er publiziert typisierte Domain-Events durch Speicherung in einem Transactional Outbox Store (inline in der Mutation-Transaktion) für Durability und stellt sie asynchron an registrierte Subscriber zu (AuditLog, WebhookDispatcher, Metrics). Der EventBus garantiert Exactly-Once-Delivery und FIFO-Ordering pro Workspace sowie Entkopplung von schreibenden Domain-Services.
 
 ---
 
@@ -29,7 +29,7 @@ Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone E
 ### 2.1 Klassen und Module
 
 - **`DomainEventBus` (Singleton):** Zentrale Event-Bus-Engine:
-  - `publish(domain_event)`: Speichert Event in Outbox-Tabelle (post_commit Hook)
+  - `publish(domain_event)`: Speichert Event in Outbox-Tabelle (inline in Transaktion)
   - `register_subscriber(event_type, subscriber_callable)`: Registriert Subscriber
   - `unregister_subscriber(event_type, subscriber_id)`: Deregistriert Subscriber
   - `get_subscriber_registry()`: Gibt aktuelles Subscriber-Registry zurück
@@ -70,7 +70,7 @@ Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone E
 | REQ-L3 | Implementierungs-Ansatz |
 |--------|-------------------------|
 | REQ-L3-DEB-001 (Transactional Outbox Table) | Django-Model definiert domain_event_outbox mit Feldern: event_id (unique), event_type (enum), workspace_id, entity_id, payload (JSONB), created_at, published_at, published. Index auf (published, created_at) für Worker-Queries. |
-| REQ-L3-DEB-002 (Event-Publikation im post_commit Hook) | Schreibende Domain-Services (RequirementService, etc.) registrieren post_commit-Hook: `transaction.on_commit(lambda: DomainEventBus.publish(event))`. Hook läuft nach erfolgreichem DB-Commit. Rollback verhindert Event-Publikation. Multiple Events in einer Transaktion: alle oder keine publiziert. |
+| REQ-L3-DEB-002 (Event-Publikation im post_commit Hook) | Schreibende Domain-Services (RequirementService, etc.) rufen `DomainEventBus.publish(event)` inline auf, innerhalb derselben DB-Transaktion wie die Mutation. Rollback verhindert Event-Publikation. Multiple Events in einer Transaktion: alle oder keine publiziert. |
 | REQ-L3-DEB-003 (Event-Typ-Definition und Schema) | Event-Types dokumentiert mit Payload-Schema (JSON-Schema oder Pydantic): RequirementCreated/Updated/Deleted (entity_id, workspace_id, title, description, parent_id, workflow_state), ArchitectureElementCreated/Updated/Deleted, TestCaseCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned (old_state, new_state, change_reason), Adr/Risk/IssueCreated/Updated/Deleted (mit relevanten Feldern). Validation vor Outbox-INSERT. |
 | REQ-L3-DEB-004 (Asynchroner Worker-Dispatch) | OutboxPoller-Worker: Poll-Intervall (default 1s, konfigurierbar). Query: SELECT * FROM domain_event_outbox WHERE published=FALSE ORDER BY created_at LIMIT 100. SELECT FOR UPDATE für Locking. Dispatch Event an Subscriber. Bei Erfolg: UPDATE published=TRUE, published_at=NOW. Worker-Fehler geloggt. |
 | REQ-L3-DEB-005 (Subscriber-Registration) | SubscriberRegistry: dict {event_type → [callables]}. Methode `register_subscriber(event_type, callable)` fügt hinzu. Event-Type-basierte Filterung: Nur Subscriber der passenden Event-Type werden benachrichtigt. Dynamische Registrierung/Deregistrierung. Mehrere Subscriber pro Type. Vordefinierte Subscriber: AuditLogWriter, WebhookDispatcher, SeMetrics. |
@@ -85,7 +85,7 @@ Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone E
 ## 4. Schnittstellen-Implementierung
 
 - **Eingänge (Inbound):**
-  - **IF-AS-INT-009 bis 017:** Domain-Event-Publikation von schreibenden Services (post_commit Hook, async enqueue): RequirementCreated/Updated/Deleted, ArchitectureElementCreated/Updated/Deleted, TestCaseCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned, AdrCreated/Updated/Deleted, RiskCreated/Updated/Deleted, IssueCreated/Updated/Deleted.
+  - **IF-AS-INT-009 bis 017:** Domain-Event-Publikation von schreibenden Services (inline in Transaktion, async dispatch): RequirementCreated/Updated/Deleted, ArchitectureElementCreated/Updated/Deleted, TestCaseCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned, AdrCreated/Updated/Deleted, RiskCreated/Updated/Deleted, IssueCreated/Updated/Deleted.
 
 - **Ausgänge (Outbound):**
   - **IF-AS-EXT-OUT-007:** INSERT Events in Outbox-Tabelle (PersistenceLayer).
@@ -105,13 +105,15 @@ Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone E
 
 ---
 
-**ADR-L3-DEB-02 — post_commit Hook für Event-Publikation**
+**ADR-L3-DEB-02 — post_commit Hook für Event-Publikation** — *superseded (Systemaudit 2026-08-27, SA-02)*
 
 *Entscheidung:* Events werden nach erfolgreicher DB-Commit publiziert (via `transaction.on_commit()`), nicht vor oder während Commit.
 
 *Rationale:* Garantiert Konsistenz: Entweder DB-Change+Event existieren oder beide nicht. Keine Events ohne DB-Change. Alternative: Publish vor Commit → Event könnte verloren gehen bei Rollback. **Abgelehnt**: Konsistenz erfordert post_commit Hook.
 
 *Erfüllt Trigger:* REQ-L3-DEB-002 (Event-Publikation im post_commit Hook).
+
+*Supersession:* Der `on_commit()`-Hook selbst wurde als Bruch derselben Konsistenz-Garantie erkannt, die er herstellen sollte — der Hook feuert *nach* COMMIT, sodass ein Crash/OOM/Verbindungsabbruch in genau diesem Fenster die Mutation committed lässt, aber das Event dauerhaft verliert. Seit SA-02 (`backend/application/event_bus.py`) läuft der Outbox-INSERT stattdessen inline in derselben Transaktion wie die Mutation (klassisches Transactional-Outbox-Pattern, siehe ADR-L3-DEB-01). Diese ADR bleibt als historischer Entscheidungsrekord stehen, ist aber nicht mehr das implementierte Verhalten.
 
 ---
 

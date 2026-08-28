@@ -28,9 +28,10 @@ class DomainEventOutbox(models.Model):
     """Transactional Outbox record for COMP-AS-016 DomainEventBus.
 
     Events are inserted in the same DB transaction as the mutating operation
-    — see REQ-L2-AS-029, ADR-L3-DEB-02. (Before SA-02 the INSERT was deferred
-    to a ``transaction.on_commit`` hook, which is *not* the same transaction:
-    a crash in the window between COMMIT and the callback dropped the event.)
+    — see REQ-L2-AS-029, SA-02. (ADR-L3-DEB-02 originally called for a
+    ``transaction.on_commit`` hook instead; SA-02 supersedes it, because
+    ``on_commit`` runs *after* COMMIT and a crash in that window dropped the
+    event while the mutation stayed committed.)
 
     The async OutboxPoller claims WHERE published=FALSE under SELECT FOR UPDATE,
     stamps ``claimed_at`` and commits, then dispatches to subscribers *outside*
