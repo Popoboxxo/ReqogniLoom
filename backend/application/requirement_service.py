@@ -33,7 +33,13 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db.models import F, Q, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
-from persistence.models import Artifact, Requirement, Tenant, Workspace
+from persistence.models import (
+    Artifact,
+    Requirement,
+    RequirementLevel,
+    Tenant,
+    Workspace,
+)
 from persistence.transactions import TransactionContextManager, atomic_transaction
 from traceability.types import LinkType
 
@@ -761,6 +767,10 @@ class RequirementService(ServiceBase):
         * ``allocated-to`` : child Requirement -> ArchitectureElement
           (only when *target_architecture_elements* is given)
 
+        Each child also inherits ``level = parent.level + 1`` (P1-9), unless
+        the parent's level is unknown or already the bottom of the cascade —
+        see the inline comment at the derivation for both exceptions.
+
         Args:
             requirement_id: UUID of parent requirement to decompose.
             ctx: AuthContext for tenant scoping and audit.
@@ -828,6 +838,30 @@ class RequirementService(ServiceBase):
 
         result = DecompositionResultDTO(parent_id=requirement_id)
 
+        # SYSTEMAUDIT_2026-08-27 P1-9: derive the child's V-model cascade level
+        # from the parent instead of leaving it NULL. Decomposition is by
+        # definition a move one level down the cascade (RequirementLevel: the
+        # stored integer IS the level), so the value is knowable here — and
+        # this method is the dominant creator of Requirements, which is why
+        # ``level`` used to be NULL for practically the whole corpus (see the
+        # level-vocabulary sections of the SE-Auditor rule modules).
+        #
+        # Two cases deliberately keep NULL rather than guessing:
+        #   * parent.level is NULL — every Requirement decomposed before this
+        #     change. Inventing a level for the child would fabricate a
+        #     cascade position from no evidence and would make the new CONS-P11
+        #     rule audit derived data against derived data.
+        #   * parent is already at L4_PRESENTATION — the cascade has no tier
+        #     below it. Clamping to L4 would emit a child at the *same* level
+        #     as its parent, i.e. a self-inflicted CONS-P11 finding on every
+        #     such decomposition; NULL ("not assigned") is the honest answer.
+        parent_level = parent_req.level
+        child_level: Optional[int]
+        if parent_level is None or parent_level >= RequirementLevel.L4_PRESENTATION:
+            child_level = None
+        else:
+            child_level = parent_level + 1
+
         with TransactionContextManager():
             for idx, child_data in enumerate(children):
                 child_req = self.create_requirement(
@@ -836,6 +870,7 @@ class RequirementService(ServiceBase):
                     ctx=ctx,
                     description=child_data.get("description", ""),
                     parent_id=parent_req.artifact_id,
+                    level=child_level,
                 )
                 result.children.append(RequirementDTO.from_orm(child_req))
 

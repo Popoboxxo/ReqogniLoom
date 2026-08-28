@@ -33,7 +33,7 @@ names as the alternative:
   module (§2.2, "L4 (Presentation)"). There is no dynamic-graph signal for
   it (it has no architectural representation per §1.2), so the only
   data-backed way to recognise it is an explicitly assigned
-  ``Requirement.level == RequirementLevel.L4_MATERIAL``. Rows with
+  ``Requirement.level == RequirementLevel.L4_PRESENTATION``. Rows with
   ``level IS NULL`` (the overwhelming majority) are never treated as L4 by
   this heuristic — they simply are not skipped.
 
@@ -107,7 +107,7 @@ from workflow.services import outdated_item_ids
 
 def _active_requirements(context: AuditContext) -> Dict[str, str]:
     """Return ``{artifact_id: title}`` for active, non-L4 Requirements."""
-    # NOTE: plain ``.exclude(level=L4_MATERIAL)`` would also drop NULL-level
+    # NOTE: plain ``.exclude(level=L4_PRESENTATION)`` would also drop NULL-level
     # rows under SQL three-valued-logic semantics (``NULL = 4`` is UNKNOWN,
     # ``NOT UNKNOWN`` stays UNKNOWN, row excluded) — and NULL is the level for
     # practically every Requirement created via decompose() (see module
@@ -120,7 +120,7 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
             artifact__workspace_id=context.workspace_id,
         )
         .exclude(status="outdated")
-        .filter(Q(level__isnull=True) | ~Q(level=RequirementLevel.L4_MATERIAL))
+        .filter(Q(level__isnull=True) | ~Q(level=RequirementLevel.L4_PRESENTATION))
     )
     return {
         str(artifact_id): title

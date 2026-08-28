@@ -26,7 +26,7 @@ hierarchy representations it must *not* be unified with).
 
 L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
 of §2.2): a Requirement with an *explicitly assigned*
-``level == RequirementLevel.L4_MATERIAL`` is skipped by VERIF-P8. Rows with
+``level == RequirementLevel.L4_PRESENTATION`` is skipped by VERIF-P8. Rows with
 ``level IS NULL`` (the overwhelming majority) are never treated as L4 and are
 NOT skipped — same rationale as the sibling rule modules.
 
@@ -243,7 +243,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         non_l4_ids = frozenset(
             artifact_id
             for artifact_id, (_, level) in requirements.items()
-            if level != RequirementLevel.L4_MATERIAL
+            if level != RequirementLevel.L4_PRESENTATION
         )
         if not non_l4_ids:
             return []

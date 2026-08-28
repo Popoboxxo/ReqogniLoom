@@ -194,7 +194,7 @@ class TestVerifP8:
                 tenant=tenant_a,
                 artifact=artifact,
                 title="Presentation Req",
-                level=RequirementLevel.L4_MATERIAL,
+                level=RequirementLevel.L4_PRESENTATION,
             )
 
             result = _run(tenant_a, workspace_a, tier="extended")

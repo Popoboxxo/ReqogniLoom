@@ -158,7 +158,7 @@ class TestTraceP5:
             child_artifact, child_req = make_requirement(
                 tenant_a, workspace_a, title="Child Req"
             )
-            child_req.level = RequirementLevel.L4_MATERIAL
+            child_req.level = RequirementLevel.L4_PRESENTATION
             child_req.save(update_fields=["level"])
             make_trace_link(
                 parent_artifact, child_artifact, tenant_a, LinkType.DECOMPOSES.value

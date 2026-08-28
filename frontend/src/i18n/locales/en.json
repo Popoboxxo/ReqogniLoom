@@ -872,11 +872,10 @@
     "HWReq": "Hardware Requirement (HWReq)"
   },
   "reqLevel": {
-    "L0": "L0 System",
-    "L1": "L1 Subsystem",
-    "L2": "L2 Component",
-    "L3": "L3 Part",
-    "L4": "L4 Material"
+    "L1": "L1 System",
+    "L2": "L2 Subsystem",
+    "L3": "L3 Component",
+    "L4": "L4 Presentation"
   },
   "testRuns": {
     "create": "New Test Run",
