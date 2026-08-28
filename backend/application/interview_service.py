@@ -939,8 +939,9 @@ class InterviewService(ServiceBase):
 
         # formalize() (the caller) wraps this whole method in
         # @atomic_transaction, so this is already inside an active
-        # transaction -- the on_commit hook fires once formalize() commits,
-        # and a failed/partial formalization above never reaches here.
+        # transaction -- the outbox INSERT below runs inline in that same
+        # transaction (SA-02), and a failed/partial formalization above
+        # never reaches here.
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
@@ -1241,8 +1242,8 @@ class InterviewService(ServiceBase):
         # The DB write and the event publish are grouped in their own short
         # atomic block (rather than wrapping the whole method, which would
         # hold a transaction open across the blocking LLM call above) so
-        # _emit_event's on_commit hook (REQ-L2-AS-029) is bound to this
-        # write specifically.
+        # _emit_event's inline outbox INSERT (SA-02, REQ-L2-AS-029) commits
+        # atomically with this write specifically.
         with transaction.atomic():
             session.refresh_from_db()
             session.transcript = [

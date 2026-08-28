@@ -92,6 +92,7 @@ class TestValidLinkTypes:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestCreateTraceLink:
     """REQ-L2-AS-010."""
 
@@ -404,6 +405,7 @@ class TestCascadeDeleteTraceLinks:
         assert count == 2
 
 
+@pytest.mark.django_db
 class TestDeleteTraceLink:
     """Codeberg #336: DELETE /api/v1/trace-links/{id}/ must actually delete
     the TraceLink identified by its own id (not treat it as an entity id)."""
@@ -565,6 +567,7 @@ class TestQueryTraceLinks:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestResolveArtifactId:
     """B-TR-002: Requirement/ArchitectureElement IDs resolve to Artifact IDs."""
 
@@ -848,6 +851,7 @@ class TestResolveArtifactId:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestAllocationInvariantHook:
     """REQ-L1-044: create_trace_link routes allocated-to through I4."""
 

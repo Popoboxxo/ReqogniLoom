@@ -144,6 +144,7 @@ class TestResolveTestCaseAndNeed:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestTraceLinkErrorMapping:
     """#264 Befund C: TraceLinkError subclasses map to ValidationError.
 

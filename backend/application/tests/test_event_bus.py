@@ -634,6 +634,47 @@ class TestPollAndDispatchClaim:
         row.refresh_from_db()
         assert row.published is True
 
+    def test_stale_claim_increments_retry_count(self):
+        """A reclaim must count toward MAX_RETRIES on its own (F5).
+
+        Without this, a dispatch that reliably kills the worker before
+        _finalize_failure ever runs would be redelivered every
+        CLAIM_TIMEOUT_SECONDS forever, never reaching MAX_RETRIES/the DLQ.
+        """
+        bus = get_event_bus()
+        stale = timezone.now() - timedelta(seconds=CLAIM_TIMEOUT_SECONDS + 60)
+        row = _make_outbox_row(claimed_at=stale, retry_count=1)
+
+        with patch.object(bus, "dispatch_to_subscribers", return_value=[]):
+            poll_and_dispatch()
+
+        row.refresh_from_db()
+        # Reclaim bumped it to 2, then the successful dispatch below released
+        # the claim without touching retry_count again.
+        assert row.retry_count == 2
+
+    def test_repeatedly_reclaimed_row_reaches_dlq_without_dispatch(self):
+        """F5: a row whose worker dies on every attempt (reclaimed forever,
+        never reaching _finalize_failure) must still hit MAX_RETRIES and land
+        in the DLQ instead of being dispatched into the same worker-killing
+        path again.
+        """
+        from application.models import DomainEventDLQ, DomainEventOutbox
+
+        bus = get_event_bus()
+        stale = timezone.now() - timedelta(seconds=CLAIM_TIMEOUT_SECONDS + 60)
+        # One reclaim short of the limit: the claim below pushes it over.
+        row = _make_outbox_row(claimed_at=stale, retry_count=MAX_RETRIES - 1)
+
+        with patch.object(bus, "dispatch_to_subscribers") as mock_dispatch:
+            processed = poll_and_dispatch()
+
+        mock_dispatch.assert_not_called()
+        assert processed == 0
+        assert not DomainEventOutbox.objects.filter(pk=row.pk).exists()
+        dlq = DomainEventDLQ.objects.get(event_id=row.event_id)
+        assert dlq.retry_count == MAX_RETRIES
+
     @pytest.mark.django_db(transaction=True)
     def test_claim_is_committed_before_dispatch(self):
         """SA-04: the claim transaction must be closed when subscribers run.
