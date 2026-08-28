@@ -130,6 +130,87 @@ jobs:
           pip-audit --desc
         continue-on-error: false
 
+  requirements-drift-check:
+    name: "Backend Requirements Drift Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Validate security-critical version floors in requirements.txt
+        working-directory: backend
+        run: |
+          python3 << 'EOF'
+          import re
+          import sys
+
+          # Read requirements.txt
+          with open('requirements.txt', 'r') as f:
+              content = f.read()
+
+          # Security-critical package minimum versions (from CVE/PYSEC fixes)
+          required_floors = {
+              'Django': (5, 2, 17),        # CVE-2026-48587,6873,8404,48588,53877,53878 fixed in 5.2.15+
+              'cryptography': (50, 0, 0),  # PYSEC-2026-3552 (pkcs7 oracle) fixed in 50.0.0
+              'pytest': (9, 1, 1),         # CVE-2025-71176 / PYSEC-2026-1845 fixed in 9.0.3+
+              'pytest-django': (4, 14, 0), # Must support pytest>=9 and Django>=5.2
+              'sentence-transformers': (6, 0, 0),  # transformers>=5.0.0 requirement (RCE CVEs in <5.0)
+          }
+
+          failures = []
+
+          for package, (major, minor, patch) in required_floors.items():
+              # Find package line in requirements.txt
+              pattern = rf'^{re.escape(package)}[>=].*$'
+              matches = re.findall(pattern, content, re.MULTILINE | re.IGNORECASE)
+
+              if not matches:
+                  failures.append(f"[MISSING] {package} not found in requirements.txt")
+                  continue
+
+              match_line = matches[0]
+
+              # Parse version constraint (e.g., "Django>=5.2.17,<5.3")
+              version_match = re.search(r'[>=<]+([0-9.]+)', match_line)
+              if not version_match:
+                  failures.append(f"[PARSE ERROR] Cannot parse version from: {match_line}")
+                  continue
+
+              constraint_version_str = version_match.group(1)
+              try:
+                  constraint_parts = [int(x) for x in constraint_version_str.split('.')[:3]]
+                  # Pad with zeros if needed
+                  while len(constraint_parts) < 3:
+                      constraint_parts.append(0)
+                  constraint_version = tuple(constraint_parts)
+              except ValueError:
+                  failures.append(f"[PARSE ERROR] Invalid version format in: {match_line}")
+                  continue
+
+              # Check if constraint_version >= required_floor
+              if constraint_version < (major, minor, patch):
+                  failures.append(
+                      f"[SECURITY FLOOR VIOLATION] {package}: "
+                      f"requires >={major}.{minor}.{patch}, "
+                      f"but constraint is {constraint_version_str}"
+                  )
+
+          if failures:
+              print("DRIFT CHECK FAILED:")
+              for failure in failures:
+                  print(f"  {failure}")
+              sys.exit(1)
+          else:
+              print("✓ All security-critical packages meet minimum version floors")
+              sys.exit(0)
+          EOF
+
   agent-templates-test:
     name: "Agent Templates & Distribution (docs/agent-templates, dist)"
     runs-on: ubuntu-latest

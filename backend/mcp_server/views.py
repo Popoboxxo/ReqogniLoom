@@ -39,6 +39,12 @@ from django.utils.decorators import method_decorator
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services.authentication import AuthenticationService
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ERROR_CODES, ProtocolHandler
+from mcp_server.throttling import (
+    api_key_from_request,
+    check_mcp_rate_limit,
+    rate_limited_jsonrpc_response,
+    rate_limited_plain_response,
+)
 from mcp_server.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -98,6 +104,21 @@ def _extract_django_headers(request: HttpRequest) -> dict:
     }
 
 
+def _jsonrpc_request_id(body: bytes) -> object | None:
+    """Return the JSON-RPC ``id`` of a request body, or None.
+
+    Echoing the id back lets a client correlate a transport-level rejection
+    with the call it made. A body that is absent, unparseable or not an
+    object simply yields ``None`` — recovering the id must never be able to
+    turn an error response into a second error.
+    """
+    try:
+        frame = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    return frame.get("id") if isinstance(frame, dict) else None
+
+
 def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS"):
     """Add CORS headers to an MCP response (framework-agnostic helper).
 
@@ -154,6 +175,15 @@ class McpHttpTransportView(CorsMixin, View):
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Handle a single MCP tool call over HTTP."""
+        # Rate limit before anything else (SYSTEMAUDIT-2026-08-27 finding A):
+        # this is the endpoint that dispatches tools, so every request past
+        # this point may cost a DB round trip or an LLM call.
+        retry_after = check_mcp_rate_limit(request)
+        if retry_after is not None:
+            return rate_limited_jsonrpc_response(
+                retry_after, request_id=_jsonrpc_request_id(request.body)
+            )
+
         handler = _get_handler()
         headers = _extract_django_headers(request)
 
@@ -242,6 +272,13 @@ class McpHttpTransportView(CorsMixin, View):
 
     def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Return server info / health check for HTTP GET."""
+        # Unauthenticated discovery endpoint — cheap per call, but there is no
+        # reason to serve it at an unbounded rate either. In practice only the
+        # per-IP backstop can fire here, since a discovery GET carries no key.
+        retry_after = check_mcp_rate_limit(request)
+        if retry_after is not None:
+            return rate_limited_jsonrpc_response(retry_after)
+
         return HttpResponse(
             json.dumps({
                 "server": "ReqogniLoom MCP Server",
@@ -287,20 +324,9 @@ class McpMessagesView(CorsMixin, View):
     #: tells the operator what to do (issue #427).
     _RECONNECT_ENDPOINT = "/mcp/sse/"
 
-    @staticmethod
-    def _request_id(body: bytes) -> object | None:
-        """Return the JSON-RPC ``id`` of a request body, or None.
-
-        Echoing the id back lets a client correlate a transport-level rejection
-        with the call it made. A body that is absent, unparseable or not an
-        object simply yields ``None`` — recovering the id must never be able to
-        turn an error response into a second error.
-        """
-        try:
-            frame = json.loads(body)
-        except (ValueError, TypeError):
-            return None
-        return frame.get("id") if isinstance(frame, dict) else None
+    #: Shared with :class:`McpHttpTransportView`, which needs the same id
+    #: recovery for its own transport-level rejections.
+    _request_id = staticmethod(_jsonrpc_request_id)
 
     @staticmethod
     def _error_response(
@@ -337,6 +363,17 @@ class McpMessagesView(CorsMixin, View):
         request_id = self._request_id(body)
 
         session_id = request.GET.get("session_id")
+
+        # Rate limit before the Redis session lookup and before dispatch
+        # (SYSTEMAUDIT-2026-08-27 finding A). The session id is the credential
+        # on this endpoint: the API key was bound to it at the SSE handshake and
+        # is deliberately never present in this request, so it is what the
+        # per-credential bucket has to key on. A request without one still gets
+        # counted against the per-IP backstop.
+        retry_after = check_mcp_rate_limit(request, credential=session_id or "")
+        if retry_after is not None:
+            return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
+
         if not session_id:
             return self._error_response(
                 status=400,
@@ -466,11 +503,14 @@ class McpSseTransportView(View):
         ``Referer`` headers, which would leak the long-lived ``reqlo_*``
         secret (REQ-018 / SYSTEM_AUDIT P-05). Clients MUST authenticate via
         header.
+
+        Delegates to :func:`mcp_server.throttling.api_key_from_request` so the
+        throttle and the authentication path can never disagree about which
+        credential a request presented — a second copy of this rule would
+        eventually drift and silently bill one caller's requests to another's
+        bucket.
         """
-        auth = request.META.get("HTTP_AUTHORIZATION", "")
-        if auth.startswith("Bearer "):
-            return auth[7:]
-        return request.META.get("HTTP_X_API_KEY", "")
+        return api_key_from_request(request)
 
     @staticmethod
     def _parse_last_event_id(request: HttpRequest) -> int | None:
@@ -541,8 +581,27 @@ class McpSseTransportView(View):
             store_session_api_key,
         )
 
-        # Authenticate the handshake before allocating a streaming connection.
         api_key = self._resolve_api_key(request)
+
+        # Rate limit BEFORE authenticating (SYSTEMAUDIT-2026-08-27 finding A).
+        # Order matters: validate_api_key() is a DB round trip, and a rejected
+        # handshake would otherwise still cost one per attempt. Throttling first
+        # is also what bounds the "open unlimited SSE sessions" DoS, since every
+        # accepted handshake allocates a Redis binding plus a held-open
+        # streaming connection. Done via sync_to_async because the cache backend
+        # is synchronous, matching how this async view already calls
+        # validate_api_key / get_session_api_key.
+        retry_after = await sync_to_async(check_mcp_rate_limit)(
+            request, credential=api_key
+        )
+        if retry_after is not None:
+            return _apply_cors_headers(
+                request,
+                rate_limited_plain_response(retry_after),
+                methods=self._CORS_METHODS,
+            )
+
+        # Authenticate the handshake before allocating a streaming connection.
         if not api_key:
             return _apply_cors_headers(
                 request,

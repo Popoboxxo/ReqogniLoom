@@ -1,11 +1,9 @@
 """App configuration for the Workspace Context Graph (Issue #377, v1 slice).
 
 Registers ContextGraphProjector as a subscriber on application.event_bus's
-DomainEventBus at application startup — the first real subscriber ever wired
-on this bus's ready() hook. WebhookDispatcher.subscribe_to_events() exists
-but is never called from any apps.py::ready() (only from its own test file),
-so the outbox poller has been dispatching into a production void for every
-non-audit subscriber. See docs/superpowers/plans/
+DomainEventBus at application startup. WebhookDispatcher is registered
+separately in application/apps.py::ready() (SYSTEMAUDIT_2026-08-27 P0-3c).
+See docs/superpowers/plans/
 2026-08-07-workspace-context-graph-implementation.md Task 1.
 """
 from django.apps import AppConfig

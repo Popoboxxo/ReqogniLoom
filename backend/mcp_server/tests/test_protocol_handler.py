@@ -303,6 +303,37 @@ class TestProtocolHandler:
         response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert response["error"]["code"] == -32603  # JSON-RPC Internal error
 
+    def test_dispatch_exception_masks_detail_but_logs_it(self, caplog):
+        """CWE-209 regression (SYSTEMAUDIT-2026-08-27 finding B).
+
+        The dispatch catch-all used to pass ``str(exc)`` straight to the client.
+        It is the *outermost* net, so the exceptions reaching it are exactly the
+        ones nothing below mapped — driver and ORM errors carrying connection
+        strings, SQL fragments and constraint names. The sibling ``tools/list``
+        handler was already fixed (see the test below it); this asserts the
+        dispatch path now behaves identically.
+        """
+        sensitive_detail = (
+            'psycopg2.errors.UniqueViolation: duplicate key value violates '
+            'unique constraint "persistence_requirement_tenant_id_key" '
+            'DETAIL: Key (tenant_id, external_id)=(...) already exists.'
+        )
+        registry = MagicMock()
+        registry.dispatch_request.side_effect = RuntimeError(sensitive_detail)
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_valid_body(request_id=11)
+
+        with caplog.at_level("ERROR"):
+            response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
+
+        assert response["id"] == 11
+        assert response["error"]["code"] == -32603  # JSON-RPC Internal error
+        assert response["error"]["message"] == "An internal server error occurred."
+        # The whole serialised frame, not just the message: a future change that
+        # smuggles the detail into `details` would still be a leak.
+        assert sensitive_detail not in json.dumps(response)
+        assert sensitive_detail in caplog.text
+
     def test_tools_list_exception_masks_detail_but_logs_it(self, caplog):
         """CWE-209 regression: an unexpected exception from ``list_tools``
         must reach the client as the generic INTERNAL_ERROR message, never

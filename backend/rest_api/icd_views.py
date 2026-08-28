@@ -18,6 +18,7 @@ Structured interface parameters (REQ-L2-ICD-002, COMP-ICD-001):
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -58,6 +59,36 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _internal_error(lang: str, context: str) -> Response:
+    """500 response that logs the real cause and returns only a static message.
+
+    fix #108 / SYSTEMAUDIT-2026-08-27 finding B (CWE-209). Every endpoint in
+    this module wraps its whole body in a bare ``except Exception`` and used to
+    hand the caller ``str(exc)``. On this code path ``exc`` is by definition an
+    exception no typed handler above claimed — ``IntegrityError``,
+    ``ProgrammingError``, ``KeyError``, a pgvector/DB driver error — and its
+    ``str()`` routinely carries SQL fragments, table and column names or
+    constraint names.
+
+    The project's established policy (``rest_api.views._service_error_response``,
+    ``mcp_server.tools.base.BaseToolGroup.execute_tool``) is to forward the
+    message only for explicitly mapped, safe-to-surface exception types and to
+    replace everything else with the canonical message for the error code.
+    Passing no ``message`` makes ``build_error_response`` fall back to exactly
+    that canonical, localised text.
+
+    Must be called from inside an ``except`` block: ``logger.exception`` reads
+    the active exception from ``sys.exc_info()``.
+    """
+    logger.exception("Unhandled error in ICD endpoint '%s'", context)
+    return Response(
+        build_error_response("INTERNAL_SERVER_ERROR", lang),
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
 
 
 class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
@@ -178,11 +209,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             ).order_by("-created_at")
             serialized = [self._icd_to_dict(icd) for icd in icds]
             return self._paginate(request, serialized)
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "list")
 
     # -- create ------------------------------------------------------------
 
@@ -245,11 +273,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "create")
 
     # -- retrieve ----------------------------------------------------------
 
@@ -282,11 +307,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "retrieve")
 
     # -- partial_update ----------------------------------------------------
 
@@ -325,11 +347,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "partial_update")
 
     # -- destroy -----------------------------------------------------------
 
@@ -349,11 +368,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "destroy")
 
     # -- versions ----------------------------------------------------------
 
@@ -381,11 +397,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "versions")
 
     # -- diff --------------------------------------------------------------
 
@@ -455,11 +468,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "diff")
 
     # -- similar -----------------------------------------------------------
 
@@ -499,11 +509,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "similar")
 
         return Response(
             [
@@ -537,11 +544,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameters")
 
         if request.method == "GET":
             try:
@@ -556,11 +560,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                     build_error_response("NOT_FOUND", lang, message=str(exc)),
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            except Exception as exc:
-                return Response(
-                    build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            except Exception:
+                return _internal_error(lang, "parameters")
             serialized = [self._parameter_to_dict(item) for item in items]
             return self._paginate(request, serialized)
 
@@ -602,11 +603,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameters")
         return Response(
             IcdParameterSerializer(self._parameter_to_dict(item)).data,
             status=status.HTTP_201_CREATED,
@@ -628,11 +626,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameter_detail")
 
         if request.method == "DELETE":
             try:
@@ -642,11 +637,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                     build_error_response("NOT_FOUND", lang, message=str(exc)),
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            except Exception as exc:
-                return Response(
-                    build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            except Exception:
+                return _internal_error(lang, "parameter_detail")
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         # PATCH — update
@@ -687,9 +679,6 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameter_detail")
         return Response(IcdParameterSerializer(self._parameter_to_dict(item)).data)

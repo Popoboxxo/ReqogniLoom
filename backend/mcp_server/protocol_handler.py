@@ -75,6 +75,15 @@ ERROR_CODES = {
     "LAST_ADMIN": (
         "This action would leave a workspace or tenant with no active admin."
     ),
+    # SYSTEMAUDIT-2026-08-27 finding A: the MCP transport endpoints are rate
+    # limited (see mcp_server.throttling). Kept distinct from AUTH_FAILED and
+    # PERMISSION_DENIED because the caller's credentials and permissions are
+    # both fine — only the request *rate* was refused, and the correct client
+    # reaction is to back off and retry, not to re-authenticate.
+    "RATE_LIMITED": (
+        "Rate limit exceeded for this MCP endpoint. Slow down and retry after "
+        "the interval given in the Retry-After header."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -109,6 +118,7 @@ ERROR_CODE_MAP = {
     "NOT_FOUND": -32004,             # Server-defined: Not found
     "SESSION_EXPIRED": -32005,       # Server-defined: SSE session gone (#427)
     "LAST_ADMIN": -32006,            # Server-defined: last-admin invariant (Task 9)
+    "RATE_LIMITED": -32007,          # Server-defined: transport rate limit (audit A)
 }
 
 
@@ -515,10 +525,21 @@ class ProtocolHandler:
                 params=tool_args,
                 api_key=api_key,
             )
-        except Exception as exc:
+        except Exception:
+            # fix #108 / SYSTEMAUDIT-2026-08-27 finding B (CWE-209): this is the
+            # outermost net around dispatch, so ``exc`` is by definition an
+            # exception nothing below mapped — IntegrityError, ProgrammingError,
+            # KeyError and friends, whose ``str()`` carries SQL fragments,
+            # table/column names or constraint names. The established policy
+            # (tool_registry.dispatch_request, BaseToolGroup.execute_tool,
+            # rest_api.views._service_error_response) is to log the real detail
+            # and hand the client only the static message — which is exactly
+            # what ``format_jsonrpc_error`` emits when no message is passed
+            # (ERROR_CODES["INTERNAL_ERROR"]), the same call the ``tools/list``
+            # handler above already makes.
             logger.exception("Unhandled error during MCP dispatch for tool=%s", tool_name)
             response = ErrorFormatter.format_jsonrpc_error(
-                request_id, "INTERNAL_ERROR", str(exc)
+                request_id, "INTERNAL_ERROR"
             )
             adapter.write_response(response)
             return response
