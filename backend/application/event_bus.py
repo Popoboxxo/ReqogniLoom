@@ -183,18 +183,29 @@ class DomainEventBus:
         """Expose registry snapshot for monitoring (REQ-L3-DEB-010)."""
         return self._registry.all_subscribers()
 
-    def dispatch_to_subscribers(self, event: DomainEvent, timeout_seconds: int = 30) -> None:
+    def dispatch_to_subscribers(
+        self, event: DomainEvent, timeout_seconds: int = 30
+    ) -> List[str]:
         """Dispatch *event* to all registered subscribers.
 
         Called by the OutboxPoller worker after fetching an unpublished event.
         Subscriber failures are logged but do not block other subscribers
-        (REQ-L3-DEB-008: graceful degradation).
+        (REQ-L3-DEB-008: graceful degradation) — every subscriber is always
+        given a chance to run, even after an earlier one fails.
 
         Args:
             event: The domain event to dispatch.
             timeout_seconds: Maximum time per subscriber (default 30s).
+
+        Returns:
+            Error messages for subscribers that raised, one per failure.
+            Empty list means every subscriber succeeded — the caller (
+            poll_and_dispatch) uses this to decide whether the event may be
+            marked published or must be retried/DLQ'd instead of silently
+            losing it (see REQ-L3-DEB-008 vs. at-least-once REQ_072).
         """
         subscribers = self._registry.get_subscribers(event.event_type)
+        errors: List[str] = []
         for subscriber in subscribers:
             try:
                 start = time.monotonic()
@@ -207,13 +218,15 @@ class DomainEventBus:
                         elapsed,
                         event.event_type,
                     )
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "DomainEventBus: subscriber %s failed for event %s id=%s",
                     subscriber,
                     event.event_type,
                     event.event_id,
                 )
+                errors.append(f"{subscriber!r}: {exc}")
+        return errors
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +298,13 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
                 # at-least-once: handlers must be idempotent — a worker crash
                 # after dispatch but before the row below is marked published
                 # will re-deliver this event on the next poll cycle (REQ-072).
-                bus.dispatch_to_subscribers(domain_event)
+                # dispatch_to_subscribers never raises (graceful degradation
+                # per subscriber) — it reports failures via its return value
+                # instead, so a failing subscriber can still trigger retry/DLQ
+                # below rather than being marked published regardless.
+                errors = bus.dispatch_to_subscribers(domain_event)
+                if errors:
+                    raise RuntimeError("; ".join(errors))
                 record.published = True
                 record.published_at = timezone.now()
                 record.save(update_fields=["published", "published_at"])

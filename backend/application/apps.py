@@ -14,7 +14,8 @@ class ApplicationConfig(AppConfig):
       PresetConfigEngine, LlmAdapter, AuditLog, PersistenceLayer.
     - Ensures transactional consistency (REQ-L1-025 ACID).
     - WebhookDispatcher and GitHub-Integration route outbound calls via
-      ResilienceOrchestrator (IF-L1-049, REQ-L1-032).
+      ResilienceOrchestrator (IF-L1-049, REQ-L1-032). WebhookDispatcher is
+      registered on the DomainEventBus in ready() — see COMP-AS-011.
 
     See: docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/L2_ApplicationServiceSystem_Architecture.md
     REQ-L1: REQ-L1-001, REQ-L1-002, REQ-L1-004, REQ-L1-012, REQ-L1-019..025
@@ -25,11 +26,22 @@ class ApplicationConfig(AppConfig):
     verbose_name = "ARCH-L1-004 ApplicationService"
 
     def ready(self) -> None:
-        """Wire signal-based cache invalidation (REQ-038, BE-7) and the
-        first-start self-init receiver (REQ-188)."""
+        """Wire signal-based cache invalidation (REQ-038, BE-7), the
+        first-start self-init receiver (REQ-188), and the WebhookDispatcher
+        subscriber on application.event_bus's DomainEventBus (COMP-AS-011).
+
+        Previously WebhookDispatcher.subscribe_to_events() was never called
+        from any ready() hook, so it never actually received events despite
+        being fully implemented (HMAC signing, retry, DLQ) and configurable
+        via the Django admin (WebhookSubscription). SYSTEMAUDIT_2026-08-27 P0-3c.
+        """
         from application.cache_invalidation import register_signals
 
         register_signals()
+
+        from application.webhook_dispatcher import get_webhook_dispatcher
+
+        get_webhook_dispatcher().subscribe_to_events()
 
         # REQ-188: self-initialise a fresh deployment (admin + base workspace +
         # default workflow/permission definitions) on first start, replacing the
