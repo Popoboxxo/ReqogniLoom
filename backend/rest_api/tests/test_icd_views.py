@@ -150,3 +150,82 @@ class TestIcdViewSetCreateValidation:
         assert response.status_code == 400
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
         assert "semantic_description" in response.data["error"]["message"]
+
+
+class TestIcdViewSetErrorMessageMasking:
+    """SA-03 / issue #697 (CWE-209): typed handlers must not forward arbitrary
+    exception text.
+
+    The P0 sweep (commit 2069e2e1) only covered this module's bare
+    ``except Exception`` handlers via ``_internal_error``. The *typed* handlers
+    kept doing ``message=str(exc)``, and ``except ValueError`` /
+    ``except <Model>.DoesNotExist`` catch far more than the hand-authored
+    domain errors they were written for — every ``ValueError`` subclass raised
+    anywhere inside the handler body lands there too.
+
+    The rule is now an explicit exact-type allow-list (``_CLIENT_SAFE_EXCEPTIONS``),
+    so these tests pin both halves of it: authored domain messages still reach
+    the client (the #104 contract above depends on that), foreign ones do not.
+    """
+
+    def _similar_request(self):
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/icds/{FAKE_ICD_ID}/similar/")
+        req.auth_context = _make_auth_context()
+        return req
+
+    def _call_similar(self, side_effect):
+        req = self._similar_request()
+        view = IcdViewSet.as_view({"get": "similar"})
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch(
+                "rest_api.icd_views.find_similar_icds", side_effect=side_effect
+            ):
+                return view(req, pk=str(FAKE_ICD_ID))
+
+    def test_authored_value_error_is_still_forwarded(self) -> None:
+        """The allow-list must not regress the #104 validation-feedback contract."""
+        response = self._call_similar(
+            ValueError("ICD has no embedding — similarity search not possible")
+        )
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "no embedding" in response.data["error"]["message"]
+
+    def test_value_error_subclass_is_masked(self) -> None:
+        """A ValueError *subclass* is not a domain error — mask it.
+
+        ``json.JSONDecodeError`` is the realistic case: it carries the raw
+        document it failed on.
+        """
+        import json
+
+        response = self._call_similar(
+            json.JSONDecodeError("Expecting value", '{"secret": "internal"}', 0)
+        )
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "secret" not in response.data["error"]["message"]
+        assert "Expecting value" not in response.data["error"]["message"]
+
+    def test_pgvector_unavailable_message_is_masked(self) -> None:
+        """503 must not name the backing technology (CWE-209).
+
+        Status code and error code are unchanged — only the free-text detail is
+        withheld, so clients keying off ``error.code`` are unaffected.
+        """
+        from icd.services import IcdPgVectorUnavailableError
+
+        response = self._call_similar(
+            IcdPgVectorUnavailableError(
+                "pgvector extension not available — similarity search unavailable"
+            )
+        )
+
+        assert response.status_code == 503
+        assert response.data["error"]["code"] == "SERVICE_UNAVAILABLE"
+        assert "pgvector" not in response.data["error"]["message"].lower()

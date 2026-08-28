@@ -28,10 +28,14 @@ class DomainEventOutbox(models.Model):
     """Transactional Outbox record for COMP-AS-016 DomainEventBus.
 
     Events are inserted in the same DB transaction as the mutating operation
-    (via transaction.on_commit) — see REQ-L2-AS-029, ADR-L3-DEB-02.
+    — see REQ-L2-AS-029, ADR-L3-DEB-02. (Before SA-02 the INSERT was deferred
+    to a ``transaction.on_commit`` hook, which is *not* the same transaction:
+    a crash in the window between COMMIT and the callback dropped the event.)
 
-    The async OutboxPoller worker polls WHERE published=FALSE, acquires
-    SELECT FOR UPDATE, dispatches to subscribers, then sets published=TRUE.
+    The async OutboxPoller claims WHERE published=FALSE under SELECT FOR UPDATE,
+    stamps ``claimed_at`` and commits, then dispatches to subscribers *outside*
+    that transaction, then writes the outcome back in a second short
+    transaction (SA-04).
 
     REQ-L3-DEB-001 (outbox table), REQ-L3-DEB-006 (exactly-once delivery).
     """
@@ -92,6 +96,13 @@ class DomainEventOutbox(models.Model):
     published_at = models.DateTimeField(null=True, blank=True)
     published = models.BooleanField(default=False)
     retry_count = models.IntegerField(default=0)
+    #: SA-04. Set by ``poll_and_dispatch`` in a short claim transaction that
+    #: commits *before* the (potentially slow, network-bound) subscriber
+    #: dispatch runs, so the row lock is not held across external I/O. While
+    #: non-NULL and younger than ``CLAIM_TIMEOUT_SECONDS`` the row is invisible
+    #: to peer workers; an older value means the claiming worker died mid-flight
+    #: and the row is reclaimable. Cleared again on success and on failure.
+    claimed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "as_domain_event_outbox"
