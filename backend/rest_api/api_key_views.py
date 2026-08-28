@@ -7,6 +7,17 @@ Architecture:
   Uses AuthenticationService from auth_tenancy for all operations.
   Standardised auth error handling via AuthTenancyAuthentication.
 
+Error shape:
+  Every failure uses the single project-wide envelope built by
+  ``rest_api.serializers.build_error_response`` (REQ-L2-RA-009)::
+
+      {"error": {"code": "...", "message": "...", "details": []}}
+
+  This module previously emitted a flat ``{"error": "<code>", "message": ...}``
+  body, which was one of three competing error shapes in the REST surface
+  (systemaudit 2026-08-27, P1 item 13). The ``code`` string literals and the
+  human-readable messages are unchanged — only the nesting is.
+
 Endpoints:
   GET    /api/v1/api-keys/         — list keys (metadata only)
   GET    /api/v1/api-keys/<pk>/    — retrieve one key (metadata only)
@@ -24,6 +35,7 @@ from rest_framework.viewsets import ViewSet
 
 from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
+from rest_api.serializers import build_error_response
 
 
 class ApiKeyViewSet(ViewSet):
@@ -92,7 +104,7 @@ class ApiKeyViewSet(ViewSet):
         user_id = self._get_user_id(request)
         if user_id is None:
             return Response(
-                {"error": "authentication_required", "message": "Not authenticated"},
+                build_error_response(code="authentication_required", message="Not authenticated"),
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -116,13 +128,13 @@ class ApiKeyViewSet(ViewSet):
         user_id = self._get_user_id(request)
         if user_id is None:
             return Response(
-                {"error": "authentication_required", "message": "Not authenticated"},
+                build_error_response(code="authentication_required", message="Not authenticated"),
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not pk:
             return Response(
-                {"error": "NOT_FOUND", "message": "Key ID is required."},
+                build_error_response(code="NOT_FOUND", message="Key ID is required."),
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -131,7 +143,7 @@ class ApiKeyViewSet(ViewSet):
             key_uuid = UUID(pk)
         except (ValueError, AttributeError):
             return Response(
-                {"error": "NOT_FOUND", "message": "Invalid key ID."},
+                build_error_response(code="NOT_FOUND", message="Invalid key ID."),
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -139,7 +151,7 @@ class ApiKeyViewSet(ViewSet):
         match = next((k for k in keys if k.get("id") == str(key_uuid)), None)
         if match is None:
             return Response(
-                {"error": "NOT_FOUND", "message": "Key not found."},
+                build_error_response(code="NOT_FOUND", message="Key not found."),
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -170,14 +182,14 @@ class ApiKeyViewSet(ViewSet):
         tenant_id = self._get_tenant_id(request)
         if user_id is None or tenant_id is None:
             return Response(
-                {"error": "authentication_required", "message": "Not authenticated"},
+                build_error_response(code="authentication_required", message="Not authenticated"),
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         name = request.data.get("name")
         if not isinstance(name, str) or not name.strip():
             return Response(
-                {"error": "VALIDATION_ERROR", "message": "Field 'name' is required."},
+                build_error_response(code="VALIDATION_ERROR", message="Field 'name' is required."),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -190,7 +202,7 @@ class ApiKeyViewSet(ViewSet):
             )
         except ValueError as exc:
             return Response(
-                {"error": "VALIDATION_ERROR", "message": str(exc)},
+                build_error_response(code="VALIDATION_ERROR", message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -218,13 +230,13 @@ class ApiKeyViewSet(ViewSet):
         user_id = self._get_user_id(request)
         if user_id is None:
             return Response(
-                {"error": "authentication_required", "message": "Not authenticated"},
+                build_error_response(code="authentication_required", message="Not authenticated"),
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not pk:
             return Response(
-                {"error": "NOT_FOUND", "message": "Key ID is required."},
+                build_error_response(code="NOT_FOUND", message="Key ID is required."),
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -233,7 +245,7 @@ class ApiKeyViewSet(ViewSet):
             key_uuid = UUID(pk)
         except (ValueError, AttributeError):
             return Response(
-                {"error": "NOT_FOUND", "message": "Invalid key ID."},
+                build_error_response(code="NOT_FOUND", message="Invalid key ID."),
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -241,7 +253,7 @@ class ApiKeyViewSet(ViewSet):
             self._authn.revoke_api_key(api_key_id=key_uuid, user_id=UUID(user_id))
         except Exception:
             return Response(
-                {"error": "NOT_FOUND", "message": "Key not found."},
+                build_error_response(code="NOT_FOUND", message="Key not found."),
                 status=status.HTTP_404_NOT_FOUND,
             )
 

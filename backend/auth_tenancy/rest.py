@@ -105,8 +105,19 @@ class _StandardAuthError(exceptions.APIException):
     """DRF exception carrying the standardised auth error body.
 
     Bridges :class:`~auth_tenancy.errors.AuthError` to DRF so the response keeps
-    the ``{"error", "message", "doc_url"}`` shape (REQ-L3-AT001-004) instead of
-    DRF's default ``{"detail": ...}``.
+    the project-wide error envelope (REQ-L3-AT001-004, REQ-L2-RA-009) instead of
+    DRF's default ``{"detail": ...}``::
+
+        {"error": {"code": ..., "message": ..., "details": [{"doc_url": ...}]}}
+
+    Since the 2026-08-27 system audit (P1 item 13) this is the *same* envelope
+    every other REST error uses. ``doc_url`` — and ``required_role`` on a 403
+    ``insufficient_permissions`` — moved from the top level into
+    ``details[0]``; see :func:`~auth_tenancy.errors.build_error_body`.
+
+    ``rest_api.error_envelope.reqogniloom_exception_handler`` leaves this body
+    untouched (its "already normalised" branch triggers on the ``error`` key),
+    so the shape reaches the client verbatim and is not double-wrapped.
     """
 
     def __init__(self, error: AuthError, *, accept_language: str | None) -> None:

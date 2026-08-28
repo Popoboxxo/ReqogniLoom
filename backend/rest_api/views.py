@@ -6796,7 +6796,9 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
             include_deleted = parse_include_deleted(request.query_params)
             terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
-            return self._paginate(request, terms, lambda t: t.__dict__)
+            return self._paginate(
+                request, terms, lambda t: GlossaryTermSerializer(t).data
+            )
         except Exception as e:
             logger.exception("Error in GlossaryTermViewSet.list")
             return _service_error_response(e, lang)
@@ -6807,7 +6809,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             term_id = UUID(pk)
             term = self._svc().get(ctx, term_id)
-            return Response(term.__dict__)
+            return Response(GlossaryTermSerializer(term).data)
         except Exception as e:
             return _service_error_response(e, lang)
 
@@ -6827,7 +6829,9 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 return error
 
             term = self._svc().create(ctx, workspace_id, term_str, definition, synonyms, abbreviation)
-            return Response(term.__dict__, status=status.HTTP_201_CREATED)
+            return Response(
+                GlossaryTermSerializer(term).data, status=status.HTTP_201_CREATED
+            )
         except Exception as e:
             return _service_error_response(e, lang)
 
@@ -6861,7 +6865,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 synonyms=synonyms,
                 abbreviation=abbreviation,
             )
-            return Response(term.__dict__)
+            return Response(GlossaryTermSerializer(term).data)
         except Exception as e:
             return _service_error_response(e, lang)
 

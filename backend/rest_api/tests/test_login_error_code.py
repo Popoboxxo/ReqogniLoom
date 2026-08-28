@@ -11,6 +11,11 @@ while keeping ``invalid_token`` reserved for JWT parse/expiry failures.
 The anti-enumeration property is unchanged and re-asserted here: unknown user,
 wrong password and inactive user must all produce a *byte-identical* response,
 so an attacker cannot use the login endpoint to discover which usernames exist.
+
+Shape note (systemaudit 2026-08-27, P1 item 13): the auth error body is now the
+project-wide envelope ``{"error": {"code", "message", "details"}}``, so the code
+is read from ``response.data["error"]["code"]`` rather than ``["error"]``. The
+codes themselves are unchanged — this file is about *which* code is returned.
 """
 from __future__ import annotations
 
@@ -58,14 +63,14 @@ def test_wrong_password_returns_invalid_credentials(tenant):
     response = _login("alice", "wrong-password")
 
     assert response.status_code == 401
-    assert response.data["error"] == "invalid_credentials"
+    assert response.data["error"]["code"] == "invalid_credentials"
 
 
 def test_unknown_user_returns_invalid_credentials(tenant):
     response = _login("nobody-at-all", "whatever")
 
     assert response.status_code == 401
-    assert response.data["error"] == "invalid_credentials"
+    assert response.data["error"]["code"] == "invalid_credentials"
 
 
 def test_inactive_user_returns_invalid_credentials(tenant):
@@ -74,14 +79,14 @@ def test_inactive_user_returns_invalid_credentials(tenant):
     response = _login("ghost", "correct-horse")
 
     assert response.status_code == 401
-    assert response.data["error"] == "invalid_credentials"
+    assert response.data["error"]["code"] == "invalid_credentials"
 
 
 def test_missing_credentials_returns_invalid_credentials(tenant):
     response = APIClient().post(LOGIN_URL, {}, format="json")
 
     assert response.status_code == 401
-    assert response.data["error"] == "invalid_credentials"
+    assert response.data["error"]["code"] == "invalid_credentials"
 
 
 def test_login_never_reports_invalid_token(tenant):
@@ -94,7 +99,7 @@ def test_login_never_reports_invalid_token(tenant):
         ("", ""),
     ]:
         response = _login(username, password)
-        assert response.data["error"] != "invalid_token"
+        assert response.data["error"]["code"] != "invalid_token"
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +151,7 @@ def test_malformed_bearer_token_on_protected_endpoint_still_says_invalid_token()
     response = client.get("/api/v1/workspaces/")
 
     assert response.status_code == 401
-    assert response.data["error"] == "invalid_token"
+    assert response.data["error"]["code"] == "invalid_token"
 
 
 def test_the_two_failure_classes_are_now_distinguishable(tenant):
@@ -159,4 +164,4 @@ def test_the_two_failure_classes_are_now_distinguishable(tenant):
     client.credentials(HTTP_AUTHORIZATION="Bearer this.is.not.a.jwt")
     token_failure = client.get("/api/v1/workspaces/")
 
-    assert login_failure.data["error"] != token_failure.data["error"]
+    assert login_failure.data["error"]["code"] != token_failure.data["error"]["code"]

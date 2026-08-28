@@ -32,6 +32,7 @@ from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from auth_tenancy.services.authorization import LastAdminError
 from auth_tenancy.services.user_account import UserAccountService
+from rest_api.serializers import build_error_response
 
 # No `from persistence.models import User` here on purpose (ADR-01 / REQ-066):
 # this module must stay free of direct model access/imports, so the "user"
@@ -53,7 +54,28 @@ def _user_to_dict(user: Any, *, is_tenant_admin: bool = False) -> dict[str, Any]
 
 
 def _err(code: str, message: str, http_status: int) -> Response:
-    return Response({"error": code, "message": message}, status=http_status)
+    """Build an error Response in the single project-wide envelope.
+
+    Delegates to :func:`rest_api.serializers.build_error_response`
+    (REQ-L2-RA-009), so the body is::
+
+        {"error": {"code": ..., "message": ..., "details": []}}
+
+    Until the 2026-08-27 system audit (P1 item 13) this helper emitted a flat
+    ``{"error": "<code>", "message": ...}`` body — one of three competing error
+    shapes across the REST surface. Only the nesting changed here; every
+    ``code`` literal and message passed by the call sites below is untouched,
+    so ``LAST_ADMIN``/``PERMISSION_DENIED``/... still identify the same cases.
+
+    ``message`` is always passed explicitly rather than resolved from
+    ``build_error_response``'s catalog: several codes used here (``LAST_ADMIN``,
+    ``authentication_required``) are not in ``_ERROR_MESSAGES``, and the
+    service-supplied text (e.g. ``LastAdminError``'s scope/identifier sentence,
+    which the SPA parses) must survive verbatim.
+    """
+    return Response(
+        build_error_response(code=code, message=message), status=http_status
+    )
 
 
 class UserViewSet(ViewSet):
