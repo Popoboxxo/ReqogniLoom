@@ -1,5 +1,11 @@
 # ReqFlow Backend Dependencies
 # ARCH-L1: All backend systems
+#
+# NOTE: requirements.lock is auto-generated and MUST be regenerated whenever this
+# file changes. See REGENERATING_LOCK_FILE.md for instructions. The lock file is
+# maintained for reference/documentation and is NOT used by Docker builds or CI
+# (which install directly from this file). CI includes a drift-check job that
+# validates security-critical minimum versions are met here.
 
 # Core Framework
 # Django 5.2 LTS. 4.2 LTS reached end of life, so upstream no longer backports

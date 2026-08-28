@@ -116,20 +116,25 @@ services:
   # ─────────────────────────────────────────────────────────
   # Redis — ARCH-L1-016 ResilienceOrchestrator (Celery broker)
   # ─────────────────────────────────────────────────────────
+  # P0 Fix (SYSTEMAUDIT_2026-08-27): Changed maxmemory-policy from volatile-lru
+  # to noeviction to prevent silent loss of broker messages when Redis is full.
+  # Volatile-lru would evict queue messages (no TTL), causing tasks to disappear
+  # without error. Noeviction fails loudly on OOM, and cgroup limit is doubled
+  # (256mb→512M) to give AOF-rewrite headroom and prevent OOM-crash during rewrites.
   redis:
     image: redis:7-alpine
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 512M
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         if [ -z "${REDIS_PASSWORD}" ]; then
-          exec redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --appendonly yes
+          exec redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
         else
-          exec redis-server --requirepass "${REDIS_PASSWORD}" --maxmemory 256mb --maxmemory-policy volatile-lru --appendonly yes
+          exec redis-server --requirepass "${REDIS_PASSWORD}" --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
         fi
     logging:
       driver: "json-file"
