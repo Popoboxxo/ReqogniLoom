@@ -377,7 +377,7 @@ export function TestRunDetailEditor({
               style={{
                 padding: "var(--space-2) var(--space-4)",
                 background: "var(--color-primary)",
-                color: "white",
+                color: "var(--color-on-primary)",
                 border: "none",
                 borderRadius: "var(--radius-md)",
                 cursor: "pointer",
@@ -405,7 +405,7 @@ export function TestRunDetailEditor({
                 style={{
                   padding: "var(--space-2) var(--space-4)",
                   background: "var(--color-primary)",
-                  color: "white",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   cursor: isClosing ? "not-allowed" : "pointer",

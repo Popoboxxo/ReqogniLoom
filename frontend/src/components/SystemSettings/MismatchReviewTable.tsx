@@ -223,7 +223,7 @@ export function MismatchReviewTable(): JSX.Element {
                 <tr
                   key={m.id}
                   data-testid={`mismatch-row-${m.id}`}
-                  style={{ background: "rgba(245,158,11,0.08)" }}
+                  style={{ background: "rgba(var(--color-warning-rgb), 0.08)" }}
                 >
                   <td style={tdStyle}>
                     <span aria-hidden="true" style={{ marginRight: "4px" }}>

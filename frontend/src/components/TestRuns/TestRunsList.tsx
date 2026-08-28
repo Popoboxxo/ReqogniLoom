@@ -374,7 +374,7 @@ export function TestRunsList(): JSX.Element {
                 style={{
                   padding: "var(--space-2) var(--space-3)",
                   background: "var(--color-primary)",
-                  color: "white",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   cursor:
@@ -468,7 +468,7 @@ export function TestRunsList(): JSX.Element {
                     background: isSelected
                       ? "var(--color-primary)"
                       : "var(--color-surface)",
-                    color: isSelected ? "white" : "var(--color-text)",
+                    color: isSelected ? "var(--color-on-primary)" : "var(--color-text)",
                     borderRadius: "var(--radius-md)",
                     border: isSelected
                       ? `1px solid var(--color-primary)`

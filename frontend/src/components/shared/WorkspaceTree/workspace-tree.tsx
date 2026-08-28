@@ -41,16 +41,16 @@ import styles from './workspace-tree.module.css';
 // Level badge colors — design doc section 6
 // ---------------------------------------------------------------------------
 
-// Theming phase 2, checkpoint 1: migrated onto the --color-level-* design
-// tokens (tokens.css) where an existing --palette-* primitive was a close
-// enough match. L2 (cyan) has no close primitive in the current palette
-// (nearest, emerald-400, is a visibly different hue) and is intentionally
-// left as a raw hex literal here rather than force a wrong-looking match —
-// see the checkpoint-1 report for the full color-distance analysis.
+// Theming phase 2, checkpoint 1 migrated L0/L1/L3/L4 onto the --color-level-*
+// design tokens (tokens.css); L2 (cyan) was left as a raw hex literal at the
+// time because no --palette-* primitive was a close match. Contrast-audit
+// follow-up (#140/#161 blast-radius analysis) added a dedicated
+// --palette-cyan-500 primitive so L2 is now tokenized like its siblings — no
+// more raw hex in this map.
 const LEVEL_BADGE_COLORS: Record<number, string> = {
   0: 'var(--color-level-l0)', // L0 dark blue
   1: 'var(--color-level-l1)', // L1 blue
-  2: '#06B6D4', // L2 cyan — no matching token yet, see comment above
+  2: 'var(--color-level-l2)', // L2 cyan
   3: 'var(--color-level-l3)', // L3 green
   4: 'var(--color-level-l4)', // L4 gray
 };
@@ -58,6 +58,27 @@ const LEVEL_BADGE_COLORS: Record<number, string> = {
 function levelBadgeColor(levelStr: string): string {
   const num = parseInt(levelStr.replace(/^L/i, ''), 10);
   return LEVEL_BADGE_COLORS[Math.min(Math.max(isNaN(num) ? 0 : num, 0), 4)];
+}
+
+// Contrast-audit follow-up (#140/#161): the level badge previously hardcoded
+// `color: 'white'` regardless of which of the 5 background colors above was
+// active. Recomputing WCAG contrast for all 5 (frozen, theme-independent)
+// backgrounds found only L0 (sky-800, 7.97:1) actually clears AA with white
+// text — L1/L2/L3/L4 measure 3.68:1/2.43:1/2.54:1/2.56:1 with white, all
+// well under the 4.5:1 floor, but comfortably clear it with black
+// (5.71:1/8.65:1/8.29:1/8.19:1). Hence a per-level text-color map instead of
+// a single constant, mirroring LEVEL_BADGE_COLORS above.
+const LEVEL_BADGE_TEXT_COLORS: Record<number, string> = {
+  0: 'var(--color-level-l0-text)',
+  1: 'var(--color-level-l1-text)',
+  2: 'var(--color-level-l2-text)',
+  3: 'var(--color-level-l3-text)',
+  4: 'var(--color-level-l4-text)',
+};
+
+function levelBadgeTextColor(levelStr: string): string {
+  const num = parseInt(levelStr.replace(/^L/i, ''), 10);
+  return LEVEL_BADGE_TEXT_COLORS[Math.min(Math.max(isNaN(num) ? 0 : num, 0), 4)];
 }
 
 // ---------------------------------------------------------------------------
@@ -1083,7 +1104,7 @@ function TreeRow({
                 padding: '1px 6px',
                 borderRadius: 'var(--radius-full)',
                 background: levelBadgeColor(node.level),
-                color: 'white',
+                color: levelBadgeTextColor(node.level),
                 fontWeight: 600,
                 lineHeight: '16px',
                 whiteSpace: 'nowrap',

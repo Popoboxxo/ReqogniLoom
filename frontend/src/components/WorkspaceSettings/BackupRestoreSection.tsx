@@ -71,7 +71,7 @@ const inputStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -267,7 +267,7 @@ export function BackupRestoreSection(): JSX.Element {
           data-testid="restore-result"
           role="status"
           style={{
-            background: "rgba(22,163,74,0.08)",
+            background: "rgba(var(--color-success-rgb), 0.08)",
             border: "1px solid var(--color-success)",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-3)",
@@ -395,7 +395,7 @@ export function BackupRestoreSection(): JSX.Element {
                           }
                           style={{
                             background: "var(--color-danger)",
-                            color: "white",
+                            color: "var(--color-on-danger)",
                             border: "none",
                             borderRadius: "var(--radius-md)",
                             padding: "var(--space-2) var(--space-4)",

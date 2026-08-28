@@ -70,6 +70,19 @@ type ThemeId = (typeof THEME_IDS)[number];
 const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string, backdrop: string]> = [
   ["--color-text", "--color-surface", "--color-surface"],
   ["--color-on-primary", "--color-primary", "--color-surface"],
+  // Contrast-audit follow-up (#140/#161 blast-radius analysis, 2026-08-28):
+  // --color-on-danger/-success/-warning were added so the dozens of call
+  // sites hardcoding `color: "white"` on these three backgrounds (badges,
+  // buttons, MetricsDashboard tiles) could pick a text color that actually
+  // clears AA per theme, instead of assuming white always works. See
+  // tokens.css's own comments at each --color-on-* declaration for the
+  // full per-theme measured ratios (including bauhaus's new
+  // --palette-bauhaus-terracotta-650, which fixed a real, previously
+  // unreported 4.25:1 shortfall). All 15 (3 pairs x 5 themes) clear AA
+  // today — none needed a KNOWN_AA_SHORTFALLS entry.
+  ["--color-on-danger", "--color-danger", "--color-surface"],
+  ["--color-on-success", "--color-success", "--color-surface"],
+  ["--color-on-warning", "--color-warning", "--color-surface"],
   ["--color-badge-success-text", "--color-badge-success-bg", "--color-surface"],
   ["--color-badge-danger-text", "--color-badge-danger-bg", "--color-surface"],
   ["--color-badge-warning-text", "--color-badge-warning-bg", "--color-surface"],

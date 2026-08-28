@@ -571,7 +571,7 @@ export default function IcdView(): JSX.Element {
                 }
                 style={{
                   background: "var(--color-primary)",
-                  color: "white",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   padding: "var(--space-2) var(--space-6)",

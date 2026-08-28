@@ -37,7 +37,7 @@ const headingStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -211,7 +211,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             disabled={isClosing}
             style={{
               background: "var(--color-warning)",
-              color: "white",
+              color: "var(--color-on-warning)",
               border: "none",
               borderRadius: "var(--radius-md)",
               padding: "var(--space-2) var(--space-4)",
@@ -264,7 +264,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             onClick={() => void handleReactivateWorkspace()}
             style={{
               background: "var(--color-success)",
-              color: "white",
+              color: "var(--color-on-success)",
               border: "none",
               borderRadius: "var(--radius-md)",
               padding: "var(--space-2) var(--space-4)",
@@ -284,7 +284,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
           style={{
             background: "var(--color-danger)",
-            color: "white",
+            color: "var(--color-on-danger)",
             border: "none",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-2) var(--space-4)",
@@ -327,7 +327,7 @@ export function WorkspaceAdminSection(): JSX.Element {
                   disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
                   style={{
                     background: "var(--color-danger)",
-                    color: "white",
+                    color: "var(--color-on-danger)",
                     border: "none",
                     borderRadius: "var(--radius-md)",
                     padding: "var(--space-2) var(--space-4)",

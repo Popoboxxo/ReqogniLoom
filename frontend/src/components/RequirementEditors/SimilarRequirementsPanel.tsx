@@ -90,7 +90,7 @@ export function SimilarRequirementsPanel({
           disabled={state.status === 'loading'}
           style={{
             background: 'var(--color-primary)',
-            color: 'white',
+            color: 'var(--color-on-primary)',
             border: 'none',
             borderRadius: 'var(--radius-md)',
             padding: 'var(--space-2) var(--space-4)',

@@ -384,7 +384,7 @@ export function MermaidEditor({
               style={{
                 padding: "var(--space-1) var(--space-2)",
                 background: "var(--color-primary)",
-                color: "white",
+                color: "var(--color-on-primary)",
                 border: "none",
                 borderRadius: "var(--radius-sm)",
                 cursor: isDirty ? "pointer" : "not-allowed",

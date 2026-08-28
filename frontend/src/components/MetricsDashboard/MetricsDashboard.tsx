@@ -140,10 +140,10 @@ function classify(spec: MetricTileSpec, value: number): Status {
 }
 
 const STATUS_COLORS: Record<Status, { fg: string; bg: string; labelKey: string }> = {
-  healthy: { fg: "var(--color-metric-healthy)", bg: "rgba(16,185,129,0.12)", labelKey: "metrics.status.healthy" },
-  warning: { fg: "var(--color-metric-warning)", bg: "rgba(245,158,11,0.14)", labelKey: "metrics.status.warning" },
-  critical: { fg: "var(--color-metric-critical)", bg: "rgba(239,68,68,0.14)", labelKey: "metrics.status.critical" },
-  neutral: { fg: "var(--color-metric-neutral)", bg: "rgba(107,114,128,0.12)", labelKey: "metrics.status.neutral" },
+  healthy: { fg: "var(--color-metric-healthy)", bg: "rgba(var(--color-success-rgb), 0.12)", labelKey: "metrics.status.healthy" },
+  warning: { fg: "var(--color-metric-warning)", bg: "rgba(var(--color-warning-rgb), 0.14)", labelKey: "metrics.status.warning" },
+  critical: { fg: "var(--color-metric-critical)", bg: "rgba(var(--color-danger-rgb), 0.14)", labelKey: "metrics.status.critical" },
+  neutral: { fg: "var(--color-metric-neutral)", bg: "rgba(var(--color-metric-neutral-bg-rgb), 0.12)", labelKey: "metrics.status.neutral" },
 };
 
 // ---------------------------------------------------------------------------
@@ -242,7 +242,7 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-3)",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+        boxShadow: "0 1px 2px var(--palette-black-a04)",
         opacity: isStale ? 0.6 : 1,
         transition: "var(--transition-fast, 0.15s ease)",
       }}
@@ -499,7 +499,7 @@ export default function MetricsDashboard(): JSX.Element {
             width: 28,
             height: 28,
             background: helpMode ? "var(--color-primary)" : "transparent",
-            color: helpMode ? "white" : "var(--color-text-muted)",
+            color: helpMode ? "var(--color-on-primary)" : "var(--color-text-muted)",
             border: "1px solid var(--color-border)",
             borderRadius: "50%",
             cursor: "pointer",
@@ -521,7 +521,7 @@ export default function MetricsDashboard(): JSX.Element {
           style={{
             padding: "var(--space-2) var(--space-4)",
             background: "var(--color-primary)",
-            color: "white",
+            color: "var(--color-on-primary)",
             border: "none",
             borderRadius: "var(--radius-md)",
             cursor: isLoading ? "not-allowed" : "pointer",
@@ -544,7 +544,7 @@ export default function MetricsDashboard(): JSX.Element {
           style={{
             padding: "var(--space-3) var(--space-4)",
             marginBottom: "var(--space-4)",
-            background: "rgba(239,68,68,0.10)",
+            background: "rgba(var(--color-danger-rgb), 0.10)",
             border: "1px solid var(--color-danger)",
             borderRadius: "var(--radius-md)",
             color: "var(--color-danger)",
@@ -562,8 +562,8 @@ export default function MetricsDashboard(): JSX.Element {
             listStyle: "none",
             padding: "var(--space-3) var(--space-4)",
             marginBottom: "var(--space-4)",
-            background: "rgba(245,158,11,0.10)",
-            border: "1px solid rgba(245,158,11,0.5)",
+            background: "rgba(var(--color-warning-rgb), 0.10)",
+            border: "1px solid rgba(var(--color-warning-rgb), 0.5)",
             borderRadius: "var(--radius-md)",
             color: "var(--color-text)",
             fontSize: "var(--font-size-sm)",

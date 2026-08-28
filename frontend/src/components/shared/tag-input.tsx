@@ -89,7 +89,7 @@ export function TagInput({
             alignItems: 'center',
             gap: 'var(--space-1)',
             background: 'var(--color-primary)',
-            color: 'white',
+            color: 'var(--color-on-primary)',
             borderRadius: 'var(--radius-sm)',
             padding: '2px var(--space-2)',
             fontSize: 'var(--font-size-sm)',

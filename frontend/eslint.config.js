@@ -58,10 +58,15 @@ export default [
       // are 'warn' because they have many pre-existing violations spread over
       // the whole tree), these two are enforceable today — see below.
 
-      // (1) No hardcoded hex colors in JSX inline styles; use tokens.css.
+      // (1) No hardcoded color literals in JSX inline styles; use tokens.css.
       // 'error' project-wide, with a frozen per-file exemption list applied
-      // in a later config block for the 21 pre-existing violators.
-      'local/no-hex-color-in-inline-style': 'error',
+      // in a later config block for the 21 pre-existing violators. Renamed
+      // from 'no-hex-color-in-inline-style' (contrast-audit follow-up
+      // #140/#161, 2026-08-28): the hex-only rule let named CSS colors
+      // (`color: "white"`) and rgb()/rgba()/hsl()/hsla() literals slip
+      // through undetected — both are now covered too. The old rule id is
+      // kept as a plugin-level alias in eslint-rules/index.js.
+      'local/no-literal-color-in-inline-style': 'error',
 
       // (2) `aria-modal` is only valid on an element that is actually a
       // dialog. jsx-a11y has no built-in rule for this pairing
@@ -100,7 +105,7 @@ export default [
         {
           files: LEGACY_INLINE_STYLE_HEX_FILES,
           rules: {
-            'local/no-hex-color-in-inline-style': 'off',
+            'local/no-literal-color-in-inline-style': 'off',
           },
         },
       ]

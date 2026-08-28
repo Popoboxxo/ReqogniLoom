@@ -277,7 +277,7 @@ function ElementPicker({
                     <span
                       style={{
                         fontSize: '0.7rem',
-                        background: isSelected ? 'rgba(255,255,255,0.25)' : 'var(--color-badge-draft)',
+                        background: isSelected ? 'rgba(var(--color-on-primary-rgb), 0.25)' : 'var(--color-badge-draft)',
                         color: isSelected ? 'var(--color-on-primary)' : 'var(--color-badge-draft-text)',
                         padding: '1px 6px',
                         borderRadius: 'var(--radius-full)',

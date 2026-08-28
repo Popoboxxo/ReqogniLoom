@@ -126,7 +126,7 @@ const inputStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -739,8 +739,8 @@ export function PermissionsSection({
                       fontSize: "var(--font-size-xs)",
                       fontWeight: 600,
                       background: perm.is_explicit_deny
-                        ? "rgba(220,38,38,0.12)"
-                        : "rgba(79,110,247,0.12)",
+                        ? "rgba(var(--color-danger-rgb), 0.12)"
+                        : "rgba(var(--color-primary-rgb), 0.12)",
                       color: perm.is_explicit_deny
                         ? "var(--color-danger)"
                         : "var(--color-primary)",
