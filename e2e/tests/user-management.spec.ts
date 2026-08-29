@@ -23,7 +23,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 interface ManagedUserDto {
@@ -118,9 +118,19 @@ test.describe('[Multi-user management] Tenant-admin full flow', () => {
     const suspendBtn = page.locator(`[data-testid="workspace-member-suspend-${userId}-editor"]`);
     const reactivateBtn = page.locator(`[data-testid="workspace-member-reactivate-${userId}-editor"]`);
 
+    // UI-09 (system audit P4, commit 6a733b78): suspending a role is
+    // destructive and now goes through a shared <ConfirmDialog> instead of
+    // firing immediately (see PermissionsSection.tsx `requestSuspendRole`/
+    // `pendingSuspend`) — click the trigger, then confirm in the dialog.
     await suspendBtn.click();
+    const suspendConfirmDialog = page.locator('[data-testid="workspace-member-suspend-confirm"]');
+    await expect(suspendConfirmDialog).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="workspace-member-suspend-confirm-confirm"]').click();
+    await expect(suspendConfirmDialog).not.toBeVisible({ timeout: 10000 });
     await expect(reactivateBtn).toBeVisible({ timeout: 10000 });
 
+    // Reactivate is not gated behind a confirm dialog (handleReactivateRole
+    // is wired directly to the button's onClick) — no confirmation step here.
     await reactivateBtn.click();
     await expect(suspendBtn).toBeVisible({ timeout: 10000 });
 
@@ -132,7 +142,15 @@ test.describe('[Multi-user management] Tenant-admin full flow', () => {
 
     const toggleActiveBtn = page.locator(`[data-testid="user-management-toggle-active-${userId}"]`);
 
+    // Same AP-3 ConfirmDialog pattern as the workspace-role suspend action
+    // above: only deactivation is destructive and gated behind a confirm
+    // dialog (UserManagement.tsx `requestToggleActive`/`pendingDeactivateUser`);
+    // (re-)activation stays a direct one-click action.
     await toggleActiveBtn.click();
+    const deactivateConfirmDialog = page.locator('[data-testid="user-management-deactivate-confirm"]');
+    await expect(deactivateConfirmDialog).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="user-management-deactivate-confirm-confirm"]').click();
+    await expect(deactivateConfirmDialog).not.toBeVisible({ timeout: 10000 });
     await expect(row.getByText(/^inactive$|^inaktiv$/i)).toBeVisible({ timeout: 10000 });
 
     await toggleActiveBtn.click();

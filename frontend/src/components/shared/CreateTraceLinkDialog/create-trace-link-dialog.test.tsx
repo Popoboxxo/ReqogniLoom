@@ -327,6 +327,48 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
       expect(onClose).toHaveBeenCalledOnce();
     });
 
+    /**
+     * Gesamttest 2026-08-29 Bug 1 — reported as "fixed source + link type
+     * 'satisfies' never fires the POST" (waterkettle-fullblown.spec.ts Phase
+     * 2b, architecture editor -> requirement satisfies-link). Root-cause
+     * analysis found no defect in this component: the missing request was a
+     * cascading effect of a separate bug (slow first-ever embedding-model
+     * load blocking requirement creation past the E2E helper's timeout in
+     * an earlier phase, so this phase's target requirement ID was never
+     * populated and the test legitimately skipped — no tracelink POST is
+     * expected from a skipped test). This test locks in that the dialog's
+     * own submit logic is link-type-agnostic and fires correctly for a
+     * fixed source with 'satisfies' selected, guarding against a real
+     * regression here in the future.
+     */
+    it('fires the create request for a fixed source with link type "satisfies"', async () => {
+      const onCreated = vi.fn();
+      const onClose = vi.fn();
+      vi.mocked(tracelinksApi.tracelinksApi.create).mockResolvedValue({} as any);
+
+      const user = userEvent.setup();
+      renderDialog({ onCreated, onClose });
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`)).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`));
+      await user.selectOptions(screen.getByTestId('create-trace-link-type-select'), 'satisfies');
+      await user.click(screen.getByTestId('create-trace-link-submit'));
+
+      await waitFor(() => {
+        expect(tracelinksApi.tracelinksApi.create).toHaveBeenCalledWith({
+          source_id: SOURCE_ID,
+          target_id: MOCK_REQUIREMENTS[0].id,
+          link_type: 'satisfies',
+        });
+      });
+
+      expect(onCreated).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
     it('shows error when API call fails', async () => {
       vi.mocked(tracelinksApi.tracelinksApi.create).mockRejectedValue({
         error: { message: 'Duplicate link detected' },

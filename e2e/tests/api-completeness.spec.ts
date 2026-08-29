@@ -271,9 +271,9 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
       headers,
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
-        source_artifact: req1.artifact_id ?? req1.id,
-        target_artifact: req2.artifact_id ?? req2.id,
-        link_type: 'derives',
+        source_id: req1.artifact_id ?? req1.id,
+        target_id: req2.artifact_id ?? req2.id,
+        link_type: 'derives-from',
       },
     });
 
