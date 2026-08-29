@@ -42,6 +42,10 @@ from auth_tenancy.errors import AuthenticationFailed
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml.
+pytestmark = pytest.mark.e2e
+
 
 # ---------------------------------------------------------------------------
 # Shared test data

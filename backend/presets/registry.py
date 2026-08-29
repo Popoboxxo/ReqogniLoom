@@ -221,19 +221,17 @@ _DEFAULT_REGISTRY: dict[str, PresetConfig] = {
 class PresetRegistry:
     """Static source of truth for all preset configurations.
 
-    Exposes only the three built-in presets in v1.  Custom preset support
-    (REQ-L3-PC001-004, priority: optional) is scaffolded but gated.
+    Exposes only the three built-in presets in v1. Custom preset support
+    (REQ-L3-PC001-004, priority: optional) is locked for now — see
+    :meth:`create_custom_preset` (SYSTEMAUDIT SA-57) for why: it needs real
+    per-workspace preset-*definition* persistence, not just tier selection,
+    which ``WorkspacePresetConfig`` does not yet provide.
 
     Interface consumed by COMP-PC-003 via IF-PC-INT-001:
         get_preset_config(tier) -> PresetConfig
 
     REQ-L2-PC-012 / REQ-L3-PC001-003: Default presets are immutable.
     """
-
-    def __init__(self) -> None:
-        # Custom presets are stored per-workspace as overrides (v2 feature).
-        # Key: (workspace_id, custom_tier_name) -> PresetConfig
-        self._custom: dict[tuple, PresetConfig] = {}
 
     # ------------------------------------------------------------------
     # IF-PC-INT-001
@@ -359,47 +357,48 @@ class PresetRegistry:
         workspace_current_tier: str,
         overrides: dict | None = None,
     ) -> PresetConfig:
-        """Create a custom preset derived from a default tier (Extended-only).
+        """Always rejected — custom presets are locked until v2 (SYSTEMAUDIT SA-57).
+
+        This used to gate on ``workspace_current_tier == "extended"`` and, if
+        that passed, build and return a real ``PresetConfig`` — which looked
+        like a working feature. It was not: the result was stashed in
+        ``self._custom``, a plain in-memory dict that ``get_preset_config()``
+        never reads (see that method — it only ever checks
+        ``_DEFAULT_REGISTRY``). So the very next ``get_preset_config(name)``
+        call, even in the same request, raised ``ConfigurationError``. The bug
+        was not "lost on restart" as first reported — a custom preset was
+        never retrievable, not even once.
+
+        Fixing this properly needs real persistence for a full preset
+        *definition* (``mandatory_fields``, ``features``, ``baseline_scopes``,
+        ``workflow_configurability``, ``change_reason`` — not just a tier
+        *name*). ``presets.models.WorkspacePresetConfig`` is the obvious place
+        to look, but its ``active_tier`` is a ``CharField(choices=PRESET_CHOICES)``
+        restricted to the three built-in tiers, with no columns for the
+        override fields above — adding those is a genuine schema migration
+        plus a rewrite of every ``get_preset_config`` caller to resolve
+        per-workspace overrides, not a "klein"-sized fix. Given
+        ``create_custom_preset`` has no production caller today (only this
+        module's own tests exercise it), locking the path with a clear error
+        is the honest v1 answer: no code silently "succeeds" into a preset
+        nothing can ever load again.
 
         Args:
             workspace_id: The workspace requesting the custom preset.
             name: Unique name for the custom preset (within the workspace).
             base_tier: Default tier to clone from.
-            workspace_current_tier: Current tier of the workspace (must be
-                "extended" to create custom presets).
+            workspace_current_tier: Current tier of the workspace.
             overrides: Optional dict of field overrides (partial).
 
-        Returns:
-            New PresetConfig (not frozen in the custom registry).
-
         Raises:
-            CustomPresetNotAllowedError: If workspace is not in Extended mode.
-            ConfigurationError: If base_tier is not a known default tier.
+            CustomPresetNotAllowedError: Always — custom presets are not yet
+                supported.
         """
-        if workspace_current_tier != TIER_EXTENDED:
-            raise CustomPresetNotAllowedError(
-                "Custom presets require Extended mode"
-            )
-        base = self.get_preset_config(base_tier)
-        overrides = overrides or {}
-        custom = PresetConfig(
-            tier=name,
-            mandatory_fields=overrides.get(
-                "mandatory_fields", base.mandatory_fields
-            ),
-            features={**base.features, **overrides.get("features", {})},
-            baseline_scopes=overrides.get(
-                "baseline_scopes", base.baseline_scopes
-            ),
-            workflow_configurability=overrides.get(
-                "workflow_configurability", base.workflow_configurability
-            ),
-            change_reason=overrides.get("change_reason", base.change_reason),
-            is_default=False,
-            parent_tier=base_tier,
+        raise CustomPresetNotAllowedError(
+            "Custom presets are not yet supported — planned for a future "
+            "release. Use one of the built-in tiers: "
+            f"{sorted(_DEFAULT_REGISTRY.keys())}."
         )
-        self._custom[(workspace_id, name)] = custom
-        return custom
 
 
 # Module-level singleton — import and use directly (ADR-PC-02).

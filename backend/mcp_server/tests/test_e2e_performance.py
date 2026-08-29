@@ -42,6 +42,12 @@ from mcp_server.tests.conftest import (  # noqa: F401
 )
 from mcp_server.tests.helpers import extract_result, post_mcp
 
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml. Composes with the
+# per-test `@pytest.mark.slow` below (module-level pytestmark + function
+# decorators both apply).
+pytestmark = pytest.mark.e2e
+
 
 # ---------------------------------------------------------------------------
 # Helpers

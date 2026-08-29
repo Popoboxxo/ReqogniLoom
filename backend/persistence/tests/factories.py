@@ -22,6 +22,19 @@ IMPORTANT — ``active_tenant()`` here is deliberately a DIFFERENT SHAPE from
 
 Do not conflate the two; do not modify ``auth_tenancy/tests/conftest.py`` to
 match this one.
+
+SYSTEMAUDIT SA-62 (recommendation, not actioned — out of scope for a "klein"
+fix): this is the ONLY shared factory module in the backend test suite; the
+overwhelming majority of the ~5.7k tests build their Tenant/User/Workspace/
+Requirement fixtures by hand, inline, per test file (often near-identical
+boilerplate — compare the ``_make_tenant_workspace_ctx`` helper duplicated
+across several ``application/tests/test_*.py`` files). Consolidating that
+onto a single factory strategy (this module, or a proper
+``factory_boy``-based one) would cut a large amount of duplicated setup code
+and reduce drift between test files' notions of "a valid Requirement" — but
+migrating the whole suite is a large, cross-cutting effort in its own right
+and must not be bundled into an unrelated bugfix. Tracked as a backlog
+recommendation only.
 """
 from __future__ import annotations
 

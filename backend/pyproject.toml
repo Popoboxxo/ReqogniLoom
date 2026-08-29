@@ -16,6 +16,13 @@ addopts = "--strict-markers -v"
 markers = [
     "slow: Performance-Tests, dauern > 1s",
     "integration: benoetigt einen laufenden Live-Stack (z.B. Docker-Compose Backend); nicht Teil der Unit-Suite",
+    # SYSTEMAUDIT SA-62: `test_e2e_*.py` files exercise a full vertical slice
+    # (transport -> ProtocolHandler -> ToolRegistry -> ApplicationService)
+    # in-process against the pytest-django test DB. Deliberately distinct
+    # from `integration`: these do NOT need a live stack and stay part of
+    # the regular suite; `e2e` is a classification/selection marker only
+    # (`pytest -m e2e`), not an exclusion signal like `integration`.
+    "e2e: durchlaeuft einen vollstaendigen vertikalen Schnitt (Transport bis ApplicationService) in-process gegen die Test-DB; kein Live-Stack noetig, Teil der Unit-Suite",
 ]
 
 [tool.coverage.run]

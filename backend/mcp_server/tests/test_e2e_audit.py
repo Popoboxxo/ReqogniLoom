@@ -86,6 +86,10 @@ from mcp_server.tests.helpers import (
     post_mcp,
 )
 
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml.
+pytestmark = pytest.mark.e2e
+
 
 # ---------------------------------------------------------------------------
 # WRITE_TOOL_AUDIT_OPS — contract under test

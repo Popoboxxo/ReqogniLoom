@@ -68,9 +68,25 @@ class IncompleteProfileError(PresetError):
 
 
 class CustomPresetNotAllowedError(PresetError):
-    """Raised when custom preset creation is attempted outside Extended mode.
+    """Raised whenever custom preset creation is attempted (REQ-L3-PC001-004).
 
-    REQ-L3-PC001-004.
+    SYSTEMAUDIT SA-57: custom presets are deliberately locked for v1, not
+    just gated to Extended mode. ``PresetRegistry._custom`` only ever stores
+    the created ``PresetConfig`` in an in-memory, per-process dict —
+    ``get_preset_config()`` never reads from it, ``WorkspacePresetConfig``
+    only carries the three built-in tiers as a ``CharField(choices=...)``
+    (no field for a custom tier's ``mandatory_fields``/``features``/
+    ``baseline_scopes`` overrides), and nothing in ``workflow``/
+    ``application`` resolves a workspace's *custom* preset by name. So a
+    caller that got past the (now historical) Extended-mode check would
+    still never be able to retrieve what it just "created" — not only after
+    a process restart (as originally reported), but immediately, in the very
+    same request. Persisting full custom preset *definitions* (not just
+    tier *selection*, which ``WorkspacePresetConfig.active_tier`` already
+    does) is a real schema change, not a v1 fix — see the ``create_custom_preset``
+    docstring for the full analysis. Until that lands, every call is
+    rejected with a clear message instead of silently building a PresetConfig
+    that can never be read back.
     """
 
 

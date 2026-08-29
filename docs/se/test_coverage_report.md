@@ -1,55 +1,11 @@
 # Requirement Test Coverage Report
 
+> **Scope:** Stakeholder Needs (REQ-L0) sind aus diesem Coverage-Report ausgenommen —
+> ihr Testabdeckungsstatus wird in `docs/se/L0/SN_Stakeholder_Needs.md` (Feld
+> "Test Status") getrackt, da Needs selbst nicht unit-testbar sind.
+
 | REQ-ID | Test Status | Verifikiert durch / Methode | Datei |
 |--------|-------------|-----------------------------|-------|
-| REQ-L0-001 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-002 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-003 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-004 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-005 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-006 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-007 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-008 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-009 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-010 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-011 | Covered | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-012 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-013 | Covered | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-014 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-015 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-016 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-017 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-018 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-019 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-020 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-021 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-022 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-023 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-024 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-025 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-026 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-027 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-028 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-029 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-030 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-032 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-033 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-034 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-035 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-036 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-037 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-038 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-039 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-040 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-041 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-042 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-043 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-044 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-045 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-046 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-047 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-048 | Missing | Not Specified | SN_Stakeholder_Needs.md |
-| REQ-L0-049 | Missing | Not Specified | SN_Stakeholder_Needs.md |
 | REQ-L1-001 | Covered | Not Specified | L1_Gesamtsystem_Requirements.md |
 | REQ-L1-002 | Covered | Not Specified | L1_Gesamtsystem_Requirements.md |
 | REQ-L1-003 | Covered | Not Specified | L1_Gesamtsystem_Requirements.md |

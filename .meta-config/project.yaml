@@ -92,7 +92,7 @@ context_file:
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
-    Artefakt-Zerlegung, REST API + nativem MCP Server (11 Tool-Gruppen, 40+ Tools),
+    Artefakt-Zerlegung, REST API + nativem MCP Server (22 Tool-Gruppen, 171 Tools),
     LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation,
     15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended)
     und i18n (DE/EN).
@@ -100,10 +100,11 @@ variables:
     Backlogs (Minimal-Rigor) bis zu formalen Systems-Engineering-Workflows (Extended-Rigor)
     mit V-Modell-Traceability (L0 Stakeholder Needs → L1 System Requirements → L2
     Subsystems → L3 Components → L4 Presentation). Eine Codebasis, drei Rigor-Presets.
-  PLATFORM: 'Django 4.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL
+  PLATFORM: 'Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL
     16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker
-    Compose (5 Services: postgres, redis, backend, celery, frontend)'
-  RUNTIME: 'Python 3.x (im Container: Django 4.2+, DRF 3.15+, drf-spectacular, psycopg2-binary,
+    Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery,
+    celery-beat, frontend)'
+  RUNTIME: 'Python 3.x (im Container: Django 5.2+, DRF 3.15+, drf-spectacular, psycopg2-binary,
     celery, redis, reportlab) + Node.js >= 18 (nur für E2E mit Playwright; Vite-Dev-Server
     läuft im Container) + Vite 5.4+ Dev-Server'
   PROJECT_LANGUAGES: Python 3.x (Backend, Tests mit pytest) + TypeScript 5.5+ (Frontend,
@@ -133,11 +134,12 @@ variables:
   DEV_STACK_START: docker-compose up
   DEV_STACK_RELOAD: docker-compose restart (oder Hot Reload je nach Service)
   PROJECT_CONTEXT: 'ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool
-    mit MBSE-Unterstützung. Tech-Stack: Django 4.2+ (Backend) + React 18 + TypeScript
+    mit MBSE-Unterstützung. Tech-Stack: Django 5.2+ (Backend) + React 18 + TypeScript
     (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen:
-    REST API unter /api/v1/ (DRF, 16 ViewSets + 2 APIViews, JWT-Auth, OpenAPI via
-    drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0, Transports:
-    HTTP, SSE, stdio; 11 Tool-Gruppen mit 40+ Tools; API-Key `reqlo_*`). Fähigkeiten:
+    REST API unter /api/v1/ (DRF, 27 ViewSets + 67 APIViews, JWT-Auth mit vierstufiger
+    RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
+    MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 22 Tool-Gruppen
+    mit 171 Tools; API-Key `reqlo_*`). Fähigkeiten:
     Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management,
     15 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level),
     History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import,
@@ -159,7 +161,7 @@ variables:
     \ Diff-Engine)\n  application/                           # Layer 2 (19 Domain-Services,\
     \ Single Entry Point)\n  rest_api/                              # Layer 3 (DRF\
     \ ViewSets + drf-spectacular OpenAPI)\n  mcp_server/                         \
-    \   # Layer 3 (MCP-Tool-Registry: 40+ Tools, 11 Gruppen)\n  diagram/         \
+    \   # Layer 3 (MCP-Tool-Registry: 171 Tools, 22 Gruppen)\n  diagram/         \
     \                      # Ext (SVG/PNG/PlantUML Renderer)\n  icd/             \
     \                      # Ext (Interface Control Document Management)\n  se_metrics/\
     \                            # Ext (KPI-Aggregation, Read-Model)\n  resilience/\
@@ -169,14 +171,15 @@ variables:
     \  src/index.tsx                          # React Entry-Point\n  src/App.tsx \
     \                           # Root-Component\n  src/api/                     \
     \          # API-Wrapper (artifacts, requirements, ...)\n  src/components/   \
-    \                     # 17 Component-Bereiche (Dashboard, Editors, Diff)\n  src/context/\
+    \                     # 41 Component-Bereiche (Dashboard, Editors, Diff)\n  src/context/\
     \                           # React Context (Auth, Workspace)\n  src/i18n/locales/{de,en}.json\
     \          # i18next Uebersetzungen\n  src/styles/{tokens,global}.css        \
     \ # Design-System (CSS Custom Properties)\n  src/test/                       \
     \       # Vitest Unit-Tests\n  package.json                           # React\
     \ 18, Vite 5, react-i18next, vitest\nexternal /\n  e2e/                      \
     \             # Playwright E2E-Tests (111 Tests, Chromium)\ndocker-compose.yml\
-    \                      # Orchestrierung (postgres, redis, backend, celery, frontend)\n"
+    \                      # Orchestrierung (postgres, postgres-backup, redis, backend,\
+    \ migrate, celery, celery-beat, frontend)\n"
   PROJECT_STRUCTURE: 'backend/             # Django REST API (17 Apps) #   Layer 0:
     persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability,
     workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api,
@@ -190,7 +193,8 @@ variables:
 
     docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
 
-    docker-compose.yml   # 5 Services: postgres, redis, backend, celery, frontend
+    docker-compose.yml   # 8 Services: postgres, postgres-backup, redis, backend, migrate,
+    celery, celery-beat, frontend
 
     .meta-config/        # agent-meta Konfiguration (project.yaml)
 
@@ -204,8 +208,8 @@ variables:
     (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider,
     Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
     e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) '
-  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (16 ViewSets
-    + 2 APIViews) - MCP-Server (JSON-RPC 2.0) mit 11 Tool-Gruppen und 40+ Tools für
+  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets
+    + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 22 Tool-Gruppen und 171 Tools für
     AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI,
     ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige
     Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security
@@ -244,7 +248,7 @@ variables:
 
     - NICHT MCP-Tool ohne vorherigen Login via X-API-Key (auth-Header PFLICHT)
 
-    - NICHT RFK_-Präfix API-Keys committen (greppbar als Secret)
+    - NICHT reqlo_-Präfix API-Keys committen (greppbar als Secret)
 
     - NICHT TenantContext vergessen: jede DRF-View MUSS set_tenant(request.user.tenant)
     aufrufen
@@ -295,7 +299,7 @@ variables:
 
     - LLM-Provider mock-default (kein API-Key für Entwicklung erforderlich)
 
-    - Secrets NIE committen (RFK_-Präfix für MCP-API-Keys; grep-bar)
+    - Secrets NIE committen (reqlo_-Präfix für MCP-API-Keys; grep-bar)
 
     - ESLint max-warnings 0 (frontend/package.json)
 
@@ -330,7 +334,7 @@ variables:
 
     - Baseline: Snapshot, Diff, 3 Scopes (Document/Project/Global)
 
-    - Traceability: 8 Link-Typen, Coverage-Aggregation, V-Modell L0-L4
+    - Traceability: 15 Link-Typen, Coverage-Aggregation, V-Modell L0-L4
 
     '
   REQ_CATEGORIES_LIST: '- **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
@@ -339,9 +343,9 @@ variables:
     Multi-Tenancy
 
     - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC
-    2.0, 11 Tool-Gruppen)
+    2.0, 22 Tool-Gruppen)
 
-    - **UI/UX** — Frontend (React 18 SPA), 17 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
+    - **UI/UX** — Frontend (React 18 SPA), 41 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
 
     - **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable
     Rigor
@@ -356,7 +360,7 @@ variables:
 
     - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
 
-    - **Traceability** — 8 Link-Typen, Coverage-Aggregation, V-Modell L0-L4-Traceability
+    - **Traceability** — 15 Link-Typen, Coverage-Aggregation, V-Modell L0-L4-Traceability
 
     - **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
 
@@ -413,10 +417,12 @@ variables:
   ARTIFACT_ZIP_CMD: ''
   ARTIFACT_TAR_CMD: ''
   GH_ASSETS: ''
-  BUILD_SYSTEM_NOTES: '`docker-compose build` erstellt Images für backend, celery,
-    frontend (postgres und redis nutzen offizielle Images).
+  BUILD_SYSTEM_NOTES: '`docker-compose build` erstellt Images für backend, migrate,
+    celery, celery-beat, frontend (postgres, postgres-backup und redis nutzen offizielle
+    Images).
 
-    Backend + Celery: Dockerfile in backend/ (Python 3.x, Django 4.2+, requirements.txt).
+    Backend + Migrate + Celery + Celery-Beat: Dockerfile in backend/ (Python 3.x,
+    Django 5.2+, requirements.txt).
 
     Frontend: Dockerfile in frontend/ (Node 18+, Vite 5, package.json, target: development).
 
@@ -428,7 +434,7 @@ variables:
     Healthchecks: pg_isready (postgres), redis-cli ping (redis) — services_healthy
     als DependsOn-Bedingung.
 
-    Kein separates Build-Artifact — Deployment via Docker Compose (5 Services orchestriert).
+    Kein separates Build-Artifact — Deployment via Docker Compose (8 Services orchestriert).
 
     Seed: `docker-compose exec backend python manage.py migrate && python manage.py
     seed_demo`.
@@ -469,15 +475,21 @@ variables:
   SE_MAX_CRITIC_ITERATIONS: 1
   SE_MAX_PARALLEL_CELLS: 3
   DOCKER_STACKS_OVERVIEW: 'ReqogniLoom verwendet eine einzige `docker-compose.yml`
-    im Projekt-Root mit 5 Services:
+    im Projekt-Root mit 8 Services:
 
     - postgres (PostgreSQL 16-alpine, persistent via Volume `postgres_data`)
 
+    - postgres-backup (pgvector/pgvector:pg16, periodisches DB-Backup)
+
     - redis (Redis 7-alpine, Cache + Celery-Broker)
 
-    - backend (Django 4.2+ / Python 3.12, Port 8000)
+    - backend (Django 5.2+ / Python 3.12, Port 8000)
+
+    - migrate (gleiches Image wie backend, führt Django-Migrationen vor dem Start aus)
 
     - celery (gleiches Image wie backend, Worker-Prozess)
+
+    - celery-beat (gleiches Image wie backend, Scheduler für periodische Tasks)
 
     - frontend (React 18 / Node 22, Vite Dev-Server Port 5173)
 
