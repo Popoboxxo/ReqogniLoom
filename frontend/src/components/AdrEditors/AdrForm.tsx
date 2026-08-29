@@ -132,6 +132,16 @@ export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): J
 
   const candidateSuccessors = adr ? otherAdrs.filter((other) => other.id !== adr.id) : [];
 
+  // Fix (systemaudit 2026-08-29, Bug 4): the only workflow transition into
+  // 'Superseded' is 'Approved' -> 'Superseded' (backend/workflow/
+  // definition_store.py::_adr_transitions — adr_default is currently the
+  // only ADR workflow definition). Before this fix, a Draft/In-Review ADR
+  // let the user fill in the whole supersede form only to fail at submit
+  // time with a generic "Transition not allowed" error from the backend
+  // workflow gate. Mirrors that same rule client-side so the button is
+  // disabled/hinted up front instead.
+  const canSupersede = adr?.status === 'Approved';
+
   const openSupersede = useCallback((): void => {
     setSupersedeError(null);
     setSupersedeTargetId('');
@@ -339,11 +349,16 @@ export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): J
                   data-testid="adr-supersede-btn"
                   className="btn-secondary"
                   onClick={openSupersede}
-                  disabled={candidateSuccessors.length === 0}
+                  disabled={!canSupersede || candidateSuccessors.length === 0}
                   title={
-                    candidateSuccessors.length === 0
-                      ? t('adrs.supersedeNoCandidates', 'Keine anderen ADRs in diesem Workspace vorhanden.')
-                      : undefined
+                    !canSupersede
+                      ? t(
+                          'adrs.supersedeWrongStatus',
+                          'Supersede ist nur für ADRs im Status "Approved" möglich.'
+                        )
+                      : candidateSuccessors.length === 0
+                        ? t('adrs.supersedeNoCandidates', 'Keine anderen ADRs in diesem Workspace vorhanden.')
+                        : undefined
                   }
                 >
                   {t('adrs.supersedeAction', 'Supersede durch...')}

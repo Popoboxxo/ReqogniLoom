@@ -37,6 +37,7 @@ import {
 } from "react";
 
 import { themePalettesApi, type ThemeMode, type ThemePalette } from "../api/themePalettes";
+import { AuthContext } from "./AuthContext";
 
 /** Palettes whose identity IS one specific look; used for the legacy
  * ``data-theme`` CSS-block mapping above. */
@@ -120,6 +121,19 @@ function writeStored(key: string, value: string): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }): JSX.Element {
+  // Fix (systemaudit 2026-08-29, Bug 3): all three endpoints below require
+  // an authenticated session (see backend/rest_api/urls.py comments on
+  // admin/theme-palettes, users/me/theme-preference, system/theme-default).
+  // Fetching unconditionally on mount guaranteed 3 doomed 401s (plus a
+  // doomed single-flight refresh, see api/client.ts) on every page load
+  // before login. In the app, ThemeProvider is mounted inside AuthProvider
+  // (see App.tsx) so this gates the fetch on real session state. Uses
+  // useContext (not the throwing useAuth() hook) so existing unit tests that
+  // render <ThemeProvider> standalone (no AuthProvider ancestor) keep
+  // fetching unconditionally, same as before this fix.
+  const authCtx = useContext(AuthContext);
+  const status = authCtx?.status ?? "authenticated";
+
   // Initial state: last cached choice (instant paint), else pre-feature
   // legacy cache, else built-in fallback. The server resolution below
   // overrides this once it arrives.
@@ -136,6 +150,13 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
   });
 
   useEffect(() => {
+    // Anonymous visitors (login page) and the brief "restoring" window while
+    // the session cookie is still being checked have no session to resolve
+    // server-side theme data against — every one of these calls would 401.
+    // Keep whatever localStorage-cached/fallback theme is already applied
+    // (see the effect below) until a real session exists.
+    if (status !== "authenticated") return;
+
     let cancelled = false;
     Promise.all([
       themePalettesApi.list(),
@@ -157,7 +178,7 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [status]);
 
   useEffect(() => {
     const palette = palettes.find((p) => p.key === paletteKey);

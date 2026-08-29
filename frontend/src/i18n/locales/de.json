@@ -629,6 +629,7 @@
     "untitled": "Unbenannt",
     "supersedeAction": "Supersede durch...",
     "supersedeNoCandidates": "Keine anderen ADRs in diesem Workspace vorhanden.",
+    "supersedeWrongStatus": "Supersede ist nur für ADRs im Status \"Approved\" möglich.",
     "supersedeTargetLabel": "Abgelöst durch",
     "supersedeTargetPlaceholder": "ADR auswählen...",
     "supersedeReasonLabel": "Begründung",

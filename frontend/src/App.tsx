@@ -10,9 +10,22 @@
  * Provider hierarchy:
  *   QueryClientProvider (TanStack Query cache)
  *     └── BrowserRouter
- *           └── AuthProvider (token management + 401 handler)
- *                 └── WorkspaceProvider (preset + terminology)
- *                       └── NavigationShell (routes + auth gate)
+ *           └── AuthProvider (session cookie restore + 401 handler)
+ *                 └── ThemeProvider (palette/mode — depends on auth status)
+ *                       └── WorkspaceProvider (preset + terminology)
+ *                             └── NavigationShell (routes + auth gate)
+ *
+ * Fix (systemaudit 2026-08-29, Bug 3): ThemeProvider used to sit OUTSIDE
+ * AuthProvider and fetch GET /users/me/theme-preference/,
+ * GET /admin/theme-palettes/ and GET /system/theme-default/ unconditionally
+ * on mount — all three require an authenticated session. On every fresh page
+ * load (before the httpOnly session cookie exists, i.e. on the login page
+ * itself) that guaranteed 3 doomed 401s plus a doomed single-flight
+ * POST /auth/refresh/, whose retry/refresh promises could still be settling
+ * around the moment the user actually completed login, making the console
+ * noise look login-triggered. ThemeProvider now lives inside AuthProvider
+ * and gates its fetch on `status === "authenticated"` (see ThemeContext.tsx)
+ * instead of firing blind on mount.
  */
 
 import { BrowserRouter, useNavigate } from "react-router-dom";
@@ -39,9 +52,11 @@ function AppInner(): JSX.Element {
         navigate("/login", { replace: true, state: { sessionExpired: true } })
       }
     >
-      <WorkspaceProvider>
-        <NavigationShell />
-      </WorkspaceProvider>
+      <ThemeProvider>
+        <WorkspaceProvider>
+          <NavigationShell />
+        </WorkspaceProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }
@@ -53,11 +68,9 @@ function AppInner(): JSX.Element {
 // replaced.
 
 export const App = (): JSX.Element => (
-  <ThemeProvider>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AppInner />
-      </BrowserRouter>
-    </QueryClientProvider>
-  </ThemeProvider>
+  <QueryClientProvider client={queryClient}>
+    <BrowserRouter>
+      <AppInner />
+    </BrowserRouter>
+  </QueryClientProvider>
 );

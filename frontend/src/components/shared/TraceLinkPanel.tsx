@@ -6,6 +6,7 @@ import { tracelinksApi } from "../../api/tracelinks";
 import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { extractErrorMessage } from "../../api/client";
 
@@ -32,6 +33,10 @@ export function TraceLinkPanel({
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
   const [showDialog, setShowDialog] = useState(false);
   const [refsById, setRefsById] = useState<Record<UUID, ArtifactRef>>({});
+  // UI-09 (systemaudit 2026-08-29, Bug 1): deleting a trace link is
+  // destructive and irreversible — require explicit confirmation, matching
+  // the pattern already used in ReqTraceLinkPanel.tsx.
+  const [pendingDeleteLinkId, setPendingDeleteLinkId] = useState<UUID | null>(null);
 
   const loadLinks = async () => {
     setLoading(true);
@@ -122,6 +127,13 @@ export function TraceLinkPanel({
     }
   };
 
+  const confirmDeleteLink = async () => {
+    if (!pendingDeleteLinkId) return;
+    const linkId = pendingDeleteLinkId;
+    setPendingDeleteLinkId(null);
+    await handleDelete(linkId);
+  };
+
   const upstream = links.filter((l) => l.target_id === artifactId);
   const downstream = links.filter((l) => l.source_id === artifactId);
 
@@ -180,7 +192,7 @@ export function TraceLinkPanel({
         )}
         <button
           data-testid={`trace-link-delete-${trace.id}`}
-          onClick={() => void handleDelete(trace.id)}
+          onClick={() => setPendingDeleteLinkId(trace.id)}
           style={{
             marginLeft: "auto",
             background: "none",
@@ -308,6 +320,20 @@ export function TraceLinkPanel({
             </ul>
           </div>
         </div>
+      )}
+
+      {pendingDeleteLinkId && (
+        <ConfirmDialog
+          title={t("traceability.deleteConfirmTitle", "TraceLink löschen")}
+          message={t(
+            "traceability.deleteConfirmMessage",
+            "Diesen TraceLink löschen? Diese Aktion kann nicht rückgängig gemacht werden."
+          )}
+          confirmLabel={t("actions.delete", "Löschen")}
+          onConfirm={() => void confirmDeleteLink()}
+          onCancel={() => setPendingDeleteLinkId(null)}
+          testId="tracelink-panel-delete-confirm"
+        />
       )}
     </div>
   );

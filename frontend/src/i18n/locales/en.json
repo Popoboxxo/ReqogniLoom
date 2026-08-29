@@ -629,6 +629,7 @@
     "untitled": "Untitled",
     "supersedeAction": "Supersede with...",
     "supersedeNoCandidates": "No other ADRs exist in this workspace.",
+    "supersedeWrongStatus": "Supersede is only possible for ADRs in \"Approved\" status.",
     "supersedeTargetLabel": "Superseded by",
     "supersedeTargetPlaceholder": "Select an ADR...",
     "supersedeReasonLabel": "Reason",

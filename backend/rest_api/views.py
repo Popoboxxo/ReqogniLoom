@@ -2305,15 +2305,70 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 )
 
             artifact_id = UUID(artifact_id_str)
+            seen_ids: set = set()
             for direction in ("upstream", "downstream"):
                 try:
-                    results = svc.query_trace_links(
+                    # Fix (systemaudit 2026-08-29, Bug 1): query_trace_links()
+                    # returns NeighborResult projections without the
+                    # TraceLink's own primary key — this branch used to paper
+                    # over that with a helper (formerly `_neighbor_to_dict`,
+                    # removed) that synthesized a deterministic uuid5 from the
+                    # endpoint pair. That synthetic id was never a real
+                    # TraceLink row, so DELETE /tracelinks/<id>/ against it
+                    # 404'd ("TraceLink <uuid> not found") in every UI that
+                    # lists links via ?artifact_id= (TraceLinkPanel,
+                    # ReqTraceLinkPanel). list_links_for_entity() returns the
+                    # persisted TraceLink ORM rows (real .id) instead.
+                    #
+                    # The endpoint-echo contract from #512 must be kept
+                    # as-is here: the frontend classifies each item as
+                    # upstream/downstream by comparing this item's own
+                    # endpoint against the *raw* artifact_id it queried with
+                    # (TraceLinkPanel.tsx: `l.target_id === artifactId` /
+                    # `l.source_id === artifactId`) — not the resolved
+                    # Artifact id `tl.source_id`/`tl.target_id` actually
+                    # stored on the row (which differ whenever the caller
+                    # queried by entity id, e.g. an ADR's own `.id`, per the
+                    # #512 comment on resolveArtifactRef below). Returning
+                    # the raw ORM `tl.source_id`/`tl.target_id` unmodified
+                    # here (as `_tracelink_to_dict` does) broke that
+                    # classification — both "upstream" and "downstream"
+                    # silently rendered zero links because neither endpoint
+                    # id matched what the frontend queried with. Only the
+                    # TraceLink's own `id` needed to become real; the
+                    # endpoint-echo shape must stay exactly like before.
+                    results = svc.list_links_for_entity(
                         entity_id=artifact_id,
                         direction=direction,
                         ctx=ctx,
                     )
-                    for r in results:
-                        items.append(_neighbor_to_dict(r, artifact_id, direction))
+                    for tl in results:
+                        if tl.id in seen_ids:
+                            # A self-link (source == target == artifact_id)
+                            # would otherwise be listed twice (once per
+                            # direction).
+                            continue
+                        seen_ids.add(tl.id)
+                        if direction == "upstream":
+                            item_source_id = str(tl.source_id)
+                            item_target_id = str(artifact_id)
+                        else:
+                            item_source_id = str(artifact_id)
+                            item_target_id = str(tl.target_id)
+                        items.append(
+                            {
+                                "id": str(tl.id),
+                                "source_id": item_source_id,
+                                "target_id": item_target_id,
+                                "link_type": tl.link_type,
+                                "version": tl.version,
+                                "created_at": tl.created_at,
+                                "source_title": "",
+                                "target_title": "",
+                                "source_type": "",
+                                "target_type": "",
+                            }
+                        )
                 except Exception:
                     # No links in this direction is the common case. An
                     # unresolvable artifact_id also lands here — log it so a
@@ -3858,48 +3913,6 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
         d["source_type"] = src.get("artifact_type", "")
         d["target_type"] = tgt.get("artifact_type", "")
     return d
-
-
-def _neighbor_to_dict(
-    neighbor: Any, artifact_id: UUID, direction: str
-) -> dict[str, Any]:
-    """Convert a TraceabilityEngine NeighborResult to a TraceLink-like dict.
-
-    The engine returns neighbors as (entity_id, link_type, direction). For
-    upstream links the queried artifact is the target, for downstream links it
-    is the source. A synthetic id is generated from the endpoint pair so the
-    frontend can key list items.
-
-    Title fields (source_title, target_title, source_type, target_type) are
-    injected by the caller after batch resolution (REQ-002).
-    """
-    from datetime import datetime, timezone
-
-    if direction == "upstream":
-        source_id = neighbor.entity_id
-        target_id = artifact_id
-    else:
-        source_id = artifact_id
-        target_id = neighbor.entity_id
-    # Generate a deterministic UUID from the endpoint pair so the frontend
-    # can key list items without exposing the raw composite id.
-    link_id = uuid.uuid5(
-        uuid.NAMESPACE_URL,
-        f"tracelink/{source_id}/{target_id}/{neighbor.link_type}",
-    )
-    return {
-        "id": link_id,
-        "source_id": str(source_id),
-        "target_id": str(target_id),
-        "link_type": neighbor.link_type,
-        "version": 1,
-        "created_at": datetime.now(timezone.utc),
-        # Title fields start empty; caller fills them in (REQ-002).
-        "source_title": "",
-        "target_title": "",
-        "source_type": "",
-        "target_type": "",
-    }
 
 
 def _collect_artifact_names(

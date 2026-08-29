@@ -168,7 +168,18 @@ export function WorkspaceCard({
               // Room for the sibling preset/mode badge button absolutely
               // positioned over this corner (see PRESET_BADGE_POSITION_STYLE)
               // so the title text doesn't run underneath it.
-              paddingRight: "var(--space-8)",
+              //
+              // Fix (systemaudit 2026-08-29, Bug 2 — regression of
+              // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2): var(--space-8)
+              // (32px) was never wide enough to clear the actual badge — its
+              // rendered width (padding "2px 10px" + bold 14px text, e.g.
+              // "extended"/"standard") is ~80-90px, roughly 50-60px more
+              // than what was reserved, which is almost exactly the overlap
+              // measured live (e.g. 51px on one sampled card). Widened to
+              // safely clear the longest of the three fixed preset labels
+              // (WorkspacePreset: "minimal" | "standard" | "extended") plus
+              // a visual gap.
+              paddingRight: "calc(3 * var(--space-8))",
             }}
           >
             <h3
@@ -181,12 +192,17 @@ export function WorkspaceCard({
                 display: "flex",
                 alignItems: "center",
                 gap: "var(--space-2)",
-                // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: with the
-                // default flex-shrink behavior, a long workspace name pushed
-                // the active-pill (and the whole title row) past the
-                // paddingRight reserved above for the absolutely positioned
-                // preset badge, causing the two to overlap. minWidth: 0 lets
-                // the name span below actually shrink instead of overflowing.
+                // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2 /
+                // systemaudit 2026-08-29 Bug 2: minWidth: 0 alone lets the
+                // name span shrink, but with the default flex-grow: 0 this
+                // flex item only ever sizes to its *content* — nothing
+                // forces it to actually become narrower than the row, so
+                // the ellipsis truncation on the name span below never
+                // triggered in practice. `flex: "1 1 0%"` forces this item
+                // to always take exactly the row's available width (row
+                // width minus the reserved paddingRight above), making the
+                // truncation deterministic regardless of name length.
+                flex: "1 1 0%",
                 minWidth: 0,
               }}
             >
