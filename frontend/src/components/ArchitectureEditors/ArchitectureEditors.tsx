@@ -558,7 +558,9 @@ export default function ArchitectureEditors(): JSX.Element {
       )}
 
       {/* WorkspaceTree — unified navigation panel (REQ-003).
-          showLevelBadge shows L0-L4 colored badges per design doc §6.
+          showLevelBadge renders the shared, neutral <LevelBadge> per row
+          (issue #674 — a level is not a state, UI concept ch. 3.3/8.3, so it
+          is deliberately not colour-ramped by depth anymore).
           onAddChild surfaces the "+ child" button on each tree row.
           showSearch=false: search is handled by the input above.
           onReparent: drag & drop moves an element under a new parent, or onto
@@ -728,51 +730,24 @@ export default function ArchitectureEditors(): JSX.Element {
           testId="arch-unsaved-changes-dialog"
         />
       )}
+      {/* Issue #670: the list-level delete used to hand-build its own footer
+          buttons on top of <Dialog> (their `btn-danger`/`btn-secondary`
+          equivalents inlined as `style={{ }}`), which is exactly the drift
+          <ConfirmDialog> exists to prevent. The `confirm-delete-btn` testid is
+          preserved verbatim — the Playwright suite selects on it. */}
       {deleteTarget && (
-        <Dialog
+        <ConfirmDialog
           title={t("arch.deleteTitle")}
-          onClose={() => setDeleteTarget(null)}
-          size="sm"
+          message={t("actions.deleteConfirmPromptNamed", { name: deleteTarget.title })}
+          confirmLabel={t("actions.delete")}
+          onConfirm={() => {
+            setDeleteTarget(null);
+            void handleDelete(deleteTarget.id);
+          }}
+          onCancel={() => setDeleteTarget(null)}
           testId="arch-delete-dialog"
-          footer={
-            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setDeleteTarget(null)}
-                style={{
-                  background: "var(--color-surface-raised)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.cancel")}
-              </button>
-              <button
-                data-testid="confirm-delete-btn"
-                onClick={() => {
-                  setDeleteTarget(null);
-                  void handleDelete(deleteTarget.id);
-                }}
-                style={{
-                  background: "var(--color-danger)",
-                  color: "var(--color-on-primary)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.delete")}
-              </button>
-            </div>
-          }
-        >
-          <p style={{ margin: 0 }}>
-            {t("arch.deleteConfirm")}: <strong>{deleteTarget.title}</strong>?
-          </p>
-        </Dialog>
+          confirmTestId="confirm-delete-btn"
+        />
       )}
 
       {showDecomposePanel && element && activeWorkspace && (

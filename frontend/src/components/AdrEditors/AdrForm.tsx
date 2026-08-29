@@ -11,6 +11,7 @@ import { ArtifactId } from '../shared/ArtifactId';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 
 // UI-32: hoisted named style constants for the ADR-Supersede-Flow instead of
 // inline literals (ui-ratchet.test.ts style-brace ceiling).
@@ -224,6 +225,10 @@ export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): J
     setDeleteError(null);
     try {
       await adrsApi.delete(adr.id);
+      // Issue #670: the confirmation is a modal now, not an inline row — it
+      // must be dismissed explicitly on success too, otherwise it keeps
+      // covering the page whenever the parent leaves this form mounted.
+      setConfirmDelete(false);
       onDeleted();
     } catch (err) {
       console.error(err);
@@ -268,28 +273,34 @@ export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): J
             <ArtifactId value={adr.uid} fallback={adr.id.slice(0, 8)} testId="adr-id" />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            {!confirmDelete ? (
-              <button data-testid="adr-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
-                {t('actions.delete')}
-              </button>
-            ) : (
-              <>
-                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
-                  {t('actions.deleteConfirmPrompt', 'Löschen?')}
-                </span>
-                <button data-testid="adr-confirm-delete-btn" onClick={handleDelete} className="btn-danger" disabled={isDeleting}>
-                  {isDeleting ? t('actions.deleting', 'Löschen...') : t('actions.confirmDelete', 'Ja, löschen')}
-                </button>
-                <button data-testid="adr-cancel-delete-btn" onClick={() => setConfirmDelete(false)} className="btn-ghost" disabled={isDeleting}>
-                  {t('actions.cancel')}
-                </button>
-              </>
-            )}
+            <button data-testid="adr-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
+              {t('actions.delete')}
+            </button>
             <button data-testid="adr-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
         </div>
+
+        {/* Issue #670: deletion used to confirm through an inline
+            "Löschen? Ja/Nein" row in this header — one of three competing
+            delete interactions across the artifact forms. All of them now run
+            through the shared <ConfirmDialog>. The historical button testids
+            are preserved so existing E2E selectors keep working. */}
+        {confirmDelete && (
+          <ConfirmDialog
+            title={t('adrs.deleteTitle')}
+            message={t('actions.deleteConfirmPromptNamed', { name: adr.title })}
+            confirmLabel={isDeleting ? t('actions.deleting') : t('actions.delete')}
+            onConfirm={() => void handleDelete()}
+            onCancel={() => setConfirmDelete(false)}
+            isSubmitting={isDeleting}
+            testId="adr-delete-dialog"
+            confirmTestId="adr-confirm-delete-btn"
+            cancelTestId="adr-cancel-delete-btn"
+          />
+        )}
+
         {saveError && (
           <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
             {saveError}

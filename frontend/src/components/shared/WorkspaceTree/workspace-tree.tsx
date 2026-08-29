@@ -16,7 +16,7 @@
  *   - Click-to-select with translucent primary bg + left border highlight
  *   - Hover: var(--color-surface-raised) background
  *   - Optional built-in search (300ms debounce); parents stay visible
- *   - Optional L0-L4 level badge with design-doc colors (showLevelBadge)
+ *   - Optional level badge via the shared, neutral <LevelBadge> (showLevelBadge)
  *   - Optional status/type badge per node (node.badge)
  *   - Optional "+ child" button per node (onAddChild — Architecture use)
  *   - ARIA: role="tree" / role="treeitem" / aria-expanded / aria-selected
@@ -34,53 +34,36 @@ import {
   useState,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { LevelBadge } from '../LevelBadge';
+import { BADGE_BASE_STYLE } from '../../../utils/badgeBase';
 import { collectSelfAndDescendantIds } from './tree-hierarchy';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
-// Level badge colors — design doc section 6
+// Level badge — see <LevelBadge> (issue #674)
 // ---------------------------------------------------------------------------
-
-// Theming phase 2, checkpoint 1 migrated L0/L1/L3/L4 onto the --color-level-*
-// design tokens (tokens.css); L2 (cyan) was left as a raw hex literal at the
-// time because no --palette-* primitive was a close match. Contrast-audit
-// follow-up (#140/#161 blast-radius analysis) added a dedicated
-// --palette-cyan-500 primitive so L2 is now tokenized like its siblings — no
-// more raw hex in this map.
-const LEVEL_BADGE_COLORS: Record<number, string> = {
-  0: 'var(--color-level-l0)', // L0 dark blue
-  1: 'var(--color-level-l1)', // L1 blue
-  2: 'var(--color-level-l2)', // L2 cyan
-  3: 'var(--color-level-l3)', // L3 green
-  4: 'var(--color-level-l4)', // L4 gray
-};
-
-function levelBadgeColor(levelStr: string): string {
-  const num = parseInt(levelStr.replace(/^L/i, ''), 10);
-  return LEVEL_BADGE_COLORS[Math.min(Math.max(isNaN(num) ? 0 : num, 0), 4)];
-}
-
-// Contrast-audit follow-up (#140/#161): the level badge previously hardcoded
-// `color: 'white'` regardless of which of the 5 background colors above was
-// active. Recomputing WCAG contrast for all 5 (frozen, theme-independent)
-// backgrounds found only L0 (sky-800, 7.97:1) actually clears AA with white
-// text — L1/L2/L3/L4 measure 3.68:1/2.43:1/2.54:1/2.56:1 with white, all
-// well under the 4.5:1 floor, but comfortably clear it with black
-// (5.71:1/8.65:1/8.29:1/8.19:1). Hence a per-level text-color map instead of
-// a single constant, mirroring LEVEL_BADGE_COLORS above.
-const LEVEL_BADGE_TEXT_COLORS: Record<number, string> = {
-  0: 'var(--color-level-l0-text)',
-  1: 'var(--color-level-l1-text)',
-  2: 'var(--color-level-l2-text)',
-  3: 'var(--color-level-l3-text)',
-  4: 'var(--color-level-l4-text)',
-};
-
-function levelBadgeTextColor(levelStr: string): string {
-  const num = parseInt(levelStr.replace(/^L/i, ''), 10);
-  return LEVEL_BADGE_TEXT_COLORS[Math.min(Math.max(isNaN(num) ? 0 : num, 0), 4)];
-}
-
+//
+// This file used to carry its own level badge: a `LEVEL_BADGE_COLORS` ramp
+// (L0 dark blue -> L4 gray) plus a matching `LEVEL_BADGE_TEXT_COLORS` map
+// added by the #140/#161 contrast audit, rendered inline further down. It was
+// a second, independent implementation of `shared/LevelBadge.tsx`, and the
+// two had drifted apart in the way that matters most: the shared component is
+// deliberately **neutral**, because a level is not a state (UI concept ch.
+// 3.3 / ch. 8.3) and colouring it puts a third meaning on the colour channel
+// next to type and status (ch. 8.1). The concept names the coloured `L0`/`SR`
+// badge as the concrete finding behind that rule — a green `SR` reads as
+// "approved" to anyone who has learned the status palette.
+//
+// The divergence was already visible in the product: `ArchitectureLegend.tsx`
+// documented the level badge to the user with a *neutral* `<LevelBadge>`
+// sample while the Architecture tree right next to it rendered the coloured
+// ramp, so the legend did not match the thing it was explaining.
+//
+// So the colour was dropped rather than moved into `<LevelBadge>`. The
+// `--color-level-*` tokens themselves stay in `tokens.css` — they are still
+// used by `SystemSettings/MemoryVisualizationSection.module.css`, where a
+// level ramp *is* the encoded dimension.
+//
 // ---------------------------------------------------------------------------
 // Type badge abbreviation map — REQ-007
 // ---------------------------------------------------------------------------
@@ -171,8 +154,8 @@ export interface WorkspaceTreeProps {
    */
   onAddChild?: (id: string) => void;
   /**
-   * Show L0-L4 colored level badge (right of name).
-   * Uses node.level string. Default: false.
+   * Show the neutral <LevelBadge> (right of name), fed from the
+   * `node.level` display string. Default: false.
    */
   showLevelBadge?: boolean;
   /**
@@ -1072,46 +1055,34 @@ function TreeRow({
             {node.name}
           </span>
 
-          {/* Status / type badge (node.badge) */}
+          {/* Status / type badge (node.badge). Geometry from the shared badge
+              base (issue #675) so a tree row's badge matches the one an
+              <ArtifactRow> renders for the same artifact; only the colour,
+              which the caller supplies, stays local. */}
           {node.badge && (
             <span
               data-testid={`${testIdPrefix}-badge-${node.id}`}
               title={node.badge.title ?? node.badge.text}
               aria-label={node.badge.title ?? node.badge.text}
               style={{
-                flexShrink: 0,
-                fontSize: '0.7rem',
-                padding: '1px 6px',
-                borderRadius: 'var(--radius-full)',
+                ...BADGE_BASE_STYLE,
                 background: node.badge.bg,
                 color: node.badge.color,
-                fontWeight: 500,
-                lineHeight: '16px',
-                whiteSpace: 'nowrap',
               }}
             >
               {node.badge.text}
             </span>
           )}
 
-          {/* Level badge L0-L4 (design doc §6 — level_badge colors) */}
+          {/* Level badge — the shared, neutral <LevelBadge> (issue #674).
+              `node.level` is already a display string ("L0", "L1", ...), so it
+              goes in as `label`; the numeric `level` prop would re-prefix it
+              to "LL0". */}
           {showLevelBadge && node.level && (
-            <span
-              data-testid={`${testIdPrefix}-level-${node.id}`}
-              style={{
-                flexShrink: 0,
-                fontSize: '12px',
-                padding: '1px 6px',
-                borderRadius: 'var(--radius-full)',
-                background: levelBadgeColor(node.level),
-                color: levelBadgeTextColor(node.level),
-                fontWeight: 600,
-                lineHeight: '16px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {node.level}
-            </span>
+            <LevelBadge
+              label={node.level}
+              testId={`${testIdPrefix}-level-${node.id}`}
+            />
           )}
         </>
       )}

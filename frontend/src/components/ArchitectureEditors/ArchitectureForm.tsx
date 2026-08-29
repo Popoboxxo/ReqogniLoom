@@ -35,8 +35,9 @@ import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
-import { Dialog } from '../shared/Dialog';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import fieldHints from '../shared/FieldHints.module.css';
+import styles from './ArchitectureForm.module.css';
 import type { CustomFields } from '../../types';
 import { ASIL_LEVEL_OPTIONS, MAKE_OR_BUY_OPTIONS } from '../../utils/asilUtils';
 import type { ArchitectureElement, ASILLevel, MakeOrBuyDecision, ElementType } from '../../types';
@@ -88,77 +89,17 @@ interface ArchitectureFormProps {
  */
 const DEFAULT_ELEMENT_TYPE_SUGGESTIONS = ['System', 'Subsystem', 'Component', 'Interface', 'Function'];
 
-/**
- * Shared style tokens.
- */
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: 'block',
-  marginBottom: 'var(--space-2)',
-  color: 'var(--color-text)',
-  fontSize: 'var(--font-size-sm)',
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  fontSize: 'var(--font-size-base)',
-  padding: 'var(--space-2) var(--space-3)',
-  marginBottom: 'var(--space-4)',
-  boxSizing: 'border-box',
-  background: 'var(--color-surface)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-md)',
-  color: 'var(--color-text)',
-  fontFamily: 'var(--font-sans)',
-  transition: 'var(--transition-fast)',
-  outline: 'none',
-};
-
-const readOnlyStyle: React.CSSProperties = {
-  ...inputStyle,
-  background: 'var(--color-surface-raised)',
-  cursor: 'not-allowed',
-};
-
-/**
- * Delete Confirmation Dialog.
- */
-interface DeleteConfirmationDialogProps {
-  elementName: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-function DeleteConfirmationDialog({
-  elementName,
-  onConfirm,
-  onCancel,
-}: DeleteConfirmationDialogProps): JSX.Element {
-  const { t } = useTranslation();
-
-  return (
-    <Dialog
-      title={t('arch.deleteTitle')}
-      onClose={onCancel}
-      size="sm"
-      testId="arch-form-delete-dialog"
-      footer={
-        <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-          <button data-testid="arch-cancel-delete-btn" className="btn-secondary" onClick={onCancel}>
-            {t('actions.cancel')}
-          </button>
-          <button data-testid="confirm-delete-btn" className="btn-danger" onClick={onConfirm}>
-            {t('actions.delete')}
-          </button>
-        </div>
-      }
-    >
-      <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>
-        {t('arch.deleteConfirm')}: <strong style={{ color: 'var(--color-text)' }}>{elementName}</strong>?
-      </p>
-    </Dialog>
-  );
-}
+// Issue #669: the former `labelStyle` / `inputStyle` / `readOnlyStyle`
+// `React.CSSProperties` constants now live in `ArchitectureForm.module.css`
+// as `.label` / `.input` / `.readOnlyValue`, mirroring how RequirementForm
+// keeps its chrome out of the TSX.
+//
+// Issue #670: the local `DeleteConfirmationDialog` was removed — deletion now
+// runs through the shared `<ConfirmDialog>` like every other artifact form,
+// so all artifact types share one delete interaction. Its `data-testid`s
+// (`arch-form-delete-dialog`, `arch-cancel-delete-btn`, `confirm-delete-btn`)
+// are preserved verbatim via ConfirmDialog's testId overrides, because the
+// Playwright suite selects on them.
 
 // ReadOnlyField was removed with the identity-block rewrite: UID, level and
 // version now render through <ArtifactId>, <LevelBadge> and <VersionBadge>
@@ -397,22 +338,21 @@ export function ArchitectureForm({
   return (
     <div>
       {showDeleteDialog && (
-        <DeleteConfirmationDialog
-          elementName={title}
+        <ConfirmDialog
+          title={t('arch.deleteTitle')}
+          message={t('actions.deleteConfirmPromptNamed', { name: title })}
+          confirmLabel={t('actions.delete')}
           onConfirm={() => void handleConfirmDelete()}
           onCancel={() => setShowDeleteDialog(false)}
+          testId="arch-form-delete-dialog"
+          confirmTestId="confirm-delete-btn"
+          cancelTestId="arch-cancel-delete-btn"
         />
       )}
 
       {/* Primary actions live at the top for consistency across all artifact
           forms (P1-f). */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 'var(--space-3)',
-          marginBottom: 'var(--space-4)',
-        }}
-      >
+      <div className={styles.actions}>
         <button
           data-testid="arch-save-btn"
           className="btn-primary"
@@ -450,16 +390,8 @@ export function ArchitectureForm({
           row, always in the same order and the same representation as in the
           list and in the trace spine. Replaces the UID/Version/Level grid
           whose UID cell re-implemented the mono style inline. */}
-      <div style={{ marginBottom: 'var(--space-6)' }}>
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            marginBottom: 'var(--space-4)',
-          }}
-        >
+      <div className={styles.identityBlock}>
+        <div className={styles.identityRow}>
           <ArtifactId
             testId="arch-artifact-id"
             value={element.uid}
@@ -474,31 +406,17 @@ export function ArchitectureForm({
           <VersionBadge version={element.version || 1} />
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 'var(--space-4)',
-            marginBottom: 'var(--space-4)',
-          }}
-        >
+        <div className={styles.metaGrid}>
           {/* SysEng 2.0 §1.2: structural role is derived from tree position by
               the backend and shown read-only here — it is NOT the free-text
               element_type field below and cannot be edited directly. Reparenting
               an element (drag & drop in the tree) changes this value
               automatically. */}
-          <div style={{ marginBottom: 'var(--space-4)' }}>
-            <label style={labelStyle}>{t('arch.role')}</label>
+          <div className={styles.metaField}>
+            <label className={styles.label}>{t('arch.role')}</label>
             <div
               data-testid="arch-role-display"
-              style={{
-                ...readOnlyStyle,
-                marginBottom: 0,
-                padding: 'var(--space-2) var(--space-3)',
-                color: 'var(--color-text)',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
-              }}
+              className={styles.readOnlyValue}
               title={t('arch.roleHint')}
             >
               {element.role ? t(`arch.roleValue.${element.role}`) : '—'}
@@ -511,7 +429,7 @@ export function ArchitectureForm({
             transitions endpoint; "draft" (the workflow initial_state) is only the
             pre-load fallback label. */}
         <div>
-          <label style={labelStyle}>{t('editor.status')}</label>
+          <label className={styles.label}>{t('editor.status')}</label>
           <WorkflowStatusEditor
             artifactType="architecture"
             artifactId={element.id}
@@ -523,29 +441,25 @@ export function ArchitectureForm({
       </div>
 
       {/* Title field */}
-      <label htmlFor="arch-title" style={labelStyle}>
+      <label htmlFor="arch-title" className={styles.label}>
         {t('editor.title')}
       </label>
+      {/* Issue #669: the former inline `onFocus`/`onBlur` border-color
+          assignments are now `.input:focus` in the CSS module. */}
       <input
         id="arch-title"
         data-testid="arch-title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        style={{ ...inputStyle, fontSize: 'var(--font-size-lg)', fontWeight: 600 }}
-        onFocus={(e) => {
-          (e.currentTarget as HTMLInputElement).style.borderColor = 'var(--color-primary)';
-        }}
-        onBlur={(e) => {
-          (e.currentTarget as HTMLInputElement).style.borderColor = 'var(--color-border)';
-        }}
+        className={`${styles.input} ${styles.titleInput}`}
       />
 
       {/* Element type — free text with autocomplete (REQ-006 / D5: types can be
           changed and extended freely, no longer a fixed choice list) */}
-      <label htmlFor="arch-type" style={labelStyle}>
+      <label htmlFor="arch-type" className={styles.label}>
         {t('arch.elementType')}
       </label>
-      <div style={{ position: 'relative', width: 'auto', minWidth: '200px', marginBottom: 'var(--space-4)' }}>
+      <div className={styles.typeAutocomplete}>
         <input
           id="arch-type"
           type="text"
@@ -564,43 +478,18 @@ export function ArchitectureForm({
             setTimeout(() => setTypeDropdownOpen(false), 150);
           }}
           placeholder={t('arch.elementTypePlaceholder', 'z.B. System, Subsystem, Component, Interface...')}
-          style={{ ...inputStyle, marginBottom: 0 }}
+          className={`${styles.input} ${styles.typeInput}`}
         />
         {typeDropdownOpen && typeSuggestions.length > 0 && (
-          <div
-            data-testid="arch-element-type-dropdown"
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
-              zIndex: 100,
-              background: 'var(--color-surface-raised)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              maxHeight: '200px',
-              overflowY: 'auto',
-              marginTop: '4px',
-            }}
-          >
+          <div data-testid="arch-element-type-dropdown" className={styles.suggestionList}>
             {typeSuggestions.map((suggestion) => (
+              // Issue #669: the former inline `onMouseEnter`/`onMouseLeave`
+              // background assignments are now `.suggestion:hover`.
               <div
                 key={suggestion}
                 data-testid={`arch-element-type-suggestion-${suggestion}`}
                 onClick={() => handleTypeSuggestionClick(suggestion)}
-                style={{
-                  padding: 'var(--space-2) var(--space-3)',
-                  cursor: 'pointer',
-                  color: 'var(--color-text)',
-                  fontSize: 'var(--font-size-base)',
-                  borderBottom: '1px solid var(--color-border-subtle)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--color-card-active-bg)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                }}
+                className={styles.suggestion}
               >
                 {suggestion}
               </div>
@@ -619,7 +508,7 @@ export function ArchitectureForm({
       </p>
 
       {/* Parent element picker */}
-      <label htmlFor="arch-parent" style={labelStyle}>
+      <label htmlFor="arch-parent" className={styles.label}>
         {t('arch.parentElement', 'Parent Element')}
       </label>
       <select
@@ -627,7 +516,7 @@ export function ArchitectureForm({
         data-testid="arch-parent-select"
         value={parentId}
         onChange={(e) => setParentId(e.target.value)}
-        style={{ ...inputStyle, width: 'auto', minWidth: '200px' }}
+        className={`${styles.input} ${styles.select}`}
       >
         <option value="">{t('arch.noParent', 'No parent (Root / L0)')}</option>
         {parentOptions.map((el) => (
@@ -640,7 +529,7 @@ export function ArchitectureForm({
       {/* ASIL Level Dropdown — dynamic visibility */}
       {visibleFields['asil_level'] && (
         <>
-          <label htmlFor="arch-asil" style={labelStyle}>
+          <label htmlFor="arch-asil" className={styles.label}>
             ASIL Level (Functional Safety)
           </label>
           <select
@@ -648,7 +537,7 @@ export function ArchitectureForm({
             data-testid="arch-asil-select"
             value={asilLevel ?? ''}
             onChange={(e) => setAsilLevel((e.target.value as ASILLevel) || null)}
-            style={{ ...inputStyle, width: 'auto', minWidth: '200px' }}
+            className={`${styles.input} ${styles.select}`}
           >
             <option value="">— Not set —</option>
             {ASIL_LEVEL_OPTIONS.map((opt) => (
@@ -663,7 +552,7 @@ export function ArchitectureForm({
       {/* Make-or-Buy Dropdown — dynamic visibility */}
       {visibleFields['make_or_buy'] && (
         <>
-          <label htmlFor="arch-mob" style={labelStyle}>
+          <label htmlFor="arch-mob" className={styles.label}>
             Make-or-Buy Decision
           </label>
           <select
@@ -671,7 +560,7 @@ export function ArchitectureForm({
             data-testid="arch-make-or-buy-select"
             value={makeOrBuy ?? ''}
             onChange={(e) => setMakeOrBuy((e.target.value as MakeOrBuyDecision) || null)}
-            style={{ ...inputStyle, width: 'auto', minWidth: '200px' }}
+            className={`${styles.input} ${styles.select}`}
           >
             <option value="">— Not set —</option>
             {MAKE_OR_BUY_OPTIONS.map((opt) => (
@@ -684,7 +573,7 @@ export function ArchitectureForm({
       )}
 
       {/* Markdown description */}
-      <label style={labelStyle}>
+      <label className={styles.label}>
         {t('editor.description')}
       </label>
       <MarkdownPreview
@@ -693,8 +582,8 @@ export function ArchitectureForm({
       />
 
       {/* Custom Fields (REQ-L2-AS-037) */}
-      <div style={{ marginTop: 'var(--space-5)', marginBottom: 'var(--space-3)' }}>
-        <label style={labelStyle}>{t('customFields.section')}</label>
+      <div className={styles.customFieldsSection}>
+        <label className={styles.label}>{t('customFields.section')}</label>
         {/* Issue #673: `key` makes the row-list reset self-contained even if
             this form is ever mounted without the parent's own
             `key={element.id}` (see the identical note in
@@ -724,7 +613,7 @@ export function ArchitectureForm({
        */}
       {isExtendedPreset && (
         <>
-          <label htmlFor="arch-change-reason" style={labelStyle}>
+          <label htmlFor="arch-change-reason" className={styles.label}>
             {t('req.changeReason')} <span className={fieldHints.requiredMarker}>*</span>
           </label>
           <input
@@ -733,21 +622,14 @@ export function ArchitectureForm({
             value={changeReason}
             onChange={(e) => setChangeReason(e.target.value)}
             placeholder={t('req.changeReasonPlaceholderArchitecture')}
-            style={inputStyle}
+            className={styles.input}
           />
         </>
       )}
 
       {/* Error alert */}
       {saveError && (
-        <p
-          role="alert"
-          style={{
-            color: 'var(--color-danger)',
-            marginTop: 'var(--space-3)',
-            fontSize: 'var(--font-size-sm)',
-          }}
-        >
+        <p role="alert" className={styles.saveError}>
           {saveError}
         </p>
       )}

@@ -13,6 +13,8 @@
 
 import { useTranslation } from "react-i18next";
 
+import { BADGE_BASE_STYLE } from "../../utils/badgeBase";
+
 interface VersionBadgeProps {
   version: number | string;
   isCurrent?: boolean;
@@ -37,23 +39,20 @@ export function VersionBadge({
     <span
       data-testid="version-badge"
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
+        ...BADGE_BASE_STYLE,
         marginLeft: "var(--space-2)",
-        padding: "2px 8px",
-        borderRadius: "var(--radius-sm)",
         background: "var(--color-badge-neutral-bg)",
         border: `1px solid ${isCurrent ? "var(--color-border-hover)" : "transparent"}`,
         color: "var(--color-badge-neutral-text)",
         opacity: isCurrent ? 1 : 0.7,
         fontFamily: "var(--font-mono)",
-        fontSize: "var(--font-size-xs)",
+        // Overrides the shared base on purpose: the current/superseded
+        // distinction is carried by weight instead of hue (see the file
+        // header), so weight is semantic here, not decoration.
         fontWeight: isCurrent ? "var(--weight-semibold)" : "var(--weight-regular)",
         fontVariantNumeric: "tabular-nums",
         letterSpacing: "var(--tracking-normal)",
         verticalAlign: "middle",
-        whiteSpace: "nowrap",
       }}
       title={isCurrent ? t("icds.current", "Current Version") : t("icds.superseded", "Superseded Version")}
     >
