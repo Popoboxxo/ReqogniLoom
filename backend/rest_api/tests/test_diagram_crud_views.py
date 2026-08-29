@@ -533,3 +533,121 @@ class TestDiagramViewSetInternalErrorMasking:
         assert self._SENSITIVE not in body
         assert response.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
         assert self._SENSITIVE in caplog.text
+
+
+class TestDiagramViewSetFreeTextSanitization:
+    """SA-20: DiagramViewSet now inherits BaseEntityViewSet, so
+    FreeTextSanitizationMixin.initial() must reject HTML markup in the
+    ``name``/``description`` fields *before* create()/partial_update() run —
+    the same guarantee every other entity ViewSet already has (#269 finding
+    4). ``free_text_extra_fields`` is used (rather than a serializer_class)
+    because Diagram has no dedicated DRF serializer.
+    """
+
+    _PAYLOAD = "<img src=x onerror=alert(1)>"
+
+    def test_create_rejects_html_markup_in_name(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": self._PAYLOAD,
+                "diagram_type": "block",
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            # create_diagram is deliberately NOT given a happy-path return: the
+            # guard runs in initial(), before create() is even entered, so a
+            # reached create_diagram call would prove the bug, not the fix.
+            with patch(
+                "rest_api.diagram_views.create_diagram",
+                side_effect=AssertionError(
+                    "create_diagram must not be reached — the free-text "
+                    "guard should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_partial_update_rejects_html_markup_in_description(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/diagrams/{FAKE_DIAGRAM_ID}/",
+            data={
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+                "description": self._PAYLOAD,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"patch": "partial_update"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch(
+                "rest_api.diagram_views.update_diagram",
+                side_effect=AssertionError(
+                    "update_diagram must not be reached — the free-text "
+                    "guard should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_create_with_clean_name_is_unaffected(self) -> None:
+        """No-regression: a benign name/description still passes the guard."""
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "Perfectly Normal Diagram Name",
+                "description": "Nothing suspicious here.",
+                "diagram_type": "block",
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        fake_diagram = MagicMock()
+        fake_diagram.id = FAKE_DIAGRAM_ID
+        fake_diagram.name = "Perfectly Normal Diagram Name"
+        fake_diagram.diagram_type = "block"
+        fake_diagram.description = "Nothing suspicious here."
+        fake_diagram.workspace_id = None
+        fake_diagram.current_version_id = None
+        fake_diagram.created_at = None
+        fake_diagram.versions.count.return_value = 1
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
+            ):
+                with patch(
+                    "rest_api.diagram_views.create_diagram",
+                    return_value=fake_diagram,
+                ):
+                    response = view(req)
+
+        assert response.status_code == 201

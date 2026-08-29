@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+from celery.schedules import crontab
 from decouple import Csv, UndefinedValueError, config
 from django.core.exceptions import ImproperlyConfigured
 
@@ -567,6 +568,25 @@ SPECTACULAR_SETTINGS = {
 # in all environments (both test and production).
 # ---------------------------------------------------------------------------
 AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
+
+# SA-34 (SYSTEMAUDIT-2026-08-27 §4.6 F11) — server-side pepper for API-key
+# hashes. Stored ONLY here / in the environment, never in a database column:
+# the whole point is that a stolen database dump is not sufficient to test
+# candidate keys offline. Keys are 40 random characters, so the bare SHA-256 was
+# never brute-forceable; the pepper is defence in depth, which is why it is
+# optional rather than fail-fast like SECRET_KEY / AUTH_JWT_SECRET.
+#
+# ROLLOUT — NOT retroactive. Setting this peppers *new* keys (stored with a
+# "sha256p1:" prefix). Keys already in the database stay unpeppered ("sha256:")
+# and keep working, because the plaintext needed to re-hash them is by design
+# not recoverable. The fleet is mixed until every key has been rotated; until
+# then the old rows carry exactly the pre-fix risk.
+#
+# CHANGING or UNSETTING the value invalidates every peppered key — rotating the
+# pepper is a forced key-rotation event for all clients, so treat it like
+# rotating FIELD_ENCRYPTION_KEY, not like a config tweak.
+API_KEY_PEPPER: str = config("API_KEY_PEPPER", default="")
+
 AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqogniloom")
 AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqogniloom-api")
 # Access-token lifetime in seconds (#77: reduced from 12h to 60min — a stolen/
@@ -582,6 +602,20 @@ AUTH_JWT_REFRESH_TTL_SECONDS: int = config(
     "AUTH_JWT_REFRESH_TTL_SECONDS", default=2592000, cast=int
 )
 
+# SA-32 (SYSTEMAUDIT-2026-08-27 §4.6 F7) — refresh-token rotation now detects
+# reuse: presenting an already-exchanged token revokes the whole session family.
+#
+# 0 = strict (default). Raise it only if the multi-tab false positive shows up
+# in practice: browser cookies are shared across tabs but the SPA's single-flight
+# refresh guard is per JS context, so two tabs can legitimately submit the same
+# refresh token at once, and strict detection logs both out. A non-zero window
+# tolerates a replay that arrives within N seconds of the real rotation — which
+# also means a thief replaying inside that window is not detected.
+# See AuthenticationService.rotate_refresh_token.
+AUTH_REFRESH_REUSE_GRACE_SECONDS: float = config(
+    "AUTH_REFRESH_REUSE_GRACE_SECONDS", default=0, cast=float
+)
+
 # ---------------------------------------------------------------------------
 # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02 Provider Abstraction)
 # Supported: mock | anthropic | openai | ollama | azure
@@ -590,6 +624,28 @@ LLM_PROVIDER: str = config("LLM_PROVIDER", default="mock")
 LLM_API_KEY: str = config("LLM_API_KEY", default="")
 LLM_BASE_URL: str = config("LLM_BASE_URL", default="")
 LLM_MODEL: str = config("LLM_MODEL", default="")
+
+# SA-33 (SYSTEMAUDIT-2026-08-27 §4.6 F9) — SSRF guard on the admin-configurable
+# ``LlmSettings.base_url``. The backend issues server-side requests to that URL,
+# so an internal address there turns the LLM adapter into a proxy into the
+# private network (cloud metadata at 169.254.169.254, the DB/Redis containers…).
+#
+# The default is environment-dependent on purpose. A self-hosted Ollama at
+# ``http://ollama:11434`` is a supported, documented configuration and lives on
+# a private address by definition, so denying private targets in development
+# would break the local setup for no security gain (the private network there is
+# the developer's own machine). In production the flag is off and an operator
+# who genuinely runs an internal model endpoint must opt in explicitly — ideally
+# via the narrower LLM_BASE_URL_ALLOWED_HOSTS rather than the blanket flag.
+#
+# Residual risk: DNS rebinding is NOT covered — see llm_adapter/url_guard.py.
+LLM_ALLOW_PRIVATE_BASE_URL: bool = config(
+    "LLM_ALLOW_PRIVATE_BASE_URL", default=_IS_NON_PROD, cast=bool
+)
+# Comma-separated hosts that may resolve to a private address regardless of the
+# flag above, e.g. "ollama,llm.internal".
+LLM_BASE_URL_ALLOWED_HOSTS: str = config("LLM_BASE_URL_ALLOWED_HOSTS", default="")
+
 # REQ-084: hard upper bound (seconds) for synchronous LLM calls executed in
 # the request thread. Chosen below the typical 30s Gunicorn worker timeout so
 # a slow provider can never exhaust the WSGI worker pool. Enforced centrally
@@ -645,13 +701,29 @@ _REDIS_PORT: str = config("REDIS_PORT", default="6379")
 CELERY_BROKER_URL: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}{_REDIS_HOST}:{_REDIS_PORT}/0"
 CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}{_REDIS_HOST}:{_REDIS_PORT}/0"
 
-# Beat schedule — periodic outbox consumer (REQ-032, DEEP_SYSTEM_ANALYSIS.md BE-1).
-# Drains the domain-event outbox every 5 seconds. poll_and_dispatch claims each
-# row with SELECT FOR UPDATE (skip_locked), so overlapping runs stay idempotent.
+# Beat schedule.
+#
+# 1. Periodic outbox consumer (REQ-032, DEEP_SYSTEM_ANALYSIS.md BE-1).
+#    Drains the domain-event outbox every 5 seconds. poll_and_dispatch claims
+#    each row with SELECT FOR UPDATE (skip_locked), so overlapping runs stay
+#    idempotent.
+# 2. Monthly audit archiving (REQ-L3-AL003-001, SA-24 / Systemaudit 2026-08-27
+#    §4.1 #9). ``audit.archive_lifecycle_manager`` existed as a registered
+#    shared_task and documented its own schedule in its docstring, but was never
+#    wired into this dict — so the retention job never ran, no month partition
+#    was ever exported to cold storage, and ``audit_entry`` grew without bound.
+#    The cadence below is the one the task's own docstring specifies (00:00 on
+#    the 1st of each month); it is fail-safe by construction — it exports first
+#    and only drops the partition when the export reported success, and it
+#    no-ops with a warning when AUDIT_COLD_STORAGE_BACKEND is unconfigured.
 CELERY_BEAT_SCHEDULE = {
     "dispatch-outbox-events": {
         "task": "application.dispatch_outbox_events",
         "schedule": timedelta(seconds=5),
+    },
+    "audit-monthly-archive": {
+        "task": "audit.archive_lifecycle_manager",
+        "schedule": crontab(day_of_month="1", hour=0, minute=0),
     },
 }
 

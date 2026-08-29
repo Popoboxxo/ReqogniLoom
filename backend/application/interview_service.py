@@ -540,7 +540,11 @@ class InterviewService(ServiceBase):
         from application.ai_derivation_service import AiDerivationService
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
 
         if provider_name == MOCK_PROVIDER_NAME:
             # Issue #442's rule (bundle_compression_service.py) applies here
@@ -618,10 +622,15 @@ class InterviewService(ServiceBase):
             success=True,
             error=None,
         )
+        # SA-26: this used to hardcode input_tokens=0, leaving the daily
+        # budget (is_over_daily_limit above) blind to this call's real
+        # spend. Estimate both sides client-side, matching every other
+        # free-form path (see ``approximate_token_count``).
         record_token_usage(
             provider=provider_name,
             capability=GROUNDING_RANK_PROMPT_TEMPLATE_NAME,
-            input_tokens=0,
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(raw),
         )
 
         return self._merge_ai_scores(candidates, raw)
@@ -1128,7 +1137,11 @@ class InterviewService(ServiceBase):
         from application.ai_derivation_service import AiDerivationService
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
         from memory.context_builder import build_memory_context
 
         session = self._get_session(ctx, session_id)
@@ -1214,7 +1227,16 @@ class InterviewService(ServiceBase):
             success=True,
             error=None,
         )
-        record_token_usage(provider=provider_name, capability="interview.chat_turn", input_tokens=0)
+        # SA-26: this used to hardcode input_tokens=0, leaving the daily
+        # budget (is_over_daily_limit above) blind to this call's real
+        # spend. Estimate both sides client-side, matching every other
+        # free-form path (see ``approximate_token_count``).
+        record_token_usage(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(raw_response),
+        )
 
         try:
             parsed = json.loads(raw_response)
@@ -1311,7 +1333,11 @@ class InterviewService(ServiceBase):
         )
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
 
         provider, provider_name, resolve_error = self._resolve_provider()
         if provider is None:
@@ -1363,7 +1389,16 @@ class InterviewService(ServiceBase):
             success=True,
             error=None,
         )
-        record_token_usage(provider=provider_name, capability="interview.chat_turn", input_tokens=0)
+        # SA-26: this used to hardcode input_tokens=0, leaving the daily
+        # budget (is_over_daily_limit above) blind to this call's real
+        # spend. Estimate both sides client-side, matching every other
+        # free-form path (see ``approximate_token_count``).
+        record_token_usage(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(reply),
+        )
 
         # Multi-mode turns use role/content keys -- the shape
         # get_multi_protocol_prompt() renders back into the next prompt.

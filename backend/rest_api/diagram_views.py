@@ -32,7 +32,6 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.viewsets import ViewSet
 
 from application.artifact_diff_service import ArtifactDiffService
 from application.base import NotFoundError
@@ -43,6 +42,7 @@ from diagram.services import (
     delete_diagram,
     get_diagram,
     get_diagram_header,
+    list_diagrams,
     list_versions,
     update_diagram,
     DiagramResult,
@@ -52,12 +52,13 @@ from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import StandardPagination, build_error_response, detect_lang
+from rest_api.views import BaseEntityViewSet
 from traceability.exceptions import TraceLinkError
 
 logger = logging.getLogger(__name__)
 
 
-class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
+class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST ViewSet for Diagram CRUD operations.
 
     REQ-173: transitions/ and workflow-history/ via WorkflowTransitionsMixin,
@@ -66,10 +67,23 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
     scoping and are backfilled separately, so workflow access is only
     available once a diagram has a workspace assigned (see
     _resolve_workflow_target below).
+
+    SA-20: no dedicated DRF serializer exists for the ``name``/``description``
+    fields (create()/partial_update() build the DiagramManager DTO by hand),
+    so ``serializer_class`` stays unset and those two narrative fields are
+    named explicitly via ``free_text_extra_fields`` instead — the same seam
+    FreeTextSanitizationMixin uses for serializer-declared free text.
+    ``content`` is deliberately excluded: it is a structured Mermaid/JSON
+    payload (validated by DiagramValidationError), not user prose, and
+    legitimate Mermaid syntax (e.g. ``<br/>`` in node labels) would trip the
+    HTML-markup guard. No preset feature key for diagram endpoints exists yet
+    in presets.registry.FEATURE_KEYS, so preset_endpoint_key stays "" (gate
+    always passes) — same as every other non-Baseline BaseEntityViewSet.
     """
 
     pagination_class = StandardPagination
     workflow_item_type = "Diagram"
+    free_text_extra_fields = ("name", "description")
 
     # -- helpers -----------------------------------------------------------
 
@@ -139,11 +153,11 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
             )
             if error is not None:
                 return error
-            # Tenant-scoped query filtered by workspace_id
-            diagrams = Diagram.objects.filter(
+            # Tenant-scoped query filtered by workspace_id (ADR-01: via facade)
+            diagrams = list_diagrams(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-            ).order_by("-created_at")
+            )
             serialized = [self._diagram_to_dict(d) for d in diagrams]
             return self._paginate(request, serialized)
         except Exception:

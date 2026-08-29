@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from persistence.tenancy import TenantContext
 from se_metrics.types import MetricsResult, ThresholdConfig
 
 logger = logging.getLogger(__name__)
@@ -176,11 +177,21 @@ class MetricsCacheManager:
             result_json = result.to_dict()
             now = datetime.now(tz=timezone.utc)
 
+            # SA-35: ``tenant_id`` used to be filled with the *workspace* id
+            # ("use workspace_id as tenant proxy"), which made the column
+            # meaningless — and the reads never filtered on it anyway. Now that
+            # MetricCache uses TenantManager the read side carries the tenant
+            # predicate, so the column has to hold the real tenant.
+            #
+            # ``update_or_create`` goes through the QuerySet, not the Manager,
+            # so TenantManager.create's auto-injection does not apply here and
+            # the tenant is passed explicitly. The lookup half IS tenant-scoped
+            # (it comes from ``objects.get_queryset()``).
             MetricCache.objects.update_or_create(
                 workspace_id=workspace_id,
                 timeframe_key=timeframe,
                 defaults={
-                    "tenant_id": result.workspace_id,  # use workspace_id as tenant proxy
+                    "tenant_id": TenantContext.get_tenant(),
                     "result_json": result_json,
                     "computed_at": now,
                     "cache_ttl_seconds": ttl_seconds,
@@ -293,13 +304,31 @@ class MetricsCacheManager:
 
         Returns:
             Saved ThresholdConfig dataclass.
+
+        Raises:
+            ValueError: If *tenant_id* does not match the active tenant context
+                (SA-35). The parameter used to be written straight into the row,
+                so a caller could stamp a foreign tenant onto a workspace's
+                threshold config. The active context is authoritative; the
+                argument is now only a cross-check.
+            persistence.tenancy.TenantContextNotSetError: If no tenant context
+                is active — the tenant-scoped manager needs one.
         """
         from se_metrics.models import WorkspaceThresholdConfig  # lazy import
 
+        active_tenant = TenantContext.get_tenant()
+        if tenant_id is not None and str(tenant_id) != str(active_tenant):
+            raise ValueError(
+                "tenant_id does not match the active tenant context."
+            )
+
+        # ``update_or_create`` runs on the QuerySet, so TenantManager.create's
+        # auto-injection does not apply — the tenant is set explicitly. The
+        # lookup half is tenant-scoped via ``objects.get_queryset()``.
         row, _ = WorkspaceThresholdConfig.objects.update_or_create(
             workspace_id=workspace_id,
             defaults={
-                "tenant_id": tenant_id,
+                "tenant_id": active_tenant,
                 "traceability_coverage_min": traceability_coverage_min,
                 "volatility_max_avg": volatility_max_avg,
                 "workflow_gaps_max": workflow_gaps_max,

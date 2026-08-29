@@ -263,8 +263,15 @@ class TestMultiChatGuards:
         assert len(spy.calls) == 1
         assert spy.calls[0]["success"] is True
         assert spy.calls[0]["error"] is None
+        # SA-26: input_tokens/output_tokens are now estimated from the actual
+        # prompt/reply (approximate_token_count), not hardcoded to 0.
+        from llm_adapter.token_tracking import approximate_token_count
+
         record_mock.assert_called_once_with(
-            provider="anthropic", capability="interview.chat_turn", input_tokens=0
+            provider="anthropic",
+            capability="interview.chat_turn",
+            input_tokens=approximate_token_count(provider.last_prompt),
+            output_tokens=approximate_token_count(_FENCED_PROPOSAL_REPLY),
         )
 
     def test_provider_failure_audits_failure_then_raises(

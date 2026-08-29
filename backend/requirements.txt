@@ -128,8 +128,12 @@ numpy>=1.26,<3.0
 # NOTE: "honcho-ai" is the Plastic Labs agent-memory SDK (github.com/plastic-labs/honcho).
 # Do NOT substitute the PyPI package named plain "honcho" — that is an unrelated
 # legacy Procfile process manager and would import as the same `honcho` module name.
-# 2.3.0 is the release whose API this backend was written against (conclusions
-# scope: create/query/list/delete); capped below 3.0 because the SDK renamed this
-# surface at least once already (`observations` -> `conclusions`).
-# Only httpx/pydantic are pulled in, both already present in this file's closure.
-honcho-ai>=2.3.0,<3.0
+# SYSTEMAUDIT-2026-08-27 AP-6 L-2: exact-pinned, not a range. The open range
+# (`>=2.3.0,<3.0`) previously let pip resolve 2.4.0, which renamed
+# `honcho.conclusions.ConclusionScope` -> `ConclusionsView` and broke 5 tests
+# in memory/tests/test_honcho_backend.py with an ImportError. 2.3.0 is the
+# highest published release (verified via `pip index versions honcho-ai`)
+# that still exposes `ConclusionScope`; this backend's honcho_backend.py is
+# written against that surface (create/query/list/delete). Bump deliberately
+# and re-verify the import + the memory test suite, do not widen the range.
+honcho-ai==2.3.0

@@ -86,6 +86,7 @@ from application.requirement_bundle_service import (
     BundleDepthExceededError,
     RequirementBundleQueryService,
 )
+from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
@@ -153,6 +154,12 @@ _EXC_TO_HTTP: dict[type, int] = {
     # code differs, so existing clients keep their status-code handling.
     BaselineGateBlockedError: status.HTTP_400_BAD_REQUEST,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
+    # SYSTEMAUDIT-2026-08-27 AP-6 M-1: access is correctly denied by the gate
+    # (presets.gate raises this for a caller-supplied workspace_id owned by a
+    # foreign tenant), but without this entry it fell through to the generic
+    # 500 branch below. 403, matching the established convention for this
+    # exact exception (see presets/tests/test_gate_tenant_guard.py).
+    CrossTenantWorkspaceError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
 }
@@ -163,6 +170,7 @@ _EXC_TO_CODE: dict[type, str] = {
     # with an override_reason" apart from every other 400 on this endpoint.
     BaselineGateBlockedError: "SE_AUDITOR_BLOCKED",
     PermissionDeniedError: "PERMISSION_DENIED",
+    CrossTenantWorkspaceError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }
@@ -4184,14 +4192,23 @@ class WorkspaceViewSet(BaseEntityViewSet):
         Returns: 201 Created with the serialized Workspace.
         """
         lang = detect_lang(request)
-        name = request.data.get("name")
-        if not name or not str(name).strip():
+        # SA-25: run the declared serializer so ``name`` (a SanitizedCharField)
+        # is actually validated/sanitized instead of being read straight off
+        # request.data — the rest of the body still uses the pre-existing
+        # manual defaulting below, because WorkspaceSerializer's own defaults
+        # (e.g. language="en") differ from this endpoint's historical ones
+        # (language="de") and swapping them would be a silent behaviour change.
+        ser = WorkspaceSerializer(data=request.data)
+        if not ser.is_valid():
             return Response(
                 build_error_response(
-                    "VALIDATION_ERROR", lang, message="name is required"
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        name = ser.validated_data["name"]
         preset = extract_preset_tier(request.data.get("preset", "standard"))
         if preset is None:
             return Response(
@@ -4261,21 +4278,39 @@ class WorkspaceViewSet(BaseEntityViewSet):
                         workspace_id=UUID(pk), ctx=ctx
                     )
 
-            # Forward only fields the client actually supplied (PATCH semantics);
-            # the service applies the sentinel default to the rest.
-            fields = {
-                key: request.data[key]
-                for key in (
-                    "name",
-                    "language",
-                    "theme",
-                    "decomposition_link_type",
-                    "default_link_type",
-                    "terminology_profile",
-                    "goals_enabled",
-                    "goals_ai_enabled",
+            # SA-25: validate the supplied fields through the declared
+            # serializer (partial=True — DRF's partial mode only validates and
+            # returns keys actually present in the body, so this preserves the
+            # original "forward only fields the client actually supplied"
+            # PATCH semantics while adding real validation/sanitization,
+            # notably for ``name`` (SanitizedCharField)).
+            patch_ser = WorkspaceSerializer(data=request.data, partial=True)
+            if not patch_ser.is_valid():
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[
+                            {"field": k, "errors": v}
+                            for k, v in patch_ser.errors.items()
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-                if key in request.data
+            _patchable = (
+                "name",
+                "language",
+                "theme",
+                "decomposition_link_type",
+                "default_link_type",
+                "terminology_profile",
+                "goals_enabled",
+                "goals_ai_enabled",
+            )
+            fields = {
+                key: value
+                for key, value in patch_ser.validated_data.items()
+                if key in _patchable
             }
             if fields:
                 ws = self._svc().update_metadata(ctx, UUID(pk), **fields)
@@ -4332,7 +4367,16 @@ class WorkspaceViewSet(BaseEntityViewSet):
         try:
             ctx = get_auth_context(request)
             self._svc().switch_preset_tier(ctx, UUID(pk), target_tier)
-        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+        except (
+            ValidationError,
+            NotFoundError,
+            PermissionDeniedError,
+            # SYSTEMAUDIT-2026-08-27 AP-6 M-1: explicit handler ahead of the
+            # generic Exception catch-all below — without it, the gate's
+            # correctly-raised CrossTenantWorkspaceError fell through to a
+            # masked 500 instead of the 403 it deserves.
+            CrossTenantWorkspaceError,
+        ) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
@@ -6103,19 +6147,40 @@ class TestRunViewSet(BaseEntityViewSet):
         workspace_id, error = parse_workspace_id(request.data.get("workspace_id"), lang)
         if error is not None:
             return error
-        name = request.data.get("name")
-        if not name:
+        # Kept as a dedicated, precisely-worded check (test_api_consistency_460
+        # pins this exact message) rather than folding into the serializer
+        # error below, whose "required"/"blank" wording differs.
+        if not request.data.get("name") or not str(request.data.get("name")).strip():
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message="name is required"),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # SA-25: run the declared serializer for name/ci_job_id so ``name``
+        # (a SanitizedCharField) is validated/sanitized (length cap, markup
+        # rejection) instead of being read straight off request.data.
+        # workspace_id keeps using parse_workspace_id above (issue #460 —
+        # precise error message for a malformed id) and test_case_ids has no
+        # serializer field (it is UUID()-validated below, matching the
+        # pre-existing contract), so neither is touched here.
+        ser = TestRunSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        name = ser.validated_data["name"]
+        ci_job_id = ser.validated_data.get("ci_job_id", "")
         try:
             ctx = get_auth_context(request)
             item = self._svc().create_test_run(
                 workspace_id=workspace_id,
-                name=str(name),
+                name=name,
                 ctx=ctx,
-                ci_job_id=str(request.data.get("ci_job_id", "")),
+                ci_job_id=ci_job_id,
                 test_case_ids=[UUID(str(tc_id)) for tc_id in request.data.get("test_case_ids", [])],
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -6127,13 +6192,27 @@ class TestRunViewSet(BaseEntityViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/test-runs/{id}/ — update test run metadata. Returns 200."""
         lang = detect_lang(request)
+        # SA-25: partial=True means DRF only validates/returns keys actually
+        # present in the body, preserving the pre-existing "None = don't
+        # touch this field" sentinel contract of update_test_run() while
+        # still validating/sanitizing ``name`` when it is supplied.
+        ser = TestRunSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_test_run(
                 test_run_id=UUID(pk),
                 ctx=ctx,
-                name=request.data.get("name"),
-                ci_job_id=request.data.get("ci_job_id"),
+                name=ser.validated_data.get("name"),
+                ci_job_id=ser.validated_data.get("ci_job_id"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6871,18 +6950,33 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ctx = get_auth_context(request)
         lang = detect_lang(request)
         try:
-            term_str = request.data.get("term", "")
-            definition = request.data.get("definition", "")
-            synonyms = request.data.get("synonyms", [])
-            abbreviation = request.data.get("abbreviation", "")
-
-            workspace_id, error = parse_workspace_id(
-                request.data.get("workspace_id"), lang
+            # SA-25: run the declared serializer so term/definition/synonyms/
+            # abbreviation are actually validated (max_length, JSON shape)
+            # instead of being read straight off request.data. The XSS guard
+            # itself already ran earlier in initial() (FreeTextSanitizationMixin,
+            # #269/4) regardless of this call; this closes the remaining gap
+            # (no type/length validation at all on this path).
+            ser = GlossaryTermSerializer(data=request.data)
+            if not ser.is_valid():
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[
+                            {"field": k, "errors": v} for k, v in ser.errors.items()
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            data = ser.validated_data
+            term = self._svc().create(
+                ctx,
+                data["workspace_id"],
+                data["term"],
+                data["definition"],
+                data.get("synonyms"),
+                data.get("abbreviation", ""),
             )
-            if error is not None:
-                return error
-
-            term = self._svc().create(ctx, workspace_id, term_str, definition, synonyms, abbreviation)
             return Response(
                 GlossaryTermSerializer(term).data, status=status.HTTP_201_CREATED
             )
@@ -6901,23 +6995,33 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
         if invalid is not None:
             return invalid
+        # SA-25: partial=True means DRF only validates/returns keys actually
+        # present in the body — matching update()'s "None = don't touch this
+        # field" sentinel contract — while adding real validation for
+        # whichever fields were supplied.
+        ser = GlossaryTermSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             term_id = UUID(pk)
+            data = ser.validated_data
             # #82: `term` was previously dropped here — PATCH silently
             # ignored the label field that POST accepts, so a term's name
             # could never be corrected after creation.
-            term_label = request.data.get("term")
-            definition = request.data.get("definition")
-            synonyms = request.data.get("synonyms")
-            abbreviation = request.data.get("abbreviation")
-
             term = self._svc().update(
                 ctx,
                 term_id,
-                term=term_label,
-                definition=definition,
-                synonyms=synonyms,
-                abbreviation=abbreviation,
+                term=data.get("term"),
+                definition=data.get("definition"),
+                synonyms=data.get("synonyms"),
+                abbreviation=data.get("abbreviation"),
             )
             return Response(GlossaryTermSerializer(term).data)
         except Exception as e:

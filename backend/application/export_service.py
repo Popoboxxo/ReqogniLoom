@@ -17,7 +17,12 @@ Round-trip fidelity: the exported column set is driven by the shared
 ``ENTITY_FIELD_SPECS`` registry and includes identity/audit columns (id,
 artifact_id, version, created_at, modified/updated timestamp) so that
 ``export_csv -> ImportService.import_csv`` is a lossless round-trip (the ReqFlow
-self-migration safety net).
+self-migration safety net) -- with one deliberate exception (SA-31, Systemaudit
+2026-08-27 AP-6): a string field starting with ``=``/``+``/``-``/``@``/TAB/CR
+is prefixed with a leading ``'`` on export (see :func:`_csv_cell`), the
+OWASP-documented CSV/formula-injection mitigation. Re-importing that cell
+therefore recovers the quote-prefixed text, not byte-for-byte the original --
+an accepted, security-motivated trade-off, not a bug.
 
 PDF support: Implemented via reportlab. Delegates to pdf_report_generator
 for workspace-level document exports.
@@ -46,6 +51,7 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.csv_safety import neutralize_csv_formula
 
 logger = logging.getLogger(__name__)
 
@@ -208,17 +214,34 @@ def _export_value(value: Any, kind: str) -> Any:
     return value
 
 
+#: SYSTEMAUDIT-2026-08-27 AP-6 L-4: the trigger set and the escaping logic
+#: live in :mod:`application.csv_safety`, shared with
+#: :func:`application.requirement_bundle_formatters._csv_safe` (same
+#: OWASP-documented CSV/formula-injection mitigation, same set — SA-31,
+#: Systemaudit 2026-08-27 AP-6: this exporter was the one CSV output path
+#: that used to skip it).
+
+
 def _csv_cell(value: Any) -> str:
     """Flatten a native export value to a single CSV cell string.
 
     Complex values (list/dict) and booleans are rendered as JSON so the import
     side can recover them losslessly with :func:`json.loads`; ``None`` becomes an
     empty cell.
+
+    String cells starting with ``=``, ``+``, ``-``, ``@``, TAB or CR are
+    prefixed with a single quote (SA-31: CSV/formula injection, see
+    :func:`application.csv_safety.neutralize_csv_formula`). Requirement/
+    ArchitectureElement/... titles and descriptions are free text written by
+    any editor-role tenant user, and this export is served directly as
+    ``text/csv`` for the caller to open in a spreadsheet application -- an
+    unescaped ``=cmd|'/c calc'!A1`` title would otherwise execute on whoever
+    opens the file.
     """
     if value is None:
         return ""
     if isinstance(value, str):
-        return value
+        return neutralize_csv_formula(value)
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (list, dict)):

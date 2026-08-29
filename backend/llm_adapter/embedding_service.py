@@ -90,28 +90,41 @@ def _read_env_config() -> EmbeddingProviderConfig:
     )
 
 
+#: SA-21: DI seam so this Layer-1 module never imports ``memory`` (an
+#: ADR-01 Layer-2-placed app, per memory.apps.MemoryConfig's own docstring)
+#: directly. ``memory.apps.MemoryConfig.ready()`` registers the real
+#: SystemMemorySettings lookup here at startup -- the same
+#: register-on-``ready()`` pattern ``audit.apps.AuditConfig`` uses for
+#: ``AuditLogWriter``/``DomainEventBus``. Replaces the previous lazy
+#: ``from memory.models import SystemMemorySettings`` import, which only
+#: avoided *crashing* on the memory<->llm_adapter circular import (memory
+#: itself imports ``llm_adapter.embedding_service.generate_embedding`) --
+#: it did not remove the backwards dependency.
+_settings_override_provider: Optional[
+    Callable[["EmbeddingProviderConfig"], "EmbeddingProviderConfig"]
+] = None
+
+
+def register_settings_override_provider(
+    provider: Callable[["EmbeddingProviderConfig"], "EmbeddingProviderConfig"],
+) -> None:
+    """Register the Layer-2/Ext settings-override lookup. Called once from
+    ``memory.apps.MemoryConfig.ready()`` at Django startup."""
+    global _settings_override_provider
+    _settings_override_provider = provider
+
+
 def _apply_db_settings(cfg: EmbeddingProviderConfig) -> EmbeddingProviderConfig:
     """Overlay a persisted SystemMemorySettings override onto an env-based
     config (Memory Admin UI Phase 3). Mirrors llm_adapter.providers's own
     _apply_db_settings for LlmSettings -- same best-effort semantics: any
-    failure (no row, DB unavailable) leaves cfg untouched, env stays the
-    fallback. Lazy import avoids a memory<->llm_adapter circular import.
+    failure (no row, DB unavailable, provider not yet registered) leaves cfg
+    untouched, env stays the fallback.
     """
-    try:
-        from memory.models import SystemMemorySettings
-
-        row = SystemMemorySettings.objects.first()
-        if row is None:
-            return cfg
-        if row.embedding_provider:
-            cfg.provider_name = row.embedding_provider
-        if row.embedding_model_name:
-            cfg.model_name = row.embedding_model_name
-        if row.ollama_base_url:
-            cfg.base_url = row.ollama_base_url
-        if row.embedding_timeout:
-            cfg.timeout = float(row.embedding_timeout)
+    if _settings_override_provider is None:
         return cfg
+    try:
+        return _settings_override_provider(cfg)
     except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
         logger.debug("SystemMemorySettings lookup skipped; falling back to environment.")
         return cfg

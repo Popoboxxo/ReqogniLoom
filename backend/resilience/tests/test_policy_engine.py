@@ -9,6 +9,7 @@ Traceability: REQ-L3-RO-002-01..04 -> REQ-L2-RO-002/003 -> REQ-L1-032
 """
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -146,3 +147,89 @@ def test_timeout_is_enforced_and_degrades() -> None:
     assert isinstance(result, FallbackResponse)
     assert result.error_code == "timeout"
     assert breaker.failures == 1
+
+
+# ---------------------------------------------------------------------------
+# SA-17 (Systemaudit 2026-08-27 §4.2 #5) — the timeout must bound wallclock time
+# ---------------------------------------------------------------------------
+
+
+def test_timeout_returns_within_its_budget_not_after_the_operation() -> None:
+    """The caller regains control at the timeout, not when the operation ends.
+
+    Before the SA-17 fix the executor lived in a ``with`` block whose
+    ``__exit__`` calls ``shutdown(wait=True)``, so a 0.1s timeout still blocked
+    for the operation's full 2s. The documented timeout was advisory only.
+
+    The bound asserted here is deliberately generous (well under the operation's
+    own duration, well over the timeout) so the test measures the missing join,
+    not scheduler jitter on a loaded CI box.
+    """
+    breaker = FakeBreaker()
+    policy = Policy(max_retries=0, timeout_seconds=0.1)
+    engine = PolicyEngine(
+        "github", policy=policy, breaker=breaker, sleep=lambda d: None
+    )
+
+    operation_finished = threading.Event()
+
+    def slow():
+        time.sleep(2.0)
+        operation_finished.set()
+        return "too late"
+
+    started = time.monotonic()
+    result = engine.execute_with_policy(slow)
+    elapsed = time.monotonic() - started
+
+    assert isinstance(result, FallbackResponse)
+    assert result.error_code == "timeout"
+    assert elapsed < 1.0, (
+        f"execute_with_policy blocked {elapsed:.2f}s on a 0.1s timeout — it is "
+        "waiting for the abandoned operation instead of abandoning it"
+    )
+    assert not operation_finished.is_set(), (
+        "sanity check: the operation must still be running when we return"
+    )
+
+    # Do not leak the orphan into the next test: it is expected to keep running
+    # (that is the documented trade-off), so wait it out before finishing.
+    assert operation_finished.wait(timeout=10.0)
+
+
+def test_retries_do_not_multiply_the_timeout_budget() -> None:
+    """Worst case is bounded by ``(retries + 1) x timeout``, not x duration.
+
+    This is the compound form of the SA-17 defect: with ``wait=True`` each
+    attempt paid the *operation's* real duration, so 2 retries over a 0.1s
+    timeout took ~4.5s instead of ~0.3s.
+    """
+    breaker = FakeBreaker()
+    policy = Policy(max_retries=2, timeout_seconds=0.1, backoff_base_seconds=0.0)
+    engine = PolicyEngine(
+        "github", policy=policy, breaker=breaker, sleep=lambda d: None
+    )
+
+    done = [threading.Event() for _ in range(3)]
+    attempts = {"n": 0}
+
+    def slow():
+        index = attempts["n"]
+        attempts["n"] += 1
+        time.sleep(1.5)
+        done[index].set()
+
+    started = time.monotonic()
+    result = engine.execute_with_policy(slow)
+    elapsed = time.monotonic() - started
+
+    assert isinstance(result, FallbackResponse)
+    assert result.error_code == "timeout"
+    assert attempts["n"] == 3, "all attempts must be made"
+    assert elapsed < 1.5, (
+        f"3 attempts at a 0.1s timeout took {elapsed:.2f}s — the engine is "
+        "serialising on the abandoned operations"
+    )
+
+    for event in done:
+        assert event.wait(timeout=10.0)

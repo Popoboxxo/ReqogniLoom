@@ -71,10 +71,20 @@ class PresetPolicyService:
     # ---------- Cache helpers ----------
 
     def _get_preset(self, workspace_id: str):
-        """Return PresetRules for *workspace_id* — cached for TTL seconds."""
-        from presets.services import get_preset
+        """Return PresetRules for *workspace_id* — cached for TTL seconds.
+
+        Raises:
+            presets.exceptions.CrossTenantWorkspaceError: If a tenant context is
+                active and does not own *workspace_id* (SA-15). The check runs
+                before the cache read because ``self._cache`` is keyed by
+                workspace alone: a warm entry would otherwise hand a
+                cross-tenant caller another tenant's preset without ever
+                reaching the guarded gate.
+        """
+        from presets.services import assert_workspace_in_tenant, get_preset
 
         key = str(workspace_id)
+        assert_workspace_in_tenant(key)
         entry = self._cache.get(key)
         if entry and entry.is_valid():
             return entry.value

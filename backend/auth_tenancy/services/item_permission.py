@@ -11,6 +11,9 @@ This module wires together:
 * :class:`~auth_tenancy.models.ItemPermission` — the persistent rule row.
 * :class:`PermissionCache` — a 60-second thread-local TTL cache for
   ``check_permission`` results, invalidated on every ``grant``/``revoke``.
+  Since SA-28 that invalidation is cross-worker: it bumps a shared generation
+  counter, so a revoke cannot leave a stale *allow* alive on another thread or
+  process for the remainder of the TTL.
 * :class:`application.base.ServiceBase` — for the admin RBAC gate
   (``_assert_permission``) and the AuditLog write shortcut (``_audit``).
 
@@ -175,7 +178,9 @@ class ItemPermissionService:
                 },
             )
 
-        # 5. Cache wipe (outside the transaction; cache is per-thread only).
+        # 5. Cache wipe. Runs outside the transaction, and since SA-28 it also
+        # bumps the shared generation counter, so *every* worker discards its
+        # decisions — not just this thread.
         self._cache.invalidate_all()
         return permission
 

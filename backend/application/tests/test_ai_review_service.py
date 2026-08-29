@@ -182,6 +182,39 @@ class TestReviewReferentialIntegrity:
         assert result.packages == []
         assert result.total_findings == 0
 
+    def test_records_estimated_token_counts_not_zero(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """SA-26: audit.ai_review used to hardcode input_tokens=0 on the
+        record_token_usage() call, leaving the daily budget (REQ-106) blind
+        to this flow's real spend. Both sides must now be estimated from the
+        actual prompt/completion via approximate_token_count()."""
+        from unittest.mock import MagicMock
+
+        from llm_adapter.token_tracking import approximate_token_count
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+        record_mock = MagicMock()
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.record_token_usage", record_mock
+        )
+
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        record_mock.assert_called_once()
+        _, kwargs = record_mock.call_args
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert kwargs["input_tokens"] == approximate_token_count(sent_prompt)
+        assert kwargs["output_tokens"] == approximate_token_count("[]")
+        assert kwargs["input_tokens"] > 0
+        assert kwargs["output_tokens"] > 0
+
 
 # ---------------------------------------------------------------------------
 # BUG-15 code review M2 — the truncation signal from AuditService.run_audit()

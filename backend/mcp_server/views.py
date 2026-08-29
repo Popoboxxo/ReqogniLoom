@@ -54,6 +54,92 @@ logger = logging.getLogger(__name__)
 # for HTTP-status mapping below.
 _NUMERIC_TO_ERROR_CODE: dict[int, str] = {v: k for k, v in ERROR_CODE_MAP.items()}
 
+
+# ---------------------------------------------------------------------------
+# CSRF-exemption invariant (SA-36, SYSTEMAUDIT-2026-08-27 §4.6 F15)
+# ---------------------------------------------------------------------------
+#
+# The three transport views below are ``csrf_exempt``. That is correct *only*
+# because this transport authenticates exclusively from request HEADERS
+# (``Authorization: Bearer reqlo_…`` / ``X-API-Key``, see
+# ``mcp_server.throttling.api_key_from_request`` and
+# ``TransportAdapter.extract_api_key``). A browser does not attach headers to a
+# cross-site request, so there is no ambient credential for an attacker to ride
+# — which is the entire justification for skipping CSRF.
+#
+# The audit's point is that this was an *unguarded* invariant: nothing failed if
+# someone later taught the MCP path to accept the ``reqogniloom_access`` cookie,
+# and the CSRF hole would open silently. :func:`_reject_ambient_cookie_auth`
+# turns the assumption into an enforced check.
+_COOKIE_CREDENTIAL_NAMES = frozenset(
+    {"reqogniloom_access", "reqogniloom_refresh", "sessionid"}
+)
+
+
+def _reject_ambient_cookie_auth(
+    request: HttpRequest, *, explicit_credential: str | None = None
+) -> HttpResponse | None:
+    """Reject a request that could only be authenticated by an ambient cookie.
+
+    Returns ``None`` (proceed) when either
+      * the caller sent no cookie credential at all — nothing to ride on, or
+      * the caller presented an explicit, non-ambient credential, which a
+        cross-site attacker cannot supply: a header key needs a CORS preflight
+        this server does not grant, and the ``session_id`` used by
+        :class:`McpMessagesView` is an unguessable secret the browser never
+        attaches on its own.
+
+    Returns a 403 when a cookie credential is present but no explicit one is:
+    exactly the shape of a browser-driven cross-site POST, and exactly the case
+    the CSRF middleware would have caught if these views were not exempt.
+
+    Legitimate MCP clients are unaffected — they always present an explicit
+    credential and normally hold no cookies at all. A logged-in operator poking
+    ``/mcp/`` from a browser tab without a key now gets a clear 403 instead of a
+    confusing downstream auth error.
+
+    Args:
+        request: The inbound MCP transport request.
+        explicit_credential: Credential resolved by the caller when it is not a
+            header API key (``McpMessagesView`` authenticates by session id).
+            ``None`` means "use the header key".
+
+    Returns:
+        ``None`` to proceed, or the rejection response to return immediately.
+    """
+    if not _COOKIE_CREDENTIAL_NAMES.intersection(request.COOKIES):
+        return None
+    credential = (
+        explicit_credential
+        if explicit_credential is not None
+        else api_key_from_request(request)
+    )
+    if credential:
+        return None
+
+    logger.warning(
+        "MCP transport rejected a cookie-only request to %s. These views are "
+        "csrf_exempt on the premise that they authenticate from headers only; "
+        "honouring an ambient cookie here would be a CSRF hole (SA-36).",
+        request.path,
+    )
+    return JsonResponse(
+        {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "error_code": "UNAUTHORIZED",
+                "message": (
+                    "The MCP transport authenticates from headers only. Send "
+                    "the API key as 'Authorization: Bearer reqlo_…' or "
+                    "'X-API-Key'; browser session cookies are never accepted "
+                    "here."
+                ),
+            },
+        },
+        status=403,
+    )
+
 # Module-level shared instances (singleton pattern for Django process lifetime)
 _tool_registry: ToolRegistry | None = None
 _protocol_handler: ProtocolHandler | None = None
@@ -175,6 +261,11 @@ class McpHttpTransportView(CorsMixin, View):
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Handle a single MCP tool call over HTTP."""
+        # SA-36: enforce the premise of the csrf_exempt above — header-only auth.
+        cookie_rejection = _reject_ambient_cookie_auth(request)
+        if cookie_rejection is not None:
+            return cookie_rejection
+
         # Rate limit before anything else (SYSTEMAUDIT-2026-08-27 finding A):
         # this is the endpoint that dispatches tools, so every request past
         # this point may cost a DB round trip or an LLM call.
@@ -363,6 +454,15 @@ class McpMessagesView(CorsMixin, View):
         request_id = self._request_id(body)
 
         session_id = request.GET.get("session_id")
+
+        # SA-36: enforce the premise of the csrf_exempt above. The credential on
+        # this endpoint is the session id, not a header key, so it is passed in
+        # explicitly — a cookie alone must never be enough to reach dispatch.
+        cookie_rejection = _reject_ambient_cookie_auth(
+            request, explicit_credential=session_id or ""
+        )
+        if cookie_rejection is not None:
+            return cookie_rejection
 
         # Rate limit before the Redis session lookup and before dispatch
         # (SYSTEMAUDIT-2026-08-27 finding A). The session id is the credential
@@ -582,6 +682,16 @@ class McpSseTransportView(View):
         )
 
         api_key = self._resolve_api_key(request)
+
+        # SA-36: enforce the premise of the csrf_exempt above — header-only auth.
+        # Pure function, no DB/IO, so it is safe to call from this async handler.
+        cookie_rejection = _reject_ambient_cookie_auth(
+            request, explicit_credential=api_key
+        )
+        if cookie_rejection is not None:
+            return _apply_cors_headers(
+                request, cookie_rejection, methods=self._CORS_METHODS
+            )
 
         # Rate limit BEFORE authenticating (SYSTEMAUDIT-2026-08-27 finding A).
         # Order matters: validate_api_key() is a DB round trip, and a rejected

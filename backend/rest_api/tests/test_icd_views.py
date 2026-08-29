@@ -229,3 +229,149 @@ class TestIcdViewSetErrorMessageMasking:
         assert response.status_code == 503
         assert response.data["error"]["code"] == "SERVICE_UNAVAILABLE"
         assert "pgvector" not in response.data["error"]["message"].lower()
+
+
+class TestIcdViewSetFreeTextSanitization:
+    """SA-20: IcdViewSet now inherits BaseEntityViewSet, so
+    FreeTextSanitizationMixin.initial() must reject HTML markup in ICD's
+    narrative fields *before* create()/partial_update() run — the same
+    guarantee every other entity ViewSet already has (#269 finding 4).
+    ``free_text_extra_fields`` is used (rather than a serializer_class)
+    because Icd has no dedicated DRF serializer (create()/partial_update()
+    hand-build IcdCreateDTO/IcdUpdateDTO).
+    """
+
+    _PAYLOAD = "<img src=x onerror=alert(1)>"
+
+    def test_create_rejects_html_markup_in_name(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/icds/",
+            data={
+                "name": self._PAYLOAD,
+                "workspace_id": str(uuid.uuid4()),
+                "source_element_id": str(uuid.uuid4()),
+                "target_element_id": str(uuid.uuid4()),
+                "semantic_description": "harmless",
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = IcdViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            # create_icd is deliberately NOT given a happy-path return: the
+            # guard runs in initial(), before create() is even entered, so a
+            # reached create_icd call would prove the bug, not the fix.
+            with patch(
+                "rest_api.icd_views.create_icd",
+                side_effect=AssertionError(
+                    "create_icd must not be reached — the free-text guard "
+                    "should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_create_rejects_html_markup_in_semantic_description(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/icds/",
+            data={
+                "name": "My ICD",
+                "workspace_id": str(uuid.uuid4()),
+                "source_element_id": str(uuid.uuid4()),
+                "target_element_id": str(uuid.uuid4()),
+                "semantic_description": self._PAYLOAD,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = IcdViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch(
+                "rest_api.icd_views.create_icd",
+                side_effect=AssertionError(
+                    "create_icd must not be reached — the free-text guard "
+                    "should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_partial_update_rejects_html_markup_in_semantic_description(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/icds/{FAKE_ICD_ID}/",
+            data={"semantic_description": self._PAYLOAD},
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = IcdViewSet.as_view({"patch": "partial_update"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch(
+                "rest_api.icd_views.update_icd",
+                side_effect=AssertionError(
+                    "update_icd must not be reached — the free-text guard "
+                    "should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_create_with_clean_fields_is_unaffected(self) -> None:
+        """No-regression: benign narrative fields still pass the guard."""
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/icds/",
+            data={
+                "name": "My ICD",
+                "workspace_id": str(uuid.uuid4()),
+                "source_element_id": str(uuid.uuid4()),
+                "target_element_id": str(uuid.uuid4()),
+                "semantic_description": "short",
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = IcdViewSet.as_view({"post": "create"})
+
+        fake_icd = MagicMock()
+        fake_icd.id = FAKE_ICD_ID
+        fake_icd.name = "My ICD"
+        fake_icd.workspace_id = uuid.uuid4()
+        fake_icd.source_element_id = uuid.uuid4()
+        fake_icd.target_element_id = uuid.uuid4()
+        fake_icd.created_at = None
+        fake_result = MagicMock()
+        fake_result.icd = fake_icd
+        fake_result.current_version.version_number = 1
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_tenant"), patch("rest_api.icd_views.get_user"):
+                with patch(
+                    "rest_api.icd_views.create_icd", return_value=fake_result
+                ):
+                    response = view(req)
+
+        assert response.status_code == 201

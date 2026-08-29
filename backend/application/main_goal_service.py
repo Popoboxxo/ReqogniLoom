@@ -38,7 +38,7 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from persistence.transactions import atomic_transaction
 
@@ -52,6 +52,36 @@ from application.models import MainGoal
 from persistence.models import Artifact, Tenant, Workspace
 
 logger = logging.getLogger(__name__)
+
+# SA-16: how often ``_insert_with_next_sequence`` re-reads the maximum
+# sequence_number after losing the UNIQUE-constraint race. Each retry only
+# loses to a *committed* concurrent insert, so N attempts tolerate N-1
+# simultaneous creators; beyond that the write is a genuine fault, not
+# contention worth spinning on.
+_SEQUENCE_ALLOCATION_ATTEMPTS = 5
+
+# SYSTEMAUDIT-2026-08-27 AP-6 L-3: name of the constraint the retry loop below
+# is allowed to absorb. Any other IntegrityError (an unrelated FK violation,
+# a NOT NULL violation, ...) must propagate immediately instead of being
+# retried 5x for a collision that will never resolve itself.
+_SEQUENCE_CONSTRAINT_NAME = "uq_main_goal_workspace_sequence"
+
+
+def _is_sequence_number_collision(exc: IntegrityError) -> bool:
+    """Return True only if *exc* was raised by the sequence-number UNIQUE constraint.
+
+    Prefers psycopg2's structured diagnostics
+    (``exc.__cause__.diag.constraint_name``), which is what a real Postgres
+    driver populates and cannot be spoofed by unrelated error text. Falls
+    back to matching the constraint name in ``str(exc)`` for callers/tests
+    that raise a bare ``IntegrityError`` with no ``__cause__`` (e.g. sqlite,
+    or a mocked driver in a unit test).
+    """
+    diag = getattr(exc.__cause__, "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    if constraint_name is not None:
+        return constraint_name == _SEQUENCE_CONSTRAINT_NAME
+    return _SEQUENCE_CONSTRAINT_NAME in str(exc)
 
 
 class MainGoalService(ServiceBase):
@@ -266,6 +296,94 @@ class MainGoalService(ServiceBase):
 
         return tenant, workspace
 
+    def _insert_with_next_sequence(
+        self,
+        *,
+        workspace: Workspace,
+        tenant: Tenant,
+        content: str,
+        source: str,
+        generated_from_goal_ids: list[str],
+        ctx: Any,
+    ) -> MainGoal:
+        """Insert the Artifact + MainGoal pair under the next free sequence number.
+
+        SA-16 (Systemaudit 2026-08-27): the number is derived from a
+        ``MAX(sequence_number) + 1`` read, so two concurrent creates in the same
+        workspace can read the same value. The authoritative guard is the
+        ``uq_main_goal_workspace_sequence`` UNIQUE constraint on the table (see
+        ``MainGoal.Meta``) — a lock cannot serialise the first-ever insert,
+        because there is no row yet to lock. The loser of the race therefore
+        hits an IntegrityError; this loop absorbs it by re-reading the maximum
+        and retrying, so a concurrent create yields v1/v2 instead of a 500.
+        Only an ``IntegrityError`` matched to THIS constraint by
+        ``_is_sequence_number_collision`` is absorbed (AP-6 L-3) — any other
+        IntegrityError (e.g. an unrelated FK violation) propagates immediately.
+
+        The whole read/insert unit runs inside a nested ``atomic`` block, i.e. a
+        savepoint: an IntegrityError marks the surrounding transaction as
+        needing rollback, and only the savepoint release/rollback lets the outer
+        transaction (opened by the callers, which must keep the audit entry and
+        the domain event in the same unit) survive the retry.
+
+        Args:
+            workspace: Target workspace (already resolved and gated).
+            tenant: Owning tenant.
+            content: MainGoal body text.
+            source: ``"manual"`` or ``"ai"``.
+            generated_from_goal_ids: Source Goal ids for the AI path.
+            ctx: Request context (used for ``created_by``).
+
+        Returns:
+            The persisted MainGoal with its allocated ``sequence_number``.
+
+        Raises:
+            IntegrityError: If every attempt lost the race — treated as a real
+                fault rather than retried forever.
+        """
+        last_error: IntegrityError | None = None
+        for _ in range(_SEQUENCE_ALLOCATION_ATTEMPTS):
+            last = (
+                MainGoal.objects.filter(workspace_id=workspace.id)
+                .order_by("-sequence_number")
+                .first()
+            )
+            sequence_number = (last.sequence_number + 1) if last else 1
+            try:
+                with transaction.atomic():
+                    artifact = Artifact.objects.create(
+                        tenant=tenant, workspace=workspace, artifact_type="MainGoal"
+                    )
+                    main_goal = MainGoal(
+                        artifact=artifact,
+                        tenant_id=tenant.id,
+                        workspace_id=workspace.id,
+                        sequence_number=sequence_number,
+                        content=content,
+                        source=source,
+                        generated_from_goal_ids=generated_from_goal_ids,
+                        status="Entwurf",
+                        created_by=str(ctx.user_id),
+                    )
+                    main_goal.save()
+                return main_goal
+            except IntegrityError as exc:
+                if not _is_sequence_number_collision(exc):
+                    # SYSTEMAUDIT-2026-08-27 AP-6 L-3: not our race — a
+                    # different constraint violation must not be silently
+                    # retried and re-raised as a misleading "lost the race".
+                    raise
+                last_error = exc
+                logger.info(
+                    "MainGoalService: sequence_number=%s already taken for "
+                    "workspace=%s, retrying with a freshly read maximum",
+                    sequence_number,
+                    workspace.id,
+                )
+
+        assert last_error is not None  # loop body either returns or sets it
+        raise last_error
+
     def _create_row(
         self,
         *,
@@ -276,28 +394,15 @@ class MainGoalService(ServiceBase):
         generated_from_goal_ids: list[str],
         ctx: Any,
     ) -> dict:
-        last = (
-            MainGoal.objects.filter(workspace_id=workspace.id)
-            .order_by("-sequence_number")
-            .first()
-        )
-        sequence_number = (last.sequence_number + 1) if last else 1
-
-        artifact = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type="MainGoal"
-        )
-        main_goal = MainGoal(
-            artifact=artifact,
-            tenant_id=tenant.id,
-            workspace_id=workspace.id,
-            sequence_number=sequence_number,
+        main_goal = self._insert_with_next_sequence(
+            workspace=workspace,
+            tenant=tenant,
             content=content,
             source=source,
             generated_from_goal_ids=generated_from_goal_ids,
-            status="Entwurf",
-            created_by=str(ctx.user_id),
+            ctx=ctx,
         )
-        main_goal.save()
+        sequence_number = main_goal.sequence_number
 
         # Initialize workflow state (best-effort, mirrors GoalService/
         # RiskService). Absent a provisioned WorkflowEngineDefinition for this

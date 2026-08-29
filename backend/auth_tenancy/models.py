@@ -5,6 +5,8 @@ Defines the auth-specific persistent entities that do NOT live in the
 PersistenceLayer foundation:
 
 * :class:`ApiKey` — hashed API-key record (COMP-AT-001, REQ-L3-AT001-002/003).
+* :class:`RefreshToken` — one row per issued refresh JWT, enabling
+  rotation-with-reuse-detection (SA-32, SYSTEMAUDIT-2026-08-27 §4.6 F7).
 * :class:`UserRole` — workspace-scoped RBAC role assignment (COMP-AT-002,
   REQ-L3-AT002-002/003, REQ-L2-AT-006).
 * :class:`ItemPermission` — item-level RBAC rules as defense-in-depth over the
@@ -60,11 +62,18 @@ MAX_ACTIVE_API_KEYS_PER_USER = 10
 class ApiKey(TenantScopedModel):
     """Hashed API-key credential for AI agents / API clients (COMP-AT-001).
 
-    Stores only the SHA-256 hash of the key (``sha256:<hex>``); the plaintext is
-    returned to the caller exactly once at creation and never persisted or logged
+    Stores only a hash of the key; the plaintext is returned to the caller
+    exactly once at creation and never persisted or logged
     (REQ-L3-AT001-002/003). Lookup during authentication happens *before* a tenant
     context exists, so callers must query via the ``unscoped`` manager
     (inherited from :class:`TenantScopedModel`).
+
+    ``key_hash`` carries a version prefix (SA-34): ``"sha256p1:<hex>"`` is
+    HMAC-SHA256 keyed with ``settings.API_KEY_PEPPER``, ``"sha256:<hex>"`` is
+    the original bare digest kept for keys issued before a pepper was
+    configured. The prefix is what lets both coexist without a data migration —
+    the plaintext needed to re-hash an old row is deliberately unrecoverable.
+    See ``auth_tenancy.services.authentication.api_key_hash_candidates``.
 
     Inherits from ``TenantScopedModel``: UUID PK, ``tenant`` FK, audit fields and
     the tenant-isolating default manager (used for tenant-scoped admin listings).
@@ -76,7 +85,9 @@ class ApiKey(TenantScopedModel):
         related_name="api_keys",
     )
     name = models.CharField(max_length=255)
-    # Format: "sha256:<64 hex chars>". Indexed for O(1) credential lookup.
+    # Format: "sha256p1:<64 hex>" (peppered, SA-34) or "sha256:<64 hex>"
+    # (legacy). 80 chars leaves room for both prefixes plus future versions.
+    # Indexed for O(1) credential lookup.
     key_hash = models.CharField(max_length=80, unique=True, db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
@@ -95,6 +106,79 @@ class ApiKey(TenantScopedModel):
     def is_active(self) -> bool:
         """Return whether the key has not been revoked (REQ-L3-AT001-002)."""
         return self.revoked_at is None
+
+
+class RefreshToken(TenantScopedModel):
+    """Server-side record of one issued refresh JWT (SA-32, GitHub #135).
+
+    SYSTEMAUDIT-2026-08-27 §4.6 F7: refresh tokens were pure stateless JWTs.
+    ``RefreshView`` rotated them, but nothing marked the *previous* token as
+    spent, so a stolen refresh token stayed usable for its full 30-day lifetime
+    even after the legitimate user had already rotated it. Detecting that reuse
+    requires exactly one bit of server-side state per issued token — this table.
+
+    Rotation model (the standard OAuth 2.0 BCP §4.13.2 refresh-token-rotation
+    scheme):
+
+    * ``jti`` identifies a single token. Every issued refresh JWT carries it.
+    * ``session_id`` identifies the **family**: the login plus every token
+      rotated out of it. A family is the unit of revocation.
+    * Presenting a token whose row already has ``used_at`` set means two parties
+      hold the same token — the legitimate client and a thief. Which is which is
+      unknowable, so the whole family is revoked and both must log in again.
+
+    Only opaque identifiers are stored. The JWT itself (and therefore its
+    signature) is never persisted, so this table leaks no credential if read.
+
+    Inherits ``TenantScopedModel``; like :class:`ApiKey` it is looked up on the
+    public ``/auth/refresh/`` endpoint *before* a tenant context exists, so
+    callers must use the ``unscoped`` manager.
+    """
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="refresh_tokens",
+    )
+    #: ``jti`` claim of this specific token — the rotation unit.
+    jti = models.UUIDField(unique=True, db_index=True)
+    #: ``sid`` claim shared by every token rotated out of one login.
+    session_id = models.UUIDField(db_index=True)
+    #: Mirrors the JWT ``exp``; lets the cleanup command purge dead rows.
+    expires_at = models.DateTimeField()
+    #: Set when this token was exchanged. A second exchange is reuse.
+    used_at = models.DateTimeField(null=True, blank=True)
+    #: Set on logout or when reuse revoked the whole family.
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    #: Why the family was revoked: ``"reuse_detected"`` or ``"logout"``. Empty
+    #: for a normal rotation, which sets ``used_at`` and nothing else.
+    revoked_reason = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        db_table = "at_refresh_token"
+        indexes = [
+            models.Index(
+                fields=["session_id", "revoked_at"],
+                name="idx_refresh_session_active",
+            ),
+            models.Index(
+                fields=["expires_at"], name="idx_refresh_expires"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        if self.revoked_at is not None:
+            state = "revoked"
+        elif self.used_at is not None:
+            state = "used"
+        else:
+            state = "active"
+        return f"RefreshToken({self.jti}, {state})"
+
+    @property
+    def is_spendable(self) -> bool:
+        """Return whether this token may still be exchanged."""
+        return self.used_at is None and self.revoked_at is None
 
 
 class UserRole(TenantScopedModel):
@@ -560,6 +644,7 @@ class PermissionDecisionMismatch(TenantScopedModel):
 
 __all__ = [
     "ApiKey",
+    "RefreshToken",
     "UserRole",
     "TenantRole",
     "ItemPermission",

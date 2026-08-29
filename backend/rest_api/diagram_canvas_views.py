@@ -37,6 +37,7 @@ from diagram.models import Diagram
 from diagram.services import (
     canvas_auto_save,
     get_canvas_diagram,
+    get_diagram_header,
     get_mermaid_preview,
     update_mermaid_source,
 )
@@ -91,7 +92,7 @@ def _verify_diagram_ownership(pk: str | UUID, tenant_id: str) -> Diagram:
     Raises:
         Diagram.DoesNotExist: If not found or tenant mismatch.
     """
-    return Diagram.objects.get(id=_as_uuid(pk), tenant_id=tenant_id)
+    return get_diagram_header(_as_uuid(pk), tenant_id)
 
 
 def _serialize_render_hints(hints: Any | None) -> dict[str, Any] | None:

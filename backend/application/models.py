@@ -545,6 +545,23 @@ class MainGoal(models.Model):
             models.Index(fields=["workspace_id", "status"]),
             models.Index(fields=["workspace_id", "sequence_number"]),
         ]
+        # SA-16 (Systemaudit 2026-08-27): the version number is derived with a
+        # read-then-write (``MAX(sequence_number) + 1``) in
+        # ``MainGoalService._create_row``. Two concurrent creates in the same
+        # workspace read the same MAX and would both persist that number,
+        # silently producing two rows claiming to be "v3" — and since
+        # ``get_current`` resolves the valid MainGoal as the highest
+        # sequence_number, a duplicate makes "which MainGoal is current"
+        # ambiguous. Application-side locking alone cannot close this (the
+        # first-ever insert has no row to lock), so the invariant is enforced
+        # by the database; the service catches the IntegrityError and retries
+        # with a freshly read number.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace_id", "sequence_number"],
+                name="uq_main_goal_workspace_sequence",
+            ),
+        ]
         ordering = ["sequence_number"]
 
     def __str__(self) -> str:

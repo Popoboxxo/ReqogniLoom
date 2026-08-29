@@ -1219,7 +1219,10 @@ class ArchitectureElement(TenantScopedModel):
         if not elements:
             return
 
-        from workflow.services import outdated_item_ids
+        # SA-21: Layer 0 must not import workflow (Layer 1) directly — this
+        # goes through the DI seam persistence.status_provider registers
+        # from WorkflowConfig.ready(); see that module's docstring.
+        from persistence.status_provider import outdated_item_ids
 
         ids = [el.id for el in elements]
         parents_with_children = set(
@@ -1260,11 +1263,13 @@ class ArchitectureElement(TenantScopedModel):
         the authoritative source, so the children check keeps excluding
         against ``workflow.services.outdated_item_ids`` — that is also the
         only variant that is correct for rows soft-deleted before the mirror
-        existed. This is a deliberate, narrow Layer 0 -> Layer 1 import
-        (lazy, local to this method) mirroring the same escape hatch already
-        used by ``ArchitectureService``/``GlossaryService`` at Layer 2 — the
-        alternative (re-adding a real status column just to keep this method
-        layer-pure) is a larger persistence migration for no functional gain.
+        existed. SA-21: this used to be a direct, lazy Layer 0 -> Layer 1
+        import; it now goes through ``persistence.status_provider`` (a
+        Layer-0-owned seam that ``WorkflowConfig.ready()`` registers the real
+        implementation into at startup), so this module no longer imports
+        ``workflow`` at all. The alternative (re-adding a real status column
+        just to keep this method query-free) is a larger persistence
+        migration for no functional gain.
 
         NOTE: For bulk role retrieval use
         ``ArchitectureService.list_architecture_elements`` which annotates the
@@ -1273,7 +1278,10 @@ class ArchitectureElement(TenantScopedModel):
         """
         if self.parent_id is None:
             return ArchitectureRole.SYSTEM
-        from workflow.services import outdated_item_ids
+        # SA-21: Layer 0 must not import workflow (Layer 1) directly — this
+        # goes through the DI seam persistence.status_provider registers
+        # from WorkflowConfig.ready(); see that module's docstring.
+        from persistence.status_provider import outdated_item_ids
 
         has_children = (
             ArchitectureElement.objects.filter(parent_id=self.id)

@@ -327,3 +327,45 @@ class TestSetPresetActionAcceptsBothShapes:
         tenant, workspace = _legacy_workspace()
         response = self._set_preset(workspace, tenant, {"foo": "bar"})
         assert response.status_code == 400
+
+
+class TestSetPresetActionCrossTenant:
+    """SYSTEMAUDIT-2026-08-27 AP-6 M-1.
+
+    ``presets.gate`` correctly rejects a caller-supplied ``workspace_id`` that
+    belongs to a foreign tenant (SA-15), but the view's ``except Exception``
+    catch-all previously turned that ``CrossTenantWorkspaceError`` into a
+    masked 500 instead of the 403 the gate intended. Access must still be
+    denied -- only the status code was wrong.
+    """
+
+    def test_foreign_tenant_gets_403_not_500(self):
+        tenant, workspace = _legacy_workspace()
+        attacker_tenant = Tenant.objects.create(
+            name="AttackerTenant", slug=f"attacker-tenant-{uuid.uuid4().hex[:8]}"
+        )
+
+        req = APIRequestFactory().patch(
+            f"/api/v1/workspaces/{workspace.id}/preset/",
+            data={"preset": "minimal"},
+            format="json",
+        )
+        req.auth_context = _make_auth_context(tenant_id=attacker_tenant.id)
+
+        # Mirrors production request middleware, which sets TenantContext
+        # from the caller's JWT before the view runs -- the APIRequestFactory
+        # shortcut used elsewhere in this module bypasses that middleware.
+        TenantContext.set_tenant(attacker_tenant.id)
+        try:
+            response = WorkspaceViewSet.as_view({"patch": "set_preset"})(
+                req, pk=str(workspace.id)
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert response.status_code == 403, response.data
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
+        # The message must not turn into a cross-tenant existence oracle by
+        # leaking either tenant's or the workspace's identifiers.
+        assert str(workspace.id) not in str(response.data)
+        assert str(tenant.id) not in str(response.data)

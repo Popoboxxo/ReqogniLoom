@@ -1946,12 +1946,27 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``(items, is_mock_fallback)``. *items* is the parsed array — only
             its object entries when *require_objects*. *is_mock_fallback* is
-            True when the answer came from the mock fallback instead of the
-            configured provider; every flow surfaces it under the same
-            ``is_mock_fallback`` response key so a caller can tell a real
-            proposal from a degraded placeholder (Systemaudit 2026-08-27
-            item 11, mirroring ``BundleCompressionService``'s
-            ``CompressionResult.is_mock_fallback``).
+            True only when :meth:`_complete` *unexpectedly* degraded to
+            MockLlmProvider (the configured/resolved provider raised or the
+            call itself failed mid-flight) — NOT when ``LLM_PROVIDER=mock``
+            was deliberately configured and answered without error; every
+            flow surfaces it under the same ``is_mock_fallback`` response key
+            so a caller can tell a real proposal from an unplanned degraded
+            placeholder (Systemaudit 2026-08-27 item 11).
+
+            SA-27 (Systemaudit 2026-08-27 AP-6) note: this is a narrower
+            definition than ``BundleCompressionService.CompressionResult.
+            is_mock_fallback``, which (issue #442) flags a *successfully
+            resolved* mock provider too — deliberately, because that flow's
+            output is cached for an hour and served without any human review
+            step, so a deployment's default ``LLM_PROVIDER=mock`` placeholder
+            must never be mistaken for a genuine compression. The
+            draft-then-review flows in this module (N1/N3/N8/MainGoal) have
+            the opposite need: a deliberately-configured mock during
+            dev/demo is expected and not itself noteworthy, so only an
+            *unplanned* degradation is worth flagging to the reviewer. Both
+            definitions are intentional and independently tested — do not
+            "fix" one to match the other without re-reading both rationales.
 
         Raises:
             LlmResponseError: The response was not a usable JSON array.

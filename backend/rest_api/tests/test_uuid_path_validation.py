@@ -24,6 +24,8 @@ from rest_framework.test import APIClient, APIRequestFactory
 
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
+from rest_api.diagram_views import DiagramViewSet
+from rest_api.icd_views import IcdViewSet
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
@@ -81,6 +83,8 @@ def _retrieve(viewset, pk, *, tenant_id, url="/api/v1/x/"):
         AdrViewSet,
         RiskViewSet,
         WorkspaceViewSet,
+        DiagramViewSet,
+        IcdViewSet,
     ],
 )
 def test_malformed_uuid_pk_returns_400_across_viewsets(viewset):

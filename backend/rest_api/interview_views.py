@@ -24,6 +24,7 @@ from application.base import (
     ValidationError,
 )
 from application.interview_service import InterviewService
+from rest_api.mixins.free_text_sanitization import FreeTextSanitizationMixin
 from rest_api.query_params import parse_uuid_param
 from rest_api.views import _service_error_response, detect_lang, get_auth_context, parse_workspace_id
 
@@ -94,15 +95,31 @@ def _started_session_state(ctx: Any, session: Any) -> "dict[str, Any]":
     return _state_dict(ctx, session.id)
 
 
-class InterviewViewSet(viewsets.ViewSet):
+class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
     """ViewSet for /api/v1/interviews/ -- start/list/get/state/answer/grounding/formalize/chat.
 
     Not a BaseEntityViewSet subclass: InterviewSession is not a generic
     Artifact-backed entity (no serializer, no workflow, no soft-delete), so
     the shared CRUD scaffolding would add nothing here -- same reasoning as
     SearchViewSet, which is also a plain viewsets.ViewSet wrapping a single
-    ApplicationService.
+    ApplicationService. Malformed-UUID-400 is already handled per-action via
+    ``parse_uuid_param`` (see state()/answer()/... below), which is why this
+    class does not additionally need BaseEntityViewSet's
+    ``uuid_url_kwargs``/``initial()`` mechanism -- routing a PATCH/DELETE onto
+    a stub that raises NotImplementedError (as inheriting BaseEntityViewSet
+    verbatim would) is exactly the fix #235 regression class, and this
+    ViewSet genuinely has no update/destroy semantics.
+
+    SA-20: ``FreeTextSanitizationMixin`` *is* composed in on its own --
+    answer()'s ``value`` and chat()'s ``message`` are free-form, persisted
+    user prose (session transcript / collected_fields) with no serializer in
+    front of them, the same "read request.data straight into a service call"
+    shape #269 finding 4 flagged. No preset feature key for interview
+    endpoints exists in presets.registry.FEATURE_KEYS, so there is nothing to
+    wire up for a Preset-Gate here yet.
     """
+
+    free_text_extra_fields = ("value", "message")
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/ -- start a new interview session."""

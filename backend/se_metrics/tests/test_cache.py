@@ -196,8 +196,13 @@ class TestMetricsCacheManagerWithDb:
     """Tests that require database access (MetricCache and ThresholdConfig models)."""
 
     @pytest.fixture(autouse=True)
-    def _setup_tenant(self, db):
-        """Ensure tests have DB access."""
+    def _setup_tenant(self, metrics_tenant_context):
+        """Provide DB access *and* an active tenant context.
+
+        SA-35: the models are tenant-scoped now, so a query without a context
+        raises ``TenantContextNotSetError`` before any SQL — the same fail-fast
+        every other tenant-scoped model has.
+        """
         pass
 
     def test_get_cached_miss_returns_none(self, db):
@@ -266,11 +271,13 @@ class TestMetricsCacheManagerWithDb:
         result = mgr.get_threshold_config(str(uuid.uuid4()))
         assert result is None
 
-    def test_save_and_get_threshold_config(self, db):
+    def test_save_and_get_threshold_config(self, metrics_tenant_context):
         """save_threshold_config persists and get_threshold_config retrieves."""
         mgr = MetricsCacheManager()
         ws_id = str(uuid.uuid4())
-        tenant_id = str(uuid.uuid4())
+        # SA-35: the tenant must match the active context — an arbitrary id is
+        # no longer accepted (it would stamp a foreign tenant onto the row).
+        tenant_id = str(metrics_tenant_context.id)
 
         saved = mgr.save_threshold_config(
             workspace_id=ws_id,
@@ -289,11 +296,11 @@ class TestMetricsCacheManagerWithDb:
         assert loaded.workflow_gaps_max == 10
         assert loaded.open_risks_max_critical == 2
 
-    def test_update_threshold_config(self, db):
+    def test_update_threshold_config(self, metrics_tenant_context):
         """save_threshold_config updates existing config (upsert)."""
         mgr = MetricsCacheManager()
         ws_id = str(uuid.uuid4())
-        tenant_id = str(uuid.uuid4())
+        tenant_id = str(metrics_tenant_context.id)
 
         mgr.save_threshold_config(ws_id, tenant_id, traceability_coverage_min=70.0)
         mgr.save_threshold_config(ws_id, tenant_id, traceability_coverage_min=90.0)

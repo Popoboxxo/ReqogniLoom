@@ -243,8 +243,19 @@ def _capture_application_entities(
     it identical means a diff that straddles this change sees only *added*
     keys (which ``_field_diff`` ignores) instead of a spurious
     ``artifact_type: "Adr" -> "adr"`` change on every ADR in the workspace.
+
+    SA-21: the five models are resolved via the Layer-0 domain-model
+    registry rather than importing application.models directly (Layer 1 ->
+    Layer 2) — see persistence.domain_model_registry's module docstring.
     """
-    from application.models import Adr, Goal, Issue, MainGoal, Risk
+    from persistence.domain_model_registry import get_models
+
+    app_models = get_models("Adr", "Risk", "Issue", "Goal", "MainGoal")
+    Adr = app_models["Adr"]
+    Risk = app_models["Risk"]
+    Issue = app_models["Issue"]
+    Goal = app_models["Goal"]
+    MainGoal = app_models["MainGoal"]
 
     states: dict[str, dict[str, Any]] = {}
 
@@ -400,9 +411,15 @@ def _capture_icd_versions(
     if not uuids:
         return {}
 
-    try:
-        from icd.models import IcdVersion
-    except Exception:  # pragma: no cover - icd app optional
+    # SA-21: resolved via the Layer-0 domain-model registry rather than
+    # importing icd.models directly (Layer 1 -> Layer 1 sibling) — see
+    # persistence.domain_model_registry's module docstring. Preserves the
+    # previous "icd app optional" degrade-gracefully behaviour: a name that
+    # was never registered (icd app absent) comes back None.
+    from persistence.domain_model_registry import get_model
+
+    IcdVersion = get_model("IcdVersion")
+    if IcdVersion is None:  # pragma: no cover - icd app optional
         return {}
 
     states: dict[str, dict[str, Any]] = {}

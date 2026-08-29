@@ -28,6 +28,7 @@ from rest_framework.views import APIView
 from application.base import ValidationError
 from application.settings_service import SettingsService
 from auth_tenancy.models import ROLE_ADMIN
+from llm_adapter.url_guard import UnsafeOutboundUrlError, validate_outbound_url
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
@@ -58,6 +59,21 @@ class LlmSettingsSerializer(serializers.Serializer):
     def get_api_key_is_set(self, obj: Any) -> bool:
         """Return whether a non-empty API key is stored."""
         return bool(getattr(obj, "api_key", ""))
+
+    def validate_base_url(self, value: str) -> str:
+        """Reject base URLs the server must not be told to request (SA-33).
+
+        ``URLField`` only checks the shape. The backend then issues server-side
+        requests to whatever is stored here, so an internal address would make
+        the LLM adapter an SSRF pivot — see ``llm_adapter.url_guard`` for the
+        policy, the configuration escape hatches and the documented DNS-rebinding
+        residual risk.
+        """
+        try:
+            validate_outbound_url(value)
+        except UnsafeOutboundUrlError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
 
     def validate(self, attrs: dict) -> dict:
         """Reject Ollama configurations that leave ``base_url`` blank.

@@ -256,12 +256,23 @@ class LogoutView(APIView):
     response deletes both ``reqogniloom_access`` and ``reqogniloom_refresh``
     (GitHub #135) so a subsequent request is anonymous and cannot silently
     refresh a new session.
+
+    SA-32: deleting the cookie only disarms a *cooperating* client. The refresh
+    token itself stays signature-valid until its ``exp``, so logout also revokes
+    the token's server-side session family — otherwise a token captured before
+    logout would outlive the session it belonged to.
     """
 
     permission_classes = [HasOperationPermission]
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Delete the auth cookies and return 204."""
+        """Revoke the refresh family, delete the auth cookies, return 204."""
+        refresh_token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        if refresh_token:
+            # Best effort by contract: a malformed/expired cookie must not turn
+            # a logout into an error response.
+            AuthenticationService().revoke_refresh_token(refresh_token)
+
         response = Response(status=status.HTTP_204_NO_CONTENT)
         _clear_auth_cookies(response)
         return response
@@ -329,10 +340,23 @@ class RefreshView(APIView):
             _clear_auth_cookies(response)
             return response
 
+        # SA-32: claim the presented token server-side before minting anything.
+        # A token that was already spent means it leaked — rotate_refresh_token
+        # burns the whole session family and raises, so neither the thief nor
+        # the legitimate client gets a new pair.
+        try:
+            session_id = authn.rotate_refresh_token(refresh_token)
+        except AuthError as exc:
+            response = _auth_error_response(
+                exc.code, accept_language=accept_language, http_status=exc.status_code
+            )
+            _clear_auth_cookies(response)
+            return response
+
         service = PasswordAuthenticationService()
         roles = service.resolve_roles(user)
         access_token = service.issue_token(user, roles)
-        new_refresh_token = service.issue_refresh_token(user)
+        new_refresh_token = service.issue_refresh_token(user, session_id=session_id)
 
         response = Response(
             {
