@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 /**
  * Regression coverage for systemaudit 2026-08-29 Bug 4 — the "Supersede
@@ -131,5 +132,40 @@ describe("AdrForm — supersede button workflow-status gating (systemaudit Bug 4
     );
 
     expect(screen.getByTestId("adr-supersede-btn")).toBeDisabled();
+  });
+});
+
+// -----------------------------------------------------------------------
+// UI-LOW-3 (Systemaudit, LOW finding): the status badge stayed "Approved"
+// after a successful supersede until a full page reload. Root cause: the
+// caller only invalidated the query cache and waited on a background
+// refetch to reflect the new status; `onSaved()` now forwards the mutation's
+// own response so the caller can update its state/cache synchronously
+// instead (see useAdrData.refresh's doc comment).
+// -----------------------------------------------------------------------
+describe("AdrForm — supersede forwards the fresh ADR to onSaved (UI-LOW-3)", () => {
+  it("passes the API response through onSaved after a successful supersede", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    const superseded = { ...baseAdr, status: "Superseded" };
+    const { adrsApi } = await import("../../api/adrs");
+    vi.mocked(adrsApi.supersede).mockResolvedValueOnce(superseded as any);
+
+    render(
+      <AdrForm
+        adr={{ ...baseAdr, status: "Approved" }}
+        otherAdrs={[otherAdr]}
+        onSaved={onSaved}
+        onDeleted={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByTestId("adr-supersede-btn"));
+    await user.selectOptions(screen.getByTestId("adr-supersede-target-select"), "adr-2");
+    await user.click(screen.getByTestId("adr-supersede-confirm-btn"));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledWith(superseded);
+    });
   });
 });

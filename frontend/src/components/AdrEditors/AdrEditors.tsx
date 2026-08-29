@@ -15,6 +15,7 @@ import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useAdrData } from './useAdrData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { adrsApi } from '../../api/adrs';
+import type { Adr } from '../../types';
 // F-04 (code review, 2026-08-19): shared create-form field styles (see
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
@@ -85,7 +86,11 @@ export default function AdrEditors(): JSX.Element {
     }
   };
 
-  const handleSaved = () => { refresh(); };
+  // UI-LOW-3 (Systemaudit, LOW finding): `updated` is set only by the
+  // ADR-Supersede flow (AdrForm.handleSupersede) — see useAdrData.refresh's
+  // doc comment for why that path needs a synchronous cache write instead of
+  // only an invalidate-triggered refetch.
+  const handleSaved = (updated?: Adr) => { refresh(updated); };
   const handleDeleted = () => { navigate('/adrs'); refresh(); };
 
   // Trace spine (Task 3.3 — UI concept ch. 5).
@@ -120,7 +125,16 @@ export default function AdrEditors(): JSX.Element {
         <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
           {error.message}
         </p>
-        <button className="btn-secondary" onClick={refresh} data-testid="adr-reload-btn">
+        {/* UI-LOW-3 follow-up (code review): `refresh` now takes an optional
+            `updated` entity, so it must NOT be passed as a bare event handler
+            — React would hand it the click's SyntheticEvent, which
+            `useAdrData.refresh` would then write into the detail cache via
+            setQueryData. Explicit zero-arg call instead. */}
+        <button
+          className="btn-secondary"
+          onClick={() => refresh()}
+          data-testid="adr-reload-btn"
+        >
           {t('actions.retry')}
         </button>
       </div>

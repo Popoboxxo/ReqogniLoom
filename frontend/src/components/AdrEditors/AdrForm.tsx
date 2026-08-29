@@ -60,7 +60,15 @@ interface AdrFormProps {
    * list; this component filters it).
    */
   otherAdrs: Adr[];
-  onSaved: () => void;
+  /**
+   * UI-LOW-3 (Systemaudit, LOW finding): `handleSupersede` below passes the
+   * mutation's own response through so the caller can write it into its
+   * cache/state synchronously instead of only invalidating and waiting for
+   * a refetch — see `useAdrData.refresh`'s doc comment. Optional because the
+   * plain-save and delete paths have no comparable "fresh entity" to hand
+   * back (and are not the ones this finding was about).
+   */
+  onSaved: (updated?: Adr) => void;
   onDeleted: () => void;
 }
 
@@ -159,9 +167,11 @@ export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): J
     setIsSuperseding(true);
     setSupersedeError(null);
     try {
-      await adrsApi.supersede(adr.id, supersedeTargetId, supersedeReason.trim());
+      const updated = await adrsApi.supersede(adr.id, supersedeTargetId, supersedeReason.trim());
       setSupersedeOpen(false);
-      onSaved();
+      // UI-LOW-3: forward the response so the caller can update its status
+      // badge immediately, without waiting for a background refetch.
+      onSaved(updated);
     } catch (err) {
       const msg =
         (err as { error?: { message?: string } })?.error?.message ??
@@ -315,12 +325,19 @@ export function AdrForm({ adr, otherAdrs, onSaved, onDeleted }: AdrFormProps): J
                   aria-labelledby (not a <label htmlFor>) because
                   WorkflowStatusEditor renders a group of transition
                   buttons, not a single form control. */}
+              {/* UI-LOW-3 follow-up (code review): `onTransitionComplete` is
+                  invoked with the new status *string*. Since `onSaved` now
+                  takes an optional `Adr`, passing it bare would forward that
+                  string into `useAdrData.refresh`'s setQueryData call and
+                  replace the cached ADR with a string. The generic transition
+                  has no fresh entity to hand back, so it stays on the
+                  invalidate-only path. */}
               <WorkflowStatusEditor
                 artifactType="adr"
                 artifactId={adr.id}
                 currentStatus={adr.status}
                 disabled={isSaving}
-                onTransitionComplete={onSaved}
+                onTransitionComplete={() => onSaved()}
               />
             </div>
           </div>

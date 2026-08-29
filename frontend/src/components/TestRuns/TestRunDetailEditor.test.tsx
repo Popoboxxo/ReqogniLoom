@@ -141,6 +141,45 @@ describe("TestRunDetailEditor result entry (UI-04)", () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the save-success banner visible after the post-write results reload (UI-LOW-2)", async () => {
+    const user = userEvent.setup();
+    const refreshedRun = makeRun("passed");
+    vi.mocked(testRunsModule.testRunsApi.get).mockResolvedValue(refreshedRun);
+    vi.mocked(testRunsModule.testRunsApi.addResultsBulk).mockResolvedValue({
+      results: [],
+      count: 1,
+    } as never);
+    // Real API round trips span a macrotask, unlike an instantly-resolved
+    // mock promise — a short setTimeout-based delay here forces React to
+    // actually commit the intermediate "reloading" render instead of
+    // coalescing every update into a single batch, reproducing the timing
+    // a real network call has.
+    vi.mocked(testRunsModule.testRunsApi.listResults).mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve([RESULT]), 10)),
+    );
+
+    render(
+      <TestRunDetailEditor
+        testRun={makeRun("in_progress")}
+        onClose={vi.fn()}
+        onRefresh={vi.fn()}
+        onUpdated={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(
+      await screen.findByTestId("testrun-result-status-select-res-1"),
+      "passed",
+    );
+    await user.click(screen.getByTestId("testrun-results-save-all"));
+
+    // The grid must not be unmounted (and its local success state lost)
+    // while the post-write results reload is in flight.
+    await waitFor(() => {
+      expect(screen.getByTestId("testrun-results-save-success")).toBeInTheDocument();
+    });
+  });
+
   it("reports a failed post-write refresh instead of leaving a stale badge", async () => {
     const user = userEvent.setup();
     vi.mocked(testRunsModule.testRunsApi.get).mockRejectedValue(new Error("boom"));

@@ -541,15 +541,28 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 28px;
+  /* UI-LOW-1 (Systemaudit, LOW finding): was 28px with a linear
+     transparent -> var(--color-nav-bg) ramp over the whole band. A nav
+     link row is ~36px tall (space-2 padding top/bottom + font-size-sm
+     line height), so whenever a full label happened to render in that
+     bottom 28px it was already ~50-70% painted over by the fade partway
+     through its own text, not just its trailing whitespace — reported as
+     "Verknüpfungen" (nav.traceability) being hard to read. Shrinking the
+     band and keeping it fully transparent for its first half means the
+     opaque part only ever covers the row's bottom padding / gap to the
+     next item, never label text, while the chevron affordance (still
+     anchored to the very bottom, see .scrollHintChevron) stays legible
+     against the now-solid background right behind it.
+  */
+  height: 16px;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--color-nav-bg));
+  background: linear-gradient(to bottom, transparent 0%, transparent 50%, var(--color-nav-bg) 100%);
   /* GESAMTTEST_BERICHT_2026-08-21.md §6: center the chevron affordance
      (see .scrollHintChevron) within the fade band. */
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 2px;
+  padding-bottom: 1px;
 }
 
 .scrollHintChevron {

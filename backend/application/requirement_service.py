@@ -56,6 +56,10 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.models import DomainEventOutbox
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +355,7 @@ class RequirementService(ServiceBase):
         uid: object = _UNSET,
         suspect: Optional[bool] = None,
         custom_fields: object = _UNSET,
+        expected_version: Optional[int] = None,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
@@ -365,15 +370,25 @@ class RequirementService(ServiceBase):
         ignored there. The parameter is retained on this internal method for
         low-level/administrative callers only; normal state changes must go
         through a workflow transition (see docs/architecture/ADR-status-single-source.md).
+
+        SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
+        caller's last-seen ``version``. When supplied and stale, the update is
+        refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
+        overwriting a concurrent edit. Omitting it keeps the previous
+        last-writer-wins behaviour, so existing clients are unaffected.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        requirement = Requirement.objects.select_related("artifact").filter(
-            id=requirement_id
+        requirement = lock_for_version_check(
+            Requirement.objects.select_related("artifact").filter(id=requirement_id),
+            expected_version,
         ).first()
         if requirement is None:
             raise NotFoundError(f"Requirement {requirement_id} not found")
+        assert_expected_version(
+            requirement, expected_version, entity_type="Requirement"
+        )
 
         workspace_id = requirement.artifact.workspace_id
 

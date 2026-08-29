@@ -92,7 +92,7 @@ context_file:
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
-    Artefakt-Zerlegung, REST API + nativem MCP Server (22 Tool-Gruppen, 171 Tools),
+    Artefakt-Zerlegung, REST API + nativem MCP Server (30 Tool-Gruppen, 171 Tools),
     LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation,
     15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended)
     und i18n (DE/EN).
@@ -138,7 +138,7 @@ variables:
     (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen:
     REST API unter /api/v1/ (DRF, 27 ViewSets + 67 APIViews, JWT-Auth mit vierstufiger
     RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
-    MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 22 Tool-Gruppen
+    MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 30 Tool-Gruppen
     mit 171 Tools; API-Key `reqlo_*`). Fähigkeiten:
     Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management,
     15 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level),
@@ -161,7 +161,7 @@ variables:
     \ Diff-Engine)\n  application/                           # Layer 2 (19 Domain-Services,\
     \ Single Entry Point)\n  rest_api/                              # Layer 3 (DRF\
     \ ViewSets + drf-spectacular OpenAPI)\n  mcp_server/                         \
-    \   # Layer 3 (MCP-Tool-Registry: 171 Tools, 22 Gruppen)\n  diagram/         \
+    \   # Layer 3 (MCP-Tool-Registry: 171 Tools, 30 Gruppen)\n  diagram/         \
     \                      # Ext (SVG/PNG/PlantUML Renderer)\n  icd/             \
     \                      # Ext (Interface Control Document Management)\n  se_metrics/\
     \                            # Ext (KPI-Aggregation, Read-Model)\n  resilience/\
@@ -209,7 +209,7 @@ variables:
     Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
     e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) '
   KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets
-    + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 22 Tool-Gruppen und 171 Tools für
+    + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 30 Tool-Gruppen und 171 Tools für
     AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI,
     ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige
     Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security
@@ -343,7 +343,7 @@ variables:
     Multi-Tenancy
 
     - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC
-    2.0, 22 Tool-Gruppen)
+    2.0, 30 Tool-Gruppen)
 
     - **UI/UX** — Frontend (React 18 SPA), 41 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
 

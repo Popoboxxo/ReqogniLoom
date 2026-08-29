@@ -20,7 +20,7 @@ Interfaces consumed:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -146,6 +146,11 @@ class WorkspaceService(ServiceBase):
         preset: str = "standard",
         terminology_profile: str = "se_mode",
         language: str = "de",
+        theme: Optional[str] = None,
+        decomposition_link_type: Optional[str] = None,
+        default_link_type: Optional[str] = None,
+        goals_enabled: Optional[bool] = None,
+        goals_ai_enabled: Optional[bool] = None,
     ) -> Workspace:
         """Create a Workspace + its WorkspacePresetConfig companion.
 
@@ -154,6 +159,19 @@ class WorkspaceService(ServiceBase):
         for a future per-workspace setting and currently stored only on the
         Workspace.preset JSON blob alongside the tier (the Workspace model
         does not have a dedicated language column yet).
+
+        SYSTEMAUDIT_2026-08-29 (REST finding 2): ``theme``,
+        ``decomposition_link_type``, ``default_link_type``, ``goals_enabled``
+        and ``goals_ai_enabled`` are settable at creation time. They were
+        advertised by ``WorkspaceSerializer`` (and therefore by the published
+        OpenAPI schema for ``POST /api/v1/workspaces/``) long before this, but
+        the create path dropped them silently: a client that created a
+        goals-enabled workspace in one call got ``goals_enabled=False`` back
+        with a 201 and no indication that half its payload was discarded. The
+        settings are the same ones :meth:`update_metadata` already accepts, so
+        create/PATCH now agree on which fields are workspace configuration.
+        ``None`` means "not supplied" and leaves the model/blob default in
+        place — no existing caller changes behaviour.
 
         REQ-L2-AS-018 (ACID), REQ-L2-AS-019 (Audit), REQ-L2-AS-021 (Auth),
         REQ-L2-AS-022 (Tenant scoping).
@@ -184,14 +202,41 @@ class WorkspaceService(ServiceBase):
 
         _assert_workspace_name_free(name_clean, ctx.tenant_id)
 
+        preset_blob: dict[str, Any] = {
+            "tier": preset,
+            "terminology_profile": terminology_profile,
+            "language": language,
+        }
+        # ``theme`` has no column: it lives on the preset blob, exactly as
+        # update_metadata() stores it and _workspace_to_dict() reads it back.
+        if theme is not None:
+            preset_blob["theme"] = _sanitize_and_cap(
+                str(theme), max_length=_THEME_MAX_LENGTH, field_name="theme"
+            )
+
+        extra_columns: dict[str, Any] = {}
+        if decomposition_link_type is not None:
+            extra_columns["decomposition_link_type"] = _sanitize_and_cap(
+                str(decomposition_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="decomposition_link_type",
+            )
+        if default_link_type is not None:
+            extra_columns["default_link_type"] = _sanitize_and_cap(
+                str(default_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="default_link_type",
+            )
+        if goals_enabled is not None:
+            extra_columns["goals_enabled"] = bool(goals_enabled)
+        if goals_ai_enabled is not None:
+            extra_columns["goals_ai_enabled"] = bool(goals_ai_enabled)
+
         workspace = Workspace.objects.create(
             tenant=tenant,
             name=name_clean,
-            preset={
-                "tier": preset,
-                "terminology_profile": terminology_profile,
-                "language": language,
-            },
+            preset=preset_blob,
+            **extra_columns,
         )
 
         WorkspacePresetConfig.objects.create(

@@ -14,6 +14,10 @@ from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +171,7 @@ class GlossaryService(ServiceBase):
         definition: Optional[str] = None,
         synonyms: Optional[list] = None,
         abbreviation: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> GlossaryTermDTO:
         """Update a GlossaryTerm (REQ-L1-044).
 
@@ -178,10 +183,20 @@ class GlossaryService(ServiceBase):
             definition: New narrative definition.
             synonyms: New synonym list.
             abbreviation: New abbreviation.
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
-        gt = GlossaryTerm.objects.filter(id=term_id).first()
+        gt = lock_for_version_check(
+            GlossaryTerm.objects.filter(id=term_id), expected_version
+        ).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
+        assert_expected_version(gt, expected_version, entity_type="GlossaryTerm")
 
         changed = False
         if term is not None and term != gt.term:

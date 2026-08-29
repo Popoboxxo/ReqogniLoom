@@ -471,6 +471,47 @@ class CustomFieldsSerializerMixin(metaclass=serializers.SerializerMetaclass):
 
 
 # ---------------------------------------------------------------------------
+# Optimistic locking mixin (SYSTEMAUDIT_2026-08-29, REST finding 1)
+# ---------------------------------------------------------------------------
+
+
+class ExpectedVersionSerializerMixin(metaclass=serializers.SerializerMetaclass):
+    """Adds the write-only ``expected_version`` field used for optimistic locking.
+
+    Pair with a service ``update_*(..., expected_version=...)``: the PATCH
+    handler forwards ``validated_data.get("expected_version")`` and the service
+    answers ``OptimisticLockError`` → **409 CONFLICT** when the caller's
+    last-seen version is stale.
+
+    Until the audit, only ``ArchitectureElementSerializer`` declared this field
+    and only ``ArchitectureService`` honoured it, while
+    ``_ALWAYS_ALLOWED_PATCH_FIELDS`` let the key through on *every* entity — so
+    a client sending ``expected_version`` to Requirement/TestCase/Adr/... got a
+    200 and a silent overwrite of whatever another session had written. Sharing
+    one declaration keeps the schema and the enforcement from drifting apart
+    again.
+
+    ``metaclass=`` is load-bearing for exactly the reason spelled out on
+    :class:`CustomFieldsSerializerMixin` (#290): DRF's ``SerializerMetaclass``
+    only collects ``_declared_fields`` from bases that have it, so a plain mixin
+    would leave the field inert and the value would never reach
+    ``validated_data``.
+    """
+
+    expected_version = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        min_value=1,
+        help_text=(
+            "Optimistic locking: the ``version`` the client last read. When "
+            "supplied and no longer current, the update is rejected with 409 "
+            "CONFLICT instead of overwriting a concurrent edit. Omit it to "
+            "accept last-writer-wins."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entity Serializers — COMP-RA-002 (REQ-L3-RA002-001)
 # All serializers use statically typed fields; no raw dict passed downstream.
 # ---------------------------------------------------------------------------
@@ -497,7 +538,10 @@ class ArtifactSerializer(
 
 
 class RequirementSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    CustomFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for Requirement entity (REQ-L2-RA-001, REQ-L3-RF003-005).
 
@@ -621,7 +665,10 @@ class RequirementSerializer(
 
 
 class StakeholderNeedSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    CustomFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for StakeholderNeed entity.
     
@@ -669,7 +716,10 @@ class StakeholderNeedSerializer(
 
 
 class ArchitectureElementSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    CustomFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for ArchitectureElement entity (REQ-L2-RA-001, REQ-L3-RF004-004).
 
@@ -723,9 +773,8 @@ class ArchitectureElementSerializer(
         allow_null=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    expected_version = serializers.IntegerField(
-        required=False, write_only=True
-    )
+    # ``expected_version`` comes from ExpectedVersionSerializerMixin — the
+    # inline declaration this replaces was the only one in the codebase.
     suspect = serializers.BooleanField(required=False, default=False)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
@@ -756,7 +805,10 @@ class ArchitectureElementSerializer(
 
 
 class TestCaseSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    CustomFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for TestCase entity (REQ-L2-RA-001)."""
 
@@ -1092,7 +1144,14 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     # input — see extract_preset_tier() above for the shared parsing used
     # by both of those handlers now.
     preset = serializers.JSONField(required=False, default=dict)
-    ai_prompts = serializers.JSONField(required=False, default=dict)
+    # SYSTEMAUDIT_2026-08-29 (REST finding 2): read-only, was writable-looking.
+    # ``Workspace.ai_prompts`` is a leftover from before #119 moved AI prompt
+    # configuration to the versioned ``PromptTemplate`` model; the only value
+    # still read from the blob is the ``context_token_budgets`` override, which
+    # is administered through MCP. Neither POST nor PATCH ever wrote it, so
+    # advertising it as an input field promised a write path that does not
+    # exist. Edit prompts via /api/v1/prompt-templates/ instead.
+    ai_prompts = serializers.JSONField(read_only=True, default=dict)
     decomposition_link_type = serializers.CharField(
         required=False, default="parent-child", max_length=50
     )
@@ -1122,7 +1181,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         return data
 
 
-class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class AdrSerializer(
+    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for ADR entity (REQ-L1-029, COMP-AS-013)."""
 
     id = serializers.UUIDField(read_only=True)
@@ -1160,7 +1221,9 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class RiskSerializer(
+    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Risk entity (REQ-L1-029, COMP-AS-014)."""
 
     id = serializers.UUIDField(read_only=True)
@@ -1325,7 +1388,9 @@ class NormalizedChoiceField(serializers.ChoiceField):
         return super().to_internal_value(data)
 
 
-class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class IssueSerializer(
+    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
 
     id = serializers.UUIDField(read_only=True)
@@ -1371,7 +1436,9 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class ChangeRequestSerializer(
+    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for ChangeRequest entity (REQ-157, COMP-AS-017).
 
     Covers the full CCB approval lifecycle:
@@ -1643,7 +1710,7 @@ class GlossaryTermVersionSerializer(serializers.Serializer):
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
 
 
-class GlossaryTermSerializer(serializers.Serializer):
+class GlossaryTermSerializer(ExpectedVersionSerializerMixin, serializers.Serializer):
     """Serializer for GlossaryTerm (REQ-L2-RA-001)."""
 
     id = serializers.UUIDField(read_only=True)

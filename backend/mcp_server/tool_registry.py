@@ -9,7 +9,9 @@ req_id  : REQ-L2-MC-006 (API-key auth), REQ-L2-MC-007 (RBAC),
 Responsibilities:
 - Validate API key via AuthAndTenancy (IF-MC-EXT-OUT-002).
 - Build AuthContext from validated identity claims + role resolution.
-- Enforce RBAC for write operations (IF-MC-EXT-OUT-002).
+- Enforce RBAC against the workspace a call targets, for writes AND reads
+  (IF-MC-EXT-OUT-002; read scoping added by Systemaudit 2026-08-29 §6.5 —
+  see ``mcp_server/workspace_scope.py``).
 - Check preset-based tool visibility via PresetConfigEngine (IF-MC-EXT-OUT-004).
 - Route tool calls to the correct ToolGroup (IF-MC-INT-002..005).
 - Return ToolResult from the group or a structured error.
@@ -742,17 +744,29 @@ class ToolRegistry:
             if route_error:
                 return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
 
-            # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
-            if (
-                self._is_write_tool(tool_name)
-                and not self._is_bootstrap_candidate(
+            # --- Step 3: RBAC (REQ-L2-MC-007, Systemaudit 2026-08-29 §6.5) ---
+            # The gate is evaluated against the workspace the call actually
+            # targets. When that workspace is not named in ``workspace_id``,
+            # ``mcp_server.workspace_scope`` derives it from the object the
+            # call addresses by id; see that module for why both the read and
+            # the write path need it.
+            gate_ctx, scope_workspace_id = self._scoped_gate_context(
+                tool_name, params, auth_ctx, role_workspace_id  # type: ignore[arg-type]
+            )
+
+            if self._is_write_tool(tool_name):
+                if not self._is_bootstrap_candidate(
                     tool_name, params, auth_ctx  # type: ignore[arg-type]
-                )
-                and not self._is_tenant_admin_exempt(tool_name, auth_ctx)  # type: ignore[arg-type]
-            ):
-                rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
-                if rbac_error:
-                    return ToolResult.error("PERMISSION_DENIED", rbac_error)
+                ) and not self._is_tenant_admin_exempt(
+                    tool_name, auth_ctx  # type: ignore[arg-type]
+                ):
+                    rbac_error = self._check_rbac(gate_ctx)
+                    if rbac_error:
+                        return ToolResult.error("PERMISSION_DENIED", rbac_error)
+            elif scope_workspace_id is not None:
+                read_error = self._check_read_rbac(gate_ctx, tool_name)
+                if read_error:
+                    return ToolResult.error("PERMISSION_DENIED", read_error)
 
             # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
             if workspace_id:
@@ -977,6 +991,45 @@ class ToolRegistry:
             )
             return False
 
+    def _scoped_gate_context(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        ctx: AuthContext,
+        role_workspace_id: Optional[str],
+    ) -> Tuple[AuthContext, Optional[str]]:
+        """Return ``(ctx to gate on, workspace the call targets)``.
+
+        Three cases, in order:
+
+        1. ``role_workspace_id`` is set — Step 2 already narrowed ``ctx`` to
+           that workspace, so it is returned unchanged.
+        2. The tool names an object whose owning workspace resolves (see
+           :func:`mcp_server.workspace_scope.resolve_target_workspace_id`) —
+           roles are re-resolved against *that* workspace for the gate only.
+        3. Nothing resolves — the caller's tenant-wide role aggregate is used,
+           exactly as before.
+
+        Case 2 deliberately does **not** replace the ``AuthContext`` the tool
+        is executed with. Narrowing the executing context is a separate,
+        much larger behaviour change (several tool groups re-check
+        ``has_role("admin")`` against it), and this gate needs none of it: it
+        only has to decide admittance. Residual, therefore: inside a tool the
+        caller still carries their tenant-wide roles.
+        """
+        if role_workspace_id is not None:
+            return ctx, role_workspace_id
+        if tool_name in _INSTANCE_LEVEL_TOOLS:
+            # Not workspace-bound at all — narrowing would be the #37 bug.
+            return ctx, None
+
+        from mcp_server.workspace_scope import resolve_target_workspace_id
+
+        target_workspace_id = resolve_target_workspace_id(tool_name, params)
+        if target_workspace_id is None:
+            return ctx, None
+        return self._resolve_roles(ctx, target_workspace_id), target_workspace_id
+
     def _check_rbac(self, ctx: AuthContext) -> Optional[str]:
         """Return error message if write is not permitted, else None.
 
@@ -988,6 +1041,35 @@ class ToolRegistry:
             return (
                 f"Role '{ctx.active_roles}' does not permit write operations. "
                 "Editor or Admin role required."
+            )
+        return None
+
+    def _check_read_rbac(self, ctx: AuthContext, tool_name: str) -> Optional[str]:
+        """Return an error message if the caller may not read here, else None.
+
+        Systemaudit 2026-08-29 §6.5. Only reached once the target workspace is
+        known, so an empty role tuple means "holds no role in the workspace
+        this call names" — a deny, not a fallback. Every RBAC role grants
+        ``Operation.READ`` (``_RBAC_MATRIX``), so this rejects exactly the
+        non-members and nobody else.
+
+        There is deliberately **no exemption list here.** An earlier revision
+        skipped the check for ``workspace_scope.TENANT_SCOPED_READ_TOOLS``,
+        which silently punched a hole straight back through the finding: that
+        set documents which tools are safe *when no workspace is named*, and
+        several of its members (``requirement.query``, ``audit.query``,
+        ``artifact.search``, ...) do accept a ``workspace_id``. Reusing it as a
+        runtime bypass re-opened ``requirement.query`` against a foreign
+        workspace — caught by this file's own regression test. Classification
+        and enforcement are separate concerns; keep them separate. Tools that
+        genuinely must not be narrowed are handled earlier, by
+        ``_INSTANCE_LEVEL_TOOLS`` in :meth:`_scoped_gate_context`.
+        """
+        decision = self._authz_service.decide_access(ctx.active_roles, Operation.READ)
+        if not decision.allow:
+            return (
+                f"Role '{ctx.active_roles}' does not permit read access to the "
+                "targeted workspace. An active role in that workspace is required."
             )
         return None
 

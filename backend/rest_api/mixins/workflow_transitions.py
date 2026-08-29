@@ -68,6 +68,14 @@ _PROTECTED_PATCH_FIELDS = frozenset(
 #: ``change_reason`` and ``custom_fields`` are sent by the UI detail panels on
 #: every save, and ``expected_version`` carries optimistic-locking state, so
 #: rejecting them as "unknown" would break working save paths.
+#:
+#: SYSTEMAUDIT_2026-08-29 (REST finding 1): ``expected_version`` is now declared
+#: by ``ExpectedVersionSerializerMixin`` on every entity serializer *and*
+#: honoured by the matching service, so this entry is no longer what makes the
+#: key pass. It stays because this guard also runs for handlers validating
+#: against a serializer that does not mix the field in, and because letting the
+#: key through without enforcement — which is exactly what happened before the
+#: audit — is worse than rejecting it: the client believes it is protected.
 _ALWAYS_ALLOWED_PATCH_FIELDS = frozenset(
     {"change_reason", "custom_fields", "expected_version"}
 )

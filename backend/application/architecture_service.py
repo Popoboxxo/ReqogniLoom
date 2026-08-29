@@ -41,6 +41,7 @@ from persistence.transactions import atomic_transaction
 from application.artifact_service import _clean_custom_fields
 from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
+from application.optimistic_lock import assert_expected_version
 from application.validators import ArchitectureElementInvariantValidator
 
 logger = logging.getLogger(__name__)
@@ -242,12 +243,15 @@ class ArchitectureService(ServiceBase):
         if arch_el is None:
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
 
-        # Optimistic lock check (REQ-L2-AS-004)
-        if expected_version is not None and arch_el.version != expected_version:
-            raise OptimisticLockError(
-                f"Stale version: expected {expected_version}, "
-                f"current is {arch_el.version}"
-            )
+        # Optimistic lock check (REQ-L2-AS-004). No ``lock_for_version_check``
+        # here, unlike the other versioned services: this method persists via a
+        # compare-and-swap ``UPDATE ... WHERE version = <current>`` below whose
+        # row count is checked, so a concurrent writer is caught at write time
+        # without holding a row lock. The services that persist via a full-row
+        # ``save()`` have no such guard and must lock the row instead.
+        assert_expected_version(
+            arch_el, expected_version, entity_type="ArchitectureElement"
+        )
 
         changed_fields: dict = {}
         if title is not None:

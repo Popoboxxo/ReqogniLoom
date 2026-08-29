@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { useAdrData } from "./useAdrData";
@@ -113,6 +113,35 @@ describe("useAdrData (REQ-049)", () => {
     expect(result.current.error?.message).toBe("Forbidden: missing workspace access");
     expect(result.current.isLoading).toBe(false);
   });
+
+  it(
+    "[UI-LOW-3] refresh(updated) writes the fresh entity into the detail " +
+      "cache synchronously, without waiting for a refetch",
+    async () => {
+      vi.mocked(adrsModule.adrsApi.listAll).mockResolvedValue([MOCK_ADR] as any);
+      vi.mocked(adrsModule.adrsApi.get).mockResolvedValue(MOCK_ADR as any);
+
+      const { result } = renderHook(() => useAdrData("adr-001"), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.item?.status).toBe("Accepted"));
+
+      // A subsequent GET would still return the stale status — proving the
+      // update below did not come from a background refetch landing.
+      const superseded = { ...MOCK_ADR, status: "Superseded", version: 2 };
+
+      // `adrsApi.get` never resolves again below — this proves the update
+      // comes from the synchronous `setQueryData` write, not a refetch
+      // landing (react-query's cache-subscriber notification is a
+      // microtask, hence `waitFor` instead of a same-tick assertion, but no
+      // real "network" time passes for it).
+      vi.mocked(adrsModule.adrsApi.get).mockReturnValue(new Promise(() => {}));
+
+      act(() => {
+        result.current.refresh(superseded as any);
+      });
+
+      await waitFor(() => expect(result.current.item?.status).toBe("Superseded"));
+    },
+  );
 
   it("[REQ-049] returns empty items when no workspace is active", () => {
     vi.mocked(workspaceContext.useWorkspace).mockReturnValue({

@@ -268,6 +268,10 @@
           "change_reason": {
             "type": "string",
             "description": "Optional. 'change_reason' as accepted by the adr service."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional. 'expected_version' as accepted by the adr service."
           }
         },
         "required": [
@@ -1136,6 +1140,10 @@
           },
           "affected_item_ids": {
             "description": "Optional. 'affected_item_ids' as accepted by the change_request service."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional. 'expected_version' as accepted by the change_request service."
           }
         },
         "required": [
@@ -1720,6 +1728,10 @@
           "abbreviation": {
             "type": "string",
             "description": "Optional. 'abbreviation' as accepted by the glossary service."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional. 'expected_version' as accepted by the glossary service."
           }
         },
         "required": [
@@ -2403,6 +2415,10 @@
           "change_reason": {
             "type": "string",
             "description": "Optional. 'change_reason' as accepted by the issue service."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional. 'expected_version' as accepted by the issue service."
           }
         },
         "required": [
@@ -3169,13 +3185,12 @@
           "level": {
             "type": "integer",
             "enum": [
-              0,
               1,
               2,
               3,
               4
             ],
-            "description": "V-model hierarchy level (0=System, 1=Subsystem, 2=Component, 3=Part, 4=Material)."
+            "description": "V-model cascade level (1=System, 2=Subsystem, 3=Component, 4=Presentation). Omit to leave unassigned; a decomposed child inherits parent + 1 automatically."
           }
         },
         "required": [
@@ -3824,6 +3839,10 @@
           "owner_user_id": {
             "type": "string",
             "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional. 'expected_version' as accepted by the risk service."
           }
         },
         "required": [

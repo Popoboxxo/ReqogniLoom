@@ -841,6 +841,23 @@ class CrossCuttingToolGroup(BaseToolGroup):
         """artifact.search — full-text search across all artifact types.
 
         REQ-L2-MC-004: mixed result list across all artifact types.
+
+        Systemaudit 2026-08-29 §6.5 follow-up: ``workspace_id`` is optional
+        here, and omitting it used to reach
+        ``SearchService.search(scope="workspace", workspace_id=None)`` — which
+        its own docstring describes as "the whole tenant with no RBAC
+        narrowing". That made this tool a second instance of the audit's
+        cross-workspace read finding, and one the dispatcher gate could not
+        catch: with no workspace named and no target object to resolve, there
+        was nothing for it to gate on.
+
+        The fix keeps the "search everything I can see" intent but sources
+        "everything" from the caller's roles: without an explicit workspace we
+        request ``scope="tenant"``, which routes through
+        ``AuthorizationService.accessible_workspace_ids()`` and therefore spans
+        exactly the workspaces the caller holds an active role in. With an
+        explicit ``workspace_id`` the behaviour is unchanged — the dispatcher
+        gate has already checked membership in that one workspace.
         """
         query_str = require_param(params, "query")
         workspace_id = optional_uuid(params, "workspace_id")
@@ -859,6 +876,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 type_filter=type_filter,
                 page=page,
                 limit=limit,
+                scope="workspace" if workspace_id is not None else "tenant",
             )
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))

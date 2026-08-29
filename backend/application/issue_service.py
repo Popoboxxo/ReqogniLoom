@@ -36,6 +36,10 @@ from application.artifact_service import (
 )
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox, Issue
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +274,7 @@ class IssueService(ServiceBase):
         due_date=None,
         tags: Optional[List[str]] = None,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Issue:
         """Update an Issue, incrementing its version (REQ-L3-ISSUE-003, ADR-L3-ISSUE-01).
 
@@ -285,16 +290,26 @@ class IssueService(ServiceBase):
             due_date: New due date (optional).
             tags: New tags list (optional).
             change_reason: Optional change rationale for audit.
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
 
         Returns:
             Updated Issue ORM instance.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        issue = Issue.objects.filter(id=issue_id, tenant_id=ctx.tenant_id).first()
+        issue = lock_for_version_check(
+            Issue.objects.filter(id=issue_id, tenant_id=ctx.tenant_id), expected_version
+        ).first()
         if issue is None:
             raise NotFoundError(f"Issue {issue_id} not found")
+        assert_expected_version(issue, expected_version, entity_type="Issue")
 
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
         # below can be gated on a real value change.

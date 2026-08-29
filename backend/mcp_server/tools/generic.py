@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from application.base import NotFoundError
+from application.base import NotFoundError, OptimisticLockError
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import BaseToolGroup, ToolResult, require_uuid
 
@@ -439,6 +439,16 @@ class GenericCrudToolGroup(BaseToolGroup):
         try:
             obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
+        except OptimisticLockError as exc:
+            # SYSTEMAUDIT_2026-08-29 (REST finding 1): the wrapped services now
+            # accept ``expected_version``, and these schemas are derived from
+            # the service signature — so the field became advertised here the
+            # moment the guard landed. Without this branch it would surface as
+            # a bare INTERNAL_ERROR, i.e. the same "advertised but mishandled"
+            # shape the audit flagged. Mirrors architecture.update's mapping.
+            return ToolResult.error(
+                "VALIDATION_ERROR", f"Version conflict: {exc}"
+            )
         except TypeError as exc:
             # Any other unexpected/misnamed field: surface a clear, actionable
             # message instead of letting it fall through to a bare

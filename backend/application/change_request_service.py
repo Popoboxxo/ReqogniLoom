@@ -37,6 +37,10 @@ from application.models import (
     ChangeRequestAffectedItem,
     DomainEventOutbox,
 )
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 from application.preset_policy_service import get_preset_policy_service
 
 logger = logging.getLogger(__name__)
@@ -280,6 +284,7 @@ class ChangeRequestService(ServiceBase):
         change_reason: Optional[str] = None,
         assigned_reviewer_id: Optional[UUID] = None,
         affected_item_ids: Optional[Sequence[UUID | str]] = None,
+        expected_version: Optional[int] = None,
     ) -> ChangeRequest:
         """Update a ChangeRequest, incrementing its version (REQ-157).
 
@@ -293,18 +298,27 @@ class ChangeRequestService(ServiceBase):
             assigned_reviewer_id: New CCB reviewer UUID (optional).
             affected_item_ids: When not None, *replaces* the affected-item set
                 (an empty sequence clears it). ``None`` leaves it untouched.
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
 
         Returns:
             Updated ChangeRequest ORM instance.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        cr = ChangeRequest.objects.filter(
-            id=cr_id, tenant_id=ctx.tenant_id
+        cr = lock_for_version_check(
+            ChangeRequest.objects.filter(id=cr_id, tenant_id=ctx.tenant_id),
+            expected_version,
         ).first()
         if cr is None:
             raise NotFoundError(f"ChangeRequest {cr_id} not found")
+        assert_expected_version(cr, expected_version, entity_type="ChangeRequest")
 
         if title is not None:
             if not title or len(title.strip()) < 3:
