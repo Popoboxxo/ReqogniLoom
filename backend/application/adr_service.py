@@ -36,6 +36,10 @@ from application.artifact_service import (
 )
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import Adr, DomainEventOutbox
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
@@ -239,6 +243,7 @@ class AdrService(ServiceBase):
         decision: Optional[str] = None,
         consequences: Optional[str] = None,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Adr:
         """Update an ADR, incrementing its version (REQ-L3-ADR-002, ADR-L3-ADR-01).
 
@@ -251,16 +256,26 @@ class AdrService(ServiceBase):
             decision: New decision section (optional, #373).
             consequences: New consequences section (optional).
             change_reason: Optional change rationale for audit.
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
 
         Returns:
             Updated Adr ORM instance.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        adr = Adr.objects.filter(id=adr_id, tenant_id=ctx.tenant_id).first()
+        adr = lock_for_version_check(
+            Adr.objects.filter(id=adr_id, tenant_id=ctx.tenant_id), expected_version
+        ).first()
         if adr is None:
             raise NotFoundError(f"ADR {adr_id} not found")
+        assert_expected_version(adr, expected_version, entity_type="Adr")
 
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
         # below can be gated on a real value change.

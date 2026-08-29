@@ -111,6 +111,16 @@ LLM_API_KEY = ""
 LLM_BASE_URL = ""
 LLM_MODEL = ""
 
+# SA-33 url_guard: settings.py defaults LLM_ALLOW_PRIVATE_BASE_URL to
+# _IS_NON_PROD, which itself depends on the ambient DJANGO_ENV var. CI's
+# backend-test job never sets DJANGO_ENV, so it silently falls back to the
+# "production" default and the suite's local `http://localhost:11434` /
+# `http://ollama:11434` fixtures were rejected as SSRF — passing locally
+# only because .env happens to set DJANGO_ENV=development there. Pinned here
+# for the same reason as LLM_SYNC_TIMEOUT_SECONDS below: test behaviour must
+# not depend on whichever DJANGO_ENV the runner happens to export.
+LLM_ALLOW_PRIVATE_BASE_URL = True
+
 # REQ-084 (SYSTEMAUDIT_2026-08-27 P0): pinned, independent of the ambient
 # LLM_SYNC_TIMEOUT env var. settings.py reads it via config("LLM_SYNC_TIMEOUT",
 # default=25) — a root .env raising it for a real deployment (e.g. to 240s)
@@ -134,6 +144,23 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+# ---------------------------------------------------------------------------
+# Static files — plain, non-manifest storage. settings.py's
+# CompressedManifestStaticFilesStorage (SA-40, WhiteNoise) requires a
+# staticfiles.json manifest built by `collectstatic`, which no test pipeline
+# runs. Without this override, any view that renders a template with a
+# {% static %} tag (e.g. django.contrib.admin's login page) raises
+# ValueError: Missing staticfiles manifest entry — this broke
+# persistence/tests/test_admin_login.py in CI. Tests need static URLs to
+# resolve, not the production hashing/compression behind them.
+# ---------------------------------------------------------------------------
+STORAGES = {
+    **STORAGES,
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Password hashing — MD5 is much faster than the default PBKDF2 hasher and is

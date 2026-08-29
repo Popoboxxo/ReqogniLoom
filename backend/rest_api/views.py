@@ -489,15 +489,20 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # Remove write-only/readonly kwargs from validated data before passing to service
         data = dict(ser.validated_data)
         change_reason = data.pop("change_reason", "")
+        # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1): popped and
+        # forwarded explicitly rather than left to the ``**data`` splat, so the
+        # guarantee does not silently depend on a kwarg name matching.
+        expected_version = data.pop("expected_version", None)
         # Remove fields that should not be updated via kwargs
         for f in ["id", "workspace_id", "parent_id", "uid", "suspect", "version", "created_at", "updated_at"]:
             data.pop(f, None)
-            
+
         try:
             item = self.service.update(
                 ctx=get_auth_context(request),
                 need_id=kwargs["pk"],
                 change_reason=change_reason,
+                expected_version=expected_version,
                 **data,
             )
             return Response(StakeholderNeedSerializer(item.to_dict()).data)
@@ -860,6 +865,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category"),
                 change_reason=data.get("change_reason"),
                 type=data.get("type"),
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+                # stale expected_version → OptimisticLockError → 409 CONFLICT.
+                expected_version=data.get("expected_version"),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **extra_kwargs,
@@ -2137,7 +2145,16 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
             # (and is now read-only on TestCaseSerializer, see there). Change the
             # lifecycle state via POST /api/v1/testcases/{id}/transitions/.
-            item = self._svc().update_test_case(test_case_id=UUID(pk), ctx=ctx, title=data.get("title"), description=data.get("description"), **extra_kwargs)
+            # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+            # stale expected_version → OptimisticLockError → 409 CONFLICT.
+            item = self._svc().update_test_case(
+                test_case_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                description=data.get("description"),
+                expected_version=data.get("expected_version"),
+                **extra_kwargs,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -4196,13 +4213,26 @@ class WorkspaceViewSet(BaseEntityViewSet):
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/workspaces/ — create a new workspace + preset config.
 
-        Body: {name, preset?, terminology_profile?, language?}
+        Body: {name, preset?, terminology_profile?, language?, theme?,
+        decomposition_link_type?, default_link_type?, goals_enabled?,
+        goals_ai_enabled?}
         ``preset`` accepts either a bare tier string (``"standard"``) or an
         object carrying it (``{"tier": "standard"}``) — GH-411: the GET
         response always returns the resolved object shape
         (``normalize_preset_blob``), so a client that round-trips it back on
         write must not be rejected.
         Returns: 201 Created with the serialized Workspace.
+
+        SYSTEMAUDIT_2026-08-29 (REST finding 2): the configuration fields after
+        ``language`` used to be advertised by ``WorkspaceSerializer`` — and thus
+        by this endpoint's OpenAPI request schema — while this handler forwarded
+        only name/preset/terminology_profile/language, so the rest were accepted
+        with a 201 and dropped. They are now forwarded to the service, which
+        keeps the create schema and the create behaviour in agreement. The one
+        field that stays unwritable is ``ai_prompts``: it is superseded by the
+        versioned ``PromptTemplate`` model (#119) and no write path exists for
+        it on create *or* PATCH, so it is declared ``read_only`` on the
+        serializer rather than given a new one.
         """
         lang = detect_lang(request)
         # SA-25: run the declared serializer so ``name`` (a SanitizedCharField)
@@ -4237,6 +4267,24 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         terminology_profile = request.data.get("terminology_profile", "se_mode")
         language = request.data.get("language", "de")
+        # Forward the remaining configuration fields only when the client
+        # actually sent them: WorkspaceSerializer supplies defaults for all of
+        # them, and passing those defaults unconditionally would turn every
+        # create into an explicit write of values the caller never chose. The
+        # service reads ``None`` as "not supplied" and keeps the model default.
+        _creatable = (
+            "theme",
+            "decomposition_link_type",
+            "default_link_type",
+            "goals_enabled",
+            "goals_ai_enabled",
+        )
+        supplied = request.data if isinstance(request.data, dict) else {}
+        config_kwargs = {
+            key: ser.validated_data[key]
+            for key in _creatable
+            if key in supplied and key in ser.validated_data
+        }
         try:
             ctx = get_auth_context(request)
             item = self._svc().create_workspace(
@@ -4245,6 +4293,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 preset=preset,
                 terminology_profile=str(terminology_profile),
                 language=str(language),
+                **config_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -4708,6 +4757,9 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 decision=data.get("decision"),
                 consequences=data.get("consequences"),
                 change_reason=data.get("change_reason"),
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+                # stale expected_version → OptimisticLockError → 409 CONFLICT.
+                expected_version=data.get("expected_version"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -4986,6 +5038,9 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 change_reason=data.get("change_reason"),
                 detection=data.get("detection"),
                 owner_user_id=data.get("owner_user_id"),
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+                # stale expected_version → OptimisticLockError → 409 CONFLICT.
+                expected_version=data.get("expected_version"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5781,6 +5836,9 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category"),
                 tags=data.get("tags"),
                 change_reason=data.get("change_reason"),
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+                # stale expected_version → OptimisticLockError → 409 CONFLICT.
+                expected_version=data.get("expected_version"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6019,6 +6077,9 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 impact_assessment=data.get("impact_assessment"),
                 change_reason=data.get("change_reason"),
                 assigned_reviewer_id=data.get("assigned_reviewer_id"),
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+                # stale expected_version → OptimisticLockError → 409 CONFLICT.
+                expected_version=data.get("expected_version"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -7035,6 +7096,9 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 definition=data.get("definition"),
                 synonyms=data.get("synonyms"),
                 abbreviation=data.get("abbreviation"),
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
+                # stale expected_version → OptimisticLockError → 409 CONFLICT.
+                expected_version=data.get("expected_version"),
             )
             return Response(GlossaryTermSerializer(term).data)
         except Exception as e:

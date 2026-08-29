@@ -254,13 +254,41 @@ class PromptTemplateToolGroup(BaseToolGroup):
     def _handle_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
+        """prompt_template.list — active templates visible to the caller.
+
+        Systemaudit 2026-08-29 §6.5 follow-up: ``workspace_id`` is optional,
+        and ADR-01 (#124) defines an omitted one as "no workspace filter" —
+        tenant-wide *and* every workspace-scoped row (see
+        ``list_active_templates``' docstring). That returned other workspaces'
+        templates to any caller, the same cross-workspace read class the audit
+        raised, and the dispatcher gate could not catch it: no workspace named,
+        no target object to resolve.
+
+        ``list_active_templates`` keeps its contract — ``settings_service``
+        relies on the unfiltered view for the tenant-admin settings screen. The
+        narrowing happens here instead: the caller sees the tenant-wide rows
+        (which are theirs by definition) plus rows of workspaces they hold an
+        active role in. An explicit ``workspace_id`` is untouched; the
+        dispatcher already gated membership for that case.
+        """
         workspace_id = optional_uuid(params, "workspace_id")
-        # ADR-01 (#124): an omitted workspace_id still means "no workspace
-        # filter" (tenant-wide *and* workspace-scoped rows) — see
-        # list_active_templates' docstring.
         rows = list_active_templates(
             tenant_id=auth_context.tenant_id, workspace_id=workspace_id
         )
+
+        if workspace_id is None:
+            from auth_tenancy.services.authorization import AuthorizationService
+
+            accessible = set(
+                AuthorizationService().accessible_workspace_ids(
+                    user_id=auth_context.user_id, tenant_id=auth_context.tenant_id
+                )
+            )
+            rows = [
+                row
+                for row in rows
+                if row.workspace_id is None or row.workspace_id in accessible
+            ]
 
         templates = [_template_to_dict(row) for row in rows]
         return ToolResult.ok({"templates": templates, "count": len(templates)})

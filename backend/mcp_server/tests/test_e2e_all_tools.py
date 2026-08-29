@@ -1615,10 +1615,19 @@ def test_e2e_workspace_get_context_returns_tenant_and_user(
 
 @pytest.mark.django_db(transaction=True)
 def test_e2e_workspace_get_context_with_workspace_id(
-    admin_client: Client, e2e_workspace: Workspace, e2e_user_admin: User
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
 ):
     """``workspace.get_context`` with explicit workspace_id returns the
     preset features and a (possibly zero) open-requirements count.
+
+    ``e2e_userrole_admin`` is required, not incidental: naming a workspace
+    makes this a workspace-scoped read, and since Systemaudit 2026-08-29 §6.5
+    that needs an active ``UserRole`` there. ``admin_client`` on its own only
+    carries the tenant-wide ``TenantRole(admin)``. Every sibling test in this
+    file that names a ``workspace_id`` already requests the fixture.
     """
     response = post_mcp(
         admin_client,
@@ -1995,9 +2004,14 @@ def test_e2e_workspace_reactivate_admin_can_restore_closed_workspace(
 
 @pytest.mark.django_db(transaction=True)
 def test_e2e_traceability_query_with_no_links_returns_empty(
-    admin_client: Client, e2e_workspace: Workspace
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """``traceability.query`` for an isolated artifact returns empty links."""
+    """``traceability.query`` for an isolated artifact returns empty links.
+
+    ``e2e_userrole_admin``: the call names a ``workspace_id``, so it is a
+    workspace-scoped read and needs an active role there since Systemaudit
+    2026-08-29 §6.5 — ``admin_client`` alone is only a tenant-admin.
+    """
     set_request_tenant(e2e_workspace.tenant_id)
     try:
         artifact = Artifact.unscoped.create(
@@ -2023,9 +2037,14 @@ def test_e2e_traceability_query_with_no_links_returns_empty(
 
 @pytest.mark.django_db(transaction=True)
 def test_e2e_traceability_query_invalid_direction_returns_validation_error(
-    admin_client: Client, e2e_workspace: Workspace
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """Direction outside upstream/downstream/both is VALIDATION_ERROR."""
+    """Direction outside upstream/downstream/both is VALIDATION_ERROR.
+
+    ``e2e_userrole_admin``: the RBAC gate runs before the tool's own parameter
+    validation, so without a role in the named workspace this would assert on
+    PERMISSION_DENIED instead of the VALIDATION_ERROR it is about.
+    """
     response = post_mcp(
         admin_client,
         "traceability.query",

@@ -110,8 +110,17 @@ def test_requirement_query_with_100_requirements_under_2s(
     admin_client,
     e2e_workspace,
     e2e_user_admin,
+    e2e_userrole_admin,
 ):
-    """100 Requirements: query must complete in < 2s."""
+    """100 Requirements: query must complete in < 2s.
+
+    ``e2e_userrole_admin`` is required, not incidental: since Systemaudit
+    2026-08-29 §6.5 a workspace-scoped read needs an active ``UserRole`` in
+    that workspace. ``admin_client`` alone only carries the tenant-wide
+    ``TenantRole(admin)``, which — exactly as on the REST path — does not by
+    itself grant access to a workspace's contents. The three sibling
+    perf tests already requested this fixture; this one did not.
+    """
     svc = RequirementService()
     ctx = _admin_auth_context(e2e_workspace, e2e_user_admin.id)
 

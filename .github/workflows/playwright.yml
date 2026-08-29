@@ -87,6 +87,18 @@ jobs:
           DB_APP_PASSWORD: ci-test-app-role-password
           DB_HOST: localhost
           DB_PORT: '5432'
+          # settings.py's CONN_MAX_AGE default (60s) is tuned for a fixed
+          # worker pool (gunicorn/uwsgi) that reuses threads and therefore
+          # reuses their cached connections. `manage.py runserver` below is
+          # Django's ThreadingMixIn dev server: it spawns a brand-new thread
+          # per request, so a 60s-old "warm" connection is never revisited by
+          # its own thread and only gets closed whenever the GC gets to it —
+          # not deterministic. Across a shard's ~10min run of real HTTP
+          # traffic this leaks connections until Postgres' max_connections is
+          # exhausted ("FATAL: sorry, too many clients already"). Forcing 0
+          # here makes Django close each connection at the end of every
+          # request regardless of which thread holds it.
+          DB_CONN_MAX_AGE: '0'
           REDIS_HOST: localhost
           REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
@@ -122,6 +134,9 @@ jobs:
           DB_APP_PASSWORD: ci-test-app-role-password
           DB_HOST: localhost
           DB_PORT: '5432'
+          # See the identical override + rationale in the migration step above
+          # — this is the actual long-running runserver process it protects.
+          DB_CONN_MAX_AGE: '0'
           REDIS_HOST: localhost
           REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1

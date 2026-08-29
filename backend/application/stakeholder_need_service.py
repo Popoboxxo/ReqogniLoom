@@ -24,6 +24,10 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,13 +191,26 @@ class StakeholderNeedService(ServiceBase):
         moscow_priority: str | Any = _UNSET,
         change_reason: str = "",
         custom_fields: Any = _UNSET,
+        expected_version: int | None = None,
     ) -> StakeholderNeedDTO:
+        """Update a StakeholderNeed.
+
+        SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
+        caller's last-seen ``version``. When supplied and stale, the update is
+        refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
+        overwriting a concurrent edit. Omitting it keeps the previous
+        last-writer-wins behaviour.
+        """
         try:
-            need = StakeholderNeed.objects.select_related("artifact__workspace").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = lock_for_version_check(
+                StakeholderNeed.objects.select_related("artifact__workspace"),
+                expected_version,
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
+        assert_expected_version(
+            need, expected_version, entity_type="StakeholderNeed"
+        )
 
         if self.preset_policy_service:
             if self.preset_policy_service.is_change_reason_required(str(need.artifact.workspace_id)):

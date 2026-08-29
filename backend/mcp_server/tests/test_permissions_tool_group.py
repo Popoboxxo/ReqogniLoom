@@ -29,6 +29,7 @@ from auth_tenancy.models import (
     ITEM_PERMISSION_WRITE,
 )
 from auth_tenancy.services import ItemPermissionService
+from auth_tenancy.services.authorization import AuthorizationService
 from auth_tenancy.services.item_permission import PermissionDecision
 
 from mcp_server.tools.permissions import PermissionsToolGroup
@@ -690,7 +691,14 @@ def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
 
     authz_svc = MagicMock()
     authz_svc.active_roles_for.return_value = roles
-    authz_svc.decide_access.return_value = MagicMock(allow=("viewer" not in roles))
+    # Delegate to the real matrix instead of the old ``allow="viewer" not in
+    # roles`` stub. That stub predates the read gate (Systemaudit 2026-08-29
+    # §6.5) and was operation-blind, so once ``dispatch_request`` started
+    # asking about ``Operation.READ`` it wrongly denied a Viewer a *read* —
+    # something the real service never does (``_RBAC_MATRIX[viewer]`` contains
+    # READ). ``decide_access`` is pure, in-memory and DB-free, so delegating
+    # costs nothing and cannot drift from production semantics again.
+    authz_svc.decide_access.side_effect = AuthorizationService().decide_access
 
     registry = ToolRegistry(
         auth_service=auth_svc,

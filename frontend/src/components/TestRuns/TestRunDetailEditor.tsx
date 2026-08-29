@@ -75,6 +75,16 @@ export function TestRunDetailEditor({
   const [closeSuccess, setCloseSuccess] = useState(false);
   const [results, setResults] = useState<TestRunResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(true);
+  // UI-LOW-2 (Systemaudit 2026-08-27/29, LOW finding): distinct from
+  // `resultsLoading` so the *initial* load can still show the "Lade
+  // Testfälle..." placeholder while a post-write reload (see
+  // `handleResultsSaved` below) does not. Before this, every reload swapped
+  // <TestRunResultEntryGrid/> out for that placeholder in the same JSX slot
+  // — a different element type at the same position unmounts the previous
+  // one — which destroyed the grid's local `saveSuccess` state before a real
+  // (macrotask-latency) network round trip ever let the user see the
+  // "Ergebnisse gespeichert." banner it had just set.
+  const [hasLoadedResultsOnce, setHasLoadedResultsOnce] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   // Bumped after a successful result write to re-run the load effect below
   // without giving up its cancellation guard (UI-04).
@@ -90,7 +100,10 @@ export function TestRunDetailEditor({
     testRunsApi
       .listResults(testRun.id)
       .then((items) => {
-        if (!cancelled) setResults(items);
+        if (!cancelled) {
+          setResults(items);
+          setHasLoadedResultsOnce(true);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -370,7 +383,7 @@ export function TestRunDetailEditor({
         >
           {t("testRuns.testCases", "Testfälle")}
         </h3>
-        {resultsLoading ? (
+        {resultsLoading && !hasLoadedResultsOnce ? (
           <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
             {t("testRuns.resultsLoading", "Lade Testfälle...")}
           </p>

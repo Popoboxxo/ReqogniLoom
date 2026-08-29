@@ -36,6 +36,10 @@ from application.artifact_service import (
 )
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox, Risk
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +302,7 @@ class RiskService(ServiceBase):
         change_reason: Optional[str] = None,
         detection: Optional[int] = None,
         owner_user_id: Optional[UUID] = None,
+        expected_version: Optional[int] = None,
     ) -> Risk:
         """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
 
@@ -315,16 +320,26 @@ class RiskService(ServiceBase):
             detection: New FMEA detection score, 1..10 (optional, REQ-L1-029).
             owner_user_id: New User FK for structured risk assignment (optional,
                 REQ-L1-029).
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
 
         Returns:
             Updated Risk ORM instance.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        risk = lock_for_version_check(
+            Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id), expected_version
+        ).first()
         if risk is None:
             raise NotFoundError(f"Risk {risk_id} not found")
+        assert_expected_version(risk, expected_version, entity_type="Risk")
 
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
         # below can be gated on a real value change. Taken before the
