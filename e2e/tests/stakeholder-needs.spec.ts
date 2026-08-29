@@ -48,10 +48,15 @@ test.describe('[REQ-L0-002] Scalable SE depth — preset switcher', () => {
     await page.goto(`${FRONTEND_URL}/workspace-settings`);
     await expect(page.locator('[data-testid="preset-selector"]')).toBeVisible({ timeout: 10000 });
 
-    // Preset is radio buttons — click the minimal radio
+    // Preset is radio buttons — click the minimal radio. Any switch to
+    // "minimal" ranks below standard/extended (UI-22 PRESET_RANK), so it is
+    // always a downgrade and the radio's onChange only opens a confirmation
+    // dialog instead of applying the change — the dialog must be confirmed
+    // before the preset (and therefore the radio's checked state) updates.
     const minimalRadio = page.locator('[data-testid="preset-option-minimal"]');
     await expect(minimalRadio).toBeVisible({ timeout: 6000 });
     await minimalRadio.click();
+    await page.locator('[data-testid="preset-downgrade-confirm-confirm"]').click();
     await page.waitForLoadState('networkidle');
     await expect(minimalRadio).toBeChecked({ timeout: 5000 });
 
