@@ -55,6 +55,17 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "tenant is the purpose of that query. Under the standard policy every "
         "API-key authentication would return zero rows and fail."
     ),
+    "at_refresh_token": (
+        "SA-32 rotation state. Written by "
+        "PasswordAuthenticationService.issue_refresh_token during /auth/login/ "
+        "and read+claimed by AuthenticationService.rotate_refresh_token on the "
+        "public /auth/refresh/ endpoint - both run with authentication_classes "
+        "= [] and therefore without app.current_tenant armed, for the same "
+        "chicken-and-egg reason as at_api_key. Under the standard policy the "
+        "INSERT would be rejected and every refresh would return zero rows, "
+        "i.e. reuse detection would fail closed on every legitimate refresh. "
+        "The rows carry no credential material (opaque jti/sid only)."
+    ),
     "at_user_role": (
         "PasswordAuthenticationService.resolve_roles reads UserRole.unscoped at "
         "token issuance, which its own docstring documents as happening before "

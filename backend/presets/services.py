@@ -266,12 +266,38 @@ def get_workflow_configurability(workspace_id: str) -> str:
     return service.get_workflow_configurability(str(workspace_id))
 
 
+def assert_workspace_in_tenant(workspace_id: str) -> None:
+    """Raise unless *workspace_id* belongs to the active tenant.
+
+    SYSTEMAUDIT-2026-08-27 SA-15. Exported so downstream components that keep
+    their **own** workspace-keyed preset cache (notably
+    ``application.preset_policy_service.PresetPolicyService``) can run the same
+    ownership check before serving a cached entry. Without it, such a cache
+    would answer a cross-tenant caller from memory and never reach the guarded
+    gate — re-opening exactly the path this guard closes.
+
+    A no-op when no tenant context is active (management commands, data
+    migrations, unit tests) — see ``presets.gate._assert_workspace_in_tenant``.
+
+    Args:
+        workspace_id: UUID string of the target workspace.
+
+    Raises:
+        presets.exceptions.CrossTenantWorkspaceError: If a tenant context is
+            active and the workspace belongs to a different tenant.
+    """
+    from presets.gate import _assert_workspace_in_tenant
+
+    _assert_workspace_in_tenant(str(workspace_id))
+
+
 # ---------------------------------------------------------------------------
 # Public surface declaration
 # ---------------------------------------------------------------------------
 
 __all__ = [
     "PresetRules",
+    "assert_workspace_in_tenant",
     "get_preset",
     "is_feature_enabled",
     "get_terminology",

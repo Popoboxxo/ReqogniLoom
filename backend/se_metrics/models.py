@@ -11,6 +11,21 @@ Models owned by COMP-SM-008 MetricsCacheManager (IF-L1-048 PersistenceLayer):
 These are the ONLY write targets for the SeMetrics Read-Model (REQ-L2-SM-008).
 No writes to Requirements, TraceLinks, WorkflowStates, or AuditLog entries.
 
+Tenant isolation (SA-35, SYSTEMAUDIT-2026-08-27 §4.6 F14)
+---------------------------------------------------------
+Both models carry a raw ``tenant_id`` UUID column but used to expose only
+Django's plain manager, so ``MetricCache.objects.filter(workspace_id=...)``
+produced a query with **no** tenant predicate — the ``tenant_id`` column was
+written but never read. The models now use ``TenantManager`` as the default
+manager (ADR-03), which anchors ``WHERE tenant_id = <active>`` in exactly one
+place and raises ``TenantContextNotSetError`` before SQL when no context is
+armed. ``unscoped`` remains available for maintenance.
+
+They stay ``models.Model`` rather than ``TenantScopedModel``: the latter would
+add a ``tenant`` FK plus audit columns, which is a schema change to a pure
+read-model cache with no benefit. ``TenantManager`` only needs the ``tenant_id``
+column, which is already present.
+
 Architecture:
     docs/se/L1/Gesamtsystem/L2/SeMetricsSystem/L2_SeMetricsSystem_Architecture.md
 """
@@ -19,6 +34,8 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+
+from persistence.tenancy import TenantManager, UnscopedManager
 
 
 class MetricCache(models.Model):
@@ -44,6 +61,10 @@ class MetricCache(models.Model):
     computed_at = models.DateTimeField()
     # TTL in seconds (default: 300 = 5 minutes, REQ-L2-SM-009)
     cache_ttl_seconds = models.IntegerField(default=300)
+
+    # SA-35: tenant-scoped by default; ``unscoped`` for cross-tenant maintenance.
+    objects = TenantManager()
+    unscoped = UnscopedManager()
 
     class Meta:
         db_table = "sm_metric_cache"
@@ -94,6 +115,10 @@ class WorkspaceThresholdConfig(models.Model):
     open_risks_max_critical = models.IntegerField(null=True, blank=True)
 
     updated_at = models.DateTimeField(auto_now=True)
+
+    # SA-35: tenant-scoped by default; ``unscoped`` for cross-tenant maintenance.
+    objects = TenantManager()
+    unscoped = UnscopedManager()
 
     class Meta:
         db_table = "sm_threshold_config"

@@ -739,7 +739,11 @@ class ArchitectureDecomposeService(ServiceBase):
             MockLlmProvider,
             get_provider,
         )
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
 
         # Unconditional ceiling (see module docstring on _ABSOLUTE_MAX_BREADTH):
         # applied here too, not just in _flatten_tree, so the prompt/audit
@@ -822,8 +826,15 @@ class ArchitectureDecomposeService(ServiceBase):
                 success=True,
                 error=None,
             )
+            # SA-26: this used to hardcode input_tokens=0, leaving the daily
+            # budget (is_over_daily_limit above) blind to this call's real
+            # spend. Estimate both sides client-side (see
+            # ``approximate_token_count``) like every other free-form path.
             record_token_usage(
-                provider=provider_name, capability="arch_decompose_tree", input_tokens=0
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(raw),
             )
         return self._parse_tree(raw), provider_name, degraded
 

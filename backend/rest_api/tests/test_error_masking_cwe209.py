@@ -78,6 +78,10 @@ class TestIcdViewMasksInternalError:
         ``list`` is representative: every endpoint in ``icd_views`` funnels its
         unmapped failures into the same helper, so a regression in the wiring
         would show up here rather than in a helper-only test.
+
+        SA-19: ``list()`` no longer queries ``Icd.objects`` directly — it
+        delegates to ``icd.services.list_icds`` (ADR-01 facade) — so the
+        failure is now injected at that seam instead of the ORM manager.
         """
         request = Request(
             APIRequestFactory().get(f"/api/v1/icds/?workspace_id={uuid.uuid4()}")
@@ -85,9 +89,9 @@ class TestIcdViewMasksInternalError:
         ctx = MagicMock(tenant_id=uuid.uuid4())
 
         with patch("rest_api.icd_views.get_auth_context", return_value=ctx), patch(
-            "rest_api.icd_views.Icd"
-        ) as icd_model, caplog.at_level("ERROR"):
-            icd_model.objects.filter.side_effect = ProgrammingError(SENSITIVE)
+            "rest_api.icd_views.list_icds",
+            side_effect=ProgrammingError(SENSITIVE),
+        ), caplog.at_level("ERROR"):
             response = IcdViewSet().list(request)
 
         _assert_masked(response, caplog)

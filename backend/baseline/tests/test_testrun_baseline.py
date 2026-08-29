@@ -360,17 +360,25 @@ class TestStateCaptureTestRuns:
             DeltaIndexTuple(item_id=art_id, version=2, entity_type="item"),
         ]
 
+        MockAdr, MockRisk, MockIssue, MockGoal, MockMainGoal = (
+            MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock()
+        )
         with patch("persistence.models.TestRun") as MockTR, \
              patch("persistence.models.Artifact") as MockArt, \
              patch("persistence.models.Requirement") as MockReq, \
              patch("persistence.models.ArchitectureElement") as MockAE, \
              patch("persistence.models.StakeholderNeed") as MockSN, \
              patch("persistence.models.TestCase") as MockTC, \
-             patch("application.models.Adr") as MockAdr, \
-             patch("application.models.Risk") as MockRisk, \
-             patch("application.models.Issue") as MockIssue, \
-             patch("application.models.Goal") as MockGoal, \
-             patch("application.models.MainGoal") as MockMainGoal:
+             patch.dict(
+                 "persistence.domain_model_registry._registry",
+                 {
+                     "Adr": MockAdr,
+                     "Risk": MockRisk,
+                     "Issue": MockIssue,
+                     "Goal": MockGoal,
+                     "MainGoal": MockMainGoal,
+                 },
+             ):
             MockTR.unscoped.filter.return_value = [mock_run]
             # item queries return nothing — bare artifact path
             mock_art = MagicMock()

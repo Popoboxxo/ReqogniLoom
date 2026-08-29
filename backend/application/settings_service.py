@@ -198,7 +198,21 @@ class SettingsService(ServiceBase):
     def update_llm_settings(
         self, ctx: AuthContext, validated_data: dict[str, Any]
     ) -> LlmSettings:
-        """Apply whitelisted ``validated_data`` to the LlmSettings row and save."""
+        """Apply whitelisted ``validated_data`` to the LlmSettings row and save.
+
+        Raises:
+            llm_adapter.url_guard.UnsafeOutboundUrlError: If ``base_url`` points
+                at a non-public address (SA-33). The REST serializer already
+                rejects these with a 400; this is the backstop that keeps the
+                invariant attached to the single write path rather than to one
+                caller, so a future MCP tool or management command cannot
+                configure an SSRF target by skipping the serializer.
+        """
+        from llm_adapter.url_guard import validate_outbound_url
+
+        if "base_url" in validated_data:
+            validate_outbound_url(validated_data["base_url"])
+
         obj = self.get_or_create_llm_settings(ctx)
         for field in _LLM_WRITABLE_FIELDS:
             if field in validated_data:

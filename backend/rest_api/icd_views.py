@@ -26,7 +26,6 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.viewsets import ViewSet
 
 from application.artifact_diff_service import creation_baseline_entry
 from application.base import NotFoundError
@@ -43,6 +42,7 @@ from icd.services import (
     get_icd_history,
     find_similar_icds,
     list_icd_parameters,
+    list_icds,
     IcdCreateDTO,
     IcdParameterCreateDTO,
     IcdParameterNotFoundError,
@@ -59,6 +59,7 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+from rest_api.views import BaseEntityViewSet
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +147,31 @@ def _client_message(exc: Exception, context: str) -> str | None:
     return None
 
 
-class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
+class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST ViewSet for ICD CRUD operations.
 
     REQ-173: transitions/ and workflow-history/ via WorkflowTransitionsMixin
     so ICDs share the same lifecycle machinery as every other artifact type.
+
+    SA-20: no dedicated DRF serializer exists for ICD's DTO-built fields
+    (create()/partial_update() hand-build IcdCreateDTO/IcdUpdateDTO), so
+    ``serializer_class`` stays unset and the narrative fields are named via
+    ``free_text_extra_fields`` instead — the same seam FreeTextSanitizationMixin
+    uses for serializer-declared free text. No preset feature key for ICD
+    endpoints exists yet in presets.registry.FEATURE_KEYS, so
+    preset_endpoint_key stays "" (gate always passes), matching every other
+    non-Baseline BaseEntityViewSet.
     """
 
     pagination_class = StandardPagination
     workflow_item_type = "Icd"
+    free_text_extra_fields = (
+        "name",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+    )
 
     # -- helpers -----------------------------------------------------------
 
@@ -258,10 +275,10 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             )
             if error is not None:
                 return error
-            icds = Icd.objects.filter(
+            icds = list_icds(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-            ).order_by("-created_at")
+            )
             serialized = [self._icd_to_dict(icd) for icd in icds]
             return self._paginate(request, serialized)
         except Exception:

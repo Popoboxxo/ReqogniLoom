@@ -14,7 +14,15 @@ from __future__ import annotations
 
 
 class PresetError(Exception):
-    """Base class for all PresetConfigEngine errors."""
+    """Base class for all PresetConfigEngine errors.
+
+    NOTE: ``rest_api.preset_guard.PresetError`` is a distinct, unrelated
+    class with the same name (SYSTEMAUDIT-2026-08-27 AP-6 M-1). It wraps
+    *any* exception raised while calling into this module's facade
+    functions (``get_preset``, ``is_feature_enabled``) — including
+    instances of this base class and its subclasses — into its own type.
+    An ``except`` clause on one does not catch the other.
+    """
 
 
 class ConfigurationError(PresetError):
@@ -66,6 +74,20 @@ class CustomPresetNotAllowedError(PresetError):
     """
 
 
+class CrossTenantWorkspaceError(PresetError):
+    """Raised when a workspace is addressed from a foreign tenant context.
+
+    SYSTEMAUDIT-2026-08-27 SA-15 (§4.1 #6): the gate resolves a
+    caller-supplied ``workspace_id`` through the ``unscoped`` escape-hatch
+    managers, which do not carry the ``TenantManager`` WHERE clause. Without
+    this guard a caller authenticated for tenant A could read (and switch)
+    tenant B's preset configuration by guessing/leaking a workspace UUID.
+
+    The error deliberately carries no tenant identifiers in its message so it
+    cannot be used as a cross-tenant existence oracle.
+    """
+
+
 __all__ = [
     "PresetError",
     "ConfigurationError",
@@ -75,4 +97,5 @@ __all__ = [
     "DowngradeBlockedError",
     "IncompleteProfileError",
     "CustomPresetNotAllowedError",
+    "CrossTenantWorkspaceError",
 ]

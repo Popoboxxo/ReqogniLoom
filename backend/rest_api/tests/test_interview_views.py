@@ -107,6 +107,72 @@ class TestInterviewStateAndAnswer:
         assert response.status_code == 400
 
 
+class TestInterviewFreeTextSanitization:
+    """SA-20: InterviewViewSet mixes in FreeTextSanitizationMixin so
+    answer()'s ``value`` and chat()'s ``message`` -- both free-form prose
+    persisted straight into the session's collected_fields/transcript with no
+    serializer in front of them -- get the same #269 finding-4 guarantee as
+    every serializer-backed entity ViewSet.
+    """
+
+    _PAYLOAD = "<img src=x onerror=alert(1)>"
+
+    def test_answer_rejects_html_markup_in_value(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "title", "value": self._PAYLOAD},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+        # No-regression: the rejected answer must not have been persisted.
+        state = authed_client.get(f"/api/v1/interviews/{session_id}/state/")
+        assert state.data["collected_fields"].get("title") != self._PAYLOAD
+
+    def test_chat_rejects_html_markup_in_message(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/chat/",
+            {"message": self._PAYLOAD},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_answer_with_clean_value_is_unaffected(self, authed_client, workspace):
+        """No-regression: the happy path (already covered above) still 200s."""
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "title", "value": "SSO login"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+
+
 class TestInterviewFormalize:
     def test_formalize_creates_requirement(self, authed_client, workspace):
         start = authed_client.post(

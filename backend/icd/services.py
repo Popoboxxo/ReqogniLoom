@@ -73,6 +73,29 @@ def get_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> Icd:
     return Icd.objects.get(id=icd_id, tenant_id=tenant_id)
 
 
+def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
+    """Return all ICDs for a workspace, tenant-scoped (ADR-01 facade).
+
+    Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free
+    (SA-19 — REST layer must not query models directly).
+
+    Args:
+        workspace_id: UUID of the owning workspace.
+        tenant_id:    Active tenant primary key (isolation boundary).
+
+    Returns:
+        List of Icd ORM objects, newest first.
+
+    req_id: REQ-066, REQ-L2-ICD-001
+    leaf_id: COMP-ICD-001
+    """
+    return list(
+        Icd.objects.filter(workspace_id=workspace_id, tenant_id=tenant_id).order_by(
+            "-created_at"
+        )
+    )
+
+
 def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     """Delete a tenant-scoped ICD and all its immutable versions (REQ-066).
 

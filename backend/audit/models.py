@@ -319,8 +319,17 @@ class AuditEntry(TenantScopedModel):
         trigger (see migration 0002_audit_append_only_trigger) is the
         authoritative constraint; this guard provides application-layer
         early-fail.
+
+        SA-39 (Systemaudit 2026-08-27 §4.1 #14): the guard used to be
+        ``self.pk is not None and AuditEntry.unscoped.filter(pk=...).exists()``.
+        The pk is a UUID with a ``default`` (``AuditableModel.id``), so it is
+        *never* None — not even on a brand-new instance — and every single audit
+        INSERT therefore paid for an extra SELECT. ``_state.adding`` answers the
+        actual question ("did this instance come from the database?") without a
+        query: Django clears it after a save or a load, and it stays True for a
+        freshly constructed row regardless of its pk.
         """
-        if self.pk is not None and AuditEntry.unscoped.filter(pk=self.pk).exists():
+        if not self._state.adding:
             raise RuntimeError(
                 "AuditEntry is append-only. Modifying an existing entry is not permitted."
             )

@@ -361,9 +361,21 @@ class CapabilityRouter:
         ends when the provider's own HTTP timeout fires) and a built-in
         ``TimeoutError`` is raised for the existing timeout handling path.
 
-        The active tenant context (thread-local) is re-established inside the
-        worker thread so tenant-scoped reads (LlmSettings, breaker state)
-        behave exactly as in the request thread.
+        The active tenant context is re-established inside the worker thread —
+        both the Python-side thread-local (TenantManager filtering) *and* the
+        PostgreSQL ``app.current_tenant`` session variable RLS policies read —
+        so tenant-scoped reads (LlmSettings, breaker state) behave exactly as
+        in the request thread.
+
+        SA-37: this worker thread gets its own DB connection (Django connections
+        are thread-local), so ``TenantContext.set_tenant()`` alone only ever
+        satisfied the ORM-side ``TenantManager`` filter here — it never issued
+        ``SET app.current_tenant`` on *this* connection, leaving every RLS
+        policy's USING/WITH CHECK clause to silently hide reads / reject writes
+        on this thread. ``llm_adapter/tasks.py`` (Celery, #444) hit the exact
+        same gap; ``set_request_tenant``/``clear_request_tenant`` (used there)
+        set/reset both layers together and are reused here instead of touching
+        ``TenantContext`` directly.
 
         Raises:
             TimeoutError: When the call exceeds the configured sync timeout.
@@ -376,16 +388,21 @@ class CapabilityRouter:
 
             tenant_id = TenantContext.get_tenant()
         except Exception:  # noqa: BLE001 — no tenant context → run without one
-            TenantContext = None  # type: ignore[assignment]
+            pass
 
         def _call() -> Any:
-            if tenant_id is not None and TenantContext is not None:
-                TenantContext.set_tenant(tenant_id)
+            from persistence.middleware import (  # noqa: PLC0415
+                clear_request_tenant,
+                set_request_tenant,
+            )
+
+            if tenant_id is not None:
+                set_request_tenant(tenant_id)
             try:
                 return method(**kwargs)
             finally:
-                if tenant_id is not None and TenantContext is not None:
-                    TenantContext.clear_tenant()
+                if tenant_id is not None:
+                    clear_request_tenant()
 
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-sync")
         try:

@@ -186,18 +186,23 @@ def _enrich(artifact_ids: list[str], tenant_id: uuid.UUID) -> dict[str, dict]:
 
     # REQ-002: ADR lives in the application layer — enrich separately so that
     # impact-analysis nodes linked to ADRs also receive a human-readable title.
-    try:
-        from application.models import Adr
+    # SA-21: resolved via the Layer-0 domain-model registry rather than
+    # importing application.models directly (Layer 1 -> Layer 2) — see
+    # persistence.domain_model_registry's module docstring.
+    from persistence.domain_model_registry import get_model
 
-        for row in Adr.objects.filter(artifact_id__in=artifact_ids).values(
-            "artifact_id", "title"
-        ):
-            key = str(row["artifact_id"])
-            entry = info.get(key)
-            if entry is not None:
-                entry["title"] = row["title"] or ""
-    except Exception:  # noqa: BLE001 — Adr model absent in some test configs
-        pass
+    Adr = get_model("Adr")
+    if Adr is not None:
+        try:
+            for row in Adr.objects.filter(artifact_id__in=artifact_ids).values(
+                "artifact_id", "title"
+            ):
+                key = str(row["artifact_id"])
+                entry = info.get(key)
+                if entry is not None:
+                    entry["title"] = row["title"] or ""
+        except Exception:  # noqa: BLE001 — defensive, matches prior behaviour
+            pass
 
     return info
 
@@ -501,6 +506,14 @@ def _domain_model_registry() -> "list[tuple[str, object, bool]]":
     caller-supplied ids, bypassing ``verified_ids``, does not silently
     reintroduce a cross-tenant leak (review finding, Task 3.2a hardening
     round; this codebase has shipped exactly this bug class before).
+
+    SA-21: the five application-layer models are resolved via the Layer-0
+    domain-model registry rather than importing application.models directly
+    (Layer 1 -> Layer 2) — see persistence.domain_model_registry's module
+    docstring. ``application`` is a core, always-installed app, so a missing
+    entry here (``KeyError``) means ``ApplicationConfig.ready()`` has not run
+    yet — the same failure class as the previous direct import raising
+    ``ImportError`` in that situation.
     """
     from persistence.models import (
         ArchitectureElement,
@@ -508,7 +521,14 @@ def _domain_model_registry() -> "list[tuple[str, object, bool]]":
         StakeholderNeed,
         TestCase,
     )
-    from application.models import Adr, Goal, Issue, MainGoal, Risk
+    from persistence.domain_model_registry import get_models
+
+    app_models = get_models("Adr", "Risk", "Issue", "Goal", "MainGoal")
+    Adr = app_models["Adr"]
+    Risk = app_models["Risk"]
+    Issue = app_models["Issue"]
+    Goal = app_models["Goal"]
+    MainGoal = app_models["MainGoal"]
 
     return [
         ("Requirement", Requirement, True),

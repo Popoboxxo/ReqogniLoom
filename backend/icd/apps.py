@@ -20,3 +20,17 @@ class IcdConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "icd"
     verbose_name = "ARCH-L1-014 IcdManagement"
+
+    def ready(self) -> None:
+        """Register IcdVersion on the Layer-0 domain-model registry.
+
+        SA-21: baseline/state_capture.py (Layer 1) used to lazy-import
+        ``icd.models.IcdVersion`` directly to capture ICD state in baselines
+        (IF-L1-038). Same register-on-ready() pattern as
+        ``application.apps.ApplicationConfig`` and ``audit.apps.AuditConfig``
+        — see persistence.domain_model_registry's module docstring.
+        """
+        from icd.models import IcdVersion
+        from persistence.domain_model_registry import register_models
+
+        register_models({"IcdVersion": IcdVersion})

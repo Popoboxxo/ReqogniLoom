@@ -71,7 +71,8 @@ class PolicyEngine:
         """IF-RO-INT-002: run ``operation`` under the target's timeout/retry policy.
 
         Control flow:
-        1. Attempt the call with a hard timeout (REQ-L3-RO-002-01).
+        1. Attempt the call with a wallclock timeout (REQ-L3-RO-002-01); see
+           :meth:`_call_with_timeout` for what that does and does not guarantee.
         2. On a transient failure, retry with exponential backoff up to
            ``max_retries`` (REQ-L3-RO-002-02).
         3. On a non-retryable error, stop immediately (REQ-L3-RO-002-02).
@@ -110,23 +111,55 @@ class PolicyEngine:
         return degradation.handle_failure(last_exc, self.target_subsystem)
 
     def _call_with_timeout(self, operation: Operation) -> Any:
-        """Run ``operation`` with a hard timeout (REQ-L3-RO-002-01).
+        """Run ``operation`` with a wallclock timeout (REQ-L3-RO-002-01).
 
         Uses a worker thread + future timeout rather than ``signal`` so it works
         off the main thread (Celery/WSGI workers). A timed-out call raises
         :class:`~resilience.policies.TimeoutError`, which is transient and counts
         as a failure.
 
+        .. note:: **What "timeout" guarantees here — SA-17 (Systemaudit
+           2026-08-27).**
+
+           Python cannot interrupt a thread that is blocked in a socket read, so
+           the timeout bounds *the caller*, not the operation. On expiry this
+           method returns control immediately and abandons the worker thread,
+           which keeps running until the underlying call finishes or its own
+           transport timeout fires.
+
+           This used to be untrue: the executor lived in a ``with`` block, whose
+           ``__exit__`` calls ``shutdown(wait=True)`` and therefore blocked until
+           the abandoned operation actually finished. The timeout was purely
+           advisory, and with the retry loop on top the worst case was
+           ``(max_retries + 1) x real_duration`` — a 30s policy could pin a
+           worker for minutes. ``shutdown(wait=False)`` makes the documented
+           budget real.
+
+           The cost is a possible orphan thread per timed-out attempt. It is
+           bounded in practice: the LLM transport carries its own socket
+           timeout, and the CircuitBreaker opens after ``failure_threshold``
+           consecutive failures, so a permanently hung target stops receiving
+           new attempts instead of accumulating threads indefinitely. Orphans
+           carry the ``resilience-<target>`` thread-name prefix so they are
+           identifiable in a stack dump.
+
         Raises:
             ResilienceTimeoutError: If the operation exceeds the policy timeout.
             NonRetryableError / TransientError: Propagated from the operation, with
                 unclassified exceptions wrapped as transient.
         """
-        with ThreadPoolExecutor(max_workers=1) as pool:
+        pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f"resilience-{self.target_subsystem}",
+        )
+        try:
             future = pool.submit(operation)
             try:
                 return future.result(timeout=self.policy.timeout_seconds)
             except FutureTimeoutError:
+                # No-op for an already-running future (documented Future
+                # semantics); kept so a not-yet-started retry attempt is never
+                # dispatched after its budget expired.
                 future.cancel()
                 raise ResilienceTimeoutError(
                     f"operation on '{self.target_subsystem}' exceeded "
@@ -138,3 +171,8 @@ class PolicyEngine:
                 # Unknown exception from the outbound call: treat as transient so
                 # the retry loop and breaker can react (REQ-L3-RO-002-02).
                 raise TransientError(str(exc)) from exc
+        finally:
+            # wait=False is the whole point (see the note above): never block on
+            # an operation whose timeout has already been reported to the caller.
+            # A completed operation's thread is reclaimed here as usual.
+            pool.shutdown(wait=False)

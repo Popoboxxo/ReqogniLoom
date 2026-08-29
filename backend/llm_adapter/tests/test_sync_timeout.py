@@ -116,6 +116,72 @@ class TestRouterSyncTimeoutEnforcement:
         assert "500" in result["error"]["message"]
 
 
+class TestSyncTimeoutTenantContextPropagation:
+    """SA-37 (SYSTEMAUDIT_2026-08-27 §4.1 #10): the sync-timeout worker thread
+    must arm RLS (``SET app.current_tenant``), not just the Python-side
+    ``TenantContext`` — same gap ``llm_adapter/tasks.py`` closed for Celery
+    (#444). ``_call_with_sync_timeout`` now re-establishes the tenant inside
+    its worker thread via ``persistence.middleware.set_request_tenant``/
+    ``clear_request_tenant`` instead of touching ``TenantContext`` directly.
+    """
+
+    def test_worker_thread_uses_set_request_tenant_not_bare_tenant_context(
+        self, settings
+    ):
+        import uuid
+
+        from persistence.tenancy import TenantContext
+
+        settings.LLM_SYNC_TIMEOUT_SECONDS = 5
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
+
+        provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
+        router, _ = _router_with_provider(provider)
+
+        tenant_id = uuid.uuid4()
+        TenantContext.set_tenant(tenant_id)
+        try:
+            with patch("llm_adapter.router.get_provider", return_value=provider):
+                with patch(
+                    "persistence.middleware.set_request_tenant"
+                ) as mock_set, patch(
+                    "persistence.middleware.clear_request_tenant"
+                ) as mock_clear:
+                    result = router.execute_capability(
+                        "validate_artifact", artifact_id="a1"
+                    )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert isinstance(result, LlmResult)
+        mock_set.assert_called_once_with(tenant_id)
+        mock_clear.assert_called_once()
+
+    def test_no_active_tenant_context_is_a_harmless_noop(self, settings):
+        """No regression: a caller with no active tenant (e.g. a management
+        command) must not crash and must not arm RLS for a tenant it never
+        had."""
+        settings.LLM_SYNC_TIMEOUT_SECONDS = 5
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
+
+        provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
+        router, _ = _router_with_provider(provider)
+
+        with patch("llm_adapter.router.get_provider", return_value=provider):
+            with patch(
+                "persistence.middleware.set_request_tenant"
+            ) as mock_set, patch(
+                "persistence.middleware.clear_request_tenant"
+            ) as mock_clear:
+                result = router.execute_capability(
+                    "validate_artifact", artifact_id="a1"
+                )
+
+        assert isinstance(result, LlmResult)
+        mock_set.assert_not_called()
+        mock_clear.assert_not_called()
+
+
 class TestPerCallTimeoutParameter:
     """REQ-084: interface methods accept an optional per-call timeout."""
 

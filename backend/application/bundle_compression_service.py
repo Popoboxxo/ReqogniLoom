@@ -567,6 +567,13 @@ class BundleCompressionService(ServiceBase):
         a fallback" rule reported the default deployment's placeholder as a
         genuine AI compression and cached it for an hour. No audit/token
         record is written for it either, since no real call happened.
+
+        SA-27 (Systemaudit 2026-08-27 AP-6) note: this is intentionally
+        broader than ``AiDerivationService._complete_json_list``'s
+        ``is_mock_fallback`` (which only flags an *unplanned* degradation,
+        not a deliberately-configured mock) -- see that method's docstring
+        for why both definitions are correct for their own flow and must not
+        be blindly unified.
         """
         from application.ai_derivation_service import LlmResponseError
         from llm_adapter.audit_logger import LlmAuditLogger

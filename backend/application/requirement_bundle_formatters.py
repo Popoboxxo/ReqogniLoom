@@ -16,13 +16,8 @@ import io
 import uuid
 from typing import Any, Dict
 
+from application.csv_safety import neutralize_csv_formula
 from application.requirement_bundle_service import BundleItem, BundleResult
-
-#: Leading characters a spreadsheet application (Excel, LibreOffice Calc,
-#: Google Sheets) interprets as the start of a formula rather than literal
-#: text. A cell beginning with any of these is prefixed with a single quote
-#: on export — the OWASP-documented CSV-injection mitigation.
-_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _json_safe(value: Any) -> Any:
@@ -49,16 +44,18 @@ def _json_safe(value: Any) -> Any:
 def _csv_safe(value: Any) -> Any:
     """Neutralise a spreadsheet formula in a CSV cell (CSV injection).
 
-    Any *string* cell starting with ``=``, ``+``, ``-``, ``@``, TAB or CR is
-    prefixed with a single quote so Excel/LibreOffice treat it as literal
-    text. Requirement titles/descriptions are free text written by any
-    editor-role tenant user and this bundle is served over an authenticated
-    ``text/csv`` REST endpoint, so an unescaped ``=cmd|'/c calc'!A1`` title
-    would execute on whoever opens the export.
+    SYSTEMAUDIT-2026-08-27 AP-6 L-4: thin wrapper around the shared
+    :func:`application.csv_safety.neutralize_csv_formula` (same trigger set,
+    same mitigation, also used by
+    :func:`application.export_service._csv_cell`). Any *string* cell starting
+    with ``=``, ``+``, ``-``, ``@``, TAB or CR is prefixed with a single
+    quote so Excel/LibreOffice treat it as literal text. Requirement
+    titles/descriptions are free text written by any editor-role tenant user
+    and this bundle is served over an authenticated ``text/csv`` REST
+    endpoint, so an unescaped ``=cmd|'/c calc'!A1`` title would execute on
+    whoever opens the export.
     """
-    if isinstance(value, str) and value.startswith(_CSV_FORMULA_TRIGGERS):
-        return "'" + value
-    return value
+    return neutralize_csv_formula(value)
 
 
 def _item_to_dict(item: BundleItem) -> Dict[str, Any]:

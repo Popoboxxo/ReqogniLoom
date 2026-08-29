@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
+from presets.exceptions import CrossTenantWorkspaceError
 from presets.services import get_preset, is_feature_enabled
 
 
@@ -67,7 +68,14 @@ class FieldFilter:
 
 
 class PresetError(Exception):
-    """Raised when the PresetConfigEngine is unavailable or returns an error."""
+    """Raised when the PresetConfigEngine is unavailable or returns an error.
+
+    NOTE: this is a distinct class from ``presets.exceptions.PresetError`` —
+    same name, different module, unrelated exception hierarchies (SYSTEMAUDIT
+    -2026-08-27 AP-6 M-1). Do not conflate the two when writing ``except``
+    clauses; a bare ``except PresetError`` here does NOT catch the domain
+    exceptions raised by ``presets.gate`` / ``presets.services``.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +164,13 @@ class PresetGuard:
         """
         try:
             preset_rules = get_preset(workspace_id)
+        except CrossTenantWorkspaceError as exc:
+            # SYSTEMAUDIT-2026-08-27 AP-6 M-1: do NOT fold workspace_id into
+            # this message. CrossTenantWorkspaceError is deliberately raised
+            # with no tenant identifiers (see its docstring) so it cannot be
+            # used as a cross-tenant existence oracle; re-adding workspace_id
+            # here would undo that guarantee one layer up.
+            raise PresetError(f"PresetConfigEngine access denied: {exc}") from exc
         except Exception as exc:
             raise PresetError(
                 f"PresetConfigEngine unavailable for workspace {workspace_id}: {exc}"

@@ -786,6 +786,31 @@ class TestGenerateChatTurn:
 
         assert "not_a_real_field" not in result["state"]["collected_fields"]
 
+    def test_records_estimated_token_counts_not_zero(self, ctx, workspace, monkeypatch):
+        """SA-26: single-mode generate_chat_turn used to hardcode
+        input_tokens=0 on record_token_usage(), leaving the daily budget
+        (REQ-106) blind to this flow's real spend. Both sides must now be
+        estimated from the actual prompt/reply via approximate_token_count()."""
+        from unittest.mock import MagicMock
+
+        from llm_adapter.token_tracking import approximate_token_count
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        response_json = '{"extracted_fields": {"title": "SSO login support"}, "reply": "Got it -- what is the rationale?"}'
+        provider = _ChatFakeProvider(response_json)
+        monkeypatch.setattr(InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None))
+        record_mock = MagicMock()
+        monkeypatch.setattr("llm_adapter.token_tracking.record_token_usage", record_mock)
+
+        InterviewService().generate_chat_turn(ctx, session.id, "We need SSO login support")
+
+        record_mock.assert_called_once()
+        _, kwargs = record_mock.call_args
+        assert kwargs["input_tokens"] == approximate_token_count(provider.last_prompt)
+        assert kwargs["output_tokens"] == approximate_token_count(response_json)
+        assert kwargs["input_tokens"] > 0
+        assert kwargs["output_tokens"] > 0
+
     def test_completed_session_raises_validation_error(self, ctx, workspace, monkeypatch):
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login")

@@ -77,6 +77,15 @@ class TransitionOutcome:
 # from within a workflow transition. Maps the engine ``item_type`` to the
 # (module, class) of the mirroring model. Extend this map when a new entity is
 # wired into the WorkflowEngine.
+#: SA-21: the module name is a plain string here on purpose — ``application``
+#: is Layer 2 and ``workflow`` (this module) is Layer 1, so the six entries
+#: pointing at ``"application.models"`` must NOT be resolved via
+#: ``importlib.import_module("application.models")`` (that is still a
+#: Layer 1 -> Layer 2 import, only deferred to call time instead of made
+#: static). ``_resolve_mirror_model`` below resolves those six through
+#: ``persistence.domain_model_registry`` instead — see that module's
+#: docstring — and only reaches for ``importlib`` for the ``persistence.models``
+#: entries, which is the correct, permitted direction (Layer 1 -> Layer 0).
 _STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
     "Requirement": ("persistence.models", "Requirement"),
     "StakeholderNeed": ("persistence.models", "StakeholderNeed"),
@@ -93,6 +102,37 @@ _STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
     "MainGoal": ("application.models", "MainGoal"),
     "Interview": ("persistence.models", "InterviewSession"),
 }
+
+#: Module paths resolved via the Layer-0 domain-model registry rather than
+#: ``importlib`` — see ``_STATUS_MIRROR_MODELS``'s docstring comment above.
+_LAYER2_MODEL_MODULES = frozenset({"application.models"})
+
+
+def _resolve_mirror_model(mapping: tuple[str, str]) -> type:
+    """Resolve a ``(module_path, class_name)`` mirror-map entry to a model class.
+
+    ``persistence.models`` entries (Layer 0) are imported directly via
+    ``importlib`` — ``workflow`` (Layer 1) depending on ``persistence``
+    (Layer 0) is the permitted direction. ``application.models`` entries
+    (Layer 2) go through ``persistence.domain_model_registry`` instead (SA-21),
+    which ``application.apps.ApplicationConfig.ready()`` populates at startup.
+    """
+    module_path, class_name = mapping
+    if module_path in _LAYER2_MODEL_MODULES:
+        from persistence.domain_model_registry import get_model
+
+        model = get_model(class_name)
+        if model is None:
+            raise RuntimeError(
+                f"{class_name} is not registered in persistence.domain_model_registry — "
+                "ApplicationConfig.ready() must run before any workflow transition."
+            )
+        return model
+
+    from importlib import import_module
+
+    module = import_module(module_path)
+    return getattr(module, class_name)
 
 
 # SYSTEMAUDIT P1-16: denormalized `lifecycle_status` mirror.
@@ -510,15 +550,44 @@ class StateLifecycleManager:
         ``version`` nor emits a domain event — a workflow transition is not a
         content edit of the artifact.
 
+        .. warning:: **Tenant isolation here rests on RLS, not on this query —
+           SA-22 (Systemaudit 2026-08-27 §4.6 F8).**
+
+           The UPDATE carries no tenant predicate, so at the ORM level a caller
+           that supplies a foreign ``item_id`` would write another tenant's row.
+           What actually closes that hole is the database: every table in
+           ``_STATUS_MIRROR_MODELS`` and ``_LIFECYCLE_MIRROR_MODELS`` carries an
+           ``ENABLE`` + ``FORCE ROW LEVEL SECURITY`` tenant-isolation policy
+           (``pl_requirement``/``pl_testcase``/``pl_architecture_element``:
+           persistence/0003 · ``pl_stakeholder_need``/``pl_glossary_term``:
+           persistence/0067 · ``pl_interview_session``: persistence/0061 ·
+           ``as_risk``/``as_issue``: application/0009 ·
+           ``as_adr``/``as_change_request``/``as_goal``/``as_main_goal``:
+           application/0013), and runtime traffic connects as the
+           non-superuser ``reqogniloom_app`` role (settings ``DATABASES`` +
+           persistence/db_roles), for which those policies are not optional. A
+           cross-tenant ``pk`` therefore matches zero rows instead of being
+           overwritten.
+
+           Note this is *not* the ``workflow`` RLS migration (0015) — that one
+           protects the ``we_*`` tables; the mirror writes land on the
+           persistence/application tables listed above.
+
+           Consequences for future edits:
+             * Do not "optimise" this into raw SQL, a superuser connection or a
+               management command that runs without ``app.current_tenant``: the
+               only guard would be gone, and additionally the write would
+               silently become a no-op wherever the session variable is unset.
+             * If a new entity is added to the mirror maps, its table MUST get
+               an RLS policy in the same change.
+           Regression coverage: ``workflow/tests/test_status_mirror_rls_sa22.py``.
+
         Unknown item types (not wired into the mirror map) are a silent no-op.
         """
         mapping = _STATUS_MIRROR_MODELS.get(item_type)
         if mapping is None:
             return
-        from importlib import import_module
-
-        module = import_module(mapping[0])
-        model = getattr(module, mapping[1])
+        model = _resolve_mirror_model(mapping)
         model.unscoped.filter(pk=item_id).update(status=new_state)
 
     @staticmethod
@@ -532,6 +601,12 @@ class StateLifecycleManager:
         a bare ``.update()`` so the entity ``version`` is not bumped and no
         domain event is emitted — a workflow transition is not a content edit.
 
+        The missing tenant predicate is covered by RLS exactly as described in
+        :meth:`_sync_status_mirror` (SA-22) — ``pl_architecture_element``
+        (persistence/0003) and ``pl_glossary_term`` (persistence/0067) both
+        carry a FORCEd tenant-isolation policy. Read that warning before
+        changing this query.
+
         The value is a *mapping* of the workflow state, not the state itself
         (see :func:`map_lifecycle_status`): ``lifecycle_status`` has a fixed
         four-value vocabulary while ``current_state`` is per-preset free text,
@@ -543,10 +618,7 @@ class StateLifecycleManager:
         mapping = _LIFECYCLE_MIRROR_MODELS.get(item_type)
         if mapping is None:
             return
-        from importlib import import_module
-
-        module = import_module(mapping[0])
-        model = getattr(module, mapping[1])
+        model = _resolve_mirror_model(mapping)
         model.unscoped.filter(pk=item_id).update(
             lifecycle_status=map_lifecycle_status(new_state)
         )

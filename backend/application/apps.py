@@ -39,6 +39,27 @@ class ApplicationConfig(AppConfig):
 
         register_signals()
 
+        # SA-21: register the application-layer Generic Artifact Model
+        # entities on the Layer-0 domain-model registry, so traceability
+        # (Task 3.2a artifact<->domain-entity resolution), baseline (issue
+        # #398 state capture) and workflow.lifecycle_manager's status-mirror
+        # write path (_STATUS_MIRROR_MODELS) — all Layer 1 — can resolve them
+        # by name instead of importing application.models directly. See
+        # persistence.domain_model_registry's module docstring.
+        from application.models import Adr, ChangeRequest, Goal, Issue, MainGoal, Risk
+        from persistence.domain_model_registry import register_models
+
+        register_models(
+            {
+                "Adr": Adr,
+                "Risk": Risk,
+                "Issue": Issue,
+                "Goal": Goal,
+                "MainGoal": MainGoal,
+                "ChangeRequest": ChangeRequest,
+            }
+        )
+
         from application.webhook_dispatcher import get_webhook_dispatcher
 
         get_webhook_dispatcher().subscribe_to_events()

@@ -212,6 +212,46 @@ class TestGenerateDraft:
         # called, not just that some exception was eventually raised.
         stub_provider.complete.assert_not_called()
 
+    def test_generate_records_estimated_token_counts_not_zero(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """SA-26: architecture.decompose (N1) used to hardcode input_tokens=0
+        on record_token_usage(), leaving the daily budget (REQ-106) blind to
+        this flow's real spend. Both sides must now be estimated from the
+        actual prompt/completion via approximate_token_count()."""
+        from unittest.mock import MagicMock
+
+        from llm_adapter.token_tracking import approximate_token_count
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = '[{"title": "Child A"}]'
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+        record_mock = MagicMock()
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.record_token_usage", record_mock
+        )
+
+        with _active(tenant):
+            ArchitectureDecomposeService().generate_draft(
+                ctx, root.id, max_breadth=2, max_depth=1
+            )
+
+        record_mock.assert_called_once()
+        _, kwargs = record_mock.call_args
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert kwargs["input_tokens"] == approximate_token_count(sent_prompt)
+        assert kwargs["output_tokens"] == approximate_token_count(
+            '[{"title": "Child A"}]'
+        )
+        assert kwargs["input_tokens"] > 0
+        assert kwargs["output_tokens"] > 0
+
     def test_generate_requires_anchor_requirement(self, tenant, workspace, ctx):
         with _active(tenant):
             switch_preset(str(workspace.id), "extended")

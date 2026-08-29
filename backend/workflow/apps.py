@@ -20,3 +20,16 @@ class WorkflowConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "workflow"
     verbose_name = "ARCH-L1-005 WorkflowEngine"
+
+    def ready(self) -> None:
+        """Register outdated_item_ids on the Layer-0 status-provider seam.
+
+        SA-21: persistence/models.py (Layer 0) cannot import workflow.services
+        (Layer 1) directly — see persistence.status_provider's module
+        docstring. Same register-on-ready() pattern as
+        audit.apps.AuditConfig.ready() (DomainEventBus subscription).
+        """
+        from persistence.status_provider import register_outdated_item_ids_provider
+        from workflow.services import outdated_item_ids
+
+        register_outdated_item_ids_provider(outdated_item_ids)

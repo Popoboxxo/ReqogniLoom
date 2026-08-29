@@ -332,7 +332,11 @@ class AiReviewService(ServiceBase):
             get_provider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
 
         prompt = AI_REVIEW_PROMPT_TEMPLATE.format(
             findings_json=json.dumps(findings_payload)
@@ -407,8 +411,15 @@ class AiReviewService(ServiceBase):
                 success=True,
                 error=None,
             )
+            # SA-26: this used to hardcode input_tokens=0, leaving the daily
+            # budget (is_over_daily_limit above) blind to this call's real
+            # spend. Estimate both sides client-side (see
+            # ``approximate_token_count``) like every other free-form path.
             record_token_usage(
-                provider=provider_name, capability=_AI_REVIEW_PURPOSE, input_tokens=0
+                provider=provider_name,
+                capability=_AI_REVIEW_PURPOSE,
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(raw),
             )
         return raw, provider_name, degraded
 
