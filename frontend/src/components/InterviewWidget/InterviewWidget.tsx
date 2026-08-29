@@ -112,11 +112,20 @@ export function InterviewWidget(): JSX.Element {
         data-testid="interview-widget-toggle"
         className={styles.toggle}
         onClick={toggle}
-        aria-label="Interview assistant"
+        // #741: the FAB renders nothing but the 💬 glyph, so the label IS the
+        // whole accessible name. It used to be a hardcoded English string —
+        // now translated and state-aware (open vs. close), matching the
+        // sidebar burger toggle (nav.openMenu / nav.closeMenu).
+        aria-label={
+          open
+            ? t("interview.widget.close", "Interview-Assistent schließen")
+            : t("interview.widget.open", "Interview-Assistent öffnen")
+        }
+        title={t("interview.widget.title", "Interview-Assistent")}
         aria-expanded={open}
         aria-controls="interview-widget-panel"
       >
-        {"\u{1F4AC}"}
+        <span aria-hidden="true">{"\u{1F4AC}"}</span>
       </button>
       {open && (
         <div id="interview-widget-panel" data-testid="interview-widget-panel" className={styles.panel}>

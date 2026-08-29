@@ -80,7 +80,7 @@
     "closeMenu": "Navigationsmenü schließen",
     "groupOverview": "Übersicht",
     "groupRequirements": "Requirements Engineering",
-    "groupArchitecture": "Architektur",
+    "groupArchitecture": "Architektur & Traceability",
     "groupTest": "Test & Qualität",
     "groupAdmin": "Verwaltung",
     "languageToggleTitleAdmin": "Sprache DE/EN umschalten (wird für den gesamten Workspace gespeichert)",
@@ -90,7 +90,11 @@
     "interviews": "Interviews",
     "searchPlaceholder": "Suchen...",
     "optionalArtifacts": "Optional-Artefakte",
-    "searching": "Suche läuft..."
+    "searching": "Suche läuft...",
+    "mainNavigation": "Hauptnavigation",
+    "searchResults": "Suchergebnisse",
+    "workspaceSwitcher": "Workspace wechseln",
+    "noOtherWorkspaces": "Keine weiteren Workspaces vorhanden"
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -270,6 +274,9 @@
   "editor": {
     "expandNode": "Ausklappen",
     "collapseNode": "Einklappen",
+    "addChild": "Untergeordnetes Element hinzufügen",
+    "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
+    "treeContainsSelection": "Enthält die aktuelle Auswahl",
     "title": "Titel",
     "description": "Beschreibung",
     "acceptanceCriteria": "Abnahmekriterien",
@@ -384,6 +391,7 @@
     "downstream": "Downstream-Links",
     "none": "Keine Links vorhanden.",
     "unresolved": "Nicht auflösbar",
+    "openLinked": "Verknüpftes Artefakt öffnen",
     "placeholder": "Traceability-Anzeige — in Bearbeitung.",
     "empty": "Keine TraceLinks vorhanden.",
     "source": "Quelle",
@@ -1378,7 +1386,8 @@
       "menu": {
         "switch": "Zu v{{n}} wechseln",
         "compare": "Mit aktueller Version vergleichen",
-        "copy": "Versions-ID kopieren"
+        "copy": "Versions-ID kopieren",
+        "trigger": "Aktionen für Version v{{n}} öffnen"
       },
       "copied": "Versions-ID kopiert",
       "noSnapshot": "Für diese Version ist kein Stand gespeichert."
@@ -1976,6 +1985,11 @@
       "Goal": "Ziel"
     },
     "multiEntry": "Ich weiß noch nicht genau, was ich brauche",
+    "widget": {
+      "title": "Interview-Assistent",
+      "open": "Interview-Assistent öffnen",
+      "close": "Interview-Assistent schließen"
+    },
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",
       "transcriptLabel": "Chat-Verlauf",

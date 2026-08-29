@@ -34,9 +34,10 @@ import {
   useState,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useTranslation } from 'react-i18next';
 import { LevelBadge } from '../LevelBadge';
 import { BADGE_BASE_STYLE } from '../../../utils/badgeBase';
-import { collectSelfAndDescendantIds } from './tree-hierarchy';
+import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
@@ -164,6 +165,13 @@ export interface WorkspaceTreeProps {
    * Default: true.
    */
   showSearch?: boolean;
+  /**
+   * Issue #676: all four label props below are optional *overrides*. When a
+   * caller omits one, the tree falls back to its own translated default
+   * (`editor.*` keys) rather than to a hardcoded English literal — the
+   * product UI is German, and roughly half of the ~12 call sites never pass
+   * these props, so an English default was user-visible, not dead code.
+   */
   searchPlaceholder?: string;
   emptyLabel?: string;
   noMatchesLabel?: string;
@@ -220,8 +228,9 @@ export interface WorkspaceTreeProps {
    */
   onReparent?: (id: string, newParentId: string | null) => void;
   /**
-   * Label inside the root dropzone. Only used when `onReparent` is set;
-   * translated by the caller (WorkspaceTree carries no i18n of its own).
+   * Label inside the root dropzone. Only used when `onReparent` is set.
+   * Callers that want a domain-specific wording (e.g. Architecture's "…make
+   * root (L0)") pass it here; otherwise the translated default applies.
    */
   rootDropzoneLabel?: string;
   'data-testid'?: string;
@@ -323,17 +332,36 @@ export function WorkspaceTree({
   onAddChild,
   showLevelBadge = false,
   showSearch = true,
-  searchPlaceholder = 'Search...',
-  emptyLabel = 'No items.',
-  noMatchesLabel = 'No matches found.',
+  searchPlaceholder,
+  emptyLabel,
+  noMatchesLabel,
   virtualize = false,
   renderRow,
   virtualRowHeight,
   onReparent,
-  rootDropzoneLabel = 'Drop here to make root',
+  rootDropzoneLabel,
   'data-testid': testId = 'workspace-tree',
   onToggle,
 }: WorkspaceTreeProps): JSX.Element {
+  // Issue #676: the defaults live here (not in the destructuring above) so
+  // they can come from i18n instead of hardcoded English literals. A caller
+  // that passes a label still wins — `??` only fills in the omitted ones.
+  const { t } = useTranslation();
+  const searchPlaceholderLabel =
+    searchPlaceholder ?? t('editor.searchPlaceholder');
+  const emptyStateLabel = emptyLabel ?? t('editor.empty');
+  const noMatchesStateLabel = noMatchesLabel ?? t('editor.noMatches');
+  const dropzoneLabel = rootDropzoneLabel ?? t('editor.treeDropRoot');
+  const rowLabels = useMemo(
+    () => ({
+      expand: t('editor.expandNode'),
+      collapse: t('editor.collapseNode'),
+      addChild: t('editor.addChild'),
+      containsSelection: t('editor.treeContainsSelection'),
+    }),
+    [t],
+  );
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -348,6 +376,46 @@ export function WorkspaceTree({
     didInitRef.current = true;
     setExpanded(new Set(tree.map((n) => n.node.id)));
   }, [tree]);
+
+  // -------------------------------------------------------------------
+  // Issue #665 — reveal a selection that was made outside this tree.
+  //
+  // `selectedId` is owned by the route (`useParams`) in every consumer, so
+  // it changes for reasons the tree never sees: a hit in the sidebar's
+  // global search, a TraceSpine/trace-link jump, browser back/forward, a
+  // pasted deep link. Before this, the tree only ever auto-expanded its
+  // *roots* (above, once), so any selection deeper than level 1 landed
+  // inside a collapsed subtree: the detail panel showed the artifact while
+  // the tree next to it showed no trace of it. That is the concrete
+  // "sidebar navigation and in-page tree don't synchronise" symptom.
+  //
+  // Deliberately keyed on the selection *changing*, not on every render:
+  // re-expanding on each `nodes` refetch would fight the user, and would
+  // make the manual collapse that issue #668's marker exists for impossible
+  // to hold. `revealedSelectionRef` stays unset until the node is actually
+  // present in `nodes`, so a selection that arrives before its list has
+  // loaded is revealed by the retry on the next data change instead of
+  // being silently marked as handled.
+  // -------------------------------------------------------------------
+  const revealedSelectionRef = useRef<string | null>(null);
+  const pendingRevealScrollRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedId || revealedSelectionRef.current === selectedId) return;
+    if (!nodes.some((n) => n.id === selectedId)) return;
+    revealedSelectionRef.current = selectedId;
+    pendingRevealScrollRef.current = selectedId;
+    const ancestors = collectAncestorIds(nodes, selectedId);
+    if (ancestors.length === 0) return;
+    setExpanded((prev) => {
+      // Returning the identical Set keeps React from re-rendering when the
+      // path was already open (the common case for an in-tree click).
+      if (ancestors.every((id) => prev.has(id))) return prev;
+      const next = new Set(prev);
+      for (const id of ancestors) next.add(id);
+      return next;
+    });
+  }, [nodes, selectedId]);
 
   // 300ms debounce on search input (design doc §4 — type_in_search_field).
   useEffect(() => {
@@ -386,6 +454,20 @@ export function WorkspaceTree({
     () => flattenVisible(tree, expanded, visibleIds),
     [tree, expanded, visibleIds],
   );
+
+  /**
+   * Issue #668: ancestors of the selected node, so a *collapsed* one can be
+   * marked as "the selection is in here". Without it, collapsing the parent of
+   * e.g. REQ-L3-005 makes the current selection vanish from the tree with no
+   * trace, while the detail panel on the right still shows that very artifact.
+   *
+   * Empty while searching: `flattenVisible` force-expands every matched
+   * subtree, so nothing is hidden and no row could carry the marker.
+   */
+  const selectedAncestorIds = useMemo((): Set<string> => {
+    if (!selectedId || visibleIds !== null) return new Set<string>();
+    return new Set(collectAncestorIds(nodes, selectedId));
+  }, [nodes, selectedId, visibleIds]);
 
   const toggleExpand = useCallback((id: string): void => {
     setExpanded((prev) => {
@@ -438,6 +520,39 @@ export function WorkspaceTree({
       rowElementsRef.current.delete(id);
     }
   }, []);
+
+  /**
+   * Issue #665, second half: once the reveal effect above has opened the
+   * ancestor path, bring the row itself into view. Split into its own effect
+   * because the row only becomes part of `visibleRows` on the render *after*
+   * the expansion commits — and, in the virtualized path, is not in the DOM
+   * at all until the virtualizer scrolls to it.
+   *
+   * Scrolling only, never `.focus()`: the selection came from somewhere else
+   * on the page (global search field, a trace link), and stealing keyboard
+   * focus into the tree would yank the user out of whatever they were using.
+   */
+  useEffect(() => {
+    const pendingId = pendingRevealScrollRef.current;
+    if (pendingId === null) return;
+    const index = visibleRows.findIndex(
+      (r) => r.internal.node.id === pendingId,
+    );
+    // Still hidden (e.g. an active search filters it out) — leave the request
+    // pending so it lands once the row becomes visible again.
+    if (index === -1) return;
+    pendingRevealScrollRef.current = null;
+    if (useVirtual) {
+      rowVirtualizer.scrollToIndex(index, { align: 'auto' });
+      return;
+    }
+    const el = rowElementsRef.current.get(pendingId);
+    // jsdom implements no scroll methods, so this stays a no-op under test
+    // instead of needing a polyfill in `src/test/setup.ts`.
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest' });
+    }
+  }, [visibleRows, useVirtual, rowVirtualizer]);
 
   /**
    * Moves roving-tabindex focus to `visibleRows[index]`.
@@ -674,8 +789,8 @@ export function WorkspaceTree({
           data-testid={`${testId}-search`}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder={searchPlaceholder}
-          aria-label={searchPlaceholder}
+          placeholder={searchPlaceholderLabel}
+          aria-label={searchPlaceholderLabel}
           style={{
             height: '32px',
             borderRadius: 'var(--radius-sm)',
@@ -714,7 +829,7 @@ export function WorkspaceTree({
           }}
           onDrop={(e) => handleDrop(e, null)}
         >
-          {rootDropzoneLabel}
+          {dropzoneLabel}
         </div>
       )}
 
@@ -727,7 +842,7 @@ export function WorkspaceTree({
             margin: 0,
           }}
         >
-          {emptyLabel}
+          {emptyStateLabel}
         </p>
       ) : visibleRows.length === 0 ? (
         <p
@@ -738,7 +853,7 @@ export function WorkspaceTree({
             margin: 0,
           }}
         >
-          {noMatchesLabel}
+          {noMatchesStateLabel}
         </p>
       ) : useVirtual ? (
         // REQ-091: virtualized rendering — only on-screen rows hit the DOM.
@@ -771,6 +886,9 @@ export function WorkspaceTree({
                   isFocused={internal.node.id === effectiveFocusedId}
                   hasChildren={hasChildren}
                   isExpanded={isExpanded}
+                  containsSelection={
+                    !isExpanded && selectedAncestorIds.has(internal.node.id)
+                  }
                   showLevelBadge={showLevelBadge}
                   onAddChild={onAddChild}
                   renderRow={renderRow}
@@ -780,6 +898,7 @@ export function WorkspaceTree({
                   onRowRef={registerRowRef}
                   onFocusRow={setFocusedId}
                   dragProps={rowDragProps}
+                  labels={rowLabels}
                   rowStyle={{
                     position: 'absolute',
                     top: 0,
@@ -815,6 +934,9 @@ export function WorkspaceTree({
               isFocused={internal.node.id === effectiveFocusedId}
               hasChildren={hasChildren}
               isExpanded={isExpanded}
+              containsSelection={
+                !isExpanded && selectedAncestorIds.has(internal.node.id)
+              }
               showLevelBadge={showLevelBadge}
               onAddChild={onAddChild}
               renderRow={renderRow}
@@ -824,6 +946,7 @@ export function WorkspaceTree({
               onRowRef={registerRowRef}
               onFocusRow={setFocusedId}
               dragProps={rowDragProps}
+              labels={rowLabels}
             />
           ))}
         </ul>
@@ -844,6 +967,12 @@ interface TreeRowProps {
   isFocused: boolean;
   hasChildren: boolean;
   isExpanded: boolean;
+  /**
+   * Issue #668: true when this row is collapsed *and* the currently selected
+   * node sits somewhere inside its subtree. Mutually exclusive with
+   * `isSelected` (a node is never its own ancestor — see `collectAncestorIds`).
+   */
+  containsSelection: boolean;
   showLevelBadge: boolean;
   onAddChild?: (id: string) => void;
   /** Task 3.1: custom row content override — see `WorkspaceTreeProps.renderRow`. */
@@ -865,8 +994,24 @@ interface TreeRowProps {
    * attributes or handlers at all, exactly as before.
    */
   dragProps?: TreeRowDragProps;
+  /**
+   * Issue #676: translated labels for the row's icon-only controls. Resolved
+   * once in `WorkspaceTree` and handed down rather than calling
+   * `useTranslation()` per row — a large virtualized tree mounts hundreds of
+   * rows and each hook call would add its own i18next subscription.
+   */
+  labels: TreeRowLabels;
   /** REQ-091: extra positioning styles injected by the virtualizer. */
   rowStyle?: CSSProperties;
+}
+
+/** Translated accessible names for the row's icon-only buttons (#676). */
+interface TreeRowLabels {
+  expand: string;
+  collapse: string;
+  addChild: string;
+  /** Issue #668: tooltip on a collapsed row that hides the current selection. */
+  containsSelection: string;
 }
 
 /** Drag & drop wiring handed down from WorkspaceTree to each row. */
@@ -887,6 +1032,7 @@ function TreeRow({
   isFocused,
   hasChildren,
   isExpanded,
+  containsSelection,
   showLevelBadge,
   onAddChild,
   renderRow,
@@ -896,6 +1042,7 @@ function TreeRow({
   onRowRef,
   onFocusRow,
   dragProps,
+  labels,
   rowStyle,
 }: TreeRowProps): JSX.Element {
   // Task 3.1: when a custom row renderer is used (e.g. <ArtifactRow>), it
@@ -925,6 +1072,10 @@ function TreeRow({
       aria-expanded={hasChildren ? isExpanded : undefined}
       tabIndex={isFocused ? 0 : -1}
       data-testid={`${testIdPrefix}-node-${node.id}`}
+      // Issue #668: machine-readable counterpart of the dashed accent below,
+      // so E2E/unit tests can assert the marker without reading colours.
+      data-contains-selection={containsSelection ? 'true' : undefined}
+      title={containsSelection ? labels.containsSelection : undefined}
       className={dragClassName}
       draggable={dragProps ? true : undefined}
       data-dragging={isDragging ? 'true' : undefined}
@@ -968,8 +1119,20 @@ function TreeRow({
         cursor: 'pointer',
         userSelect: 'none',
         background: !hasCustomRow && isSelected ? 'var(--color-card-active-bg)' : 'transparent',
-        borderLeft:
-          !hasCustomRow && isSelected
+        // Issue #668: the same 3px left accent the selected row uses, but
+        // dashed — "the selection is *inside* here" rather than "this is it".
+        // Reusing the accent slot keeps the marker free of layout cost (no
+        // extra glyph, no row reflow) and puts it exactly where the eye
+        // already looks for selection state.
+        //
+        // Unlike the solid selected accent this is NOT suppressed for
+        // `hasCustomRow`: a custom row renderer (<ArtifactRow>) owns its own
+        // *selected* chrome, but it only ever sees one artifact and cannot
+        // know that a descendant is selected — that is tree structure, which
+        // only TreeRow has.
+        borderLeft: containsSelection
+          ? '3px dashed var(--color-primary)'
+          : !hasCustomRow && isSelected
             ? '3px solid var(--color-primary)'
             : '3px solid transparent',
         color: 'var(--color-text)',
@@ -1002,7 +1165,7 @@ function TreeRow({
         <button
           type="button"
           data-testid={`${testIdPrefix}-toggle-${node.id}`}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          aria-label={isExpanded ? labels.collapse : labels.expand}
           tabIndex={-1}
           aria-hidden="true"
           onClick={(e) => {
@@ -1015,7 +1178,12 @@ function TreeRow({
             padding: 0,
             border: 'none',
             background: 'transparent',
-            color: 'var(--color-text-muted)',
+            // Issue #668: second, redundant cue on the one control that can
+            // bring the hidden selection back — colour alone on the border
+            // would be a single-channel signal.
+            color: containsSelection
+              ? 'var(--color-primary)'
+              : 'var(--color-text-muted)',
             cursor: 'pointer',
             fontSize: '0.65rem',
             lineHeight: 1,
@@ -1092,8 +1260,8 @@ function TreeRow({
         <button
           type="button"
           data-testid={`${testIdPrefix}-add-child-${node.id}`}
-          aria-label="Add child"
-          title="Add child"
+          aria-label={labels.addChild}
+          title={labels.addChild}
           tabIndex={-1}
           aria-hidden="true"
           onClick={(e) => {

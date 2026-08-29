@@ -452,7 +452,7 @@ export function PromptVariablesSection({
       </div>
 
       {error && (
-        <p data-testid="prompt-variables-error" style={errorStyle}>
+        <p role="alert" data-testid="prompt-variables-error" style={errorStyle}>
           {error}
         </p>
       )}

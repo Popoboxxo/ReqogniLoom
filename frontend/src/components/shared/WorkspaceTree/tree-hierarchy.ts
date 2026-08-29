@@ -12,6 +12,9 @@
  *   - `ArchitectureForm`'s parent dropdown (filters these ids out of the
  *     options)
  *   - `WorkspaceTree`'s drag & drop (refuses these ids as drop targets)
+ *
+ * `collectAncestorIds` is the mirror walk (upwards instead of downwards) and
+ * backs the two selection-visibility behaviours added for issues #668/#665.
  */
 
 /** Minimal shape needed to walk a parent/child hierarchy. */
@@ -55,4 +58,42 @@ export function collectSelfAndDescendantIds(
     }
   }
   return forbidden;
+}
+
+/**
+ * Returns every transitive ancestor of *nodeId*, nearest parent first.
+ *
+ * Used for the two "the selection must stay findable" behaviours in
+ * `WorkspaceTree`:
+ *   - issue #665: expanding this chain reveals a node that was selected from
+ *     outside the tree (global search hit, deep link, trace-spine jump),
+ *   - issue #668: a *collapsed* member of this chain is the row that hides the
+ *     current selection and therefore carries the "contains selection" marker.
+ *
+ * `nodeId` itself is never included — a node is not its own ancestor, and both
+ * call sites need to distinguish "is the selection" from "holds the selection".
+ * Ids with no matching entry in `nodes` (dangling `parentId`, node not loaded
+ * yet) end the walk, and a pre-existing cycle terminates it because every id is
+ * visited at most once.
+ *
+ * @param nodes - Flat hierarchy, in any order.
+ * @param nodeId - The node whose ancestors are wanted.
+ * @returns Ancestor ids ordered from the direct parent up to the root.
+ */
+export function collectAncestorIds(
+  nodes: readonly HierarchyRef[],
+  nodeId: string,
+): string[] {
+  const parentById = new Map<string, string | null>();
+  for (const node of nodes) parentById.set(node.id, node.parentId ?? null);
+
+  const ancestors: string[] = [];
+  const seen = new Set<string>([nodeId]);
+  let cursor = parentById.get(nodeId) ?? null;
+  while (cursor !== null && parentById.has(cursor) && !seen.has(cursor)) {
+    seen.add(cursor);
+    ancestors.push(cursor);
+    cursor = parentById.get(cursor) ?? null;
+  }
+  return ancestors;
 }

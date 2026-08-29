@@ -137,7 +137,7 @@ export function DeriveRequirementForm({
       )}
 
       {error && (
-        <p style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
+        <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
           {error}
         </p>
       )}
