@@ -105,7 +105,11 @@ export interface AuthState {
 // Context
 // ---------------------------------------------------------------------------
 
-const AuthContext = createContext<AuthState | null>(null);
+// Exported (not just via the `useAuth` hook) so ThemeContext can read it
+// with `useContext` directly and tolerate being rendered without an
+// AuthProvider ancestor (existing unit tests render `<ThemeProvider>`
+// standalone) — see ThemeContext.tsx for why that fallback is safe.
+export const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({
   children,
