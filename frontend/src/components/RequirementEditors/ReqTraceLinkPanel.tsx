@@ -84,6 +84,68 @@ const labelStyle: React.CSSProperties = {
   fontSize: 'var(--font-size-sm)',
 };
 
+/**
+ * UI-P3: a link whose far endpoint was soft-deleted. The backend keeps such
+ * links on purpose (audit trail), so they keep arriving from
+ * `GET /tracelinks/` — without this treatment they render exactly like a link
+ * to a live artifact. Hoisted out of JSX for the inline-style ratchet.
+ */
+const outdatedTitleStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--color-text-muted)',
+  textDecoration: 'line-through',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const outdatedBadgeStyle: React.CSSProperties = {
+  background: 'var(--color-badge-neutral-bg)',
+  color: 'var(--color-badge-neutral-text)',
+  padding: '2px 6px',
+  borderRadius: 'var(--radius-full)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  marginLeft: 'var(--space-2)',
+  whiteSpace: 'nowrap',
+};
+
+/**
+ * UI-P3: renders the far endpoint of a link whose artifact was soft-deleted.
+ *
+ * Deliberately *not* a link: every detail route filters outdated rows out
+ * (`AdrService.list_adrs`, `ArchitectureService.list_architecture_elements`,
+ * …), so navigating there would only produce a 404. The row itself stays
+ * visible because the backend keeps the TraceLink on purpose — see
+ * `ArtifactService.resolve_artifact_titles`.
+ */
+function OutdatedEndpointLabel({
+  displayTitle,
+  testId,
+}: {
+  displayTitle: string;
+  testId: string;
+}): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <>
+      <span data-testid={testId} style={outdatedTitleStyle} title={displayTitle}>
+        {displayTitle}
+      </span>
+      <span
+        data-testid={`${testId}-badge`}
+        style={outdatedBadgeStyle}
+        title={t(
+          'tracelinks.outdatedHint',
+          'Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten.'
+        )}
+      >
+        {t('tracelinks.outdated', 'Gelöscht')}
+      </span>
+    </>
+  );
+}
+
 interface ReqTraceLinkPanelProps {
   workspaceId: UUID;
   requirementId: UUID;
@@ -259,6 +321,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         title: neighbor.endpoint.title,
         artifactType: neighbor.endpoint.artifactType,
         relation,
+        isOutdated: neighbor.endpoint.isOutdated,
       });
     }
     return nodes;
@@ -312,6 +375,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         artifactType: endpoint.artifactType,
         displayTitle: endpoint.title || localTitle || formatShortId(endpoint.id),
         route: getArtifactRoute(endpoint.artifactType || 'Requirement', entityId),
+        // UI-P3: the far artifact was soft-deleted but its link is retained
+        // for the audit trail — the row must not look like a live relation.
+        isOutdated: endpoint.isOutdated,
       };
     },
     [selfIds, architectureElementsById, testCasesById, entityIdByArtifactId]
@@ -708,7 +774,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                     // requirement does not actually take part in.
                     const row = resolveLinkRow(link);
                     if (!row) return null;
-                    const { displayTitle, route } = row;
+                    const { displayTitle, route, isOutdated } = row;
 
                     return (
                       <li
@@ -737,27 +803,34 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                         >
                           {getLinkTypeLabel(link.link_type)}
                         </span>
-                        <button
-                          type="button"
-                          data-testid="req-tracelink-arch-title"
-                          onClick={() => navigate(route)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            color: 'var(--color-primary)',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                            fontSize: 'var(--font-size-sm)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontFamily: 'inherit',
-                          }}
-                          title={displayTitle}
-                        >
-                          {displayTitle}
-                        </button>
+                        {isOutdated ? (
+                          <OutdatedEndpointLabel
+                            displayTitle={displayTitle}
+                            testId="req-tracelink-arch-title-outdated"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="req-tracelink-arch-title"
+                            onClick={() => navigate(route)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              color: 'var(--color-primary)',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              fontSize: 'var(--font-size-sm)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontFamily: 'inherit',
+                            }}
+                            title={displayTitle}
+                          >
+                            {displayTitle}
+                          </button>
+                        )}
                         <button
                           data-testid="req-tracelink-delete-btn"
                           onClick={() => setPendingDeleteLinkId(link.id)}
@@ -804,7 +877,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                     // #416: same endpoint resolution as the architecture list.
                     const row = resolveLinkRow(link);
                     if (!row) return null;
-                    const { displayTitle, route } = row;
+                    const { displayTitle, route, isOutdated } = row;
 
                     return (
                       <li
@@ -833,27 +906,34 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                         >
                           {getLinkTypeLabel(link.link_type)}
                         </span>
-                        <button
-                          type="button"
-                          data-testid="req-tracelink-title"
-                          onClick={() => navigate(route)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            color: 'var(--color-primary)',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                            fontSize: 'var(--font-size-sm)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontFamily: 'inherit',
-                          }}
-                          title={displayTitle}
-                        >
-                          {displayTitle}
-                        </button>
+                        {isOutdated ? (
+                          <OutdatedEndpointLabel
+                            displayTitle={displayTitle}
+                            testId="req-tracelink-title-outdated"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="req-tracelink-title"
+                            onClick={() => navigate(route)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              color: 'var(--color-primary)',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              fontSize: 'var(--font-size-sm)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontFamily: 'inherit',
+                            }}
+                            title={displayTitle}
+                          >
+                            {displayTitle}
+                          </button>
+                        )}
                         <button
                           data-testid="req-tracelink-delete-btn"
                           onClick={() => setPendingDeleteLinkId(link.id)}

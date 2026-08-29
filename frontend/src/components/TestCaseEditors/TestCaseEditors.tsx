@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { TestCaseList } from './TestCaseList';
@@ -25,6 +26,8 @@ export default function TestCaseEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('TestCase');
   const { items, item, isLoading, error, refresh } = useTestCaseData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -193,14 +196,7 @@ export default function TestCaseEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-tc-btn',
         }}
-        secondaryActions={[
-          {
-            label: t('interviews.startCta'),
-            onClick: () => navigate('/interviews?start=TestCase'),
-            disabled: !activeWorkspace,
-            testId: 'interview-start-cta',
-          },
-        ]}
+        secondaryActions={[interviewCta]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>

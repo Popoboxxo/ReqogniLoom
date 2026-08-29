@@ -45,6 +45,16 @@ test.describe('PDF Export', () => {
 
   test('[REQ-L2-RF-005] export PDF button visible on requirements page', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
+
+    // UI-consistency P1: Requirements finished its <PageHeader> migration —
+    // its header moved from inside the split-view panel up to page level, and
+    // PDF export / CSV import moved from always-visible `secondaryActions`
+    // into the "⋯" overflow menu, matching Traceability below. The button is
+    // therefore not mounted until the menu is opened.
+    const overflowTrigger = page.locator('[data-testid="page-header-overflow-trigger"]');
+    await expect(overflowTrigger).toBeVisible({ timeout: 10000 });
+    await overflowTrigger.click();
+
     const btn = page.locator('[data-testid="export-pdf-btn"]');
     await expect(btn).toBeVisible({ timeout: 10000 });
   });
@@ -52,12 +62,9 @@ test.describe('PDF Export', () => {
   test('[REQ-L2-RF-006] export PDF button visible on traceability page', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/traceability`);
 
-    // Unlike the Requirements route (which still passes Export PDF as a
-    // legacy `secondaryAction`, i.e. an always-visible button), Traceability
-    // has already been migrated to the shared <PageHeader> contract, where
-    // rare actions such as export live behind the single "⋯" overflow menu
-    // (UI concept ch. 12.1, issue #172 — see PageHeader.tsx). The button is
-    // therefore not mounted until the menu is opened.
+    // Rare actions such as export live behind the single "⋯" overflow menu
+    // (UI concept ch. 12.1, issue #172 — see PageHeader.tsx), so the button
+    // is not mounted until the menu is opened.
     const overflowTrigger = page.locator('[data-testid="page-header-overflow-trigger"]');
     await expect(overflowTrigger).toBeVisible({ timeout: 10000 });
     await overflowTrigger.click();

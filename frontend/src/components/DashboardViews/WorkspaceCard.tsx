@@ -26,10 +26,32 @@ const ACTIVE_BADGE_STYLE: CSSProperties = {
   whiteSpace: "nowrap",
   lineHeight: 1.6,
   // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: never let the flex row
-  // shrink this pill — the workspace-name span below is the one that
-  // truncates instead, so the pill stays fully legible and clear of the
-  // absolutely positioned preset badge.
+  // shrink this pill — the workspace-name span is the one that truncates
+  // instead, so the pill stays fully legible and clear of the absolutely
+  // positioned preset badge. Since the UI-consistency P2 fix the pill no
+  // longer sits in the title row at all (see META_ROW_STYLE), so it does
+  // not compete with the name for horizontal space in the first place.
   flexShrink: 0,
+};
+
+// UI-consistency P2 (dashboard title truncation): the "currently active"
+// pill used to be a second flex child of the title row, next to the
+// workspace name. That row is already ~96px narrower than the card because
+// of the paddingRight reserved for the absolutely positioned preset badge,
+// so on a 260px card the non-shrinkable ~95px pill left roughly 15-30px for
+// the name itself — the ellipsis fix from GESAMTTEST_BERICHT_2026-08-21.md
+// §6 item 2 then correctly, but uselessly, rendered names like
+// "smoke-trace-baseline" as "s…". The pill now shares this second, full-card-
+// width meta row with the terminology label instead, so the title row's
+// entire width belongs to the name.
+const META_ROW_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: "var(--space-2)",
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  minWidth: 0,
 };
 
 // GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: truncates a long workspace
@@ -202,29 +224,32 @@ export function WorkspaceCard({
                 // to always take exactly the row's available width (row
                 // width minus the reserved paddingRight above), making the
                 // truncation deterministic regardless of name length.
+                //
+                // UI-consistency P2: this is now the row's ONLY child (the
+                // "currently active" pill moved to META_ROW_STYLE below), so
+                // that available width is the full card width minus the
+                // preset badge's reserved paddingRight — not what was left
+                // over after a ~95px non-shrinkable pill.
                 flex: "1 1 0%",
                 minWidth: 0,
               }}
             >
-              <span style={NAME_TRUNCATE_STYLE}>{workspace.name}</span>
-              {isActive && (
-                <span
-                  data-testid="workspace-card-active-badge"
-                  title={t("dashboard.activeWorkspace")}
-                  style={ACTIVE_BADGE_STYLE}
-                >
-                  {t("dashboard.activeWorkspace")}
-                </span>
-              )}
+              <span title={workspace.name} style={NAME_TRUNCATE_STYLE}>
+                {workspace.name}
+              </span>
             </h3>
           </div>
-          <div
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {terminologyText}
+          <div style={META_ROW_STYLE}>
+            <span>{terminologyText}</span>
+            {isActive && (
+              <span
+                data-testid="workspace-card-active-badge"
+                title={t("dashboard.activeWorkspace")}
+                style={ACTIVE_BADGE_STYLE}
+              >
+                {t("dashboard.activeWorkspace")}
+              </span>
+            )}
           </div>
         </div>
 

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { IssueList } from './IssueList';
 import { IssueForm } from './IssueForm';
@@ -26,6 +27,8 @@ export default function IssueEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('Issue');
   const { items, item, isLoading, error, refresh } = useIssueData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -138,14 +141,7 @@ export default function IssueEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-issue-btn',
         }}
-        secondaryActions={[
-          {
-            label: t('interviews.startCta'),
-            onClick: () => navigate('/interviews?start=Issue'),
-            disabled: !activeWorkspace,
-            testId: 'interview-start-cta',
-          },
-        ]}
+        secondaryActions={[interviewCta]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
@@ -241,7 +237,7 @@ export default function IssueEditors(): JSX.Element {
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('editor.newNeedTitle', 'e.g. Issue title...')}
+              placeholder={t('issues.titlePlaceholder', 'z. B. Login schlägt bei aktivem SSO fehl')}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',

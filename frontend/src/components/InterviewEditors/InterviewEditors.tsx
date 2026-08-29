@@ -105,6 +105,7 @@ export default function InterviewEditors(): JSX.Element {
         summary={t("interviews.summary", { count: items.length })}
         primaryAction={{
           label: t("interviews.newInterview", "New Interview"),
+          prefixWithPlus: true,
           onClick: openStartDialog,
           testId: "create-interview-btn",
         }}

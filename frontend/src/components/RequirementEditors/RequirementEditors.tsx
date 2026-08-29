@@ -36,6 +36,7 @@ import { EntityTypeProvider } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { RequirementList } from './RequirementList';
 import { RequirementForm } from './RequirementForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
@@ -64,6 +65,8 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('Requirement');
   // GH-443: opt-in to soft-deleted requirements (status="outdated").
   const [includeDeleted, setIncludeDeleted] = useState(false);
   // Issue #672: does the currently-open RequirementForm have unsaved local
@@ -365,47 +368,57 @@ export default function RequirementEditors(): JSX.Element {
   /**
    * Left panel: Requirements list + toolbar
    */
+  /**
+   * Page header — lives at page level, above the SplitView, exactly like
+   * every other artifact route (Adr/Risk/Issue/Needs/TestCase/Architecture).
+   *
+   * It used to be rendered INSIDE `leftPanel` with `density="compact"`, which
+   * is the migration step UI concept ch. 6.1/17 step 3 left open. That made
+   * Requirements the one route whose <h1> was 18px instead of 30px and whose
+   * header was as narrow as the list panel (~520px) rather than the page
+   * (~1160px) — the single most visible header divergence in the app.
+   *
+   * PDF export and CSV import move into `overflowActions`: per this
+   * component's own contract they are rare actions, and keeping them as
+   * visible buttons would leave Requirements with three secondary buttons
+   * where every other route has exactly one. The interview CTA stays in
+   * `secondaryActions` so it sits in the same place on all seven routes.
+   */
+  const pageHeader = (
+    <PageHeader
+      title={t('nav.requirements')}
+      summary={t('requirements.summary', { count: requirements.length })}
+      primaryAction={{
+        // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
+        // GH-343): every other artifact route reads "New <Entity>".
+        label: t('requirements.newRequirement'),
+        prefixWithPlus: true,
+        onClick: toggleCreateForm,
+        testId: 'create-req-btn',
+      }}
+      secondaryActions={[interviewCta]}
+      overflowActions={[
+        {
+          label: t('requirements.exportPdf', 'PDF-Export'),
+          onClick: () => void handleExportPdf(),
+          disabled: isExportingPdf || requirements.length === 0,
+          testId: 'export-pdf-btn',
+        },
+        {
+          label: t('requirements.importCsv', 'CSV-Import'),
+          onClick: () => navigate('/import'),
+          disabled: !activeWorkspace,
+          testId: 'csv-import-toolbar-btn',
+        },
+      ]}
+    />
+  );
+
+  /**
+   * Left panel: Requirements list + toolbar
+   */
   const leftPanel = (
     <div>
-      {/* Page header — title, live count and primary/secondary actions
-          (issue #172: was a bare <h3> with the primary action buried under
-          the filters below; now matches the Architecture/Glossary pattern). */}
-      <PageHeader
-        title={t('nav.requirements')}
-        // This header sits INSIDE the narrow split-view panel, not at page
-        // level, so it keeps the smaller heading until the Requirements
-        // route is migrated in its own step (UI concept ch. 6.1/17 step 3).
-        density="compact"
-        count={{ shown: requirements.length, total: requirements.length }}
-        primaryAction={{
-          // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
-          // GH-343): every other artifact route reads "New <Entity>".
-          label: t('requirements.newRequirement'),
-          onClick: toggleCreateForm,
-          testId: 'create-req-btn',
-        }}
-        secondaryActions={[
-          {
-            label: 'PDF',
-            onClick: () => void handleExportPdf(),
-            disabled: isExportingPdf || requirements.length === 0,
-            testId: 'export-pdf-btn',
-          },
-          {
-            label: t('import.upload', 'CSV'),
-            onClick: () => navigate('/import'),
-            disabled: !activeWorkspace,
-            testId: 'csv-import-toolbar-btn',
-          },
-          {
-            label: t('interviews.startCta'),
-            onClick: () => navigate('/interviews?start=Requirement'),
-            disabled: !activeWorkspace,
-            testId: 'interview-start-cta',
-          },
-        ]}
-      />
-
       {/* #340: failures of the header actions (PDF export) and of the list's
           row actions (delete) have no form to attach to — they surface here,
           right under the header that triggered them. */}
@@ -523,43 +536,31 @@ export default function RequirementEditors(): JSX.Element {
             </p>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+            {/* issue #719: the create dialog now uses the same shared
+                btn-secondary/btn-primary pair and the same "Erstellen"
+                (not "Speichern") verb as the Adr/Risk/Issue/TestCase create
+                dialogs. The hand-rolled inline styles below reproduced
+                btn-primary imprecisely — different padding and no shared
+                disabled/hover treatment — which is exactly the divergence
+                the audit flagged. */}
             <button
               data-testid="req-new-cancel-btn"
               type="button"
+              className="btn-secondary"
               onClick={handleCancelCreate}
               disabled={isCreating}
-              style={{
-                background: 'var(--color-surface)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-3)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: isCreating ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-              }}
             >
               {t('actions.cancel')}
             </button>
             <button
               data-testid="req-new-save-btn"
               type="submit"
+              className="btn-primary"
               // BUG-02: title is required — disable rather than silently
               // substitute a placeholder title on submit.
               disabled={isCreating || !newTitle.trim()}
-              style={{
-                background: 'var(--color-primary)',
-                color: 'var(--color-on-primary)',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-3)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: isCreating || !newTitle.trim() ? 'not-allowed' : 'pointer',
-                opacity: isCreating || !newTitle.trim() ? 0.6 : 1,
-                fontWeight: 600,
-              }}
             >
-              {isCreating ? t('actions.saving') : t('actions.save')}
+              {isCreating ? t('actions.saving') : t('actions.create', 'Erstellen')}
             </button>
           </div>
         </form>
@@ -726,13 +727,24 @@ export default function RequirementEditors(): JSX.Element {
           />
         </Dialog>
       )}
-      <SplitView
-        leftPanel={leftPanel}
-        rightPanel={rightPanel}
-        leftMinWidth={260}
-        leftMaxWidthPercent={70}
-        moduleType="requirements"
-      />
+      {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
+          page level, SplitView filling the rest. */}
+      <div
+        data-testid="requirements-page"
+        style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+      >
+        {pageHeader}
+
+        <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+          <SplitView
+            leftPanel={leftPanel}
+            rightPanel={rightPanel}
+            leftMinWidth={260}
+            leftMaxWidthPercent={70}
+            moduleType="requirements"
+          />
+        </div>
+      </div>
     </>
   );
 }

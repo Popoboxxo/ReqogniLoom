@@ -695,6 +695,7 @@ export default function TraceabilityView(): JSX.Element {
           actions={[
             {
               label: t("traceability.create"),
+          prefixWithPlus: true,
               onClick: () => setShowCreateDialog(true),
               testId: "traceability-empty-create",
             },

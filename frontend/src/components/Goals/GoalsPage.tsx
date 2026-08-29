@@ -39,12 +39,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { goalsApi } from "../../api/goals";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { PageHeader } from "../shared/PageHeader";
+import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { SplitView } from "../SplitView/SplitView";
@@ -73,8 +73,9 @@ interface PendingTransition {
 
 export default function GoalsPage(): JSX.Element {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta("Goal");
   const workspaceId = activeWorkspace?.id;
 
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -359,18 +360,12 @@ export default function GoalsPage(): JSX.Element {
         summary={summary}
         primaryAction={{
           label: t("goals.newGoal", "Neues Ziel"),
+          prefixWithPlus: true,
           onClick: openCreateDialog,
           disabled: Boolean(form),
           testId: "create-goal-btn",
         }}
-        secondaryActions={[
-          {
-            label: t("interviews.startCta"),
-            onClick: () => navigate("/interviews?start=Goal"),
-            disabled: !activeWorkspace,
-            testId: "interview-start-cta",
-          },
-        ]}
+        secondaryActions={[interviewCta]}
       />
       <div className={styles.splitHost}>
         <SplitView

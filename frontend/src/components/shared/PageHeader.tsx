@@ -27,7 +27,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./PageHeader.module.css";
 
-interface PageHeaderAction {
+export interface PageHeaderAction {
   label: string;
   onClick: () => void;
   disabled?: boolean;

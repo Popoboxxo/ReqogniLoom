@@ -133,7 +133,17 @@ export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListPro
             'adrs.emptyDescription',
             'Architecture decision records capture why the system is built the way it is.',
           )}
-          actions={[{ label: t('adrs.newAdr', 'New ADR'), onClick: onCreateNew, testId: 'adr-list-empty-create' }]}
+          actions={[
+            {
+              // #594 / issue #719: same "+ " gesture marker as the PageHeader
+              // primary action that triggers the identical create flow — the
+              // two buttons must not read differently for the same action.
+              label: t('adrs.newAdr', 'New ADR'),
+              prefixWithPlus: true,
+              onClick: onCreateNew,
+              testId: 'adr-list-empty-create',
+            },
+          ]}
         />
       ) : visible.length === 0 ? (
         // ch. 13.3: "there is something, just not under this filter" — offer

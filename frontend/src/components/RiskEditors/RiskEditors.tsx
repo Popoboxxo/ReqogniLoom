@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { RiskList } from './RiskList';
 import { RiskForm } from './RiskForm';
@@ -26,6 +27,8 @@ export default function RiskEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('Risk');
   const { items, item, isLoading, error, refresh } = useRiskData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -138,14 +141,7 @@ export default function RiskEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-risk-btn',
         }}
-        secondaryActions={[
-          {
-            label: t('interviews.startCta'),
-            onClick: () => navigate('/interviews?start=Risk'),
-            disabled: !activeWorkspace,
-            testId: 'interview-start-cta',
-          },
-        ]}
+        secondaryActions={[interviewCta]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
@@ -240,7 +236,7 @@ export default function RiskEditors(): JSX.Element {
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('editor.newNeedTitle', 'e.g. Risk title...')}
+              placeholder={t('risks.titlePlaceholder', 'z. B. Ausfall der Datenbank im Peak-Load')}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',

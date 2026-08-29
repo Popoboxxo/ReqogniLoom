@@ -18,6 +18,7 @@ import {
   inferSelfArtifactId,
   neighborOf,
 } from "./traceEndpoints";
+import type { TraceEndpoint } from "./traceEndpoints";
 import type { TraceLink } from "../types";
 
 const ART_L1 = "11111111-1111-1111-1111-111111111111";
@@ -47,13 +48,54 @@ describe("endpointOf", () => {
       id: ART_L1,
       title: "L1 requirement",
       artifactType: "Requirement",
+      isOutdated: false,
     });
     expect(endpointOf(link(), "target").id).toBe(ART_L2);
   });
 
   it("degrades to empty strings for pre-REQ-002 payloads", () => {
     const bare = link({ source_title: undefined, source_type: undefined });
-    expect(endpointOf(bare, "source")).toEqual({ id: ART_L1, title: "", artifactType: "" });
+    expect(endpointOf(bare, "source")).toEqual({
+      id: ART_L1,
+      title: "",
+      artifactType: "",
+      isOutdated: false,
+    });
+  });
+
+  /**
+   * UI-P3: a soft-deleted endpoint keeps its TraceLink (audit trail), so the
+   * link keeps arriving from the API. Without the flag every surface rendered
+   * it as a live neighbour — that is the bug this field exists to close.
+   */
+  it("propagates the per-side outdated flag", () => {
+    const partiallyDead = link({ source_is_outdated: false, target_is_outdated: true });
+    expect(endpointOf(partiallyDead, "source").isOutdated).toBe(false);
+    expect(endpointOf(partiallyDead, "target").isOutdated).toBe(true);
+  });
+
+  it("treats a pre-UI-P3 payload without the flag as live", () => {
+    const bare = link({ source_is_outdated: undefined, target_is_outdated: undefined });
+    expect(endpointOf(bare, "source").isOutdated).toBe(false);
+    expect(endpointOf(bare, "target").isOutdated).toBe(false);
+  });
+});
+
+describe("neighborOf outdated propagation (UI-P3)", () => {
+  it("reports the far endpoint as dead, not the near one", () => {
+    // The requirement being viewed is ART_L1 and is alive; its neighbour
+    // ART_L2 was soft-deleted.
+    const dead = link({ source_is_outdated: false, target_is_outdated: true });
+    const neighbor = neighborOf(dead, new Set([ART_L1]));
+    expect(neighbor?.endpoint.id).toBe(ART_L2);
+    expect(neighbor?.endpoint.isOutdated).toBe(true);
+  });
+
+  it("keeps a live neighbour live when the near side is the dead one", () => {
+    const dead = link({ source_is_outdated: true, target_is_outdated: false });
+    const neighbor = neighborOf(dead, new Set([ART_L1]));
+    expect(neighbor?.endpoint.id).toBe(ART_L2);
+    expect(neighbor?.endpoint.isOutdated).toBe(false);
   });
 });
 
@@ -172,7 +214,12 @@ describe("title helpers", () => {
   });
 
   it("falls back from title to local title to shortened id", () => {
-    const endpoint = { id: ART_L1, title: "", artifactType: "Requirement" };
+    const endpoint: TraceEndpoint = {
+      id: ART_L1,
+      title: "",
+      artifactType: "Requirement",
+      isOutdated: false,
+    };
     expect(endpointLabel({ ...endpoint, title: "Backend title" })).toBe("Backend title");
     expect(endpointLabel(endpoint, "Local title")).toBe("Local title");
     expect(endpointLabel(endpoint)).toBe(formatShortId(ART_L1));

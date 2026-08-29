@@ -330,6 +330,7 @@ export default function IcdView(): JSX.Element {
         summary={t("icds.summary", { count: icds.length })}
         primaryAction={{
           label: t("icds.create"),
+          prefixWithPlus: true,
           onClick: openCreateForm,
           testId: "create-icd-btn",
         }}
