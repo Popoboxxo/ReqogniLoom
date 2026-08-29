@@ -5,7 +5,7 @@
 > **Parent:** L1_Gesamtsystem_Requirements.md
 > **Datum:** 2026-06-20
 > **Status:** formalisiert
-> **Designation:** LEAF (terminal, keine L3-Zerlegung)
+> **Designation:** Composite (L3-Zerlegung in Components/-Unterverzeichnis mit 4 Komponenten: COMP-BL-001 bis COMP-BL-004)
 
 ---
 

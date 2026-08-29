@@ -58,6 +58,7 @@ from .definition_store import (
     WorkflowDefinitionDTO,
     WorkflowDefinitionError,
     WorkflowDefinitionStore,
+    get_state_meta,
 )
 from .lifecycle_manager import (
     StateLifecycleManager,
@@ -692,6 +693,118 @@ def outdated_item_ids(
     return qs.values_list("item_id", flat=True)
 
 
+def terminal_positive_states(
+    workspace_id: UUID | str, item_type: str
+) -> frozenset[str]:
+    """Return the states of *item_type*'s active workflow that count as
+    "done, successfully" — i.e. **not** open work-in-progress (SYSTEMAUDIT
+    SA-56).
+
+    Naively defining "open" as ``status != "approved"`` is preset-blind: it
+    silently mislabels every state that lies *beyond* "approved" (Extended's
+    "implemented"/"verified") as still-open, and mislabels every state in a
+    preset that has no "approved" state at all (Minimal's "done") as
+    permanently open. Both are wrong the same way — the check must be
+    evaluated against the workspace's *actual* active preset/workflow, not a
+    hardcoded literal.
+
+    This derives the answer generically from the workflow definition instead
+    of hardcoding per-preset state name lists (which would silently rot the
+    moment a preset's states are edited via the Workflow Editor, extended-tier
+    custom workflows, or a future preset):
+
+    1. A transition is a genuine approval gate iff :func:`is_approval_gate`
+       says so (``allowed_roles`` excludes ``"editor"`` — reused verbatim, the
+       same concept ``AiDerivationService._auto_approve`` and the ``review.*``
+       MCP tools already rely on).
+    2. Every state reachable (forwards, through any transition) from a gate's
+       ``to_state`` — including the gate target itself — has already passed
+       formal sign-off, so it is "terminal positive" territory (this also
+       correctly covers Extended's "implemented"/"verified", which sit past
+       the "approved" gate on the V-model's right-hand side).
+    3. Presets with no approval gate at all (Minimal: every transition allows
+       ``"editor"``) fall back to graph sinks — states with no outgoing
+       transition — since "done" is still a real finished state even without
+       a formal approver role.
+    4. States flagged ``is_outdated_equivalent`` (e.g. "deprecated") are never
+       terminal-positive: they are a dead end, not a successful completion,
+       so they stay counted as "open" — unchanged from the pre-fix behaviour
+       for that state.
+
+    Never raises: an unconfigured workspace/item_type yields an empty
+    frozenset, so callers degrade to "nothing is terminal positive" (i.e.
+    every status counts as open) rather than failing the read.
+
+    Args:
+        workspace_id: Workspace whose active workflow definition is inspected.
+        item_type:    Entity type key (e.g. ``"Requirement"``).
+
+    Returns:
+        Frozen set of state-name strings that are not "open".
+    """
+    try:
+        definition = _get_store().get_definition(workspace_id, item_type)
+    except WorkflowDefinitionError:
+        return frozenset()
+    if not definition.states:
+        return frozenset()
+
+    workflow_json = _get_store().get_workflow_json(workspace_id, item_type)
+
+    def _is_outdated_equivalent(state: str) -> bool:
+        return bool(get_state_meta(workflow_json, state).get("is_outdated_equivalent"))
+
+    adjacency: dict[str, list[str]] = {}
+    gate_targets: set[str] = set()
+    for t in definition.transitions:
+        adjacency.setdefault(t.from_state, []).append(t.to_state)
+        if is_approval_gate(t):
+            gate_targets.add(t.to_state)
+
+    def _reachable_from(start: str) -> set[str]:
+        seen = {start}
+        stack = [start]
+        while stack:
+            current = stack.pop()
+            for nxt in adjacency.get(current, ()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        return seen
+
+    if gate_targets:
+        candidates: set[str] = set()
+        for target in gate_targets:
+            candidates |= _reachable_from(target)
+    else:
+        candidates = {s for s in definition.states if not adjacency.get(s)}
+
+    # SYSTEMAUDIT AP-7 review MEDIUM-2: a naive forward-reachability walk from
+    # each gate target is fooled by back-edges. If the workflow has a rework
+    # transition that leads from *any* state reachable-from-the-gate back to
+    # (or past) the initial_state — e.g. a ccb_approval-style
+    # "rejected -> draft" edge sitting downstream of "under_review -> rejected"
+    # — `_reachable_from(gate_target)` walks straight through it and pulls in
+    # practically the entire graph, because `_is_outdated_equivalent` only
+    # filters the literal "rejected"/"deprecated" state, not everything
+    # reachable *from* it. Such a state is not a genuine terminal-positive
+    # completion: it can still cycle back to square one, so it must keep
+    # counting as "open". Fix: drop every candidate from which initial_state
+    # is (still) reachable — i.e. every state that sits on a cycle back to the
+    # start, not just a true dead end. This also naturally excludes
+    # initial_state itself if it ever ended up in `candidates` (it trivially
+    # reaches itself), which is correct — the starting state is never
+    # terminal-positive. With the 3 current requirement presets this is a
+    # no-op (verified — no preset has a cycle back to its initial_state from
+    # gate-reachable territory), but it is one Workflow-Editor click away from
+    # silently breaking count_open_requirements (SA-56) for a custom/
+    # extended-tier workflow with a rework transition.
+    initial_state = definition.initial_state
+    candidates = {s for s in candidates if initial_state not in _reachable_from(s)}
+
+    return frozenset(s for s in candidates if not _is_outdated_equivalent(s))
+
+
 def create_default_workflow(
     workspace_id: UUID | str,
     preset: str,
@@ -964,6 +1077,7 @@ __all__ = [
     "list_item_states",
     "get_history",
     "outdated_item_ids",
+    "terminal_positive_states",
     "create_default_workflow",
     "update_custom_workflow",
     "add_definition_state",

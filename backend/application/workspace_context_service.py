@@ -51,11 +51,21 @@ def _set_tenant(tenant_id: UUID) -> None:
 def count_open_requirements(
     *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
 ) -> int:
-    """Return the number of requirements that are not yet approved.
+    """Return the number of requirements that are not yet "done".
 
-    "Open" means ``status != "approved"``. Soft-deleted (``"outdated"``)
-    requirements are only counted when the caller explicitly asks for them
-    (REQ-006).
+    "Open" means "not in a terminal-positive state of the workspace's active
+    Requirement workflow" (SYSTEMAUDIT SA-56) — resolved per-workspace via
+    :func:`workflow.services.terminal_positive_states`, not a hardcoded
+    ``status != "approved"`` literal. That literal was preset-blind: it
+    wrongly counted Extended's "implemented"/"verified" requirements (both
+    *past* the approval gate) as still-open, and — for Minimal, which has no
+    "approved" state at all — it counted every "done" requirement as open too.
+
+    Soft-deleted (``"outdated"``) requirements are only counted when the
+    caller explicitly asks for them (REQ-006); ``"outdated"`` is the universal
+    soft-delete pseudo-state and is never a member of a preset's declared
+    ``terminal_positive_states`` (see ``workflow.definition_store`` module
+    docstring), so the two exclusions never overlap.
 
     Args:
         workspace_id:     Workspace to scope to.
@@ -66,11 +76,13 @@ def count_open_requirements(
         The count of open requirements.
     """
     from persistence.models import Requirement
+    from workflow.services import terminal_positive_states
 
     _set_tenant(tenant_id)
-    qs = Requirement.objects.filter(artifact__workspace_id=workspace_id).exclude(
-        status="approved"
-    )
+    done_states = terminal_positive_states(workspace_id, "Requirement")
+    qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+    if done_states:
+        qs = qs.exclude(status__in=done_states)
     if not include_outdated:
         qs = qs.exclude(status="outdated")
     return qs.count()

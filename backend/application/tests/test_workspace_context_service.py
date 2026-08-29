@@ -125,6 +125,229 @@ class TestCountOpenRequirements:
         assert count == 0
 
 
+class TestCountOpenRequirementsPresetAware:
+    """SYSTEMAUDIT SA-56: "open" must be resolved against the workspace's
+    *actual* active workflow, not a hardcoded ``status != "approved"`` literal
+    — otherwise Extended's post-approval V-model states ("implemented",
+    "verified") are wrongly counted as open, and Minimal's "done" requirements
+    (which never carry an "approved" status at all) are wrongly counted as
+    open forever.
+    """
+
+    def _requirement_in_state(self, *, workspace, ctx, tenant, title, status):
+        from application.requirement_service import RequirementService
+
+        svc = RequirementService()
+        req = svc.create_requirement(workspace_id=workspace.id, title=title, ctx=ctx)
+        req.status = status
+        req.save(update_fields=["status"])
+        return req
+
+    def test_extended_implemented_and_verified_are_not_open(self, workspace_ctx):
+        """Requirements past the "approved" gate must not count as open —
+        the pre-fix ``status != "approved"`` check wrongly counted them."""
+        tenant, workspace, ctx = workspace_ctx
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="extended",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        self._requirement_in_state(
+            workspace=workspace, ctx=ctx, tenant=tenant, title="draft", status="draft"
+        )
+        self._requirement_in_state(
+            workspace=workspace,
+            ctx=ctx,
+            tenant=tenant,
+            title="approved",
+            status="approved",
+        )
+        self._requirement_in_state(
+            workspace=workspace,
+            ctx=ctx,
+            tenant=tenant,
+            title="implemented",
+            status="implemented",
+        )
+        self._requirement_in_state(
+            workspace=workspace,
+            ctx=ctx,
+            tenant=tenant,
+            title="verified",
+            status="verified",
+        )
+
+        count = workspace_context_service.count_open_requirements(
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            include_outdated=False,
+        )
+
+        # Only "draft" is still open; approved/implemented/verified are all
+        # past the approval gate.
+        assert count == 1
+
+    def test_minimal_done_is_not_open_despite_no_approved_state(self, workspace_ctx):
+        """Minimal has no "approved" state at all — the pre-fix literal check
+        would count "done" requirements as open forever."""
+        tenant, workspace, ctx = workspace_ctx
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="minimal",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        self._requirement_in_state(
+            workspace=workspace, ctx=ctx, tenant=tenant, title="draft", status="draft"
+        )
+        self._requirement_in_state(
+            workspace=workspace, ctx=ctx, tenant=tenant, title="done", status="done"
+        )
+
+        count = workspace_context_service.count_open_requirements(
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            include_outdated=False,
+        )
+
+        assert count == 1
+
+    def test_standard_approved_is_not_open(self, workspace_ctx):
+        """Standard's ``{"approved"}`` must be recognised as terminal-positive
+        — the middle tier between Minimal ("done") and Extended
+        ("implemented"/"verified")."""
+        tenant, workspace, ctx = workspace_ctx
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        self._requirement_in_state(
+            workspace=workspace, ctx=ctx, tenant=tenant, title="draft", status="draft"
+        )
+        self._requirement_in_state(
+            workspace=workspace,
+            ctx=ctx,
+            tenant=tenant,
+            title="approved",
+            status="approved",
+        )
+
+        count = workspace_context_service.count_open_requirements(
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            include_outdated=False,
+        )
+
+        # Only "draft" is still open; "approved" is Standard's terminal-positive state.
+        assert count == 1
+
+    def test_deprecated_status_still_counts_as_open(self, workspace_ctx):
+        """``is_outdated_equivalent`` states (e.g. "deprecated") are a dead
+        end, not a successful completion — they must keep counting as "open"
+        (point 4 of the ``terminal_positive_states`` contract), not be folded
+        into the terminal-positive set."""
+        tenant, workspace, ctx = workspace_ctx
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        self._requirement_in_state(
+            workspace=workspace,
+            ctx=ctx,
+            tenant=tenant,
+            title="approved",
+            status="approved",
+        )
+        self._requirement_in_state(
+            workspace=workspace,
+            ctx=ctx,
+            tenant=tenant,
+            title="deprecated",
+            status="deprecated",
+        )
+
+        count = workspace_context_service.count_open_requirements(
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            include_outdated=False,
+        )
+
+        # "approved" is done; "deprecated" is a dead end, not a completion,
+        # so it still counts as open.
+        assert count == 1
+
+    def test_terminal_positive_states_excludes_back_edge_rework_cycle(
+        self, workspace_ctx
+    ):
+        """Regression for SYSTEMAUDIT AP-7 review MEDIUM-2: a workflow with a
+        rework back-edge (ccb_approval-style ``under_review -> rejected`` then
+        ``rejected -> draft``) must not have the forward-reachability walk
+        from each approval-gate target swallow the entire graph just because
+        one of the gate targets ("rejected") can cycle back to the start.
+
+        Pre-fix, ``_reachable_from("rejected")`` walks the whole
+        ``rejected -> draft -> submitted -> under_review -> approved ->
+        implemented`` cycle and returns 5 of the preset's 6 states as
+        "terminal positive" (everything except "rejected" itself, filtered
+        only via the literal ``is_outdated_equivalent`` flag) — i.e.
+        practically the entire graph, which would make ``count_open_*``
+        wrongly report almost nothing as open for any workspace configured
+        with this workflow.
+        """
+        from workflow.definition_store import PRESET_SCHEMAS
+        from workflow.models import WorkflowEngineDefinition
+        from workflow.services import terminal_positive_states
+
+        tenant, workspace, _ctx = workspace_ctx
+        TenantContext.set_tenant(tenant.id)
+        try:
+            WorkflowEngineDefinition.unscoped.create(
+                tenant_id=tenant.id,
+                workspace_id=workspace.id,
+                item_type="Requirement",
+                preset="ccb_approval",
+                workflow_json=PRESET_SCHEMAS["ccb_approval"],
+                is_custom=False,
+            )
+            # terminal_positive_states (unlike count_open_requirements) does
+            # not set its own TenantContext — it must be called while the
+            # tenant scope from the definition write above is still active.
+            done_states = terminal_positive_states(workspace.id, "Requirement")
+        finally:
+            TenantContext.clear_tenant()
+
+        # Only "approved" and "implemented" cannot cycle back to "draft"
+        # (the initial_state) — they are the only genuine dead-end successes.
+        # "draft"/"submitted"/"under_review"/"rejected" all sit on the
+        # rejected -> draft rework cycle and must stay "open".
+        assert done_states == frozenset({"approved", "implemented"})
+
+
 class TestEntityCounts:
     def test_response_shape_is_stable(self, workspace_ctx):
         """The MCP contract depends on these exact keys — pin them."""

@@ -460,7 +460,7 @@ python manage.py check && pytest -q
 > **Warning:** It is highly discouraged to run `pytest` against the actual development database, as tests will truncate tables and delete your data. `pytest` automatically creates a separate `test_reqogniloom` database. Use `--keepdb` to persist this test database between runs.
 > For End-to-End Tests (Playwright), the tests *do* run against the actual development environment.
 
-**Status:** ~1,400 tests passing (last verified 2026-06-28 on `feat/se-implementation`).
+**Status:** 5,768 backend tests + 1,363 frontend tests passing; 274 E2E tests via Playwright (last verified 2026-08-27).
 
 ### Frontend Unit Tests (Vitest)
 
@@ -833,7 +833,7 @@ docker-compose exec backend python manage.py migrate
 
 ### Test Coverage & Known Gaps
 
-**Coverage:** ~1,400 pytest unit and integration tests (auth, models, API, workflows, traceability) + 111 Playwright E2E tests (UI flows, MCP tooling).
+**Coverage:** 5,768 pytest unit and integration tests (auth, models, API, workflows, traceability) + 1,363 Vitest frontend tests + 274 Playwright E2E tests (UI flows, MCP tooling).
 
 **Known gaps (by design):**
 
