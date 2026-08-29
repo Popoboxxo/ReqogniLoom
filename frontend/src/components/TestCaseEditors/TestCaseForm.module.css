@@ -1,0 +1,123 @@
+/*
+ * TestCaseForm — form chrome.
+ *
+ * Issue #669: this form built its card, header row, labels, inputs and
+ * section headings from inline `style={{ }}` literals plus two
+ * `React.CSSProperties` constants declared *inside* the component body (i.e.
+ * re-created on every render). `RequirementForm.tsx` — the reference
+ * implementation — keeps that chrome in CSS instead, so the same declaration
+ * set is moved here verbatim.
+ *
+ * Every value is a design token from `src/styles/tokens.css` — no hardcoded
+ * colors or sizes (project convention + the `ui-ratchet` hex-literal guard).
+ */
+
+/* --- Card shell --------------------------------------------------------- */
+
+.card {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.main {
+  flex: 1;
+}
+
+/* --- Header row (identity badges left, actions right) ------------------- */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* --- Fields ------------------------------------------------------------- */
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fieldRow {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.fieldRowItem {
+  flex: 1;
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.requiredMarker {
+  color: var(--color-danger);
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+/* --- Sections / messages ------------------------------------------------ */
+
+.customFieldsSection {
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.sectionHeading {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-md);
+}
+
+.error {
+  margin-bottom: var(--space-4);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.emptyState {
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  text-align: center;
+}

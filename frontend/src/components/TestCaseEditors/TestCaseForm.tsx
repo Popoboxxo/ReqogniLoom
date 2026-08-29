@@ -12,6 +12,8 @@ import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
+import styles from './TestCaseForm.module.css';
 
 interface TestCaseFormProps {
   testCase: TestCase | null;
@@ -152,6 +154,11 @@ export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: Te
     setDeleteError(null);
     try {
       await testcasesApi.delete(testCase.id);
+      // Issue #670: the confirmation is a modal now, not an inline row — it
+      // must be dismissed explicitly on success too, otherwise it keeps
+      // covering the page whenever the parent leaves this form mounted (e.g.
+      // it only refetches instead of clearing the selection).
+      setConfirmDelete(false);
       onDeleted?.();
     } catch (err) {
       console.error(err);
@@ -166,80 +173,75 @@ export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: Te
   };
 
   if (!testCase) {
-    return (
-      <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
-        {t('testcases.selectTestCase')}
-      </p>
-    );
+    return <p className={styles.emptyState}>{t('testcases.selectTestCase')}</p>;
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-    padding: 'var(--space-3)', fontFamily: 'var(--font-sans)', fontSize: 'var(--font-size-base)',
-    marginBottom: 'var(--space-4)', color: 'var(--color-text)', background: 'var(--color-surface)',
-    boxSizing: 'border-box',
-  };
-  const labelStyle: React.CSSProperties = {
-    fontWeight: 500, color: 'var(--color-text)', display: 'block', marginBottom: 'var(--space-1)',
-  };
+  // Issue #669: the former in-body `inputStyle` / `labelStyle`
+  // `React.CSSProperties` constants (re-created on every render) now live in
+  // `TestCaseForm.module.css` as `.input` / `.label`, mirroring how
+  // RequirementForm keeps its chrome out of the TSX.
 
   return (
-    <div style={{
-      background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)',
-      padding: 'var(--space-6)', flex: 1, display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start',
-    }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
-          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+    <div className={styles.card}>
+      <div className={styles.main}>
+        <div className={styles.header}>
+          <div className={styles.identity}>
             <StatusBadge status={testCase.status} label={getWorkflowStatusLabel(testCase.status)} />
             {testCase.version && <VersionBadge version={testCase.version} />}
             <ArtifactId value={testCase.uid} fallback={testCase.id.slice(0, 8)} testId="tc-id" />
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            {!confirmDelete ? (
-              <button data-testid="tc-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
-                {t('actions.delete')}
-              </button>
-            ) : (
-              <>
-                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
-                  {t('actions.deleteConfirmPrompt', 'Löschen?')}
-                </span>
-                <button data-testid="tc-confirm-delete-btn" onClick={handleDelete} className="btn-danger" disabled={isDeleting}>
-                  {isDeleting ? t('actions.deleting', 'Löschen...') : t('actions.confirmDelete', 'Ja, löschen')}
-                </button>
-                <button data-testid="tc-cancel-delete-btn" onClick={() => setConfirmDelete(false)} className="btn-ghost" disabled={isDeleting}>
-                  {t('actions.cancel')}
-                </button>
-              </>
-            )}
+          <div className={styles.headerActions}>
+            <button data-testid="tc-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
+              {t('actions.delete')}
+            </button>
             <button data-testid="tc-save-btn" onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
         </div>
+
+        {/* Issue #670: deletion used to confirm through an inline
+            "Löschen? Ja/Nein" row in this header — one of three competing
+            delete interactions across the artifact forms. All of them now run
+            through the shared <ConfirmDialog>. The historical button testids
+            are preserved so existing E2E selectors keep working. */}
+        {confirmDelete && (
+          <ConfirmDialog
+            title={t('testcases.deleteTitle')}
+            message={t('actions.deleteConfirmPromptNamed', { name: testCase.title })}
+            confirmLabel={isDeleting ? t('actions.deleting') : t('actions.delete')}
+            onConfirm={() => void handleDelete()}
+            onCancel={() => setConfirmDelete(false)}
+            isSubmitting={isDeleting}
+            testId="tc-delete-dialog"
+            confirmTestId="tc-confirm-delete-btn"
+            cancelTestId="tc-cancel-delete-btn"
+          />
+        )}
         {saveError && (
-          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+          <p role="alert" className={styles.error}>
             {saveError}
           </p>
         )}
         {deleteError && (
-          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+          <p role="alert" className={styles.error}>
             {deleteError}
           </p>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        <div className={styles.fields}>
           <div>
-            <label htmlFor="tc-title" style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
-            <input id="tc-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" />
+            <label htmlFor="tc-title" className={styles.label}>
+              {t('editor.title')} <span className={styles.requiredMarker}>*</span>
+            </label>
+            <input id="tc-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} className={styles.input} aria-required="true" />
           </div>
           <div>
-            <label style={labelStyle}>{t('editor.description')}</label>
+            <label className={styles.label}>{t('editor.description')}</label>
             <MarkdownPreview value={formData.description || ''} onChange={(v) => handleChange('description', v)} />
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('editor.status')}</label>
+          <div className={styles.fieldRow}>
+            <div className={styles.fieldRowItem}>
+              <label className={styles.label}>{t('editor.status')}</label>
               {/* REQ-165: WorkflowEngine-driven status editor (replaces the
                   hardcoded status select). */}
               <WorkflowStatusEditor
@@ -255,8 +257,8 @@ export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: Te
           {/* REQ-162: Change Control — Extended preset only. */}
           {isExtendedPreset && (
             <div>
-              <label htmlFor="tc-change-reason" style={labelStyle}>
-                {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+              <label htmlFor="tc-change-reason" className={styles.label}>
+                {t('req.changeReason')} <span className={styles.requiredMarker}>*</span>
               </label>
               <textarea
                 id="tc-change-reason"
@@ -267,7 +269,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: Te
                   if (saveError) setSaveError(null);
                 }}
                 rows={2}
-                style={{ ...inputStyle, resize: 'vertical' }}
+                className={`${styles.input} ${styles.textarea}`}
                 placeholder={t('req.changeReasonPlaceholder')}
               />
             </div>
@@ -275,10 +277,8 @@ export function TestCaseForm({ testCase, onSaved, onDeleted, onDirtyChange }: Te
         </div>
 
         {/* SECTION: Custom Fields */}
-        <div style={{ marginBottom: 'var(--space-6)', marginTop: 'var(--space-6)' }}>
-          <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-            {t('customFields.section')}
-          </h3>
+        <div className={styles.customFieldsSection}>
+          <h3 className={styles.sectionHeading}>{t('customFields.section')}</h3>
           <CustomFieldsEditor
             value={testCase.custom_fields}
             onChange={(newFields) => handleChange('custom_fields', newFields)}
