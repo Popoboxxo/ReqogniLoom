@@ -121,6 +121,20 @@ RUN mkdir -p "${HF_HOME}" \
     && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
     && chown -R app:app "${HF_HOME}"
 
+# Codeberg Gesamttest 2026-08-29 F-1: even with the model files fully cached
+# above, huggingface_hub still contacts huggingface.co on every process
+# preload/first-use to *revalidate* the local cache (ETag HEAD/GET
+# round-trips) -- ~15 HTTP calls / ~3.5s wasted per cold worker, since this
+# image already bakes the exact pinned model weights in and never expects
+# them to change out from under it. HF_HUB_OFFLINE=1 makes huggingface_hub
+# skip that revalidation entirely and read straight from HF_HOME. Set here
+# (not just as a docker-compose env var) so it applies to every process that
+# runs from this image, including one-off `docker run`/CI invocations that
+# don't go through docker-compose.yml. The HF_HUB_ETAG_TIMEOUT=5 default set
+# in llm_adapter/apps.py remains as a safety net for the case this variable
+# is ever unset/overridden at runtime.
+ENV HF_HUB_OFFLINE=1
+
 # Ensure working directory is owned by app user
 RUN chown -R app:app /app
 
