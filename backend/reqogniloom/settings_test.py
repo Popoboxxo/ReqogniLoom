@@ -146,6 +146,23 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Static files — plain, non-manifest storage. settings.py's
+# CompressedManifestStaticFilesStorage (SA-40, WhiteNoise) requires a
+# staticfiles.json manifest built by `collectstatic`, which no test pipeline
+# runs. Without this override, any view that renders a template with a
+# {% static %} tag (e.g. django.contrib.admin's login page) raises
+# ValueError: Missing staticfiles manifest entry — this broke
+# persistence/tests/test_admin_login.py in CI. Tests need static URLs to
+# resolve, not the production hashing/compression behind them.
+# ---------------------------------------------------------------------------
+STORAGES = {
+    **STORAGES,
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Password hashing — MD5 is much faster than the default PBKDF2 hasher and is
 # acceptable because no test password needs to be secure.
 # ---------------------------------------------------------------------------
