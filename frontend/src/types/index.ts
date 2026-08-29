@@ -292,6 +292,16 @@ export interface TraceLink {
   source_type?: string;
   /** REQ-002: artifact type of the target. */
   target_type?: string;
+  /**
+   * UI-P3: the source artifact has been soft-deleted (workflow `outdate()`).
+   * TraceLinks deliberately survive the soft-delete of an endpoint so the audit
+   * trail stays intact, so such a link is still returned by the API — this flag
+   * is the only way to tell it apart from a link to a live artifact.
+   * Absent in pre-UI-P3 API responses; treat `undefined` as `false`.
+   */
+  source_is_outdated?: boolean;
+  /** UI-P3: the target artifact has been soft-deleted. See `source_is_outdated`. */
+  target_is_outdated?: boolean;
 }
 
 // ---------------------------------------------------------------------------

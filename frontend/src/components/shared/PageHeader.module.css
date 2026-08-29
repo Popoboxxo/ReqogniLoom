@@ -13,6 +13,20 @@
   gap: var(--space-3);
   row-gap: var(--space-2);
   margin-bottom: var(--space-4);
+
+  /*
+   * issue #314, follow-up: the width constraint used to be duplicated by the
+   * caller — only ArchitectureEditors wrapped <PageHeader> in a
+   * `max-width: 100%; box-sizing: border-box` div, so it was the single route
+   * that could not push its actions row past the available width. Owning the
+   * constraint here means every call site gets it, and no future route has to
+   * remember to re-add the wrapper. `min-width: 0` additionally lets the
+   * header shrink when it is itself a flex item whose automatic minimum size
+   * would otherwise be its content's min-content width.
+   */
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /*

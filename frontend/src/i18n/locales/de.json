@@ -261,6 +261,9 @@
     "empty": "Kein Workspace gefunden.",
     "changeMode": "SE-Modus in Workspace-Einstellungen ändern",
     "summary": "{{count}} Workspace(s) verfügbar.",
+    "summaryFiltered": "{{shown}} von {{total}} Workspace(s) angezeigt.",
+    "searchPlaceholder": "Workspaces nach Namen filtern …",
+    "noSearchMatch": "Kein Workspace passt zu „{{query}}“.",
     "activeWorkspace": "Aktuell aktiv"
   },
   "editor": {
@@ -433,7 +436,9 @@
     "downstream": "Ausgehend",
     "empty": "Keine Links vorhanden.",
     "loadFailed": "Trace-Links konnten nicht geladen werden.",
-    "deleteFailed": "Trace-Link konnte nicht gelöscht werden."
+    "deleteFailed": "Trace-Link konnte nicht gelöscht werden.",
+    "outdated": "Gelöscht",
+    "outdatedHint": "Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten."
   },
   "createTraceLinkDialog": {
     "title": "Trace-Link erstellen",
@@ -638,6 +643,7 @@
     "supersededBy": "Abgelöst durch: {{title}}"
   },
   "risks": {
+    "titlePlaceholder": "z. B. Ausfall der Datenbank im Peak-Load",
     "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",
     "createFailed": "Risiko konnte nicht erstellt werden.",
     "saveFailed": "Risiko konnte nicht gespeichert werden.",
@@ -678,6 +684,7 @@
     "onlyActive": "Nur aktive Verknüpfungen"
   },
   "issues": {
+    "titlePlaceholder": "z. B. Login schlägt bei aktivem SSO fehl",
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
     "createFailed": "Problem konnte nicht erstellt werden.",
     "saveFailed": "Problem konnte nicht gespeichert werden.",
@@ -1395,6 +1402,9 @@
   },
   "requirements": {
     "newRequirement": "Neue Anforderung",
+    "summary": "{{count}} Anforderungen",
+    "exportPdf": "PDF-Export",
+    "importCsv": "CSV-Import",
     "similar": {
       "heading": "Ähnliche Anforderungen",
       "findButton": "Ähnliche finden",
@@ -1926,7 +1936,7 @@
     "summary_other": "{{count}} Interviews",
     "newInterview": "Neues Interview",
     "newInterviewDescription": "Wähle, was du erarbeiten willst — der Assistent befragt dich interaktiv dazu.",
-    "startCta": "Lieber im Dialog erstellen?",
+    "startCta": "Im Dialog erstellen",
     "emptyTitle": "Noch keine Interviews",
     "emptyDescription": "Ein Interview führt dich im Dialog statt per leerem Formular zu einem neuen Artefakt.",
     "selectInterview": "Interview-Sitzung auswählen",

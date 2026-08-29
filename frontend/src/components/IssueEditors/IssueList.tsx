@@ -132,7 +132,16 @@ export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueLis
             'issues.emptyDescription',
             'Issues track defects, improvements and open questions for this workspace.',
           )}
-          actions={[{ label: t('issues.newIssue', 'New Issue'), onClick: onCreateNew, testId: 'issue-list-empty-create' }]}
+          actions={[
+            {
+              // #594 / issue #719: same "+ " gesture marker as the PageHeader
+              // primary action that triggers the identical create flow.
+              label: t('issues.newIssue', 'New Issue'),
+              prefixWithPlus: true,
+              onClick: onCreateNew,
+              testId: 'issue-list-empty-create',
+            },
+          ]}
         />
       ) : visible.length === 0 ? (
         // ch. 13.3: "there is something, just not under this filter" — offer

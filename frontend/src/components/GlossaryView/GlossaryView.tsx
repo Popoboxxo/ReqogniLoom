@@ -680,11 +680,20 @@ export default function GlossaryView(): JSX.Element {
 
   return (
     <div data-testid="glossary-view" className={styles.viewRoot}>
+      {/* No `secondaryActions` here on purpose: the interview CTA that the
+          other artifact routes carry is deliberately absent, because a
+          glossary term is not an interview-capable artifact type — see
+          INTERVIEW_ARTIFACT_TYPES in constants/interviewArtifactTypes.ts,
+          which lists the eight types the interview engine can produce and
+          does not include glossary terms. This is a real gap in the header's
+          action row, not an oversight; please do not "fix" it by adding a
+          CTA that would navigate to a `?start=` value the engine rejects. */}
       <PageHeader
         title={t("nav.glossary", "Glossary")}
         summary={t("glossary.summary", { count: terms.length, defaultValue: "{{count}} Begriffe" })}
         primaryAction={{
           label: t("glossary.addTerm"),
+          prefixWithPlus: true,
           onClick: openCreateForm,
           testId: "create-glossary-term-btn",
         }}

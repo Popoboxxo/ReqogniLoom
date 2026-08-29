@@ -132,7 +132,16 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
             'risks.emptyDescription',
             'Risks capture what could go wrong and how it is being mitigated.',
           )}
-          actions={[{ label: t('risks.newRisk', 'New Risk'), onClick: onCreateNew, testId: 'risk-list-empty-create' }]}
+          actions={[
+            {
+              // #594 / issue #719: same "+ " gesture marker as the PageHeader
+              // primary action that triggers the identical create flow.
+              label: t('risks.newRisk', 'New Risk'),
+              prefixWithPlus: true,
+              onClick: onCreateNew,
+              testId: 'risk-list-empty-create',
+            },
+          ]}
         />
       ) : visible.length === 0 ? (
         // ch. 13.3: "there is something, just not under this filter" — offer

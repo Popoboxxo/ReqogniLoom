@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { TraceLink, UUID, type LinkType } from "../../types";
@@ -17,6 +17,30 @@ interface TraceLinkPanelProps {
   onDerive?: () => void;
   isDeriving?: boolean;
 }
+
+/**
+ * UI-P3: badge marking a link whose far endpoint was soft-deleted. Such links
+ * are retained by the backend on purpose (audit trail), so they keep arriving
+ * from `GET /tracelinks/` and previously rendered as ordinary, live links.
+ * Named constant rather than an inline literal — see `src/test/ui-ratchet.test.ts`.
+ */
+const outdatedBadgeStyle: CSSProperties = {
+  fontSize: "0.7rem",
+  background: "var(--color-badge-neutral-bg)",
+  color: "var(--color-badge-neutral-text)",
+  padding: "2px 6px",
+  borderRadius: "var(--radius-full)",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
+/** Muted, struck-through label for a soft-deleted endpoint. */
+const outdatedLabelStyle: CSSProperties = {
+  fontSize: "0.85rem",
+  color: "var(--color-text-muted)",
+  fontFamily: "monospace",
+  textDecoration: "line-through",
+};
 
 export function TraceLinkPanel({
   workspaceId,
@@ -137,12 +161,32 @@ export function TraceLinkPanel({
   const upstream = links.filter((l) => l.target_id === artifactId);
   const downstream = links.filter((l) => l.source_id === artifactId);
 
+  /**
+   * UI-P3: is the *far* endpoint of this link soft-deleted?
+   *
+   * The panel classifies a link by comparing against the raw `artifactId` it
+   * queried with (see the #512 endpoint-echo contract in
+   * `rest_api/views.py::TraceLinkViewSet.list`), so the far side is the source
+   * for an upstream link and the target for a downstream one.
+   */
+  const isOtherEndpointOutdated = (trace: TraceLink): boolean =>
+    trace.target_id === artifactId
+      ? (trace.source_is_outdated ?? false)
+      : (trace.target_is_outdated ?? false);
+
+  // Links to soft-deleted artifacts stay visible (audit trail) but must not
+  // inflate the "how many live relations does this artifact have" counters.
+  const liveUpstreamCount = upstream.filter((l) => !isOtherEndpointOutdated(l)).length;
+  const liveDownstreamCount = downstream.filter((l) => !isOtherEndpointOutdated(l)).length;
+
   const renderLinkItem = (trace: TraceLink, otherId: string) => {
     const label = refsById[otherId]?.title || otherId.slice(0, 8);
     const route = refsById[otherId]?.route;
+    const isOutdated = isOtherEndpointOutdated(trace);
     return (
       <li
         key={trace.id}
+        data-testid={isOutdated ? `trace-link-outdated-${trace.id}` : undefined}
         style={{
           background: "var(--color-surface-raised)",
           border: "1px solid var(--color-border)",
@@ -152,6 +196,7 @@ export function TraceLinkPanel({
           gap: "var(--space-3)",
           alignItems: "center",
           marginBottom: "var(--space-2)",
+          opacity: isOutdated ? 0.65 : 1,
         }}
       >
         <span
@@ -169,7 +214,26 @@ export function TraceLinkPanel({
         >
           {getLinkTypeLabel(trace.link_type)}
         </span>
-        {route ? (
+        {isOutdated ? (
+          // The artifact is soft-deleted: every detail route filters outdated
+          // rows out, so linking there would only produce a 404. Render a dead,
+          // struck-through label plus an explicit badge instead.
+          <>
+            <span data-testid={`trace-link-label-${trace.id}`} style={outdatedLabelStyle}>
+              {label}
+            </span>
+            <span
+              data-testid={`trace-link-outdated-badge-${trace.id}`}
+              style={outdatedBadgeStyle}
+              title={t(
+                "tracelinks.outdatedHint",
+                "Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten."
+              )}
+            >
+              {t("tracelinks.outdated", "Gelöscht")}
+            </span>
+          </>
+        ) : route ? (
           <button
              type="button"
              data-testid={`trace-link-open-${trace.id}`}
@@ -293,7 +357,7 @@ export function TraceLinkPanel({
           {/* Upstream / Incoming */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.upstream", "Incoming")} {upstream.length > 0 && <span style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{upstream.length}</span>}
+              {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <span data-testid="trace-link-upstream-count" style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{liveUpstreamCount}</span>}
             </h4>
             {upstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
@@ -308,7 +372,7 @@ export function TraceLinkPanel({
           {/* Downstream / Outgoing */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.downstream", "Outgoing")} {downstream.length > 0 && <span style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{downstream.length}</span>}
+              {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <span data-testid="trace-link-downstream-count" style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{liveDownstreamCount}</span>}
             </h4>
             {downstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>

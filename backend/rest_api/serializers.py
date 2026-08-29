@@ -929,6 +929,28 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="",
         help_text="Artifact type of the target (e.g. Requirement, ArchitectureElement).",
     )
+    # UI-P3: soft-deleted endpoints. TraceLinks survive the soft-delete of an
+    # endpoint on purpose (audit trail), so the link is still listed here —
+    # these flags let the client tell such a link apart from a live one instead
+    # of rendering a deleted artifact as a normal neighbour.
+    source_is_outdated = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        default=False,
+        help_text=(
+            "True when the source artifact has been soft-deleted via "
+            "workflow outdate(). The link is retained for the audit trail."
+        ),
+    )
+    target_is_outdated = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        default=False,
+        help_text=(
+            "True when the target artifact has been soft-deleted via "
+            "workflow outdate(). The link is retained for the audit trail."
+        ),
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )

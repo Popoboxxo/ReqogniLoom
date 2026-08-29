@@ -20,6 +20,12 @@ Covers:
   - ``traceability.audit.remediation._stakeholder_need_artifact_ids``
   - ``application.traceability_suggest_service`` StakeholderNeed candidate pool
     (TRACE-P1/P1b)
+  - ``application.artifact_service.ArtifactService.resolve_artifact_titles``
+    (UI-P3) — the TraceLink endpoint resolver. Unlike the helpers above it does
+    not *exclude* soft-deleted artifacts (their TraceLinks are preserved on
+    purpose for the audit trail); it reports them via ``is_outdated`` so the
+    presentation layer can render them as dead. Excluding here would only strip
+    the title and degrade the row to a raw UUID stub.
 """
 from __future__ import annotations
 
@@ -229,3 +235,136 @@ class TestTraceDerivationAllocationExcludesOutdated:
 
         assert outdated_req_and_arch["kept_need_artifact_id"] in result
         assert outdated_req_and_arch["deleted_need_artifact_id"] not in result
+
+
+@pytest.fixture
+def outdated_adr(tenant_a, workspace_a):
+    """One kept + one soft-deleted ADR, both with a backing Artifact.
+
+    ADR is registered in ``_STATUS_MIRROR_MODELS``, so ``outdate()`` writes
+    ``Adr.status = "outdated"`` — the value ``AdrService.list_adrs`` filters on.
+    """
+    from application.models import Adr
+
+    ctx = _make_ctx(tenant_a)
+    with active_tenant(tenant_a):
+        create_default_workflow(
+            workspace_id=workspace_a.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=tenant_a.id,
+        )
+
+        def _adr(title):
+            artifact = make_artifact(tenant_a, workspace_a, artifact_type="Adr")
+            adr = Adr.objects.create(
+                artifact=artifact,
+                workspace_id=workspace_a.id,
+                tenant_id=tenant_a.id,
+                title=title,
+                description="d",
+            )
+            return artifact, adr
+
+        kept_art, kept = _adr("Kept ADR")
+        deleted_art, deleted = _adr("Deleted ADR")
+
+        outdate(
+            item_id=deleted.id,
+            item_type="Adr",
+            workspace_id=workspace_a.id,
+            ctx=ctx,
+            reason="test soft-delete",
+        )
+        deleted.refresh_from_db()
+
+    return {
+        "kept_artifact_id": str(kept_art.id),
+        "deleted_artifact_id": str(deleted_art.id),
+        "deleted_status": deleted.status,
+    }
+
+
+class TestResolveArtifactTitlesMarksOutdated:
+    """UI-P3: soft-deleted artifacts kept rendering as live trace-link targets.
+
+    ``AdrService.delete_adr`` deliberately leaves the TraceLinks in place
+    ("TraceLinks are preserved for audit trail purposes"), so
+    ``GET /api/v1/tracelinks/`` keeps returning a link to a deleted ADR. The
+    endpoint resolver enriched it with a title and an artifact type but said
+    nothing about its lifecycle, so the Requirement detail page showed it as an
+    ordinary, clickable, named neighbour — and counted it as a live relation.
+    """
+
+    def test_outdate_writes_the_status_mirror(self, outdated_adr):
+        """Guard the premise: if ADR ever leaves ``_STATUS_MIRROR_MODELS`` the
+        assertions below would silently pass against an unwritten column."""
+        assert outdated_adr["deleted_status"] == "outdated"
+
+    def test_marks_soft_deleted_adr_without_dropping_its_title(
+        self, tenant_a, outdated_adr
+    ):
+        from application.artifact_service import ArtifactService
+
+        with active_tenant(tenant_a):
+            result = ArtifactService().resolve_artifact_titles(
+                [outdated_adr["kept_artifact_id"], outdated_adr["deleted_artifact_id"]]
+            )
+
+        kept = result[outdated_adr["kept_artifact_id"]]
+        deleted = result[outdated_adr["deleted_artifact_id"]]
+
+        assert kept["is_outdated"] is False
+        assert deleted["is_outdated"] is True
+        # The title is deliberately still resolved — the row stays readable and
+        # the client greys it out instead of showing a bare UUID.
+        assert kept["title"] == "Kept ADR"
+        assert deleted["title"] == "Deleted ADR"
+
+    def test_marks_soft_deleted_requirement_via_status_mirror(
+        self, tenant_a, outdated_req_and_arch
+    ):
+        from application.artifact_service import ArtifactService
+
+        with active_tenant(tenant_a):
+            result = ArtifactService().resolve_artifact_titles(
+                [
+                    outdated_req_and_arch["kept_req_artifact_id"],
+                    outdated_req_and_arch["deleted_req_artifact_id"],
+                ]
+            )
+
+        assert result[outdated_req_and_arch["kept_req_artifact_id"]]["is_outdated"] is False
+        assert result[outdated_req_and_arch["deleted_req_artifact_id"]]["is_outdated"] is True
+
+    def test_marks_soft_deleted_architecture_element_via_workflow_state(
+        self, tenant_a, outdated_req_and_arch
+    ):
+        """ArchitectureElement has no status mirror — ``outdate()`` writes only
+        ``WorkflowItemState``. Reading the dead ``lifecycle_status`` column
+        (or a non-existent ``status`` one) would report it as live forever."""
+        from application.artifact_service import ArtifactService
+
+        with active_tenant(tenant_a):
+            result = ArtifactService().resolve_artifact_titles(
+                [
+                    outdated_req_and_arch["kept_ae_artifact_id"],
+                    outdated_req_and_arch["deleted_ae_artifact_id"],
+                ]
+            )
+
+        assert result[outdated_req_and_arch["kept_ae_artifact_id"]]["is_outdated"] is False
+        assert result[outdated_req_and_arch["deleted_ae_artifact_id"]]["is_outdated"] is True
+
+    def test_every_resolved_entry_carries_the_flag(self, tenant_a, outdated_adr):
+        """The REST layer reads ``is_outdated`` off every entry — a missing key
+        would silently degrade to "live" for whole entity families."""
+        from application.artifact_service import ArtifactService
+
+        with active_tenant(tenant_a):
+            result = ArtifactService().resolve_artifact_titles(
+                [outdated_adr["kept_artifact_id"], outdated_adr["deleted_artifact_id"]]
+            )
+
+        assert result
+        assert all("is_outdated" in entry for entry in result.values())

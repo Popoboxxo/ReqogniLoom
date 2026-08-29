@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { AdrList } from './AdrList';
 import { AdrForm } from './AdrForm';
@@ -26,6 +27,8 @@ export default function AdrEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('Adr');
   const { items, item, isLoading, error, refresh } = useAdrData(selectedId);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -155,14 +158,7 @@ export default function AdrEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-adr-btn',
         }}
-        secondaryActions={[
-          {
-            label: t('interviews.startCta'),
-            onClick: () => navigate('/interviews?start=Adr'),
-            disabled: !activeWorkspace,
-            testId: 'interview-start-cta',
-          },
-        ]}
+        secondaryActions={[interviewCta]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>

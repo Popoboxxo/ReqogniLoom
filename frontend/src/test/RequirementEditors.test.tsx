@@ -665,6 +665,14 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     const user = userEvent.setup();
     renderEditor();
 
+    // UI-consistency P1: the PDF export is a rare action and now lives in the
+    // page header's overflow menu (same as Architecture's export/decompose
+    // entries), so it has to be opened before the item exists in the DOM.
+    await waitFor(() =>
+      expect(screen.getByTestId("page-header-overflow-trigger")).toBeEnabled()
+    );
+    await user.click(screen.getByTestId("page-header-overflow-trigger"));
+
     await waitFor(() =>
       expect(screen.getByTestId("export-pdf-btn")).toBeEnabled()
     );

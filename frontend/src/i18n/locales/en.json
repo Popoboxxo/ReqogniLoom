@@ -261,6 +261,9 @@
     "empty": "No workspace found.",
     "changeMode": "Change SE mode in workspace settings",
     "summary": "{{count}} workspace(s) available.",
+    "summaryFiltered": "Showing {{shown}} of {{total}} workspace(s).",
+    "searchPlaceholder": "Filter workspaces by name …",
+    "noSearchMatch": "No workspace matches \"{{query}}\".",
     "activeWorkspace": "Currently active"
   },
   "editor": {
@@ -433,7 +436,9 @@
     "downstream": "Outgoing",
     "empty": "No links yet.",
     "loadFailed": "Trace links could not be loaded.",
-    "deleteFailed": "Trace link could not be deleted."
+    "deleteFailed": "Trace link could not be deleted.",
+    "outdated": "Deleted",
+    "outdatedHint": "The linked artifact was deleted. The link is retained for the audit trail."
   },
   "createTraceLinkDialog": {
     "title": "Create Trace Link",
@@ -638,6 +643,7 @@
     "supersededBy": "Superseded by: {{title}}"
   },
   "risks": {
+    "titlePlaceholder": "e.g. Database outage under peak load",
     "selectRisk": "Select a risk from the list to view details.",
     "createFailed": "Failed to create risk.",
     "saveFailed": "Failed to save risk.",
@@ -678,6 +684,7 @@
     "onlyActive": "Active links only"
   },
   "issues": {
+    "titlePlaceholder": "e.g. Login fails when SSO is enabled",
     "selectIssue": "Select an issue from the list to view details.",
     "createFailed": "Failed to create issue.",
     "saveFailed": "Failed to save issue.",
@@ -1395,6 +1402,9 @@
   },
   "requirements": {
     "newRequirement": "New Requirement",
+    "summary": "{{count}} requirements",
+    "exportPdf": "Export as PDF",
+    "importCsv": "Import from CSV",
     "similar": {
       "heading": "Similar Requirements",
       "findButton": "Find Similar",
@@ -1926,7 +1936,7 @@
     "summary_other": "{{count}} interviews",
     "newInterview": "New Interview",
     "newInterviewDescription": "Pick what you want to brainstorm — the assistant will interview you for it.",
-    "startCta": "Prefer to create it in a dialog?",
+    "startCta": "Create via guided dialog",
     "emptyTitle": "No interviews yet",
     "emptyDescription": "An interview walks you through a dialogue instead of a blank form to create a new artifact.",
     "selectInterview": "Select an interview session",

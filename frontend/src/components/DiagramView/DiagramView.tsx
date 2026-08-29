@@ -85,6 +85,7 @@ export default function DiagramView(): JSX.Element {
         summary={t("diagrams.summary", { count: items.length })}
         primaryAction={{
           label: t("diagrams.create", "New Diagram"),
+          prefixWithPlus: true,
           onClick: openCreateForm,
           testId: "create-diagram-btn",
         }}

@@ -2384,6 +2384,8 @@ class TraceLinkViewSet(BaseEntityViewSet):
                                 "target_title": "",
                                 "source_type": "",
                                 "target_type": "",
+                                "source_is_outdated": False,
+                                "target_is_outdated": False,
                             }
                         )
                 except Exception:
@@ -2410,6 +2412,14 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 item["target_title"] = tgt.get("title", "")
                 item["source_type"] = src.get("artifact_type", "")
                 item["target_type"] = tgt.get("artifact_type", "")
+                # UI-P3: see _tracelink_to_dict — a soft-deleted endpoint keeps
+                # its link (audit trail) and must be marked, not silently
+                # dropped. The *near* endpoint is the raw id the caller queried
+                # with (possibly an entity id, per the #512 echo contract), so
+                # it never resolves here and stays False — correct, since the
+                # artifact being viewed is by definition the live one.
+                item["source_is_outdated"] = bool(src.get("is_outdated", False))
+                item["target_is_outdated"] = bool(tgt.get("is_outdated", False))
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -3929,6 +3939,10 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
         d["target_title"] = tgt.get("title", "")
         d["source_type"] = src.get("artifact_type", "")
         d["target_type"] = tgt.get("artifact_type", "")
+        # UI-P3: an endpoint soft-deleted via outdate() keeps its TraceLink
+        # (audit trail) — flag it so the client does not render it as live.
+        d["source_is_outdated"] = bool(src.get("is_outdated", False))
+        d["target_is_outdated"] = bool(tgt.get("is_outdated", False))
     return d
 
 

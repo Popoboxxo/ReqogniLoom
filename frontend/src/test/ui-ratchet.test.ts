@@ -244,8 +244,35 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // styles that were already correctly fixed — the opposite of what this
 // ratchet exists to enforce. Baseline lowered to the genuinely measured
 // value in the same change per the ratchet rule above.
+//
+// UI-consistency P2 (dashboard workspace-name truncation): `WorkspaceCard.tsx`
+// moved the "currently active" pill out of the title row into a new, hoisted
+// `META_ROW_STYLE` meta row shared with the terminology label, replacing that
+// row's former inline object literal (-1). `DashboardViews.tsx` gained a
+// workspace-name filter in the same change but adds none: it reuses the
+// shared `ListToolbar` and hoists its own wrapper onto `SEARCH_ROW_STYLE`.
+// Net -1 against origin/main's 1068.
+//
+// UI-consistency P1 (shared page header, issue #719): the Requirements and
+// Architecture create dialogs replaced hand-rolled inline button styling with
+// the shared `btn-primary`/`btn-secondary` classes (-4), and
+// `ArchitectureEditors` lost the wrapper div whose inline width constraint
+// moved into `PageHeader.module.css` (-1). `RequirementEditors` gained the
+// two-literal page shell (flex column + SplitView host) that every other
+// artifact route already uses (+2). Net -3 against origin/main's 1068.
+//
+// The P1 and P2 changes above were developed independently in the same working
+// tree and each lowered this constant against origin/main's 1068 in isolation
+// (P2 -> 1067, P1 -> 1065), unaware of the other. Both deltas are real and
+// additive (they touch disjoint files), so the combined value is
+// 1068 - 1 - 3 = 1064. Re-measured on the merged tree: 1064, matching the
+// arithmetic exactly. Baseline lowered to the measured value per the ratchet
+// rule above. The trace-link outdated-marking change landed in the same tree
+// and contributes 0: its new "deleted artifact" badge and label in
+// `TraceLinkPanel.tsx` pass the hoisted `outdatedBadgeStyle`/`outdatedLabelStyle`
+// constants, which do not match this pattern.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1068;
+const STYLE_BRACE_BASELINE = 1064;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

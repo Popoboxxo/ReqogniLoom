@@ -15,6 +15,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { NeedList } from './NeedList';
 import { NeedForm } from './NeedForm';
@@ -33,6 +34,8 @@ export default function NeedsEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace, workspaces } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('StakeholderNeed');
   const { needs, need, isLoading, error, refresh } = useNeedData(selectedId);
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -238,14 +241,7 @@ export default function NeedsEditors(): JSX.Element {
           disabled: showCreate,
           testId: 'create-need-btn',
         }}
-        secondaryActions={[
-          {
-            label: t('interviews.startCta'),
-            onClick: () => navigate('/interviews?start=StakeholderNeed'),
-            disabled: !activeWorkspace,
-            testId: 'interview-start-cta',
-          },
-        ]}
+        secondaryActions={[interviewCta]}
       />
       <SplitView
       leftPanel={

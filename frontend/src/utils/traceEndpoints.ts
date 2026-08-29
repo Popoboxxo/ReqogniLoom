@@ -42,6 +42,14 @@ export interface TraceEndpoint {
   title: string;
   /** Backend-resolved artifact type ("Requirement", "TestCase", ...). */
   artifactType: string;
+  /**
+   * UI-P3: the artifact behind this endpoint has been soft-deleted
+   * (`workflow.services.outdate()`), yet the link survives on purpose for the
+   * audit trail. Surfaces must render such a neighbour as dead — and must not
+   * count it as a live relation — instead of showing it like any other link.
+   * `false` for pre-UI-P3 API responses that omit the backend flag.
+   */
+  isOutdated: boolean;
 }
 
 /** Direction of a link as seen from the artifact currently being rendered. */
@@ -82,11 +90,13 @@ export function endpointOf(link: TraceLink, side: "source" | "target"): TraceEnd
         id: link.source_id,
         title: link.source_title ?? "",
         artifactType: link.source_type ?? "",
+        isOutdated: link.source_is_outdated ?? false,
       }
     : {
         id: link.target_id,
         title: link.target_title ?? "",
         artifactType: link.target_type ?? "",
+        isOutdated: link.target_is_outdated ?? false,
       };
 }
 

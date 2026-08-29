@@ -23,6 +23,7 @@ import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
+import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
@@ -76,6 +77,8 @@ export default function ArchitectureEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta("ArchitectureElement");
   const { elements, element, isLoading, error, refresh } =
     useArchitectureData(selectedId);
 
@@ -528,20 +531,27 @@ export default function ArchitectureEditors(): JSX.Element {
           />
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button data-testid="arch-new-cancel-btn" type="button" onClick={handleCancelCreate}
-              style={{
-                background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >{t('actions.cancel', 'Cancel')}</button>
-            <button data-testid="arch-new-save-btn" type="submit" disabled={!newTitle.trim()}
-              style={{
-                background: 'var(--color-primary)', color: 'var(--color-on-primary)', border: 'none',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >{t('actions.create', 'Erstellen')}</button>
+            {/* issue #719: shared btn-secondary/btn-primary pair, same as the
+                Adr/Risk/Issue/TestCase/Requirement create dialogs. The inline
+                styles this replaces had no disabled treatment at all, so the
+                submit button looked enabled while `!newTitle.trim()` blocked
+                it. */}
+            <button
+              data-testid="arch-new-cancel-btn"
+              type="button"
+              className="btn-secondary"
+              onClick={handleCancelCreate}
+            >
+              {t('actions.cancel', 'Cancel')}
+            </button>
+            <button
+              data-testid="arch-new-save-btn"
+              type="submit"
+              className="btn-primary"
+              disabled={!newTitle.trim()}
+            >
+              {t('actions.create', 'Erstellen')}
+            </button>
           </div>
         </form>
         </Dialog>
@@ -824,50 +834,44 @@ export default function ArchitectureEditors(): JSX.Element {
           overflow menu. Replaces the <h3> + "+ New" pair that used to sit
           inside the narrow list panel. `create-arch-btn` keeps its test id —
           it is referenced by nine e2e specs.
-          issue #314: this is the only route combining `primaryAction` with
-          `overflowActions`; constrain the wrapper to the available width so
-          it can never push the header's flex row wider than the viewport. */}
-      <div style={{ padding: "0 var(--space-4)", maxWidth: "100%", boxSizing: "border-box" }}>
-        <PageHeader
-          title={t("nav.architecture")}
-          summary={archSummary}
-          primaryAction={{
-            label: t("arch.newElement"),
-            prefixWithPlus: true,
-            onClick: () => setShowCreateForm(true),
-            disabled: showCreateForm,
-            testId: "create-arch-btn",
-          }}
-          secondaryActions={[
-            {
-              label: t("interviews.startCta"),
-              onClick: () => navigate("/interviews?start=ArchitectureElement"),
-              disabled: !activeWorkspace,
-              testId: "interview-start-cta",
-            },
-          ]}
-          overflowActions={[
-            {
-              label: t("archDecompose.trigger", "KI-Zerlegung"),
-              onClick: () => setShowDecomposePanel(true),
-              disabled: !element || !activeWorkspace,
-              testId: "arch-decompose-overflow-btn",
-            },
-            {
-              label: t("bundleExport.trigger", "Requirement-Bundle exportieren"),
-              onClick: () => setShowBundleExportPanel(true),
-              disabled: !element || !activeWorkspace,
-              testId: "arch-bundle-export-overflow-btn",
-            },
-            {
-              // ch. 12.8: the dialog title repeats this label verbatim.
-              label: t("archLegend.trigger", "Legende"),
-              onClick: () => setShowLegend(true),
-              testId: "arch-legend-btn",
-            },
-          ]}
-        />
-      </div>
+          The issue #314 width constraint that used to live in a wrapper div
+          here now belongs to <PageHeader> itself, so every route gets it.
+          The wrapper's extra `padding: 0 var(--space-4)` went with it: it was
+          unique to this route and inset the Architecture header by 16px
+          against the six other artifact routes, which is exactly the
+          divergence this header is supposed to remove. */}
+      <PageHeader
+        title={t("nav.architecture")}
+        summary={archSummary}
+        primaryAction={{
+          label: t("arch.newElement"),
+          prefixWithPlus: true,
+          onClick: () => setShowCreateForm(true),
+          disabled: showCreateForm,
+          testId: "create-arch-btn",
+        }}
+        secondaryActions={[interviewCta]}
+        overflowActions={[
+          {
+            label: t("archDecompose.trigger", "KI-Zerlegung"),
+            onClick: () => setShowDecomposePanel(true),
+            disabled: !element || !activeWorkspace,
+            testId: "arch-decompose-overflow-btn",
+          },
+          {
+            label: t("bundleExport.trigger", "Requirement-Bundle exportieren"),
+            onClick: () => setShowBundleExportPanel(true),
+            disabled: !element || !activeWorkspace,
+            testId: "arch-bundle-export-overflow-btn",
+          },
+          {
+            // ch. 12.8: the dialog title repeats this label verbatim.
+            label: t("archLegend.trigger", "Legende"),
+            onClick: () => setShowLegend(true),
+            testId: "arch-legend-btn",
+          },
+        ]}
+      />
 
       {/* Legend — the first user of the real <Dialog> primitive
           (ch. 12.8): portal, focus trap, Escape, focus back to the

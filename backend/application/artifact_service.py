@@ -54,6 +54,12 @@ logger = logging.getLogger(__name__)
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
 _UNSET = object()
 
+#: Universal soft-delete state written by ``workflow.services.outdate()``.
+#: Mirrored into ``<Model>.status`` for the types registered in
+#: ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, and recorded only in
+#: ``WorkflowItemState`` for the ones that are not (e.g. ArchitectureElement).
+_OUTDATED_STATE = "outdated"
+
 
 def _clean_custom_fields(value: object) -> dict:
     """Validate + normalize custom_fields at the service boundary (REQ-L2-AS-037).
@@ -404,12 +410,42 @@ class ArtifactService(ServiceBase):
     def resolve_artifact_titles(
         self, artifact_ids: List[Any]
     ) -> "Dict[str, Dict[str, Any]]":
-        """Batch-resolve artifact IDs to ``{title, artifact_type}`` dicts.
+        """Batch-resolve artifact IDs to ``{title, artifact_type, is_outdated}``.
 
         REQ-002: Provides human-readable labels for TraceLink endpoints without
-        N+1 queries. Runs at most 6 DB queries regardless of the number of
-        links: one Artifact query for types + one per domain entity table.
+        N+1 queries. Runs a small, constant number of DB queries regardless of
+        the number of links: one Artifact query for types + one per domain
+        entity table (+1 for the ArchitectureElement workflow-state lookup).
         REQ-066: ORM access lives in the service layer, not the REST view.
+
+        ``is_outdated`` reports whether the backing entity has been soft-deleted
+        via ``workflow.services.outdate()``. TraceLinks are deliberately
+        *preserved* when their endpoint is soft-deleted (see
+        ``AdrService.delete_adr``: "TraceLinks are preserved for audit trail
+        purposes"), so the link keeps showing up in
+        ``GET /api/v1/tracelinks/``. Without this flag every consumer rendered
+        such a link as a perfectly live, named neighbour — indistinguishable
+        from a link to an existing artifact. The title is still resolved on
+        purpose: dropping it would only degrade the row to a raw UUID stub and
+        hide *why* it looks odd. Marking lets the presentation layer grey the
+        row out and keep it out of "live neighbour" counts.
+
+        Soft-delete is recorded in two different places depending on the entity:
+
+        * Types registered in ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``
+          (Requirement, StakeholderNeed, TestCase, Adr) carry a mirrored
+          ``status="outdated"`` column — the same value ``AdrService.list_adrs``
+          and the SE-Auditor rule helpers filter on.
+        * ``ArchitectureElement`` has **no** mirror: ``outdate()`` writes only
+          ``WorkflowItemState`` and never touches the dead ``lifecycle_status``
+          column, so its state must be read via
+          ``workflow.services.outdated_item_ids`` (same idiom as
+          ``ArchitectureService.list_architecture_elements``).
+
+        Only the literal state ``"outdated"`` counts as soft-deleted. Business-
+        terminal states (an ADR's ``Rejected``/``Superseded``, a Requirement's
+        ``deprecated``) stay live on purpose — see the contract note on
+        ``workflow.services.outdated_item_ids``.
         """
         from persistence.models import (
             ArchitectureElement,
@@ -431,17 +467,43 @@ class ArtifactService(ServiceBase):
             result[str(art["id"])] = {
                 "title": "",
                 "artifact_type": art["artifact_type"],
+                "is_outdated": False,
             }
 
         # Each domain entity is OneToOne on Artifact — a single artifact_id__in
         # scan per table enriches all matching entries without N+1 queries.
-        for model in (Requirement, ArchitectureElement, StakeholderNeed, TestCase):
+        # These three mirror their workflow state into their own ``status``
+        # column, so it comes along in the same values() projection for free.
+        for model in (Requirement, StakeholderNeed, TestCase):
             for row in model.objects.filter(artifact_id__in=str_ids).values(
-                "artifact_id", "title"
+                "artifact_id", "title", "status"
             ):
                 key = str(row["artifact_id"])
                 if key in result:
                     result[key]["title"] = row["title"] or ""
+                    result[key]["is_outdated"] = row["status"] == _OUTDATED_STATE
+
+        # ArchitectureElement has no status mirror — consult WorkflowItemState.
+        ae_rows = list(
+            ArchitectureElement.objects.filter(artifact_id__in=str_ids).values(
+                "id", "artifact_id", "title"
+            )
+        )
+        if ae_rows:
+            from workflow.services import outdated_item_ids
+
+            # Narrow the state lookup to the elements actually referenced here
+            # instead of materializing every outdated element of the tenant.
+            outdated_ae_ids = set(
+                outdated_item_ids("ArchitectureElement").filter(
+                    item_id__in=[row["id"] for row in ae_rows]
+                )
+            )
+            for row in ae_rows:
+                key = str(row["artifact_id"])
+                if key in result:
+                    result[key]["title"] = row["title"] or ""
+                    result[key]["is_outdated"] = row["id"] in outdated_ae_ids
 
         # ADR lives in the application layer (not persistence) — import locally
         # to avoid circular imports (adr_service imports TraceLinkService).
@@ -449,11 +511,12 @@ class ArtifactService(ServiceBase):
             from application.models import Adr
 
             for row in Adr.objects.filter(artifact_id__in=str_ids).values(
-                "artifact_id", "title"
+                "artifact_id", "title", "status"
             ):
                 key = str(row["artifact_id"])
                 if key in result:
                     result[key]["title"] = row["title"] or ""
+                    result[key]["is_outdated"] = row["status"] == _OUTDATED_STATE
         except Exception:  # noqa: BLE001 — ADR model absent in some test configs
             pass
 

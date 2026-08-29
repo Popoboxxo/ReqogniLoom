@@ -52,6 +52,12 @@ export interface HierarchyNode {
   artifactType: string;
   /** Position relative to the node above it; undefined for a root. */
   relation?: HierarchyRelation;
+  /**
+   * UI-P3: the artifact was soft-deleted (`workflow.services.outdate()`) but
+   * its TraceLink survives for the audit trail, so it still shows up here.
+   * Rendered as a dead node instead of a normal, clickable neighbour.
+   */
+  isOutdated?: boolean;
 }
 
 interface RequirementTreeNodeProps {
@@ -87,6 +93,29 @@ const TREE_RETRY_BUTTON_STYLE: CSSProperties = {
   fontFamily: 'inherit',
   textDecoration: 'underline',
   cursor: 'pointer',
+};
+
+/** UI-P3: dead, non-navigable label for a soft-deleted neighbour. */
+const TREE_OUTDATED_TITLE_STYLE: CSSProperties = {
+  fontSize: 'var(--font-size-sm)',
+  fontFamily: 'inherit',
+  color: 'var(--color-text-muted)',
+  textDecoration: 'line-through',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  flex: 1,
+};
+
+/** UI-P3: badge naming the reason the node above is dead. */
+const TREE_OUTDATED_BADGE_STYLE: CSSProperties = {
+  fontSize: 'var(--font-size-xs)',
+  background: 'var(--color-badge-neutral-bg)',
+  color: 'var(--color-badge-neutral-text)',
+  padding: '2px 8px',
+  borderRadius: 'var(--radius-full)',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
 };
 
 export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
@@ -150,6 +179,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           title: neighbor.endpoint.title,
           artifactType: neighbor.endpoint.artifactType,
           relation,
+          isOutdated: neighbor.endpoint.isOutdated,
         });
       }
       setChildNodes(nodes);
@@ -251,29 +281,54 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           {node.artifactType || 'Req'}
         </span>
 
-        <button
-          type="button"
-          onClick={handleTitleClick}
-          data-testid="req-tree-title"
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            color: 'var(--color-primary)',
-            cursor: 'pointer',
-            textDecoration: 'underline',
-            fontSize: 'var(--font-size-sm)',
-            fontFamily: 'inherit',
-            textAlign: 'left',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-          }}
-          title={displayTitle}
-        >
-          {displayTitle}
-        </button>
+        {node.isOutdated ? (
+          // UI-P3: the artifact is soft-deleted. Every detail route filters
+          // outdated rows out, so a link here would only 404 — render a dead
+          // label plus an explicit badge rather than a live-looking neighbour.
+          <>
+            <span
+              data-testid="req-tree-title-outdated"
+              style={TREE_OUTDATED_TITLE_STYLE}
+              title={displayTitle}
+            >
+              {displayTitle}
+            </span>
+            <span
+              data-testid="req-tree-outdated-badge"
+              style={TREE_OUTDATED_BADGE_STYLE}
+              title={t(
+                'tracelinks.outdatedHint',
+                'Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten.'
+              )}
+            >
+              {t('tracelinks.outdated', 'Gelöscht')}
+            </span>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={handleTitleClick}
+            data-testid="req-tree-title"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--color-primary)',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              fontSize: 'var(--font-size-sm)',
+              fontFamily: 'inherit',
+              textAlign: 'left',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+            }}
+            title={displayTitle}
+          >
+            {displayTitle}
+          </button>
+        )}
       </div>
 
       {expanded && (
