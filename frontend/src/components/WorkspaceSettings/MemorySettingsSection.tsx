@@ -85,7 +85,7 @@ export function MemorySettingsSection({ workspaceId }: Props): JSX.Element {
       </label>
 
       {error && (
-        <p className={styles.error} data-testid="memory-settings-error">
+        <p role="alert" className={styles.error} data-testid="memory-settings-error">
           {error}
         </p>
       )}

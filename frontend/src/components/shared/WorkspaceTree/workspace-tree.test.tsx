@@ -27,6 +27,14 @@ import userEvent from '@testing-library/user-event';
 import { WorkspaceTree } from './workspace-tree';
 import type { WorkspaceTreeNode, WorkspaceTreeProps } from './workspace-tree';
 
+// Issue #676: WorkspaceTree resolves its own label defaults through i18n now,
+// so `t` has to exist. Echoing the key back (repo-wide test convention, cf.
+// `create-trace-link-dialog.test.tsx`) keeps the assertions below able to
+// prove *which* key a default came from.
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+}));
+
 // ---------------------------------------------------------------------------
 // Test data
 // ---------------------------------------------------------------------------
@@ -116,6 +124,40 @@ describe('WorkspaceTree — flat nodes', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #676 — translated label defaults (no hardcoded English fallbacks)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — i18n label defaults (#676)', () => {
+  it('falls back to the editor.empty key when no emptyLabel is passed', () => {
+    renderTree({ nodes: [] });
+    expect(screen.getByTestId('workspace-tree-empty')).toHaveTextContent(
+      'editor.empty',
+    );
+  });
+
+  it('falls back to the editor.searchPlaceholder key for the built-in search', () => {
+    render(<WorkspaceTree nodes={FLAT_NODES} onSelect={vi.fn()} showSearch />);
+    expect(screen.getByTestId('workspace-tree-search')).toHaveAttribute(
+      'placeholder',
+      'editor.searchPlaceholder',
+    );
+  });
+
+  it('uses translated accessible names for the chevron and add-child buttons', () => {
+    renderTree({ nodes: TREE_NODES, onAddChild: vi.fn() });
+    // Roots auto-expand, so the root chevron reads as "collapse".
+    expect(screen.getByTestId('workspace-tree-toggle-root')).toHaveAttribute(
+      'aria-label',
+      'editor.collapseNode',
+    );
+    expect(screen.getByTestId('workspace-tree-add-child-root')).toHaveAttribute(
+      'aria-label',
+      'editor.addChild',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Node selection
 // ---------------------------------------------------------------------------
 
@@ -137,6 +179,164 @@ describe('WorkspaceTree — selection', () => {
     renderTree({ nodes: FLAT_NODES, selectedId: 'n1' });
     const notSelected = screen.getByTestId('workspace-tree-node-n2');
     expect(notSelected).toHaveAttribute('aria-selected', 'false');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #665 — a selection made outside the tree is revealed inside it
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — reveals an externally made selection (#665)', () => {
+  it('expands the ancestor path of a deeply selected node', async () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
+
+    // `grandchild` sits two levels down; only roots auto-expand, so without
+    // the reveal effect it would stay hidden inside a collapsed `child1`.
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('workspace-tree-node-child1')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('reveals a selection that arrives before the nodes have loaded', async () => {
+    const { rerender } = render(
+      <WorkspaceTree nodes={[]} onSelect={vi.fn()} showSearch={false} selectedId="grandchild" />,
+    );
+    expect(screen.queryByTestId('workspace-tree-node-grandchild')).not.toBeInTheDocument();
+
+    rerender(
+      <WorkspaceTree
+        nodes={TREE_NODES}
+        onSelect={vi.fn()}
+        showSearch={false}
+        selectedId="grandchild"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+  });
+
+  it('does not re-expand a path the user collapsed by hand', async () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+
+    // The selection has not changed, so the reveal must not fire again and
+    // fight the collapse the user just performed.
+    expect(
+      screen.queryByTestId('workspace-tree-node-grandchild'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('re-reveals a previously collapsed path when the selection returns to it', async () => {
+    const renderAt = (selectedId: string): JSX.Element => (
+      <WorkspaceTree
+        nodes={TREE_NODES}
+        onSelect={vi.fn()}
+        showSearch={false}
+        selectedId={selectedId}
+      />
+    );
+    const { rerender } = render(renderAt('grandchild'));
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+
+    // User collapses the revealed path again, then navigates elsewhere.
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+    expect(screen.queryByTestId('workspace-tree-node-grandchild')).not.toBeInTheDocument();
+    rerender(renderAt('child2'));
+    expect(screen.queryByTestId('workspace-tree-node-grandchild')).not.toBeInTheDocument();
+
+    // Coming back to the hidden node must open the path a second time —
+    // "already revealed once" must not be sticky per node id.
+    rerender(renderAt('grandchild'));
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #668 — collapsed ancestor marks a hidden selection
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — hidden-selection marker (#668)', () => {
+  /** Collapses `child1`, which holds the selected `grandchild`. */
+  async function renderWithCollapsedSelectedParent(): Promise<void> {
+    renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
+    // #665: the selected grandchild's ancestors auto-expand, so `child1` is
+    // reachable and expanded before the user collapses it again by hand.
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+  }
+
+  it('marks a collapsed parent that hides the selected node', async () => {
+    await renderWithCollapsedSelectedParent();
+
+    expect(
+      screen.queryByTestId('workspace-tree-node-grandchild'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-tree-node-child1')).toHaveAttribute(
+      'data-contains-selection',
+      'true',
+    );
+  });
+
+  it('marks every collapsed ancestor, not just the direct parent', async () => {
+    await renderWithCollapsedSelectedParent();
+    // Collapsing the root as well hides `child1` itself; the root then has to
+    // carry the marker or the selection becomes invisible again.
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-root'));
+
+    expect(screen.queryByTestId('workspace-tree-node-child1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-tree-node-root')).toHaveAttribute(
+      'data-contains-selection',
+      'true',
+    );
+  });
+
+  it('does not mark an expanded ancestor — the selection is visible there', async () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByTestId('workspace-tree-node-child1'),
+    ).not.toHaveAttribute('data-contains-selection');
+    expect(
+      screen.getByTestId('workspace-tree-node-root'),
+    ).not.toHaveAttribute('data-contains-selection');
+  });
+
+  it('never marks the selected node itself', () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'root' });
+    expect(
+      screen.getByTestId('workspace-tree-node-root'),
+    ).not.toHaveAttribute('data-contains-selection');
+  });
+
+  it('marks nothing when a sibling subtree is collapsed', async () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'child2' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-child1')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+
+    expect(
+      screen.getByTestId('workspace-tree-node-child1'),
+    ).not.toHaveAttribute('data-contains-selection');
   });
 });
 

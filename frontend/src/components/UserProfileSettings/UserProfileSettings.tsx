@@ -126,7 +126,10 @@ export default function UserProfileSettings(): JSX.Element {
           </p>
 
           {saveError && (
-            <div style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}>
+            <div
+              role="alert"
+              style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}
+            >
               {saveError}
             </div>
           )}

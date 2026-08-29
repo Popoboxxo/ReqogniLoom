@@ -80,7 +80,7 @@
     "closeMenu": "Close navigation menu",
     "groupOverview": "Overview",
     "groupRequirements": "Requirements Engineering",
-    "groupArchitecture": "Architecture",
+    "groupArchitecture": "Architecture & Traceability",
     "groupTest": "Test & Quality",
     "groupAdmin": "Administration",
     "languageToggleTitleAdmin": "Toggle language DE/EN (saves for the whole workspace)",
@@ -90,7 +90,11 @@
     "interviews": "Interviews",
     "searchPlaceholder": "Search...",
     "optionalArtifacts": "Optional Artifacts",
-    "searching": "Searching..."
+    "searching": "Searching...",
+    "mainNavigation": "Main navigation",
+    "searchResults": "Search results",
+    "workspaceSwitcher": "Switch workspace",
+    "noOtherWorkspaces": "No other workspaces available"
   },
   "systemHealth": {
     "title": "System Health",
@@ -270,6 +274,9 @@
   "editor": {
     "expandNode": "Expand",
     "collapseNode": "Collapse",
+    "addChild": "Add child element",
+    "treeDropRoot": "Drop here to move to the top level",
+    "treeContainsSelection": "Contains the current selection",
     "title": "Title",
     "description": "Description",
     "acceptanceCriteria": "Acceptance Criteria",
@@ -384,6 +391,7 @@
     "downstream": "Downstream Links",
     "none": "No links available.",
     "unresolved": "Not resolvable",
+    "openLinked": "Open linked artifact",
     "placeholder": "Traceability view — in progress.",
     "empty": "No trace links available.",
     "source": "Source",
@@ -1378,7 +1386,8 @@
       "menu": {
         "switch": "Switch to v{{n}}",
         "compare": "Compare to current",
-        "copy": "Copy version id"
+        "copy": "Copy version id",
+        "trigger": "Open actions for version v{{n}}"
       },
       "copied": "Version id copied",
       "noSnapshot": "No stored snapshot for this version."
@@ -1976,6 +1985,11 @@
       "Goal": "Goal"
     },
     "multiEntry": "I'm not sure yet what I need",
+    "widget": {
+      "title": "Interview assistant",
+      "open": "Open interview assistant",
+      "close": "Close interview assistant"
+    },
     "multi": {
       "chatPlaceholder": "Describe your problem...",
       "transcriptLabel": "Chat transcript",

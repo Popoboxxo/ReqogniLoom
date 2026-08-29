@@ -132,9 +132,11 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
       expect(screen.getByText("Requirement")).toBeInTheDocument();
     });
 
-    // Open the edit form for TERM_A via its Edit icon button.
-    const editButtons = screen.getAllByTitle("Edit");
-    await user.click(editButtons[0]);
+    // Open the edit form for TERM_A via its Edit icon button. Queried by
+    // data-testid, not by title: #741 replaced the hardcoded English
+    // `title="Edit"` with a translated label, so under the test i18n stub
+    // (which echoes raw keys) the literal string "Edit" no longer exists.
+    await user.click(screen.getByTestId("glossary-edit-term-a"));
 
     const linkButton = await screen.findByTestId("glossary-create-link-button");
     await user.click(linkButton);

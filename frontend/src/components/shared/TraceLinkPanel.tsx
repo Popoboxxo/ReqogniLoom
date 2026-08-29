@@ -267,8 +267,12 @@ export function TraceLinkPanel({
             lineHeight: 1,
           }}
           title={t("actions.delete")}
+          // #741: `title` alone is only the last-resort fallback in the
+          // accessible-name computation and is never surfaced on touch —
+          // an icon-only button needs an explicit aria-label.
+          aria-label={t("actions.delete")}
         >
-          ×
+          <span aria-hidden="true">×</span>
         </button>
       </li>
     );

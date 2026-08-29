@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { collectSelfAndDescendantIds } from './tree-hierarchy';
+import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
 import type { HierarchyRef } from './tree-hierarchy';
 
 const TREE: HierarchyRef[] = [
@@ -65,5 +65,49 @@ describe('collectSelfAndDescendantIds', () => {
     expect(collectSelfAndDescendantIds([], 'lonely')).toEqual(
       new Set(['lonely']),
     );
+  });
+});
+
+describe('collectAncestorIds (#668/#665)', () => {
+  it('walks up to the root, nearest parent first', () => {
+    expect(collectAncestorIds(TREE, 'a1x')).toEqual(['a1', 'a', 'root']);
+  });
+
+  it('never includes the node itself', () => {
+    expect(collectAncestorIds(TREE, 'a1x')).not.toContain('a1x');
+  });
+
+  it('returns an empty list for a root node', () => {
+    expect(collectAncestorIds(TREE, 'root')).toEqual([]);
+  });
+
+  it('excludes siblings and descendants', () => {
+    const ancestors = collectAncestorIds(TREE, 'a1');
+    expect(ancestors).not.toContain('a2');
+    expect(ancestors).not.toContain('a1x');
+    expect(ancestors).not.toContain('b');
+  });
+
+  it('returns nothing for an id that is not in the list', () => {
+    expect(collectAncestorIds(TREE, 'ghost')).toEqual([]);
+  });
+
+  it('stops at a dangling parentId instead of inventing an ancestor', () => {
+    // Happens whenever the tree shows a filtered slice of the hierarchy —
+    // `buildInternalTree` treats such a node as a root, so must this walk.
+    const orphaned: HierarchyRef[] = [{ id: 'lone', parentId: 'not-loaded' }];
+    expect(collectAncestorIds(orphaned, 'lone')).toEqual([]);
+  });
+
+  it('terminates on already-corrupted data containing a cycle', () => {
+    const corrupted: HierarchyRef[] = [
+      { id: 'x', parentId: 'y' },
+      { id: 'y', parentId: 'x' },
+    ];
+    expect(collectAncestorIds(corrupted, 'x')).toEqual(['y']);
+  });
+
+  it('handles an empty hierarchy', () => {
+    expect(collectAncestorIds([], 'lonely')).toEqual([]);
   });
 });

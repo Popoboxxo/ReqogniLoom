@@ -301,6 +301,7 @@ export default function GlossaryView(): JSX.Element {
                       setSynonymLinkQuery("");
                     }}
                     title={t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}
+                    aria-label={`${t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}: ${syn}`}
                     className={styles.synonymLinkBtn}
                   >
                     <Link2 size={12} />
@@ -473,7 +474,12 @@ export default function GlossaryView(): JSX.Element {
                       handleEdit(term);
                     }}
                     className={`${styles.iconBtn} ${styles.iconBtnMuted}`}
-                    title="Edit"
+                    // #741: icon-only row action — was an untranslated,
+                    // aria-label-less `title`, i.e. no reliable accessible
+                    // name at all. Names the term so the per-row buttons are
+                    // distinguishable in a screen reader's element list.
+                    title={t("actions.edit")}
+                    aria-label={`${t("actions.edit")}: ${term.term}`}
                     data-testid={`glossary-edit-${term.id}`}
                   >
                     <Edit2 size={16} />
@@ -485,7 +491,8 @@ export default function GlossaryView(): JSX.Element {
                       handleDelete(term.id);
                     }}
                     className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-                    title="Delete"
+                    title={t("actions.delete")}
+                    aria-label={`${t("actions.delete")}: ${term.term}`}
                     data-testid={`glossary-delete-${term.id}`}
                   >
                     <Trash2 size={16} />

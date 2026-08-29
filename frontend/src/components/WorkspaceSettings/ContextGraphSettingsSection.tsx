@@ -142,7 +142,7 @@ export function ContextGraphSettingsSection({ workspaceId }: Props): JSX.Element
       </div>
 
       {error && (
-        <p className={styles.error} data-testid="context-graph-settings-error">
+        <p role="alert" className={styles.error} data-testid="context-graph-settings-error">
           {error}
         </p>
       )}

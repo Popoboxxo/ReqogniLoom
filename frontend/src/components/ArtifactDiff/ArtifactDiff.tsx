@@ -479,6 +479,7 @@ export function ArtifactDiff({
 
       {error && (
         <div
+          role="alert"
           data-testid="diff-error"
           style={{
             padding: "12px",
