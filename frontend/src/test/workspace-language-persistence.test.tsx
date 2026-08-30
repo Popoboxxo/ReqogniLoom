@@ -685,9 +685,17 @@ describe("Logout clears a local/unpersisted language override (R-02)", () => {
     // workspace whose persisted language is "de".
     stubAuthFetch(["viewer"]);
     setListWorkspace("de");
-    void i18n.changeLanguage("de");
+    // Start on "en", the opposite of the workspace's persisted "de" — the same
+    // pre-toggle baseline the sibling tests above use. Seeding "de" here would
+    // make the `waitFor` below satisfied by the *initial* render, before the
+    // restore effect has run: the toggle would then fire while the initial
+    // workspace load was still in flight and the late restore would clobber
+    // the override. React 18 happened to flush that effect before waitFor's
+    // first poll; React 19 does not, which made this test fail ~60% of runs.
+    void i18n.changeLanguage("en");
     renderAppWithAuthSwitch();
 
+    // Only reachable once the workspace-driven restore actually ran.
     await waitFor(() => expect(i18n.language).toBe("de"));
     fireEvent.click(await screen.findByTestId("lang-switch"));
     await waitFor(() => expect(i18n.language).toBe("en"));

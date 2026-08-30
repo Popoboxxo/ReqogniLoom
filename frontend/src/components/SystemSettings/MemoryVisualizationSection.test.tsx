@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
@@ -132,7 +132,15 @@ describe("MemoryVisualizationSection", () => {
     // Not yet fired before the debounce window elapses.
     expect(memoryVisualizationApi.listEntries).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(500);
+    // The debounce timer fires `setFilterQuery` from a timer callback, i.e.
+    // outside React's event handling. React 19 no longer flushes such an
+    // update (and the effect it triggers) eagerly — it defers to the next
+    // act() boundary and warns about the escaped update. Advancing the timers
+    // inside act() commits the re-render and runs the reload effect before we
+    // assert; without it the fetch simply has not happened yet.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
 
     expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
       expect.objectContaining({ q: "dark mode", page: 1 })
