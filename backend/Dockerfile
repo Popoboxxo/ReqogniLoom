@@ -13,9 +13,16 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install build-time system dependencies
+# Install build-time system dependencies.
+# `git` is required only by the temporary `django-celery-beat @ git+https://...`
+# VCS pin in requirements.txt (see the comment there): python:3.12-slim ships no
+# git, so pip aborts with "Cannot find command 'git' - do you have 'git'
+# installed and in your PATH?". Build-stage only — the runtime stage copies just
+# /install, so no git binary lands in the shipped image. Remove this again when
+# django-celery-beat goes back to a PyPI pin.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    git \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 

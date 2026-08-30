@@ -19,7 +19,24 @@
 # advisories are covered; capped below 5.3 to stay on the LTS series.
 # Requires Python >=3.10 (backend/Dockerfile runs 3.12) and PostgreSQL >=14
 # (docker-compose runs pgvector/pgvector:pg16).
-Django>=5.2.17,<5.3
+#
+# Bumped 5.2 LTS -> 6.1 (Dependabot PR #501). Django 6.1 raises the floors to
+# Python >=3.12 and PostgreSQL >=15 — both already satisfied (backend/Dockerfile
+# runs python:3.12-slim, docker-compose runs pgvector/pgvector:pg16).
+#
+# Three incompatibilities had to be fixed in this codebase for the bump; all
+# three are documented at their call sites:
+#   1. `CheckConstraint(check=)` -> `condition=` (renamed in 5.1, removed in
+#      6.0) in admin_ops/models.py + admin_ops/migrations/0002_banner.py.
+#   2. The new `postgres.E005` system check requires `django.contrib.postgres`
+#      in INSTALLED_APPS for anything deriving from `PostgresIndex` — pgvector's
+#      HnswIndex does (reqogniloom/settings.py).
+#   3. `persistence.User` implements the auth interface by hand; 6.1 removed
+#      the `hasattr` shims in `django.contrib.auth` and now calls
+#      `get_session_auth_hash()` unconditionally (persistence/models.py).
+#      NOTE this is a real behaviour change, not just a shim — see the security
+#      note there: pre-existing admin sessions are invalidated once on rollout.
+Django>=6.1,<6.2
 # 3.17.2+ declares Django 5.2 support; the existing range already resolves
 # there, so no floor change is required.
 djangorestframework>=3.18.0,<4.0
@@ -35,7 +52,22 @@ pgvector>=0.5.0,<0.6.0
 
 # Async task queue (ARCH-L1-016 ResilienceOrchestrator)
 celery>=5.6.3,<6.0
-django-celery-beat>=2.9.0,<3.0
+# TEMPORARY VCS PIN — revert to a normal PyPI range once a release ships.
+# The newest published release (2.9.0) declares `Django<6.1,>=2.2`, so with the
+# `Django>=6.1` above pip ends in ResolutionImpossible and the CI
+# `pip-audit --desc` gate fails before it can audit anything. The dependency is
+# not optional here: `django_celery_beat` is in INSTALLED_APPS, provides the
+# `CELERY_BEAT_SCHEDULER = django_celery_beat.schedulers:DatabaseScheduler`
+# that the celery-beat compose service runs on, and backs the PeriodicTask
+# probe in admin_ops/health_rest.py.
+# Upstream fixed it on `main` (requirements/runtime.txt now reads
+# `Django>=3.2.25,<6.2`) but has not cut a release yet. Tracking:
+# celery/django-celery-beat#1079 ("Django 6.1 Support"). Pinned to an exact
+# commit, never a branch name, so the build stays reproducible.
+# WHEN #1079 IS RELEASED: replace this line with `django-celery-beat>=<rel>,<3.0`
+# and drop `git` from the builder stage of backend/Dockerfile if nothing else
+# needs it.
+django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@6767df6f6f723a96ebd38269a073a11cde124850
 redis>=8.1.0,<9.0
 
 # Testing

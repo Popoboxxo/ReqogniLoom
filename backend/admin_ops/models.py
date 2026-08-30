@@ -261,8 +261,17 @@ class Banner(TenantScopedModel):
                 condition=models.Q(scope=BannerScope.WORKSPACE),
                 name="uq_banner_one_per_workspace",
             ),
+            # ``condition=`` (not ``check=``): Django 5.1 renamed the kwarg,
+            # 5.2 emitted RemovedInDjango60Warning for the old spelling and 6.0
+            # removed it outright (constructing the model raised
+            # ``TypeError: CheckConstraint.__init__() got an unexpected keyword
+            # argument 'check'`` at import time). Purely a rename — since 5.1
+            # both kwargs populate the same ``condition`` attribute and
+            # ``deconstruct()`` emits ``condition`` either way, so the migration
+            # state and the generated CHECK SQL are unchanged. Mirrors the same
+            # fix already applied in persistence/models.py.
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(scope=BannerScope.GLOBAL, workspace__isnull=True)
                     | models.Q(scope=BannerScope.WORKSPACE, workspace__isnull=False)
                 ),

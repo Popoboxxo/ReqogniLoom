@@ -175,6 +175,21 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Required since Django 6.0 by the new `postgres.E005` system check
+    # (django/contrib/postgres/utils.py::CheckPostgresInstalledMixin, which
+    # does not exist in 5.2): any Index/Constraint deriving from
+    # `django.contrib.postgres` now errors unless this app is installed.
+    # pgvector's HnswIndex subclasses PostgresIndex, so the five models
+    # carrying one (persistence.Requirement/TraceLink, memory.WorkspaceMemory/
+    # UserTenantMemory, icd.IcdVersion) failed `manage.py check` on 6.1.
+    # Safe to add: the app declares no models and ships no migrations
+    # directory, so it creates no tables and no migration is generated — the
+    # RLS/multi-tenancy surface is untouched. Its `ready()` only registers
+    # psycopg range/hstore type handlers on `connection_created` plus the
+    # `unaccent`/`search`/`trigram_*` lookups; this project registers no
+    # `connection_created` receiver and no custom lookups, so there is nothing
+    # to collide with.
+    "django.contrib.postgres",
 ]
 
 THIRD_PARTY_APPS = [

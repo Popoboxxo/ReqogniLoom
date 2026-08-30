@@ -26,6 +26,13 @@ generated on Windows or macOS silently omits ~20 packages and therefore does not
 describe the image that is actually deployed. The container also pins CPython to
 3.12, matching `backend/Dockerfile`.
 
+`git` has to be installed into that container for as long as `requirements.txt`
+carries the temporary `django-celery-beat @ git+https://...` VCS pin (see the
+comment on that line). `python:3.12-slim` ships no git, and without it
+pip-compile aborts on the URL with `Cannot find command 'git'`. The same applies
+to `backend/Dockerfile`'s builder stage. Both can drop git again once that pin
+returns to a plain PyPI range.
+
 ### Steps
 
 ```bash
@@ -34,7 +41,8 @@ cd backend
 
 # 2. Regenerate the lock file from requirements.txt (linux/amd64, CPython 3.12)
 docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
-  'pip install -q --upgrade pip pip-tools && \
+  'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
+   pip install -q --upgrade pip pip-tools && \
    pip-compile requirements.txt --output-file requirements.lock \
      --no-header --no-annotate --strip-extras'
 
