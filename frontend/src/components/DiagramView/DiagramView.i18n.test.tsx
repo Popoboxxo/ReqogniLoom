@@ -87,14 +87,24 @@ describe("DiagramView i18n (BUG-07 regression)", () => {
     } as any);
   });
 
+  // See the equivalent note in IcdView.i18n.test.tsx: L-04 unified the
+  // placeholder wording, so the expected strings are read from the locale
+  // files instead of being duplicated here. The regression under test — a
+  // missing German key letting the English `t()` default through — is still
+  // caught by "DE renders and EN does not".
+  const DE_PLACEHOLDER = de.diagrams.selectDiagram;
+  const EN_PLACEHOLDER = en.diagrams.selectDiagram;
+
   it("[BUG-07] shows the German placeholder when no diagram is selected and language is de", async () => {
+    expect(DE_PLACEHOLDER).not.toBe(EN_PLACEHOLDER);
+
     await i18n.changeLanguage("de");
     renderDiagramView();
 
     await waitFor(() => {
-      expect(screen.getByText("Wählen Sie ein Diagramm aus der Liste")).toBeInTheDocument();
+      expect(screen.getByText(DE_PLACEHOLDER)).toBeInTheDocument();
     });
-    expect(screen.queryByText("Select a diagram from the list")).not.toBeInTheDocument();
+    expect(screen.queryByText(EN_PLACEHOLDER)).not.toBeInTheDocument();
   });
 
   it("[BUG-07] shows the English placeholder when language is en", async () => {
@@ -102,7 +112,7 @@ describe("DiagramView i18n (BUG-07 regression)", () => {
     renderDiagramView();
 
     await waitFor(() => {
-      expect(screen.getByText("Select a diagram from the list")).toBeInTheDocument();
+      expect(screen.getByText(EN_PLACEHOLDER)).toBeInTheDocument();
     });
   });
 });

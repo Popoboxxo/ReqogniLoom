@@ -44,6 +44,13 @@ export interface CreateBaselinePayload {
   scope: BaselineScope;
   artifactId: string | null;
   /**
+   * Issue #48: human-readable baseline name. Optional — an empty/blank value
+   * is not sent at all, which leaves the backend's timestamp-based default
+   * (``Baseline <ISO timestamp>``) in place. The name is unique per workspace;
+   * a collision comes back as a 400 with ``"Baseline name must be unique"``.
+   */
+  name?: string;
+  /**
    * GH-513: justification for creating the baseline although the SE-Auditor
    * reports BLOCKER findings. Only sent when the user actually filled it in —
    * an absent value keeps the backend's fail-closed default.
@@ -146,12 +153,16 @@ export function useBaselinesData(
         return Promise.reject(new Error("no active workspace"));
       }
       const overrideReason = payload.overrideReason?.trim();
+      const name = payload.name?.trim();
       return baselinesApi.create({
         workspace_id: workspaceId,
         // ``project`` / ``global`` scopes send ``artifact_id: null``; the
         // backend requires the value only for ``document``.
         artifact_id: payload.scope === "document" ? payload.artifactId : null,
         scope: payload.scope,
+        // Issue #48: omitted rather than sent blank, so the backend keeps
+        // generating its timestamp default instead of storing an empty name.
+        ...(name ? { name } : {}),
         ...(overrideReason ? { override_reason: overrideReason } : {}),
       });
     },

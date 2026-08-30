@@ -124,7 +124,15 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
 
   it("renders the workspace-scoped tabs and shows the General tab by default", () => {
     render(<WorkspaceSettings />);
-    for (const id of ["general", "traceability", "visibility", "llm", "workflows-permissions"]) {
+    for (const id of [
+      "general",
+      // M-03: language + theme split out of "general" into their own tab.
+      "appearance",
+      "traceability",
+      "visibility",
+      "llm",
+      "workflows-permissions",
+    ]) {
       expect(screen.getByTestId(`settings-tab-${id}`)).toBeInTheDocument();
     }
     // The Administration tab relocated to System Settings (REQ-184) — gone here.
@@ -159,21 +167,35 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("settings-tab-general")).toHaveAttribute("aria-selected", "true");
   });
 
-  it("renders a palette picker and a mode picker instead of the old single theme list", () => {
+  // M-03: language and theme moved off "Allgemein" onto their own
+  // "Darstellung" tab, so these three now have to open it first.
+  it("groups language and theme on the Appearance tab, not on General", async () => {
     render(<WorkspaceSettings />);
+    // Not on the default (General) panel any more.
+    expect(screen.queryByTestId("theme-palette-picker")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("language-option-de")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
+
+    expect(screen.getByTestId("settings-tab-appearance")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("language-option-de")).toBeInTheDocument();
     expect(screen.getByTestId("theme-palette-picker")).toBeInTheDocument();
     expect(screen.getByTestId("theme-mode-picker")).toBeInTheDocument();
     expect(screen.queryByTestId("theme-option-dark")).not.toBeInTheDocument(); // old flat-list testid gone
+    // Workspace-configuration controls stay behind on General.
+    expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
   });
 
   it("lets the user pick an independent palette without touching the mode", async () => {
     render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
     await userEvent.click(screen.getByTestId("theme-palette-option-nordic"));
     expect(setPreferenceMock).toHaveBeenCalledWith("nordic", "dark");
   });
 
   it("lets the user flip the mode without touching the palette", async () => {
     render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
     await userEvent.click(screen.getByTestId("theme-mode-light"));
     expect(setPreferenceMock).toHaveBeenCalledWith("default", "light");
   });
@@ -203,6 +225,16 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
 
     expect(screen.getByTestId("stub-llm")).toBeInTheDocument();
     expect(screen.getByTestId("stub-prompts")).toBeInTheDocument();
+  });
+
+  // M-03: "KI-Gedächtnis" used to sit at the bottom of the General tab.
+  it("groups the AI memory settings with the LLM configuration", async () => {
+    render(<WorkspaceSettings />);
+    expect(screen.queryByTestId("memory-settings-section")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("settings-tab-llm"));
+
+    expect(screen.getByTestId("memory-settings-section")).toBeInTheDocument();
   });
 
   it("disables the save button when the name is emptied", () => {

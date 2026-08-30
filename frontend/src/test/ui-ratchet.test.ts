@@ -317,8 +317,22 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //        header/field chrome is deliberately NOT migrated here (see the
 //        report): those four keep their remaining inline styles.
 // 1063 - 47 = 1016. Re-measured on the merged tree: 1016, matching exactly.
+//
+// UI-consistency PR8 (H-03/M-04/M-03/L-01/L-03/L-04 + #48): -1, from 1016 to
+// 1015. Breakdown, measured per file off the diff stream (`git diff HEAD --
+// <file> | grep -c '^[+-].*style={{'`) rather than off the tree, so a
+// concurrent session's edits cannot be folded into this branch's number:
+//   -1 `DashboardViews/DashboardViews.tsx` — the workspace-card grid's
+//      literal hoisted to `WORKSPACE_GRID_STYLE` when L-03 added the grid's
+//      closing rule to it.
+//    0 `ArtifactDiff.tsx` (+5/-5), `WorkspaceSettings.tsx` (+1/-1) — existing
+//      literals edited in place (wrap/overflow fixes, tab relocation), not
+//      added or removed.
+//    0 `BaselinesView.tsx` — the new #48 name field uses named constants
+//      (`formLabelStyle`/`formInputStyle`/`formHintStyle`), so it adds none.
+// 1016 - 1 = 1015. Re-measured on the tree: 1015, matching exactly.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1016;
+const STYLE_BRACE_BASELINE = 1015;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

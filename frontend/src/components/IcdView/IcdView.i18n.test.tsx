@@ -86,14 +86,29 @@ describe("IcdView i18n (BUG-06 regression)", () => {
     vi.mocked(icdsModule.icdsApi.list).mockResolvedValue({ results: [MOCK_ICD] } as any);
   });
 
+  // L-04 re-wrote the placeholder wording (one canonical "select … from the
+  // list to view details" shape across every detail pane), which broke these
+  // assertions on their hardcoded copies of it. The strings are now read from
+  // the same locale files the component resolves against: the regression this
+  // test exists for is "the German locale key is missing, so the English
+  // `t()` default leaks through", and that is caught by asserting the DE text
+  // renders *and* the EN text does not — neither of which needs the wording
+  // itself to be duplicated here.
+  const DE_PLACEHOLDER = de.icds.selectIcd;
+  const EN_PLACEHOLDER = en.icds.selectIcd;
+
   it("[BUG-06] shows the German placeholder when no ICD is selected and language is de", async () => {
+    // Guard the guard: identical strings would make the assertions below pass
+    // for the very bug they are meant to catch.
+    expect(DE_PLACEHOLDER).not.toBe(EN_PLACEHOLDER);
+
     await i18n.changeLanguage("de");
     renderIcdView();
 
     await waitFor(() => {
-      expect(screen.getByText("Wählen Sie ein ICD aus der Liste")).toBeInTheDocument();
+      expect(screen.getByText(DE_PLACEHOLDER)).toBeInTheDocument();
     });
-    expect(screen.queryByText("Select an ICD from the list")).not.toBeInTheDocument();
+    expect(screen.queryByText(EN_PLACEHOLDER)).not.toBeInTheDocument();
   });
 
   it("[BUG-06] shows the English placeholder when language is en", async () => {
@@ -101,7 +116,7 @@ describe("IcdView i18n (BUG-06 regression)", () => {
     renderIcdView();
 
     await waitFor(() => {
-      expect(screen.getByText("Select an ICD from the list")).toBeInTheDocument();
+      expect(screen.getByText(EN_PLACEHOLDER)).toBeInTheDocument();
     });
   });
 });

@@ -292,7 +292,7 @@
     "descriptionPlaceholder": "Enter description in Markdown...",
     "newRequirementTitle": "New Requirement",
     "untitled": "Untitled",
-    "selectRequirement": "Select a requirement from the list.",
+    "selectRequirement": "Select a requirement from the list to view details.",
     "deleteConfirm": "Really delete?",
     "unsavedChangesTitle": "Unsaved changes",
     "unsavedChangesMessage": "This item has unsaved changes. Switching now will discard them.",
@@ -344,7 +344,7 @@
     "elementType.layer": "Layer",
     "elementType.module": "Module",
     "linkedRequirements": "Linked Requirements",
-    "selectElement": "Select an architecture element from the list.",
+    "selectElement": "Select an architecture element from the list to view details.",
     "newElementTitle": "New Element",
     "deleteTitle": "Delete Element",
     "deleteConfirm": "Really delete element",
@@ -477,7 +477,7 @@
       "glossary": "Glossary Term"
     },
     "empty": "No requirements pending review.",
-    "selectPrompt": "Select a requirement from the list.",
+    "selectPrompt": "Select a requirement from the list to view details.",
     "changeReasonLabel": "Reason",
     "changeReasonPlaceholder": "Why are you approving/rejecting this requirement?",
     "changeReasonRequired": "A reason is required for this transition.",
@@ -516,7 +516,7 @@
     "summary_other": "{{count}} baselines",
     "emptyTitle": "No baselines yet",
     "emptyDescription": "Baselines capture a point-in-time snapshot of your artifacts.",
-    "selectBaseline": "Select a baseline from the list.",
+    "selectBaseline": "Select a baseline from the list to view details.",
     "create": "New Baseline",
     "id": "ID",
     "scope": "Scope",
@@ -540,7 +540,10 @@
     "overrideNoPermission": "The SE-Auditor reports blocking findings for this workspace. Only an Admin or Approver can create the baseline anyway — ask someone with that role, or resolve the reported findings.",
     "compare": "Compare",
     "compareTitle": "Compare baselines",
-    "compareRun": "Compare"
+    "compareRun": "Compare",
+    "name": "Name",
+    "namePlaceholder": "e.g. Release 1.2 sign-off",
+    "nameHint": "Optional. Without a name one is generated from the timestamp. The name must be unique within the workspace."
   },
   "glossary": {
     "searchPlaceholder": "Search glossary...",
@@ -571,7 +574,7 @@
     "emptyTitle": "No terms yet",
     "emptyDescription": "Glossary terms keep definitions, synonyms and abbreviations consistent.",
     "selectTitle": "No term selected",
-    "selectTerm": "Select a term from the list to view its details.",
+    "selectTerm": "Select a term from the list to view details.",
     "usages": "Usages",
     "lifecycleStatus": {
       "active": "Active",
@@ -756,7 +759,8 @@
       "traceability": "Traceability",
       "visibility": "Visibility",
       "llm": "LLM & Prompts",
-      "governanceReplacement": "Workflows & Permissions"
+      "governanceReplacement": "Workflows & Permissions",
+      "appearance": "Appearance"
     },
     "attributeVisibility": "Attribute Visibility",
     "llm": {
@@ -977,7 +981,7 @@
     "finishedAt": "Finished",
     "loadFailed": "Test runs could not be loaded.",
     "detailLoadFailed": "Test run could not be loaded.",
-    "selectPrompt": "Select a test run to view details",
+    "selectPrompt": "Select a test run from the list to view details.",
     "testCases": "Test Cases",
     "resultsLoading": "Loading test cases...",
     "resultsLoadFailed": "Test cases could not be loaded.",
@@ -1109,7 +1113,7 @@
     "traceability": "Traceability",
     "noTraceLinks": "No trace links connected to this ICD.",
     "noArtifacts": "No architecture elements available. Create elements first.",
-    "selectIcd": "Select an ICD from the list",
+    "selectIcd": "Select an ICD from the list to view details.",
     "selectSource": "Select source element",
     "selectTarget": "Select target element",
     "nameRequired": "Please enter an ICD name.",
@@ -1141,7 +1145,7 @@
     "noItems": "No diagrams yet. Create one to get started.",
     "emptySource": "(no source content)",
     "notFound": "Diagram not found.",
-    "selectDiagram": "Select a diagram from the list",
+    "selectDiagram": "Select a diagram from the list to view details.",
     "traceability": "Traceability",
     "noTraceLinks": "No artifacts are linked to this diagram yet.",
     "viewMode": "View mode",
@@ -1399,7 +1403,8 @@
       "empty": "Select two versions above to compare.",
       "error": "Could not load diff.",
       "unsupported": "Diff is not yet available for {{kind}} artifacts.",
-      "compareCurrent": "Comparing v{{from}} → v{{to}}"
+      "compareCurrent": "Comparing v{{from}} → v{{to}}",
+      "initialState": "Initial state v{{to}} — no predecessor available"
     },
     "trace": {
       "title": "Trace Links",
@@ -2006,6 +2011,12 @@
       "customized": "Customized",
       "onDefault": "On Default",
       "resetToDefault": "Reset to Default"
+    }
+  },
+  "diff": {
+    "initialState": {
+      "title": "Initial state",
+      "body": "This version has no stored predecessor. What you see are the values it was created with — which is why every field is marked as added."
     }
   }
 }

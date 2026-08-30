@@ -12,6 +12,7 @@
  * so the "unsupported" empty state below is now unreachable in practice
  * but kept as a defensive fallback (UI standards §4.5).
  */
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { requirementsApi } from "../../../api/requirements";
 import { architectureApi } from "../../../api/architecture";
@@ -24,7 +25,11 @@ import { icdsApi } from "../../../api/icds";
 import { diagramsApi } from "../../../api/diagrams";
 import { glossaryApi } from "../../../api/glossary";
 import type { ArtifactDiffResult, ArtifactVersion } from "../../../types";
-import { ArtifactDiff, type DiffEntityType } from "../../ArtifactDiff/ArtifactDiff";
+import {
+  ArtifactDiff,
+  type ArtifactDiffRange,
+  type DiffEntityType,
+} from "../../ArtifactDiff/ArtifactDiff";
 import { DIFF_SUPPORTED_KINDS, type ArtifactKind } from "./types";
 import styles from "./DiffPanel.module.css";
 
@@ -80,7 +85,12 @@ function versionsFetcherFor(kind: ArtifactKind): VersionsFetcher {
 export interface DiffPanelProps {
   kind: ArtifactKind;
   artifactId: string | number;
-  /** The "from" version of the diff (lower in the timeline). */
+  /**
+   * Requested "from" version of the diff (lower in the timeline). A request,
+   * not a guarantee: `ArtifactDiff` owns the version list and falls back to
+   * its own seeding when this value is not a real version below the "to" side
+   * (M-04).
+   */
   leftVersion: number;
   /** The "to" version of the diff (higher in the timeline). */
   rightVersion: number;
@@ -114,6 +124,21 @@ export function DiffPanel({
 }: DiffPanelProps): JSX.Element {
   const { t } = useTranslation();
   const entityType = mapKindToDiffEntityType(kind);
+  // M-04: the range actually resolved and rendered by ArtifactDiff. `null`
+  // until the version list has loaded.
+  const [range, setRange] = useState<ArtifactDiffRange | null>(null);
+  // Stable identity so it does not re-trigger ArtifactDiff's seeding effect.
+  const handleRangeChange = useCallback((next: ArtifactDiffRange | null): void => {
+    setRange((prev) =>
+      prev &&
+      next &&
+      prev.from === next.from &&
+      prev.to === next.to &&
+      prev.isInitialState === next.isInitialState
+        ? prev
+        : next,
+    );
+  }, []);
 
   if (entityType === null) {
     return (
@@ -146,18 +171,33 @@ export function DiffPanel({
         {t("sidebar.diff.title", "Diff")}
       </h3>
       {/* Polite live region — assistive tech announces the comparison
-          range when the diff finishes loading. (UI standards §9.1.) */}
+          range when the diff finishes loading. (UI standards §9.1.)
+
+          M-04: this used to read the panel's own `leftVersion`/`rightVersion`
+          props, which the ArtifactInspector seeds to the *same* number — so
+          it announced "Comparing v1 → v1", a comparison of a version against
+          itself, while the panel below was in fact showing 0 → 1. It now
+          reports the range ArtifactDiff resolved, and names the
+          no-predecessor case instead of dressing it up as a comparison. */}
       <div className={styles.liveRegion} role="status" aria-live="polite">
-        {t("sidebar.diff.compareCurrent", "Comparing v{{from}} → v{{to}}", {
-          from: leftVersion,
-          to: rightVersion,
-        })}
+        {range === null
+          ? ""
+          : range.isInitialState
+            ? t("sidebar.diff.initialState", "Ausgangszustand v{{to}} — kein Vorgänger vorhanden", {
+                to: range.to,
+              })
+            : t("sidebar.diff.compareCurrent", "Comparing v{{from}} → v{{to}}", {
+                from: range.from,
+                to: range.to,
+              })}
       </div>
       <div className={styles.diffFrame}>
         <ArtifactDiff
           entityId={String(artifactId)}
           entityType={entityType}
           currentVersion={rightVersion}
+          initialFromVersion={leftVersion}
+          onRangeChange={handleRangeChange}
           diffFetcher={diffFetcherFor(kind)}
           versionsFetcher={versionsFetcherFor(kind)}
           onClose={(): void => {

@@ -284,7 +284,12 @@ export function VersionPanel({
               title={t("sidebar.version.currentLabel", "Current")}
             />
           )}
-          <span className={styles.versionLabel}>{entry.label}</span>
+          {/* H-03: the label truncates with an ellipsis on a narrow
+              inspector (e.g. "Creation baseline"), so the full text has to
+              stay reachable on hover. */}
+          <span className={styles.versionLabel} title={entry.label}>
+            {entry.label}
+          </span>
           {chipLabel && (
             <span
               className={styles.baselineChip}

@@ -681,7 +681,7 @@ export default function GlossaryView(): JSX.Element {
       variant="empty"
       testId="glossary-select-prompt"
       title={t("glossary.selectTitle", "Kein Begriff ausgewählt")}
-      description={t("glossary.selectTerm", "Wähle einen Begriff aus der Liste, um Details anzuzeigen.")}
+      description={t("glossary.selectTerm", "Begriff aus der Liste auswählen, um Details anzuzeigen.")}
     />
   );
 

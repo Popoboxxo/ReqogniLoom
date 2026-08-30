@@ -518,7 +518,7 @@ export default function ReviewsView({
 
   const detailPanel = !selected ? (
     <p data-testid="review-detail-empty" style={{ color: "var(--color-text-muted)" }}>
-      {t("reviews.selectPrompt", "Select a requirement from the list.")}
+      {t("reviews.selectPrompt", "Select a requirement from the list to view details.")}
     </p>
   ) : (
     <div data-testid="review-detail">

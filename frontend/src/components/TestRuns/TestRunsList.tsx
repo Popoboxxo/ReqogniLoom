@@ -665,7 +665,7 @@ export function TestRunsList(): JSX.Element {
               padding: "var(--space-8)",
             }}
           >
-            {t("testRuns.selectPrompt", "Select a test run to view details")}
+            {t("testRuns.selectPrompt", "Select a test run from the list to view details.")}
           </p>
           )
         }
