@@ -28,11 +28,14 @@ Foundation note (ADR-03, ADR-PL-03):
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from typing import Any, Dict, Sequence
 from uuid import UUID
 
+from django.conf import settings
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.functions import Lower
+from django.utils.crypto import salted_hmac
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
 # (see requirements.txt) and the ``vector`` Postgres extension (provisioned by
@@ -559,6 +562,58 @@ class User(AuditableModel):
         if not self.password:
             return False
         return _check(raw_password, self.password)
+
+    # -- Session auth hash (Django >=6.1 hard requirement) ---------------------
+    #
+    # This model implements the auth interface by hand instead of inheriting
+    # ``AbstractBaseUser`` (see the class docstring), and these two methods were
+    # the last ones missing. Django 5.2 tolerated that: ``auth.login()`` guarded
+    # the call with ``if hasattr(user, "get_session_auth_hash")`` and fell back
+    # to an empty hash, and ``auth.get_user()`` skipped session verification
+    # entirely for the same reason. Both guards were flagged
+    # ``RemovedInDjango61Warning`` and are gone in 6.1, which calls
+    # ``user.get_session_auth_hash()`` unconditionally — without these methods
+    # every session login raises ``AttributeError: 'User' object has no
+    # attribute 'get_session_auth_hash'`` (reproduced by
+    # persistence/tests/test_admin_login.py under 6.1).
+    #
+    # SECURITY NOTE — this is a real behaviour change, not just a shim: with the
+    # empty-hash fallback, ``HASH_SESSION_KEY`` was stored as "" and never
+    # verified, so a session survived a password change. Implementing the
+    # methods restores Django's intended invariant (changing a password
+    # invalidates that user's existing sessions). Consequence on rollout:
+    # sessions issued before this commit carry an empty hash, fail verification
+    # once and are flushed — affected users must log in again. The blast radius
+    # is the Django admin only; the application API is JWT-based and does not
+    # use Django sessions.
+    #
+    # The implementation mirrors ``AbstractBaseUser`` exactly, including the
+    # literal ``key_salt`` (so hashes stay compatible should this model ever be
+    # migrated onto ``AbstractBaseUser``) and the explicit ``algorithm="sha256"``
+    # (``salted_hmac``'s default is deprecated in 6.1 and changes to sha256 in a
+    # later release; passing it explicitly keeps this stable either way).
+
+    def _get_session_auth_hash(self, secret: str | None = None) -> str:
+        key_salt = "django.contrib.auth.models.AbstractBaseUser.get_session_auth_hash"
+        return salted_hmac(
+            key_salt,
+            self.password,
+            secret=secret,
+            algorithm="sha256",
+        ).hexdigest()
+
+    def get_session_auth_hash(self) -> str:
+        """Return an HMAC of the password field (Django auth interface)."""
+        return self._get_session_auth_hash()
+
+    def get_session_auth_fallback_hash(self) -> Iterator[str]:
+        """Yield one session auth hash per ``SECRET_KEY_FALLBACKS`` entry.
+
+        Used by ``django.contrib.auth.get_user()`` so that rotating
+        ``SECRET_KEY`` does not log every session out at once.
+        """
+        for fallback_secret in settings.SECRET_KEY_FALLBACKS:
+            yield self._get_session_auth_hash(secret=fallback_secret)
 
     def has_perm(self, perm: str, obj=None) -> bool:
         """Return ``True`` if the user has the given permission.

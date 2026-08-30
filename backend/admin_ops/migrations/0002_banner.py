@@ -153,8 +153,13 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="banner",
+            # ``condition=`` (not ``check=``): renamed in Django 5.1, the old
+            # spelling warns under 5.2 and is removed in 6.0. Behaviour-neutral
+            # for this historical migration — since 5.1 both kwargs populate the
+            # same ``condition`` attribute and deconstruct identically, so the
+            # recorded state and the generated CHECK SQL are unchanged.
             constraint=models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(("scope", "global"), ("workspace__isnull", True))
                     | models.Q(("scope", "workspace"), ("workspace__isnull", False))
                 ),

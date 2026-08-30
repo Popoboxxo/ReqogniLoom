@@ -4,7 +4,7 @@
 # Source      : requirements.txt
 # Generator   : pip-compile (pip-tools)
 # Platform    : linux/amd64, CPython 3.12  (must match backend/Dockerfile)
-# Regenerated : 2026-08-29
+# Regenerated : 2026-08-30
 #
 # This file is NOT installed by anything: backend/Dockerfile and every CI job
 # install from requirements.txt directly. It exists only to document the full
@@ -14,14 +14,18 @@
 # Reproduce exactly (see backend/REGENERATING_LOCK_FILE.md):
 #
 #   docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
-#     'pip install -q --upgrade pip pip-tools && \
+#     'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
+#      pip install -q --upgrade pip pip-tools && \
 #      pip-compile requirements.txt --output-file requirements.lock \
 #        --no-header --no-annotate --strip-extras'
 #
 # The container is not optional. Resolution is platform-dependent: torch pulls
 # the nvidia-*/triton wheels only under Linux markers, so running pip-compile
 # on Windows or macOS produces a closure that does not describe the deployed
-# image.
+# image. The `git` install is likewise not optional while requirements.txt
+# carries the temporary `django-celery-beat @ git+https://...` VCS pin —
+# python:3.12-slim ships no git and pip-compile cannot resolve the URL without
+# it. Drop it again when that pin returns to PyPI.
 #
 amqp==5.3.1
 annotated-doc==0.0.5
@@ -40,14 +44,14 @@ click==8.5.0
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
-cron-descriptor==1.4.5
+cron-descriptor==2.1.0
 cryptography==50.0.1
 cuda-bindings==13.3.1
 cuda-pathfinder==1.8.0
 cuda-toolkit==13.0.3.0
 distro==1.9.0
-django==5.2.17
-django-celery-beat==2.9.0
+django==6.1
+django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@6767df6f6f723a96ebd38269a073a11cde124850
 django-timezone-field==7.2.2
 djangorestframework==3.18.0
 docstring-parser==0.18.0
@@ -111,7 +115,7 @@ pygments==2.21.0
 pypdf==6.16.2
 pytest==9.1.1
 pytest-django==4.14.0
-python-crontab==3.3.0
+python-crontab==3.4.0
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 python-dotenv==1.2.3
@@ -151,7 +155,7 @@ uvicorn==0.52.4
 uvloop==0.22.1
 vine==5.1.0
 watchfiles==1.2.0
-wcwidth==0.8.2
+wcwidth==0.8.3
 websockets==17.1
 whitenoise==6.12.0
 xmlschema==4.3.2
