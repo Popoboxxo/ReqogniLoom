@@ -62,6 +62,31 @@ function mockImpact(): void {
   });
 }
 
+/**
+ * Waits until the effect's *route-resolution phase* has actually finished.
+ *
+ * `isResolving` is false both before that phase starts and after it ends, so
+ * `waitFor(() => expect(result.current.isResolving).toBe(false))` is already
+ * satisfied by the very first render and proves nothing. Under React 18 the
+ * act() flush happened to drain the whole effect chain — two awaits deep —
+ * before waitFor ran its first poll, so the weak predicate still produced a
+ * settled hook by luck. React 19 schedules effects differently and the first
+ * poll now lands before the resolve phase has run, which exposed the flaw.
+ *
+ * Pairing the flag with "the batch call has been issued" makes the predicate
+ * only satisfiable *after* the resolve phase completed: the hook flips
+ * `isResolving` to true before it calls `traceabilityApi.resolve`, so once the
+ * call is recorded the flag can only read false again in the `finally`.
+ */
+async function waitForResolveSettled(
+  result: { current: { isResolving: boolean } },
+): Promise<void> {
+  await waitFor(() => {
+    expect(traceabilityApi.resolve).toHaveBeenCalledTimes(1);
+    expect(result.current.isResolving).toBe(false);
+  });
+}
+
 describe("useDerivationChain — route resolution (Task 3.2b)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,7 +108,7 @@ describe("useDerivationChain — route resolution (Task 3.2b)", () => {
       useDerivationChain(CURRENT_ID, "Requirement", null),
     );
 
-    await waitFor(() => expect(result.current.isResolving).toBe(false));
+    await waitForResolveSettled(result);
 
     // The batch call must be one round trip for the whole chain, not N+1.
     expect(traceabilityApi.resolve).toHaveBeenCalledTimes(1);
@@ -108,7 +133,7 @@ describe("useDerivationChain — route resolution (Task 3.2b)", () => {
       useDerivationChain(CURRENT_ID, "Requirement", null),
     );
 
-    await waitFor(() => expect(result.current.isResolving).toBe(false));
+    await waitForResolveSettled(result);
 
     const derivedArtifact = { id: DERIVED_ID, title: "Derived Element", uid: "ARCH-1", artifactType: "ArchitectureElement", linkType: "derived_from" };
     expect(result.current.isOpenable(derivedArtifact)).toBe(false);
@@ -122,7 +147,7 @@ describe("useDerivationChain — route resolution (Task 3.2b)", () => {
       useDerivationChain(CURRENT_ID, "Requirement", null),
     );
 
-    await waitFor(() => expect(result.current.isResolving).toBe(false));
+    await waitForResolveSettled(result);
 
     const derivedArtifact = { id: DERIVED_ID, title: "Derived Element", uid: "ARCH-1", artifactType: "ArchitectureElement", linkType: "derived_from" };
     expect(result.current.isOpenable(derivedArtifact)).toBe(false);

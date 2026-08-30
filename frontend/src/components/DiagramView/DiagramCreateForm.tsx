@@ -33,7 +33,10 @@ export interface DiagramCreateFormProps {
   // as a Dialog's `initialFocusRef`, so the pre-existing autoFocus UX
   // survives being wrapped in Dialog (whose own focus trap otherwise
   // defaults to the first focusable element — Dialog's × close button).
-  nameInputRef?: RefObject<HTMLInputElement>;
+  // React 19 made `RefObject<T>.current` non-nullable, so a ref that may hold
+  // null (every `useRef<T>(null)`) is now spelled `RefObject<T | null>` — the
+  // same spelling the sibling Dialog/use-focus-trap props already use.
+  nameInputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export function DiagramCreateForm({
