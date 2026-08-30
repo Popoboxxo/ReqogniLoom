@@ -13,10 +13,10 @@
  * already-filtered/sorted list with showSearch=false.
  *
  * Delete is triggered per-row via a small "x" button next to each
- * <ArtifactRow> (renderRow below), which opens the two-step confirm overlay
- * above the tree. Previously this overlay's `confirmDeleteId` state had no
- * caller at all, making delete unreachable from the UI (Systemaudit
- * 2026-08-27 UI-05).
+ * <ArtifactRow> (renderRow below), which opens the shared <ConfirmDialog>
+ * (issue #670 — it used to be a hand-built inline confirm banner above the
+ * tree). Previously this state (`confirmDeleteId`) had no caller at all,
+ * making delete unreachable from the UI (Systemaudit 2026-08-27 UI-05).
  */
 
 import React, { useState, useMemo } from 'react';
@@ -27,6 +27,7 @@ import { ListToolbar } from '../shared/ListToolbar';
 import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import { ArtifactRow } from '../shared/ArtifactRow';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { EmptyState } from '../shared/EmptyState';
 import { Requirement, RequirementType, UUID } from '../../types';
 import { REQ_CATEGORIES } from '../../types';
@@ -283,50 +284,34 @@ export const RequirementList: React.FC<RequirementListProps> = ({
         }
       />
 
-      {/* Delete confirmation overlay (two-step) */}
+      {/* Issue #670: this used to be a hand-built inline confirm banner above
+          the tree — the third of three competing delete interactions in the
+          app, and the only one that never used a dialog. It now runs through
+          the shared <ConfirmDialog> like every artifact form does, so the
+          confirmation looks and behaves the same everywhere. The two button
+          testids are preserved verbatim for the existing E2E selectors.
+
+          Side effect: the banner asked for `actions.confirmDeletePrompt`,
+          a key that exists in NEITHER locale file (the real one is
+          `actions.deleteConfirmPrompt`), so German users were silently shown
+          the hardcoded English fallback "Delete this requirement?". The
+          dialog uses a real, translated key. */}
       {confirmDeleteId && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 'var(--space-2)',
-            alignItems: 'center',
-            padding: 'var(--space-2) var(--space-3)',
-            marginBottom: 'var(--space-2)',
-            background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-danger)',
-            borderRadius: 'var(--radius-md)',
+        <ConfirmDialog
+          title={t('req.deleteTitle')}
+          message={t('actions.deleteConfirmPromptNamed', {
+            name: requirements.find((req) => req.id === confirmDeleteId)?.title ?? '',
+          })}
+          confirmLabel={t('actions.delete')}
+          onConfirm={() => {
+            onDelete(confirmDeleteId);
+            setConfirmDeleteId(null);
           }}
-        >
-          <span
-            style={{ flex: 1, fontSize: 'var(--font-size-sm)', color: 'var(--color-text)' }}
-          >
-            {t('actions.confirmDeletePrompt', 'Delete this requirement?')}
-          </span>
-          <button
-            data-testid="req-confirm-delete-btn"
-            onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null); }}
-            style={{
-              background: 'var(--color-danger)', color: 'var(--color-on-danger)', border: 'none',
-              borderRadius: 'var(--radius-md)', padding: '2px 8px',
-              fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {t('actions.confirmDelete', 'Ja, löschen')}
-          </button>
-          <button
-            data-testid="req-cancel-delete-btn"
-            onClick={() => setConfirmDeleteId(null)}
-            style={{
-              background: 'transparent', color: 'var(--color-text)',
-              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-              padding: '2px 8px', fontSize: 'var(--font-size-xs)', cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {t('actions.cancel')}
-          </button>
-        </div>
+          onCancel={() => setConfirmDeleteId(null)}
+          testId="req-delete-dialog"
+          confirmTestId="req-confirm-delete-btn"
+          cancelTestId="req-cancel-delete-btn"
+        />
       )}
 
       {/* Task 3.1 / ch. 13.3: distinguish "nothing exists" from "nothing

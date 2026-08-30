@@ -47,10 +47,21 @@
   border-color: var(--color-primary);
 }
 
+/*
+ * H-03: the row used to be a single non-wrapping line. Its widest child (the
+ * absolute timestamp, e.g. "30.8.2026, 07:22:08") has no natural break point,
+ * so once the inspector narrowed the label/chip/date group overflowed
+ * `.rowMain` and painted straight over the "⋯" overflow button next to it
+ * (measured live: 134px of content in a 109px box at a 1425px viewport).
+ * Wrapping moves the date onto its own line instead of letting it escape the
+ * row; `row-gap` keeps the two lines legible.
+ */
 .rowMain {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
+  row-gap: var(--space-1);
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -68,15 +79,39 @@
   flex: 0 0 auto;
 }
 
+/*
+ * Usually short ("v3", "Current"), so it is never *broken* mid-word — but
+ * the backend also emits "Creation baseline", which at ~110px is wider than
+ * the whole row once the surrounding pane drops under ~200px. `nowrap` alone
+ * pins the label's min-content width and pushes it out of the row (the row
+ * has no scroll affordance, so that is a silent clip); truncating instead
+ * keeps it inside, and the row's own `title` still carries the full text.
+ */
 .versionLabel {
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text);
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/*
+ * H-03: `white-space: nowrap` alone made the chip's min-content width its
+ * full text width, so a long baseline name pushed the whole row wider than
+ * the panel instead of shrinking. Ellipsis truncation keeps the pill inside
+ * the row; the full name stays reachable via the row's `title`.
+ * `display: block` (blockified anyway as a flex item) is what makes
+ * `text-overflow` apply at all — it has no effect on an inline-flex box.
+ */
 .baselineChip {
-  display: inline-flex;
-  align-items: center;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 2px 8px;
   border-radius: var(--radius-full);
   background: var(--color-badge-approved);
@@ -90,6 +125,10 @@
   margin-left: auto;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+  /* H-03: a wrapped timestamp reads as two broken fragments; keep it whole
+     and let `.rowMain`'s wrap put it on its own line instead. */
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .overflowButton {

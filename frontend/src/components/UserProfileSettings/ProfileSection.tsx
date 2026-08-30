@@ -122,6 +122,7 @@ export function ProfileSection(): JSX.Element {
 
       {error && (
         <div
+          role="alert"
           data-testid="profile-error"
           style={{
             color: "var(--color-danger)",

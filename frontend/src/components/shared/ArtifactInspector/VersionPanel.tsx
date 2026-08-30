@@ -284,7 +284,12 @@ export function VersionPanel({
               title={t("sidebar.version.currentLabel", "Current")}
             />
           )}
-          <span className={styles.versionLabel}>{entry.label}</span>
+          {/* H-03: the label truncates with an ellipsis on a narrow
+              inspector (e.g. "Creation baseline"), so the full text has to
+              stay reachable on hover. */}
+          <span className={styles.versionLabel} title={entry.label}>
+            {entry.label}
+          </span>
           {chipLabel && (
             <span
               className={styles.baselineChip}
@@ -304,13 +309,24 @@ export function VersionPanel({
             className={styles.overflowButton}
             aria-haspopup="menu"
             aria-expanded={openMenuFor === entry.version}
-            aria-label={t("sidebar.version.title", "Version") + ` v${entry.version}`}
+            // #741: the label named the row ("Version v3") but not the
+            // action, so the "⋯" trigger announced identically to the row's
+            // own version heading. Now says what activating it does, like
+            // PageHeader's overflow trigger (pageHeader.moreLabel).
+            aria-label={t("sidebar.version.menu.trigger", {
+              n: entry.version,
+              defaultValue: "Aktionen für Version v{{n}} öffnen",
+            })}
+            title={t("sidebar.version.menu.trigger", {
+              n: entry.version,
+              defaultValue: "Aktionen für Version v{{n}} öffnen",
+            })}
             onClick={(): void =>
               setOpenMenuFor((prev) => (prev === entry.version ? null : entry.version))
             }
             data-testid={`version-overflow-${entry.version}`}
           >
-            ⋯
+            <span aria-hidden="true">⋯</span>
           </button>
           {openMenuFor === entry.version && (
             <ul className={styles.menu} role="menu">

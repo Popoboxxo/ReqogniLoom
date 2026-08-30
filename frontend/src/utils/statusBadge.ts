@@ -11,6 +11,8 @@
 
 import type { CSSProperties } from 'react';
 
+import { BADGE_BASE_STYLE } from './badgeBase';
+
 /**
  * The five semantic variants of UI concept ch. 8.2. Exported because
  * <StatusBadge> accepts an explicit variant, which is the seam a future
@@ -19,13 +21,15 @@ import type { CSSProperties } from 'react';
  */
 export type BadgeVariant = 'info' | 'danger' | 'success' | 'warning' | 'neutral';
 
-const BADGE_BASE: CSSProperties = {
-  borderRadius: 'var(--radius-full)',
-  fontSize: 'var(--font-size-sm)',
-  padding: '2px 8px',
-  fontWeight: 500,
-  whiteSpace: 'nowrap',
-};
+/**
+ * Geometry now comes from the app-wide badge base (issue #675). This used to
+ * be a local `--radius-full` / `--font-size-sm` box, which made the status
+ * badge visibly taller and rounder than the level and version badges sitting
+ * next to it in the same `<ArtifactRow>` line. Only the colour channel — the
+ * one thing that is semantically load-bearing here (ch. 8.1) — is still
+ * decided in this file.
+ */
+const BADGE_BASE: CSSProperties = BADGE_BASE_STYLE;
 
 const VARIANT_COLORS: Record<BadgeVariant, { bg: string; color: string }> = {
   info: { bg: 'var(--color-badge-info-bg)', color: 'var(--color-badge-info-text)' },

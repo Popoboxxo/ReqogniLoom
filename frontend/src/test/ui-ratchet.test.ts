@@ -271,8 +271,68 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // and contributes 0: its new "deleted artifact" badge and label in
 // `TraceLinkPanel.tsx` pass the hoisted `outdatedBadgeStyle`/`outdatedLabelStyle`
 // constants, which do not match this pattern.
+//
+// Badge-consistency pass (#674/#675): -1. `workspace-tree.tsx`'s hand-rolled
+// level-badge `<span style={{...}}>` was replaced by the shared, neutral
+// `<LevelBadge>` (#674). Its sibling `node.badge` span keeps its `style={{`
+// and contributes 0 — it now spreads the shared `BADGE_BASE_STYLE` but still
+// merges in the caller-supplied colour, so the literal remains. The three
+// badge components themselves are also a net 0: `LevelBadge`/`VersionBadge`
+// still have exactly one `style={{` each (their contents shrank to a spread
+// plus the semantic overrides) and `StatusBadge` never had one. 1064 - 1 =
+// 1063.
+//
+// A whole-tree measurement taken while this change was written came out far
+// *below* 1063 and kept dropping between runs, so it was deliberately not
+// used. Same situation as the P1/P2 note above: a large, independent
+// CSS-module refactor of the artifact *forms* (`ArchitectureForm`, `AdrForm`,
+// `IssueForm`, `NeedForm`, `RiskForm`, `TestCaseForm`, ...) was live in the
+// same working tree and removing dozens of literals of its own. Those belong
+// to that change, not this one.
+//
+// The isolated delta was therefore taken per-file the way the P1/P2 note
+// prescribes — `git diff HEAD -- <file> | grep '^[+-].*style={{'` — over only
+// the files this change touches. Result: `workspace-tree.tsx` +0/-1, and
+// `LevelBadge.tsx`/`VersionBadge.tsx` +0/-0. Hence exactly -1, and 1063.
+//
+// Whichever of the two changes lands second will see a merge conflict on
+// exactly this line. That is the intended outcome: it forces a re-measure on
+// the settled tree instead of one change silently absorbing the other's
+// reduction and leaving the ratchet pointing at a number nobody measured.
+//
+// Delete-flow + form-styling unification (#669/#670): -47, landing second in
+// that shared tree and therefore re-measuring as instructed above rather than
+// subtracting from origin/main. Breakdown, all verified file by file:
+//   -19 `ArchitectureForm.tsx`  — full CSS-module migration (#669); this is
+//        the concurrent refactor the note above already saw in the tree, now
+//        actually part of this change
+//    -3 `ArchitectureEditors.tsx` — the list-level delete dialog's hand-built
+//        footer buttons + body replaced by the shared <ConfirmDialog> (#670)
+//   -17 `TestCaseForm.tsx`      — full CSS-module migration (#669)
+//    -4 `RequirementList.tsx`   — the inline two-step delete banner replaced
+//        by <ConfirmDialog> (#670)
+//    -1 each in `AdrForm.tsx` / `RiskForm.tsx` / `IssueForm.tsx` /
+//        `NeedForm.tsx` — the inline "Löschen? Ja/Nein" confirm row's
+//        `<span style={{...}}>` replaced by <ConfirmDialog> (#670). Their
+//        header/field chrome is deliberately NOT migrated here (see the
+//        report): those four keep their remaining inline styles.
+// 1063 - 47 = 1016. Re-measured on the merged tree: 1016, matching exactly.
+//
+// UI-consistency PR8 (H-03/M-04/M-03/L-01/L-03/L-04 + #48): -1, from 1016 to
+// 1015. Breakdown, measured per file off the diff stream (`git diff HEAD --
+// <file> | grep -c '^[+-].*style={{'`) rather than off the tree, so a
+// concurrent session's edits cannot be folded into this branch's number:
+//   -1 `DashboardViews/DashboardViews.tsx` — the workspace-card grid's
+//      literal hoisted to `WORKSPACE_GRID_STYLE` when L-03 added the grid's
+//      closing rule to it.
+//    0 `ArtifactDiff.tsx` (+5/-5), `WorkspaceSettings.tsx` (+1/-1) — existing
+//      literals edited in place (wrap/overflow fixes, tab relocation), not
+//      added or removed.
+//    0 `BaselinesView.tsx` — the new #48 name field uses named constants
+//      (`formLabelStyle`/`formInputStyle`/`formHintStyle`), so it adds none.
+// 1016 - 1 = 1015. Re-measured on the tree: 1015, matching exactly.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1064;
+const STYLE_BRACE_BASELINE = 1015;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -660,6 +720,58 @@ const TREE_IMPLEMENTATION_BASELINE = 1;
 const KNOWN_STATUS_BADGE_IMPLEMENTATIONS = [join(COMPONENTS_DIR, "shared", "StatusBadge.tsx")];
 const STATUS_BADGE_IMPLEMENTATION_BASELINE = 1;
 
+// --- (d2) Duplicate level-badge implementations (issue #674) ---------------
+//
+// Same gate shape as (c) and (d), added because this is the leak those two
+// did not cover and that therefore went unnoticed:
+// `WorkspaceTree/workspace-tree.tsx` carried a second, independent level
+// badge — a `LEVEL_BADGE_COLORS` L0..L4 colour ramp plus a
+// `LEVEL_BADGE_TEXT_COLORS` companion — next to the shared
+// `shared/LevelBadge.tsx`. Both were "correct" on their own terms (both fully
+// tokenized, the ramp even had a WCAG contrast audit behind it), so no colour
+// or hex gate could see the problem: the defect was *duplication with drifted
+// semantics*, not a bad value.
+//
+// The drift mattered. `shared/LevelBadge.tsx` is deliberately neutral, because
+// a level is not a state (UI concept ch. 3.3 / ch. 8.3) and colour is reserved
+// for status (ch. 8.1) — the concept names the coloured `L0`/`SR` badge as the
+// concrete finding behind that rule. The tree's copy still coloured by depth,
+// which is why `ArchitectureLegend.tsx` explained the level badge with a
+// neutral sample while the Architecture tree beside it rendered a colour ramp.
+//
+// Fixed list rather than a name heuristic, for the same reason as (c):
+// matching e.g. "*LevelBadge*" or "level" would sweep in unrelated files.
+// `shared/LevelBadge.tsx` is the target primitive, not a duplicate of itself —
+// this gate's "0 remaining" state is 1, i.e. exactly the primitive.
+//
+// Do NOT raise this baseline to legalize a new local level badge. If a view
+// needs a level rendered differently, extend `<LevelBadge>`'s props (it
+// already takes `label`/`title` overrides, which is how `WorkspaceTree` passes
+// its pre-formatted `"L0"` string).
+const KNOWN_LEVEL_BADGE_IMPLEMENTATIONS = [join(COMPONENTS_DIR, "shared", "LevelBadge.tsx")];
+const LEVEL_BADGE_IMPLEMENTATION_BASELINE = 1;
+
+// The file-list gate above alone would NOT have caught #674, and saying so is
+// the point: gates (c) and (d) are file-existence checks because those
+// duplicates lived in files of their own. This one did not — it sat *inside*
+// `workspace-tree.tsx`, a file that legitimately exists and is itself the
+// tracked primitive for gate (c). A second content gate is therefore what
+// actually closes the hole.
+//
+// The signal is the level colour ramp reaching component TSX at all. Only a
+// component that paints its own level badge needs `--color-level-l0..l4`; the
+// shared `<LevelBadge>` is neutral and references none of them. Matching the
+// quoted `var(--color-level-l<digit>` form (rather than the bare token name)
+// keeps prose mentions in comments like this one from counting, on top of the
+// comment stripping `countNonCommentOccurrences` already does.
+//
+// Deliberately scoped to `.tsx` under `components/`:
+// `SystemSettings/MemoryVisualizationSection.module.css` legitimately uses the
+// same ramp — there a level ramp *is* the dimension being encoded, and it is
+// a stylesheet, not a badge re-implementation.
+const LEVEL_COLOR_RAMP_PATTERN = /['"`]var\(--color-level-l\d/g;
+const LEVEL_COLOR_RAMP_BASELINE = 0;
+
 // --- (e) Page-local toast re-implementations (UI-51) -----------------------
 //
 // The UI audit found four hand-rolled toasts (WorkflowEditorPage,
@@ -799,5 +911,25 @@ describe("UI concept ratchet (Task 7.4)", () => {
       }
     });
     expect(existing.length).toBeLessThanOrEqual(STATUS_BADGE_IMPLEMENTATION_BASELINE);
+  });
+
+  it("does not exceed the frozen level-badge-implementation baseline (#674)", () => {
+    const existing = KNOWN_LEVEL_BADGE_IMPLEMENTATIONS.filter((f) => {
+      try {
+        return statSync(f).isFile();
+      } catch {
+        return false;
+      }
+    });
+    expect(existing.length).toBeLessThanOrEqual(LEVEL_BADGE_IMPLEMENTATION_BASELINE);
+  });
+
+  it("does not paint level badges from the --color-level-* ramp in TSX (#674)", () => {
+    const files = collectNonTestTsxFiles(COMPONENTS_DIR);
+    let total = 0;
+    for (const file of files) {
+      total += countNonCommentOccurrences(readFileSync(file, "utf-8"), LEVEL_COLOR_RAMP_PATTERN);
+    }
+    expect(total).toBeLessThanOrEqual(LEVEL_COLOR_RAMP_BASELINE);
   });
 });

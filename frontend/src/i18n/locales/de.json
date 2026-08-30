@@ -80,7 +80,7 @@
     "closeMenu": "Navigationsmenü schließen",
     "groupOverview": "Übersicht",
     "groupRequirements": "Requirements Engineering",
-    "groupArchitecture": "Architektur",
+    "groupArchitecture": "Architektur & Traceability",
     "groupTest": "Test & Qualität",
     "groupAdmin": "Verwaltung",
     "languageToggleTitleAdmin": "Sprache DE/EN umschalten (wird für den gesamten Workspace gespeichert)",
@@ -90,7 +90,11 @@
     "interviews": "Interviews",
     "searchPlaceholder": "Suchen...",
     "optionalArtifacts": "Optional-Artefakte",
-    "searching": "Suche läuft..."
+    "searching": "Suche läuft...",
+    "mainNavigation": "Hauptnavigation",
+    "searchResults": "Suchergebnisse",
+    "workspaceSwitcher": "Workspace wechseln",
+    "noOtherWorkspaces": "Keine weiteren Workspaces vorhanden"
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -222,6 +226,7 @@
     "deleting": "Löscht...",
     "confirmDelete": "Ja, löschen",
     "deleteConfirmPrompt": "Löschen?",
+    "deleteConfirmPromptNamed": "„{{name}}“ wirklich löschen?",
     "removeTag": "Tag „{{tag}}“ entfernen"
   },
   "workflowEditor": {
@@ -269,6 +274,9 @@
   "editor": {
     "expandNode": "Ausklappen",
     "collapseNode": "Einklappen",
+    "addChild": "Untergeordnetes Element hinzufügen",
+    "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
+    "treeContainsSelection": "Enthält die aktuelle Auswahl",
     "title": "Titel",
     "description": "Beschreibung",
     "acceptanceCriteria": "Abnahmekriterien",
@@ -284,7 +292,7 @@
     "descriptionPlaceholder": "Beschreibung in Markdown eingeben...",
     "newRequirementTitle": "Neue Anforderung",
     "untitled": "Ohne Titel",
-    "selectRequirement": "Wählen Sie eine Anforderung aus der Liste.",
+    "selectRequirement": "Anforderung aus der Liste auswählen, um Details anzuzeigen.",
     "deleteConfirm": "Wirklich löschen?",
     "unsavedChangesTitle": "Ungespeicherte Änderungen",
     "unsavedChangesMessage": "Dieses Element hat ungespeicherte Änderungen. Beim Wechsel gehen sie verloren.",
@@ -336,7 +344,7 @@
     "elementType.layer": "Schicht",
     "elementType.module": "Modul",
     "linkedRequirements": "Verknüpfte Anforderungen",
-    "selectElement": "Wählen Sie ein Architekturelement aus der Liste.",
+    "selectElement": "Architekturelement aus der Liste auswählen, um Details anzuzeigen.",
     "newElementTitle": "Neues Element",
     "deleteTitle": "Element löschen",
     "deleteConfirm": "Element wirklich löschen",
@@ -383,6 +391,7 @@
     "downstream": "Downstream-Links",
     "none": "Keine Links vorhanden.",
     "unresolved": "Nicht auflösbar",
+    "openLinked": "Verknüpftes Artefakt öffnen",
     "placeholder": "Traceability-Anzeige — in Bearbeitung.",
     "empty": "Keine TraceLinks vorhanden.",
     "source": "Quelle",
@@ -468,7 +477,7 @@
       "glossary": "Glossarbegriff"
     },
     "empty": "Keine Anforderungen zur Prüfung.",
-    "selectPrompt": "Wähle eine Anforderung aus der Liste.",
+    "selectPrompt": "Anforderung aus der Liste auswählen, um Details anzuzeigen.",
     "changeReasonLabel": "Begründung",
     "changeReasonPlaceholder": "Warum wird diese Anforderung freigegeben/abgelehnt?",
     "changeReasonRequired": "Für diesen Übergang ist eine Begründung erforderlich.",
@@ -507,7 +516,7 @@
     "summary_other": "{{count}} Baselines",
     "emptyTitle": "Noch keine Baselines",
     "emptyDescription": "Baselines erfassen eine Momentaufnahme deiner Artefakte zu einem Zeitpunkt.",
-    "selectBaseline": "Wählen Sie eine Baseline aus der Liste.",
+    "selectBaseline": "Baseline aus der Liste auswählen, um Details anzuzeigen.",
     "create": "Neue Baseline",
     "id": "ID",
     "scope": "Scope",
@@ -531,7 +540,10 @@
     "overrideNoPermission": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Nur Admin oder Approver können die Baseline trotzdem erstellen — wende dich an eine berechtigte Person, oder behebe die gemeldeten Findings.",
     "compare": "Vergleichen",
     "compareTitle": "Baselines vergleichen",
-    "compareRun": "Vergleichen"
+    "compareRun": "Vergleichen",
+    "name": "Name",
+    "namePlaceholder": "z. B. Release 1.2 Freigabe",
+    "nameHint": "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein."
   },
   "glossary": {
     "searchPlaceholder": "Glossar durchsuchen...",
@@ -562,7 +574,7 @@
     "emptyTitle": "Noch keine Begriffe",
     "emptyDescription": "Glossarbegriffe halten Definitionen, Synonyme und Abkürzungen konsistent.",
     "selectTitle": "Kein Begriff ausgewählt",
-    "selectTerm": "Wähle einen Begriff aus der Liste, um Details anzuzeigen.",
+    "selectTerm": "Begriff aus der Liste auswählen, um Details anzuzeigen.",
     "usages": "Verwendungen",
     "lifecycleStatus": {
       "active": "Aktiv",
@@ -580,11 +592,12 @@
     "status": "Status"
   },
   "needs": {
-    "selectNeed": "Wählen Sie einen Bedarf aus der Liste, um Details anzuzeigen.",
+    "selectNeed": "Bedarf aus der Liste auswählen, um Details anzuzeigen.",
     "createFailed": "Bedarf konnte nicht erstellt werden.",
     "saveFailed": "Bedarf konnte nicht gespeichert werden.",
     "deleteFailed": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
     "deleteConfirm": "Diesen Bedarf löschen?",
+    "deleteTitle": "Bedarf löschen",
     "priorityNone": "Keine",
     "deriveStarting": "KI-Ableitung wird gestartet...",
     "deriveStarted": "Task gestartet: {{taskId}}. Warte auf Abschluss...",
@@ -617,11 +630,12 @@
     "discard": "Verwerfen"
   },
   "adrs": {
-    "selectAdr": "Wählen Sie eine ADR aus der Liste, um Details anzuzeigen.",
+    "selectAdr": "ADR aus der Liste auswählen, um Details anzuzeigen.",
     "createFailed": "ADR konnte nicht erstellt werden.",
     "saveFailed": "ADR konnte nicht gespeichert werden.",
     "deleteFailed": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
     "deleteConfirm": "Diese ADR löschen?",
+    "deleteTitle": "ADR löschen",
     "context": "Kontext",
     "consequences": "Konsequenzen",
     "titlePlaceholder": "Titel der Architekturentscheidung",
@@ -644,11 +658,12 @@
   },
   "risks": {
     "titlePlaceholder": "z. B. Ausfall der Datenbank im Peak-Load",
-    "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",
+    "selectRisk": "Risiko aus der Liste auswählen, um Details anzuzeigen.",
     "createFailed": "Risiko konnte nicht erstellt werden.",
     "saveFailed": "Risiko konnte nicht gespeichert werden.",
     "deleteFailed": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
     "deleteConfirm": "Dieses Risiko löschen?",
+    "deleteTitle": "Risiko löschen",
     "severity": "Schweregrad",
     "probability": "Wahrscheinlichkeit",
     "impact": "Auswirkung",
@@ -685,11 +700,12 @@
   },
   "issues": {
     "titlePlaceholder": "z. B. Login schlägt bei aktivem SSO fehl",
-    "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
+    "selectIssue": "Problem aus der Liste auswählen, um Details anzuzeigen.",
     "createFailed": "Problem konnte nicht erstellt werden.",
     "saveFailed": "Problem konnte nicht gespeichert werden.",
     "deleteFailed": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
     "deleteConfirm": "Dieses Problem löschen?",
+    "deleteTitle": "Problem löschen",
     "severity": "Schweregrad",
     "category": "Kategorie",
     "tags": "Tags",
@@ -702,10 +718,11 @@
     "untitled": "Unbenannt"
   },
   "testcases": {
-    "selectTestCase": "Wählen Sie einen Testfall aus der Liste, um Details anzuzeigen.",
+    "selectTestCase": "Testfall aus der Liste auswählen, um Details anzuzeigen.",
     "createFailed": "Testfall konnte nicht erstellt werden.",
     "saveFailed": "Testfall konnte nicht gespeichert werden.",
     "deleteFailed": "Testfall konnte nicht gelöscht werden.",
+    "deleteTitle": "Testfall löschen",
     "newTestCase": "Neuer Testfall",
     "titlePlaceholder": "z.B. Testfalltitel...",
     "summary_one": "{{count}} Testfall",
@@ -742,7 +759,8 @@
       "traceability": "Traceability",
       "visibility": "Sichtbarkeit",
       "llm": "LLM & Prompts",
-      "governanceReplacement": "Workflows & Berechtigungen"
+      "governanceReplacement": "Workflows & Berechtigungen",
+      "appearance": "Darstellung"
     },
     "attributeVisibility": "Attribut-Sichtbarkeit",
     "llm": {
@@ -917,6 +935,7 @@
     "acceptanceCriteriaRequired": "Abnahmekriterien sind für dieses Rigor-Preset erforderlich.",
     "createFailed": "Anforderung konnte nicht angelegt werden.",
     "deleteFailed": "Anforderung konnte nicht gelöscht werden.",
+    "deleteTitle": "Anforderung löschen",
     "pdfExportFailed": "PDF-Export fehlgeschlagen.",
     "aiDeriveEmpty": "Die KI hat keine Anforderungen der nächsten Ebene vorgeschlagen. Prüfe, ob diese Anforderung eine Beschreibung hat, und versuche es erneut.",
     "section": {
@@ -962,7 +981,7 @@
     "finishedAt": "Beendet",
     "loadFailed": "Test-Runs konnten nicht geladen werden.",
     "detailLoadFailed": "Test-Run konnte nicht geladen werden.",
-    "selectPrompt": "Testlauf auswählen, um Details anzuzeigen",
+    "selectPrompt": "Testlauf aus der Liste auswählen, um Details anzuzeigen.",
     "testCases": "Testfälle",
     "resultsLoading": "Lade Testfälle...",
     "resultsLoadFailed": "Testfälle konnten nicht geladen werden.",
@@ -1094,7 +1113,7 @@
     "traceability": "Traceability",
     "noTraceLinks": "Keine TraceLinks mit diesem ICD verknüpft.",
     "noArtifacts": "Keine Architekturelemente verfügbar. Bitte zuerst Elemente anlegen.",
-    "selectIcd": "Wählen Sie ein ICD aus der Liste",
+    "selectIcd": "ICD aus der Liste auswählen, um Details anzuzeigen.",
     "selectSource": "Quell-Element auswählen",
     "selectTarget": "Ziel-Element auswählen",
     "nameRequired": "Bitte einen ICD-Namen eingeben.",
@@ -1126,7 +1145,7 @@
     "noItems": "Noch keine Diagramme. Erstellen Sie eines, um zu beginnen.",
     "emptySource": "(kein Quellinhalt)",
     "notFound": "Diagramm nicht gefunden.",
-    "selectDiagram": "Wählen Sie ein Diagramm aus der Liste",
+    "selectDiagram": "Diagramm aus der Liste auswählen, um Details anzuzeigen.",
     "traceability": "Traceability",
     "noTraceLinks": "Keine Artefakte mit diesem Diagramm verknüpft.",
     "viewMode": "Ansicht",
@@ -1371,7 +1390,8 @@
       "menu": {
         "switch": "Zu v{{n}} wechseln",
         "compare": "Mit aktueller Version vergleichen",
-        "copy": "Versions-ID kopieren"
+        "copy": "Versions-ID kopieren",
+        "trigger": "Aktionen für Version v{{n}} öffnen"
       },
       "copied": "Versions-ID kopiert",
       "noSnapshot": "Für diese Version ist kein Stand gespeichert."
@@ -1383,7 +1403,8 @@
       "empty": "Wähle oben zwei Versionen zum Vergleichen.",
       "error": "Diff konnte nicht geladen werden.",
       "unsupported": "Diff ist für {{kind}}-Artefakte noch nicht verfügbar.",
-      "compareCurrent": "Vergleiche v{{from}} → v{{to}}"
+      "compareCurrent": "Vergleiche v{{from}} → v{{to}}",
+      "initialState": "Ausgangszustand v{{to}} — kein Vorgänger vorhanden"
     },
     "trace": {
       "title": "Trace-Links",
@@ -1969,6 +1990,11 @@
       "Goal": "Ziel"
     },
     "multiEntry": "Ich weiß noch nicht genau, was ich brauche",
+    "widget": {
+      "title": "Interview-Assistent",
+      "open": "Interview-Assistent öffnen",
+      "close": "Interview-Assistent schließen"
+    },
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",
       "transcriptLabel": "Chat-Verlauf",
@@ -1985,6 +2011,12 @@
       "customized": "Angepasst",
       "onDefault": "Auf Standard",
       "resetToDefault": "Auf Standard zurücksetzen"
+    }
+  },
+  "diff": {
+    "initialState": {
+      "title": "Ausgangszustand",
+      "body": "Diese Version hat keinen gespeicherten Vorgänger. Angezeigt werden die Werte bei der Erstellung — deshalb ist jedes Feld als hinzugefügt markiert."
     }
   }
 }

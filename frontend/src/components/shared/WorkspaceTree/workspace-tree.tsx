@@ -16,7 +16,7 @@
  *   - Click-to-select with translucent primary bg + left border highlight
  *   - Hover: var(--color-surface-raised) background
  *   - Optional built-in search (300ms debounce); parents stay visible
- *   - Optional L0-L4 level badge with design-doc colors (showLevelBadge)
+ *   - Optional level badge via the shared, neutral <LevelBadge> (showLevelBadge)
  *   - Optional status/type badge per node (node.badge)
  *   - Optional "+ child" button per node (onAddChild — Architecture use)
  *   - ARIA: role="tree" / role="treeitem" / aria-expanded / aria-selected
@@ -34,53 +34,37 @@ import {
   useState,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { collectSelfAndDescendantIds } from './tree-hierarchy';
+import { useTranslation } from 'react-i18next';
+import { LevelBadge } from '../LevelBadge';
+import { BADGE_BASE_STYLE } from '../../../utils/badgeBase';
+import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
-// Level badge colors — design doc section 6
+// Level badge — see <LevelBadge> (issue #674)
 // ---------------------------------------------------------------------------
-
-// Theming phase 2, checkpoint 1 migrated L0/L1/L3/L4 onto the --color-level-*
-// design tokens (tokens.css); L2 (cyan) was left as a raw hex literal at the
-// time because no --palette-* primitive was a close match. Contrast-audit
-// follow-up (#140/#161 blast-radius analysis) added a dedicated
-// --palette-cyan-500 primitive so L2 is now tokenized like its siblings — no
-// more raw hex in this map.
-const LEVEL_BADGE_COLORS: Record<number, string> = {
-  0: 'var(--color-level-l0)', // L0 dark blue
-  1: 'var(--color-level-l1)', // L1 blue
-  2: 'var(--color-level-l2)', // L2 cyan
-  3: 'var(--color-level-l3)', // L3 green
-  4: 'var(--color-level-l4)', // L4 gray
-};
-
-function levelBadgeColor(levelStr: string): string {
-  const num = parseInt(levelStr.replace(/^L/i, ''), 10);
-  return LEVEL_BADGE_COLORS[Math.min(Math.max(isNaN(num) ? 0 : num, 0), 4)];
-}
-
-// Contrast-audit follow-up (#140/#161): the level badge previously hardcoded
-// `color: 'white'` regardless of which of the 5 background colors above was
-// active. Recomputing WCAG contrast for all 5 (frozen, theme-independent)
-// backgrounds found only L0 (sky-800, 7.97:1) actually clears AA with white
-// text — L1/L2/L3/L4 measure 3.68:1/2.43:1/2.54:1/2.56:1 with white, all
-// well under the 4.5:1 floor, but comfortably clear it with black
-// (5.71:1/8.65:1/8.29:1/8.19:1). Hence a per-level text-color map instead of
-// a single constant, mirroring LEVEL_BADGE_COLORS above.
-const LEVEL_BADGE_TEXT_COLORS: Record<number, string> = {
-  0: 'var(--color-level-l0-text)',
-  1: 'var(--color-level-l1-text)',
-  2: 'var(--color-level-l2-text)',
-  3: 'var(--color-level-l3-text)',
-  4: 'var(--color-level-l4-text)',
-};
-
-function levelBadgeTextColor(levelStr: string): string {
-  const num = parseInt(levelStr.replace(/^L/i, ''), 10);
-  return LEVEL_BADGE_TEXT_COLORS[Math.min(Math.max(isNaN(num) ? 0 : num, 0), 4)];
-}
-
+//
+// This file used to carry its own level badge: a `LEVEL_BADGE_COLORS` ramp
+// (L0 dark blue -> L4 gray) plus a matching `LEVEL_BADGE_TEXT_COLORS` map
+// added by the #140/#161 contrast audit, rendered inline further down. It was
+// a second, independent implementation of `shared/LevelBadge.tsx`, and the
+// two had drifted apart in the way that matters most: the shared component is
+// deliberately **neutral**, because a level is not a state (UI concept ch.
+// 3.3 / ch. 8.3) and colouring it puts a third meaning on the colour channel
+// next to type and status (ch. 8.1). The concept names the coloured `L0`/`SR`
+// badge as the concrete finding behind that rule — a green `SR` reads as
+// "approved" to anyone who has learned the status palette.
+//
+// The divergence was already visible in the product: `ArchitectureLegend.tsx`
+// documented the level badge to the user with a *neutral* `<LevelBadge>`
+// sample while the Architecture tree right next to it rendered the coloured
+// ramp, so the legend did not match the thing it was explaining.
+//
+// So the colour was dropped rather than moved into `<LevelBadge>`. The
+// `--color-level-*` tokens themselves stay in `tokens.css` — they are still
+// used by `SystemSettings/MemoryVisualizationSection.module.css`, where a
+// level ramp *is* the encoded dimension.
+//
 // ---------------------------------------------------------------------------
 // Type badge abbreviation map — REQ-007
 // ---------------------------------------------------------------------------
@@ -171,8 +155,8 @@ export interface WorkspaceTreeProps {
    */
   onAddChild?: (id: string) => void;
   /**
-   * Show L0-L4 colored level badge (right of name).
-   * Uses node.level string. Default: false.
+   * Show the neutral <LevelBadge> (right of name), fed from the
+   * `node.level` display string. Default: false.
    */
   showLevelBadge?: boolean;
   /**
@@ -181,6 +165,13 @@ export interface WorkspaceTreeProps {
    * Default: true.
    */
   showSearch?: boolean;
+  /**
+   * Issue #676: all four label props below are optional *overrides*. When a
+   * caller omits one, the tree falls back to its own translated default
+   * (`editor.*` keys) rather than to a hardcoded English literal — the
+   * product UI is German, and roughly half of the ~12 call sites never pass
+   * these props, so an English default was user-visible, not dead code.
+   */
   searchPlaceholder?: string;
   emptyLabel?: string;
   noMatchesLabel?: string;
@@ -237,8 +228,9 @@ export interface WorkspaceTreeProps {
    */
   onReparent?: (id: string, newParentId: string | null) => void;
   /**
-   * Label inside the root dropzone. Only used when `onReparent` is set;
-   * translated by the caller (WorkspaceTree carries no i18n of its own).
+   * Label inside the root dropzone. Only used when `onReparent` is set.
+   * Callers that want a domain-specific wording (e.g. Architecture's "…make
+   * root (L0)") pass it here; otherwise the translated default applies.
    */
   rootDropzoneLabel?: string;
   'data-testid'?: string;
@@ -340,17 +332,36 @@ export function WorkspaceTree({
   onAddChild,
   showLevelBadge = false,
   showSearch = true,
-  searchPlaceholder = 'Search...',
-  emptyLabel = 'No items.',
-  noMatchesLabel = 'No matches found.',
+  searchPlaceholder,
+  emptyLabel,
+  noMatchesLabel,
   virtualize = false,
   renderRow,
   virtualRowHeight,
   onReparent,
-  rootDropzoneLabel = 'Drop here to make root',
+  rootDropzoneLabel,
   'data-testid': testId = 'workspace-tree',
   onToggle,
 }: WorkspaceTreeProps): JSX.Element {
+  // Issue #676: the defaults live here (not in the destructuring above) so
+  // they can come from i18n instead of hardcoded English literals. A caller
+  // that passes a label still wins — `??` only fills in the omitted ones.
+  const { t } = useTranslation();
+  const searchPlaceholderLabel =
+    searchPlaceholder ?? t('editor.searchPlaceholder');
+  const emptyStateLabel = emptyLabel ?? t('editor.empty');
+  const noMatchesStateLabel = noMatchesLabel ?? t('editor.noMatches');
+  const dropzoneLabel = rootDropzoneLabel ?? t('editor.treeDropRoot');
+  const rowLabels = useMemo(
+    () => ({
+      expand: t('editor.expandNode'),
+      collapse: t('editor.collapseNode'),
+      addChild: t('editor.addChild'),
+      containsSelection: t('editor.treeContainsSelection'),
+    }),
+    [t],
+  );
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -365,6 +376,46 @@ export function WorkspaceTree({
     didInitRef.current = true;
     setExpanded(new Set(tree.map((n) => n.node.id)));
   }, [tree]);
+
+  // -------------------------------------------------------------------
+  // Issue #665 — reveal a selection that was made outside this tree.
+  //
+  // `selectedId` is owned by the route (`useParams`) in every consumer, so
+  // it changes for reasons the tree never sees: a hit in the sidebar's
+  // global search, a TraceSpine/trace-link jump, browser back/forward, a
+  // pasted deep link. Before this, the tree only ever auto-expanded its
+  // *roots* (above, once), so any selection deeper than level 1 landed
+  // inside a collapsed subtree: the detail panel showed the artifact while
+  // the tree next to it showed no trace of it. That is the concrete
+  // "sidebar navigation and in-page tree don't synchronise" symptom.
+  //
+  // Deliberately keyed on the selection *changing*, not on every render:
+  // re-expanding on each `nodes` refetch would fight the user, and would
+  // make the manual collapse that issue #668's marker exists for impossible
+  // to hold. `revealedSelectionRef` stays unset until the node is actually
+  // present in `nodes`, so a selection that arrives before its list has
+  // loaded is revealed by the retry on the next data change instead of
+  // being silently marked as handled.
+  // -------------------------------------------------------------------
+  const revealedSelectionRef = useRef<string | null>(null);
+  const pendingRevealScrollRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedId || revealedSelectionRef.current === selectedId) return;
+    if (!nodes.some((n) => n.id === selectedId)) return;
+    revealedSelectionRef.current = selectedId;
+    pendingRevealScrollRef.current = selectedId;
+    const ancestors = collectAncestorIds(nodes, selectedId);
+    if (ancestors.length === 0) return;
+    setExpanded((prev) => {
+      // Returning the identical Set keeps React from re-rendering when the
+      // path was already open (the common case for an in-tree click).
+      if (ancestors.every((id) => prev.has(id))) return prev;
+      const next = new Set(prev);
+      for (const id of ancestors) next.add(id);
+      return next;
+    });
+  }, [nodes, selectedId]);
 
   // 300ms debounce on search input (design doc §4 — type_in_search_field).
   useEffect(() => {
@@ -403,6 +454,20 @@ export function WorkspaceTree({
     () => flattenVisible(tree, expanded, visibleIds),
     [tree, expanded, visibleIds],
   );
+
+  /**
+   * Issue #668: ancestors of the selected node, so a *collapsed* one can be
+   * marked as "the selection is in here". Without it, collapsing the parent of
+   * e.g. REQ-L3-005 makes the current selection vanish from the tree with no
+   * trace, while the detail panel on the right still shows that very artifact.
+   *
+   * Empty while searching: `flattenVisible` force-expands every matched
+   * subtree, so nothing is hidden and no row could carry the marker.
+   */
+  const selectedAncestorIds = useMemo((): Set<string> => {
+    if (!selectedId || visibleIds !== null) return new Set<string>();
+    return new Set(collectAncestorIds(nodes, selectedId));
+  }, [nodes, selectedId, visibleIds]);
 
   const toggleExpand = useCallback((id: string): void => {
     setExpanded((prev) => {
@@ -455,6 +520,39 @@ export function WorkspaceTree({
       rowElementsRef.current.delete(id);
     }
   }, []);
+
+  /**
+   * Issue #665, second half: once the reveal effect above has opened the
+   * ancestor path, bring the row itself into view. Split into its own effect
+   * because the row only becomes part of `visibleRows` on the render *after*
+   * the expansion commits — and, in the virtualized path, is not in the DOM
+   * at all until the virtualizer scrolls to it.
+   *
+   * Scrolling only, never `.focus()`: the selection came from somewhere else
+   * on the page (global search field, a trace link), and stealing keyboard
+   * focus into the tree would yank the user out of whatever they were using.
+   */
+  useEffect(() => {
+    const pendingId = pendingRevealScrollRef.current;
+    if (pendingId === null) return;
+    const index = visibleRows.findIndex(
+      (r) => r.internal.node.id === pendingId,
+    );
+    // Still hidden (e.g. an active search filters it out) — leave the request
+    // pending so it lands once the row becomes visible again.
+    if (index === -1) return;
+    pendingRevealScrollRef.current = null;
+    if (useVirtual) {
+      rowVirtualizer.scrollToIndex(index, { align: 'auto' });
+      return;
+    }
+    const el = rowElementsRef.current.get(pendingId);
+    // jsdom implements no scroll methods, so this stays a no-op under test
+    // instead of needing a polyfill in `src/test/setup.ts`.
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest' });
+    }
+  }, [visibleRows, useVirtual, rowVirtualizer]);
 
   /**
    * Moves roving-tabindex focus to `visibleRows[index]`.
@@ -691,8 +789,8 @@ export function WorkspaceTree({
           data-testid={`${testId}-search`}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder={searchPlaceholder}
-          aria-label={searchPlaceholder}
+          placeholder={searchPlaceholderLabel}
+          aria-label={searchPlaceholderLabel}
           style={{
             height: '32px',
             borderRadius: 'var(--radius-sm)',
@@ -731,7 +829,7 @@ export function WorkspaceTree({
           }}
           onDrop={(e) => handleDrop(e, null)}
         >
-          {rootDropzoneLabel}
+          {dropzoneLabel}
         </div>
       )}
 
@@ -744,7 +842,7 @@ export function WorkspaceTree({
             margin: 0,
           }}
         >
-          {emptyLabel}
+          {emptyStateLabel}
         </p>
       ) : visibleRows.length === 0 ? (
         <p
@@ -755,7 +853,7 @@ export function WorkspaceTree({
             margin: 0,
           }}
         >
-          {noMatchesLabel}
+          {noMatchesStateLabel}
         </p>
       ) : useVirtual ? (
         // REQ-091: virtualized rendering — only on-screen rows hit the DOM.
@@ -788,6 +886,9 @@ export function WorkspaceTree({
                   isFocused={internal.node.id === effectiveFocusedId}
                   hasChildren={hasChildren}
                   isExpanded={isExpanded}
+                  containsSelection={
+                    !isExpanded && selectedAncestorIds.has(internal.node.id)
+                  }
                   showLevelBadge={showLevelBadge}
                   onAddChild={onAddChild}
                   renderRow={renderRow}
@@ -797,6 +898,7 @@ export function WorkspaceTree({
                   onRowRef={registerRowRef}
                   onFocusRow={setFocusedId}
                   dragProps={rowDragProps}
+                  labels={rowLabels}
                   rowStyle={{
                     position: 'absolute',
                     top: 0,
@@ -832,6 +934,9 @@ export function WorkspaceTree({
               isFocused={internal.node.id === effectiveFocusedId}
               hasChildren={hasChildren}
               isExpanded={isExpanded}
+              containsSelection={
+                !isExpanded && selectedAncestorIds.has(internal.node.id)
+              }
               showLevelBadge={showLevelBadge}
               onAddChild={onAddChild}
               renderRow={renderRow}
@@ -841,6 +946,7 @@ export function WorkspaceTree({
               onRowRef={registerRowRef}
               onFocusRow={setFocusedId}
               dragProps={rowDragProps}
+              labels={rowLabels}
             />
           ))}
         </ul>
@@ -861,6 +967,12 @@ interface TreeRowProps {
   isFocused: boolean;
   hasChildren: boolean;
   isExpanded: boolean;
+  /**
+   * Issue #668: true when this row is collapsed *and* the currently selected
+   * node sits somewhere inside its subtree. Mutually exclusive with
+   * `isSelected` (a node is never its own ancestor — see `collectAncestorIds`).
+   */
+  containsSelection: boolean;
   showLevelBadge: boolean;
   onAddChild?: (id: string) => void;
   /** Task 3.1: custom row content override — see `WorkspaceTreeProps.renderRow`. */
@@ -882,8 +994,24 @@ interface TreeRowProps {
    * attributes or handlers at all, exactly as before.
    */
   dragProps?: TreeRowDragProps;
+  /**
+   * Issue #676: translated labels for the row's icon-only controls. Resolved
+   * once in `WorkspaceTree` and handed down rather than calling
+   * `useTranslation()` per row — a large virtualized tree mounts hundreds of
+   * rows and each hook call would add its own i18next subscription.
+   */
+  labels: TreeRowLabels;
   /** REQ-091: extra positioning styles injected by the virtualizer. */
   rowStyle?: CSSProperties;
+}
+
+/** Translated accessible names for the row's icon-only buttons (#676). */
+interface TreeRowLabels {
+  expand: string;
+  collapse: string;
+  addChild: string;
+  /** Issue #668: tooltip on a collapsed row that hides the current selection. */
+  containsSelection: string;
 }
 
 /** Drag & drop wiring handed down from WorkspaceTree to each row. */
@@ -904,6 +1032,7 @@ function TreeRow({
   isFocused,
   hasChildren,
   isExpanded,
+  containsSelection,
   showLevelBadge,
   onAddChild,
   renderRow,
@@ -913,6 +1042,7 @@ function TreeRow({
   onRowRef,
   onFocusRow,
   dragProps,
+  labels,
   rowStyle,
 }: TreeRowProps): JSX.Element {
   // Task 3.1: when a custom row renderer is used (e.g. <ArtifactRow>), it
@@ -942,6 +1072,10 @@ function TreeRow({
       aria-expanded={hasChildren ? isExpanded : undefined}
       tabIndex={isFocused ? 0 : -1}
       data-testid={`${testIdPrefix}-node-${node.id}`}
+      // Issue #668: machine-readable counterpart of the dashed accent below,
+      // so E2E/unit tests can assert the marker without reading colours.
+      data-contains-selection={containsSelection ? 'true' : undefined}
+      title={containsSelection ? labels.containsSelection : undefined}
       className={dragClassName}
       draggable={dragProps ? true : undefined}
       data-dragging={isDragging ? 'true' : undefined}
@@ -985,8 +1119,20 @@ function TreeRow({
         cursor: 'pointer',
         userSelect: 'none',
         background: !hasCustomRow && isSelected ? 'var(--color-card-active-bg)' : 'transparent',
-        borderLeft:
-          !hasCustomRow && isSelected
+        // Issue #668: the same 3px left accent the selected row uses, but
+        // dashed — "the selection is *inside* here" rather than "this is it".
+        // Reusing the accent slot keeps the marker free of layout cost (no
+        // extra glyph, no row reflow) and puts it exactly where the eye
+        // already looks for selection state.
+        //
+        // Unlike the solid selected accent this is NOT suppressed for
+        // `hasCustomRow`: a custom row renderer (<ArtifactRow>) owns its own
+        // *selected* chrome, but it only ever sees one artifact and cannot
+        // know that a descendant is selected — that is tree structure, which
+        // only TreeRow has.
+        borderLeft: containsSelection
+          ? '3px dashed var(--color-primary)'
+          : !hasCustomRow && isSelected
             ? '3px solid var(--color-primary)'
             : '3px solid transparent',
         color: 'var(--color-text)',
@@ -1019,7 +1165,7 @@ function TreeRow({
         <button
           type="button"
           data-testid={`${testIdPrefix}-toggle-${node.id}`}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          aria-label={isExpanded ? labels.collapse : labels.expand}
           tabIndex={-1}
           aria-hidden="true"
           onClick={(e) => {
@@ -1032,7 +1178,12 @@ function TreeRow({
             padding: 0,
             border: 'none',
             background: 'transparent',
-            color: 'var(--color-text-muted)',
+            // Issue #668: second, redundant cue on the one control that can
+            // bring the hidden selection back — colour alone on the border
+            // would be a single-channel signal.
+            color: containsSelection
+              ? 'var(--color-primary)'
+              : 'var(--color-text-muted)',
             cursor: 'pointer',
             fontSize: '0.65rem',
             lineHeight: 1,
@@ -1072,46 +1223,34 @@ function TreeRow({
             {node.name}
           </span>
 
-          {/* Status / type badge (node.badge) */}
+          {/* Status / type badge (node.badge). Geometry from the shared badge
+              base (issue #675) so a tree row's badge matches the one an
+              <ArtifactRow> renders for the same artifact; only the colour,
+              which the caller supplies, stays local. */}
           {node.badge && (
             <span
               data-testid={`${testIdPrefix}-badge-${node.id}`}
               title={node.badge.title ?? node.badge.text}
               aria-label={node.badge.title ?? node.badge.text}
               style={{
-                flexShrink: 0,
-                fontSize: '0.7rem',
-                padding: '1px 6px',
-                borderRadius: 'var(--radius-full)',
+                ...BADGE_BASE_STYLE,
                 background: node.badge.bg,
                 color: node.badge.color,
-                fontWeight: 500,
-                lineHeight: '16px',
-                whiteSpace: 'nowrap',
               }}
             >
               {node.badge.text}
             </span>
           )}
 
-          {/* Level badge L0-L4 (design doc §6 — level_badge colors) */}
+          {/* Level badge — the shared, neutral <LevelBadge> (issue #674).
+              `node.level` is already a display string ("L0", "L1", ...), so it
+              goes in as `label`; the numeric `level` prop would re-prefix it
+              to "LL0". */}
           {showLevelBadge && node.level && (
-            <span
-              data-testid={`${testIdPrefix}-level-${node.id}`}
-              style={{
-                flexShrink: 0,
-                fontSize: '12px',
-                padding: '1px 6px',
-                borderRadius: 'var(--radius-full)',
-                background: levelBadgeColor(node.level),
-                color: levelBadgeTextColor(node.level),
-                fontWeight: 600,
-                lineHeight: '16px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {node.level}
-            </span>
+            <LevelBadge
+              label={node.level}
+              testId={`${testIdPrefix}-level-${node.id}`}
+            />
           )}
         </>
       )}
@@ -1121,8 +1260,8 @@ function TreeRow({
         <button
           type="button"
           data-testid={`${testIdPrefix}-add-child-${node.id}`}
-          aria-label="Add child"
-          title="Add child"
+          aria-label={labels.addChild}
+          title={labels.addChild}
           tabIndex={-1}
           aria-hidden="true"
           onClick={(e) => {

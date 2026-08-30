@@ -646,7 +646,7 @@ export default function IcdView(): JSX.Element {
               textAlign: "center",
             }}
           >
-            {t("icds.selectIcd", "Select an ICD from the list")}
+            {t("icds.selectIcd", "Select an ICD from the list to view details.")}
           </p>
           )
         }

@@ -153,7 +153,7 @@ export default function DiagramView(): JSX.Element {
               textAlign: "center",
             }}
           >
-            {t("diagrams.selectDiagram", "Select a diagram from the list")}
+            {t("diagrams.selectDiagram", "Select a diagram from the list to view details.")}
           </p>
           )
         }

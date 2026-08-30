@@ -175,7 +175,16 @@ export function TraceSpine({
                   )}
                   {station.isCurrent && (
                     <span className={styles.here} data-testid={`${testId}-here`}>
-                      ◀ {t("traceSpine.here", "hier")}
+                      {/* L-01: "◀ hier" is the you-are-here marker, not a
+                          debug leftover — the label is i18n-backed
+                          (traceSpine.here) and the glyph is pure decoration
+                          pointing at the station. It is hidden from assistive
+                          tech so the station button announces
+                          "Requirement, hier" rather than reading the
+                          triangle out, matching how ArchitectureLegend
+                          already renders the same marker in its key. */}
+                      <span aria-hidden="true">◀ </span>
+                      {t("traceSpine.here", "hier")}
                     </span>
                   )}
                 </button>

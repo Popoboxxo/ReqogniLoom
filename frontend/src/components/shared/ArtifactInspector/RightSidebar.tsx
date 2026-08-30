@@ -178,6 +178,14 @@ export function RightSidebar({
   // Diff state — left/right version selection owned by the shell
   // -------------------------------------------------------------------------
 
+  // M-04: `diffLeft` starts equal to `diffRight` — an empty range that names
+  // no comparison at all. That is deliberate and means "no explicit choice
+  // yet": DiffPanel forwards it as a *request*, and ArtifactDiff discards any
+  // value that is not a real version below the right-hand side, falling back
+  // to its own seeding. It only becomes a real selection once the user picks
+  // "Compare to current" on a version row (handleCompareVersions below).
+  // What must never happen again is a caller *describing* this placeholder
+  // range to the user as though it were the comparison on screen.
   const [diffLeft, setDiffLeft] = useState<number>(() => currentVersion?.version ?? 1);
   const [diffRight, setDiffRight] = useState<number>(() => currentVersion?.version ?? 1);
 
@@ -289,7 +297,28 @@ export function RightSidebar({
     // max-width, so the used width is min(storedWidth, 45% of the pane). Wide
     // viewports leave the pane well above 800px and therefore keep the full
     // preferred width — nothing changes there.
-    maxWidth: collapsed ? undefined : `${MAX_WIDTH_SHARE_PERCENT}%`,
+    //
+    // H-03: the bare `45%` had no floor, so on a narrow pane the cap won
+    // outright and the *expanded* inspector rendered far below its own
+    // MIN_WIDTH_PX — measured live at 237px on a 1425px viewport (version
+    // timestamps overlapping the row's overflow button) and 91px at 1100px,
+    // where every panel degenerated to a one-character-wide sliver.
+    //
+    // Read outside-in: `max(MIN, 45%)` keeps the 45% cap wherever it is the
+    // wider of the two and otherwise holds the panel at the width its
+    // contents are designed for; the outer `min(…, 100%)` then stops that
+    // floor from pushing the panel out past the pane it lives in, which
+    // would only trade a clipped panel for a clipped page. On a pane too
+    // narrow for even the minimum, the panel takes the whole pane and its
+    // contents wrap (see VersionPanel.module.css) instead of overflowing.
+    //
+    // Narrow viewports still default to *collapsed* (see
+    // DEFAULT_COLLAPSE_BREAKPOINT_PX / #419), so this only affects a user
+    // who deliberately expanded the inspector — for whom an unreadable
+    // sliver was never the more useful outcome.
+    maxWidth: collapsed
+      ? undefined
+      : `min(max(${MIN_WIDTH_PX}px, ${MAX_WIDTH_SHARE_PERCENT}%), 100%)`,
   };
 
   // -------------------------------------------------------------------------

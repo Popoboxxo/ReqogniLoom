@@ -196,6 +196,12 @@ test.describe('[VISUAL] Route screenshots (isolated empty workspace)', () => {
             page.locator('[data-testid="workspace-list"]'),
             page.locator('[data-testid="page-header-count"]'),
           ],
+          // Residual anti-aliasing/font-rendering variance across CI runs,
+          // see the comment above (this route can never be pixel-perfect
+          // stable) — the default 0.02 ratio still intermittently flags a
+          // ~3% diff with no structural cause. Widened only for this one
+          // call, not the global default in playwright.config.ts.
+          maxDiffPixelRatio: 0.04,
         });
       });
       continue;

@@ -66,16 +66,26 @@ const PRESET_RANK: Record<WorkspacePreset, number> = {
  * Tab identifiers for the settings surface (REQ-015; REQ-184/185 IA split).
  * The former ``governance`` tab is rebuilt as ``workflows-permissions``; the
  * former ``admin`` tab relocated to System Settings (SCR-204).
+ *
+ * M-03: ``appearance`` splits the two *presentation* preferences (interface
+ * language and theme) out of ``general``. They were sitting between the
+ * workspace's rigor preset, terminology profile and data-management actions —
+ * settings that change how the product behaves — even though they only change
+ * how it looks, and are the two a user is most likely to go looking for.
+ * ``general`` keeps everything that configures the workspace itself.
  */
 type SettingsTabId =
   | "general"
+  | "appearance"
   | "traceability"
   | "visibility"
   | "llm"
   | "workflows-permissions";
 
+/** Keyboard (arrow-key) traversal order — must mirror the rendered order. */
 const SETTINGS_TAB_IDS: SettingsTabId[] = [
   "general",
+  "appearance",
   "traceability",
   "visibility",
   "llm",
@@ -298,6 +308,7 @@ export default function WorkspaceSettings(): JSX.Element {
 
   const TABS: { id: SettingsTabId; label: string }[] = [
     { id: "general", label: t("settings.tabs.general", "Allgemein") },
+    { id: "appearance", label: t("settings.tabs.appearance", "Darstellung") },
     { id: "traceability", label: t("settings.tabs.traceability", "Traceability") },
     { id: "visibility", label: t("settings.tabs.visibility", "Sichtbarkeit") },
     { id: "llm", label: t("settings.tabs.llm", "LLM & Prompts") },
@@ -489,61 +500,6 @@ export default function WorkspaceSettings(): JSX.Element {
               ))}
             </section>
 
-            {/* Language */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.language")}</h3>
-              {["de", "en"].map((lang) => (
-                <label key={lang} style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
-                  <input
-                    type="radio"
-                    name="language"
-                    value={lang}
-                    checked={(activeWorkspace.language ?? "en") === lang}
-                    onChange={() => void handleLanguageChange(lang)}
-                    data-testid={`language-option-${lang}`}
-                  />
-                  {lang === "de" ? "Deutsch" : "English"}
-                </label>
-              ))}
-            </section>
-
-            {/* Theme (Theme Presets): independent palette + mode pickers */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.theme")}</h3>
-              <div data-testid="theme-palette-picker" style={palettePickerStyle}>
-                {palettes.map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    data-testid={`theme-palette-option-${p.key}`}
-                    aria-pressed={p.key === paletteKey}
-                    onClick={() => setPreference(p.key, mode)}
-                    style={labelStyle}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <div data-testid="theme-mode-picker" style={modePickerStyle}>
-                <button
-                  type="button"
-                  data-testid="theme-mode-dark"
-                  aria-pressed={mode === "dark"}
-                  onClick={() => setPreference(paletteKey, "dark")}
-                >
-                  {t("nav.darkMode")}
-                </button>
-                <button
-                  type="button"
-                  data-testid="theme-mode-light"
-                  aria-pressed={mode === "light"}
-                  onClick={() => setPreference(paletteKey, "light")}
-                >
-                  {t("nav.lightMode")}
-                </button>
-              </div>
-            </section>
-
             {/* Ziele (Goal/MainGoal, REQ-L2-TE-020) — feature + AI-generation toggle */}
             <section style={cardStyle}>
               <h3 style={headingStyle}>{t("settings.goals", "Ziele")}</h3>
@@ -615,7 +571,70 @@ export default function WorkspaceSettings(): JSX.Element {
             />
 
             <WorkspaceBannerSection workspaceId={activeWorkspace.id} />
-            <MemorySettingsSection workspaceId={activeWorkspace.id} />
+          </>
+        )}
+
+        {/* ---------------- Darstellung (M-03) ----------------
+            Interface language and theme: the two settings that change how the
+            product looks rather than how it behaves. Split out of "Allgemein",
+            where they were interleaved with the rigor preset, terminology
+            profile and data-management actions. */}
+        {activeTab === "appearance" && (
+          <>
+            {/* Language */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.language")}</h3>
+              {["de", "en"].map((lang) => (
+                <label key={lang} style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
+                  <input
+                    type="radio"
+                    name="language"
+                    value={lang}
+                    checked={(activeWorkspace.language ?? "en") === lang}
+                    onChange={() => void handleLanguageChange(lang)}
+                    data-testid={`language-option-${lang}`}
+                  />
+                  {lang === "de" ? "Deutsch" : "English"}
+                </label>
+              ))}
+            </section>
+
+            {/* Theme (Theme Presets): independent palette + mode pickers */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.theme")}</h3>
+              <div data-testid="theme-palette-picker" style={palettePickerStyle}>
+                {palettes.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    data-testid={`theme-palette-option-${p.key}`}
+                    aria-pressed={p.key === paletteKey}
+                    onClick={() => setPreference(p.key, mode)}
+                    style={labelStyle}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <div data-testid="theme-mode-picker" style={modePickerStyle}>
+                <button
+                  type="button"
+                  data-testid="theme-mode-dark"
+                  aria-pressed={mode === "dark"}
+                  onClick={() => setPreference(paletteKey, "dark")}
+                >
+                  {t("nav.darkMode")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="theme-mode-light"
+                  aria-pressed={mode === "light"}
+                  onClick={() => setPreference(paletteKey, "light")}
+                >
+                  {t("nav.lightMode")}
+                </button>
+              </div>
+            </section>
           </>
         )}
 
@@ -701,6 +720,10 @@ export default function WorkspaceSettings(): JSX.Element {
             {/* Prompt variable catalog (spec §5): the central place every
                 {placeholder} value is managed, across all prompt slots. */}
             <PromptVariablesSection workspaceId={activeWorkspace.id} />
+            {/* M-03: "KI-Gedächtnis" configures what the LLM is allowed to
+                remember across sessions, so it belongs with the rest of the
+                LLM configuration rather than at the bottom of "Allgemein". */}
+            <MemorySettingsSection workspaceId={activeWorkspace.id} />
           </>
         )}
 

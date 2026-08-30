@@ -92,7 +92,11 @@ export function BannerSection(): JSX.Element {
     <section className={styles.section} data-testid="banner-section">
       <h3 className={styles.heading}>{t("banners.globalTitle", "Global Banner")}</h3>
 
-      {error && <p className={styles.error}>{error}</p>}
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
       {savedOk && <p className={styles.saved}>{t("actions.saved", "Saved.")}</p>}
 
       <label className={styles.checkboxLabel}>

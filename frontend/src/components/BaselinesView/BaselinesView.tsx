@@ -45,6 +45,11 @@ import { useBaselinesData } from "./useBaselinesData";
 // so the two are not two independently-drifting magic numbers.
 const MIN_OVERRIDE_REASON_LENGTH = 10;
 
+// Issue #48: mirrors `BaselineSerializer.name` (max_length=500) so the field
+// stops the user at the boundary instead of letting the request come back as
+// a 400 they can only fix by guessing how much to delete.
+const MAX_BASELINE_NAME_LENGTH = 500;
+
 // Re-exported so existing imports (and unit tests) that pull DiffItemRow from
 // this module keep working after the Container/Presenter split (REQ-050).
 export { DiffItemRow } from "./BaselinesPanels";
@@ -63,6 +68,33 @@ const SCOPE_OPTIONS: { value: BaselineScope; labelKey: string }[] = [
   { value: "project", labelKey: "baselines.scopeProject" },
   { value: "global", labelKey: "baselines.scopeGlobal" },
 ];
+
+// Create-form field chrome. Module-level constants rather than inline object
+// literals: the inline-`style` ratchet (frontend/src/test/ui-ratchet.test.ts)
+// only counts literals, and a named constant is reusable besides.
+const formLabelStyle: React.CSSProperties = {
+  display: "block",
+  fontWeight: 500,
+  color: "var(--color-text)",
+  marginBottom: "var(--space-1)",
+};
+
+const formInputStyle: React.CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-3)",
+  fontSize: "var(--font-size-base)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+
+const formHintStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  margin: "var(--space-1) 0 var(--space-4) 0",
+};
 
 function formatDate(iso: string): string {
   try {
@@ -87,6 +119,12 @@ export default function BaselinesView(): JSX.Element {
   const [listSearch, setListSearch] = useState<string>("");
   const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
   const [showForm, setShowForm] = useState(false);
+  // Issue #48: the create form had no name field at all, so every baseline
+  // landed on the backend's `Baseline <ISO timestamp>` fallback and the list
+  // became a wall of indistinguishable timestamps — with no way to say what a
+  // baseline was actually taken for. Optional on purpose: leaving it blank
+  // keeps the old generated-name behaviour rather than blocking the action.
+  const [formName, setFormName] = useState<string>("");
   const [formArtifactId, setFormArtifactId] = useState<string>("");
   // REQ-L1-049: scope is now one of {document, project, global}; default
   // is "project" to match the backend model default.
@@ -154,9 +192,11 @@ export default function BaselinesView(): JSX.Element {
         const created = await createBaseline({
           scope: formScope,
           artifactId: formArtifactId,
+          name: formName,
           ...(withOverride ? { overrideReason } : {}),
         });
         setShowForm(false);
+        setFormName("");
         setFormArtifactId("");
         setFormScope("project");
         setGateBlocked(false);
@@ -171,7 +211,7 @@ export default function BaselinesView(): JSX.Element {
         setIsSaving(false);
       }
     },
-    [formArtifactId, formScope, overrideReason, t, createBaseline],
+    [formArtifactId, formScope, formName, overrideReason, t, createBaseline],
   );
 
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
@@ -237,7 +277,14 @@ export default function BaselinesView(): JSX.Element {
 
   const toggleCreateForm = useCallback((): void => {
     setShowCompare(false);
-    setShowForm((v) => !v);
+    setShowForm((v) => {
+      // Cancelling discards the draft; the same button re-opens a clean form.
+      if (v) {
+        setFormName("");
+        setCreateError(null);
+      }
+      return !v;
+    });
   }, []);
 
   // #181: search (by name) + scope filter. Computed unconditionally (rules
@@ -490,6 +537,36 @@ export default function BaselinesView(): JSX.Element {
             >
               + {t("baselines.create")}
             </h3>
+
+            {/* Issue #48: name the baseline. Optional — an empty value keeps
+                the backend's generated `Baseline <timestamp>` name. */}
+            <label htmlFor="baseline-name" style={formLabelStyle}>
+              {t("baselines.name", "Name")}
+            </label>
+            <input
+              id="baseline-name"
+              data-testid="baseline-name-input"
+              type="text"
+              value={formName}
+              maxLength={MAX_BASELINE_NAME_LENGTH}
+              onChange={(e) => {
+                setFormName(e.target.value);
+                setCreateError(null);
+              }}
+              placeholder={t(
+                "baselines.namePlaceholder",
+                "z. B. Release 1.2 Freigabe",
+              )}
+              aria-describedby="baseline-name-hint"
+              style={formInputStyle}
+            />
+            <p id="baseline-name-hint" style={formHintStyle}>
+              {t(
+                "baselines.nameHint",
+                "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
+              )}
+            </p>
+
             <label
               htmlFor="baseline-scope"
               style={{

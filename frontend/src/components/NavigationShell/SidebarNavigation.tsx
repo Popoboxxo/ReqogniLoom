@@ -44,6 +44,16 @@ const NAV_GROUP_ORDER: NavGroupId[] = [
   "admin",
 ];
 
+// Issues #654/#651: `.navGroupLabel` applies `text-transform: uppercase` to
+// every one of these, so an all-caps group header ("ÜBERSICHT",
+// "ARCHITEKTUR", ...) next to normal-case items is the intended, consistent
+// pattern — not the capitalization outlier the UI audit read it as. The real
+// defect the audit saw was that the `architecture` group header rendered the
+// *same word* as the `/architecture` item nested directly beneath it
+// ("ARCHITEKTUR" / "Architektur"), which reads as a duplicate rather than as
+// a section. The group label now names what the section actually contains
+// (architecture plus its trace/interface/diagram views), matching the
+// existing "Test & Qualität" compound-label style.
 const NAV_GROUP_LABEL_KEYS: Record<NavGroupId, string> = {
   overview: "nav.groupOverview",
   requirements: "nav.groupRequirements",
@@ -454,7 +464,7 @@ export function SidebarNavigation(): JSX.Element {
       />
     )}
     <nav
-      aria-label="Main navigation"
+      aria-label={t("nav.mainNavigation")}
       className={`${styles.sidebarNav} ${styles.navRoot} ${isMobileNavOpen ? styles.open : ""}`}
     >
       {/* Wraps the scrollable nav content so the fade-out scroll affordance
@@ -487,7 +497,7 @@ export function SidebarNavigation(): JSX.Element {
           className={styles.searchInput}
         />
         {isSearchOpen && (searchResults.length > 0 || isSearching) && (
-          <ul role="listbox" aria-label="Search results" className={styles.dropdownList}>
+          <ul role="listbox" aria-label={t("nav.searchResults")} className={styles.dropdownList}>
             {isSearching && (
               <li className={styles.dropdownLoadingItem}>
                 {t("nav.searching", "Suche läuft...")}
@@ -616,7 +626,7 @@ export function SidebarNavigation(): JSX.Element {
               <ul
                 data-testid="workspace-list"
                 role="listbox"
-                aria-label="Workspace switcher"
+                aria-label={t("nav.workspaceSwitcher")}
                 className={styles.workspaceList}
               >
                 {workspaces.map((ws) => {
@@ -649,7 +659,13 @@ export function SidebarNavigation(): JSX.Element {
               </ul>
             ) : (
               <div data-testid="workspace-empty-state" className={styles.workspaceEmptyState}>
-                {t("workspace.noOthers", "No other workspaces available")}
+                {/* Issues #654/#651: the old key was `workspace.noOthers`, a
+                    namespace that does not exist in either locale file, so
+                    i18next always fell through to the English literal
+                    fallback — visible English text in an otherwise German
+                    sidebar. Moved under the `nav` namespace this file
+                    already uses for every other label. */}
+                {t("nav.noOtherWorkspaces")}
               </div>
             )
           )}

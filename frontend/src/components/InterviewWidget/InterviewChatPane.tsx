@@ -177,7 +177,11 @@ export function InterviewChatPane({
           </ul>
         </div>
       )}
-      {error && <p className={styles.error}>{error}</p>}
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
       <div className={styles.inputRow}>
         <input
           data-testid="interview-chat-input"

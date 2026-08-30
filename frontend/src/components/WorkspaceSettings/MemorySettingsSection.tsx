@@ -1,6 +1,9 @@
 /**
  * ARCH-L1-001 ReactFrontend — MemorySettingsSection (WorkspaceSettings,
- * general tab). Spec 2026-08-24, Task 11.
+ * "LLM & Prompts" tab). Spec 2026-08-24, Task 11.
+ *
+ * M-03: relocated from the "Allgemein" tab — what the AI is allowed to
+ * remember is LLM configuration, not a general workspace property.
  *
  * Per-workspace enable/disable toggle for the AI Long-Term Memory feature.
  * Any workspace member sees the current state; the toggle itself is
@@ -85,7 +88,7 @@ export function MemorySettingsSection({ workspaceId }: Props): JSX.Element {
       </label>
 
       {error && (
-        <p className={styles.error} data-testid="memory-settings-error">
+        <p role="alert" className={styles.error} data-testid="memory-settings-error">
           {error}
         </p>
       )}

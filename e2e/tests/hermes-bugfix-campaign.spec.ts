@@ -472,7 +472,12 @@ test.describe('[REQ-133] Workspace Language — persists after save', () => {
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await injectBearerToken(page, token);
     await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    // M-03: interface language + theme moved out of the "Allgemein" tab into
+    // their own "Darstellung" tab. Deep-linked via the settings page's own
+    // `?tab=` parameter (#609) so this does not depend on click order.
+    // `/workspace-settings` is a <Navigate> alias that drops the query
+    // string, hence the direct `/settings` target here.
+    await page.goto(`${FRONTEND_URL}/settings?tab=appearance`);
     await page.waitForLoadState('networkidle');
 
     // The 'en' radio must be checked
@@ -497,7 +502,12 @@ test.describe('[REQ-133] Workspace Language — persists after save', () => {
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await injectBearerToken(page, token);
     await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    // M-03: interface language + theme moved out of the "Allgemein" tab into
+    // their own "Darstellung" tab. Deep-linked via the settings page's own
+    // `?tab=` parameter (#609) so this does not depend on click order.
+    // `/workspace-settings` is a <Navigate> alias that drops the query
+    // string, hence the direct `/settings` target here.
+    await page.goto(`${FRONTEND_URL}/settings?tab=appearance`);
     await page.waitForLoadState('networkidle');
 
     // Verify page is in 'en' state before clicking

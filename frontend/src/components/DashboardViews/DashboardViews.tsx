@@ -44,6 +44,27 @@ const SEARCH_ROW_STYLE: CSSProperties = {
   marginBottom: "var(--space-4)",
 };
 
+/*
+ * L-03: the card grid used to be a bare wrapping flex row. Because the cards
+ * are individually bordered and the last row is usually ragged, the grid had
+ * no visible end — the page just stopped, and on a tenant with many
+ * workspaces it read as "cut off" rather than "finished". A hairline rule
+ * under a padded region closes it off, and matches the bordered box the
+ * empty state already renders in the same slot, so both states read as one
+ * bounded area.
+ *
+ * The rule lives *inside* `[data-testid="workspace-list"]`, which
+ * `e2e/tests/visual-regression.spec.ts` caps to a fixed height and masks —
+ * so the dashboard baseline's geometry is unaffected.
+ */
+const WORKSPACE_GRID_STYLE: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "var(--space-4)",
+  paddingBottom: "var(--space-6)",
+  borderBottom: "1px solid var(--color-border)",
+};
+
 export default function DashboardViews(): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -173,14 +194,7 @@ export default function DashboardViews(): JSX.Element {
             : t("dashboard.noSearchMatch", { query: search.trim() })}
         </p>
       ) : (
-        <div
-          data-testid="workspace-list"
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-4)",
-          }}
-        >
+        <div data-testid="workspace-list" style={WORKSPACE_GRID_STYLE}>
           {visibleWorkspaces.map((ws) => (
             <WorkspaceCard
               key={ws.id}
