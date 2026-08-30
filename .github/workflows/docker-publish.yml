@@ -135,8 +135,12 @@ jobs:
       # Scans the locally-loaded image BEFORE pushing to GHCR. Fails if CRITICAL or HIGH
       # vulnerabilities are found (prevents known-vulnerable images from reaching prod).
       # Uses the first tag from steps.first_tag.outputs.tag (extracted above).
+      # v0.28.0 was retired by upstream: it referenced aquasecurity/setup-trivy@v0.2.1,
+      # a sub-action tag that no longer resolves (deleted upstream), breaking every
+      # docker-publish run with "Unable to resolve action ... unable to find version
+      # v0.2.1" before any build step could run. Bumped to the latest stable release.
       - name: Run Trivy vulnerability scan (SA-44)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           # H3: Use v-prefixed tag (v0.28.0 instead of 0.28.0)
           # H4: Use extracted single tag (not multi-line raw output)
