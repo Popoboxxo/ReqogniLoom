@@ -84,7 +84,12 @@ ENV PYTEST_ADDOPTS="-p no:cacheprovider"
 # Install runtime-only system dependencies
 # procps provides pgrep, used by the celery-beat healthcheck (#171) to detect
 # a crashed/restart-looping beat process (celery-beat has no worker to `inspect ping`).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# `apt-get upgrade` patches OS packages already present in the python:3.12-slim
+# base image (not just the ones installed below) — the base tag is floating,
+# so packages like libssl can carry CVEs Debian's repo has already fixed by
+# the time this image is built. Trivy's exit-code:1 gate in docker-publish.yml
+# found this class of issue in the frontend image on 2026-08-30.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     procps \
