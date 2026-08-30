@@ -112,7 +112,7 @@ export function MainGoalPanel({
     setDraft(null);
     setError(null);
     void (async () => {
-      let approved: MainGoal | null = null;
+      let approved: MainGoal | null;
       try {
         // "No approved main goal yet" is an empty result, not an error
         // (ch. 13.3): the endpoint answers 200 with an empty body, so

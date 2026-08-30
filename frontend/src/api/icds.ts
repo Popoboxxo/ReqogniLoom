@@ -195,7 +195,7 @@ export const icdsApi = {
       source_id: UUID;
       target_id: UUID;
       link_type: string;
-    }> = [];
+    }>;
     try {
       const resp = await tracelinksApi.list(detail.workspace_id);
       allLinks = resp.results as Array<{
