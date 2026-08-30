@@ -89,7 +89,7 @@ cryptography>=50.0.0,<51.0
 whitenoise[brotli]>=6.6.0,<7.0
 
 # Observability (REQ-063)
-python-json-logger>=4.1.0,<5.0
+python-json-logger>=4.2.0,<5.0
 
 # ReqIF 1.2 export (REQ-146) — DOORS/Polarion interoperability.
 # StrictDoc project, Apache-2.0 license (verified via `pip show reqif`).
