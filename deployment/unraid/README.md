@@ -95,7 +95,7 @@ ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE supp
    **Network Access:**
    ```bash
    # Must include your Unraid host IP and domain
-   ALLOWED_HOSTS=your-domain.example.com,172.20.4.255,localhost,127.0.0.1,backend
+   ALLOWED_HOSTS=your-domain.example.com,<your-unraid-host-ip>,localhost,127.0.0.1,backend
    ```
 
 3. **Upload `.env`** to Compose Manager Plus or paste contents into the stack environment section

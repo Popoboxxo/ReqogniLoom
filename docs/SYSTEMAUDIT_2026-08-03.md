@@ -102,8 +102,8 @@ ist kein MCP-Endpunkt.
 Der tatsächlich laufende MCP-Server befindet sich auf der API unter:
 
 ```text
-http://172.20.5.120:8001/mcp/
-http://172.20.5.120:8001/mcp/sse/
+http://<backend-host>:8001/mcp/
+http://<backend-host>:8001/mcp/sse/
 ```
 
 Die OpenCode-Projektkonfiguration wurde deshalb in `opencode.json` auf folgende
@@ -116,7 +116,7 @@ Verbindung korrigiert:
       "type": "remote",
       "enabled": true,
       "oauth": false,
-      "url": "http://172.20.5.120:8001/mcp/sse/",
+      "url": "http://<backend-host>:8001/mcp/sse/",
       "headers": {
         "Authorization": "Bearer {env:MCP_REQOGNILOOM_API_KEY}"
       }

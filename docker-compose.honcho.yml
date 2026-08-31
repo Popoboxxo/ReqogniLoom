@@ -72,7 +72,10 @@ services:
       # this MUST be set here too, matching `honcho`'s value, BEFORE the
       # first migration against a fresh volume -- see the PITFALL note on
       # the `honcho` service's EMBEDDING_MODEL_CONFIG block.
-      # EMBEDDING_VECTOR_DIMENSIONS: "768"
+      EMBEDDING_VECTOR_DIMENSIONS: "768"
+      EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+      EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://<your-ollama-host>:11434/v1
     command: alembic upgrade head
 
   honcho:
@@ -157,6 +160,10 @@ services:
       # NEW writes need it. Uncomment one of the two option blocks above
       # once you've picked.
       #
+      EMBEDDING_VECTOR_DIMENSIONS: "768"
+      EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+      EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://<your-ollama-host>:11434/v1
       # PITFALL, verified live against a real ollama.nomic-embed-text setup:
       # the pgvector column's dimension is baked into the schema at MIGRATE
       # time from `EMBEDDING_VECTOR_DIMENSIONS` (default 1536, i.e. OpenAI's

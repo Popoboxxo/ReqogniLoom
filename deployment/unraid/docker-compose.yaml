@@ -367,7 +367,7 @@ services:
     platform: linux/amd64
     labels:
       net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/react.png"
-      net.unraid.docker.webui: "http://172.20.4.255:5554"
+      net.unraid.docker.webui: "http://<your-unraid-host-ip>:5554"
     restart: unless-stopped
     env_file: .env
     environment:
