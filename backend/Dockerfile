@@ -210,6 +210,19 @@ RUN SECRET_KEY=build-only-dummy \
     REDIS_PASSWORD=build-only-dummy \
     python manage.py collectstatic --noinput
 
+# TEMP DIAGNOSTIC — remove before merge. Trivy keeps finding setuptools
+# 70.3.0 and msgpack 1.1.2 even after upgrading both explicitly earlier in
+# this stage; a recursive `-iname 'setuptools*' -exec rm -rf` under
+# site-packages didn't help either, so the leftover is presumably outside
+# site-packages entirely. Sweep the WHOLE filesystem for the exact stale
+# strings/paths right at the point Trivy actually scans (end of build).
+RUN echo "=== full-fs setuptools/msgpack sweep ===" \
+    ; find / -xdev \( -iname "*setuptools*" -o -iname "*msgpack*" \) 2>/dev/null | grep -v "^/proc" \
+    ; echo "=== grep for version strings in file content ===" \
+    ; grep -rl "70\.3\.0" /usr/local/lib/python3.12/site-packages 2>/dev/null | head -20 \
+    ; echo "=== end sweep ===" \
+    ; true
+
 EXPOSE 8000
 
 # Run as non-root user
