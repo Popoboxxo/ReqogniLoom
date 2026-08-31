@@ -122,10 +122,21 @@ COPY --from=builder /install /usr/local
 # (CVE-2026-8643) HIGH enough to still fail Trivy's exit-code:1 gate even
 # after the setuptools cleanup above cleared every other finding (confirmed
 # via CI run 33371207796). Upgrade it in the same layer.
+#
+# requirements.txt doesn't pin setuptools, so exactly which stale transitive
+# version leaks into /install from the builder stage isn't stable across
+# builds — the rm -rf above cleared a 78.1.0 leftover in run 33371207796,
+# but the very next run (33372024549) turned up a *different* stray version,
+# 70.3.0, that the old `-iname 'setuptools-*.dist-info'` glob (dist-info
+# only, maxdepth implied by the literal path) didn't catch — most likely a
+# legacy `.egg-info` install or a copy nested one level down rather than
+# directly under site-packages. Widened to a recursive `-iname 'setuptools*'`
+# sweep so the format/location of the leftover doesn't matter. Also caught a
+# genuine (non-duplicate) HIGH CVE in msgpack in that same scan — upgraded
+# alongside since it's in the same transitive, unpinned boat.
 RUN pip install --no-cache-dir --upgrade "pip>=26.1.2" \
-    && rm -rf /usr/local/lib/python3.*/site-packages/setuptools \
-           /usr/local/lib/python3.*/site-packages/setuptools-*.dist-info \
-    && pip install --no-cache-dir "setuptools>=78.1.1"
+    && find /usr/local/lib/python3.*/site-packages -iname 'setuptools*' -exec rm -rf {} + \
+    && pip install --no-cache-dir "setuptools>=78.1.1" "msgpack>=1.2.1"
 
 # Copy application code
 COPY . .
