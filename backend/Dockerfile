@@ -210,18 +210,28 @@ RUN SECRET_KEY=build-only-dummy \
     REDIS_PASSWORD=build-only-dummy \
     python manage.py collectstatic --noinput
 
-# TEMP DIAGNOSTIC — remove before merge. Trivy keeps finding setuptools
-# 70.3.0 and msgpack 1.1.2 even after upgrading both explicitly earlier in
-# this stage; a recursive `-iname 'setuptools*' -exec rm -rf` under
-# site-packages didn't help either, so the leftover is presumably outside
-# site-packages entirely. Sweep the WHOLE filesystem for the exact stale
-# strings/paths right at the point Trivy actually scans (end of build).
-RUN echo "=== full-fs setuptools/msgpack sweep ===" \
-    ; find / -xdev \( -iname "*setuptools*" -o -iname "*msgpack*" \) 2>/dev/null | grep -v "^/proc" \
-    ; echo "=== grep for version strings in file content ===" \
-    ; grep -rl "70\.3\.0" /usr/local/lib/python3.12/site-packages 2>/dev/null | head -20 \
-    ; echo "=== end sweep ===" \
-    ; true
+# A full-filesystem diagnostic sweep (CI run 33374043316) found where the
+# setuptools 70.3.0 / msgpack 1.1.2 findings that survived every prior fix
+# actually live: pip vendors its OWN frozen internal copies of msgpack (used
+# for its HTTP response cache) plus an SBOM (`pip/_vendor/bom.cdx.json`,
+# `vendor.txt`) that documents setuptools 70.3.0 as a vendored component.
+# Trivy's language scanner reads that SBOM as if it were separately-installed
+# software — the top-level `setuptools`/`msgpack` we install/upgrade above
+# are unrelated and were already clean (setuptools-84.0.0.dist-info,
+# msgpack-1.2.2.dist-info, nothing else). No pip install/rm command can ever
+# reach these, because they're bundled inside pip's own package, frozen at
+# whatever version pip's upstream vendoring script last pinned — a genuine
+# upstream lag, not anything this build introduces.
+#
+# pip itself is a build-time tool only: nothing in this image's runtime path
+# (gunicorn/uvicorn serving the Django app) calls it, and no docker-compose
+# service command for this image invokes `pip` either. Removing it here,
+# after every step in this stage that still needed it (collectstatic above
+# is the last one), takes the vendored msgpack/setuptools SBOM out of the
+# image along with it.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/pip \
+           /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
 EXPOSE 8000
 
