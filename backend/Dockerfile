@@ -116,7 +116,14 @@ COPY --from=builder /install /usr/local
 # and any `setuptools-*.dist-info` metadata before installing sidesteps
 # pip's uninstall/RECORD matching entirely, so no duplicate can survive
 # regardless of how many prior copies exist.
-RUN rm -rf /usr/local/lib/python3.*/site-packages/setuptools \
+#
+# The base image's own pip (25.0.1, untouched by any of the above since
+# nothing here ever upgrades pip itself) carries 5 more CVEs — one
+# (CVE-2026-8643) HIGH enough to still fail Trivy's exit-code:1 gate even
+# after the setuptools cleanup above cleared every other finding (confirmed
+# via CI run 33371207796). Upgrade it in the same layer.
+RUN pip install --no-cache-dir --upgrade "pip>=26.1.2" \
+    && rm -rf /usr/local/lib/python3.*/site-packages/setuptools \
            /usr/local/lib/python3.*/site-packages/setuptools-*.dist-info \
     && pip install --no-cache-dir "setuptools>=78.1.1"
 
