@@ -98,34 +98,27 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 # Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
 
-# The builder stage's `pip install --prefix=/install -r requirements.txt`
-# pulls in its own setuptools (78.1.0, a transitive build dependency, not a
-# requirements.txt entry) that lands in /install and overwrites whatever the
-# python:3.12-slim base already had — so this MUST run after the COPY above,
-# not before it. That version vendors its own old copies of wheel and
-# jaraco.context, carrying three HIGH CVEs (CVE-2025-47273 in setuptools
-# itself, CVE-2026-24049 in its vendored wheel, CVE-2026-23949 in its vendored
-# jaraco.context) that Trivy's exit-code:1 gate in docker-publish.yml caught
-# on the v1.8.0-beta.4 backend image. A plain `pip install --upgrade` still
-# reported "Successfully installed" but left the old 78.1.0 dist-info/vendor
-# tree on disk (Trivy re-flagged the exact same three CVEs on the next scan,
-# run 33366112907) — pip's upgrade path only overwrites files it recognizes
-# from the target's own RECORD, and doesn't reliably purge a differently-
-# provenanced prior install. `--force-reinstall` makes pip remove and
-# recreate the whole setuptools tree (vendor copies included) instead of
-# diffing against it.
-RUN pip install --no-cache-dir --force-reinstall --upgrade "setuptools>=78.1.1"
-
-# TEMP DIAGNOSTIC — remove before merge. Trivy keeps reporting setuptools
-# 78.1.0/wheel 0.45.1/jaraco.context 5.3.0 even after the force-reinstall
-# above reports success, so dump every on-disk location that could hold a
-# second copy of these packages to find out where Trivy is actually reading
-# from.
-RUN echo "=== setuptools/wheel/jaraco locations ===" \
-    && find / -xdev \( -iname "*setuptools*" -o -iname "*jaraco*" -o -iname "*wheel*" \) 2>/dev/null | grep -v "^/proc" \
-    && echo "=== pip list ===" \
-    && pip list 2>&1 \
-    && echo "=== end diagnostic ==="
+# The builder stage's two independent `pip install --prefix=/install ...`
+# invocations (torch, then -r requirements.txt) don't see each other's
+# already-installed packages under that prefix, so each can pull its own
+# copy of setuptools as a transitive build dependency. That leaves TWO
+# `setuptools-*.dist-info` directories in /install — confirmed via a
+# temporary diagnostic build (run 33370133189): a stray
+# `setuptools-78.1.0.dist-info` (with its own vendored wheel 0.45.1 /
+# jaraco.context 5.3.0, three HIGH CVEs) sitting right next to whatever
+# newer version a plain `pip install --upgrade`/`--force-reinstall` adds.
+# pip's uninstall step only removes the ONE distribution it resolves as
+# "existing" (found existing installation: <newer version> in that
+# diagnostic run) and never touches the orphaned older one, so Trivy kept
+# flagging the same three CVEs on the v1.8.0-beta.4 image and on two
+# follow-up scans (runs 33366112907, 33369068014) despite the upgrade
+# reporting success both times. Wiping the whole `setuptools/` package dir
+# and any `setuptools-*.dist-info` metadata before installing sidesteps
+# pip's uninstall/RECORD matching entirely, so no duplicate can survive
+# regardless of how many prior copies exist.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/setuptools \
+           /usr/local/lib/python3.*/site-packages/setuptools-*.dist-info \
+    && pip install --no-cache-dir "setuptools>=78.1.1"
 
 # Copy application code
 COPY . .
