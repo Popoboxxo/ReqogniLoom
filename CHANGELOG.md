@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.5] — 2026-08-31
+
+### Fixed
+- **Docker Backend Image Trivy CVE Gate:** Resolved CRITICAL and HIGH vulnerability findings in backend Docker image CI pipeline (Fixes #791). Root causes: stale duplicate setuptools metadata from two independent builder-stage pip installs without visibility; outdated pip vendoring vulnerable msgpack; unpinned msgpack transitive dependency. Fixes: removed pip from runtime image (build-time only), unified single pip install, ensured proper cache invalidation, removed pip/setuptools/msgpack SBOM poisoning (#791)
+
 ## [1.7.0] — 2026-08-23
 
 ### Added
