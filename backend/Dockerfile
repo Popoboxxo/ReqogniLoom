@@ -106,9 +106,15 @@ COPY --from=builder /install /usr/local
 # jaraco.context, carrying three HIGH CVEs (CVE-2025-47273 in setuptools
 # itself, CVE-2026-24049 in its vendored wheel, CVE-2026-23949 in its vendored
 # jaraco.context) that Trivy's exit-code:1 gate in docker-publish.yml caught
-# on the v1.8.0-beta.4 backend image. Upgrading setuptools in place replaces
-# all three vendored copies at once.
-RUN pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
+# on the v1.8.0-beta.4 backend image. A plain `pip install --upgrade` still
+# reported "Successfully installed" but left the old 78.1.0 dist-info/vendor
+# tree on disk (Trivy re-flagged the exact same three CVEs on the next scan,
+# run 33366112907) — pip's upgrade path only overwrites files it recognizes
+# from the target's own RECORD, and doesn't reliably purge a differently-
+# provenanced prior install. `--force-reinstall` makes pip remove and
+# recreate the whole setuptools tree (vendor copies included) instead of
+# diffing against it.
+RUN pip install --no-cache-dir --force-reinstall --upgrade "setuptools>=78.1.1"
 
 # Copy application code
 COPY . .
