@@ -116,6 +116,17 @@ COPY --from=builder /install /usr/local
 # diffing against it.
 RUN pip install --no-cache-dir --force-reinstall --upgrade "setuptools>=78.1.1"
 
+# TEMP DIAGNOSTIC — remove before merge. Trivy keeps reporting setuptools
+# 78.1.0/wheel 0.45.1/jaraco.context 5.3.0 even after the force-reinstall
+# above reports success, so dump every on-disk location that could hold a
+# second copy of these packages to find out where Trivy is actually reading
+# from.
+RUN echo "=== setuptools/wheel/jaraco locations ===" \
+    && find / -xdev \( -iname "*setuptools*" -o -iname "*jaraco*" -o -iname "*wheel*" \) 2>/dev/null | grep -v "^/proc" \
+    && echo "=== pip list ===" \
+    && pip list 2>&1 \
+    && echo "=== end diagnostic ==="
+
 # Copy application code
 COPY . .
 
