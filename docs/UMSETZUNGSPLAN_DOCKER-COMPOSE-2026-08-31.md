@@ -26,6 +26,29 @@
 
 Reale, ungeprüfte Duplikation bestätigt: `backend`, `celery`, `celery-beat` teilen sich fast identische `environment`-Blöcke (~20 Zeilen je Service) — YAML-Anchors sind hier ein echter Gewinn.
 
+## Live-Validierung 2026-09-01 (QS-Fresh-Deploy mit Honcho+Ollama)
+
+Externes Feedback nach einem echten Fresh-Deploy (alle Volumes weg, v1.8.0-beta.5, inkl. Honcho + lokal erreichbarem Ollama) gegen den Plan A–F geprüft. Kernaussage: **Plan ist nach dem 2. Review-Pass korrekt** — beide dort gefundenen Logikfehler (Override-Warnung, Pre-Wipe-Hook) hätten live tatsächlich wieder zugeschlagen, wenn sie nicht vorher korrigiert worden wären. Zwei Punkte mussten trotzdem nachgezogen werden:
+
+| Sub-Projekt | Live-Befund | Konsequenz |
+|---|---|---|
+| A | Image-Tag-Drift real aufgetreten (5x manuell gepatcht) | Bestätigt `REQOGNILOOM_VERSION`-Fix |
+| A | DB-Rollen-Footgun nicht getroffen, aber Risiko real bestätigt | Bestätigt 2-Anchor-Trennung |
+| A | Migrate-als-Service verhinderte unklaren Honcho-Dimension-Fehler | Bestätigt Best-Practice-Korrektur |
+| A | **Memory-Limits zu knapp:** Backend 512M → 99,8 % + Worker-SIGKILL, Celery 384M → 96 %, Beat 256M → 99,8 %. Stabil erst bei Backend 1G / Celery 768M / Beat 512M | 🆕 Neue Aufgabe in A (siehe unten) |
+| A | Frontend brauchte live `user: root` + `tmpfs /var/run` + expliziten `command`, sonst blieb Container in `Created` (kein Start) — widerspricht dem SA-48-Kommentar im File ("non-root ist Default") | 🆕 Neue Aufgabe in A: Ursache klären statt Root-Workaround blind übernehmen |
+| B | Override-Warnung gehört in `setup.sh`, nicht Entrypoint | Bestätigt A→B-Verschiebung; Override lag live wieder da und verursachte `exit 127 npm: not found` |
+| B | `.env` ohne `setup.sh` braucht manuelles Nachpatchen (`DJANGO_ENV`, `CORS_ALLOWED_ORIGINS`, Ollama-IP) | Bestätigt Lücke, keine Planänderung nötig |
+| C | Kein Auto-Gen, Pflicht blieb Pflicht | Bestätigt Nutzer-Entscheidung |
+| D | Sidecar läuft, aber Verify/Alert/`safe-down.sh` fehlen weiterhin; `down -v` weiterhin ungeschützt | Bestätigt offenen Stand, keine Planänderung nötig |
+| E | Healthcheck hat live einen Backend-OOM sichtbar gemacht und das Frontend-Gate korrekt blockiert (statt 502) | Bestätigt Kritikalität, keine Planänderung nötig |
+| F | **Unterschätzt.** Siehe eigener Abschnitt unten | 🔴 Sub-Projekt F wird neu geschnitten |
+
+**Neue, bislang nicht im Plan erfasste Erkenntnisse:**
+- Bei 2 Instanzen (QS+PROD) + Honcho (3 weitere Container) auf einem Host mit 5,8 GB RAM + 8 GB Swap ist der Spielraum knapp — die Systemanforderungen-Tabelle (Sub-Projekt B) muss die angehobenen Limits + Honcho einrechnen, nicht nur die alten Werte übernehmen.
+- Ollama-Erreichbarkeit ist netzwerkspezifisch: eine `x.x.x.255`-Adresse ist je nach Subnetzmaske oft die Broadcast-Adresse und nicht erreichbar. Muss pro Umgebung verifiziert werden (z. B. `curl http://<ip>:11434/api/tags`), nicht blind aus einer Dokumentationszeile übernommen werden.
+- Es gibt noch keinen einheitlichen Start-Befehl: aktuell `docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.honcho.yml up -d`, im ursprünglichen Plan F war von `docker compose --profile honcho up` die Rede. Muss VOR der Umsetzung von F entschieden werden (siehe dort).
+
 ## Vergleich mit "cleaner" Compose-Beispielen (paperless-ngx)
 
 Nutzer brachte paperless-ngx' `docker-compose.yml` als Referenz für "so simpel wie möglich". Geprüft, was übertragbar ist und was nicht:
@@ -56,6 +79,8 @@ RFC-Punkte: #1, #2 (revidiert), #4 (bereits erledigt), #18, + Image-Tag-Bugfix
 - [ ] `x-healthcheck-app`-Anchor: `interval: 30s`/`timeout: 10s`/`retries: 3`/`start_period: 40s` für `backend`+`celery`+`celery-beat`+`frontend` (identische Werte, andere Gruppe als infra) — jeweils nur `test:` bleibt lokal
 - [ ] `REQOGNILOOM_VERSION`-Variable statt 5x hardcodierter Image-Tag: `image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}` (analog `-frontend`) in `backend`, `migrate`, `celery`, `celery-beat`, `frontend` — behebt strukturell genau den Drift-Bug, der `1.7.0` vs. `1.8.0-beta.5` verursacht hat, nicht nur einmalig den Wert korrigieren
 - [ ] `migrate`-Service **bleibt bestehen** (Best Practice, siehe oben) — keine Änderung an der Architektur, nur Anchor-Anwendung
+- [ ] 🆕 **Memory-Limits anheben** (Live-Validierung 2026-09-01): `backend`/`migrate` 512M→1G, `celery` 384M→768M, `celery-beat` 256M→512M. Alte Werte liefen live in OOM/SIGKILL. Diese Werte stehen bereits als unkommitteter Hotfix im Arbeitsverzeichnis (`docker-compose.yml`) — beim Umsetzen von A übernehmen, nicht die alten Werte aus dem Git-Stand neu ansetzen. System-Requirements-Tabelle in B entsprechend mit den neuen Werten befüllen.
+- [ ] 🆕 **Frontend `user: root`-Ursache klären** (Live-Validierung 2026-09-01): Container blieb ohne `user: root` + `tmpfs /var/run` + expliziten `command` in `Created` hängen — widerspricht dem SA-48-Kommentar im File ("non-root ist bereits Default, funktioniert"). Vor der Umsetzung klären: Regression im Frontend-Image seit dem SA-48-Fix, oder umgebungsspezifisch? Wenn Root wirklich nötig ist: Ursache im `frontend/Dockerfile` beheben (korrekte Verzeichnis-Permissions für den nginx-User), NICHT den Root-Workaround unkommentiert übernehmen — sonst wird die SA-48-Härtung stillschweigend wieder aufgehoben.
 - [ ] ~~`docker-compose.override.yml`-Warnung im Backend-Entrypoint~~ **falscher Ort, verschoben nach Sub-Projekt B.** Der Container sieht die host-seitige Override-Datei nie (Compose liest sie vor dem Containerstart, sie wird nirgends gemountet) — ein Entrypoint-Check darin ist wirkungslos. Muss host-seitig in `setup.sh` geprüft werden.
 - [ ] Verifikation: `docker compose config` validiert fehlerfrei, Stack hochfahren, alle Healthchecks grün, Migration läuft weiterhin genau einmal beim Deploy über den dedizierten Service
 
@@ -94,15 +119,17 @@ RFC-Punkt: #16 (schlanker als vorgeschlagen — kein neues Package, da unnötige
 - [ ] `/health/`-Endpoint erweitern: zusätzlich zu "Prozess läuft" auch DB-Check (`SELECT 1`) und Redis-Check (`PING`)
 - [ ] Bestehender Compose-Healthcheck (`curl -f http://localhost:8000/health/`) bleibt unverändert, wird aber aussagekräftiger
 
-### F — Honcho-Compose-Profile (`feat/honcho-compose-profile`)
+### F — Honcho-Härtung (`feat/honcho-hardening`)
 
-RFC-Punkte: #5, #10, #11 (stark reduziert — UI und ENV-Grundgerüst existieren bereits)
+RFC-Punkte: #5, #10, #11 — **Neu geschnitten nach Live-Validierung 2026-09-01, ursprüngliche Annahme "nur Wiring fehlt" war falsch.**
 
-- [ ] `honcho`, `honcho-postgres`, `honcho-redis` als Services in `docker-compose.yml`, alle mit `profiles: ["honcho"]`
-- [ ] Default-Verhalten (`docker compose up`) bleibt ohne Honcho — `MEMORY_BACKEND=pgvector` bleibt Default
-- [ ] `docker compose --profile honcho up` startet den Honcho-Stack zusätzlich mit
-- [ ] Envs (`HONCHO_DB_PASSWORD`, Embedding-/LLM-Pinning) sind in `.env.example` bereits vorbereitet — nur an den neuen Compose-Service anbinden
-- [ ] Kein neuer UI-Code nötig — `MemorySystemSettingsSection.tsx` deckt Backend-Auswahl und Verbindungsstatus bereits ab; nur End-to-End-Test der Verbindung (bundled und extern gehostet)
+> **Korrektur der Ausgangslage:** Anders als ursprünglich angenommen existiert `docker-compose.honcho.yml` bereits als eigene, ausgereifte Overlay-Datei — inkl. `honcho-postgres`, `honcho-redis`, dediziertem `honcho-migrate` (Alembic) und bereits dokumentiertem Dimension-Pitfall-Kommentar. Es fehlt **nicht** die Compose-Einbindung, sondern Betriebssicherheit rund um Embedding-Dimensionen und Ollama-Erreichbarkeit. UI (`MemorySystemSettingsSection.tsx`) und ENV-Grundgerüst waren korrekt bereits vorhanden.
+
+- [ ] **Entscheidung vor Umsetzung nötig:** bestehendes Overlay-Datei-Muster (`-f docker-compose.yml -f docker-compose.honcho.yml`) behalten, oder auf `profiles:` innerhalb einer Datei umstellen? Overlay-Datei ist bereits erprobt, dokumentiert und erfüllt "kostet nichts, wenn nicht eingebunden" schon — eine Umstellung auf `profiles:` wäre reiner Umbau ohne funktionalen Zusatznutzen und mit Migrationsrisiko für alle, die den Overlay-Befehl schon nutzen. **Empfehlung: Overlay-Datei behalten**, nur den einen offiziellen Start-Befehl dokumentieren (README/CLAUDE.md) statt zwei parallele Muster zu haben.
+- [ ] **Embedding-Dimension-Sicherung:** Live bestätigt: Wird `EMBEDDING_VECTOR_DIMENSIONS` geändert, nachdem `honcho-migrate` bereits gegen ein bestehendes Volume gelaufen ist, bleibt das DB-Schema auf der alten Dimension (z. B. `vector(1536)`) — der Fehler zeigt sich erst spät als `StartupValidationError` im `honcho`-Service, nicht schon bei `honcho-migrate`. Baue eine Prüfung (Shell-Skript oder zusätzlicher `honcho-migrate`-Schritt), die die tatsächliche Spalten-Dimension gegen `EMBEDDING_VECTOR_DIMENSIONS` vergleicht und bei Mismatch **sofort und verständlich** abbricht — mit der Handlungsanweisung (frisches Volume ODER `ALTER TABLE ... TYPE vector(n)` + `REINDEX`) direkt in der Fehlermeldung, nicht erst in Doku suchen müssen.
+- [ ] **Ollama-Erreichbarkeit dokumentieren, ohne konkrete IP festzuschreiben:** `.env.example`/`setup.sh` sollen einen Hinweis + Check-Befehl bekommen (z. B. `curl http://<eure-ollama-host>:11434/api/tags`), inkl. Warnung, dass eine auf `.255` endende Adresse je nach Subnetzmaske die Broadcast-Adresse sein kann und nicht erreichbar ist. Keine echten internen IPs in Doku/Compose committen.
+- [ ] Envs (`HONCHO_DB_PASSWORD`, Embedding-/LLM-Pinning) sind in `.env.example` bereits vorbereitet — keine Änderung nötig
+- [ ] Kein neuer UI-Code nötig — `MemorySystemSettingsSection.tsx` deckt Backend-Auswahl und Verbindungsstatus bereits ab; nur End-to-End-Test der Verbindung (bundled und extern gehostet), inkl. Dimension-Mismatch-Fall
 
 ---
 
