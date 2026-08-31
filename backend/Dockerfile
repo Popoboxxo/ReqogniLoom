@@ -98,17 +98,45 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 # Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
 
-# The builder stage's `pip install --prefix=/install -r requirements.txt`
-# pulls in its own setuptools (78.1.0, a transitive build dependency, not a
-# requirements.txt entry) that lands in /install and overwrites whatever the
-# python:3.12-slim base already had — so this MUST run after the COPY above,
-# not before it. That version vendors its own old copies of wheel and
-# jaraco.context, carrying three HIGH CVEs (CVE-2025-47273 in setuptools
-# itself, CVE-2026-24049 in its vendored wheel, CVE-2026-23949 in its vendored
-# jaraco.context) that Trivy's exit-code:1 gate in docker-publish.yml caught
-# on the v1.8.0-beta.4 backend image. Upgrading setuptools in place replaces
-# all three vendored copies at once.
-RUN pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
+# The builder stage's two independent `pip install --prefix=/install ...`
+# invocations (torch, then -r requirements.txt) don't see each other's
+# already-installed packages under that prefix, so each can pull its own
+# copy of setuptools as a transitive build dependency. That leaves TWO
+# `setuptools-*.dist-info` directories in /install — confirmed via a
+# temporary diagnostic build (run 33370133189): a stray
+# `setuptools-78.1.0.dist-info` (with its own vendored wheel 0.45.1 /
+# jaraco.context 5.3.0, three HIGH CVEs) sitting right next to whatever
+# newer version a plain `pip install --upgrade`/`--force-reinstall` adds.
+# pip's uninstall step only removes the ONE distribution it resolves as
+# "existing" (found existing installation: <newer version> in that
+# diagnostic run) and never touches the orphaned older one, so Trivy kept
+# flagging the same three CVEs on the v1.8.0-beta.4 image and on two
+# follow-up scans (runs 33366112907, 33369068014) despite the upgrade
+# reporting success both times. Wiping the whole `setuptools/` package dir
+# and any `setuptools-*.dist-info` metadata before installing sidesteps
+# pip's uninstall/RECORD matching entirely, so no duplicate can survive
+# regardless of how many prior copies exist.
+#
+# The base image's own pip (25.0.1, untouched by any of the above since
+# nothing here ever upgrades pip itself) carries 5 more CVEs — one
+# (CVE-2026-8643) HIGH enough to still fail Trivy's exit-code:1 gate even
+# after the setuptools cleanup above cleared every other finding (confirmed
+# via CI run 33371207796). Upgrade it in the same layer.
+#
+# requirements.txt doesn't pin setuptools, so exactly which stale transitive
+# version leaks into /install from the builder stage isn't stable across
+# builds — the rm -rf above cleared a 78.1.0 leftover in run 33371207796,
+# but the very next run (33372024549) turned up a *different* stray version,
+# 70.3.0, that the old `-iname 'setuptools-*.dist-info'` glob (dist-info
+# only, maxdepth implied by the literal path) didn't catch — most likely a
+# legacy `.egg-info` install or a copy nested one level down rather than
+# directly under site-packages. Widened to a recursive `-iname 'setuptools*'`
+# sweep so the format/location of the leftover doesn't matter. Also caught a
+# genuine (non-duplicate) HIGH CVE in msgpack in that same scan — upgraded
+# alongside since it's in the same transitive, unpinned boat.
+RUN pip install --no-cache-dir --upgrade "pip>=26.1.2" \
+    && find /usr/local/lib/python3.*/site-packages -iname 'setuptools*' -exec rm -rf {} + \
+    && pip install --no-cache-dir "setuptools>=78.1.1" "msgpack>=1.2.1"
 
 # Copy application code
 COPY . .
@@ -181,6 +209,29 @@ RUN SECRET_KEY=build-only-dummy \
     DB_APP_PASSWORD=build-only-dummy \
     REDIS_PASSWORD=build-only-dummy \
     python manage.py collectstatic --noinput
+
+# A full-filesystem diagnostic sweep (CI run 33374043316) found where the
+# setuptools 70.3.0 / msgpack 1.1.2 findings that survived every prior fix
+# actually live: pip vendors its OWN frozen internal copies of msgpack (used
+# for its HTTP response cache) plus an SBOM (`pip/_vendor/bom.cdx.json`,
+# `vendor.txt`) that documents setuptools 70.3.0 as a vendored component.
+# Trivy's language scanner reads that SBOM as if it were separately-installed
+# software — the top-level `setuptools`/`msgpack` we install/upgrade above
+# are unrelated and were already clean (setuptools-84.0.0.dist-info,
+# msgpack-1.2.2.dist-info, nothing else). No pip install/rm command can ever
+# reach these, because they're bundled inside pip's own package, frozen at
+# whatever version pip's upstream vendoring script last pinned — a genuine
+# upstream lag, not anything this build introduces.
+#
+# pip itself is a build-time tool only: nothing in this image's runtime path
+# (gunicorn/uvicorn serving the Django app) calls it, and no docker-compose
+# service command for this image invokes `pip` either. Removing it here,
+# after every step in this stage that still needed it (collectstatic above
+# is the last one), takes the vendored msgpack/setuptools SBOM out of the
+# image along with it.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/pip \
+           /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
 EXPOSE 8000
 
