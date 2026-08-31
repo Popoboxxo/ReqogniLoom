@@ -98,6 +98,18 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 # Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
 
+# The builder stage's `pip install --prefix=/install -r requirements.txt`
+# pulls in its own setuptools (78.1.0, a transitive build dependency, not a
+# requirements.txt entry) that lands in /install and overwrites whatever the
+# python:3.12-slim base already had — so this MUST run after the COPY above,
+# not before it. That version vendors its own old copies of wheel and
+# jaraco.context, carrying three HIGH CVEs (CVE-2025-47273 in setuptools
+# itself, CVE-2026-24049 in its vendored wheel, CVE-2026-23949 in its vendored
+# jaraco.context) that Trivy's exit-code:1 gate in docker-publish.yml caught
+# on the v1.8.0-beta.4 backend image. Upgrading setuptools in place replaces
+# all three vendored copies at once.
+RUN pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
+
 # Copy application code
 COPY . .
 
