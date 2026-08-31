@@ -6,6 +6,7 @@
 **Prozess:** Kompakte Task-Liste je Sub-Projekt (kein formales Spec-Dokument), abgestimmt mit dem Projektverantwortlichen per Brainstorming-Dialog. Passt zum DoD-Preset `rapid-prototyping` dieses Projekts.
 **Priorität lt. Nutzer:** Backup, Named Volumes, saubere Env-Handhabung bei Neuinstallation, Admin-User/Passwort via ENV. Named Volumes und Admin-Creds sind bereits erledigt (siehe unten) — Fokus liegt daher auf Backup-Härtung und Install-Sauberkeit.
 **Best-Practice-Check (2026-08-31):** Plan gegen aktuelle Docker-Compose-Best-Practices per Web-Recherche geprüft, auf expliziten Nutzerwunsch ("so simpel wie möglich"). Ergebnis: YAML-Anchors und `profiles` für optionale Services sind der offiziell dokumentierte Weg (docs.docker.com/reference/compose-file/fragments/) und bleiben wie geplant. Ein Punkt aus dem RFC war falsch und wurde korrigiert — siehe Sub-Projekt A.
+**Zweiter Review-Pass (2026-08-31):** Vollständiger Plan-Review durchgeführt. Zwei Logikfehler gefunden und korrigiert (Override-Warnung und Pre-Wipe-Hook waren am falschen Ort/technisch nicht umsetzbar wie ursprünglich formuliert — beide aus dem RFC-Snippet unkritisch übernommen), zwei Risiken entschärft (zu breiter `x-django-env`-Anchor hätte DB-Rollen-Verwechslung ermöglichen können; ein einzelner Healthcheck-Anchor passt nicht auf alle Services, da zwei unterschiedliche Werte-Gruppen existieren), ein zusätzlicher struktureller Fix ergänzt (Image-Version als eine zentrale Variable statt 5x hardcodiert — behebt die Drift-Ursache, nicht nur den aktuellen Wert).
 
 ---
 
@@ -25,6 +26,14 @@
 
 Reale, ungeprüfte Duplikation bestätigt: `backend`, `celery`, `celery-beat` teilen sich fast identische `environment`-Blöcke (~20 Zeilen je Service) — YAML-Anchors sind hier ein echter Gewinn.
 
+## Vergleich mit "cleaner" Compose-Beispielen (paperless-ngx)
+
+Nutzer brachte paperless-ngx' `docker-compose.yml` als Referenz für "so simpel wie möglich". Geprüft, was übertragbar ist und was nicht:
+
+- **Nicht übertragbar (bewusster Unterschied, nicht "unclean"):** `deploy.resources.limits` (Memory-Limits) — bei paperless nicht vorhanden, bei ReqogniLoom nach echtem OOM-Incident eingebaut; Healthchecks mit `condition: service_healthy` — paperless nutzt nur `depends_on:` als reine Start-Reihenfolge ohne Bereitschaftsprüfung, ReqogniLoom braucht das (z. B. Celery-Beat-Restart-Loop #171 wurde nur dank Healthcheck sichtbar); dedizierter `migrate`-Service — siehe Korrektur oben, bleibt aus Best-Practice-Gründen.
+- **Übertragbar, in den Plan aufgenommen:** `x-healthcheck-defaults`-Anchor (s. o.) gegen die Wiederholung von `interval`/`timeout`/`retries`/`start_period`.
+- **Geprüft und bewusst NICHT übernommen:** Auslagern der inline WHY-Kommentare (CVE-Fixes, Incident-Historie, REQ-IDs) nach `docs/` mit nur Kurz-Pointern im Compose. Nutzer-Entscheidung: Kommentare bleiben inline — verhindert, dass ein Fix ohne sichtbaren Grund versehentlich rückgängig gemacht wird (genau das Incident-Muster aus Issue #792).
+
 ---
 
 ## Sub-Projekte
@@ -40,10 +49,14 @@ RFC-Punkte: #1, #2 (revidiert), #4 (bereits erledigt), #18, + Image-Tag-Bugfix
 > **Korrektur nach Best-Practice-Check:** RFC-Punkt #2 (Migrate → Entrypoint) ist **kein** Best Practice, sondern erhöht das Risiko. Mehrere unabhängige Quellen (u. a. pythonspeed.com "Decoupling database migrations from server startup") empfehlen einen dedizierten Migrate-Service mit `condition: service_completed_successfully`, gerade um Race Conditions bei mehreren Replicas zu vermeiden. Das bestehende Setup macht das schon richtig — inkl. sauberem, einmaligem Admin-Self-Init. **Migrate bleibt eigener Service.** Nur die Duplikation wird per Anchor entfernt.
 
 - [ ] `x-logging`-Anchor: einheitlicher `json-file`-Logging-Block für alle 8 Services
-- [ ] `x-django-env`-Anchor: gemeinsamer Environment-Block für `backend`/`celery`/`celery-beat`/`migrate` (DB-Connection, Redis, LLM-Provider-Defaults); service-spezifische Overrides (z. B. `migrate`s `DB_STATEMENT_TIMEOUT_MS`, `SYSTEM_ADMIN_*`) bleiben lokal im jeweiligen Service
-- [ ] Image-Tags von `1.7.0` auf aktuellen Stand (`1.8.0-beta.5` bzw. env-steuerbar via `${IMAGE_TAG:-...}`) korrigieren — in `backend`, `migrate`, `celery`, `celery-beat`, `frontend`
+- [ ] `x-common-env`-Anchor: NUR was `backend`/`celery`/`celery-beat`/`migrate` wirklich alle vier teilen (`DJANGO_SETTINGS_MODULE`, `SECRET_KEY`, `DEBUG`, `DB_NAME`, `DB_HOST`, `DB_PORT`). **Nicht** `DB_USER`/`DB_PASSWORD` mit reinnehmen — siehe Footgun-Notiz unten.
+- [ ] `x-app-role-env`-Anchor: zweiter, engerer Anchor NUR für `backend`/`celery`/`celery-beat` (die drei, NICHT `migrate`) mit `DB_USER: ${DB_APP_USER:-reqogniloom_app}`, `DB_PASSWORD: ${DB_APP_PASSWORD}`, `REDIS_PASSWORD`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `LLM_*`-Block
+  - ⚠️ **Footgun-Warnung:** `migrate` braucht zwingend `DB_USER: ${DB_USER:-reqogniloom}` (Superuser für DDL/RLS-Rollen-Setup), die App-Services brauchen `DB_APP_USER` (RLS-Rolle). Ein einzelner, zu breiter Anchor über alle vier Services mit einem DB_USER-Default ist gefährlich — wer beim Bauen vergisst, `migrate` explizit zu überschreiben, lässt die Migration mit falscher Rolle laufen. Deshalb zwei getrennte Anchors, `migrate` bekommt `DB_USER`/`DB_APP_USER`/`DB_APP_PASSWORD`/`DB_STATEMENT_TIMEOUT_MS`/`SYSTEM_ADMIN_*` weiterhin lokal, ungeankert.
+- [ ] `x-healthcheck-infra`-Anchor: `interval: 10s`/`timeout: 5s`/`retries: 5`/`start_period: 30s` für `postgres`+`redis` (identische Werte)
+- [ ] `x-healthcheck-app`-Anchor: `interval: 30s`/`timeout: 10s`/`retries: 3`/`start_period: 40s` für `backend`+`celery`+`celery-beat`+`frontend` (identische Werte, andere Gruppe als infra) — jeweils nur `test:` bleibt lokal
+- [ ] `REQOGNILOOM_VERSION`-Variable statt 5x hardcodierter Image-Tag: `image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}` (analog `-frontend`) in `backend`, `migrate`, `celery`, `celery-beat`, `frontend` — behebt strukturell genau den Drift-Bug, der `1.7.0` vs. `1.8.0-beta.5` verursacht hat, nicht nur einmalig den Wert korrigieren
 - [ ] `migrate`-Service **bleibt bestehen** (Best Practice, siehe oben) — keine Änderung an der Architektur, nur Anchor-Anwendung
-- [ ] `docker-compose.override.yml`-Warnung: Entrypoint prüft beim Start, ob die Datei existiert, und gibt eine deutliche Warnung aus (kein automatisches Verschieben — nur Hinweis)
+- [ ] ~~`docker-compose.override.yml`-Warnung im Backend-Entrypoint~~ **falscher Ort, verschoben nach Sub-Projekt B.** Der Container sieht die host-seitige Override-Datei nie (Compose liest sie vor dem Containerstart, sie wird nirgends gemountet) — ein Entrypoint-Check darin ist wirkungslos. Muss host-seitig in `setup.sh` geprüft werden.
 - [ ] Verifikation: `docker compose config` validiert fehlerfrei, Stack hochfahren, alle Healthchecks grün, Migration läuft weiterhin genau einmal beim Deploy über den dedizierten Service
 
 ### B — Install-Sauberkeit (`chore/setup-script`)
@@ -51,6 +64,7 @@ RFC-Punkte: #1, #2 (revidiert), #4 (bereits erledigt), #18, + Image-Tag-Bugfix
 RFC-Punkte: #6 (Rest), #7, #8, #12
 
 - [ ] `setup.sh`: `.env` aus `.env.example` erzeugen (falls nicht vorhanden), Secrets generieren (`SECRET_KEY`, `AUTH_JWT_SECRET`, `DB_PASSWORD`, `DB_APP_PASSWORD`, `API_KEY_PEPPER`), Named Volumes anlegen, Postgres hochfahren + warten, Migration anstoßen
+- [ ] `docker-compose.override.yml`-Warnung: **hierher verschoben aus Sub-Projekt A** (Entrypoint im Container kann die host-seitige Datei nicht sehen). `setup.sh` prüft vor dem `docker compose up`, ob die Datei existiert, und gibt eine deutliche Warnung aus (kein automatisches Verschieben — nur Hinweis)
 - [ ] Port-Check vor dem Start: prüft `BACKEND_PORT`/`FRONTEND_PORT` auf Kollisionen, bricht mit klarer Fehlermeldung ab statt kryptischem Docker-Fehler
 - [ ] `.env.example`: Diff gegen tatsächlich in `settings.py` gelesene `config(...)`-Variablen, fehlende Variablen ergänzen
 - [ ] README: Systemanforderungen-Tabelle (Memory/CPU je Service) — Werte aus den bereits in `docker-compose.yml` gesetzten `deploy.resources.limits` übernehmen, nicht neu erfinden
@@ -69,7 +83,7 @@ RFC-Punkte: #3 (abgewandelt), #13, #17
 
 - [ ] `backup_postgres.sh`: Verify-Step nach jedem Dump (z. B. `gzip -t` auf das Ergebnis)
 - [ ] Fehlschlag beim Dump oder Verify → sichtbarer Exit-Code ungleich 0 in `docker logs`, optionaler Alert-Hook (Webhook, falls `BACKUP_ALERT_WEBHOOK_URL` gesetzt ist)
-- [ ] Pre-Wipe-Snapshot-Helper: Skript, das vor destruktiven Operationen (`docker compose down -v`) automatisch einen Snapshot zieht bzw. explizit warnt
+- [ ] Pre-Wipe-Snapshot-Helper: Docker Compose hat **keinen** Pre-Hook für `down -v` — "automatisch" ist nicht möglich, nur als Wrapper-Skript (`scripts/safe-down.sh`), das erst snapshotted und dann `docker compose down -v` aufruft. Ersetzt nicht den rohen Befehl, ergänzt ihn nur — README muss klarstellen, dass der rohe `docker compose down -v` weiterhin ungeschützt ist
 - [ ] Django-Admin-Action "Backup erstellen" — nutzt den bestehenden Backup-Mechanismus, kein neuer Codepfad
 - [ ] Restore-Doku im README: Schritt-für-Schritt-Anleitung (`gunzip -c ... | psql ...`, existiert als Kommentar in `docker-compose.yml`, muss ins README)
 
