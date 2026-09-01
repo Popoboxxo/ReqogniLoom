@@ -25,28 +25,22 @@
 #       EMBEDDING_PROVIDER: ollama
 #       OLLAMA_BASE_URL: http://ollama:11434
 #
-#   # Honcho: cannot be added as a plain service block here. Its own
-#   # docker-compose.yml.example (github.com/plastic-labs/honcho) `build:`s
-#   # from ITS OWN repo checkout, and brings its own postgres+redis -- there
-#   # is no published pre-built image to just `image:` reference. Self-hosting
-#   # it means running it as a genuinely separate stack, in its own directory,
-#   # then pointing this project at it:
+#   # Honcho: already bundled in docker-compose.yml behind the `honcho`
+#   # Compose profile (honcho-postgres/honcho-redis/honcho-migrate/honcho) --
+#   # no separate checkout, no override needed. Just:
 #   #
-#   #   git clone https://github.com/plastic-labs/honcho.git ../honcho
-#   #   cd ../honcho
-#   #   cp docker-compose.yml.example docker-compose.yml
-#   #   cp .env.template .env   # set DB_CONNECTION_URI + one LLM_*_API_KEY
-#   #   docker compose up -d    # binds 127.0.0.1:8000 by default
+#   #   docker compose --profile honcho up -d
 #   #
-#   # Then, back in THIS repo:
+#   # Then, in .env (not committed):
+#   #   MEMORY_BACKEND=honcho
+#   #   HONCHO_BASE_URL=http://honcho:8000
+#   #
+#   # Pointing at a remote/self-hosted Honcho instead? Skip the profile and set:
 #   # backend:
 #   #   environment:
 #   #     MEMORY_BACKEND: honcho
 #   #     HONCHO_BASE_URL: http://host.docker.internal:8000
 #   #     HONCHO_API_KEY: ${HONCHO_API_KEY}
-#   #
-#   # (Or any remote Honcho instance -- HONCHO_BASE_URL just needs to be
-#   # reachable from the backend/celery containers.)
 
 # volumes:
 #   ollama_data:

@@ -6,9 +6,22 @@
 # │ 2. Generate SECRET_KEY: python3 -c "import secrets;              │
 # │    print(secrets.token_hex(50))"                                │
 # │ 3. Set ALLOWED_HOSTS to your actual server hostname(s)          │
-# │ 4. docker-compose build && docker-compose up -d                 │
-# │ 5. docker-compose exec backend python manage.py migrate         │
+# │ 4. docker compose up -d                                         │
+# │ 5. Migration + admin self-init run automatically (see `migrate`)│
 # └─────────────────────────────────────────────────────────────────┘
+#
+# This is the FULL stack: postgres, postgres-backup, redis, backend, migrate,
+# celery, celery-beat, frontend — everything a production deployment needs,
+# always on. Want fewer moving parts (no async workers, no backup sidecar) for
+# a quick try-out or a small install? Use docker-compose.minimal.yml instead:
+#   docker compose -f docker-compose.minimal.yml up -d
+#
+# OPTIONAL: Honcho memory backend (MEMORY_BACKEND=honcho)
+# The honcho-postgres/honcho-redis/honcho-migrate/honcho services below are
+# gated behind the `honcho` Compose profile — defined in this same file so
+# there is one file to read, but they cost nothing (no image pulled, no
+# container started) unless you opt in:
+#   docker compose --profile honcho up -d
 #
 # DEVELOPMENT OVERRIDE:
 # For development with hot-reload, docker-compose.override.yml
@@ -32,6 +45,11 @@
 # All services load configuration from .env via env_file directives.
 # Sensitive values: SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD, LLM_API_KEY.
 # Environment variables override defaults throughout — zero secrets in compose file.
+#
+# IMAGE VERSION: both backend and frontend images are released together under
+# one REQOGNILOOM_VERSION tag (set in .env to pin/upgrade). Was previously
+# hardcoded per service (5x) and drifted out of sync with the actual release —
+# one variable is the fix, not just a one-off value correction.
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -170,7 +188,7 @@ services:
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
     deploy:
       resources:
         limits:
@@ -246,7 +264,7 @@ services:
   # SYSTEM_ADMIN_PASSWORD is required only when the admin does not exist yet
   # (mirrors createsuperuser --noinput). See backend/application/self_init.py.
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
     deploy:
       resources:
         limits:
@@ -293,7 +311,7 @@ services:
   # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
     deploy:
       resources:
         limits:
@@ -370,7 +388,7 @@ services:
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:1.7.0
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
     deploy:
       resources:
         limits:
@@ -425,7 +443,7 @@ services:
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:1.7.0
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
     deploy:
       resources:
         limits:
@@ -457,7 +475,197 @@ services:
       backend:
         condition: service_healthy
 
+  # ═════════════════════════════════════════════════════════
+  # OPTIONAL: Honcho memory backend (MEMORY_BACKEND=honcho)
+  # profiles: [honcho] — costs nothing (no pull, no start) unless you run
+  # `docker compose --profile honcho up -d`. Kept in this file (not a
+  # separate overlay) so there is exactly one full-stack file to read.
+  #
+  # Then point ReqogniLoom's backend/celery at it (add to .env, not committed):
+  #   MEMORY_BACKEND=honcho
+  #   HONCHO_BASE_URL=http://honcho:8000
+  #
+  # Verified end-to-end against a fresh volume (2026-08-27): postgres+redis
+  # come up healthy, `honcho-migrate` applies Honcho's own alembic migrations
+  # automatically (a fresh DB needs this -- the server itself refuses to boot
+  # without it), `honcho` then starts and GET /health returns {"status":"ok"}.
+  # A real memory WRITE additionally needs EMBEDDING_MODEL_CONFIG__* configured
+  # below (opencode_go serves no embeddings) -- reads/health do not.
+  #
+  # Image: ghcr.io/plastic-labs/honcho (official, published by the
+  # plastic-labs/honcho project — verified to exist and be ~190MB via its GHCR
+  # manifest; the project's own repo has no docker-compose.yml referencing this
+  # image, only a local `build:`-from-source dev compose, but its CI publish
+  # pipeline does produce and push this tag). Pinned to `latest` deliberately,
+  # not a specific vX.Y.Z tag: the honcho-ai 2.3.0 Python SDK this project's
+  # memory/honcho_backend.py was verified against targets server API routes
+  # (`/v3/workspaces/.../conclusions`) that postdate the newest vX.Y.Z tag
+  # visible on GHCR at verification time (v2.0.3) — only `latest`/`staging`
+  # are confirmed to carry that surface. Re-pin to an explicit tag once a v3.x
+  # release tag exists on GHCR and has been smoke tested against this backend.
+  # ═════════════════════════════════════════════════════════
+  honcho-postgres:
+    image: pgvector/pgvector:pg16
+    profiles: ["honcho"]
+    environment:
+      POSTGRES_USER: honcho
+      POSTGRES_PASSWORD: ${HONCHO_DB_PASSWORD:-honcho-dev-password}
+      POSTGRES_DB: honcho
+    volumes:
+      - honcho_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honcho -d honcho"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  honcho-redis:
+    image: redis:7-alpine
+    profiles: ["honcho"]
+    volumes:
+      - honcho_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: applies Honcho's own alembic migrations before the server
+  # starts. Without this, a fresh honcho-postgres volume makes `honcho`
+  # crash-loop on boot with `StartupValidationError: Required vector columns
+  # missing ... Run alembic upgrade head first.` (verified against a real
+  # fresh volume). Mirrors this project's own `migrate` service pattern.
+  honcho-migrate:
+    image: ghcr.io/plastic-labs/honcho:latest
+    profiles: ["honcho"]
+    depends_on:
+      honcho-postgres:
+        condition: service_healthy
+    environment:
+      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
+      # If you're using a non-1536-dim embedding model (option (b) below),
+      # this MUST be set here too, matching `honcho`'s value, BEFORE the
+      # first migration against a fresh volume -- see the PITFALL note on
+      # the `honcho` service's EMBEDDING_MODEL_CONFIG block.
+      EMBEDDING_VECTOR_DIMENSIONS: "768"
+      EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+      EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://<your-ollama-host>:11434/v1
+    command: alembic upgrade head
+
+  honcho:
+    image: ghcr.io/plastic-labs/honcho:latest
+    profiles: ["honcho"]
+    depends_on:
+      honcho-postgres:
+        condition: service_healthy
+      honcho-redis:
+        condition: service_healthy
+      honcho-migrate:
+        condition: service_completed_successfully
+    # Bound to localhost only (mirrors the upstream project's own compose
+    # template) -- this is a second, independent memory service with its
+    # own auth story; do not expose it beyond the host without first
+    # setting AUTH_USE_AUTH=true and a real API key below.
+    ports:
+      - "127.0.0.1:8010:8000"
+    environment:
+      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
+      REDIS_URL: redis://honcho-redis:6379
+      # Dev-only. Flip to true + set an API key before using this beyond a
+      # single-developer local stack (see HONCHO_API_KEY in .env.example).
+      AUTH_USE_AUTH: "false"
+      SENTRY_ENABLED: "false"
+      # Pin Honcho's own reasoning LLM (deriver/dialectic/summary/dream —
+      # all server-side, see memory/honcho_backend.py's module docstring and
+      # .env.example's "Pinning Honcho's own reasoning LLM" section for why
+      # this can't be done from the client SDK) to this project's own
+      # opencode_go provider, reusing the SAME key already configured for
+      # ReqogniLoom's own LLM_PROVIDER=opencode_go -- one opencode_go
+      # account covers both. `mimo-v2.5` is the verified model id on the
+      # `/zen/go/v1` endpoint (NOT `mimo-v2.5-free`, which only exists on the
+      # non-Go `/zen/v1` endpoint). Comment this whole block out to let
+      # Honcho fall back to its own default model config instead.
+      LLM_OPENAI_API_KEY: ${LLM_API_KEY}
+      DERIVER_MODEL_CONFIG__TRANSPORT: openai
+      DERIVER_MODEL_CONFIG__MODEL: mimo-v2.5
+      DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DIALECTIC_LEVELS__low__MODEL_CONFIG__TRANSPORT: openai
+      DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL: mimo-v2.5
+      DIALECTIC_LEVELS__low__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DIALECTIC_LEVELS__minimal__MODEL_CONFIG__TRANSPORT: openai
+      DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL: mimo-v2.5
+      DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DIALECTIC_LEVELS__medium__MODEL_CONFIG__TRANSPORT: openai
+      DIALECTIC_LEVELS__medium__MODEL_CONFIG__MODEL: mimo-v2.5
+      DIALECTIC_LEVELS__medium__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DIALECTIC_LEVELS__high__MODEL_CONFIG__TRANSPORT: openai
+      DIALECTIC_LEVELS__high__MODEL_CONFIG__MODEL: mimo-v2.5
+      DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DIALECTIC_LEVELS__max__MODEL_CONFIG__TRANSPORT: openai
+      DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: mimo-v2.5
+      DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      # REQUIRED for any write (peer.conclusions.create/...) to succeed --
+      # verified live: without this, Honcho's embedding client defaults to
+      # real OpenAI and fails with `AuthenticationError: Incorrect API key`
+      # the moment it tries to reuse LLM_OPENAI_API_KEY (an opencode_go key,
+      # not an OpenAI one) for embeddings. opencode_go itself serves no
+      # embedding models (see .env.example), so this can't reuse the same
+      # provider as DERIVER/DIALECTIC above. Pick ONE:
+      #
+      #   (a) A real OpenAI key, if you have one:
+      #         EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+      #         EMBEDDING_MODEL_CONFIG__MODEL: text-embedding-3-small
+      #         LLM_OPENAI_API_KEY: <a REAL OpenAI key -- separate from the
+      #           opencode_go one above; Honcho does not distinguish the two
+      #           by provider, only by this one env var>
+      #
+      #   (b) A self-hosted Ollama with an embedding model (mirrors this
+      #       project's OWN optional Ollama pattern in
+      #       docker-compose.override.example.yml -- add that `ollama`
+      #       service to this stack too, `docker exec ... ollama pull
+      #       nomic-embed-text`, then):
+      #         EMBEDDING_VECTOR_DIMENSIONS: "768"   # see pitfall below
+      #         EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+      #         EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
+      #         EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://ollama:11434/v1
+      #
+      # NOT set here by default -- (a) costs money, (b) pulls another
+      # multi-GB image this compose file shouldn't silently drag in. Memory
+      # reads (list/query on already-written data) work without this; only
+      # NEW writes need it. Uncomment one of the two option blocks above
+      # once you've picked.
+      #
+      EMBEDDING_VECTOR_DIMENSIONS: "768"
+      EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
+      EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://<your-ollama-host>:11434/v1
+      # PITFALL, verified live against a real ollama.nomic-embed-text setup:
+      # the pgvector column's dimension is baked into the schema at MIGRATE
+      # time from `EMBEDDING_VECTOR_DIMENSIONS` (default 1536, i.e. OpenAI's
+      # dimension) -- setting the var on the SERVER but migrating (or having
+      # already migrated) with the default still crashes it at boot with
+      # `documents.embedding dim (1536) does not match
+      # EMBEDDING_VECTOR_DIMENSIONS (768)`. Any non-1536-dim model (which
+      # nomic-embed-text is) needs `EMBEDDING_VECTOR_DIMENSIONS` set on BOTH
+      # `honcho-migrate` above AND here BEFORE the very first migration runs
+      # against a fresh `honcho_postgres_data` volume -- dropping the schema
+      # and re-migrating after the fact was NOT sufficient in testing; Honcho
+      # points at its own `scripts/configure_embeddings.py` (inside the
+      # image, not yet verified by this project) as the supported path to
+      # change dimensions on an already-migrated database. text-embedding-
+      # 3-small in option (a) sidesteps this entirely (1536-dim, matches the
+      # untouched default).
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   postgres_data:
   postgres_backup_data:  # REQ-102: retained pg_dump backups
   backend_dr_backups:    # REQ-L1-046: admin_ops DR backup JSON files (/app/backups)
+  honcho_postgres_data:  # profile: honcho
+  honcho_redis_data:     # profile: honcho

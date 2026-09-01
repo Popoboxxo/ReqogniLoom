@@ -135,7 +135,7 @@ sequenceDiagram
     REST-->>CI: JSON response
 ```
 
-**Services (production `docker-compose.yml`):** `postgres` (PostgreSQL 16 + pgvector) · `postgres-backup` (scheduled `pg_dump`) · `redis` (Celery broker/cache) · `migrate` (one-shot migrations + self-init: admin user, base workspace, default workflows) · `backend` (Django :8000) · `celery` (async worker) · `celery-beat` (periodic tasks) · `frontend` (React + nginx, published on :80). The included `docker-compose.override.yml` swaps `frontend`/`backend` into hot-reload dev mode automatically.
+**Services (production `docker-compose.yml`):** `postgres` (PostgreSQL 16 + pgvector) · `postgres-backup` (scheduled `pg_dump`) · `redis` (Celery broker/cache) · `migrate` (one-shot migrations + self-init: admin user, base workspace, default workflows) · `backend` (Django :8000) · `celery` (async worker) · `celery-beat` (periodic tasks) · `frontend` (React + nginx, published on :80). The included `docker-compose.override.yml` swaps `frontend`/`backend` into hot-reload dev mode automatically. Only need Postgres + Django + Frontend (no async tasks, no backup)? Use `docker-compose.minimal.yml` instead. Want the optional Honcho memory backend too? `docker compose --profile honcho up -d` (defined in `docker-compose.yml`, starts nothing extra without the flag).
 
 ## How to Start
 

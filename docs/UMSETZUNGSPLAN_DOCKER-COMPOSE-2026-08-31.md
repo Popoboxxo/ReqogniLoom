@@ -133,6 +133,24 @@ RFC-Punkte: #5, #10, #11 — **Neu geschnitten nach Live-Validierung 2026-09-01,
 
 ---
 
+## Update 2026-09-01: Reduktion auf minimal + full (supersediert Teile von A/F)
+
+Nutzerentscheidung, unabhängig vom bisherigen Sub-Projekt-Zuschnitt: alle empfohlenen Compose-Dateien auf **zwei** reduzieren — `docker-compose.yml` (full) und `docker-compose.minimal.yml`. `docker-compose.override.yml` (lokale Dev-Overrides/Secrets) und `docker-compose.test.yml` (CI) bleiben bewusst separat (Standard-Compose-Mechanismus bzw. eigener CI-Zweck, kein Teil der "wie viele Deployment-Varianten"-Frage).
+
+**Umgesetzt:**
+- `docker-compose.honcho.yml` entfernt, Inhalt 1:1 in `docker-compose.yml` verschoben, alle vier Services (`honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`) mit `profiles: ["honcho"]` markiert. **Supersediert Sub-Projekt F, Punkt 1** ("Empfehlung: Overlay-Datei behalten") — die Live-Validierung fand das noch richtig, der explizite Nutzerwunsch heute ("eine minimal + eine full Datei") übersteuert das bewusst. Funktional unverändert: `docker compose --profile honcho up -d` startet exakt das, was vorher `-f docker-compose.yml -f docker-compose.honcho.yml` startete — kostet nichts ohne den Flag.
+- `docker-compose.minimal.yml` neu angelegt: `postgres`, `redis`, `backend`, `migrate`, `frontend` — kein Celery, kein Backup-Sidecar, kein Honcho. Redis bleibt drin (harte Abhängigkeit über Djangos `CACHES`-Backend, siehe `reqogniloom/settings.py:792`), auch wenn primär als Celery-Broker beschrieben.
+- Image-Tag-Drift-Bug (Sub-Projekt A, dort noch offen) nebenbei mitgefixt, weil ohnehin jede Service-Zeile neu geschrieben wurde: `REQOGNILOOM_VERSION`-Variable (Default `1.8.0-beta.5`) statt 5x hardcodiertem `1.7.0`, in beiden Dateien.
+- `docker compose config` gegen beide Dateien (full, full+honcho-Profil, minimal) grün validiert.
+- README, `docker-compose.override.example.yml` auf die neue Struktur aktualisiert.
+
+**Bewusst NICHT mitgemacht** (bleibt Sub-Projekt A, eigener Scope/eigene Freigabe nötig):
+- YAML-Anchors (`x-common-env`, `x-app-role-env`, `x-healthcheck-*`, `x-logging`)
+- Memory-Limit-Anhebung aus der Live-Validierung (Backend 512M→1G etc.)
+- Frontend-`user: root`-Ursachenklärung
+
+**Gefunden, nicht behoben (out of scope):** `scripts/backup.sh` referenziert eine nicht existierende `docker-compose.backup.yml` (Stand 2026-07-14, Kommentar "Uses docker-compose.backup.yml service definition") — vermutlich Legacy aus der Zeit vor dem heutigen `postgres-backup`-Sidecar in `docker-compose.yml`, in keinem Makefile-Target aufgerufen. Kandidat für Cleanup, aber nicht Teil dieser Änderung.
+
 ## Offene Punkte / bewusst nicht übernommen
 
 - **RFC #14** (App-User muss Superuser für RLS sein): verworfen, siehe Ist-Stand-Check. Architektur ist korrekt so wie sie ist.
