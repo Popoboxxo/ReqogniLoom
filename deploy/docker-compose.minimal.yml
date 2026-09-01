@@ -34,8 +34,10 @@
 # • `${VAR:-default}` = standard Compose/shell expansion ("use VAR if set,
 #   else default"). Vars with no default (`${DB_PASSWORD}`) are secrets —
 #   deliberately no fallback, so a missing value stays visibly empty.
-# • Named volumes (bottom) = persistent DATA. Bind-mounts elsewhere point at
-#   repo-tracked config, not data — kept separate on purpose.
+# • Named volumes (bottom) = persistent DATA. No repo-file bind-mounts —
+#   every service here runs a stock upstream or published GHCR image with
+#   nothing repo-tracked mounted in, so a consumer only needs this compose
+#   file + `.env`, no repo checkout.
 # • The repeated `logging:` block caps each container's logs at 3×10MB —
 #   Docker's default json-file driver does not rotate on its own.
 
@@ -55,7 +57,11 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      # No custom initdb script needed here: `migrate` connects as this
+      # cluster superuser and persistence/migrations/0024_requirement_embedding.py
+      # already runs `CREATE EXTENSION IF NOT EXISTS vector` on first migrate —
+      # verified to work with no template1 pre-seeding. See docker-compose.yml's
+      # `postgres` service comment for the full rationale.
     logging:
       driver: "json-file"
       options:

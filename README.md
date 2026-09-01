@@ -12,19 +12,17 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 
 > Human reader? Skip to [How to Start](#how-to-start) for the annotated walkthrough. This block is self-contained — an agent that reads only this section can deploy the system unattended.
 
-This runs published GHCR images directly. **A full `git clone` is not required** — the
-production compose file only bind-mounts two small scripts from the repo (not the application
-source), so a consumer only needs 4 files:
+This runs published GHCR images directly. **A full `git clone` is not required** — every service
+in the production compose file runs a stock upstream or published `ghcr.io/popoboxxo/...` image
+with nothing repo-tracked bind-mounted in, so a consumer only needs 2 files:
 
 ```bash
 mkdir reqogniloom && cd reqogniloom
-mkdir -p deploy docker/postgres/initdb backend/scripts
 RAW=https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main
 
+mkdir deploy
 curl -fsSL -o deploy/docker-compose.yml "$RAW/deploy/docker-compose.yml"
 curl -fsSL -o .env.example "$RAW/.env.example"
-curl -fsSL -o docker/postgres/initdb/10-pgvector.sh "$RAW/docker/postgres/initdb/10-pgvector.sh"
-curl -fsSL -o backend/scripts/backup_postgres.sh "$RAW/backend/scripts/backup_postgres.sh"
 cp .env.example .env
 
 # Required — production mode refuses to start without these (no defaults):
@@ -40,24 +38,20 @@ curl -sf http://localhost:8001/health/                                    # {"st
 ```
 
 Facts, not narrative:
-- No build step, no application source needed: every service pulls a prebuilt
-  `ghcr.io/popoboxxo/...` (or, for `postgres`/`redis`/Honcho, an upstream public) image. A full
+- No build step, no application source, no repo bind-mounts at all: every service pulls a
+  prebuilt image — `ghcr.io/popoboxxo/reqogniloom-backend`/`-frontend` for our own two, stock
+  `pgvector/pgvector:pg16`/`redis:7-alpine` (and, if the `honcho` profile is enabled,
+  `ghcr.io/plastic-labs/honcho`) for the rest. The pgvector extension the `postgres` service needs
+  is created by the app's own `migrate` step (Django migration `0024_requirement_embedding.py`,
+  run as the Postgres superuser), not by a mounted init script — nothing to fetch for it. A full
   `git clone` is only useful for local development (hot-reload) or modifying the code — see
   [How to Start](#how-to-start) below for that path.
-- Why 4 files and not just the compose file: `deploy/docker-compose.yml` bind-mounts
-  `docker/postgres/initdb/10-pgvector.sh` (installs the pgvector extension the `postgres` service
-  needs) and `backend/scripts/backup_postgres.sh` (run on a schedule by the `postgres-backup`
-  sidecar). Both are small standalone scripts, not application source.
 - Need the slim variant (no Celery worker/beat, no backup sidecar, no Honcho)? Fetch
-  `deploy/docker-compose.minimal.yml` instead of `docker-compose.yml` — it only needs the
-  `docker/postgres/initdb` script (skip `backend/scripts/backup_postgres.sh`; there is no backup
-  sidecar in that variant). Default to the full stack above unless a minimal deployment was
-  explicitly requested.
-- The compose files reference paths relative to the repo root (`./docker/postgres/initdb`,
-  `./backend/scripts/backup_postgres.sh`), even though they themselves live in `deploy/`. Run
-  every `docker compose` call from the directory you created above (acting as the repo root) with
-  `--project-directory .` — omitting it breaks `.env` lookup and both bind-mounts. Full rationale:
-  [`deploy/README.md`](deploy/README.md#required-flag---project-directory-).
+  `deploy/docker-compose.minimal.yml` instead of `docker-compose.yml` — same 2-file rule applies.
+  Default to the full stack above unless a minimal deployment was explicitly requested.
+- The compose file itself lives in `deploy/`, not the repo root you created above — run every
+  `docker compose` call from that root directory with `--project-directory .`, which pins `.env`
+  lookup to it. Full rationale: [`deploy/README.md`](deploy/README.md#required-flag---project-directory-).
 - Endpoints after startup: Frontend `http://localhost:5173` (`FRONTEND_PORT`, default `5173`) · Backend REST/MCP `http://localhost:8001` (`BACKEND_PORT`, default `8001`). Both are overridable in `.env` — set them to distinct values when running a second instance on the same host.
 - Default admin login: username `admin`, password = the `SYSTEM_ADMIN_PASSWORD` you set in `.env` before the **first** start. Provisioning is create-only — changing it later and re-running `up -d` does not reset an existing admin's password.
 - `.env` is read at container **creation**, not live. `docker compose restart <service>` does **not** pick up a changed `.env` — re-run `up -d` instead (it recreates containers whose resolved config changed).
@@ -690,8 +684,8 @@ graph LR
 ```
 
 **Services** (`deploy/docker-compose.yml`):
-- **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension pre-installed into `template1`)
-- **postgres-backup** — `postgres:16-alpine` sidecar; runs `backup_postgres.sh` every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
+- **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension, created by the app's own `migrate` step on first start — see [PostgreSQL with pgvector](#postgresql-with-pgvector) below)
+- **postgres-backup** — `pgvector/pgvector:pg16` sidecar; dump/prune logic inlined into its `command:` (no bind-mounted script), runs every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
 - **redis** — `redis:7-alpine` (Celery broker + cache, `appendonly` persistence, 256mb `maxmemory`)
 - **migrate** — one-shot; runs `python manage.py migrate` then the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
 - **backend** — Django REST API + MCP server (`:8000`), connects as the least-privilege `DB_APP_USER` role (RLS-enforced)
@@ -806,11 +800,11 @@ docker compose -f deploy/docker-compose.yml --project-directory . up -d
 
 The postgres service uses the `pgvector/pgvector:pg16` image, which ships the pgvector extension for vector-based semantic search.
 
-`CREATE EXTENSION vector` requires **superuser** rights, but the application connects at runtime as the least-privilege, `NOSUPERUSER` role `DB_APP_USER` (default `reqogniloom_app`, REQ-L2-PL-010). The extension is therefore installed up front by the superuser init hook `docker/postgres/initdb/10-pgvector.sh` — into **`template1`** and into `${DB_NAME}`. Because `CREATE DATABASE` clones `template1`, every database created afterwards (including Django's ephemeral `test_*` databases from `pytest --create-db`) inherits the extension, and the `CREATE EXTENSION IF NOT EXISTS vector` in `persistence/migrations/0024_requirement_embedding.py` degrades to a harmless `NOTICE`.
+`CREATE EXTENSION vector` requires **superuser** rights. The application's runtime services (`backend`/`celery`/`celery-beat`) connect as the least-privilege, `NOSUPERUSER` role `DB_APP_USER` (default `reqogniloom_app`, REQ-L2-PL-010) and could not create it — but `migrate` always connects as the actual Postgres superuser (`DB_USER`), and `persistence/migrations/0024_requirement_embedding.py` already runs `CREATE EXTENSION IF NOT EXISTS vector` directly against `${DB_NAME}` the first time `migrate` applies it. No separate init script or bind-mount is needed: a superuser connection can create the extension on a freshly created database with nothing pre-seeded, and the same holds for Django's ephemeral `test_*` databases (`testing/docker-compose.test.yml`'s `backend-test` also always connects as the superuser — verified empirically, not just by inspection).
 
-No manual setup is required for a fresh volume.
+No manual setup is required, for a fresh volume or otherwise.
 
-**Existing volume:** the Postgres image runs `/docker-entrypoint-initdb.d/` scripts only on a completely empty data directory. A dev machine set up before this hook existed will still fail with `permission denied to create extension "vector"` on `pytest --create-db`. Fix it once, without recreating the volume or losing data:
+**Retrofitting an old deployment:** if you're running a database created before this migration-based approach (formerly a `docker-entrypoint-initdb.d` bind-mount, which only ran once against a completely empty data directory) and it somehow still lacks the extension, fix it without recreating the volume or losing data:
 
 ```bash
 ./scripts/enable_pgvector.sh
