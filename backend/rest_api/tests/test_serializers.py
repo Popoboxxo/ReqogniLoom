@@ -30,6 +30,7 @@ from rest_api.serializers import (
     RiskSerializer,
     StandardPagination,
     TestRunResultSerializer,
+    TraceLinkPagination,
     TraceLinkSerializer,
     apply_queryset_optimizations,
     build_error_response,
@@ -149,14 +150,70 @@ class TestStandardPagination:
 
     def test_paginated_response_schema_declares_envelope(self) -> None:
         # REQ-076: OpenAPI schema pins the count/next/previous/results envelope.
+        # #571 (reopen): plus the applied page_size and the endpoint's ceiling.
         p = StandardPagination()
         item_schema = {"type": "array", "items": {"type": "object"}}
         schema = p.get_paginated_response_schema(item_schema)
         assert schema["type"] == "object"
-        assert set(schema["properties"]) == {"count", "next", "previous", "results"}
+        assert set(schema["properties"]) == {
+            "count",
+            "next",
+            "previous",
+            "page_size",
+            "max_page_size",
+            "results",
+        }
         assert schema["properties"]["results"] is item_schema
         assert "count" in schema["required"]
         assert schema["properties"]["next"]["nullable"] is True
+
+
+class TestPageSizeCapIsNotSilent:
+    """#571 (reopen): an out-of-range ``page_size`` must be observable.
+
+    DRF clamps to ``max_page_size`` and says nothing, so a client asking for
+    5000 got 100 with no way to distinguish that from a short last page.
+    """
+
+    def _request(self, query: str):
+        from rest_framework.test import APIRequestFactory
+        from rest_framework.request import Request
+
+        return Request(APIRequestFactory().get(f"/api/v1/requirements/?{query}"))
+
+    def test_over_large_page_size_is_clamped_to_max(self) -> None:
+        p = StandardPagination()
+        assert p.get_page_size(self._request("page_size=5000")) == 100
+
+    def test_applied_page_size_is_remembered_for_the_envelope(self) -> None:
+        p = StandardPagination()
+        p.get_page_size(self._request("page_size=5000"))
+        assert p._effective_page_size == 100
+
+        p.get_page_size(self._request("page_size=10"))
+        assert p._effective_page_size == 10
+
+    def test_schema_parameter_documents_the_maximum(self) -> None:
+        p = StandardPagination()
+        params = p.get_schema_operation_parameters(view=None)
+        page_size_param = next(pp for pp in params if pp["name"] == "page_size")
+        assert page_size_param["schema"]["maximum"] == 100
+        assert "100" in page_size_param["description"]
+
+
+class TestTraceLinkPagination:
+    """#571 (reopen): /tracelinks/ needs fewer round-trips, not a bigger row."""
+
+    def test_ceiling_is_raised_above_the_shared_default(self) -> None:
+        assert TraceLinkPagination.max_page_size == 500
+        assert StandardPagination.max_page_size == 100, (
+            "the raise must stay scoped to TraceLink — entities with free-text "
+            "bodies have no comparable per-row bound"
+        )
+
+    def test_inherits_the_shared_default_page_size(self) -> None:
+        # Clients that do not ask for a page size keep the familiar 25.
+        assert TraceLinkPagination.page_size == StandardPagination.page_size
 
 
 # ---------------------------------------------------------------------------

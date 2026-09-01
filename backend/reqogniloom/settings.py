@@ -497,7 +497,10 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # REQ-071: unify all DRF errors into {"error": {"code", "message", "details"}}
     "EXCEPTION_HANDLER": "rest_api.error_envelope.reqogniloom_exception_handler",
-    # COMP-RA-002: Pagination — default 25, max 100 (REQ-L3-RA002-003)
+    # COMP-RA-002: Pagination — default 25, max 100 (REQ-L3-RA002-003).
+    # Individual views may raise their own ceiling (see
+    # rest_api.serializers.TraceLinkPagination, #571); the applied page size
+    # and that ceiling are echoed in every paginated response.
     "DEFAULT_PAGINATION_CLASS": "rest_api.serializers.StandardPagination",
     "PAGE_SIZE": 25,
     # Filter/ordering backends (REQ-L2-RA-010)

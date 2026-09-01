@@ -121,6 +121,7 @@ from rest_api.serializers import (
     TestCaseSerializer,
     TestRunSerializer,
     TestRunResultSerializer,
+    TraceLinkPagination,
     TraceLinkSerializer,
     TracePathSerializer,
     WorkflowDefinitionSerializer,
@@ -315,7 +316,10 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         already pass a pre-serialised list may omit ``serialize`` (backwards
         compatible).
 
-        Response shape is unchanged: ``{count, next, previous, results}``.
+        Response shape follows ``StandardPagination``:
+        ``{count, next, previous, page_size, max_page_size, results}`` — the
+        last two were added in #571 (reopen) so a clamped ``page_size`` stops
+        being silent.
         """
         page = self.paginator.paginate_queryset(items, request, view=self)
         if page is not None:
@@ -2250,6 +2254,11 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
     serializer_class = TraceLinkSerializer
     preset_endpoint_key = ""
+    # Fix #571 (reopen): clients render the traceability graph from the *whole*
+    # link set, so they walk every page. 500/page instead of the shared 100
+    # turns ~1980 links from 20 serial round-trips into 4 — see
+    # TraceLinkPagination for why the ceiling is safe to raise here only.
+    pagination_class = TraceLinkPagination
 
     def _svc(self) -> TraceLinkService:
         return TraceLinkService()
