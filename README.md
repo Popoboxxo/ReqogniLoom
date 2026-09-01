@@ -8,6 +8,61 @@ ReqogniLoom is an AI-integrated requirements management and test case tracking s
 
 Whether you're managing a small backlog or orchestrating a multi-level systems architecture with MBSE-style decomposition, ReqogniLoom adapts to your rigor level and integrates seamlessly with your LLM tools.
 
+## Deploy This (For AI Agents)
+
+> Human reader? Skip to [How to Start](#how-to-start) for the annotated walkthrough. This block is self-contained — an agent that reads only this section can deploy the system unattended.
+
+This runs published GHCR images directly. **A full `git clone` is not required** — the
+production compose file only bind-mounts two small scripts from the repo (not the application
+source), so a consumer only needs 4 files:
+
+```bash
+mkdir reqogniloom && cd reqogniloom
+mkdir -p deploy docker/postgres/initdb backend/scripts
+RAW=https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main
+
+curl -fsSL -o deploy/docker-compose.yml "$RAW/deploy/docker-compose.yml"
+curl -fsSL -o .env.example "$RAW/.env.example"
+curl -fsSL -o docker/postgres/initdb/10-pgvector.sh "$RAW/docker/postgres/initdb/10-pgvector.sh"
+curl -fsSL -o backend/scripts/backup_postgres.sh "$RAW/backend/scripts/backup_postgres.sh"
+cp .env.example .env
+
+# Required — production mode refuses to start without these (no defaults):
+#   SECRET_KEY, AUTH_JWT_SECRET, FIELD_ENCRYPTION_KEY, DB_PASSWORD, DB_APP_PASSWORD
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"                                # → SECRET_KEY, AUTH_JWT_SECRET (run twice, once per value)
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"   # → FIELD_ENCRYPTION_KEY
+# Edit .env: paste the 3 generated values, set DB_PASSWORD/DB_APP_PASSWORD, and set
+# SYSTEM_ADMIN_PASSWORD if you want an admin user auto-created on first start (optional).
+
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.yml --project-directory . ps       # wait for "healthy"
+curl -sf http://localhost:8001/health/                                    # {"status":"ok",...} = fully up
+```
+
+Facts, not narrative:
+- No build step, no application source needed: every service pulls a prebuilt
+  `ghcr.io/popoboxxo/...` (or, for `postgres`/`redis`/Honcho, an upstream public) image. A full
+  `git clone` is only useful for local development (hot-reload) or modifying the code — see
+  [How to Start](#how-to-start) below for that path.
+- Why 4 files and not just the compose file: `deploy/docker-compose.yml` bind-mounts
+  `docker/postgres/initdb/10-pgvector.sh` (installs the pgvector extension the `postgres` service
+  needs) and `backend/scripts/backup_postgres.sh` (run on a schedule by the `postgres-backup`
+  sidecar). Both are small standalone scripts, not application source.
+- Need the slim variant (no Celery worker/beat, no backup sidecar, no Honcho)? Fetch
+  `deploy/docker-compose.minimal.yml` instead of `docker-compose.yml` — it only needs the
+  `docker/postgres/initdb` script (skip `backend/scripts/backup_postgres.sh`; there is no backup
+  sidecar in that variant). Default to the full stack above unless a minimal deployment was
+  explicitly requested.
+- The compose files reference paths relative to the repo root (`./docker/postgres/initdb`,
+  `./backend/scripts/backup_postgres.sh`), even though they themselves live in `deploy/`. Run
+  every `docker compose` call from the directory you created above (acting as the repo root) with
+  `--project-directory .` — omitting it breaks `.env` lookup and both bind-mounts. Full rationale:
+  [`deploy/README.md`](deploy/README.md#required-flag---project-directory-).
+- Endpoints after startup: Frontend `http://localhost:5173` (`FRONTEND_PORT`, default `5173`) · Backend REST/MCP `http://localhost:8001` (`BACKEND_PORT`, default `8001`). Both are overridable in `.env` — set them to distinct values when running a second instance on the same host.
+- Default admin login: username `admin`, password = the `SYSTEM_ADMIN_PASSWORD` you set in `.env` before the **first** start. Provisioning is create-only — changing it later and re-running `up -d` does not reset an existing admin's password.
+- `.env` is read at container **creation**, not live. `docker compose restart <service>` does **not** pick up a changed `.env` — re-run `up -d` instead (it recreates containers whose resolved config changed).
+- Full command reference (dev hot-reload overlay via a full clone, Honcho memory backend, troubleshooting, production hardening, reverse-proxy config): **[`deploy/README.md`](deploy/README.md)** (also written to be followed unattended by an AI agent) and the [Production Deployment](#production-deployment) section below.
+
 ## Features
 
 ### Core Capabilities

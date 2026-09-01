@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.100.0 — `2026-08-29`
+> Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -67,21 +67,18 @@ backend/manage.py            — Django Management (migrate, seed_demo, runserve
 
 ## Build & Development
 
-Compose-Dateien liegen NICHT im Repo-Root, sondern unter `deploy/` (Deployment-Beispiele) und `testing/` (Test-Overlay) — siehe `deploy/README.md` (KI-Agenten-lesbarer Abschnitt "For AI agents").
-
 ```bash
 # Build
 make build
 
 # Tests
-make test-backend  # pytest, Container-basiert
-make test-frontend # vitest, Container-basiert
+pytest (Backend) + npm test (Frontend)
 
-# Dev-Stack starten (Full-Stack + Hot-Reload-Override)
+# Dev-Stack starten
 make up
 
 # Nach Änderungen neu laden
-make up   # recreated Container bei geänderter Config/Env — `docker compose restart` liest .env NICHT neu
+make up (recreated Container bei geänderter Config/Env; reines `docker compose restart` liest .env NICHT neu) oder Hot-Reload automatisch je nach Service
 ```
 
 ## Anforderungs-Kategorien
@@ -111,7 +108,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.100.0 — `2026-09-01`
+Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 
