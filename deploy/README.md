@@ -19,9 +19,11 @@ for the stack to work correctly:
 
 - Without it, Compose looks for `.env` relative to `deploy/` instead of the repo root, so none
   of your configured secrets/overrides are picked up.
-- Without it, every relative bind-mount in these files (`./backend`, `./docker/postgres/initdb`,
-  `./docs`, `./backend/scripts/backup_postgres.sh`) resolves relative to `deploy/` instead of the
-  repo root, and the container either fails to start or mounts an empty/wrong directory.
+- Without it, any relative bind-mount resolves relative to `deploy/` instead of the repo root, and
+  the container either fails to start or mounts an empty/wrong directory. `docker-compose.yml` and
+  `docker-compose.minimal.yml` themselves have none (every service runs a stock or published
+  image, no repo files needed) — this only bites once you add `docker-compose.override.yml`
+  (`./backend`, `./docs`, `./frontend`, for local hot-reload development).
 - `deploy/docker-compose.override.yml` does **not** auto-merge the way a root-level
   `docker-compose.override.yml` would — Compose's automatic override discovery only triggers
   when both files sit in the same directory and no `-f` flag is passed. Once `-f` is used (which

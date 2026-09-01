@@ -58,10 +58,12 @@
 #   purpose — secrets get no fallback, so a missing value stays visibly
 #   empty instead of silently working with a guessable default.
 # • Named volumes (bottom of this file) hold PERSISTENT DATA that must
-#   survive container rebuilds (`postgres_data`, backups). Bind-mounts
-#   elsewhere (`./docker/postgres/initdb:...`) point at repo-tracked
-#   CONFIG/CODE instead — not volumes, on purpose, so they always reflect
-#   whatever is actually checked out, no separate sync step.
+#   survive container rebuilds (`postgres_data`, backups). No repo-file
+#   bind-mounts are needed anymore: `postgres`/`postgres-backup` run stock
+#   `pgvector/pgvector:pg16` with self-contained `command:` blocks, and the
+#   pgvector extension is created by the app's own migration (see the
+#   `postgres` service comment below) — a consumer only needs this compose
+#   file + `.env`, no repo checkout.
 # • `logging: {driver: json-file, options: {max-size, max-file}}` repeats
 #   per service because Docker's default json-file driver does NOT rotate
 #   logs on its own — an unbounded log file can fill the host disk. This
@@ -97,15 +99,18 @@ services:
       #   docker-compose down -v  # WARNING: deletes all postgres data
       #   docker-compose up -d
       - postgres_data:/var/lib/postgresql/data
-      # Superuser bootstrap: installs the pgvector `vector` extension into
-      # template1 AND ${DB_NAME} so the least-privilege runtime role
-      # (DB_APP_USER, NOSUPERUSER — REQ-L2-PL-010) never has to run
-      # `CREATE EXTENSION` itself. Every database cloned from template1
-      # afterwards — including Django's ephemeral `test_*` databases created by
-      # `pytest --create-db` — inherits the extension automatically.
-      # Only executed on a completely EMPTY data directory; for an existing
-      # volume run ./scripts/enable_pgvector.sh once instead.
-      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      # No custom initdb script needed: `migrate` (below) always connects as
+      # this cluster superuser (DB_USER, not the least-privilege DB_APP_USER —
+      # REQ-L2-PL-010) and persistence/migrations/0024_requirement_embedding.py
+      # already runs `CREATE EXTENSION IF NOT EXISTS vector` directly against
+      # ${DB_NAME} on first migrate. Verified empirically (2026-09-01): a
+      # superuser connection can create the extension on a freshly created
+      # database with no template1 pre-seeding — the old
+      # docker-entrypoint-initdb.d hook (pre-seeding template1 for pytest's
+      # ephemeral test_* databases) was redundant, since
+      # testing/docker-compose.test.yml's backend-test also always connects as
+      # the superuser. Retrofitting an EXISTING volume created before migration
+      # 0024 ran: ./scripts/enable_pgvector.sh.
     logging:
       driver: "json-file"
       options:
@@ -121,11 +126,16 @@ services:
   # ─────────────────────────────────────────────────────────
   # PostgreSQL Backup — REQ-102 (INF-21) backup strategy
   # ─────────────────────────────────────────────────────────
-  # Sidecar that runs backend/scripts/backup_postgres.sh on a fixed interval
-  # (BACKUP_INTERVAL seconds, default 24h). Each run writes a timestamped,
-  # gzip-compressed pg_dump to the postgres_backup_data volume and prunes all
-  # but the newest BACKUP_RETENTION (default 7) dumps. Restore with:
+  # Sidecar that dumps the database on a fixed interval (BACKUP_INTERVAL
+  # seconds, default 24h): a timestamped, gzip-compressed pg_dump into the
+  # postgres_backup_data volume, pruning all but the newest BACKUP_RETENTION
+  # (default 7) dumps. Restore with:
   #   gunzip -c reqogniloom_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
+  # The dump/prune logic is inlined into `command:` below (previously a
+  # bind-mounted backend/scripts/backup_postgres.sh) so this service needs no
+  # repo file beyond this compose YAML — `$$` below is the required Compose
+  # escape for a literal `$` the container's shell should expand, not Compose
+  # itself at file-parse time.
   postgres-backup:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
@@ -139,12 +149,23 @@ services:
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
     volumes:
       - postgres_backup_data:/backups
-      - ./backend/scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         while true; do
-          /bin/sh /usr/local/bin/backup_postgres.sh || echo "[backup] run failed";
+          timestamp=$(date +%Y%m%d_%H%M%S);
+          outfile="$${BACKUP_DIR}/reqogniloom_$${timestamp}.sql.gz";
+          export PGPASSWORD="$${POSTGRES_PASSWORD}";
+          echo "[backup] dumping $${POSTGRES_DB} from $${POSTGRES_HOST} to $${outfile}";
+          if pg_dump --host="$${POSTGRES_HOST}" --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}" \
+              --no-owner --no-privileges | gzip > "$${outfile}"; then
+            echo "[backup] wrote $(du -h "$${outfile}" | cut -f1) to $${outfile}";
+            ls -1t "$${BACKUP_DIR}"/reqogniloom_*.sql.gz 2>/dev/null \
+              | tail -n "+$(( BACKUP_RETENTION + 1 ))" \
+              | while read -r old; do echo "[backup] pruning old backup $${old}"; rm -f "$${old}"; done;
+          else
+            echo "[backup] run failed";
+          fi;
           sleep "${BACKUP_INTERVAL:-86400}";
         done
     depends_on:

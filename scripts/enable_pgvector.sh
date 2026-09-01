@@ -2,18 +2,18 @@
 # ---------------------------------------------------------------------------
 # Retro-fit the pgvector `vector` extension into an EXISTING Postgres volume.
 #
-# docker/postgres/initdb/10-pgvector.sh only runs when the Postgres data
-# directory is empty (official image behaviour). Development machines that
-# were set up before that script existed therefore still lack the extension in
-# `template1`, and `pytest --create-db` fails while running
-# persistence/migrations/0024_requirement_embedding.py with:
-#
-#   permission denied to create extension "vector"
-#
-# because the app connects as the NOSUPERUSER role (REQ-L2-PL-010).
-#
-# This script performs the same superuser bootstrap idempotently against a
-# RUNNING compose stack — no data is touched, no volume is recreated.
+# Normally nothing needs this: `migrate` always connects as the Postgres
+# superuser and persistence/migrations/0024_requirement_embedding.py already
+# runs `CREATE EXTENSION IF NOT EXISTS vector` on first migrate (see
+# deploy/docker-compose.yml's `postgres` service comment). This script is only
+# for a database that predates that migration ever running successfully — e.g.
+# one created against an old deployment that relied on a since-removed
+# `docker-entrypoint-initdb.d` bind-mount and somehow still lacks the
+# extension. If you hit `permission denied to create extension "vector"`
+# anywhere (that error means the connecting role is DB_APP_USER, the
+# least-privilege NOSUPERUSER role — REQ-L2-PL-010 — not the superuser),
+# this script performs the same bootstrap idempotently against a RUNNING
+# compose stack — no data is touched, no volume is recreated.
 #
 # Usage:  ./scripts/enable_pgvector.sh
 # Env:    DB_USER / DB_NAME are read from .env when present (defaults below).
