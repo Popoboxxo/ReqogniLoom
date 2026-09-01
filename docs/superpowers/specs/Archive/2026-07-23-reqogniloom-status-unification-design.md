@@ -5,7 +5,7 @@
 > Plan ist produktgenerisch, keine HA-Spezifika.
 
 Stakeholder: Daniel (Homelab-Poweruser, Single-Tenant-Betrieb, Docker-Container auf
-Sandbox 172.20.5.108). Kein Multi-User-Produktionsdruck — Migrationen dürfen big-bang
+einem internen Sandbox-Host). Kein Multi-User-Produktionsdruck — Migrationen dürfen big-bang
 sein, YAGNI gilt aggressiv für Enterprise-Features (Pair-Review, Reviewer-Rollen-Listen).
 
 ---

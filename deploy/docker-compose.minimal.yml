@@ -1,0 +1,224 @@
+# ReqogniLoom — Minimal Stack
+#
+# Slimmest working setup: postgres, redis, backend, migrate, frontend. No
+# Celery worker/beat, no backup sidecar, no Honcho. For the full production
+# stack (async tasks, scheduled backups, optional Honcho memory profile) use
+# docker-compose.yml instead.
+#
+# WHAT YOU LOSE vs. the full stack:
+#   • No async task processing — any feature that queues a Celery task
+#     (LLM long-running calls, webhooks, GitHub sync, memory consolidation)
+#     enqueues onto Redis and never runs: no error, just silently pending
+#     forever. If your workflow needs those, use docker-compose.yml.
+#   • No scheduled DB backups (postgres-backup sidecar) — take manual dumps
+#     if you need them: docker compose -f docker-compose.minimal.yml exec
+#     postgres pg_dump -U ${DB_USER:-reqogniloom} ${DB_NAME:-reqogniloom} | gzip > backup.sql.gz
+#
+# WHY redis IS still here despite being "just the Celery broker" elsewhere in
+# the docs: Django's CACHES backend (reqogniloom/settings.py) is hardwired to
+# redis, not LocMemCache — sessions/rate-limiting/etc. need a reachable Redis
+# even with zero Celery workers consuming from it.
+#
+# Setup:
+#   1. Copy .env.example to .env and fill in all CHANGE-ME values
+#   2. docker compose -f docker-compose.minimal.yml up -d
+#
+# Note: docker-compose.override.yml (dev hot-reload) targets service names
+# from the FULL stack, including celery/celery-beat — merging it with this
+# file (`-f docker-compose.minimal.yml -f docker-compose.override.yml`) will
+# ADD those services back in, defeating the point of "minimal". Use the full
+# stack for local development instead.
+#
+# COMPOSE CONVENTIONS (same as docker-compose.yml, repeated here since this
+# file is meant to be read standalone):
+# • `${VAR:-default}` = standard Compose/shell expansion ("use VAR if set,
+#   else default"). Vars with no default (`${DB_PASSWORD}`) are secrets —
+#   deliberately no fallback, so a missing value stays visibly empty.
+# • Named volumes (bottom) = persistent DATA. No repo-file bind-mounts —
+#   every service here runs a stock upstream or published GHCR image with
+#   nothing repo-tracked mounted in, so a consumer only needs this compose
+#   file + `.env`, no repo checkout.
+# • The repeated `logging:` block caps each container's logs at 3×10MB —
+#   Docker's default json-file driver does not rotate on its own.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-reqogniloom}
+      POSTGRES_USER: ${DB_USER:-reqogniloom}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # No custom initdb script needed here: `migrate` connects as this
+      # cluster superuser and persistence/migrations/0024_requirement_embedding.py
+      # already runs `CREATE EXTENSION IF NOT EXISTS vector` on first migrate —
+      # verified to work with no template1 pre-seeding. See docker-compose.yml's
+      # `postgres` service comment for the full rationale.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqogniloom}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: unless-stopped
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+    # Shell wrapper because Compose `command:` can't branch on whether
+    # REDIS_PASSWORD is set — this makes the password optional from ONE
+    # file. `--requirepass ""` (empty, not omitted) is not reliably
+    # "no password" across Redis versions, so the empty case skips the flag.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "${REDIS_PASSWORD}" ]; then
+          exec redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
+        else
+          exec redis-server --requirepass "${REDIS_PASSWORD}" --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
+        fi
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    stop_grace_period: 45s
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      DB_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_PASSWORD: ${DB_APP_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # ID of the base tenant the `migrate` self-init provisions on an empty DB.
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+    volumes:
+      - backend_dr_backups:/app/backups
+    ports:
+      - "${BACKEND_PORT:-8001}:8000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      DB_USER: ${DB_USER:-reqogniloom}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_STATEMENT_TIMEOUT_MS: "0"
+      DB_APP_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SYSTEM_ADMIN_USERNAME: ${SYSTEM_ADMIN_USERNAME:-admin}
+      SYSTEM_ADMIN_EMAIL: ${SYSTEM_ADMIN_EMAIL:-admin@demo.local}
+      SYSTEM_ADMIN_PASSWORD: ${SYSTEM_ADMIN_PASSWORD:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    command: python manage.py migrate
+
+  frontend:
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.5}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    tmpfs:
+      - /var/cache/nginx
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:8080"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  backend_dr_backups:

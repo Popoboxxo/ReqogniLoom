@@ -2,7 +2,7 @@ name: Docker Publish (GHCR)
 
 # Builds and pushes the 2 ReqogniLoom images (backend, frontend) to GitHub
 # Container Registry on version tags. Celery/celery-beat reuse the backend
-# image with a different `command:` override (see docker-compose.yml) — there
+# image with a different `command:` override (see deploy/docker-compose.yml) — there
 # is no separate Celery image, since celery/celery-beat/migrate all import
 # the same Django app code as the web process; splitting it out would only
 # duplicate the build/dependency layers without any runtime isolation gain.

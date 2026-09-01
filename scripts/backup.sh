@@ -23,7 +23,7 @@
 #
 # Requirements:
 #   - docker/docker-compose installed
-#   - postgres service running (docker-compose.yml)
+#   - postgres service running (deploy/docker-compose.yml)
 #   - Write permission to ./backups/ directory
 #
 # Author: ReqogniLoom DevOps
@@ -71,11 +71,16 @@ check_prerequisites() {
     exit 1
   fi
 
-  if [ ! -f "${PROJECT_ROOT}/docker-compose.yml" ]; then
-    log_error "docker-compose.yml not found at ${PROJECT_ROOT}"
+  if [ ! -f "${PROJECT_ROOT}/deploy/docker-compose.yml" ]; then
+    log_error "deploy/docker-compose.yml not found at ${PROJECT_ROOT}"
     exit 1
   fi
 
+  # NOTE: docker-compose.backup.yml has never existed in this repo — this
+  # script has been unreachable past this check since before the deploy/
+  # reorg (pre-dates the postgres-backup sidecar now built into
+  # deploy/docker-compose.yml, which is the actually-used backup mechanism).
+  # Left as-is, not part of this reorg — see docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md.
   if [ ! -f "${PROJECT_ROOT}/docker-compose.backup.yml" ]; then
     log_error "docker-compose.backup.yml not found at ${PROJECT_ROOT}"
     exit 1
@@ -95,9 +100,9 @@ run_backup() {
   cd "$PROJECT_ROOT"
 
   if docker-compose --version &> /dev/null; then
-    docker-compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup
+    docker-compose -f deploy/docker-compose.yml -f docker-compose.backup.yml --project-directory . run --rm backup
   else
-    docker compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup
+    docker compose -f deploy/docker-compose.yml -f docker-compose.backup.yml --project-directory . run --rm backup
   fi
 
   if [ $? -eq 0 ]; then

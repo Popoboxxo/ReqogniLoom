@@ -8,6 +8,55 @@ ReqogniLoom is an AI-integrated requirements management and test case tracking s
 
 Whether you're managing a small backlog or orchestrating a multi-level systems architecture with MBSE-style decomposition, ReqogniLoom adapts to your rigor level and integrates seamlessly with your LLM tools.
 
+## Deploy This (For AI Agents)
+
+> Human reader? Skip to [How to Start](#how-to-start) for the annotated walkthrough. This block is self-contained — an agent that reads only this section can deploy the system unattended.
+
+This runs published GHCR images directly. **A full `git clone` is not required** — every service
+in the production compose file runs a stock upstream or published `ghcr.io/popoboxxo/...` image
+with nothing repo-tracked bind-mounted in, so a consumer only needs 2 files:
+
+```bash
+mkdir reqogniloom && cd reqogniloom
+RAW=https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main
+
+mkdir deploy
+curl -fsSL -o deploy/docker-compose.yml "$RAW/deploy/docker-compose.yml"
+curl -fsSL -o .env.example "$RAW/.env.example"
+cp .env.example .env
+
+# Required — production mode refuses to start without these (no defaults):
+#   SECRET_KEY, AUTH_JWT_SECRET, FIELD_ENCRYPTION_KEY, DB_PASSWORD, DB_APP_PASSWORD
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"                                # → SECRET_KEY, AUTH_JWT_SECRET (run twice, once per value)
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"   # → FIELD_ENCRYPTION_KEY
+# Edit .env: paste the 3 generated values, set DB_PASSWORD/DB_APP_PASSWORD, and set
+# SYSTEM_ADMIN_PASSWORD if you want an admin user auto-created on first start (optional).
+
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.yml --project-directory . ps       # wait for "healthy"
+curl -sf http://localhost:8001/health/                                    # {"status":"ok",...} = fully up
+```
+
+Facts, not narrative:
+- No build step, no application source, no repo bind-mounts at all: every service pulls a
+  prebuilt image — `ghcr.io/popoboxxo/reqogniloom-backend`/`-frontend` for our own two, stock
+  `pgvector/pgvector:pg16`/`redis:7-alpine` (and, if the `honcho` profile is enabled,
+  `ghcr.io/plastic-labs/honcho`) for the rest. The pgvector extension the `postgres` service needs
+  is created by the app's own `migrate` step (Django migration `0024_requirement_embedding.py`,
+  run as the Postgres superuser), not by a mounted init script — nothing to fetch for it. A full
+  `git clone` is only useful for local development (hot-reload) or modifying the code — see
+  [How to Start](#how-to-start) below for that path.
+- Need the slim variant (no Celery worker/beat, no backup sidecar, no Honcho)? Fetch
+  `deploy/docker-compose.minimal.yml` instead of `docker-compose.yml` — same 2-file rule applies.
+  Default to the full stack above unless a minimal deployment was explicitly requested.
+- The compose file itself lives in `deploy/`, not the repo root you created above — run every
+  `docker compose` call from that root directory with `--project-directory .`, which pins `.env`
+  lookup to it. Full rationale: [`deploy/README.md`](deploy/README.md#required-flag---project-directory-).
+- Endpoints after startup: Frontend `http://localhost:5173` (`FRONTEND_PORT`, default `5173`) · Backend REST/MCP `http://localhost:8001` (`BACKEND_PORT`, default `8001`). Both are overridable in `.env` — set them to distinct values when running a second instance on the same host.
+- Default admin login: username `admin`, password = the `SYSTEM_ADMIN_PASSWORD` you set in `.env` before the **first** start. Provisioning is create-only — changing it later and re-running `up -d` does not reset an existing admin's password.
+- `.env` is read at container **creation**, not live. `docker compose restart <service>` does **not** pick up a changed `.env` — re-run `up -d` instead (it recreates containers whose resolved config changed).
+- Full command reference (dev hot-reload overlay via a full clone, Honcho memory backend, troubleshooting, production hardening, reverse-proxy config): **[`deploy/README.md`](deploy/README.md)** (also written to be followed unattended by an AI agent) and the [Production Deployment](#production-deployment) section below.
+
 ## Features
 
 ### Core Capabilities
@@ -135,7 +184,9 @@ sequenceDiagram
     REST-->>CI: JSON response
 ```
 
-**Services (production `docker-compose.yml`):** `postgres` (PostgreSQL 16 + pgvector) · `postgres-backup` (scheduled `pg_dump`) · `redis` (Celery broker/cache) · `migrate` (one-shot migrations + self-init: admin user, base workspace, default workflows) · `backend` (Django :8000) · `celery` (async worker) · `celery-beat` (periodic tasks) · `frontend` (React + nginx, published on :80). The included `docker-compose.override.yml` swaps `frontend`/`backend` into hot-reload dev mode automatically.
+**Services (production `deploy/docker-compose.yml`):** `postgres` (PostgreSQL 16 + pgvector) · `postgres-backup` (scheduled `pg_dump`) · `redis` (Celery broker/cache) · `migrate` (one-shot migrations + self-init: admin user, base workspace, default workflows) · `backend` (Django :8000) · `celery` (async worker) · `celery-beat` (periodic tasks) · `frontend` (React + nginx, published on :80). `deploy/docker-compose.override.yml` swaps `frontend`/`backend` into hot-reload dev mode (via `make up`, see below). Only need Postgres + Django + Frontend (no async tasks, no backup)? Use `deploy/docker-compose.minimal.yml` instead. Want the optional Honcho memory backend too? Add `--profile honcho` to the full-stack command (starts nothing extra without the flag).
+
+All deployment-example compose files live under [`deploy/`](deploy/) — see **[`deploy/README.md`](deploy/README.md)** for the exact, copy-pasteable commands (also written to be followed unattended by an AI agent doing an automated deployment). The walkthrough below is the human-readable long form of the same thing.
 
 ## How to Start
 
@@ -151,7 +202,7 @@ sequenceDiagram
 ```bash
 git clone https://github.com/Popoboxxo/ReqogniLoom.git
 cd ReqogniLoom
-docker-compose build
+make build
 ```
 
 ### 2. Configure Secrets (REQUIRED)
@@ -178,27 +229,31 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 vim .env
 ```
 
-**Why this is required:** `SECRET_KEY`, `AUTH_JWT_SECRET`, and `FIELD_ENCRYPTION_KEY` are critical for security and are not defaulted in production (`DJANGO_ENV=production`, the `.env.example` default). `DB_PASSWORD`/`DB_APP_PASSWORD` and `SYSTEM_ADMIN_PASSWORD` also need real values before first start (see `.env.example` for the full annotated list).
+**Why this is required:** `SECRET_KEY`, `AUTH_JWT_SECRET`, and `FIELD_ENCRYPTION_KEY` are critical for security and are not defaulted in production (`DJANGO_ENV=production`, the `.env.example` default). `DB_PASSWORD`/`DB_APP_PASSWORD` also need real values before first start. `SYSTEM_ADMIN_PASSWORD` is different — leaving it empty does not stop the stack from starting, it only skips auto-creating the admin user (see step 5) — but set it too unless you plan to create the admin another way (see `.env.example` for the full annotated list).
 
 ### 3. Start the Stack
 
 ```bash
-docker-compose up
+make up
 ```
+
+(`make up` starts the full stack with the dev hot-reload override applied. For the plain
+production stack without hot-reload, or the slim minimal stack, see
+[`deploy/README.md`](deploy/README.md) for the exact `docker compose` invocations.)
 
 The one-shot `migrate` service runs first (`backend`/`celery`/`celery-beat` wait for it via `depends_on: service_completed_successfully`). It applies migrations **and** self-initializes a fresh database on first run: base tenant, base workspace, admin user, and default workflow/permission definitions (`application/self_init.py`, triggered via a `post_migrate` signal) — no manual `migrate`/seed step is needed for a first start. Wait for `backend` and `frontend` to report healthy; open a new terminal for the next step.
 
 ### 4. Verify the Database Was Initialized
 
 ```bash
-docker-compose ps
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . ps
 # migrate should show "Exited (0)"; postgres/redis/backend/celery/celery-beat/frontend should show "Up (healthy)"
 ```
 
 If you ever need to (re-)run migrations manually (e.g. after pulling new model changes without recreating the stack):
 
 ```bash
-docker-compose run --rm migrate
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . run --rm migrate
 ```
 
 ### 5. Access with Default Admin User
@@ -208,12 +263,12 @@ Self-init creates the admin user automatically on first start if `SYSTEM_ADMIN_P
 **Default credentials** (if not overridden in `.env`):
 - **Username:** `admin`
 - **Email:** `admin@demo.local`
-- **Password:** Set via `SYSTEM_ADMIN_PASSWORD` in `.env`, or fails on first startup if not provided
+- **Password:** Set via `SYSTEM_ADMIN_PASSWORD` in `.env`. If left empty on a fresh database, admin provisioning is skipped (logged, not fatal — the stack still starts) until you set it and re-run `migrate`
 
 To override the default admin credentials, edit `.env` before starting the stack:
 
 ```bash
-# In .env (before docker-compose up)
+# In .env (before `make up`)
 SYSTEM_ADMIN_USERNAME=my_admin
 SYSTEM_ADMIN_EMAIL=my_admin@example.com
 SYSTEM_ADMIN_PASSWORD=my_secure_password
@@ -227,12 +282,12 @@ To populate your workspace with example requirements, architecture elements, and
 
 ```bash
 # Creates demo artifacts (requirements, architecture, tests)
-docker-compose exec backend python manage.py seed_demo
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_demo
 ```
 
 **Override demo admin password** (for development only):
 ```bash
-docker-compose exec -e SYSTEM_ADMIN_PASSWORD="new-password" backend python manage.py seed_demo --reset-password
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec -e SYSTEM_ADMIN_PASSWORD="new-password" backend python manage.py seed_demo --reset-password
 ```
 
 Re-running `seed_demo` is safe (idempotent); it skips artifacts that already exist.
@@ -265,10 +320,10 @@ By default, ReqogniLoom runs in **mock mode** (no actual LLM calls). To enable A
 
 ```bash
 # Stop the running stack
-docker-compose down
+make down
 
 # Set environment variables and restart
-LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... docker-compose up
+LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... make up
 ```
 
 **Supported Providers** (`backend/llm_adapter/providers.py`):
@@ -287,10 +342,10 @@ By default, ReqogniLoom runs fully self-hosted: `sentence-transformers` computes
 
 ```bash
 # Optional: use Ollama for embeddings instead of the bundled sentence-transformers model
-EMBEDDING_PROVIDER=ollama OLLAMA_BASE_URL=http://ollama:11434 docker-compose up
+EMBEDDING_PROVIDER=ollama OLLAMA_BASE_URL=http://ollama:11434 make up
 
 # Optional: use an external Honcho instance as the memory backend
-MEMORY_BACKEND=honcho HONCHO_BASE_URL=https://your-honcho-instance.example.com docker-compose up
+MEMORY_BACKEND=honcho HONCHO_BASE_URL=https://your-honcho-instance.example.com make up
 ```
 
 **Supported `EMBEDDING_PROVIDER`** (`backend/llm_adapter/embedding_service.py`): `sentence-transformers` (default) | `ollama` | `openai` | `mock`
@@ -298,14 +353,14 @@ MEMORY_BACKEND=honcho HONCHO_BASE_URL=https://your-honcho-instance.example.com d
 
 ⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data, and `Requirement`/`TraceLink`/`IcdVersion` embeddings (a separate, pre-existing feature, 1536-dimension) only get written when the configured provider's output dimension matches; see `backend/llm_adapter/embedding_service.py`'s module docstring if you're upgrading a deployment that already relied on OpenAI embeddings.
 
-See `.env.example` for all variables and `docker-compose.override.example.yml` for the matching optional-service Compose stubs.
+See `.env.example` for all variables and `deploy/docker-compose.override.example.yml` for the matching optional-service Compose stubs.
 
 ### 8b. Verify Installation
 
 Check all services are running:
 
 ```bash
-docker-compose ps
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . ps
 ```
 
 All containers should show `Up (healthy)` or `Up`.
@@ -388,7 +443,7 @@ ReqogniLoom has **1,400+ tests** across 4 layers. Run them based on what you nee
 ### Quick Reference (Makefile)
 
 The root `Makefile` provides single-command targets that run against the **running dev stack**
-(`docker-compose up -d` first). This is the primary entry point for the normal development loop.
+(`make up` first). This is the primary entry point for the normal development loop.
 
 ```bash
 make test            # Backend (pytest) + Frontend (vitest) — the standard dev check. NO E2E.
@@ -408,7 +463,7 @@ The sections below document each layer manually (without Docker/Make) for fine-g
 ```bash
 # Database: ReqogniLoom tests require PostgreSQL.
 # Option A (recommended): Use the running Docker stack's Postgres
-docker-compose up -d postgres
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . up -d postgres
 export DB_HOST=localhost   # Linux/macOS
 # Windows PowerShell: $env:DB_HOST="localhost"
 
@@ -481,7 +536,7 @@ npm test                     # run tests (Vitest)
 
 Wir nutzen Playwright im Frontend für robuste UI-Tests und zur Bereitstellung eines MCP-Servers (Model Context Protocol), damit LLMs die UI testen können. Die UI ist mit über 400 `data-testid`-Attributen extrem LLM-freundlich aufgebaut.
 
-**Prerequisite:** the full stack must be running (`docker-compose up -d`), seeded with `seed_demo`
+**Prerequisite:** the full stack must be running (`make up`), seeded with `seed_demo`
 (see [6. (Optional) Seed Demo Data](#6-optional-seed-demo-data) above) **and** with the
 `seed_toothbrush` fixture workspace, which `tests/toothbrush-syseng.spec.ts` requires — that spec
 seeds a large ("Zahnbürste SysEng Demo") multi-level SysEng workspace (~880 requirements,
@@ -489,7 +544,7 @@ architecture tree, ICDs, test cases, ...) used to exercise the UI at realistic s
 that spec fails fast with a clear "workspace not found" error naming the exact command to run:
 
 ```bash
-docker-compose exec backend python manage.py seed_toothbrush   # idempotent, safe to re-run
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_toothbrush   # idempotent, safe to re-run
 ```
 
 CI (`.github/workflows/playwright.yml`) already runs this alongside `seed_demo` before every E2E
@@ -503,10 +558,11 @@ job; it is only missing when seeding a local dev stack by hand.
 >    `SYSTEM_ADMIN_PASSWORD` (as the production hardening guidance above recommends), every E2E
 >    login fails with a plain 401 *before* the test's actual assertion ever runs — the symptom
 >    (whatever the test was checking) looks unrelated to auth. Fix: either re-seed with the E2E
->    default (`docker-compose exec -e SYSTEM_ADMIN_PASSWORD=admin12345 backend python manage.py
+>    default (`docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml
+>    --project-directory . exec -e SYSTEM_ADMIN_PASSWORD=admin12345 backend python manage.py
 >    seed_demo --reset-password`), or set `E2E_ADMIN_PASSWORD=<your .env password>` when running
 >    Playwright so `auth.ts` uses it instead.
-> 2. **Backend port mismatch (fixed).** `docker-compose.yml` publishes the backend on host port
+> 2. **Backend port mismatch (fixed).** `deploy/docker-compose.yml` publishes the backend on host port
 >    `8001`. The E2E helpers/specs' `BACKEND_URL` default now matches (`http://localhost:8001`),
 >    so a local run no longer needs to pass it explicitly — only override it if your stack maps
 >    the backend to a different host port (e.g. a local-only compose override to avoid port
@@ -538,7 +594,7 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
 ### Prerequisites
 
 - Docker >= 24.0 and Docker Compose >= 2.24.4 (the development overlay
-  `docker-compose.override.yml` uses the `!override` merge tag)
+  `deploy/docker-compose.override.yml` uses the `!override` merge tag)
 - A Linux server (amd64) or macOS
 - 8+ GB available RAM
 - HTTPS reverse proxy (nginx, Traefik, etc.) or cloud load balancer
@@ -574,9 +630,15 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
 
 3. **Build and start:**
 
+   Production runs `deploy/docker-compose.yml` **without** the dev override — every command
+   below needs `--project-directory .` since the compose files no longer live in the repo root
+   (pins `.env` lookup and relative bind-mounts like `./backend`, `./docker/...` to the repo
+   root instead of `deploy/`'s own directory). See [`deploy/README.md`](deploy/README.md) for
+   the exact command reference.
+
    ```bash
-   docker-compose build
-   docker-compose up -d
+   docker compose -f deploy/docker-compose.yml --project-directory . build
+   docker compose -f deploy/docker-compose.yml --project-directory . up -d
    ```
 
 4. **Database initialization is automatic:**
@@ -584,13 +646,13 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
    The one-shot `migrate` service runs migrations and self-initializes the base tenant, workspace, admin user, and default workflows (`application/self_init.py`) before `backend`/`celery`/`celery-beat` start — no manual step needed. Optionally seed demo data afterwards:
 
    ```bash
-   docker-compose exec backend python manage.py seed_demo
+   docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py seed_demo
    ```
 
 5. **Verify all services:**
 
    ```bash
-   docker-compose ps
+   docker compose -f deploy/docker-compose.yml --project-directory . ps
    # migrate: Exited (0); postgres/postgres-backup/redis/backend/celery/celery-beat/frontend: Up (healthy) or Up
    ```
 
@@ -621,9 +683,9 @@ graph LR
     PGB -->|pg_dump| PG
 ```
 
-**Services** (`docker-compose.yml`):
-- **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension pre-installed into `template1`)
-- **postgres-backup** — `postgres:16-alpine` sidecar; runs `backup_postgres.sh` every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
+**Services** (`deploy/docker-compose.yml`):
+- **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension, created by the app's own `migrate` step on first start — see [PostgreSQL with pgvector](#postgresql-with-pgvector) below)
+- **postgres-backup** — `pgvector/pgvector:pg16` sidecar; dump/prune logic inlined into its `command:` (no bind-mounted script), runs every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
 - **redis** — `redis:7-alpine` (Celery broker + cache, `appendonly` persistence, 256mb `maxmemory`)
 - **migrate** — one-shot; runs `python manage.py migrate` then the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
 - **backend** — Django REST API + MCP server (`:8000`), connects as the least-privilege `DB_APP_USER` role (RLS-enforced)
@@ -638,7 +700,7 @@ graph LR
 
 ### Reverse Proxy Setup (nginx example)
 
-> **Note:** `docker-compose.yml` publishes `frontend` on host port `80` by default (container listens on `8080`). If you front the stack with your own reverse proxy on `80`/`443` (recommended for TLS), either remove the `ports:` mapping on the `frontend` service and let the proxy reach it via the Docker network, or rebind it to a non-conflicting host port (e.g. `"3000:8080"`) and adjust the `upstream frontend` block below accordingly.
+> **Note:** `deploy/docker-compose.yml` publishes `frontend` on host port `80` by default (container listens on `8080`). If you front the stack with your own reverse proxy on `80`/`443` (recommended for TLS), either remove the `ports:` mapping on the `frontend` service and let the proxy reach it via the Docker network, or rebind it to a non-conflicting host port (e.g. `"3000:8080"`) and adjust the `upstream frontend` block below accordingly.
 
 ```nginx
 # /etc/nginx/sites-available/reqogniloom
@@ -711,35 +773,38 @@ server {
 
 **For Development:**
 
-By default, `docker-compose.yml` is production-focused. To restore development conveniences:
+By default, `deploy/docker-compose.yml` is production-focused. To restore development conveniences:
 
 ```bash
-# docker-compose.override.yml is automatically merged by Docker Compose
-# It enables hot-reload, dev server, and weak defaults
-# (it's already included in the repository)
+# deploy/docker-compose.override.yml enables hot-reload, dev server, and weak
+# defaults (already included in the repository) — it does NOT auto-merge the
+# way a root-level docker-compose.override.yml would, because the compose
+# files live under deploy/, not the repo root. `make up` bakes in both the
+# -f flags and --project-directory . for you; see Makefile / deploy/README.md
+# for the equivalent raw docker compose command.
 
-docker-compose up
+make up
 # Stack runs in dev mode with hot-reload
 ```
 
 **For Production:**
 
-Delete or rename `docker-compose.override.yml` and ensure only `docker-compose.yml` is used:
+Just omit the override file from the command — `deploy/docker-compose.override.yml` only
+applies when explicitly passed via `-f`:
 
 ```bash
-rm docker-compose.override.yml
-docker-compose up -d
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
 ```
 
 ### PostgreSQL with pgvector
 
 The postgres service uses the `pgvector/pgvector:pg16` image, which ships the pgvector extension for vector-based semantic search.
 
-`CREATE EXTENSION vector` requires **superuser** rights, but the application connects at runtime as the least-privilege, `NOSUPERUSER` role `DB_APP_USER` (default `reqogniloom_app`, REQ-L2-PL-010). The extension is therefore installed up front by the superuser init hook `docker/postgres/initdb/10-pgvector.sh` — into **`template1`** and into `${DB_NAME}`. Because `CREATE DATABASE` clones `template1`, every database created afterwards (including Django's ephemeral `test_*` databases from `pytest --create-db`) inherits the extension, and the `CREATE EXTENSION IF NOT EXISTS vector` in `persistence/migrations/0024_requirement_embedding.py` degrades to a harmless `NOTICE`.
+`CREATE EXTENSION vector` requires **superuser** rights. The application's runtime services (`backend`/`celery`/`celery-beat`) connect as the least-privilege, `NOSUPERUSER` role `DB_APP_USER` (default `reqogniloom_app`, REQ-L2-PL-010) and could not create it — but `migrate` always connects as the actual Postgres superuser (`DB_USER`), and `persistence/migrations/0024_requirement_embedding.py` already runs `CREATE EXTENSION IF NOT EXISTS vector` directly against `${DB_NAME}` the first time `migrate` applies it. No separate init script or bind-mount is needed: a superuser connection can create the extension on a freshly created database with nothing pre-seeded, and the same holds for Django's ephemeral `test_*` databases (`testing/docker-compose.test.yml`'s `backend-test` also always connects as the superuser — verified empirically, not just by inspection).
 
-No manual setup is required for a fresh volume.
+No manual setup is required, for a fresh volume or otherwise.
 
-**Existing volume:** the Postgres image runs `/docker-entrypoint-initdb.d/` scripts only on a completely empty data directory. A dev machine set up before this hook existed will still fail with `permission denied to create extension "vector"` on `pytest --create-db`. Fix it once, without recreating the volume or losing data:
+**Retrofitting an old deployment:** if you're running a database created before this migration-based approach (formerly a `docker-entrypoint-initdb.d` bind-mount, which only ran once against a completely empty data directory) and it somehow still lacks the extension, fix it without recreating the volume or losing data:
 
 ```bash
 ./scripts/enable_pgvector.sh
@@ -749,17 +814,17 @@ No manual setup is required for a fresh volume.
 
 ```bash
 # Check all services
-docker-compose ps
+docker compose -f deploy/docker-compose.yml --project-directory . ps
 
 # View logs
-docker-compose logs -f backend      # Django logs
-docker-compose logs -f celery       # Async task logs
-docker-compose logs -f postgres     # Database logs
-docker-compose logs -f redis        # Cache/broker logs
-docker-compose logs -f frontend     # Frontend server logs
+docker compose -f deploy/docker-compose.yml --project-directory . logs -f backend      # Django logs
+docker compose -f deploy/docker-compose.yml --project-directory . logs -f celery       # Async task logs
+docker compose -f deploy/docker-compose.yml --project-directory . logs -f postgres     # Database logs
+docker compose -f deploy/docker-compose.yml --project-directory . logs -f redis        # Cache/broker logs
+docker compose -f deploy/docker-compose.yml --project-directory . logs -f frontend     # Frontend server logs
 
 # Follow all logs
-docker-compose logs -f
+docker compose -f deploy/docker-compose.yml --project-directory . logs -f
 ```
 
 ### Backup & Restore
@@ -769,20 +834,20 @@ docker-compose logs -f
 **Manual backup:**
 
 ```bash
-docker-compose exec postgres pg_dump -U reqogniloom reqogniloom > backup.sql
+docker compose -f deploy/docker-compose.yml --project-directory . exec postgres pg_dump -U reqogniloom reqogniloom > backup.sql
 ```
 
 **Manual restore:**
 
 ```bash
-docker-compose exec -T postgres psql -U reqogniloom reqogniloom < backup.sql
+docker compose -f deploy/docker-compose.yml --project-directory . exec -T postgres psql -U reqogniloom reqogniloom < backup.sql
 ```
 
 **Restore from an automatic backup:**
 
 ```bash
-docker-compose exec postgres-backup sh -c 'gunzip -c /backups/reqogniloom_<timestamp>.sql.gz' | \
-  docker-compose exec -T postgres psql -U reqogniloom reqogniloom
+docker compose -f deploy/docker-compose.yml --project-directory . exec postgres-backup sh -c 'gunzip -c /backups/reqogniloom_<timestamp>.sql.gz' | \
+  docker compose -f deploy/docker-compose.yml --project-directory . exec -T postgres psql -U reqogniloom reqogniloom
 ```
 
 There is also an application-level Disaster Recovery mechanism (`admin.backup_create`/`admin.backup_list`/`admin.restore` MCP tools, Admin role + `X-Captcha: RESTORE` header) that snapshots artifacts as JSON into the `backend_dr_backups` volume — a separate, artifact-level complement to the raw Postgres dumps above.
@@ -792,7 +857,7 @@ There is also an application-level Disaster Recovery mechanism (`admin.backup_cr
 - **Multiple Celery workers:** Copy the `celery` service and rename each (celery-1, celery-2, etc.)
 - **External Redis:** Configure `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` to point to external Redis
 - **External PostgreSQL:** Configure `DB_HOST`, `DB_USER`, `DB_PASSWORD` to point to managed RDS/Cloud SQL
-- **Load balancing:** Use Traefik, Kubernetes, or cloud load balancers in front of `docker-compose up`
+- **Load balancing:** Use Traefik, Kubernetes, or cloud load balancers in front of the running stack
 
 ### Security Checklist
 
@@ -810,25 +875,25 @@ There is also an application-level Disaster Recovery mechanism (`admin.backup_cr
 
 ```bash
 # Check if stack is healthy
-docker-compose ps
+docker compose -f deploy/docker-compose.yml --project-directory . ps
 # Look for: Up (healthy)
 
 # View error logs
-docker-compose logs --tail 50
+docker compose -f deploy/docker-compose.yml --project-directory . logs --tail 50
 
 # Restart a service
-docker-compose restart backend
+docker compose -f deploy/docker-compose.yml --project-directory . restart backend
 
 # Rebuild and restart all
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+docker compose -f deploy/docker-compose.yml --project-directory . down
+docker compose -f deploy/docker-compose.yml --project-directory . build --no-cache
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
 
 # Reset database (⚠️ WARNING: Deletes all data)
-docker-compose down
+docker compose -f deploy/docker-compose.yml --project-directory . down
 docker volume rm reqogniloom_postgres_data
-docker-compose up -d
-docker-compose exec backend python manage.py migrate
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate
 ```
 
 ### Test Coverage & Known Gaps
@@ -849,13 +914,13 @@ docker-compose exec backend python manage.py migrate
 ```bash
 # Tests can't connect to Postgres
 export DB_HOST=localhost          # or 'postgres' if running inside docker
-docker-compose ps                  # verify postgres is running
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . ps  # verify postgres is running
 
 # Tests fail with "DISABLE_SERVER_SIDE_CURSORS"
 # → Known Django+psycopg2 issue; pinned in test setup
 
 # Migrations needed
-docker-compose exec backend python manage.py migrate
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py migrate
 
 # Stale __pycache__
 find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
@@ -892,7 +957,7 @@ available transports instead of assuming one.
 server (including `manage.py runserver`) cannot serve it — Django buffers the
 whole async iterator, so the request never returns. Both the production image
 (`gunicorn -k uvicorn.workers.UvicornWorker`) and the dev stack
-(`uvicorn --reload`, see `docker-compose.override.yml`) run ASGI.
+(`uvicorn --reload`, see `deploy/docker-compose.override.yml`) run ASGI.
 
 ### SSE Sessions and Reconnecting
 
@@ -1133,10 +1198,10 @@ During development, changes to Python and TypeScript code trigger automatic relo
 
 ```bash
 # Backend auto-reloads on .py changes
-docker-compose logs -f backend
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . logs -f backend
 
 # Frontend (Vite) auto-reloads on src/ changes
-docker-compose logs -f frontend
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . logs -f frontend
 ```
 
 ## Configuration
@@ -1154,7 +1219,7 @@ DB_PASSWORD=<strong-password>
 DB_APP_USER=reqogniloom_app
 DB_APP_PASSWORD=<strong-password>
 
-# Redis (used via CELERY_BROKER_URL / CELERY_RESULT_BACKEND, composed in docker-compose.yml)
+# Redis (used via CELERY_BROKER_URL / CELERY_RESULT_BACKEND, composed in deploy/docker-compose.yml)
 REDIS_PASSWORD=
 
 # LLM Provider
@@ -1193,39 +1258,39 @@ Switch requirement terminology:
 
 ```bash
 # Check logs
-docker-compose logs backend
-docker-compose logs frontend
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . logs backend
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . logs frontend
 
 # Rebuild images
-docker-compose build --no-cache
-docker-compose up
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . build --no-cache
+make up
 ```
 
 ### Database migration fails
 
 ```bash
 # Check the one-shot migrate service's own logs first — it runs before backend/celery
-docker-compose logs migrate
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . logs migrate
 
 # Reset database (⚠️ deletes all data)
-docker-compose down
+make down
 docker volume rm reqogniloom_postgres_data
-docker-compose up -d
+make up
 # migrate runs automatically; to re-run it manually:
-docker-compose run --rm migrate
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . run --rm migrate
 ```
 
 ### Frontend blank page
 
 - Clear browser cache (Ctrl+Shift+Delete / Cmd+Shift+Delete)
-- Check frontend logs: `docker-compose logs frontend`
+- Check frontend logs: `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . logs frontend`
 - Verify API is accessible: `curl http://localhost:8000/health/`
 
 ### E2E tests fail
 
 ```bash
 # Ensure stack is running
-docker-compose up -d
+make up
 
 # Reinstall dependencies
 cd e2e && npm install

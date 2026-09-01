@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.100.0 — `2026-08-29`
+> Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -46,7 +46,8 @@ backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_
 frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
 e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
 docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
-docker-compose.yml   # 8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend
+deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml, docker-compose.override.yml, README.md (KI-Agenten-lesbar)
+testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
 .meta-config/        # agent-meta Konfiguration (project.yaml)
 .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
 
@@ -68,16 +69,16 @@ backend/manage.py            — Django Management (migrate, seed_demo, runserve
 
 ```bash
 # Build
-docker-compose build
+make build
 
 # Tests
 pytest (Backend) + npm test (Frontend)
 
 # Dev-Stack starten
-docker-compose up
+make up
 
 # Nach Änderungen neu laden
-docker-compose restart (oder Hot Reload je nach Service)
+make up (recreated Container bei geänderter Config/Env; reines `docker compose restart` liest .env NICHT neu) oder Hot-Reload automatisch je nach Service
 ```
 
 ## Anforderungs-Kategorien
@@ -107,7 +108,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.100.0 — `2026-08-29`
+Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 

@@ -29,7 +29,7 @@
 #
 # Requirements:
 #   - docker/docker-compose installed
-#   - postgres service running (docker-compose.yml)
+#   - postgres service running (deploy/docker-compose.yml)
 #   - Valid backup file in .dump or .sql format
 #   - Database connectivity
 #
@@ -86,8 +86,8 @@ check_prerequisites() {
     exit 1
   fi
 
-  if [ ! -f "${PROJECT_ROOT}/docker-compose.yml" ]; then
-    log_error "docker-compose.yml not found at ${PROJECT_ROOT}"
+  if [ ! -f "${PROJECT_ROOT}/deploy/docker-compose.yml" ]; then
+    log_error "deploy/docker-compose.yml not found at ${PROJECT_ROOT}"
     exit 1
   fi
 }
@@ -192,8 +192,10 @@ run_restore() {
   log_info "Starting database restore... This may take a few minutes."
 
   # Copy backup file to temp and run restore via postgres container
+  # (--project-directory . pins .env/bind-mount resolution to the repo root
+  # since deploy/docker-compose.yml no longer lives there — see Makefile header)
   if docker-compose --version &> /dev/null; then
-    docker-compose -f docker-compose.yml exec -T postgres bash -c "
+    docker-compose -f deploy/docker-compose.yml --project-directory . exec -T postgres bash -c "
       export PGPASSWORD=\${DB_PASSWORD:-reqogniloom}
       $restore_command
     " < "$backup_file" || {
@@ -201,7 +203,7 @@ run_restore() {
       exit 1
     }
   else
-    docker compose -f docker-compose.yml exec -T postgres bash -c "
+    docker compose -f deploy/docker-compose.yml --project-directory . exec -T postgres bash -c "
       export PGPASSWORD=\${DB_PASSWORD:-reqogniloom}
       $restore_command
     " < "$backup_file" || {
