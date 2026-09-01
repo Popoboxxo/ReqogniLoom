@@ -46,7 +46,8 @@ backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_
 frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
 e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
 docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
-docker-compose.yml   # 8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend
+deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml, docker-compose.override.yml, README.md (KI-Agenten-lesbar)
+testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
 .meta-config/        # agent-meta Konfiguration (project.yaml)
 .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
 
@@ -66,18 +67,21 @@ backend/manage.py            — Django Management (migrate, seed_demo, runserve
 
 ## Build & Development
 
+Compose-Dateien liegen NICHT im Repo-Root, sondern unter `deploy/` (Deployment-Beispiele) und `testing/` (Test-Overlay) — siehe `deploy/README.md` (KI-Agenten-lesbarer Abschnitt "For AI agents").
+
 ```bash
 # Build
-docker-compose build
+make build
 
 # Tests
-pytest (Backend) + npm test (Frontend)
+make test-backend  # pytest, Container-basiert
+make test-frontend # vitest, Container-basiert
 
-# Dev-Stack starten
-docker-compose up
+# Dev-Stack starten (Full-Stack + Hot-Reload-Override)
+make up
 
 # Nach Änderungen neu laden
-docker-compose restart (oder Hot Reload je nach Service)
+make up   # recreated Container bei geänderter Config/Env — `docker compose restart` liest .env NICHT neu
 ```
 
 ## Anforderungs-Kategorien
@@ -107,7 +111,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.100.0 — `2026-08-29`
+Generiert von agent-meta v0.100.0 — `2026-09-01`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 

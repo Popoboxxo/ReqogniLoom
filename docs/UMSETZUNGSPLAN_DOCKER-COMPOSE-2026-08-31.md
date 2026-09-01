@@ -170,6 +170,18 @@ Zweite Nutzeranforderung direkt im Anschluss an die minimal/full-Reduktion: die 
 
 **Nebenbei gefunden und korrigiert:** README.md (Schritt 2/5) und `deploy/README.md` behaupteten, `SYSTEM_ADMIN_PASSWORD` gehöre zu den Secrets, ohne die der Stack nicht startet. Stimmt nicht — gegen `backend/application/self_init.py` verifiziert: fehlt `SYSTEM_ADMIN_PASSWORD` auf einer frischen DB, wird die Admin-Provisionierung übersprungen (geloggt, nicht fatal), `migrate` läuft trotzdem durch. Nur `SECRET_KEY`/`AUTH_JWT_SECRET`/`FIELD_ENCRYPTION_KEY`/`DB_PASSWORD`/`DB_APP_PASSWORD` sind harte Pflichtfelder. Beide READMEs entsprechend präzisiert; zusätzlich ergänzt: Admin-Provisionierung ist create-only (Passwort-Änderung in `.env` wirkt nur beim allerersten Lauf gegen eine leere DB), und `.env`-Änderungen werden erst bei Container-Neuerstellung (`up -d`) übernommen, nicht bei `restart`.
 
+## Update 2026-09-01 (3. Fortsetzung): deployment/ entfernt, BACKEND_PORT/FRONTEND_PORT nachgezogen, generierte Docs gefixt
+
+Nutzerfrage "haben wir die README so optimiert, dass KIs alle Infos zum Deployment schnell finden?" deckte auf: ein bis dahin unbekanntes drittes Verzeichnis `deployment/` (GHCR-Pull-Compose seit 2026-07-26, Unraid-Community-Applications-Template seit 2026-07-19) existierte parallel zu `deploy/` — **nirgendwo in README.md oder CLAUDE.md verlinkt**, seit Juli unauffindbar. Zusätzlich echte Namenskollision: zwei inhaltlich unterschiedliche `docker-compose.minimal.yml` in `deploy/` vs. `deployment/`. `deployment/unraid/` war zuletzt heute (vor dieser Session) von echten IPs/Domain bereinigt worden — sah nach Live-Infrastruktur aus, war es laut Nutzer aber nicht mehr ("Unraid nutze ich nicht mehr fürs erste").
+
+**Nutzerentscheidung:** komplettes `deployment/` (inkl. GHCR-Pull-Varianten und Unraid) löschen, alles auf `deploy/` konsolidieren — `deploy/docker-compose.yml` pullt ohnehin schon standardmäßig GHCR-Images, der Unterschied zur alten `ghcr.yml` war marginal.
+
+**Beim Vergleich gefunden und mitgenommen:** `deployment/.env.example` hatte `BACKEND_PORT`/`FRONTEND_PORT` als Overrides, die in `deploy/` fehlten (Ports waren hardcoded `8001`/`5173`). Das ist genau die Fehlerklasse des Produktions-Incidents vom 2026-08-31, der diesen ganzen Plan ausgelöst hat (QS/PROD-Port-Verwechslung) — jetzt in `deploy/docker-compose.yml` + `deploy/docker-compose.minimal.yml` nachgezogen (`${BACKEND_PORT:-8001}`/`${FRONTEND_PORT:-5173}`), inkl. Doku in `.env.example`, `deploy/README.md`.
+
+**Separater Fund währenddessen:** `CLAUDE.md`/`AGENTS.md`/`.gemini/GEMINI.md` (die von diesem Projekt selbst als "einzige Quelle für Agenten" deklarierten Dateien) waren seit der ersten Reorg-Runde veraltet (`docker-compose build`/`up` ohne `deploy/`-Pfad, kein Hinweis auf `deploy/README.md`). Ursache: `sync.py` (agent-meta-Submodul) crasht auf dieser Windows-Maschine mit einem echten Bug (`re.PatternError: bad escape \s`, Windows-Pfad-Backslashes in einem `re.sub`-Replacement-String) beim Opencode-Context-Sync — Feedback dazu eingereicht. Workaround: `.meta-config/project.yaml` (der einzige erlaubte Editier-Ort) korrekt gefixt, `CLAUDE.md`/`AGENTS.md`/`.gemini/GEMINI.md` manuell nachgezogen (Inhalt entspricht dem, was ein funktionierender Sync aus der jetzt korrekten `project.yaml` erzeugen würde — kein Drift, sobald der Sync-Bug behoben ist).
+
+**Nebenbei korrigiert:** `docs/CODEBASE_OVERVIEW.md`s Deployment-Tabelle zeigte noch auf `deployment/`; `.github/workflows/docker-publish.yml`-Kommentar zeigte auf Root-`docker-compose.yml`.
+
 ## Offene Punkte / bewusst nicht übernommen
 
 - **RFC #14** (App-User muss Superuser für RLS sein): verworfen, siehe Ist-Stand-Check. Architektur ist korrekt so wie sie ist.

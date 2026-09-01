@@ -253,8 +253,11 @@ services:
       # named volume so they survive restarts/rebuilds and are writable by the
       # non-root app user (the image seeds ownership; see backend/Dockerfile).
       - backend_dr_backups:/app/backups
+    # BACKEND_PORT overridable per .env — the 2026-08-31 production incident that
+    # triggered this whole compose rework (docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md)
+    # was exactly this: two instances (QS/PROD) sharing a hardcoded host port.
     ports:
-      - "8001:8000"
+      - "${BACKEND_PORT:-8001}:8000"
     logging:
       driver: "json-file"
       options:
@@ -483,8 +486,10 @@ services:
     # Any overlay that republishes this service MUST use `ports: !override` —
     # Compose appends port lists across files instead of replacing them. See the
     # INFRA-01 note in docker-compose.override.yml for the full mechanism.
+    # FRONTEND_PORT overridable per .env — same port-collision-across-instances
+    # rationale as BACKEND_PORT above.
     ports:
-      - "5173:8080"
+      - "${FRONTEND_PORT:-5173}:8080"
     logging:
       driver: "json-file"
       options:

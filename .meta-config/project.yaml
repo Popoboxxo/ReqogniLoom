@@ -118,21 +118,23 @@ variables:
   GIT_PLATFORM: GitHub
   GIT_REMOTE_URL: https://github.com/Popoboxxo/ReqogniLoom.git
   GIT_MAIN_BRANCH: main
-  BUILD_COMMAND: docker-compose build
+  BUILD_COMMAND: make build
   TEST_COMMAND: pytest (Backend) + npm test (Frontend)
-  DEV_COMMANDS: 'docker-compose build
+  DEV_COMMANDS: 'make build
 
-    docker-compose up
-
-    '
-  TEST_COMMANDS: 'docker-compose exec backend pytest
-
-    docker-compose exec frontend npm test
+    make up
 
     '
-  BUILD_COMMANDS: docker-compose build
-  DEV_STACK_START: docker-compose up
-  DEV_STACK_RELOAD: docker-compose restart (oder Hot Reload je nach Service)
+  TEST_COMMANDS: 'make test-backend
+
+    make test-frontend
+
+    '
+  BUILD_COMMANDS: make build
+  DEV_STACK_START: make up
+  DEV_STACK_RELOAD: make up (recreated Container bei geänderter Config/Env; reines
+    `docker compose restart` liest .env NICHT neu) oder Hot-Reload automatisch je
+    nach Service
   PROJECT_CONTEXT: 'ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool
     mit MBSE-Unterstützung. Tech-Stack: Django 5.2+ (Backend) + React 18 + TypeScript
     (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen:
@@ -177,9 +179,12 @@ variables:
     \ # Design-System (CSS Custom Properties)\n  src/test/                       \
     \       # Vitest Unit-Tests\n  package.json                           # React\
     \ 18, Vite 5, react-i18next, vitest\nexternal /\n  e2e/                      \
-    \             # Playwright E2E-Tests (111 Tests, Chromium)\ndocker-compose.yml\
-    \                      # Orchestrierung (postgres, postgres-backup, redis, backend,\
-    \ migrate, celery, celery-beat, frontend)\n"
+    \             # Playwright E2E-Tests (111 Tests, Chromium)\ndeploy/\n  docker-compose.yml\
+    \                    # Full-Stack (postgres, postgres-backup, redis, backend,\
+    \ migrate, celery, celery-beat, frontend + optional Honcho via profile)\n  docker-compose.minimal.yml\
+    \           # Schlanke Variante (kein Celery/Backup/Honcho)\n  README.md\
+    \                             # KI-Agenten-lesbare Deployment-Anleitung\ntesting/\n\
+    \  docker-compose.test.yml               # CI-/lokaler Test-Overlay\n"
   PROJECT_STRUCTURE: 'backend/             # Django REST API (17 Apps) #   Layer 0:
     persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability,
     workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api,
@@ -193,8 +198,10 @@ variables:
 
     docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
 
-    docker-compose.yml   # 8 Services: postgres, postgres-backup, redis, backend, migrate,
-    celery, celery-beat, frontend
+    deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml,
+    docker-compose.override.yml, README.md (KI-Agenten-lesbar)
+
+    testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
 
     .meta-config/        # agent-meta Konfiguration (project.yaml)
 
@@ -417,9 +424,9 @@ variables:
   ARTIFACT_ZIP_CMD: ''
   ARTIFACT_TAR_CMD: ''
   GH_ASSETS: ''
-  BUILD_SYSTEM_NOTES: '`docker-compose build` erstellt Images für backend, migrate,
-    celery, celery-beat, frontend (postgres, postgres-backup und redis nutzen offizielle
-    Images).
+  BUILD_SYSTEM_NOTES: '`make build` (bzw. `docker compose -f deploy/docker-compose.yml
+    --project-directory . build`) erstellt Images für backend, migrate, celery, celery-beat,
+    frontend (postgres, postgres-backup und redis nutzen offizielle Images).
 
     Backend + Migrate + Celery + Celery-Beat: Dockerfile in backend/ (Python 3.x,
     Django 5.2+, requirements.txt).
@@ -436,8 +443,8 @@ variables:
 
     Kein separates Build-Artifact — Deployment via Docker Compose (8 Services orchestriert).
 
-    Seed: `docker-compose exec backend python manage.py migrate && python manage.py
-    seed_demo`.
+    Seed: `docker compose -f deploy/docker-compose.yml --project-directory . exec backend
+    python manage.py migrate && python manage.py seed_demo`.
 
     Demo-Credentials: admin / admin12345 (Tenant "demo", Workspace "Demo Workspace").
 
@@ -456,13 +463,15 @@ variables:
 
     5. git tag v<version> (z.B. v1.1.1)
 
-    6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker-compose
-    build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git
+    6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker
+    compose build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git
     rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args
-    an docker-compose build. Ein nacktes docker-compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME
-    auf "unknown" — GET /api/v1/version/ liefert dann keine echten Werte.
+    an `docker compose -f deploy/docker-compose.yml --project-directory . build`. Ein
+    nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown"
+    — GET /api/v1/version/ liefert dann keine echten Werte.
 
-    7. docker-compose push (optional, Self-Hosted-First)
+    7. `docker compose -f deploy/docker-compose.yml --project-directory . push` (optional,
+    Self-Hosted-First)
 
     Stand v1.1.1 (2026-06-28): 1,599 pytest-Tests + 111 E2E-Tests + 150+ MCP-E2E-Tests.
 
@@ -474,8 +483,11 @@ variables:
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1
   SE_MAX_PARALLEL_CELLS: 3
-  DOCKER_STACKS_OVERVIEW: 'ReqogniLoom verwendet eine einzige `docker-compose.yml`
-    im Projekt-Root mit 8 Services:
+  DOCKER_STACKS_OVERVIEW: 'ReqogniLoom hat zwei Referenz-Deployments unter deploy/
+    (nicht im Projekt-Root — jeder direkte `docker compose`-Aufruf braucht deshalb
+    `--project-directory .`, siehe deploy/README.md): `docker-compose.yml` (full,
+    8 Services unten) und `docker-compose.minimal.yml` (schlank, kein Celery/Backup/Honcho).
+    Full-Stack-Services:
 
     - postgres (PostgreSQL 16-alpine, persistent via Volume `postgres_data`)
 
@@ -493,7 +505,9 @@ variables:
 
     - frontend (React 18 / Node 22, Vite Dev-Server Port 5173)
 
-    Kein separater Test-Stack: Backend-Tests (pytest) laufen gegen das Compose-Postgres,
+    Test-Overlay unter testing/docker-compose.test.yml (dedizierte backend-test/frontend-test
+    Services, source-gemountet, gegen das laufende Compose-Postgres/Redis; kein Deployment-File,
+    siehe `make test`).
 
     E2E-Tests (Playwright/Chromium) laufen lokal auf dem Host gegen den laufenden
     Stack.
@@ -502,17 +516,18 @@ variables:
 
     '
   APP_URL: http://localhost:5173
-  STARTUP_CREDENTIALS: "\U0001F510 Default-Login (nach `docker-compose exec backend\
-    \ python manage.py seed_demo`):\n   Username:   admin\n   Passwort:   seed_demo\
+  STARTUP_CREDENTIALS: "\U0001F510 Default-Login (nach `docker compose -f deploy/docker-compose.yml\
+    \ --project-directory . exec backend python manage.py seed_demo`):\n   Username:   admin\n   Passwort:   seed_demo\
     \ gibt das aktive Demo-Passwort am Laufzeit-Ende aus\n               (Override\
     \ per Env-Var `DEMO_ADMIN_PASSWORD`; Default siehe README §5).\n   Tenant:   \
     \  demo\n   Workspace:  Demo Workspace\nJWT-Token: `POST /api/v1/auth/login/`\
     \ mit obigen Credentials.\n"
-  EXTRA_STARTUP_INFO: "\U0001F4CB Nach `docker-compose up` zwingend ausführen:\n \
-    \  1. `docker-compose exec backend python manage.py migrate`     (DB-Migrationen)\n\
-    \   2. `docker-compose exec backend python manage.py seed_demo`   (Demo-User +\
+  EXTRA_STARTUP_INFO: "\U0001F4CB Nach `make up` (bzw. `docker compose -f deploy/docker-compose.yml\
+    \ --project-directory . up -d`) zwingend ausführen:\n \
+    \  1. migrate + Self-Init laufen bereits automatisch mit (siehe deploy/README.md)\n\
+    \   2. `docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py seed_demo`   (Demo-User +\
     \ Tenant)\n   3. Browser öffnen → http://localhost:5173\nLLM-Provider steht per\
-    \ Default auf `mock` (kein API-Key nötig).\nHealth-Check (kein Auth): `GET http://localhost:8000/mcp/`\n"
+    \ Default auf `mock` (kein API-Key nötig).\nHealth-Check (kein Auth): `GET http://localhost:8001/health/`\n"
   BINARY_NAME: ''
   BINARY_URL: ''
   BASE_IMAGE: python:3.12-slim
@@ -588,7 +603,7 @@ lifecycle-triggers:
     task: Update CODEBASE_OVERVIEW.md and ARCHITECTURE.md for this release.
   - agent: release
     task: Tag, Changelog-Highlight und Release-Build via scripts/build.sh (bzw. make
-      build) für die Release-Version — kein nacktes docker-compose build (sonst bleiben
+      build) für die Release-Version — kein nacktes docker compose build (sonst bleiben
       APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown").
 hooks:
   lifecycle-check:

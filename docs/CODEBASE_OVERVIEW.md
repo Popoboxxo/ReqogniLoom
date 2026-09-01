@@ -1021,13 +1021,16 @@ Alle höheren Schichten (REST, MCP) greifen auf `ApplicationService` zu. Es gibt
 
 ## Deployment & Operations
 
-Die detaillierte Deployment-Dokumentation ist in den entsprechenden `deployment/`-Verzeichnissen verfügbar:
+Alle Deployment-Beispiele leben unter `deploy/` (nicht im Repo-Root — jeder direkte `docker compose`-Aufruf braucht `--project-directory .`, siehe `deploy/README.md`, auch KI-Agenten-lesbar):
 
-| Option | Anleitung | Beschreibung |
-|--------|-----------|-------------|
-| **Unraid Community Applications** | `deployment/unraid/README.md` | Unraid CA-Template (reqflow.xml) + vollständiger 9-Container-Stack via Compose Manager Plus Plugin. Icon-Platzhalter. |
-| **Docker Compose (Standard)** | `docker-compose.yml` | Lokale Entwicklung & Deployment: postgres, postgres-backup, redis, backend, celery, celery-beat, frontend, bootstrap, migrate. |
+| Option | Datei | Beschreibung |
+|--------|-------|-------------|
+| **Full-Stack** | `deploy/docker-compose.yml` | postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend + optionales Honcho-Memory-Backend hinter `profiles: ["honcho"]`. Standardwahl. |
+| **Minimal** | `deploy/docker-compose.minimal.yml` | Nur postgres, redis, backend, migrate, frontend — kein Celery/Backup/Honcho. |
+| **Dev-Hot-Reload** | `deploy/docker-compose.override.yml` | Overlay, via `make up` automatisch mitgemergt. |
 | **Kubernetes (geplant v2)** | — | Nicht dokumentiert; siehe Feature-Backlog. |
+
+Ehemals separate `deployment/`-Verzeichnisse (GHCR-Pull-Varianten, Unraid Community-Applications-Template) wurden am 2026-09-01 entfernt und in `deploy/` konsolidiert — siehe `docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md`. `deploy/docker-compose.yml` pullt standardmäßig bereits fertige GHCR-Images (kein lokaler Build nötig); `BACKEND_PORT`/`FRONTEND_PORT` sind per `.env` überschreibbar für Mehrfach-Instanzen auf einem Host.
 
 **Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
 

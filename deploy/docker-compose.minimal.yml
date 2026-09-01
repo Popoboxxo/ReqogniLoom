@@ -133,7 +133,7 @@ services:
     volumes:
       - backend_dr_backups:/app/backups
     ports:
-      - "8001:8000"
+      - "${BACKEND_PORT:-8001}:8000"
     logging:
       driver: "json-file"
       options:
@@ -197,7 +197,7 @@ services:
       - /var/cache/nginx
     restart: unless-stopped
     ports:
-      - "5173:8080"
+      - "${FRONTEND_PORT:-5173}:8080"
     logging:
       driver: "json-file"
       options:

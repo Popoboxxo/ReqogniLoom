@@ -45,23 +45,27 @@ call `docker compose` directly instead.
    ```bash
    cp .env.example .env
    ```
-2. Fill in the required secrets in `.env` — `SECRET_KEY`, `AUTH_JWT_SECRET`,
+2. Running more than one instance on the same host (e.g. QS + PROD)? Set `BACKEND_PORT`/
+   `FRONTEND_PORT` in `.env` to distinct values per instance — this is the exact class of
+   collision that caused the 2026-08-31 incident that started this whole compose rework
+   (see `docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md`). Defaults: `8001`/`5173`.
+3. Fill in the required secrets in `.env` — `SECRET_KEY`, `AUTH_JWT_SECRET`,
    `FIELD_ENCRYPTION_KEY`, `DB_PASSWORD`, `DB_APP_PASSWORD` have no default and the stack refuses
    to start without them. `SYSTEM_ADMIN_PASSWORD` is different: leaving it empty does **not**
    abort the stack, it only skips auto-provisioning the admin user (logged, not fatal — see
    `backend/application/self_init.py`); set it if you want an admin account created automatically
    on first start. (See `.env.example` for the full annotated list and generation commands.)
-3. Start the stack:
+4. Start the stack:
    ```bash
    docker compose -f deploy/docker-compose.yml --project-directory . up -d
    ```
    For local development with hot-reload instead, use `make up` (equivalent to adding
    `-f deploy/docker-compose.override.yml` to the command above).
-4. Wait for all services to report healthy:
+5. Wait for all services to report healthy:
    ```bash
    docker compose -f deploy/docker-compose.yml --project-directory . ps
    ```
-5. Verify the backend is serving:
+6. Verify the backend is serving:
    ```bash
    curl http://localhost:8001/health/
    # → {"status": "ok", "checks": {"database": "ok"}, ...}
@@ -131,3 +135,7 @@ Facts:
 - `.env` changes are read at container **creation**, not live. `docker compose restart
   <service>` does NOT pick up a changed `.env` — re-run `up -d` (recreates containers whose
   resolved config changed) instead.
+- Deploying a second instance (e.g. QS alongside PROD) on the same host: set distinct
+  `BACKEND_PORT`/`FRONTEND_PORT` per instance in each `.env`. Do not reuse the defaults
+  (`8001`/`5173`) across instances — port collision between instances is a real incident
+  this repo has already had.

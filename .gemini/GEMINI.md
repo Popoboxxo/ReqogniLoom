@@ -200,7 +200,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
 
 ## Project Setup
 
-- **Build:** `docker-compose build`
+- **Build:** `make build` (deploy/README.md hat die volle `docker compose -f deploy/... --project-directory .` Form)
 - **Test:** `pytest (Backend) + npm test (Frontend)`
 - **Platform:** Django + React + Docker Compose
 - **Runtime:** Python 3.x (Django) + Node.js (React)
