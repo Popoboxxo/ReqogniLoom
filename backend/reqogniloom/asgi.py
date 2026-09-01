@@ -8,7 +8,7 @@ This is the entry point for *both* deployments:
 * production — ``gunicorn reqogniloom.asgi:application -k
   uvicorn.workers.UvicornWorker`` (see ``backend/Dockerfile``), and
 * development — ``uvicorn reqogniloom.asgi:application --reload`` (see
-  ``docker-compose.override.yml``).
+  ``deploy/docker-compose.override.yml``).
 
 ASGI is mandatory rather than a preference: the MCP SSE transport
 (``GET /mcp/sse/``) is an async streaming view, and Django can only serve an

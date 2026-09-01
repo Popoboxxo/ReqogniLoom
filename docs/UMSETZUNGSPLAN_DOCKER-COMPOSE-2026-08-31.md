@@ -151,6 +151,25 @@ Nutzerentscheidung, unabhängig vom bisherigen Sub-Projekt-Zuschnitt: alle empfo
 
 **Gefunden, nicht behoben (out of scope):** `scripts/backup.sh` referenziert eine nicht existierende `docker-compose.backup.yml` (Stand 2026-07-14, Kommentar "Uses docker-compose.backup.yml service definition") — vermutlich Legacy aus der Zeit vor dem heutigen `postgres-backup`-Sidecar in `docker-compose.yml`, in keinem Makefile-Target aufgerufen. Kandidat für Cleanup, aber nicht Teil dieser Änderung.
 
+---
+
+## Update 2026-09-01 (Fortsetzung): Verzeichnis-Reorg (`deploy/` + `testing/`) und Erklärkommentare
+
+Zweite Nutzeranforderung direkt im Anschluss an die minimal/full-Reduktion: die Compose-Dateien sollen an einer Stelle im Repo liegen, die ein Anwender sofort als "Deployment-Beispiele" erkennt; repo-interne Test-Composes sollen an einer offensichtlichen Testing-Stelle liegen, getrennt davon; die Beispiel-Deployment-Dateien sollen im README sauber benannt und verlinkt sein; und es soll einen Abschnitt geben, den ein AI-Agent lesen kann, falls jemand das System per KI deployen lässt.
+
+**Umgesetzt:**
+- Neues Verzeichnis `deploy/`: `docker-compose.yml` (full), `docker-compose.minimal.yml`, `docker-compose.override.yml`, `docker-compose.override.example.yml` — alle vier zusammen, da sie dieselbe Frage beantworten ("wie starte ich diesen Stack").
+- Neues Verzeichnis `testing/`: `docker-compose.test.yml` — bewusst getrennt von `deploy/`, da es kein Deployment-File ist, sondern nur CI-/lokale Test-Container baut (`backend-test`/`frontend-test`).
+- **Technischer Zwangspunkt:** sobald Compose-Dateien nicht mehr im Repo-Root liegen, braucht jeder direkte `docker compose`-Aufruf zusätzlich `--project-directory .` — sonst löst Compose `.env` und alle relativen Bind-Mounts (`./backend`, `./docker/postgres/initdb`, `./docs`) relativ zu `deploy/` statt zum Repo-Root auf. Verifiziert: `docker compose -f deploy/docker-compose.yml --project-directory . config` zeigt den Bind-Mount-Pfad korrekt auf dem Repo-Root, nicht auf `deploy/docker/...`. Zusatzeffekt: das automatische Override-Merging (`docker-compose.yml` + `docker-compose.override.yml` ohne `-f`) funktioniert nicht mehr, weil beide Dateien nicht mehr im selben Default-Suchpfad liegen und immer explizit per `-f` aufgerufen werden müssen.
+- Makefile um `make up`/`make down` (Full-Stack + Dev-Override), `make minimal`/`make minimal-down`, `make honcho` (Honcho-Profil zusätzlich zum laufenden Dev-Stack) ergänzt, damit der Alltag trotz der zusätzlichen Flags ein kurzer Befehl bleibt. `scripts/build.sh`, `scripts/backup.sh`, `scripts/restore.sh` auf die neuen Pfade + `--project-directory .` aktualisiert.
+- Neues `deploy/README.md`: kompaktes, unmissverständliches Deployment-Dokument mit Datei-Tabelle, der `--project-directory .`-Pflicht als eigenem Absatz, Schritt-für-Schritt-Sequenzen für full/minimal/honcho, und einem eigenen Abschnitt "For AI agents" mit maschinenlesbaren Canonical-Commands, Health-Check-URL und Fehlerfall-Anleitung.
+- README.md verlinkt `deploy/README.md` direkt am Anfang von "How to Start"; die ausführliche menschenlesbare Anleitung bleibt zusätzlich als Langfassung erhalten (nur Pfad-/Befehlskorrekturen, keine inhaltliche Kürzung).
+- Compose-Dateien selbst um Erklärkommentare ergänzt (Nutzerfrage: warum `${VAR:-default}`, warum Named Volumes vs. Bind-Mounts, warum `logging`-Block, warum das Redis-`if/else`-Command) — direkt in `deploy/docker-compose.yml`/`deploy/docker-compose.minimal.yml`, nicht nur in dieser Doku, damit sie beim Lesen der Datei selbst sichtbar sind.
+
+**Bewusst NICHT angefasst:** archivierte/historische Docs (`docs/superpowers/plans/Archive/**`, `docs/reviews/**`, `docs/SYSTEMAUDIT_2026-08-18.md`, `docs/se/DEEP_SYSTEM_ANALYSIS.md`, `docs/REQUIREMENTS.md`) behalten ihre alten Pfad-Referenzen als Zeitpunkt-Dokumentation — analog zur Regel "alte Commits nie nachträglich rewriten".
+
+**Nebenbei gefunden und korrigiert:** README.md (Schritt 2/5) und `deploy/README.md` behaupteten, `SYSTEM_ADMIN_PASSWORD` gehöre zu den Secrets, ohne die der Stack nicht startet. Stimmt nicht — gegen `backend/application/self_init.py` verifiziert: fehlt `SYSTEM_ADMIN_PASSWORD` auf einer frischen DB, wird die Admin-Provisionierung übersprungen (geloggt, nicht fatal), `migrate` läuft trotzdem durch. Nur `SECRET_KEY`/`AUTH_JWT_SECRET`/`FIELD_ENCRYPTION_KEY`/`DB_PASSWORD`/`DB_APP_PASSWORD` sind harte Pflichtfelder. Beide READMEs entsprechend präzisiert; zusätzlich ergänzt: Admin-Provisionierung ist create-only (Passwort-Änderung in `.env` wirkt nur beim allerersten Lauf gegen eine leere DB), und `.env`-Änderungen werden erst bei Container-Neuerstellung (`up -d`) übernommen, nicht bei `restart`.
+
 ## Offene Punkte / bewusst nicht übernommen
 
 - **RFC #14** (App-User muss Superuser für RLS sein): verworfen, siehe Ist-Stand-Check. Architektur ist korrekt so wie sie ist.

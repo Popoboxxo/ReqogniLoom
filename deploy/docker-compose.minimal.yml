@@ -28,6 +28,16 @@
 # file (`-f docker-compose.minimal.yml -f docker-compose.override.yml`) will
 # ADD those services back in, defeating the point of "minimal". Use the full
 # stack for local development instead.
+#
+# COMPOSE CONVENTIONS (same as docker-compose.yml, repeated here since this
+# file is meant to be read standalone):
+# • `${VAR:-default}` = standard Compose/shell expansion ("use VAR if set,
+#   else default"). Vars with no default (`${DB_PASSWORD}`) are secrets —
+#   deliberately no fallback, so a missing value stays visibly empty.
+# • Named volumes (bottom) = persistent DATA. Bind-mounts elsewhere point at
+#   repo-tracked config, not data — kept separate on purpose.
+# • The repeated `logging:` block caps each container's logs at 3×10MB —
+#   Docker's default json-file driver does not rotate on its own.
 
 services:
   postgres:
@@ -67,6 +77,10 @@ services:
     restart: unless-stopped
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+    # Shell wrapper because Compose `command:` can't branch on whether
+    # REDIS_PASSWORD is set — this makes the password optional from ONE
+    # file. `--requirepass ""` (empty, not omitted) is not reliably
+    # "no password" across Redis versions, so the empty case skips the flag.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -114,6 +128,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # ID of the base tenant the `migrate` self-init provisions on an empty DB.
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
     volumes:
       - backend_dr_backups:/app/backups

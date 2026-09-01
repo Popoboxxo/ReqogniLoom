@@ -385,7 +385,7 @@ class McpHttpTransportView(CorsMixin, View):
                 # works because the server now runs ASGI unconditionally, both
                 # in production (`gunicorn -k uvicorn.workers.UvicornWorker`)
                 # and in dev (`uvicorn --reload`, see
-                # docker-compose.override.yml / reqogniloom/asgi.py). It is
+                # deploy/docker-compose.override.yml / reqogniloom/asgi.py). It is
                 # the transport every distributed plugin config ships with
                 # (`"type": "sse"` in dist/plugins/*), so it belongs here
                 # again. Keep this list in sync with mcp_server/urls.py —

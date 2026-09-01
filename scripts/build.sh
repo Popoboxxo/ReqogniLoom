@@ -77,16 +77,18 @@ main() {
   log_info "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}"
   log_info "BUILD_TIME=${BUILD_TIME}"
 
-  # `-f docker-compose.yml` on purpose (same as scripts/backup.sh and the
-  # Makefile's TEST_COMPOSE): without it, Compose auto-loads
-  # docker-compose.override.yml. That would build the frontend's *development*
-  # target instead of the release image this script stamps metadata into, and
-  # legacy `docker-compose` v1 cannot parse the overlay's `!override` merge tag
-  # at all (needs Compose >= 2.24.4).
+  # `-f deploy/docker-compose.yml` ONLY (no override.yml) on purpose (same as
+  # scripts/backup.sh and the Makefile's TEST_COMPOSE): the override merges
+  # the frontend's *development* target instead of the release image this
+  # script stamps metadata into, and legacy `docker-compose` v1 cannot parse
+  # its `!override` merge tag at all (needs Compose >= 2.24.4). Deployment
+  # compose files live under deploy/, not the repo root — `--project-directory
+  # .` pins .env lookup and relative bind-mount paths (./backend, ./docker/...)
+  # to the repo root instead of deploy/'s own directory.
   if docker-compose --version &> /dev/null; then
-    docker-compose -f docker-compose.yml build "$@"
+    docker-compose -f deploy/docker-compose.yml --project-directory . build "$@"
   else
-    docker compose -f docker-compose.yml build "$@"
+    docker compose -f deploy/docker-compose.yml --project-directory . build "$@"
   fi
 
   log_info "Build completed"

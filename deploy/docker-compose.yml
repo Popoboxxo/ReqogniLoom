@@ -50,6 +50,22 @@
 # one REQOGNILOOM_VERSION tag (set in .env to pin/upgrade). Was previously
 # hardcoded per service (5x) and drifted out of sync with the actual release —
 # one variable is the fix, not just a one-off value correction.
+#
+# COMPOSE CONVENTIONS used throughout this file:
+# • `${VAR:-default}` is standard Compose/shell parameter expansion, not
+#   project-specific magic: "use VAR from .env/environment if set, else
+#   default". Vars with NO default (e.g. `${DB_PASSWORD}`) are that way on
+#   purpose — secrets get no fallback, so a missing value stays visibly
+#   empty instead of silently working with a guessable default.
+# • Named volumes (bottom of this file) hold PERSISTENT DATA that must
+#   survive container rebuilds (`postgres_data`, backups). Bind-mounts
+#   elsewhere (`./docker/postgres/initdb:...`) point at repo-tracked
+#   CONFIG/CODE instead — not volumes, on purpose, so they always reflect
+#   whatever is actually checked out, no separate sync step.
+# • `logging: {driver: json-file, options: {max-size, max-file}}` repeats
+#   per service because Docker's default json-file driver does NOT rotate
+#   logs on its own — an unbounded log file can fill the host disk. This
+#   caps each container at 3 × 10MB. Pure hygiene, not a functional setting.
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -160,6 +176,12 @@ services:
     # the process command line (which would be visible in `ps` output).
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+    # Compose `command:` is a fixed list — it can't branch on whether
+    # REDIS_PASSWORD is set. This shell wrapper is what makes the password
+    # OPTIONAL (dev: none, prod: set it) from ONE file: `--requirepass ""`
+    # (an empty string, not omitted) is not reliably "no password" across
+    # Redis versions, so the empty case skips the flag entirely instead of
+    # passing it empty.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -222,6 +244,9 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # ID of the base tenant/workspace the `migrate` self-init provisions on
+      # an empty DB (single-tenant default; real multi-tenant setups assign
+      # per-request via auth, this is only the bootstrap fallback).
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
     volumes:
       # REQ-L1-046: persist admin_ops DR backups (written to /app/backups) on a
