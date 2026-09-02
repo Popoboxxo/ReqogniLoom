@@ -46,6 +46,32 @@ table, no RLS, safe to list without a context) and pairs
 around each tenant's slice of work, same pairing discipline #522 requires of
 every caller.
 
+Baselines are NOT part of the cascade (Issue #711 follow-up): ``BaselineSnapshot``
+(``bl_baseline_snapshot``) is append-only by design (ADR-L3-BL003-01,
+REQ-L2-BL-002) — ``baseline/migrations/0001_initial.py`` installs a
+``BEFORE UPDATE OR DELETE`` trigger (``bl_raise_immutable``) that raises
+``InternalError: Baselines are immutable`` for every row it would touch,
+unconditionally, with no bypass at the DB level. This is not limited to a
+direct ``BaselineSnapshot.delete()`` call either: ``BaselineSnapshot.artifact``
+is ``ForeignKey(Artifact, on_delete=models.CASCADE)``, so the ORM's own
+collector attempts to cascade-delete any document-scope baseline the moment
+its owning ``Artifact`` row is deleted — the same trigger fires and aborts
+just the same. The *reference* path this command mirrors,
+``WorkspaceService.delete_workspace``, does not solve this either: it has no
+baseline pre-check, so it hits the same trigger and relies on
+``@atomic_transaction`` to roll the whole delete back, leaving the workspace
+AND its baseline(s) intact (pinned by
+``application/tests/test_workspace_lifecycle.py::test_delete_workspace_with_baselines_fails``).
+An unattended batch job cannot rely on that per-call rollback the same way —
+a raised exception here would abort the entire remaining ``stale`` loop, not
+just one workspace — so ``_cascade_delete`` pre-checks for baselines and
+*skips* (not deletes, not crashes) any workspace that still has one, exactly
+mirroring what the reference path's rollback achieves (workspace + baseline
+both survive), just without needing to hit the trigger to get there. Each
+workspace's cascade also now runs inside its own ``transaction.atomic()``
+block so an unrelated failure can't leave one workspace half-deleted while
+still allowing the rest of the batch to proceed.
+
 Usage:
     python manage.py cleanup_e2e_artifacts                 # dry run, 1-day threshold
     python manage.py cleanup_e2e_artifacts --apply
@@ -58,6 +84,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from django.utils import timezone
 
 from baseline.models import BaselineSnapshot
@@ -146,19 +173,33 @@ class Command(BaseCommand):
             return
 
         deleted_count = 0
+        skipped_count = 0
         for workspace in stale:
-            self._cascade_delete(workspace)
-            deleted_count += 1
+            if self._cascade_delete(workspace):
+                deleted_count += 1
+            else:
+                skipped_count += 1
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipped workspace {workspace.name!r} ({workspace.pk}): "
+                        "has immutable baseline(s), cannot be deleted (see "
+                        "module docstring)."
+                    )
+                )
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Deleted {deleted_count} workspace(s) with name prefix "
-                f"{name_prefix!r} older than {older_than_days} day(s)."
-            )
+        summary = (
+            f"Deleted {deleted_count} workspace(s) with name prefix "
+            f"{name_prefix!r} older than {older_than_days} day(s)."
         )
+        if skipped_count:
+            summary += (
+                f" Skipped {skipped_count} workspace(s) with existing "
+                "baseline(s)."
+            )
+        self.stdout.write(self.style.SUCCESS(summary))
 
     @staticmethod
-    def _cascade_delete(workspace: Workspace) -> None:
+    def _cascade_delete(workspace: Workspace) -> bool:
         """Full cascade delete for one workspace.
 
         Same deletion order as ``WorkspaceService.delete_workspace`` (audit
@@ -172,33 +213,46 @@ class Command(BaseCommand):
         not rely on a caller having already done so) — every table touched
         below is RLS-protected (see module docstring), so this method is not
         self-contained without it.
+
+        Returns ``False`` (and does NOT touch anything) if the workspace has
+        any ``BaselineSnapshot`` rows — baselines are append-only by design
+        and deleting through them (directly, or indirectly via the ORM's
+        ``on_delete=CASCADE`` from ``Artifact``) trips the DB-level
+        ``bl_raise_immutable`` trigger (see module docstring). Otherwise
+        performs the cascade inside its own transaction and returns ``True``.
         """
         workspace_pk = workspace.pk
 
         set_request_tenant(workspace.tenant_id)
         try:
-            AuditLogEntry.unscoped.filter(
-                object_type="Workspace", object_id=workspace_pk
-            ).delete()
+            if BaselineSnapshot.unscoped.filter(workspace_id=workspace_pk).exists():
+                return False
 
-            artifact_ids = list(
-                Artifact.unscoped.filter(workspace_id=workspace_pk).values_list(
-                    "id", flat=True
-                )
-            )
-
-            if artifact_ids:
-                BaselineSnapshot.unscoped.filter(workspace_id=workspace_pk).delete()
-                TraceLink.unscoped.filter(source_id__in=artifact_ids).delete()
-                TraceLink.unscoped.filter(target_id__in=artifact_ids).delete()
-                TestCase.unscoped.filter(artifact_id__in=artifact_ids).delete()
-                ArchitectureElement.unscoped.filter(
-                    artifact_id__in=artifact_ids
+            with transaction.atomic():
+                AuditLogEntry.unscoped.filter(
+                    object_type="Workspace", object_id=workspace_pk
                 ).delete()
-                Requirement.unscoped.filter(artifact_id__in=artifact_ids).delete()
-                Artifact.unscoped.filter(workspace_id=workspace_pk).delete()
 
-            WorkspacePresetConfig.unscoped.filter(workspace_id=workspace_pk).delete()
-            Workspace.unscoped.filter(pk=workspace_pk).delete()
+                artifact_ids = list(
+                    Artifact.unscoped.filter(workspace_id=workspace_pk).values_list(
+                        "id", flat=True
+                    )
+                )
+
+                if artifact_ids:
+                    TraceLink.unscoped.filter(source_id__in=artifact_ids).delete()
+                    TraceLink.unscoped.filter(target_id__in=artifact_ids).delete()
+                    TestCase.unscoped.filter(artifact_id__in=artifact_ids).delete()
+                    ArchitectureElement.unscoped.filter(
+                        artifact_id__in=artifact_ids
+                    ).delete()
+                    Requirement.unscoped.filter(artifact_id__in=artifact_ids).delete()
+                    Artifact.unscoped.filter(workspace_id=workspace_pk).delete()
+
+                WorkspacePresetConfig.unscoped.filter(
+                    workspace_id=workspace_pk
+                ).delete()
+                Workspace.unscoped.filter(pk=workspace_pk).delete()
+            return True
         finally:
             clear_request_tenant()

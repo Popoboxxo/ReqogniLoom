@@ -16,6 +16,7 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
+from baseline.models import BaselineSnapshot
 from persistence.models import Artifact, Requirement, Workspace
 from persistence.tests.factories import active_tenant, make_requirement, make_workspace
 
@@ -83,6 +84,48 @@ def test_apply_cascades_to_artifacts_and_requirements():
         assert Workspace.unscoped.filter(pk=ws.pk).count() == 0
         assert Artifact.unscoped.filter(workspace_id=ws.pk).count() == 0
         assert Requirement.unscoped.filter(artifact_id=artifact_id).count() == 0
+
+
+def test_apply_skips_workspace_with_baseline_instead_of_crashing():
+    """Issue #711 follow-up: baselines are append-only (``bl_raise_immutable``
+    DB trigger, ADR-L3-BL003-01) and cannot be deleted, even indirectly via
+    the ``Artifact`` -> ``BaselineSnapshot`` ``on_delete=CASCADE`` FK. The
+    command must skip such a workspace (leave it, its artifact and its
+    baseline fully intact) and keep processing the rest of the batch instead
+    of raising ``InternalError: Baselines are immutable`` and aborting.
+    """
+    with active_tenant() as tenant:
+        ws_with_baseline = _age_workspace(
+            make_workspace(tenant, name="e2e-has-baseline"), created_days_ago=10
+        )
+        requirement = make_requirement(ws_with_baseline, title="Baselined req")
+        BaselineSnapshot.unscoped.create(
+            workspace_id=ws_with_baseline.id,
+            name="snap-1",
+            scope="document",
+            artifact=requirement.artifact,
+            tenant=tenant,
+        )
+        ws_without_baseline = _age_workspace(
+            make_workspace(tenant, name="e2e-no-baseline"), created_days_ago=10
+        )
+
+        out = io.StringIO()
+        call_command(
+            "cleanup_e2e_artifacts", "--apply", "--older-than-days=1", stdout=out
+        )
+
+        remaining_ids = set(Workspace.unscoped.values_list("id", flat=True))
+        assert ws_with_baseline.id in remaining_ids, (
+            "workspace with a baseline must survive, not crash the command"
+        )
+        assert ws_without_baseline.id not in remaining_ids
+        assert Artifact.unscoped.filter(workspace_id=ws_with_baseline.id).exists()
+        assert BaselineSnapshot.unscoped.filter(
+            workspace_id=ws_with_baseline.id
+        ).exists()
+        assert "Deleted 1" in out.getvalue()
+        assert "Skipped 1" in out.getvalue()
 
 
 def test_custom_name_prefix_is_respected():
