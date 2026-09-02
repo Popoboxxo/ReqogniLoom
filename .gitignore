@@ -1,6 +1,7 @@
 .keep
 .opencode
-.claude
+.claude/*
+!.claude/3-project/
 .bin
 frontend/node_modules/
 e2e/node_modules/
