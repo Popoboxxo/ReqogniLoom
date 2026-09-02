@@ -16,7 +16,7 @@ import { MemoryRouter } from "react-router-dom";
 import { i18n } from "../../i18n/index";
 import { TraceLinkPanel } from "./TraceLinkPanel";
 import { tracelinksApi } from "../../api/tracelinks";
-import { resolveArtifactRef } from "../../api/artifactRefs";
+import { resolveArtifactRefs } from "../../api/artifactRefs";
 
 vi.mock("../../api/tracelinks", () => ({
   tracelinksApi: {
@@ -27,14 +27,24 @@ vi.mock("../../api/tracelinks", () => ({
 }));
 
 vi.mock("../../api/artifactRefs", () => ({
-  resolveArtifactRef: vi
-    .fn()
-    .mockResolvedValue({ title: "Neighbour", route: "/requirements/x" }),
+  resolveArtifactRefs: vi.fn(async (ids: string[]) =>
+    Object.fromEntries(
+      ids.map((id) => [id, { title: "Neighbour", route: `/requirements/entity-of-${id}` }])
+    )
+  ),
 }));
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", default_link_type: "derives-from" } }),
 }));
+
+const mockNavigate = vi.fn();
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>(
+    "react-router-dom"
+  );
+  return { ...actual, useNavigate: () => mockNavigate };
+});
 
 describe("TraceLinkPanel — i18n (#421)", () => {
   it("renders the German panel title and column headings, not the English defaults", async () => {
@@ -86,7 +96,7 @@ describe("TraceLinkPanel — artifact ref resolution (#512)", () => {
   });
 
   it("resolves only the other endpoint, never the artifact the panel is on", async () => {
-    vi.mocked(resolveArtifactRef).mockClear();
+    vi.mocked(resolveArtifactRefs).mockClear();
     vi.mocked(tracelinksApi.listForArtifact).mockResolvedValueOnce({
       // upstream: the panel's own artifact is the target
       results: [link({ source_id: NEIGHBOUR_ID, target_id: ENTITY_ID })],
@@ -100,14 +110,23 @@ describe("TraceLinkPanel — artifact ref resolution (#512)", () => {
     );
 
     await waitFor(() => {
-      expect(vi.mocked(resolveArtifactRef)).toHaveBeenCalledWith(NEIGHBOUR_ID);
+      expect(vi.mocked(resolveArtifactRefs)).toHaveBeenCalledWith([NEIGHBOUR_ID]);
     });
-    expect(vi.mocked(resolveArtifactRef)).not.toHaveBeenCalledWith(ENTITY_ID);
-    expect(vi.mocked(resolveArtifactRef)).toHaveBeenCalledTimes(1);
+    // The panel's own id is an *entity* id — resolving it would be the
+    // wrong-id-space request #512 removed.
+    const requested = vi.mocked(resolveArtifactRefs).mock.calls.flatMap((c) => c[0]);
+    expect(requested).not.toContain(ENTITY_ID);
   });
 
-  it("does not resolve anything the backend already supplied a title for", async () => {
-    vi.mocked(resolveArtifactRef).mockClear();
+  /**
+   * #414: the backend title is still preferred for the *label*, but the panel
+   * must resolve the endpoint anyway, because the **route** can only come from
+   * the id-space bridge. The old code derived it as `/<type>/<artifact-id>`,
+   * which 404s — a link row with a title but a broken target is worse than one
+   * without a title.
+   */
+  it("[#414] still resolves for the route when the backend supplied a title", async () => {
+    vi.mocked(resolveArtifactRefs).mockClear();
     vi.mocked(tracelinksApi.listForArtifact).mockResolvedValueOnce({
       // downstream: the panel's own artifact is the source
       results: [
@@ -127,10 +146,39 @@ describe("TraceLinkPanel — artifact ref resolution (#512)", () => {
       </MemoryRouter>
     );
 
+    // Backend title wins as the label ...
     await waitFor(() => {
       expect(screen.getByText("Resolved by backend")).toBeInTheDocument();
     });
-    expect(vi.mocked(resolveArtifactRef)).not.toHaveBeenCalled();
+    // ... while the route comes from the resolver, so the row is navigable.
+    expect(vi.mocked(resolveArtifactRefs)).toHaveBeenCalledWith([NEIGHBOUR_ID]);
+    expect(screen.getByTestId("trace-link-open-link-1")).toBeInTheDocument();
+  });
+
+  /**
+   * #414: the route rendered for a neighbour must be the one the resolver
+   * returned (entity id space), never `/<type>/<neighbour artifact id>`.
+   */
+  it("[#414] navigates to the resolved entity route, not the artifact id", async () => {
+    vi.mocked(resolveArtifactRefs).mockClear();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValueOnce({
+      results: [link({ source_id: ENTITY_ID, target_id: NEIGHBOUR_ID })],
+      count: 1,
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <TraceLinkPanel workspaceId="ws-1" artifactId={ENTITY_ID} />
+      </MemoryRouter>
+    );
+
+    const openBtn = await screen.findByTestId("trace-link-open-link-1");
+    fireEvent.click(openBtn);
+
+    // The mock maps <id> -> /requirements/entity-of-<id>; navigating to
+    // /requirements/<NEIGHBOUR_ID> would be the #414 regression.
+    expect(mockNavigate).toHaveBeenCalledWith(`/requirements/entity-of-${NEIGHBOUR_ID}`);
+    expect(mockNavigate).not.toHaveBeenCalledWith(`/requirements/${NEIGHBOUR_ID}`);
   });
 });
 

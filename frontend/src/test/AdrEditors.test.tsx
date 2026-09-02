@@ -62,7 +62,7 @@ vi.mock("../api/client", () => ({
 }));
 
 // vi.hoisted so these are available inside the hoisted vi.mock factories below.
-const { ADR, ARCH_ARTIFACT_ID } = vi.hoisted(() => ({
+const { ADR, ARCH_ARTIFACT_ID, ARCH_ENTITY_ID } = vi.hoisted(() => ({
   ADR: {
     id: "adr-001",
     workspace_id: "ws-001",
@@ -76,6 +76,10 @@ const { ADR, ARCH_ARTIFACT_ID } = vi.hoisted(() => ({
     updated_at: "2026-01-01T00:00:00Z",
   },
   ARCH_ARTIFACT_ID: "arch-artifact-999",
+  // #414: the ArchitectureElement's own primary key — a *different* UUID from
+  // its Artifact id. The TraceLink below carries the artifact id; the title
+  // lookup and the editor route must use this one.
+  ARCH_ENTITY_ID: "arch-entity-111",
 }));
 
 vi.mock("../api/adrs", () => ({
@@ -106,6 +110,19 @@ vi.mock("../api/artifacts", () => ({
   artifactsApi: {
     get: vi.fn(),
   },
+}));
+
+// #414: TraceLinkPanel resolves a link endpoint (an Artifact id) to its
+// domain entity through GET /api/v1/traceability/resolve/ before fetching the
+// title or building the route.
+vi.mock("../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn(),
+    impact: vi.fn().mockResolvedValue([]),
+  },
+  // artifactRefs chunks its batches by this constant; vitest raises on a
+  // missing export from a mocked module, so it has to be declared here.
+  RESOLVE_BATCH_LIMIT: 200,
 }));
 
 vi.mock("../api/architecture", () => ({
@@ -144,8 +161,8 @@ vi.mock("../context/WorkspaceContext", () => ({
 // Must import AFTER vi.mock
 import AdrEditors from "../components/AdrEditors/AdrEditors";
 import { tracelinksApi } from "../api/tracelinks";
-import { artifactsApi } from "../api/artifacts";
 import { architectureApi } from "../api/architecture";
+import { traceabilityApi } from "../api/traceability";
 import { adrsApi } from "../api/adrs";
 
 function renderEditor(initialPath = `/adrs/${ADR.id}`): ReturnType<typeof render> {
@@ -185,17 +202,22 @@ describe("AdrEditors TraceLinkPanel (REQ-L2-TE-020)", () => {
       ],
     } as any);
 
-    // resolveArtifactRef: artifact type lookup then entity title lookup.
-    vi.mocked(artifactsApi.get).mockImplementation(async (id: string) => {
-      if (id === ARCH_ARTIFACT_ID) {
-        return { id, artifact_type: "ArchitectureElement" } as any;
-      }
-      return { id, artifact_type: "Adr" } as any;
-    });
-    vi.mocked(architectureApi.get).mockResolvedValue({
-      id: ARCH_ARTIFACT_ID,
-      title: "EventStore Component",
-    } as any);
+    // #414: resolveArtifactRefs — bridge the Artifact id to the entity id,
+    // then fetch the title with the *entity* id.
+    vi.mocked(traceabilityApi.resolve).mockImplementation(async (ids: string[]) =>
+      ids.map((artifact_id) => ({
+        artifact_id,
+        resolved: artifact_id === ARCH_ARTIFACT_ID,
+        entity_type: artifact_id === ARCH_ARTIFACT_ID ? "ArchitectureElement" : null,
+        entity_id: artifact_id === ARCH_ARTIFACT_ID ? ARCH_ENTITY_ID : null,
+      })) as any
+    );
+    vi.mocked(architectureApi.get).mockImplementation(async (id: string) =>
+      // Passing the Artifact id here is the #414 bug — the real API 404s on it.
+      id === ARCH_ENTITY_ID
+        ? ({ id, title: "EventStore Component" } as any)
+        : Promise.reject(new Error(`404 — ${id} is not an ArchitectureElement id`))
+    );
   });
 
   it("renders the TraceLinkPanel with the linked ArchitectureElement", async () => {

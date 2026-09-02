@@ -12,7 +12,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
-import { resolveArtifactRef } from "../api/artifactRefs";
+import { resolveArtifactRefs } from "../api/artifactRefs";
 import type { Requirement, TraceLink, UUID } from "../types";
 
 export const requirementKeys = {
@@ -66,15 +66,18 @@ async function fetchRequirementDetail(
 
   // Linked artifacts are not always Requirements — satisfies/verifies/implements
   // links can point at ArchitectureElements or TestCases too (REQ-L1-003).
+  //
+  // #414: these ids are TraceLink endpoints, i.e. **Artifact** ids, while the
+  // routes handed to the editor take domain-entity ids. resolveArtifactRefs
+  // bridges the two spaces in a single batched request; resolving them per id
+  // (and treating an Artifact id as an entity id) is what produced the 404s.
   const linkedTitles: Record<string, string> = {};
   const linkedRoutes: Record<string, string> = {};
-  await Promise.all(
-    Array.from(linkedIds).map(async (linkedId) => {
-      const ref = await resolveArtifactRef(linkedId);
-      linkedTitles[linkedId] = ref.title;
-      linkedRoutes[linkedId] = ref.route;
-    })
-  );
+  const linkedRefs = await resolveArtifactRefs(Array.from(linkedIds));
+  for (const [linkedId, ref] of Object.entries(linkedRefs)) {
+    linkedTitles[linkedId] = ref.title;
+    linkedRoutes[linkedId] = ref.route;
+  }
 
   return { requirement, upstreamLinks, downstreamLinks, linkedTitles, linkedRoutes };
 }
