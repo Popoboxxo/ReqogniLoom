@@ -127,6 +127,7 @@ from rest_api.views import (
     BaselineViewSet,
     BundleCompressionStatusView,
     ChangeRequestViewSet,
+    ConsistencyStatusView,
     CustomFieldDefinitionViewSet,
     CsvExportView,
     CsvImportView,
@@ -650,6 +651,13 @@ urlpatterns = [
         "bundle-compression-status/<str:task_id>/",
         BundleCompressionStatusView.as_view(),
         name="api-v1-bundle-compression-status",
+    ),
+    # Consistency-check async polling (GH-796) — status of a
+    # requirement.check_consistency Celery dispatch.
+    path(
+        "consistency-status/<str:task_id>/",
+        ConsistencyStatusView.as_view(),
+        name="api-v1-consistency-status",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

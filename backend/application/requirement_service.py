@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.core.cache import cache
 from django.db.models import F, Q, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import (
@@ -70,6 +71,14 @@ _UNSET = object()
 # usually indicate it bundles more than one testable statement. Word-boundary
 # match so this doesn't false-positive on substrings ("Android", "Norway").
 _NON_ATOMIC_TERM_PATTERN = re.compile(r"\b(and|or)\b", re.IGNORECASE)
+
+# GH-796: check_consistency() dispatches an async Celery task and returns
+# only a task_id -- with no record of which tenant dispatched it, a status
+# poll could not be scoped and any authenticated caller could probe another
+# tenant's task_id. Mirrors bundle_compression_service's
+# _TASK_TENANT_CACHE_PREFIX pattern (ADR-03 row-level tenant isolation).
+_CONSISTENCY_TASK_TENANT_CACHE_PREFIX = "requirement_consistency_task_tenant"
+_CONSISTENCY_TASK_TENANT_TTL_SECONDS = 86400
 
 
 def detect_non_atomic_terms(title: str) -> List[str]:
@@ -1106,7 +1115,43 @@ class RequirementService(ServiceBase):
                 raise LlmNotConfiguredError("LLM not configured")
             raise ValueError(result["error"].get("message", str(result)))
 
+        # GH-796: record which tenant dispatched this task_id so
+        # get_consistency_status() can enforce ownership on every poll --
+        # the Celery result backend itself has no concept of tenant.
+        task_id = result.get("task_id") if isinstance(result, dict) else None
+        if task_id:
+            cache.set(
+                f"{_CONSISTENCY_TASK_TENANT_CACHE_PREFIX}:{task_id}",
+                str(ctx.tenant_id),
+                _CONSISTENCY_TASK_TENANT_TTL_SECONDS,
+            )
+
         return result if isinstance(result, dict) else {"result": str(result)}
+
+    def get_consistency_status(self, task_id: str, ctx: AuthContext) -> Dict[str, Any]:
+        """Poll the outcome of a previously dispatched ``check_consistency`` task.
+
+        GH-796: ``check_consistency`` returned a ``task_id`` with no way for a
+        caller to ever retrieve the result -- the LlmAdapter's generic
+        ``get_task_status`` existed but was never wired to this capability.
+        Tenant-scoped the same way as
+        ``BundleCompressionService.get_compression_status`` (ADR-03): an
+        unknown or foreign-tenant task_id is deliberately reported as
+        ``status="not_found"`` so a cross-tenant probe cannot even learn
+        "this task_id exists but isn't mine".
+        """
+        self._set_tenant_context(ctx)
+
+        from llm_adapter.services import get_task_status as _llm_get_task_status
+
+        owning_tenant_id = cache.get(
+            f"{_CONSISTENCY_TASK_TENANT_CACHE_PREFIX}:{task_id}"
+        )
+        if owning_tenant_id is None or owning_tenant_id != str(ctx.tenant_id):
+            return {"task_id": task_id, "status": "not_found"}
+
+        status = _llm_get_task_status(task_id)
+        return status if isinstance(status, dict) else {"result": str(status)}
 
 
 __all__ = [

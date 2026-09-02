@@ -2018,6 +2018,35 @@ class BundleCompressionStatusView(APIView):
         return Response(dataclasses.asdict(result))
 
 
+class ConsistencyStatusView(APIView):
+    """GET /api/v1/consistency-status/{task_id}/
+
+    GH-796: polls the Celery task dispatched by ``requirement.check_consistency``
+    (MCP) / the equivalent application-service call. Before this view existed,
+    a caller received a ``task_id`` from ``check_consistency`` with no REST or
+    MCP endpoint to ever retrieve the result (orphan task). Follows
+    ``BundleCompressionStatusView``'s bare-``APIView`` polling pattern.
+
+    Response shape::
+
+        {"task_id": str,
+         "status": "pending"|"running"|"done"|"failed"|"not_found",
+         "result": dict|null,   # present when status == "done"
+         "error": str|null}     # present when status == "failed"
+
+    An unknown or foreign-tenant task_id reports ``status="not_found"``
+    (ADR-03) rather than a 403/404, so a cross-tenant probe cannot learn
+    "this task_id exists but isn't mine".
+    """
+
+    def get(self, request: Request, task_id: str, **kwargs: Any) -> Response:
+        from application.requirement_service import RequirementService
+
+        ctx = get_auth_context(request)
+        result = RequirementService().get_consistency_status(task_id, ctx)
+        return Response(result)
+
+
 # ---------------------------------------------------------------------------
 # TestCaseViewSet
 # ---------------------------------------------------------------------------
@@ -3124,6 +3153,20 @@ class BaselineViewSet(BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if artifact_id is not None:
+                # GH-724: reject a malformed (non-UUID) artifact_id here with a
+                # clean 400 instead of letting a raw ValueError from the
+                # facade's UUID(str(document_id)) conversion escape as a 500.
+                try:
+                    UUID(str(artifact_id))
+                except (ValueError, TypeError):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="artifact_id must be a valid UUID",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 create_kwargs["document_id"] = str(artifact_id)
             baseline_id = self._svc().create_baseline(**create_kwargs)
             # Fetch the newly created baseline detail for the response

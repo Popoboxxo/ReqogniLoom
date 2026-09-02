@@ -352,6 +352,42 @@ class TestRequirementsToolGroup:
         assert result.error_code == "LLM_NOT_CONFIGURED"
         svc.check_consistency.assert_not_called()
 
+    def test_requirement_check_consistency_status_delegates_to_service(self):
+        """GH-796: the status tool delegates to the service's status query."""
+        group, svc = self._group()
+        svc.get_consistency_status.return_value = {
+            "task_id": "task-123",
+            "status": "done",
+            "result": {"score": 0.9},
+        }
+
+        result = group.execute_tool(
+            tool_name="requirement.check_consistency_status",
+            params={"task_id": "task-123"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.get_consistency_status.assert_called_once_with("task-123", EDITOR_CTX)
+        assert result.data == {
+            "task_id": "task-123",
+            "status": "done",
+            "result": {"score": 0.9},
+        }
+
+    def test_requirement_check_consistency_status_requires_task_id(self):
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="requirement.check_consistency_status",
+            params={},  # no task_id
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "INVALID_PARAMS"
+        svc.get_consistency_status.assert_not_called()
+
     def test_requirement_query_requires_workspace_id(self):
         group, svc = self._group()
         result = group.execute_tool(

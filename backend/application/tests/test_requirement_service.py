@@ -1503,6 +1503,99 @@ class TestCheckConsistency:
         assert {"id": str(r2.id), "title": "R2", "content": ""} in forwarded
 
 
+class TestGetConsistencyStatus:
+    """GH-796: check_consistency's task_id must be retrievable via a status
+    query, tenant-scoped the same way as BundleCompressionService."""
+
+    def test_get_consistency_status_returns_task_status_for_owning_tenant(self):
+        """A task_id dispatched by check_consistency is retrievable by the
+        same tenant via get_consistency_status."""
+        from django.core.cache import cache
+
+        svc = RequirementService()
+        ctx = _make_ctx()
+        ws_id = uuid.uuid4()
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = []
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "gh796-task-1"},
+            ),
+        ):
+            dispatch_result = svc.check_consistency(ws_id, ctx)
+
+        assert dispatch_result == {"task_id": "gh796-task-1"}
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "llm_adapter.services.get_task_status",
+                return_value={"task_id": "gh796-task-1", "status": "done", "result": {"foo": "bar"}},
+            ) as mock_status,
+        ):
+            status = svc.get_consistency_status("gh796-task-1", ctx)
+
+        mock_status.assert_called_once_with("gh796-task-1")
+        assert status == {
+            "task_id": "gh796-task-1",
+            "status": "done",
+            "result": {"foo": "bar"},
+        }
+
+        cache.clear()
+
+    def test_get_consistency_status_reports_not_found_for_unknown_task_id(self):
+        """A task_id never dispatched (or dispatched by another tenant) must
+        report status=not_found instead of leaking cross-tenant task state."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+
+        with patch("application.requirement_service.ServiceBase._set_tenant_context"):
+            status = svc.get_consistency_status("never-dispatched-task", ctx)
+
+        assert status == {"task_id": "never-dispatched-task", "status": "not_found"}
+
+    def test_get_consistency_status_reports_not_found_for_foreign_tenant(self):
+        """A task_id dispatched by tenant A must not be pollable by tenant B."""
+        from django.core.cache import cache
+
+        svc = RequirementService()
+        ctx_a = _make_ctx()
+        ctx_b = _make_ctx()
+        ws_id = uuid.uuid4()
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = []
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "gh796-task-cross-tenant"},
+            ),
+        ):
+            svc.check_consistency(ws_id, ctx_a)
+
+        with patch("application.requirement_service.ServiceBase._set_tenant_context"):
+            status = svc.get_consistency_status("gh796-task-cross-tenant", ctx_b)
+
+        assert status == {"task_id": "gh796-task-cross-tenant", "status": "not_found"}
+
+        cache.clear()
+
+
 class TestRequirementDTO:
     def test_from_orm_maps_fields(self):
         """RequirementDTO.from_orm maps all Requirement fields correctly."""
