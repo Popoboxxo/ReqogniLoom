@@ -124,6 +124,18 @@ export function PageHeader({
   }, [menuOpen, closeMenu]);
 
   const isCompact = density === "compact";
+  // Issue #718: this container used to render unconditionally, even with zero
+  // actions (e.g. AuditDashboard, CsvImport — title+summary only). An empty
+  // flex item still participates in `.header`'s `flex-wrap` + `gap`: in a
+  // narrow parent (e.g. CsvImport's 640px reading column) the title/summary
+  // block alone could leave less free width than the gap needs for a second
+  // (empty) flex item, so it wrapped onto its own line and the `row-gap`
+  // between the two lines added ~8px of dead header height — a route with no
+  // actions at all ended up *taller* than one with a real button row. Since
+  // an empty actions row has no visible content, it should not exist in the
+  // DOM at all.
+  const hasActions =
+    secondaryActions.length > 0 || !!primaryAction || overflowActions.length > 0;
   const summaryText =
     summary ??
     (count
@@ -172,6 +184,7 @@ export function PageHeader({
           instead of wrapping onto a second line like `.header` itself
           already does. `flexWrap: "wrap"` + `minWidth: 0` let it reflow
           the same way. */}
+      {hasActions && (
       <div
         style={{
           display: "flex",
@@ -281,6 +294,7 @@ export function PageHeader({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

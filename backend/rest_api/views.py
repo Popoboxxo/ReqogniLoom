@@ -357,12 +357,23 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     serializer_class = StakeholderNeedSerializer
     workflow_item_type = "StakeholderNeed"
-    # REQ-128: constrain the detail lookup to a UUID. The DRF router's default
-    # pk pattern ([^/.]+) otherwise matches custom action segments such as
-    # "derive-requirements" as a pk, so GET /api/v1/needs/derive-requirements/
-    # reached retrieve() and 500ed on UUID parsing. With a UUID-only regex the
-    # segment no longer matches the detail route and routing 404s correctly.
-    lookup_value_regex = r"[0-9a-fA-F-]{36}"
+    # REQ-128 constrained the detail lookup to a UUID shape here so that
+    # GET /api/v1/needs/derive-requirements/ (a custom-action path missing its
+    # pk) 404ed at routing time instead of reaching retrieve() and 500ing on
+    # UUID(pk). That trade-off made needs/goals 404 on *any* non-UUID-shaped
+    # pk — including a genuinely malformed one like "not-a-uuid" — while every
+    # other BaseEntityViewSet subclass answers 400 for the same input via the
+    # generic uuid_url_kwargs guard in initial() (issue #271). Issue #710
+    # flagged that asymmetry; #271's guard already turns "derive-requirements"
+    # (or any other malformed pk) into a clean 400 instead of the original
+    # 500, so the router-level regex is no longer needed to prevent it — it
+    # was only reproducing the 500-era behaviour of hiding the segment before
+    # it could raise. Removing it lets non-UUID pks reach initial()'s guard
+    # and answer 400 here too, matching RequirementViewSet and the rest of
+    # the API. (GoalViewSet keeps its own regex: it additionally protects a
+    # real, still-nonexistent route alias, /goals/main/ vs /main-goals/
+    # current/, which the 400 guard would otherwise misreport as a malformed
+    # id rather than an unknown route — see #460 Finding 4.)
 
     @property
     def service(self):
