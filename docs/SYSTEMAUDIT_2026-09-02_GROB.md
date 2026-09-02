@@ -7,7 +7,7 @@ Ausgeschlossen: Tests, Dokumentation, CI, Deployment.
 
 - Navigation über graphify (7103 Knoten, 1316 Communities) und ProjectAtlas (Index refreshed, 1448 Dateien).
 - ProjectAtlas Health liefert 3767 Findings, praktisch alle "missing-purpose". Keine strukturellen Fehler, daher nicht verwertet.
-- Docker-Daemon lief nicht. Kein Live-Rendering, keine Screenshots. UI-Befunde sind Code-Befunde.
+- Kapitel A bis Q: statisch, Docker lief lokal nicht. Kapitel R bis W: Live-Audit gegen 172.20.5.120 (Frontend 5173, Backend 8001, gleiche Version wie HEAD) mit Playwright-Screenshots und REST/MCP-Skripten.
 - Zahlen sind grep-basiert und grob. Sie zeigen Größenordnungen, keine exakten Inventare.
 
 Schweregrade: **H** = hoch (Konzeptbruch oder Client-relevant), **M** = mittel, **N** = niedrig, **+** = positiv.
@@ -411,7 +411,7 @@ Empfohlene Reihenfolge: 1, 3, 4, 2, 6. Die restlichen nach Bedarf.
 
 ### L2 Befunde
 
-**L2.1 (H) formalize erzeugt immer ein Requirement, egal welcher Typ interviewt wurde.** `interview_service.py:870-915`: der Single-Pfad holt `RequirementService`, liest `title` und `rationale` aus `collected_fields` und ruft `create_requirement` bzw. `update_requirement`. Kein Dispatch nach `session.artifact_type`. Es gibt in der Datei keinen Verweis auf RiskService, AdrService, StakeholderNeedService, TestService, GoalService, IssueService oder ArchitectureService. Ein Interview für einen Risk startet, sammelt Felder, und formalisiert zu einem Requirement. Die 8 In-Scope-Typen sind ein Versprechen ohne Einlösung.
+**L2.1 (H) formalize kann nur Requirements.** `interview_service.py:870-915`: der Single-Pfad holt `RequirementService`, liest `title` und `rationale` aus `collected_fields` und ruft `create_requirement` bzw. `update_requirement`. Kein Dispatch nach `session.artifact_type`. Live-Korrektur (R6): für andere Typen wird nicht still ein Requirement erzeugt, sondern mit 400 abgelehnt, Fehlertext: "formalize() for artifact_type='Risk' is not implemented yet -- only Requirement is wired in this plan; the other 7 types follow the identical pattern in a later pass." Ein Interview für Risk, ADR, Need, Testfall, Architektur, Issue oder Goal lässt sich starten und beantworten, aber nie abschließen. Die UI bietet "Per Interview erstellen" trotzdem auf allen diesen Seiten an. Die 8 In-Scope-Typen sind ein Versprechen ohne Einlösung, und die Fehlermeldung ist eine Entwicklernotiz.
 
 **L2.2 (H) Default-Protokoll erhebt nur Titel und Rationale.** `_default_protocol_yaml` kennt zwei Phasen mit zwei Feldern. Für einen Risk fehlen probability, impact, mitigation; für einen TestCase steps; für eine Need category und MoSCoW. Ohne handgeschriebenes YAML pro Typ im Prompt-Template-Slot ist das Interview ein Titel-Generator.
 
@@ -584,7 +584,7 @@ Maßstab: die eigene Strategie (`PRODUCT_STRATEGY.md`): AI-nativ, Agenten als Fi
 
 **5. Requirement-Attribute rationale, source, owner, priority plus Stakeholder-Entität (D2).** Zwei Migrationen, ein Regelmodul. Ohne rationale ist jede Review-Diskussion Rätselraten, ohne source keine Rückverfolgung zum Kunden.
 
-**6. Trace-Link-Semantik.** 15 Link-Typen, aber keine Matrix, welcher Typ zwischen welchen Artefakttypen erlaubt ist (`types.py` hat keine allowed-pairs-Struktur). `TraceLink` hat nur source, target, link_type: kein rationale, kein Status, kein created-by-agent-Marker auf dem Link. Ein Agent kann `verifies` von Risk nach Glossary anlegen. Suspect-Propagation existiert (`trace_link_service.py:1232`), aber der Nutzer sieht nicht, welche Änderung sie ausgelöst hat. Minimal: Erlaubt-Matrix in `types.py`, Validierung im Service, `rationale` und `suspect_reason` auf dem Link.
+**6. Trace-Link-Semantik.** 15 Link-Typen. Eine Erlaubt-Matrix existiert nur im SE-Terminologie-Modus im Service, nicht in `types.py`, und ist lückenhaft (Live-Beleg U2: `verifies` Risk→Requirement wird akzeptiert, Need→Requirement abgelehnt). `TraceLink` hat nur source, target, link_type: kein rationale, kein Status, kein created-by-agent-Marker auf dem Link. Ein Agent kann `verifies` von Risk nach Glossary anlegen. Suspect-Propagation existiert (`trace_link_service.py:1232`), aber der Nutzer sieht nicht, welche Änderung sie ausgelöst hat. Minimal: Erlaubt-Matrix in `types.py`, Validierung im Service, `rationale` und `suspect_reason` auf dem Link.
 
 **7. Change-Management bis zum Ende (B3, D1 Prozess 14).** ChangeRequest hat Modell, REST, MCP, Events, Transition. Keine UI, keine CCB-Rolle, keine Verknüpfung "dieser CR ändert diese Artefakte" außer `ChangeRequestAffectedItem` ohne Oberfläche. Entweder fertig bauen oder rausnehmen. Halbfertig ist teurer als beides.
 
@@ -602,7 +602,7 @@ Maßstab: die eigene Strategie (`PRODUCT_STRATEGY.md`): AI-nativ, Agenten als Fi
 
 **Q2.3 Das generische Artefaktmodell wurde begonnen und nicht beendet.** `Artifact` mit `artifact_type` und `custom_fields` ist das richtige Fundament: Traces, Baselines, Custom Fields, Search hängen daran. Aber vier Modellorte (B2), drei Status-Achsen (B1), zwei Versionierungen (B6), und jeder neue Typ (Goal, Icd, Diagram, Interview) wurde als eigene App mit eigenen Tabellen gebaut statt als Artifact-Spezialisierung. Konsequent zu Ende gedacht: Jeder Artefakttyp ist `Artifact` plus typisierte Attribute aus der Definition (N3), Versionierung und Diff einmal auf `Artifact`, Status einmal auf `Artifact` mit Workflow-State. Das ist die größte Konsolidierung und die Voraussetzung, dass Attribut-Editor, Interview und Export je "alle Typen" können.
 
-**Q2.4 Traceability ist ein Link-Speicher, kein Modell.** 15 Typen ohne Semantik-Matrix, ohne Link-Attribute, ohne Richtungsregeln. Coverage rechnet requirement-zentriert. Impact-Analyse folgt Links, aber kennt keine Gewichtung (ein `documents`-Link ist kein `satisfies`-Link). Das UI-Signaturelement Trace-Spine zeigt die Kette, aber nur in der Hälfte der Views (A5). Zu Ende gedacht: Link-Typ hat erlaubte Paare, Richtung, Coverage-Relevanz, Impact-Gewicht, Suspect-Verhalten. Dann kann die Spine für jeden Typ dieselbe Frage beantworten: "Ist dieses Artefakt vollständig angebunden?"
+**Q2.4 Traceability ist ein Link-Speicher, kein Modell.** 15 Typen, Semantik-Matrix nur im SE-Modus und lückenhaft (U2), keine Link-Attribute, keine Richtungsregeln, Suspect-Propagation live nicht wirksam (U2). Coverage rechnet requirement-zentriert. Impact-Analyse folgt Links, aber kennt keine Gewichtung (ein `documents`-Link ist kein `satisfies`-Link). Das UI-Signaturelement Trace-Spine zeigt die Kette, aber nur in der Hälfte der Views (A5). Zu Ende gedacht: Link-Typ hat erlaubte Paare, Richtung, Coverage-Relevanz, Impact-Gewicht, Suspect-Verhalten. Dann kann die Spine für jeden Typ dieselbe Frage beantworten: "Ist dieses Artefakt vollständig angebunden?"
 
 **Q2.5 Der Workflow hat keine Menschen.** State-Machines pro Typ, Signature-Gates mit Passwort oder TOTP, Approval-Rollen, Review-Queue. Technisch besser als die meisten Tools. Aber: keine Zuweisung, keine Benachrichtigung, keine Frist, keine Eskalation, keine Delegation. Der Workflow weiß, was passieren darf, aber nicht, wer es tun soll und bis wann. Für Approval-Prozesse in regulierten Domänen ist das die halbe Miete, und die fehlende Hälfte ist die, die Auditoren fragen.
 
@@ -625,11 +625,338 @@ Das Fundament ist ungewöhnlich stark für ein POC. Die Lücken liegen nicht in 
 
 ---
 
+## R. Live-Audit Schnittstellen (172.20.5.120, v1.8.0-beta.6, 2026-09-02 abends)
+
+Methode: Login als admin, REST und MCP per Skript gegen Port 8001, UI per Playwright gegen Port 5173 (Vite-Proxy). Testdaten mit Präfix "AUDIT" angelegt, Viewer-User `auditviewer` (Passwort `Viewer12345!`) für die Rollenprüfung erzeugt. Beides ist im System geblieben. Skripte lagen temporär in `e2e/audit_*.mjs` und wurden nach dem Lauf gelöscht. Gegen Ende des Audits (ca. 20:45) waren Port 5173 und 8001 nicht mehr erreichbar (Connection refused), Ursache nicht geprüft. Der API-Key `audit-2026-09-02` konnte deshalb nicht mehr widerrufen werden und ist noch aktiv: im Profil unter "Persönliche Zugriffstoken" widerrufen.
+
+### R1 Auth, Cookies, Header
+
+| Prüfung | Ergebnis | Bewertung |
+|---|---|---|
+| Unauthentifiziert auf `/api/v1/*` | 401 durchgängig | + |
+| `/api/schema/`, `/api/schema/swagger-ui/`, `/health/`, `/api/v1/version/` | 200 ohne Auth | vertretbar, Schema ist öffentlich |
+| Security-Header | CSP `default-src 'self'; frame-ancestors 'none'`, X-Frame-Options DENY, nosniff, Referrer same-origin, COOP | + |
+| Access-Cookie | HttpOnly, Path=/api, SameSite=Lax, 1 h; Refresh 30 d | + |
+| **CSRF-Cookie** | `csrftoken=…; Path=/; SameSite=Lax; Secure` | **P0**, siehe R2 |
+| Login-Antwort | Token im Body plus Cookies; `roles` und `is_tenant_admin` enthalten | + |
+
+### R2 (P0) Kein einziger Schreibvorgang aus der UI funktioniert
+
+`settings.py:79` setzt `CSRF_COOKIE_SECURE = not DEBUG`. Die Instanz läuft mit DEBUG=False über plain HTTP. Der Browser verwirft ein `Secure`-Cookie über http. `document.cookie` ist nach dem Login leer, der `X-CSRFToken`-Header wird nie gesetzt, jeder POST, PUT, PATCH, DELETE aus der UI endet mit **403 "CSRF Failed: CSRF cookie not set."**
+
+Live nachgewiesen für: alle 12 Create-Dialoge (Requirement, Architektur, Testfall, ADR, Risiko, Problem, Ziel, Glossar, Diagramm, Testlauf, Workspace, Interview-Start), Theme-Präferenz (`PUT users/me/theme-preference/`), Sprachumschaltung (`PATCH workspaces/<id>/`), KI-Ableitung (`POST decompose-next-level/`). Das Access-Cookie hat kein Secure-Flag, der Nutzer ist also eingeloggt und sieht alles, kann aber nichts tun. Die Fehlermeldung ist roher Django-Text in roter Schrift unter dem Formular.
+
+Der Nutzer, der vor mir "asdfasdf" angelegt hat, hat das vermutlich über eine andere Adresse oder direkt per API getan.
+
+**Fix:** (1) `CSRF_COOKIE_SECURE` an `AUTH_COOKIE_SECURE` koppeln statt an DEBUG, oder beide über eine `SERVE_OVER_TLS`-Variable steuern. (2) Beim App-Start prüfen: wenn `location.protocol === "http:"` und kein `csrftoken`-Cookie nach Login, Banner "Diese Instanz ist ohne TLS erreichbar, Schreibzugriffe sind blockiert. Admin: CSRF_COOKIE_SECURE=false setzen oder TLS aktivieren." (3) Health-Endpoint um `csrf_cookie_reachable` erweitern. (4) In `deploy/README.md` als erste Stolperfalle dokumentieren.
+
+### R3 REST-Verhalten im Detail
+
+| Prüfung | Ergebnis | Schwere |
+|---|---|---|
+| Fehler-Envelope | `{"error":{"code","message","details"}}` bei 400, 404, 405; 405 trägt `code: "405"` als String und `details.detail` doppelt | N |
+| Validierungsfehler nennen erlaubte Werte nicht | `"must" is not a valid choice` ohne Liste. MoSCoW will `Must`, RequirementType will `SyReq`/`UseCase`/`FeatureReq` (nicht functional), TestCase-Serializer kennt `test_type` nicht obwohl das Modell es hat | M |
+| **Unbekannte Felder werden still verworfen** | ICD-Create mit `contract_spec`, `icd_type`: 201, Felder leer. Requirement-Create mit `parent_id`: 201, `parent_id` bleibt null (Serializer read-only). Kein 400, kein Hinweis | H |
+| Filter-Parameter werden still ignoriert | `status=`, `category=`, `level=`, `q=` liefern die volle Liste. `search=`, `ordering=`, `page_size=` funktionieren | M |
+| `?page=99` | **500 INTERNAL_SERVER_ERROR** statt 404 | M |
+| `page_size=abc` | still auf 25 | N |
+| Requirement-Create mit `parent_id`+`description`+`verification_method` | einmal 500, Wiederholung 201. Nicht reproduzierbar isoliert | M, beobachten |
+| `POST /requirements/similar/` | 405; UI ruft `GET …/similar/?requirement_id=` und bekommt 400 | H, Feature in UI tot |
+| `POST /requirements/{id}/derive/` | 400 "title is required", die UI ruft aber `decompose-next-level/` | N, zwei Endpoints für "Ableiten" |
+| `GET /baselines/` flach | 404 (Include shadowt den Router); nested `workspaces/<id>/baselines/` 200 | N |
+| `workflows/definition/` | verlangt `item_type`, `attribute-schema` verlangt `entity_type` | N |
+| Status per PATCH | korrekt abgelehnt mit Hinweis auf `transitions/` | + |
+| Transition ohne `change_reason` (extended) | korrekt 400 | + |
+| Transition draft→in_review→approved | 200, Historie mit actor, reason, `sealed:false`. Derselbe User erstellt und genehmigt, kein Vier-Augen-Prinzip | M |
+| Goals bei deaktiviertem Toggle | 403 PERMISSION_DENIED "Goals are not enabled" | N, ist kein Permission-Fall, eher 409 |
+| Baseline-Create bei Audit-Blockern | 400 SE_AUDITOR_BLOCKED mit Findings im Text | + als Feature, aber kein Override, ein einziges verwaistes Requirement blockiert den ganzen Workspace |
+| Health | `memory_backend: ok, "http://honcho:8000 reachable (HTTP 404)"` und `llm_provider: ok, "API key configured"` obwohl der Provider jeden Call mit 401 ablehnt | H, Health lügt |
+
+### R4 MCP live
+
+| Prüfung | Ergebnis |
+|---|---|
+| `initialize` | 200, protocolVersion 2024-11-05, capabilities nur `tools` |
+| `notifications/initialized` | 202 |
+| `tools/list` | 172 Tools, 30 Gruppen, **99 KB Manifest**, 212 ms. Jedes Tool hat description (Ø 162 Zeichen) und inputSchema |
+| `tools/call` | MCP-konformes `content[]`, `isError:true` bei fachlichen Fehlern |
+| Direkter Tool-Name als Methode | funktioniert (README-Beispiel gültig) |
+| Unbekanntes Tool | HTTP 400, -32601 |
+| Parse-Error | HTTP **401** mit -32700 (falsch, 400) |
+| Falscher Key | 401, -32000 "invalid_api_key" |
+| **JSON-RPC-Batch** | HTTP **500** "Internal server error" |
+| GET `/mcp/` mit `Accept: text/event-stream` | 200 JSON (H1-Befund bestätigt) |
+| POST auf `/mcp/sse/` | 405 (OpenCode-Fallback greift) |
+| SSE-Handshake | 200, `text/event-stream`, `event: endpoint` mit `session_id`, dann `: keepalive`. Funktioniert |
+
+### R5 KI-Pfade live
+
+Die Instanz hat `provider=opencode_go, model=mimo-v2.4`. Jeder LLM-Call scheitert: `authentication failed (HTTP 401): Model mimo-v2.4 is not supported`. Folgen:
+
+- Interview-Chat: 400 VALIDATION_ERROR mit dem rohen Provider-Fehler im Text.
+- Suggest-Links: **500 nach 180 Sekunden Timeout**, obwohl der Provider sofort 401 sagt. Der Retry-Wrapper wartet auf einen "non_retryable" Fehler.
+- Health sagt `llm_provider: ok`.
+- UI zeigt an keiner Stelle "KI nicht verfügbar". "Ähnliche finden" scheitert zusätzlich am falschen HTTP-Verb (R3).
+
+**Fix:** Health muss einen echten Probe-Call machen (kleinster Prompt, 5 s Timeout). Non-retryable Fehler müssen den 180-s-Wrapper sofort verlassen. UI: globaler Zustand `llmAvailable`, KI-Buttons ausgegraut mit Tooltip "KI-Provider antwortet nicht: …".
+
+Nachtrag: Der Nutzer hat das Modell auf `mimo-v2.5` umgestellt. Zweiter Durchlauf in R7. Health meldete vor und nach der Umstellung wortgleich "ok, API key configured", hat den Defekt also nie gesehen.
+
+### R7 KI-Funktionen live, zweiter Durchlauf (Provider opencode_go, Modell mimo-v2.5)
+
+| Funktion | Aufruf | Ergebnis | Dauer | Bewertung |
+|---|---|---|---|---|
+| Testfall ableiten | `POST requirements/{id}/derive-testcase/` | Entwurf mit Titel, Beschreibung, 3 Schritten mit Erwartungswert. Fachlich gut | 23 s | + |
+| Architektur vorschlagen | `POST requirements/{id}/suggest-architecture/` | schlägt Display-Modul vor, korrekt | 25 s | + |
+| Links vorschlagen | `POST workspaces/{id}/traceability/suggest-links/` | je Audit-Finding Kandidaten mit Score und Rationale, erkennt "asdfasdf" als Platzhalter | 27 s | + |
+| Requirements aus Bedarf | `POST needs/{id}/derive-requirements/` und MCP `ai_derivation.derive_requirements_from_need` | 2 Entwürfe mit Rationale und `suggested_parent_id`, REST und MCP identisch (MCP 0,1 s, gecacht) | 23 s | + |
+| Requirement zerlegen | `POST requirements/{id}/decompose-next-level/` | nur für allokierte Requirements erlaubt (Gate ist fachlich richtig, Meldung ist Englisch), dann 2 Entwürfe mit `suggested_arch_element_id` | 48 s | + |
+| Auditor KI-Review | `POST workspaces/{id}/audit/ai-review/` | bündelt 26 Findings zu Paketen mit Rationale | 51 s | + |
+| Glossar aus Workspace | MCP `ai_derivation.derive_glossary_from_workspace` | 5 Begriffe mit Definition, Synonymen | 70 s | + |
+| Interview-Chat | `POST interviews/{id}/chat/` | deutsche Antworten, sammelt title und rationale, Phase wechselt nach formalization, formalize erzeugt Requirement | 22 bis 47 s je Turn | + mit Mängeln, siehe unten |
+| **Requirement validieren** | MCP `requirement.validate` | **3 von 3 Versuchen: "LlmResult.score must be in [0.0, 1.0], got 8.5 / 8.0 / 3.0"**. Das Modell liefert eine Zehnerskala, der Parser verlangt 0 bis 1. Feature tot | 8 s | **H** |
+| **Konsistenzprüfung** | MCP `requirement.check_consistency`, dann `GET consistency-status/{task}/` | Celery-Task endet mit `status: failed, error: "<class 'json.decoder.JSONDecodeError'>(['Expecting value: line 1 column 1'])"`. Modellantwort war kein JSON, kein Repair, kein Retry, Exception-Klassenname als Nutzertext | 50 s | **H** |
+| **Ähnliche Requirements** | `GET requirements/similar/?requirement_id=` | "Requirement has no embedding" für alle Requirements, auch für gerade angelegte. Embedding-Pipeline schreibt beim Anlegen nichts, obwohl Health `memory_embedding: ok, 768-dim` sagt | 0,1 s | **H** |
+| **Interview-Grounding** | `GET interviews/{id}/grounding/` | `candidates: []` in jeder Session, auch bei Text, der REQ-SUB fast wörtlich wiederholt. Vermutlich dieselbe Ursache wie Ähnliche (keine Embeddings) | 0,1 s | H |
+| Architektur-Zerlegung | `POST workspaces/{id}/architecture/decompose/` | verlangt `element_id` mit allokiertem Requirement, Meldung "Allocate a requirement to it before running architecture.decompose (… ARCH-003/TRACE-P5)" | 0,1 s | Gate ok, Text ist Entwicklersprache |
+| Hauptziel generieren | `POST main-goals/generate/` | 403, Goals im Workspace deaktiviert | 0,1 s | erwartbar |
+
+**Querbefunde**
+
+- **Sprache.** Workspace-Sprache ist `de`, alle Eingaben Deutsch. Testfall, abgeleitete Requirements, Zerlegung, Glossar, KI-Review antworten **Englisch**. Nur der Interview-Chat antwortet Deutsch. Die Prompt-Templates tragen die Sprache nicht durch.
+- **Formalize-Qualität.** Das Interview hat als `title` den kompletten ersten Satz gespeichert ("Das Display muss bei Ueberdruck ueber 8 bar einen roten Alarm zeigen.") und den in Turn 2 explizit genannten Titel "Ueberdruck-Alarm auf dem Display" ignoriert. `rationale` landet in `description`. `category` leer, `level` null, `acceptance_criteria` leer. Das erzeugte Requirement verletzt sofort TRACE-P1, TRACE-P2, VERIF-P8 und hat keine Ebene. Das Interview produziert Artefakte, die der eigene Auditor als Blocker meldet.
+- **Latenz.** Alle Aufrufe außer Konsistenz sind synchrone HTTP-Requests von 8 bis 70 Sekunden. Die UI zeigt währenddessen nur einen deaktivierten Button. Nur die Konsistenzprüfung läuft über Celery mit Status-Endpoint.
+- **Parameternamen.** Dasselbe Architekturelement heißt `element_id` (REST decompose), `architecture_element_id` (MCP derive_risks), `root_element_id` (nirgends, aber naheliegend). Ein Agent rät dreimal.
+- **Kein Verbrauch sichtbar.** `TokenUsageRecord` existiert im Modell, aber kein REST-Endpoint (`llm-usage/`, `token-usage/` 404). Niemand sieht, was die 70-Sekunden-Calls kosten.
+- **Health** meldet `llm_provider: ok` ohne Probe-Call und `memory_backend: ok` bei HTTP 404 von Honcho.
+
+**Fix-Vorschläge, Reihenfolge**
+
+1. `LlmResult.score` normalisieren: Werte über 1 durch 10 teilen, über 10 durch 100, sonst Parse-Fehler mit dem Rohtext im Log. Prompt-Template `validate_artifact` um "score between 0.0 and 1.0" ergänzen. Ein Nachmittag.
+2. Konsistenz-Task: JSON-Repair (ersten `{`…letzten `}` extrahieren), ein Retry mit "answer with JSON only", Fehlertext für Nutzer statt Exception-Klasse.
+3. Embedding beim Create und Update von Requirement, Need, Architektur als Celery-Task; Backfill-Command für Bestand. Danach funktionieren Ähnliche und Grounding.
+4. Sprache in jeden Prompt-Slot als Variable `{language}` aus Workspace-Sprache, Default Deutsch.
+5. Interview: Titel aus dem letzten expliziten "Titel:"-Turn oder per Extraktions-Prompt kürzen; `rationale` in ein eigenes Feld (V); `level` und `category` im Protokoll abfragen (L3.2).
+6. Alle KI-Calls asynchron nach dem Muster der Konsistenzprüfung: 202 mit task_id, Status-Endpoint, UI-Toast "Entwurf bereit". Sonst blockiert jeder 50-Sekunden-Call den Browser-Tab.
+7. Health: Probe-Call mit 5 s Timeout; Honcho 404 ist nicht ok.
+8. `llm-usage/` Endpoint aus `TokenUsageRecord`, Anzeige unter System-Einstellungen.
+
+### R6 Interview live
+
+- Start für `Risk`: 201. Answer title, rationale: 200. Chat: scheitert am LLM (R5).
+- **formalize für Risk: 400 "formalize() for artifact_type='Risk' is not implemented yet -- only Requirement is wired in this plan; the other 7 types follow the identical pattern in a later pass."** Korrektur zu L2.1: es entsteht kein falsches Requirement, das System verweigert mit einer Entwickler-Notiz als Fehlermeldung. Für den Nutzer: Interview für 7 von 8 Typen startbar, nie abschließbar.
+
+---
+
+## S. Live-Audit UI, Dialog für Dialog
+
+Screenshots: 1440×900, Dark Theme (Default), Deutsch, abgelegt unter `docs/assets/systemaudit-2026-09-02/` (Login, Dashboard, Listen, Detailformulare je Typ, Trace-Link-Dialog, Verknüpfungen, Auditor, Metriken, Status-Dropdown, KI-Dialoge, Lösch-Dialog, Viewer-Sicht, Suche, Workflow-Editor, Sichtbarkeits-Tab, 768 px). Bewertung: **Befund** und **Vorschlag** je Fläche.
+
+### S1 Login
+**Befund.** Weiße Karte auf hellgrauem Grund, danach dunkle App. Der erste Eindruck ist ein anderes Produkt als der zweite. Versionsnummer und Claim "AI-native Requirements Management" auf der Login-Seite. Kein "Passwort vergessen", kein Hinweis auf SSO.
+**Vorschlag.** Login übernimmt das gespeicherte oder das System-Theme (prefers-color-scheme), bevor der Nutzer eingeloggt ist. Karte behält Logo, verliert Claim und Version (die steht schon im Sidebar-Footer).
+
+### S2 Dashboard
+**Befund.** Eine Workspace-Karte mit zwei Zahlen (Requirements, Entwürfe), darunter 700 Pixel Leere mit Gradient-Blob. Kein "Was ist offen", keine letzten Änderungen, keine Audit-Blocker, keine Reviews, keine Suspect-Artefakte. Mit 7 Requirements sieht es aus wie mit einem.
+**Vorschlag.** Dashboard als Arbeitsvorrat: drei Spalten. Links "Meine Aufgaben" (zur Prüfung, zugewiesen, suspect). Mitte "Workspace-Gesundheit" (Audit-Blocker 26, Coverage 14 %, offene Risiken) mit Klick in die jeweilige Seite. Rechts "Zuletzt geändert" mit Actor und Zeit. Workspace-Wechsel wandert in den Sidebar-Kopf.
+
+### S3 Sidebar
+**Befund.** 26 Einträge in 5 Gruppen. Bei 900 px Höhe endet die Sichtbarkeit nach "Architektur", die Gruppen Test und Admin liegen unter dem Fold hinter einem kaum sichtbaren Chevron. Der Fußblock (EN, Heller Modus, Profil, Abmelden, Version) belegt 200 px. Der Viewer sieht Workspace-Einstellungen, System-Einstellungen und Benutzerverwaltung, klickt, und liest "You must be an admin" auf Englisch.
+**Vorschlag.** Fußblock auf eine Zeile: Avatar-Menü mit Sprache, Theme, Profil, Abmelden. Gruppen einklappbar, Zustand gemerkt. Einträge, die die Rolle nicht sehen darf, gar nicht rendern. Rollenlogik aus `useAuth().roles` in `NAV_ITEMS` als `requires`.
+
+### S4 Listen (alle Artefakttypen)
+**Befund.** Einheitliches Muster, gut: Suche, Statusfilter, Sortierung, Zähler. Drei Selects sind bei 1440 px auf "Standardreihenf…" abgeschnitten. Jede Zeile hat ein rotes ✕ zum Löschen direkt neben dem Status, auch für den Viewer. IDs sind achtstellige UUID-Fragmente (`2ee52249`), kein `REQ-001`. Badges `L1 SR` sind nur für Kenner lesbar. Die Zeile zeigt weder Owner noch Änderungsdatum noch Suspect-Status.
+**Vorschlag.** Zeile: ID-Badge links in Mono (`REQ-0042`), Titel, rechts Status-Badge und Änderungsdatum relativ ("vor 2 h"), Suspect als gelber Punkt vor dem Titel. Löschen aus der Zeile entfernen, nur im Detail und per Mehrfachauswahl. Filter als Chips über der Liste statt drei Selects. Tabellenansicht als zweiter Modus (Toggle Liste / Tabelle) mit wählbaren Spalten.
+
+### S5 Create-Dialoge
+**Befund.** Zwei Muster: Modal (Requirement, ADR, Risiko, Problem, Testfall, Diagramm, Testlauf, ICD) und Inline-Formular (Bedarf, Architektur, Glossar). Die Modale fragen Titel, Beschreibung, teils Kategorie. Die ICD-Modale ist bei 900 px Höhe abgeschnitten und zeigt vor dem ersten Feld einen Hinweis "mindestens zwei Architekturelemente nötig", statt den Button zu sperren. Die Baselines-Seite hat keinen Anlege-Button im Kopf, nur im ⋯-Menü. Der Bedarf-Button war für die Automation nicht als Button auffindbar (vermutlich Link).
+**Vorschlag.** Ein Muster: Modal für "schnell anlegen" mit den Pflichtfeldern aus der Attribut-Definition (N3), danach Sprung in das Detail. Immer derselbe Primärbutton oben rechts. Vorbedingungen (ICD braucht 2 Elemente, Goals braucht Toggle) als deaktivierter Button mit Tooltip, nicht als Fließtext im Dialog.
+
+### S6 Detailformulare
+**Befund je Typ.**
+- *Requirement:* Trace-Spine oben, Karte mit Titel und Speichern/Abbrechen, vier Sektionen, Inspector-Schiene rechts mit drei Icon-Buttons (« ⏱ ≅, Tooltips vorhanden), TraceLinks-Panel mit Upstream/Downstream, Ableiten, Testfall generieren, Ähnliche finden. Das reichste Formular. "Ähnliche finden" liefert 400. "Testfall-Entwurf"-Dialog ist ein leerer Kasten mit einem ungestylten nativen Button.
+- *Bedarf:* Kopfzeile anders (ID, Draft, v1 links; Löschen, Speichern rechts). Kategorie ist ein Freitextfeld, kein Select. Sonst gleiche Bausteine.
+- *Architektur:* "Rolle: Komponente" read-only und darunter "Element-Typ: component" als Freitext mit dem Hinweis "frei wählbare fachliche Klassifikation, von Hand gepflegt, kann von der Rolle abweichen". Zwei Typkonzepte, keines erklärt. KI-Zerlegung-Dialog mit weißen nativen Zahlenfeldern und ungestyltem Button.
+- *ADR:* drei Markdown-Editoren (Beschreibung, Kontext, Konsequenzen) mit je eigenem Bearbeiten/Vorschau-Tabpaar untereinander. Status read-only, kein "Status ändern".
+- *Risiko:* Risikomatrix und RPZ live berechnet. Status "Identified" (englisch) neben deutscher UI. Verantwortlicher ist Freitext.
+- *Testfall:* Titel, Beschreibung, Änderungsgrund. Kein `steps`-Editor, kein Testtyp sichtbar.
+- *Glossar:* Detail rechts fast leer, die Inspector-Icons hängen als Block unter "Verwendungen" mitten im Inhalt (Layoutfehler). Keine Spine.
+- *ICD:* Vertragsspezifikation, Vor-, Nachbedingungen, Invarianten als leere Felder mit "—". Schnittstellentyp leer. Keine Spine.
+- *Diagramm:* Typ, Format, Version, Code/Visuell-Toggle, Editor öffnen. Gut. Aber "Graph-Editor" auf einem Mermaid-Diagramm zeigt "Noch keine Knoten" und würde beim Speichern das Format wechseln.
+- *Testlauf:* Karte mit Zählern, "Diesem Testlauf sind keine Testfälle zugewiesen", kein Button zum Zuweisen. Testfälle können also nur per API in einen Lauf.
+- *Interview:* Liste mit "Interview → Risiko", Detail "Interview-Sitzung auswählen" und danach ein Chat-Pane, der wegen R5 nichts antwortet.
+**Vorschlag.** Ein `ArtifactForm`-Renderer (N3) mit fester Kopfzeile: links ID-Badge, Status-Badge, Versions-Badge, Suspect-Punkt; rechts Aktionen in fester Reihenfolge (Speichern, Status ändern, ⋯ mit Löschen, Diff, Historie). Sektionen aus der Definition. Alle Selects aus Enum-Choices, nie Freitext für Kategorie, Typ oder Verantwortlichen. Testlauf bekommt "Testfälle zuweisen" als Multi-Select. ADR bekommt einen Editor mit drei Reitern statt drei Editoren. KI-Dialoge nutzen dieselben Feldkomponenten wie Formulare.
+
+### S7 Trace-Link-Dialog
+**Befund.** Quelle und Ziel mit Typ-Chips (Anforderung, Architektur, Testfall, ADR, Risiko, Problem), Titelfilter, Link-Typ-Select mit Default "Ableitung". Bedarf, Ziel, Glossar, ICD, Diagramm fehlen in den Chips. Der Dialog erklärt nicht, welche Typen zwischen den gewählten Artefakten erlaubt sind, der Server lehnt danach ab ("SE mode: 'verifies' is not valid from StakeholderNeed to Requirement").
+**Vorschlag.** Link-Typ-Select filtert nach gewähltem Quell- und Zieltyp aus der Erlaubt-Matrix. Unter dem Select ein Satz in Klartext: "Testfall *verifiziert* Anforderung". Richtungspfeil zwischen Quelle und Ziel mit Tausch-Button. Alle Artefakttypen in den Chips.
+
+### S8 Verknüpfungen-Seite
+**Befund.** Gruppen nach Typ mit englischen Namen ("Derivation", "Satisfaction", "Realization") in deutscher UI. Zeilen zeigen Typ plus UUID-Fragment, keine Titel. Kopf "0/7 Anforderungen verifiziert · 7 ohne Test", obwohl ein `verifies`-Link existiert (Coverage zählt anders als die Metrik-Seite, die 1/7 sagt). Rechts eine Impact-Analyse-Karte mit Artefakt-Select, die auf `/impact` führt, wo man den Namen erneut tippen muss.
+**Vorschlag.** Zeile: Quelltitel, Pfeil mit Typ-Label, Zieltitel, Suspect-Warnung, Erstellt-von. Gruppen-Labels aus i18n. Ein Coverage-Begriff für Traceability-Seite, Metriken und Auditor. Impact direkt inline im rechten Panel statt Seitenwechsel.
+
+### S9 Auswirkungsanalyse
+**Befund.** Leere Seite mit Suchfeld "Name oder ID" und Button. Kein Vorschlag, keine Historie, kein Deep-Link aus Artefakten.
+**Vorschlag.** Seite entfällt als eigener Nav-Eintrag. Impact wird Inspector-Reiter im Artefakt (neben Historie und Diff) und bekommt eine Route `/impact/:id` für Deep-Links.
+
+### S10 Freigaben
+**Befund.** Typ-Chips für 12 Artefakttypen, Liste leer, obwohl Übergänge stattfanden. Für den Auditor unklar, was hier erscheint (nur signature_gate-Transitions?).
+**Vorschlag.** Queue zeigt alle Artefakte in Zuständen, die eine Approver-Rolle verlangen, gruppiert nach "wartet auf mich" und "wartet auf andere". Leerzustand erklärt die Regel.
+
+### S11 SE-Auditor
+**Befund.** Fachlich stark: 26 Blocker gruppiert nach Regel, Übernehmen/Anpassen. Aber Texte durchgängig Englisch mit rohen UUIDs im Fließtext ("Requirement 00a8c344-cebc-4b7f-… is allocated to ArchitectureElement b848853c-…"), Chips mit abgeschnittenen IDs, kein Link zum Artefakt im Text.
+**Vorschlag.** Regeltexte als i18n-Templates mit Platzhaltern, Artefakte als klickbare Chips mit Titel, UUIDs nur im Tooltip. Regel-ID als Badge mit Erklärung auf Hover. Filter "nur meine Artefakte".
+
+### S12 Metriken
+**Befund.** Fünf Kacheln, Ampelpunkte, Workspace-UUID als Fließtext unten. "Nicht berechnet" ohne Grund. Keine Verläufe.
+**Vorschlag.** Kacheln klickbar in die gefilterte Liste (Coverage → "nicht abgedeckte Anforderungen"). Sparkline über 30 Tage. UUID raus.
+
+### S13 Baselines
+**Befund.** Anlegen nur über ⋯-Menü. Create scheitert bei Audit-Blockern serverseitig, die UI erklärt das erst nach dem Klick.
+**Vorschlag.** Primärbutton "Neue Baseline" oben rechts wie überall. Vor dem Dialog Vorprüfung: "3 Blocker verhindern eine Baseline" mit Link zum Auditor, Button deaktiviert.
+
+### S14 Import/Export
+**Befund.** Drei Blöcke (CSV-Import, ReqIF-Import mit Testlauf-Option, CSV-Export) untereinander. Funktional, unspektakulär, zwei unbeschriftete Inputs.
+**Vorschlag.** Reiter Import/Export, Vorschau der ersten 10 Zeilen vor dem Import, Feld-Mapping aus der Attribut-Definition.
+
+### S15 Einstellungen
+**Befund.** Sechs Tabs, Preset-Karten gut erklärt. Tab "Sichtbarkeit" zeigt die Attribut-Konfiguration mit `core`-Kennzeichnung, aber nur für Anforderung. Terminologie-Profil, LLM & Prompts vorhanden. 107 Inline-Styles auf dieser Seite.
+**Vorschlag.** Das ist die Vorlage für den Attribut-Editor (N4). Entitätstyp-Select um alle Typen erweitern, Spalten Reihenfolge, Sektion, Label, Hilfetext ergänzen.
+
+### S16 System-Einstellungen, Profil, Benutzerverwaltung
+**Befund.** Systemstatus hinter Button versteckt. "Tri-Label-Übersicht … 14 TraceLink-Typen" (Backend hat 15). Backup-Sektion mit Grund und Modus. Profil: Name, API-Tokens (Erstellt, zuletzt verwendet), "Mein Memory", Sichtbarkeit. Benutzerverwaltung als einfache Tabelle mit Aktivieren/Deaktivieren/Tenant-Admin, keine Workspace-Rollen-Zuweisung sichtbar.
+**Vorschlag.** Systemstatus als Ampelzeile im Tab-Kopf. Zahl 14 korrigieren. Benutzerverwaltung bekommt Spalte "Rollen je Workspace" mit Inline-Editor, sonst muss jede Rollenzuweisung per API passieren.
+
+### S17 Workflow-Editor
+**Befund.** Beste Seite des Systems. Graph mit Zuständen, Übergängen, Inspector, Nur-Lesen-Toggle, Export. Preset-Umschalter unten links.
+**Vorschlag.** Als Shell für den Attribut-Editor wiederverwenden (N4 Schritt 4). Übergänge zeigen `signature_gate` und `allowed_roles` als Icons am Pfeil.
+
+### S18 Suche, Theme, Sprache
+**Befund.** Sidebar-Suche funktioniert, Typlabels als rohe Enum-Namen in Versalien ("STAKEHOLDERNEED"), Liste bei 6 Treffern abgeschnitten, kein Tastaturhinweis. Theme-Toggle wirkt lokal, Persistenz scheitert an R2. **Sprachumschaltung schreibt `language` auf den Workspace** (PATCH workspaces/<id>/), nicht auf den User: ein Viewer kann die Sprache nicht wechseln, ein Admin wechselt sie für alle.
+**Vorschlag.** Typlabels aus i18n, Treffer gruppiert nach Typ, Enter öffnet, `/` fokussiert die Suche. Sprache als User-Präferenz, Workspace-Sprache nur als Default für neue User und für Server-Texte.
+
+### S19 Interview-Widget
+**Befund.** Schwebender Button rechts unten ohne aria-label. Popover mit Typ-Chips und "Ich weiß noch nicht genau, was ich brauche". Das Popover bleibt über Seitenwechsel offen und überlagert Formulare. "Per Interview erstellen" im Seitenkopf führt auf die Interviews-Liste statt ein Interview zu starten.
+**Vorschlag.** Ein Einstieg: "Per Interview erstellen" öffnet das Widget mit vorgewähltem Typ der aktuellen Seite. Popover schließt bei Navigation. aria-label "Interview starten".
+
+### S20 Responsive
+**Befund.** 768 px: Sidebar wird Hamburger, Split-View bleibt zweispaltig mit 380 px Liste und drei auf "Al…" abgeschnittenen Selects. 390 px: kein horizontaler Scroll, Dashboard brauchbar.
+**Vorschlag.** Unter 1024 px Split-View stapeln (Liste, dann Detail als Vollbild mit Zurück), wie im Konzept Kap. 6.3 beschrieben.
+
+---
+
+## T. Rollenbasierte Sicht
+
+### T1 Live-Befund Viewer
+Login als `auditviewer` (Rolle viewer): Navigation zeigt alle 26 Einträge inklusive Workspace-Einstellungen, System-Einstellungen, Benutzerverwaltung. Requirements-Liste zeigt "+ Neue Anforderung", "Per Interview erstellen", rotes ✕ an jeder Zeile. Requirement-Detail zeigt Speichern, Abbrechen, Status ändern, Ableiten, Testfall generieren, editierbare Felder. Erst der Server lehnt ab. Admin-Seiten antworten "You must be an admin to view or edit Workspace Settings" auf Englisch.
+
+Das ist die Definition einer Oberfläche ohne Rollenkonzept: sie zeigt jedem alles und lässt den Server nein sagen.
+
+### T2 Drei Sichten statt einer
+
+| Sicht | Für wen | Was sie zeigt |
+|---|---|---|
+| **Leser** (viewer) | Stakeholder, Auditor, Kunde | Listen und Details read-only, keine Buttons außer Kommentar (Q1.1), Export, Impact. Dokument-Lesemodus (Q1.4) als Default-Einstieg. Navigation: Dashboard, Artefakte, Verknüpfungen, Baselines, Freigaben (nur eigene). |
+| **Autor** (editor) | Requirements Engineer, Entwickler | Alles aus Leser plus Anlegen, Bearbeiten, Verlinken, Interview, KI-Vorschläge. Statuswechsel nur bis zur Freigabe-Grenze. Navigation ohne Admin-Gruppe. |
+| **Experte** (admin, approver) | Lead Engineer, Prozessverantwortlicher | Alles plus Freigaben, Baselines anlegen, Workflow- und Attribut-Editor, Auditor mit Übernehmen, Massenbearbeitung, Einstellungen. Zusätzlich ein Schalter "Expertenmodus" in der Detailansicht, der Klassifikation, Custom Fields, Änderungskontrolle und Inspector standardmäßig ausklappt. |
+
+Umsetzung: `roles` liegt schon im Login-Response. `NAV_ITEMS` bekommt `requires: "admin" | "editor" | null`. `ArtifactForm` bekommt `mode: "read" | "edit"`, abgeleitet aus Rolle und Workflow-Zustand (approved ist auch für Editor read-only, außer über Transition). Buttons, die die Rolle nicht ausführen darf, werden nicht gerendert, nicht nur deaktiviert. Der Expertenmodus ist eine User-Präferenz, kein Recht.
+
+### T3 Normaler Anwender und Experte im selben Formular
+Der normale Anwender braucht: Titel, Beschreibung, Abnahmekriterien, Status, Links zu Bedarf und Test. Der Experte braucht zusätzlich: Typ, Ebene, Komplexität, Verifikationsmethode, Custom Fields, Änderungsgrund-Historie, Diff, Suspect-Ursache. Vorschlag: Sektionen "Allgemein" und "Verknüpfungen" immer offen, "Klassifikation", "Benutzerdefinierte Felder", "Änderungskontrolle" standardmäßig eingeklappt, Expertenmodus klappt sie auf. Die Attribut-Definition (N3) bekommt dafür ein Feld `audience: basic | expert`.
+
+---
+
+## U. Traceability und Decomposition, live bewertet
+
+### U1 Was funktioniert
+- Link-Anlage mit Titel-Auflösung, Duplikatschutz ("already exists"), Zyklenschutz (Selbstlink "Cycle detected").
+- Erlaubt-Matrix im SE-Modus existiert im Service (Korrektur zu Q1.6 und Q2.4): "verifies not valid from StakeholderNeed to Requirement. Allowed: TestCase->ArchitectureElement, TestCase->Requirement".
+- Impact-Abfrage liefert Typ, Titel, Link-Typ, Tiefe, Pfad.
+- Auditor-Regeln (TRACE-P1, P2, P5, VERIF-P8, ARCH-003) reagieren sofort auf fehlende Links.
+- Allocation-Coverage je Architekturelement.
+
+### U2 Was nicht funktioniert
+| Befund | Beleg | Schwere |
+|---|---|---|
+| **Suspect-Propagation tot.** Upstream-Requirement geändert (mit Änderungsgrund): Kind-Requirement, Testfall, Architekturelement, Bedarf alle `suspect: false`. Der Requirement-Serializer liefert `suspect` gar nicht | seed4 Lauf | **H** |
+| Erlaubt-Matrix lückenhaft: `verifies` von Risk nach Requirement wird akzeptiert, von Need nach Requirement abgelehnt | l_bad1 201 | H |
+| `parent_id` beim Create wird still verworfen, kein automatischer Hierarchie-Link | R3 | H |
+| Drei Hierarchie-Mechanismen: `parent_id`-Feld, Link `parent-child` ("legacy" laut UI) und Link `decomposes`. Beide Links gleichzeitig zwischen demselben Paar erlaubt | l_pc und l_decomp beide 201 | M |
+| Glossar nicht verlinkbar, `uses-term` unerreichbar | 404 "Entity not found" | M |
+| Pfad-Abfrage nur in Linkrichtung: Bedarf→Testfall "No path", obwohl die Kette Need←derives-from←Req←verifies←TC existiert | path 404 | M |
+| Drei Coverage-Zahlen: Verknüpfungen-Seite "0/7 verifiziert", Metriken 14,3 % (1/7), Allocation 28,6 % | Screenshots, REST | M |
+| Link-Zeilen ohne Titel, Gruppen mit englischen Namen | S8 | M |
+| Tri-Label-Übersicht spricht von 14 Typen, Backend hat 15, FE-Union 14 | S16, B4 | N |
+
+### U3 Ist die eingebaute Traceability sinnvoll?
+Das Modell ist richtig gedacht (Artefakt-Graph, typisierte Kanten, Auditor auf dem Graphen) und in drei Punkten zu breit: 15 Typen, drei Hierarchiemechanismen, keine Richtungsregeln. Für die Praxis empfehle ich eine Reduktion auf **acht Kern-Typen mit fester Semantik**:
+
+| Typ | Von → Nach | Bedeutung | Suspect-Verhalten |
+|---|---|---|---|
+| derives-from | Requirement → Need oder Requirement | Herkunft | Änderung am Ziel macht Quelle suspect |
+| decomposes | Requirement → Requirement (Ebene n → n+1), ArchitectureElement → ArchitectureElement | Hierarchie, ersetzt parent_id und parent-child | Änderung am Elternteil macht Kinder suspect |
+| allocated-to | Requirement → ArchitectureElement | Zuordnung | Änderung am Requirement macht Element suspect |
+| satisfies | ArchitectureElement → Requirement | Erfüllung (Gegenrichtung von allocated-to, eine der beiden streichen) | wie allocated-to |
+| verifies | TestCase → Requirement oder ArchitectureElement | Nachweis | Änderung am Ziel macht TestCase suspect |
+| decides | ADR → beliebig | Entscheidung betrifft | keine |
+| mitigates | Risk → Requirement oder ArchitectureElement (neu, fehlt heute) | Maßnahme | keine |
+| references | beliebig → Glossar, Diagramm, ICD, Dokument | schwacher Bezug, ersetzt uses-term, diagram-ref, documents, traces | keine |
+
+Gestrichen: parent-child, refines (zu derives-from), implements (zu allocated-to), realizes (zu decomposes), copy-of (wird Feld `copied_from`), traces (zu references). Jeder Typ trägt in `types.py`: erlaubte Paare, Richtung, Coverage-Relevanz, Suspect-Regel, Impact-Gewicht. Der Trace-Link-Dialog liest das und zeigt nur Gültiges (S7). Das ist ein Tag Modellarbeit und eine Migration mit Typ-Mapping.
+
+---
+
+## V. Attribute, live bewertet
+
+Requirement liefert live: acceptance_criteria, artifact_id, atomicity_warning, category, complexity_fibonacci, created_at, custom_fields, description, id, level, parent_id (immer null), status, title, type, uid (**immer null**), updated_at, verification_method, version, workspace_id. Es fehlen: rationale, source, owner, priority, suspect, tags, external_ref, created_by, modified_by.
+
+| Befund | Schwere |
+|---|---|
+| `uid` ist null, die UI zeigt UUID-Fragmente. Kein Nummernkreis `REQ-0001`, kein Prefix pro Workspace | H |
+| Kein owner auf Requirement, Need, Architektur, Testfall. Risk hat Freitext "Verantwortlicher", Issue hat assignee_id | H |
+| Kein rationale, kein source. Das Interview sammelt "rationale" und legt es in description ab | H |
+| Priority nur auf Need (MoSCoW). Requirement hat complexity_fibonacci, aber keine Priorität | M |
+| `type` (SyReq, UseCase, FeatureReq) und `category` (functional, non-functional, api, ui-ux, data, integration) überlappen konzeptuell; UI nennt beides "Anforderungstyp" bzw. "Kategorie" | M |
+| Architektur: `element_type` Freitext und `role` read-only, zwei Konzepte für dasselbe | M |
+| Testfall: `test_type` im Modell, nicht im Serializer, nicht in der UI. `steps` ohne Editor | M |
+| Attribut-Sichtbarkeit nur für Requirement konfigurierbar, wird vom Requirement-Formular nicht gelesen | M (bekannt aus N1) |
+| Enum-Werte sind über die API nicht entdeckbar, Fehlermeldungen nennen sie nicht | M |
+| Unbekannte Felder werden still verworfen | H (R3) |
+
+Empfehlung: siehe D3 Punkt 1 und N4 Schritt 1. Zusätzlich sofort: `uid` beim Create vergeben (`<PREFIX>-<laufende Nummer>` je Workspace und Typ), Serializer auf `unknown fields -> 400` stellen, Enum-Choices in `describe_schema` ausliefern.
+
+---
+
+## W. GitHub- und Jira-Anbindung: Machbarkeit über MCP, REST und UI
+
+### W1 Was heute da ist
+Webhook-Dispatcher mit 33 Events, HMAC, Outbox, DLQ (E1). MCP mit 172 Tools. REST vollständig für CRUD. Kein `external_ref`-Feld auf irgendeinem Artefakt, kein Webhook-Empfänger, keine OAuth-App-Registrierung, keine Idempotenz-Schlüssel auf Create.
+
+### W2 Drei Stufen
+
+**Stufe 1, Link-Only (1 Woche).** Neue Entität `ExternalRef(artifact, system: github|jira|gitlab, external_id, url, kind: issue|pr|epic, last_seen_status, synced_at)`. REST `artifacts/<id>/external-refs/`, MCP `artifact.link_external`, `artifact.list_external`. UI: Chip neben dem Status-Badge ("GH #142 · open") mit Link, Dialog "Extern verknüpfen" mit URL-Paste, das System erkennt GitHub- und Jira-URLs. Traceability: `references`-Link zu einem virtuellen Artefakt vom Typ ExternalRef, damit Impact und Spine es zeigen. Kein Sync, aber Sichtbarkeit.
+
+**Stufe 2, Inbound-Sync (2 Wochen).** Webhook-Empfänger `POST /api/v1/integrations/github/webhook/` und `/jira/webhook/` mit Signaturprüfung. Events issue.opened, issue.closed, issue.labeled, pull_request.merged aktualisieren `last_seen_status` und lösen Regeln aus: "PR gemerged, das `implements`-Requirement wird `implemented`", "Issue geschlossen, das verknüpfte Problem wird `resolved`". Regeln als Workflow-Transition-Trigger im Workflow-Editor (Übergang mit Quelle "extern: github.pr.merged"). Konfiguration unter System-Einstellungen, Tab "Integrationen": App-ID, Secret, Repo-Liste, Regeltabelle.
+
+**Stufe 3, Outbound und Agent (2 Wochen).** Outbox-Events auf GitHub/Jira abbilden: Requirement approved erzeugt Issue mit Link zurück, Testfall failed erzeugt Bug. Umsetzung als Webhook-Subscription mit Template statt Spezialcode: der Webhook-Dispatcher bekommt einen Adapter je Zielsystem (`GitHubIssueAdapter`, `JiraIssueAdapter`), der das Event in einen API-Call übersetzt. Für Agenten: MCP-Tools `integration.github.create_issue(artifact_id)`, `integration.jira.sync(artifact_id)`, und im Interview-Grounding werden ExternalRefs als Kontext mitgegeben ("Zu diesem Requirement gibt es PR #142, gemerged am …").
+
+**UI-Zielbild.** Im Artefakt: Sektion "Extern" mit Chips, Status-Spiegel und "Öffnen in GitHub". In der Liste: Spalte "Extern" mit Icon. In den Verknüpfungen: Gruppe "Extern". Im Dashboard: "3 Requirements haben gemergte PRs, aber Status draft".
+
+**Voraussetzungen aus diesem Audit:** E2.1 (Key-Scopes), E2.2 (Webhook-Self-Service), R2 (Schreiben aus der UI), V (uid, owner, external_ref).
+
+---
+
 ## O. Priorisierung (gesamt)
 
 | Rang | Befund | Warum zuerst |
 |---|---|---|
+| P0 | R2 CSRF-Cookie `Secure` über HTTP | Kein Schreibzugriff aus der UI auf der Live-Instanz. Eine Zeile in settings.py plus Banner. |
+| P0 | R5 + R7 KI-Robustheit: Health ohne Probe, 180-s-Timeout bei non-retryable, Validate parst Zehnerskala nicht, Konsistenz stirbt an Nicht-JSON, keine Embeddings, Antworten Englisch | Provider-Konfiguration ist inzwischen korrigiert. 7 von 11 KI-Pfade liefern gute Ergebnisse. Die 4 toten sind Parser- und Pipeline-Fehler, keine Modellfehler. Zwei Tage. |
+| P0 | U2 Suspect-Propagation tot, `suspect` nicht im Serializer | Kernversprechen von Traceability. Ohne das ist jede Änderung upstream unsichtbar. |
+| P0 | T1 Viewer sieht alle Schreib-Buttons und Admin-Navigation | Rollen existieren serverseitig, die UI kennt sie nicht. `requires` an NAV_ITEMS und `mode` an Formulare. |
 | 0 | H5.1 bis H5.3 Claude Code verdrahten, GET-405, OpenCode-Klammern | Drei Quick-Fixes unter zwei Stunden. Danach funktionieren die zwei wichtigsten Clients überhaupt erst. |
+| 0a | R3 Unbekannte Felder still verworfen, `parent_id` read-only, Filter still ignoriert, `page=99` gibt 500, Batch-JSON-RPC 500 | API-Hygiene, jeweils kleine Fixes, zusammen ein Tag. |
 | 1 | C1 OpenAPI leer für 43 Views | Jeder Client, auch das eigene FE, arbeitet ohne Vertrag. Ursache von B4, E2.4 und künftigen Drifts. |
 | 2 | E2.1 API-Key-Scopes | Ohne Scopes kann kein Plugin an Dritte gehen. Kleiner Eingriff, große Wirkung. |
 | 1a | Q1.1 Owner, Kommentare, Benachrichtigungen | Kein Konzeptbruch, schlicht fehlend. Größter Nutzwert pro Aufwand für die SE-Zielgruppe. |
@@ -648,7 +975,9 @@ Das Fundament ist ungewöhnlich stark für ein POC. Die Lücken liegen nicht in 
 
 ## P. Nicht bewertet
 
-- Live-Rendering, Kontraste, Fokus-Reihenfolge, Tastaturpfade (Docker nicht verfügbar).
+- Kontraste, Fokus-Reihenfolge, Tastaturpfade, Screenreader (nur Sichtprüfung der Screenshots).
+- Schreibpfade aus der UI konnten wegen R2 nur bis zum 403 geprüft werden; Formular-Validierung, Speichern-Feedback und Signature-Gates in der UI bleiben offen.
+- Hermes-Plugins nicht gegen eine echte Hermes-Instanz getestet.
 - Performance, N+1, Query-Pläne.
 - Security-Tiefe jenseits der Sichtprüfung von Auth, RBAC-Gate und Tenancy-Registrierung.
 - Diagramm-Editoren (Canvas, Mermaid, Graph) inhaltlich, nur Theming-Bruch erfasst.
