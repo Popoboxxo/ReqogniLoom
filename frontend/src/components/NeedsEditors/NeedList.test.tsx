@@ -78,3 +78,24 @@ describe("NeedList — create form has description/category fields (BUG-11)", ()
     expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
   });
 });
+
+describe("NeedList — title field has an accessible label and a localized placeholder (#805)", () => {
+  it("associates the visible label with the title input via htmlFor/id", () => {
+    renderList();
+
+    // getByLabelText only succeeds when label and input are programmatically
+    // associated (htmlFor === id) — an unassociated <label> next to the
+    // input (the pre-fix state) would fail this lookup even though both
+    // elements are visually present.
+    const titleInput = screen.getByLabelText("Titel");
+    expect(titleInput).toBe(screen.getByTestId("need-new-title-input"));
+  });
+
+  it("shows a German placeholder instead of the English literal fallback", () => {
+    renderList();
+
+    const titleInput = screen.getByTestId("need-new-title-input") as HTMLInputElement;
+    expect(titleInput.placeholder).not.toMatch(/as a user, i need/i);
+    expect(titleInput.placeholder).toBe("z. B. Als Nutzer benötige ich ...");
+  });
+});
