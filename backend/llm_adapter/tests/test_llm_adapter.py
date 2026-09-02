@@ -1221,3 +1221,132 @@ class TestDeriveRequirementsAcrossProviders:
         monkeypatch.setattr(provider, "_chat", _capture)
         provider.derive_requirements("need-XYZ")
         assert "need-XYZ" in captured["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-002 — validate_artifact must not leak a raw JSONDecodeError (#576)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateArtifactMalformedJsonAcrossProviders:
+    """Regression for #576 (reopened): every real provider's
+    ``validate_artifact`` used a bare ``json.loads(text)`` on the raw LLM
+    completion. A completion that is not strict JSON (markdown-fenced, or
+    genuinely malformed/truncated) raised an uncaught ``json.JSONDecodeError``
+    that propagated out of ``CapabilityRouter`` as a provider-error dict whose
+    message was the raw parser text ("Expecting value: line 1 column 1
+    (char 0)") — which then surfaced verbatim in the client-facing MCP/REST
+    error envelope instead of a structured result.
+
+    These tests use mocked transports (no network, no provider SDK) so they
+    exercise the real ``validate_artifact`` parsing path for every HTTP
+    provider that implements it.
+    """
+
+    def _make_chat_based_providers(self):
+        """Providers whose validate_artifact goes through _chat/_invoke_chat."""
+        from llm_adapter.providers import (
+            AzureOpenAiProvider,
+            OllamaProvider,
+            OpenAiProvider,
+            OpencodeGoProvider,
+            ProviderConfig,
+        )
+
+        return [
+            OpenAiProvider(ProviderConfig(provider_name="openai")),
+            OllamaProvider(
+                ProviderConfig(
+                    provider_name="ollama", api_base_url="http://localhost:11434"
+                )
+            ),
+            AzureOpenAiProvider(
+                ProviderConfig(provider_name="azure", azure_deployment="dep")
+            ),
+            OpencodeGoProvider(ProviderConfig(provider_name="opencode_go")),
+        ]
+
+    def _make_anthropic_provider_with_response(self, text: str):
+        """AnthropicProvider.validate_artifact builds its own SDK client call
+        instead of going through ``_chat``, so it needs a fake ``anthropic``
+        module rather than a ``_chat`` monkeypatch (mirrors
+        ``test_provider_contracts._fake_anthropic_module``)."""
+        import types
+        from unittest.mock import MagicMock
+
+        from llm_adapter.providers import AnthropicProvider, ProviderConfig
+
+        def _anthropic_ctor(**kwargs):
+            client = MagicMock()
+            message = MagicMock()
+            message.content = [MagicMock(text=text)]
+            message.usage = MagicMock(input_tokens=1, output_tokens=1)
+            client.messages.create.return_value = message
+            return client
+
+        fake_module = types.ModuleType("anthropic")
+        fake_module.Anthropic = _anthropic_ctor
+        provider = AnthropicProvider(ProviderConfig(provider_name="anthropic"))
+        return provider, fake_module
+
+    def test_validate_artifact_strips_markdown_fences(self, monkeypatch):
+        import sys
+        from unittest.mock import patch
+
+        fenced = '```json\n{"score": 0.8, "suggestions": ["s1"]}\n```'
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(provider, "_chat", lambda prompt: (fenced, 5))
+            result = provider.validate_artifact("REQ-1", title="t", content="c")
+            assert result.score == 0.8
+            assert result.suggestions == ["s1"]
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            fenced
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.validate_artifact(
+                "REQ-1", title="t", content="c"
+            )
+        assert result.score == 0.8
+        assert result.suggestions == ["s1"]
+
+    def test_validate_artifact_degrades_gracefully_on_malformed_json(
+        self, monkeypatch
+    ):
+        """The core #576 regression: malformed JSON must not raise.
+
+        Instead of an uncaught ``json.JSONDecodeError`` bubbling all the way
+        up to the MCP/REST error envelope as a raw parser message, the
+        provider now returns a structured, zero-confidence ``LlmResult`` so
+        ``requirement.validate`` always answers with machine-readable JSON.
+        """
+        import sys
+        from unittest.mock import patch
+
+        from llm_adapter.interface import LlmResult
+
+        def _assert_degrades(provider):
+            assert isinstance(result, LlmResult), (
+                f"{type(provider).__name__}.validate_artifact raised or "
+                "returned a non-LlmResult on malformed JSON"
+            )
+            assert result.score == 0.0
+            assert isinstance(result.suggestions, list)
+            assert result.suggestions, "expected an explanatory suggestion"
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: ("not json at all", None)
+            )
+            result = provider.validate_artifact("REQ-1", title="t", content="c")
+            _assert_degrades(provider)
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            "not json at all"
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.validate_artifact(
+                "REQ-1", title="t", content="c"
+            )
+        _assert_degrades(anthropic_provider)
