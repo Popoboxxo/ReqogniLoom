@@ -516,11 +516,28 @@ class ImportService(ServiceBase):
             created_at = identity.get("created_at")
             modified_at = identity.get("modified_at") or identity.get("updated_at")
 
+            # ---- TestCase subtype tag (#768) ----
+            # ``artifact_type_tag`` is a single value for the whole batch, but a
+            # TestCase CSV can carry different ``test_type`` values per row (as
+            # produced by ExportService and TestService.create_test_case, which
+            # tag the backing Artifact as "TestCase:{test_type}" — see
+            # test_service.list_test_cases' filter on that exact string). Using
+            # the batch-wide tag for every row would silently collapse all
+            # imported test cases onto one subtype (or none), making them
+            # unfindable via list_test_cases(test_type=...). Derive the tag from
+            # each row's own (already-parsed) ``test_type`` cell instead, falling
+            # back to the batch default for rows that omit the column.
+            row_artifact_type = artifact_type_tag
+            if entity_type == "TestCase":
+                row_test_type = content.get("test_type")
+                if row_test_type:
+                    row_artifact_type = f"TestCase:{row_test_type}"
+
             # ---- Backing Artifact (every entity type has one) ----
             artifact_kwargs: Dict[str, Any] = dict(
                 tenant=tenant,
                 workspace=workspace,
-                artifact_type=artifact_type_tag,
+                artifact_type=row_artifact_type,
             )
             if preserved_artifact_id is not None:
                 artifact_kwargs["id"] = preserved_artifact_id
