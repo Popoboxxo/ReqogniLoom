@@ -90,7 +90,7 @@ def _build_adjacency_from_edges(
     :func:`_dfs_has_cycle_to`), so every write-path caller (create(),
     batch_create(), validate_graph_integrity() — #629) feeds this from a
     ``values_list()`` query instead of materializing whole ``TraceLink``
-    objects (with their 1536-dim embedding vector) per existing link.
+    objects (with their wide pgvector embedding) per existing link.
     """
     adj: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
     for source_id, target_id in edges:
@@ -206,7 +206,7 @@ class TraceLinkManager:
     ) -> "QuerySet[TraceLink]":
         """Shared filter-building for get_trace_links()/get_trace_links_queryset().
 
-        Review fix (F7, follow-up to #571): ``embedding`` (1536-dim
+        Review fix (F7, follow-up to #571): ``embedding`` (a wide pgvector
         VectorField) is deferred here — for *every* caller, not just the
         paginated REST listing — because ``get_trace_links()`` used to also be
         called eagerly, tenant-wide (no workspace filter), on every single
@@ -263,7 +263,7 @@ class TraceLinkManager:
 
         Fix #571: ``GET /api/v1/tracelinks/?workspace_id=...`` used to call
         ``get_trace_links()``, which materializes *every* matching row —
-        including ``select_related("source", "target")`` and the 1536-dim
+        including ``select_related("source", "target")`` and the wide pgvector
         ``embedding`` VectorField per row — before pagination ever gets a
         chance to slice it. At ~2000 links in a workspace that OOM-killed the
         worker (512 MB container limit) regardless of the requested
@@ -449,7 +449,7 @@ class TraceLinkManager:
         # Tarjan SCC on the full tenant graph at transaction end (REQ-L2-TE-003).
         # #629: values_list(), not list(TraceLink.objects.all()) -- cycle
         # detection only reads the two FK id columns, so materializing full
-        # TraceLink rows (with their 1536-dim embedding vector) here was the
+        # TraceLink rows (with their wide pgvector embedding) here was the
         # same OOM shape as #571, on every batch_create() call.
         edges = TraceLink.objects.all().values_list("source_id", "target_id")
         adj = _build_adjacency_from_edges(edges)

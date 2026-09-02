@@ -397,14 +397,15 @@ def _run_semantic_query(
     Degrades to [] on ANY error and NEVER raises -- REQ-L3-SEARCH-009's
     "degrade gracefully" precedent (same philosophy as
     ``memory/context_builder.py``). This matters concretely, not just
-    theoretically: ``Requirement.embedding``/``TraceLink.embedding``/
-    ``IcdVersion.embedding`` are hardcoded 1536-dim (OpenAI-shaped) columns,
-    while the new default ``EMBEDDING_PROVIDER=sentence-transformers``
-    produces 384-dim vectors -- so under the shipped default configuration,
-    every query embedding is dimension-mismatched against these columns and
-    pgvector raises a DB-level error the moment the comparison actually
-    touches a non-NULL embedding row. Semantic search must never take
-    fulltext/lexical results down with it when that happens.
+    theoretically: pgvector raises a DB-level error the moment a
+    dimension-mismatched query vector is compared against a non-NULL embedding
+    row. Since #794 the shipped default no longer produces that mismatch (all
+    embedding columns are sized from
+    ``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``, which
+    tracks the default provider), but an operator can still reintroduce it by
+    switching ``EMBEDDING_PROVIDER`` to a different native width without
+    resizing the columns. Semantic search must never take fulltext/lexical
+    results down with it when that happens.
 
     The whole query additionally runs inside its own ``transaction.atomic()``
     savepoint: a dimension-mismatch error is a real Postgres-level error
@@ -421,34 +422,25 @@ def _run_semantic_query(
     if entity_type not in _EMBEDDABLE_TYPES or not query_embedding:
         return []
 
-    # Final whole-branch review Finding 5: under the shipped default
-    # (EMBEDDING_PROVIDER=sentence-transformers, 384-dim) every query
-    # embedding is dimension-mismatched against these hardcoded 1536-dim
-    # (OpenAI-shaped) columns -- see this function's docstring. Without this
-    # guard, EVERY search request touching a non-NULL embedding row hit the
-    # DB-level DataError caught below, logged via logger.exception (full
-    # traceback), forever, on every default deployment. Short-circuit BEFORE
-    # issuing the query, exactly mirroring the write-side guard already in
-    # place (RequirementService._generate_and_store_embedding, Task 12):
-    # compare the vector length against the column's declared dimension and
-    # skip cleanly instead of paying for a doomed DB round-trip.
+    # Final whole-branch review Finding 5: without this guard, EVERY search
+    # request touching a non-NULL embedding row under a dimension-mismatched
+    # configuration hits the DB-level DataError caught below and logs a full
+    # traceback via logger.exception. Short-circuit BEFORE issuing the query,
+    # exactly mirroring the write-side guard (RequirementService.
+    # _generate_and_store_embedding): compare the vector length against the
+    # column's declared dimension and skip cleanly instead of paying for a
+    # doomed DB round-trip.
     field_dimensions = _embedding_field_dimensions(entity_type)
     if field_dimensions is not None and len(query_embedding) != field_dimensions:
-        # logger.debug (not .exception/.warning): this is now an EXPECTED,
-        # handled condition under the default config, not an anomaly -- a
-        # full traceback (or even a one-line warning) on every single
-        # request would just be quieter log spam, not a fix. Mirrors
-        # RequirementService._generate_and_store_embedding's identical
-        # dimension-mismatch skip, which uses the same log level for the
-        # same reason.
-        logger.debug(
-            "SearchService: semantic query skipped for entity_type=%s -- "
-            "dimension mismatch (query embedding is %d-dim, %s.embedding "
-            "column expects %d-dim)",
-            entity_type,
-            len(query_embedding),
-            entity_type,
-            field_dimensions,
+        # #794: WARNING (deduplicated per process), not DEBUG. Until #794 this
+        # branch was the *shipped default* path -- it swallowed 100% of
+        # semantic passes and its DEBUG line was the only trace of an
+        # `artifact.search` that could never return a semantic hit. It is now
+        # strictly a misconfiguration signal, so it must be visible.
+        from llm_adapter.embedding_service import warn_dimension_mismatch
+
+        warn_dimension_mismatch(
+            f"SearchService[{entity_type}]", len(query_embedding), field_dimensions
         )
         return []
 

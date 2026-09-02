@@ -398,7 +398,7 @@ class TraceLinkPagination(StandardPagination):
     kill of the original report.
 
     A TraceLink row is small and fixed-size (two FK ids, a link type, a version
-    and a timestamp; the 1536-dim ``embedding`` column is deferred and the
+    and a timestamp; the wide pgvector ``embedding`` column is deferred and the
     endpoint never joins the endpoint Artifacts — see
     ``TraceLinkManager.get_trace_links_queryset``), so a page of 500 costs a
     few hundred KB. That is the reason this ceiling can be raised here and not

@@ -636,23 +636,29 @@ class RequirementService(ServiceBase):
         supplementary to full-text search, so a provider/network failure must
         not fail the surrounding create/update transaction.
 
-        ``Requirement.embedding`` is a fixed-dimension pgvector column
-        (``vector(1536)``, OpenAI-shaped). Since Task 1 made
-        ``EMBEDDING_PROVIDER=sentence-transformers`` (384-dim) the default,
-        the generated vector no longer matches the column's dimension in the
-        common case. Postgres enforces that at the DB level (``DataError``),
-        and — because ``.update()`` runs inside the caller's ambient
-        transaction — an uncaught DataError here would poison that whole
-        transaction (every subsequent query on the connection then fails with
-        "current transaction is aborted") rather than just skip the
+        ``Requirement.embedding`` is a fixed-dimension pgvector column, sized
+        from ``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``.
+        A vector of any other width is rejected by Postgres at the DB level
+        (``DataError``), and — because ``.update()`` runs inside the caller's
+        ambient transaction — an uncaught DataError here would poison that
+        whole transaction (every subsequent query on the connection then fails
+        with "current transaction is aborted") rather than just skip the
         embedding. Guard by comparing the generated vector's length against
         the column's declared dimension *before* issuing the write, so a
         mismatch is a no-op skip, not a DB round-trip that fails.
+
+        Issue #794: that guard used to skip 100% of writes under the shipped
+        default (a 384-dim provider against a hardcoded ``vector(1536)``
+        column) and reported it only at DEBUG, so the feature was silently
+        dead. The column now matches the default provider, and a mismatch
+        left by a non-default provider is reported at WARNING via
+        ``warn_dimension_mismatch``.
         """
         try:
             from llm_adapter.embedding_service import (
                 generate_embedding,
                 get_embedding_text,
+                warn_dimension_mismatch,
             )
 
             embedding = generate_embedding(get_embedding_text(requirement))
@@ -662,12 +668,8 @@ class RequirementService(ServiceBase):
                     embedding=embedding
                 )
             elif embedding is not None:
-                logger.debug(
-                    "RequirementService: embedding generation skipped for "
-                    "req=%s: dimension mismatch (got %d, column expects %d)",
-                    requirement.id,
-                    len(embedding),
-                    field_dimensions,
+                warn_dimension_mismatch(
+                    "RequirementService", len(embedding), field_dimensions
                 )
         except Exception as exc:  # noqa: BLE0001 — best-effort
             logger.debug(

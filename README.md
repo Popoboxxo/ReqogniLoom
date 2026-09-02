@@ -293,10 +293,12 @@ EMBEDDING_PROVIDER=ollama OLLAMA_BASE_URL=http://ollama:11434 docker-compose up
 MEMORY_BACKEND=honcho HONCHO_BASE_URL=https://your-honcho-instance.example.com docker-compose up
 ```
 
-**Supported `EMBEDDING_PROVIDER`** (`backend/llm_adapter/embedding_service.py`): `sentence-transformers` (default) | `ollama` | `openai` | `mock`
+**Supported `EMBEDDING_PROVIDER`** (`backend/llm_adapter/embedding_service.py`): `sentence-transformers` (default, 384-dim) | `ollama` (768-dim) | `openai` (1536-dim) | `mock` (384-dim)
 **Supported `MEMORY_BACKEND`** (`backend/memory/backends.py`): `pgvector` (default) | `honcho` (optional; `query`/`list`/`forget` are not yet implemented for this backend — `upsert` only)
 
-⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data, and `Requirement`/`TraceLink`/`IcdVersion` embeddings (a separate, pre-existing feature, 1536-dimension) only get written when the configured provider's output dimension matches; see `backend/llm_adapter/embedding_service.py`'s module docstring if you're upgrading a deployment that already relied on OpenAI embeddings.
+⚠️ **Embedding dimension is part of the schema.** All pgvector columns are `vector(384)`, sized from `backend/persistence/embedding_dimensions.py` to match the default provider. Selecting a provider with a different native width **silently disables** embedding writes and semantic search for those columns — the width guard skips them rather than erroring (this was issue #794). `manage.py check` reports the mismatch as `llm_adapter.W001`, and the first skipped write logs at WARNING. To run such a provider, change `EMBEDDING_VECTOR_DIMENSIONS`, generate the resulting migrations, and re-run `manage.py backfill_embeddings`; pgvector cannot cast between widths, so existing vectors are discarded.
+
+⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data. Use `python manage.py backfill_embeddings` (optionally `--force`) to (re)generate `Requirement`/`TraceLink` embeddings for rows that already exist; they are otherwise only written on create/update. `IcdVersion` rows are immutable and can only be embedded by creating a new version.
 
 See `.env.example` for all variables and `docker-compose.override.example.yml` for the matching optional-service Compose stubs.
 

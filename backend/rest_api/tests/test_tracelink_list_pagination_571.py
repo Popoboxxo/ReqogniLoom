@@ -14,7 +14,7 @@ then resolved titles and built a plain Python dict for *every* link, and only
 handed that fully-materialized list to ``self._paginate()``, which can only
 slice an already-in-memory list at that point (the requested ``page_size``
 never reaches the database as a ``LIMIT``). Each ``TraceLink`` row also
-carries a 1536-dim pgvector ``embedding`` column that the endpoint never
+carries a wide pgvector ``embedding`` column that the endpoint never
 serializes but that ``select_related``/full-row fetch pulled into memory for
 every single row regardless of page size — the actual OOM driver at ~2000
 links in a 512 MB container.
@@ -126,7 +126,7 @@ class TestTraceLinkWorkspaceListPagination:
     def test_query_does_not_fetch_unused_embedding_column(
         self, authed_client, tenant, workspace
     ):
-        """The 1536-dim `embedding` VectorField is never serialized by
+        """The wide pgvector `embedding` VectorField is never serialized by
         TraceLinkSerializer — fetching it for every row is dead weight that
         made the OOM worse. The SELECT must defer it."""
         _make_tracelinks(tenant, workspace, LINK_COUNT)

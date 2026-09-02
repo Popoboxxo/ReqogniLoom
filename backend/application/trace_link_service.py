@@ -567,6 +567,7 @@ class TraceLinkService(ServiceBase):
             from llm_adapter.embedding_service import (
                 generate_embedding,
                 get_tracelink_embedding_text,
+                warn_dimension_mismatch,
             )
 
             if not getattr(trace_link, "id", None):
@@ -581,7 +582,7 @@ class TraceLinkService(ServiceBase):
                 )
                 # Neither the link's own vector nor the endpoints' are read
                 # here — only their titles. Leaving them in would drag three
-                # 1536-dim vectors per link through the ORM, the #571 shape.
+                # embedding vectors per link through the ORM, the #571 shape.
                 .defer(
                     "embedding",
                     "source__requirement__embedding",
@@ -596,17 +597,13 @@ class TraceLinkService(ServiceBase):
             if embedding is not None and len(embedding) == field_dimensions:
                 TraceLink.objects.filter(id=trace_link.id).update(embedding=embedding)
             elif embedding is not None:
-                # Dimension mismatch (e.g. the default sentence-transformers
-                # provider is 384-dim but this column is a fixed vector(1536)
-                # — see RequirementService._generate_and_store_embedding for
-                # the full rationale): skip the write rather than let a
+                # Dimension mismatch (a non-default EMBEDDING_PROVIDER whose
+                # native width differs from EMBEDDING_VECTOR_DIMENSIONS — see
+                # RequirementService._generate_and_store_embedding and #794
+                # for the full rationale): skip the write rather than let a
                 # Postgres-level DataError poison the ambient transaction.
-                logger.debug(
-                    "TraceLinkService: embedding generation skipped for "
-                    "link=%s: dimension mismatch (got %d, column expects %d)",
-                    getattr(trace_link, "id", None),
-                    len(embedding),
-                    field_dimensions,
+                warn_dimension_mismatch(
+                    "TraceLinkService", len(embedding), field_dimensions
                 )
         except Exception as exc:  # noqa: BLE001 — best-effort
             logger.debug(

@@ -106,7 +106,19 @@ class LlmAdapterConfig(AppConfig):
         request on a fresh worker after the override was saved), which may
         eagerly warm the *previous* (env-default) model here first. This is
         accepted, known behaviour, not a bug.
+
+        Also registers the #794 embedding-dimension system check (see
+        ``llm_adapter.checks``) — unconditionally, including for the
+        preload-skip commands above, since ``manage.py check`` is exactly
+        where an operator should learn that their provider cannot fill the
+        embedding columns.
         """
+        from django.core.checks import register
+
+        from llm_adapter.checks import check_embedding_dimensions
+
+        register(check_embedding_dimensions)
+
         if self._should_skip_preload():
             return
 

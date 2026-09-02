@@ -268,7 +268,7 @@ def list_trace_links_queryset(
     Fix #571: unlike ``list_trace_links``, this does not materialize the
     result set — it hands back the queryset itself so a caller (DRF's
     paginator) can apply ``LIMIT``/``OFFSET`` at the database level instead
-    of loading every matching row (and its 1536-dim ``embedding`` vector)
+    of loading every matching row (and its wide pgvector ``embedding`` vector)
     into memory before pagination gets a chance to slice it.
     """
     return _manager.get_trace_links_queryset(

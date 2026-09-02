@@ -23,25 +23,31 @@ Contract:
                                   input text), so local/CI similarity queries
                                   return sensible orderings.
 
-UPGRADE NOTE (ai-memory-and-search plan, Task 1): ``EMBEDDING_PROVIDER``'s
-default changed from ``openai`` to ``sentence-transformers`` in this branch.
-``Requirement.embedding``/``TraceLink.embedding``/``IcdVersion.embedding`` are
-fixed ``vector(1536)`` columns (OpenAI-shaped, pre-dating this change).
-sentence-transformers produces 384-dim vectors, so an EXISTING deployment
-that relied on these columns being populated (i.e. had ``LLM_PROVIDER=openai``
-configured for the old embedding path) gets NO new embeddings written for any
-requirement/trace-link/ICD-version artifact created or updated after
-upgrading, unless it explicitly keeps/sets ``EMBEDDING_PROVIDER=openai``.
-This degrades silently, not loudly: the dimension mismatch is caught by a
-guard on both the write side (``RequirementService.
-_generate_and_store_embedding`` et al., Task 12) and the read side
-(``application.search_service._run_semantic_query``, final whole-branch
-review Finding 5) and simply skips the write / semantic search pass rather
-than raising -- by design (embeddings are always best-effort here), but that
-means there is no error to notice on upgrade.
+DIMENSIONS (issue #794): every ``VectorField`` in this project is sized from
+``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``, which is
+pinned to the *default* provider's output width (384). The default
+configuration therefore works end to end with no operator action.
 
-    Set ``EMBEDDING_PROVIDER=openai`` to preserve the pre-existing 1536-dim
-    embedding behavior for Requirement/TraceLink/IcdVersion.
+    History: ``EMBEDDING_PROVIDER``'s default changed from ``openai`` to
+    ``sentence-transformers`` (Task 1 of the ai-memory-and-search plan) while
+    ``Requirement.embedding``/``TraceLink.embedding``/``IcdVersion.embedding``
+    stayed hardcoded ``vector(1536)``. Because every write site guards
+    ``len(vector) == column.dimensions`` before touching the DB (a mismatched
+    width is a pgvector ``DataError`` that poisons the caller's ambient
+    transaction) and the read side short-circuits identically, the shipped
+    default silently skipped 100% of embedding writes and left semantic
+    ``artifact.search`` permanently empty. #794 resized the columns and made
+    the residual mismatch loud rather than silent.
+
+Selecting a NON-default provider whose native width differs from
+``EMBEDDING_VECTOR_DIMENSIONS`` (``ollama``/``nomic-embed-text`` -> 768,
+``openai``/``text-embedding-3-small`` -> 1536) reintroduces the mismatch and
+is no longer silent: ``llm_adapter.checks.check_embedding_dimensions`` reports
+it via ``manage.py check`` at startup, and the first skipped write logs at
+WARNING (:func:`warn_dimension_mismatch`). To actually run such a provider,
+change ``EMBEDDING_VECTOR_DIMENSIONS``, generate the resulting ``AlterField``
+migrations for all five columns and re-run ``manage.py backfill_embeddings``
+(existing vectors cannot be cast between widths and are discarded).
 """
 from __future__ import annotations
 
@@ -280,6 +286,52 @@ def generate_embedding(text: str) -> Optional[List[float]]:
         return None
 
 
+#: Sites that have already warned about a dimension mismatch this process,
+#: keyed by ``(site, produced_dimensions, expected_dimensions)``. See
+#: :func:`warn_dimension_mismatch`.
+_warned_dimension_mismatches: set = set()
+
+
+def warn_dimension_mismatch(site: str, produced: int, expected: int) -> None:
+    """Log a dimension mismatch once per process, at WARNING level (#794).
+
+    Every embedding write site guards ``len(vector) == column.dimensions``
+    before touching the DB, because pgvector rejects a mismatched width with a
+    ``DataError`` that would poison the caller's ambient transaction. Those
+    guards used to log at DEBUG, which is why the shipped default
+    configuration could skip *100% of embedding writes* — for months, on every
+    deployment — with no operator-visible signal at all beyond an
+    ``artifact.search`` that never returned semantic hits.
+
+    WARNING, not DEBUG: a skipped embedding is a silent loss of a feature, not
+    routine bookkeeping. Deduplicated per process rather than logged per write
+    so that a bulk operation (import, ``backfill_embeddings``) reporting a real
+    misconfiguration does not emit one line per row — the condition is a
+    static config property, so the first occurrence carries all the
+    information the thousandth would.
+    """
+    key = (site, produced, expected)
+    if key in _warned_dimension_mismatches:
+        logger.debug(
+            "%s: embedding skipped, dimension mismatch (got %d, column expects %d)",
+            site,
+            produced,
+            expected,
+        )
+        return
+    _warned_dimension_mismatches.add(key)
+    logger.warning(
+        "%s: embedding skipped and semantic search will be incomplete -- "
+        "dimension mismatch: the configured embedding provider produced a "
+        "%d-dim vector but the column expects %d dims. Run `manage.py check` "
+        "for the full report (#794). Further occurrences of this exact "
+        "mismatch log at DEBUG.",
+        site,
+        produced,
+        expected,
+    )
+
+
 def get_embedding_text(requirement) -> str:
     """Combine a requirement's title and description into embedding input.
 
@@ -364,4 +416,5 @@ __all__ = [
     "get_embedding_text",
     "get_icd_version_embedding_text",
     "get_tracelink_embedding_text",
+    "warn_dimension_mismatch",
 ]
