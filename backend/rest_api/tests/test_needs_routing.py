@@ -1,10 +1,22 @@
-"""URL routing tests for StakeholderNeedViewSet (REQ-128).
+"""URL routing tests for StakeholderNeedViewSet (REQ-128, issue #710).
 
-The DRF router's default pk pattern ([^/.]+) matched custom action segments
+The DRF router's default pk pattern ([^/.]+) matches custom action segments
 such as "derive-requirements" as a pk value, so
-GET /api/v1/needs/derive-requirements/ reached retrieve() and 500ed while
-parsing the pk as a UUID. Constraining lookup_value_regex to a UUID pattern
-makes that path 404 at routing time instead.
+GET /api/v1/needs/derive-requirements/ resolves to retrieve() with
+pk="derive-requirements". REQ-128 originally worked around the resulting 500
+(UUID parsing failure) with a UUID-shaped ``lookup_value_regex`` that made
+routing decline the segment outright, 404ing before the view ever ran.
+
+Issue #710 flagged the side effect: needs answered 404 for *any* malformed
+pk, including a genuinely malformed one like "not-a-uuid", while every other
+BaseEntityViewSet subclass answers 400 via the generic uuid_url_kwargs guard
+in initial() (issue #271). That guard already turns a malformed pk into a
+clean 400 rather than a 500, so it now also handles "derive-requirements"
+without needing the router-level regex — see StakeholderNeedViewSet's
+docstring. These tests were updated accordingly: the segment now does reach
+the viewset, and an authenticated caller gets 400 like every other entity;
+an anonymous caller still gets 401/403 first (the guard runs after auth, see
+test_uuid_path_validation.py), never a bare 404.
 """
 from __future__ import annotations
 
@@ -15,32 +27,31 @@ import pytest
 from django.urls import resolve
 from rest_framework.test import APIClient, APIRequestFactory
 
-from rest_api.not_found import api_not_found
 from rest_api.views import StakeholderNeedViewSet
 
 
-def test_non_uuid_detail_segment_does_not_reach_the_viewset() -> None:
-    """A non-UUID segment must not match the needs detail route (REQ-128).
+def test_non_uuid_detail_segment_reaches_the_viewset() -> None:
+    """A non-UUID segment now matches the needs detail route (issue #710).
 
-    This used to assert ``Resolver404``. Issue #460 finding 1 added a
-    catch-all ``^api/v1/`` pattern that answers unmatched API paths with the
-    JSON error envelope instead of Django's HTML 404 page, so *every*
-    ``/api/v1/`` path resolves now — to the fallback view. The REQ-128
-    contract is unchanged and is what is asserted here: the segment must not
-    be handed to ``StakeholderNeedViewSet`` as a pk.
+    Before #710 this asserted the opposite (``api_not_found``, REQ-128's
+    routing-level rejection). Removing StakeholderNeedViewSet's
+    ``lookup_value_regex`` means routing no longer declines the segment —
+    ``initial()``'s guard is what now rejects it, uniformly with every other
+    entity ViewSet.
     """
     match = resolve("/api/v1/needs/derive-requirements/")
 
-    assert match.func is api_not_found
-    assert not hasattr(match.func, "cls")
+    assert match.func.cls is StakeholderNeedViewSet
+    assert match.kwargs["pk"] == "derive-requirements"
 
 
-def test_non_uuid_detail_segment_returns_404() -> None:
-    """The externally visible half of the same contract: still a 404, never a
-    500 from parsing "derive-requirements" as a UUID (REQ-128)."""
+def test_non_uuid_detail_segment_never_500s() -> None:
+    """The REQ-128 safety property survives #710: never a 500 from parsing
+    "derive-requirements" as a UUID. An anonymous caller is rejected by
+    authentication first (401/403); the point is that it is never 500."""
     response = APIClient().get("/api/v1/needs/derive-requirements/")
 
-    assert response.status_code == 404
+    assert response.status_code in (401, 403)
 
 
 def test_uuid_detail_segment_resolves_to_viewset() -> None:
