@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.6] — 2026-09-02
+
+### Fixed
+- **Bugfix Batch — 17 Issues Resolved:** Comprehensive batch of 17 bug fixes across REST API, MCP tooling, and E2E test infrastructure. Four self-found regressions were caught by E2E suite during QA (PR #817)
+
+### Changed
+- **Deploy Documentation & Compose Consolidation:** Optimized deployment instructions and consolidated Docker Compose files for clarity (PR #812)
+
 ## [1.8.0-beta.5] — 2026-08-31
 
 ### Fixed
