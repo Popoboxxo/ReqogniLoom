@@ -11,17 +11,25 @@ would re-open those two bugs. That reasoning missed that #271's later,
 generic ``uuid_url_kwargs`` guard in ``BaseEntityViewSet.initial()`` already
 converts *any* malformed pk (including a bare action name reaching
 ``retrieve()``) into a clean 400 — never the original 500. QA reopened #710
-(2026-09-01) on the same finding, which prompted re-verifying that premise;
-it does not hold, so needs was aligned with the dominant 400 contract.
+(2026-09-01) on the same finding, so needs was aligned with the dominant 400
+contract by dropping the regex.
+
+Dropping it alone was not enough: REQ-128's own contract is 404/405 for
+``/needs/derive-requirements/`` (400 says "malformed id" about what is really
+an unknown route), and the E2E specs that pin it started failing. The guard
+therefore now separates the two cases itself — a pk segment matching one of
+the ViewSet's declared detail-action ``url_path``s is 404, everything else
+malformed stays 400 — which holds both contracts without a router-level regex
+(see rest_api/tests/test_needs_routing.py).
 
 Current, deliberate state:
   * requirements (and ~17 other BaseEntityViewSet subclasses) -> 400.
   * needs -> 400 (aligned, #710).
   * goals -> 404, still intentionally different: unlike "derive-requirements",
-    "/goals/main/" is a real, guessable *route* a caller might reach for
-    (the actual aggregate lives at /main-goals/current/), and 400 would
-    misreport "route does not exist" as "malformed id" (#460 Finding 4).
-    GoalViewSet keeps its ``lookup_value_regex`` for that reason alone.
+    "/goals/main/" is not an action name at all but a guessable *route* alias
+    a caller might reach for (the actual aggregate lives at
+    /main-goals/current/). Only a router-level rule can decline it, so
+    GoalViewSet keeps its ``lookup_value_regex`` (#460 Finding 4).
 
 If a future decision changes the goals trade-off, update this test's
 expectations deliberately, not accidentally.
@@ -60,6 +68,16 @@ class TestUuidErrorHandlingIsConsistentAcrossEntities:
         response = authed_client.get("/api/v1/needs/not-a-uuid/")
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_needs_404s_on_a_bare_detail_action_segment(self, authed_client):
+        """REQ-128: the 400 above must not swallow the routing-miss case.
+
+        ``/needs/derive-requirements/`` is the action route without its pk, so
+        it stays 404 — the property the removed regex used to provide.
+        """
+        response = authed_client.get("/api/v1/needs/derive-requirements/")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "NOT_FOUND"
 
     def test_goals_404s_on_non_uuid_shaped_pk_by_design(self, authed_client):
         """goals -> 404, still deliberate: lookup_value_regex rejects the

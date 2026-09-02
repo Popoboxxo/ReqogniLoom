@@ -90,6 +90,7 @@ from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
+from rest_api.not_found import ROUTE_NOT_FOUND_MESSAGE
 
 logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
@@ -224,6 +225,23 @@ class MalformedUuidInPath(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
 
 
+class UnknownDetailRoute(APIException):
+    """404 for a detail path whose pk segment is really a custom-action name.
+
+    The DRF router builds a detail action as ``{prefix}/{lookup}/{url_path}/``
+    and its default lookup pattern is ``[^/.]+``, so a caller that drops the pk
+    — ``GET /api/v1/needs/derive-requirements/`` — still matches the *detail*
+    route with ``pk="derive-requirements"``. That is a route which does not
+    exist, not an id which is malformed, so it must answer 404 like any other
+    routing miss (REQ-128) rather than the 400 that ``MalformedUuidInPath``
+    would give it (issue #710).
+
+    Same ``detail``-carries-the-envelope trick as ``MalformedUuidInPath``.
+    """
+
+    status_code = status.HTTP_404_NOT_FOUND
+
+
 class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.ViewSet):
     """Shared behaviour: error mapping, auth context, preset gate, pagination.
 
@@ -270,11 +288,24 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         place: they are unreachable for HTTP traffic now, but still guard the
         many unit tests that call ``view.retrieve(request, pk=...)`` directly,
         and any other ``ValueError`` source inside the handler.
+
+        One class of malformed lookup value is not a malformed id at all: a
+        pk segment that equals one of this ViewSet's own detail-action
+        ``url_path``s, i.e. a caller that asked for the action route and left
+        out the pk (``/needs/derive-requirements/``, REQ-128). Reporting that
+        as "'pk' must be a well-formed UUID" describes the wrong problem, so
+        it 404s as the routing miss it is (issue #710 reopen).
         """
         lang = detect_lang(request)
         # ``dispatch()`` sets ``self.kwargs`` before ``initial()``; the getattr
         # keeps a hand-rolled ``initial()`` call in a unit test from AttributeError.
         url_kwargs = getattr(self, "kwargs", None) or {}
+        # Same resolution order the router uses in ``get_lookup_regex()``.
+        # ``viewsets.ViewSet`` (unlike GenericViewSet) declares neither
+        # attribute, hence the getattr chain rather than plain access.
+        lookup_kwarg = getattr(self, "lookup_url_kwarg", None) or getattr(
+            self, "lookup_field", "pk"
+        )
         for name in self.uuid_url_kwargs:
             raw = url_kwargs.get(name)
             if raw is None:
@@ -282,6 +313,16 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
             try:
                 UUID(str(raw))
             except (ValueError, AttributeError, TypeError):
+                if name == lookup_kwarg and str(raw) in self._detail_action_url_paths():
+                    raise UnknownDetailRoute(
+                        build_error_response(
+                            "NOT_FOUND",
+                            lang,
+                            message=ROUTE_NOT_FOUND_MESSAGE.get(
+                                lang, ROUTE_NOT_FOUND_MESSAGE["en"]
+                            ),
+                        )
+                    ) from None
                 # The offending value is NOT echoed back — it is fully
                 # attacker-controlled and would be reflected into the body.
                 raise MalformedUuidInPath(
@@ -291,6 +332,26 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
                         message=f"'{name}' must be a well-formed UUID.",
                     )
                 ) from None
+
+    @classmethod
+    def _detail_action_url_paths(cls) -> frozenset[str]:
+        """URL path segments of every ``@action(detail=True)`` on this ViewSet.
+
+        Read from DRF's own ``get_extra_actions()`` rather than a hand-kept
+        list, so an action added later is covered without a second edit.
+        ``detail=False`` actions are excluded on purpose: the router registers
+        their list routes *before* the detail route, so they never reach a pk
+        slot in the first place.
+        """
+        try:
+            extra_actions = cls.get_extra_actions()
+        except AttributeError:  # pragma: no cover - non-ViewSet subclass
+            return frozenset()
+        return frozenset(
+            str(action_method.url_path)
+            for action_method in extra_actions
+            if getattr(action_method, "detail", False)
+        )
 
     @property
     def paginator(self) -> StandardPagination:
@@ -360,20 +421,18 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     # REQ-128 constrained the detail lookup to a UUID shape here so that
     # GET /api/v1/needs/derive-requirements/ (a custom-action path missing its
     # pk) 404ed at routing time instead of reaching retrieve() and 500ing on
-    # UUID(pk). That trade-off made needs/goals 404 on *any* non-UUID-shaped
-    # pk — including a genuinely malformed one like "not-a-uuid" — while every
+    # UUID(pk). That trade-off made needs 404 on *any* non-UUID-shaped pk —
+    # including a genuinely malformed one like "not-a-uuid" — while every
     # other BaseEntityViewSet subclass answers 400 for the same input via the
     # generic uuid_url_kwargs guard in initial() (issue #271). Issue #710
-    # flagged that asymmetry; #271's guard already turns "derive-requirements"
-    # (or any other malformed pk) into a clean 400 instead of the original
-    # 500, so the router-level regex is no longer needed to prevent it — it
-    # was only reproducing the 500-era behaviour of hiding the segment before
-    # it could raise. Removing it lets non-UUID pks reach initial()'s guard
-    # and answer 400 here too, matching RequirementViewSet and the rest of
-    # the API. (GoalViewSet keeps its own regex: it additionally protects a
-    # real, still-nonexistent route alias, /goals/main/ vs /main-goals/
-    # current/, which the 400 guard would otherwise misreport as a malformed
-    # id rather than an unknown route — see #460 Finding 4.)
+    # flagged that asymmetry, so the regex is gone; the guard now separates
+    # the two cases itself, 404ing a pk segment that matches one of this
+    # ViewSet's declared detail-action url_paths and 400ing everything else
+    # (see BaseEntityViewSet._reject_malformed_uuid_path_kwargs). Both REQ-128
+    # and #710 hold, for every ViewSet with detail actions rather than for
+    # needs alone. (GoalViewSet still keeps a regex: "main" in /goals/main/ is
+    # not an action name, it is a guessable alias of /main-goals/current/, so
+    # only a router-level rule can decline it — see #460 Finding 4.)
 
     @property
     def service(self):

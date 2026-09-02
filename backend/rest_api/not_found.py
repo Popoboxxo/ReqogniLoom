@@ -57,12 +57,22 @@ from django.views.defaults import page_not_found
 
 from rest_api.serializers import build_error_response, detect_lang
 
-__all__ = ["API_PREFIX", "api_aware_page_not_found", "api_not_found"]
+__all__ = [
+    "API_PREFIX",
+    "ROUTE_NOT_FOUND_MESSAGE",
+    "api_aware_page_not_found",
+    "api_not_found",
+]
 
 #: Only paths below this prefix get the JSON envelope.
 API_PREFIX = "/api/v1/"
 
-_MESSAGE = {
+#: Wording for "this route does not exist", by language. Public because
+#: ``BaseEntityViewSet``'s UUID guard reuses it for the one route miss that
+#: *does* reach a view: a detail path whose pk segment is really a custom
+#: action name (``/api/v1/needs/derive-requirements/``, REQ-128). Sharing the
+#: string keeps that body indistinguishable from the resolver-level 404 above.
+ROUTE_NOT_FOUND_MESSAGE = {
     "en": "The requested API endpoint does not exist.",
     "de": "Der angeforderte API-Endpunkt existiert nicht.",
 }
@@ -91,7 +101,9 @@ def api_not_found(request: HttpRequest, *args: Any, **kwargs: Any) -> JsonRespon
     lang = detect_lang(request)
     return JsonResponse(
         build_error_response(
-            "NOT_FOUND", lang, message=_MESSAGE.get(lang, _MESSAGE["en"])
+            "NOT_FOUND",
+            lang,
+            message=ROUTE_NOT_FOUND_MESSAGE.get(lang, ROUTE_NOT_FOUND_MESSAGE["en"]),
         ),
         status=404,
     )

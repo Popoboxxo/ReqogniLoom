@@ -10,13 +10,17 @@ routing decline the segment outright, 404ing before the view ever ran.
 Issue #710 flagged the side effect: needs answered 404 for *any* malformed
 pk, including a genuinely malformed one like "not-a-uuid", while every other
 BaseEntityViewSet subclass answers 400 via the generic uuid_url_kwargs guard
-in initial() (issue #271). That guard already turns a malformed pk into a
-clean 400 rather than a 500, so it now also handles "derive-requirements"
-without needing the router-level regex — see StakeholderNeedViewSet's
-docstring. These tests were updated accordingly: the segment now does reach
-the viewset, and an authenticated caller gets 400 like every other entity;
-an anonymous caller still gets 401/403 first (the guard runs after auth, see
-test_uuid_path_validation.py), never a bare 404.
+in initial() (issue #271). Removing the regex aligned the malformed-pk case
+with the rest of the API but regressed REQ-128, whose contract is 404/405 for
+``/needs/derive-requirements/`` — a *route* that does not exist, not a
+malformed id (the E2E specs hermes-bugfix-campaign / ui-test-campaign pin
+that and started failing with 400).
+
+Both contracts now hold at once, without a router-level regex: the #271 guard
+distinguishes the two cases by asking the ViewSet which detail-action
+``url_path``s it declares. A pk segment equal to one of them is an unknown
+route -> 404; anything else malformed stays a malformed id -> 400. See
+``BaseEntityViewSet._reject_malformed_uuid_path_kwargs``.
 """
 from __future__ import annotations
 
@@ -52,6 +56,30 @@ def test_non_uuid_detail_segment_never_500s() -> None:
     response = APIClient().get("/api/v1/needs/derive-requirements/")
 
     assert response.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_action_name_in_pk_slot_returns_404_not_400(authed_client) -> None:
+    """REQ-128: ``/needs/derive-requirements/`` is an unknown *route*, not a
+    malformed id, so it must answer 404 (the E2E contract accepts 404/405).
+
+    Regression guard for the #710 fix, which removed the router-level regex and
+    let the segment fall into the generic malformed-UUID guard -> 400.
+    """
+    response = authed_client.get("/api/v1/needs/derive-requirements/")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_genuinely_malformed_pk_still_returns_400(authed_client) -> None:
+    """#710: a real garbage pk is still a malformed id -> 400, so the REQ-128
+    carve-out above stays limited to declared detail-action names."""
+    response = authed_client.get("/api/v1/needs/not-a-uuid/")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_uuid_detail_segment_resolves_to_viewset() -> None:

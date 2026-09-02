@@ -8,12 +8,15 @@ case. Clients could not tell "you sent garbage" from "it is gone".
 The fix adds one shared guard on ``BaseEntityViewSet`` (``uuid_url_kwargs`` +
 ``initial()``), so it applies to every subclass at once rather than being
 repeated in ~20 ViewSets. This module therefore proves the *generic* behaviour
-on a representative sample of ViewSets, plus the two properties that make the
+on a representative sample of ViewSets, plus the three properties that make the
 guard safe:
 
   * a well-formed-but-unknown UUID still yields 404 (the distinction is real);
   * the guard runs *after* authentication, so an anonymous caller still gets
-    401/403 and cannot use the 400-vs-401 difference to probe routes.
+    401/403 and cannot use the 400-vs-401 difference to probe routes;
+  * a pk segment that is really one of the ViewSet's own detail-action
+    ``url_path``s (``/needs/derive-requirements/``) yields 404, because that
+    is an unknown route rather than a malformed id (REQ-128).
 """
 from __future__ import annotations
 
@@ -188,14 +191,50 @@ def test_anonymous_malformed_and_wellformed_pk_are_indistinguishable():
 
 
 def test_req128_non_uuid_action_segment_still_routes_to_404_not_400():
-    """StakeholderNeedViewSet pins ``lookup_value_regex`` to a UUID shape.
+    """``GET /api/v1/needs/derive-requirements/`` must answer 404/405.
 
-    ``GET /api/v1/needs/derive-requirements/`` must keep failing at *routing*
-    time (404/405), never reach retrieve() and never 500 — see REQ-128. The new
-    guard must not change that, because it never gets the chance to run.
+    It is a custom-action path missing its pk — an unknown route, not a
+    malformed id — and must never reach retrieve() to 500 on ``UUID(pk)``
+    (REQ-128). Anonymously it is 401/403, because the guard runs after auth.
     """
     client = APIClient()
 
     response = client.get("/api/v1/needs/derive-requirements/")
 
     assert response.status_code in (401, 403, 404, 405)
+
+
+@pytest.mark.parametrize(
+    ("viewset", "url"),
+    [
+        (RequirementViewSet, "/api/v1/requirements/"),
+        (ArchitectureElementViewSet, "/api/v1/architecture/"),
+    ],
+)
+def test_detail_action_name_in_pk_slot_is_404_for_every_viewset(viewset, url):
+    """The REQ-128 carve-out is generic, not a needs-only special case.
+
+    Any ``@action(detail=True)`` path used without its pk is a routing miss on
+    any ViewSet, so the guard answers 404 there too rather than claiming the
+    caller sent a malformed id.
+    """
+    tenant, _ = _tenant_and_workspace(f"T-action-{viewset.__name__}")
+    action_paths = sorted(viewset._detail_action_url_paths())
+    assert action_paths, f"{viewset.__name__} declares no detail actions"
+
+    response = _retrieve(viewset, action_paths[0], tenant_id=tenant.id, url=url)
+
+    assert response.status_code == 404, (
+        f"{viewset.__name__} returned {response.status_code} for "
+        f"a bare detail-action segment {action_paths[0]!r}"
+    )
+
+
+def test_malformed_pk_that_merely_resembles_an_action_name_is_still_400():
+    """The carve-out is an exact match against declared action names only —
+    a near-miss stays a malformed id (issue #710 must not silently widen)."""
+    tenant, _ = _tenant_and_workspace("T-nearmiss")
+
+    response = _retrieve(RequirementViewSet, "transitions-x", tenant_id=tenant.id)
+
+    assert response.status_code == 400
