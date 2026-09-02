@@ -686,6 +686,104 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 });
 
+// ---------------------------------------------------------------------------
+// GitHub #811 — a rejected delete must not look like a successful one
+//
+// RequirementList's confirm dialog used to call `onDelete` and close itself
+// unconditionally in the same tick, without waiting for the (async) result.
+// A server rejection (e.g. the extended preset's mandatory `change_reason`
+// on delete) therefore closed the dialog and left the row in place with no
+// visible sign anything had gone wrong beyond a message the dialog-close
+// covered up. This suite reproduces the exact rejection from the issue and
+// proves the dialog now stays open, the requirement stays in the list, and
+// the failure is visible.
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors — delete flow surfaces server rejections (#811)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("keeps the dialog open, shows the server error, and leaves the requirement listed on a rejected delete", async () => {
+    vi.mocked(requirementsApi.delete).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "change_reason is required by preset policy.",
+      },
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId(`req-row-delete-${MOCK_REQUIREMENT.id}`));
+    await waitFor(() =>
+      expect(screen.getByTestId("req-delete-dialog")).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId("req-confirm-delete-btn"));
+
+    const alert = await screen.findByTestId("req-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent("change_reason is required by preset policy.");
+
+    // The dialog must NOT have closed itself just because onDelete settled.
+    expect(screen.getByTestId("req-delete-dialog")).toBeInTheDocument();
+    // No optimistic removal: the requirement is still in the list.
+    expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument();
+  });
+
+  it("closes the dialog and clears the row on a successful delete (control case)", async () => {
+    vi.mocked(requirementsApi.delete).mockResolvedValueOnce(undefined);
+    vi.mocked(requirementsApi.list).mockResolvedValueOnce({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any).mockResolvedValue({ results: [], count: 0 } as any);
+    vi.mocked(requirementsApi.listAll)
+      .mockResolvedValueOnce([MOCK_REQUIREMENT] as any)
+      .mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId(`req-row-delete-${MOCK_REQUIREMENT.id}`));
+    await waitFor(() =>
+      expect(screen.getByTestId("req-delete-dialog")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("req-confirm-delete-btn"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("req-delete-dialog")).not.toBeInTheDocument()
+    );
+    expect(requirementsApi.delete).toHaveBeenCalledWith(MOCK_REQUIREMENT.id, undefined);
+  });
+});
+
 /**
  * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — the create-requirement form
  * only ever had a title input; `description` and `category` are ordinary

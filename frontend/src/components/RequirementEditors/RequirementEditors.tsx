@@ -255,18 +255,28 @@ export default function RequirementEditors(): JSX.Element {
 
   /**
    * Handle delete requirement with confirmation.
+   *
+   * Issue #811: returns whether the delete actually succeeded so the caller
+   * (the confirm dialog in RequirementList) knows whether it may close
+   * itself. It used to be `void`-returning and fire-and-forget, so the
+   * dialog closed unconditionally the moment the user clicked "Löschen" —
+   * including on a 400 (e.g. the extended preset's mandatory `change_reason`)
+   * — leaving the requirement undeleted but the UI looking like it had
+   * succeeded.
    */
   const handleDelete = useCallback(
-    async (id: string): Promise<void> => {
-      if (!activeWorkspace) return;
+    async (id: string, changeReason?: string): Promise<boolean> => {
+      if (!activeWorkspace) return false;
       setActionError(null);
       try {
-        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id });
+        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id, changeReason });
         navigate('/requirements');
+        return true;
       } catch (err: unknown) {
         // #340: a refused delete (permission, workflow gate) must not look
         // like the row simply stayed where it was.
         setActionError(extractApiErrorMessage(err) ?? t('req.deleteFailed'));
+        return false;
       }
     },
     [activeWorkspace, deleteRequirement, navigate, t]

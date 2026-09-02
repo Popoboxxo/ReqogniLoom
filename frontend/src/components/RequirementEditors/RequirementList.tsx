@@ -31,6 +31,7 @@ import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { EmptyState } from '../shared/EmptyState';
 import { Requirement, RequirementType, UUID } from '../../types';
 import { REQ_CATEGORIES } from '../../types';
+import styles from './RequirementList.module.css';
 import {
   buildStatusFilterOptions,
   compareWorkflowStatus,
@@ -141,7 +142,13 @@ interface RequirementListProps {
   requirements: Requirement[];
   selectedId?: string;
   onSelect: (id: UUID) => void;
-  onDelete: (id: UUID) => void;
+  /**
+   * Issue #811: returns whether the delete actually succeeded (2xx) so the
+   * confirm dialog below only closes on confirmed success — a rejected
+   * delete (e.g. the extended preset's mandatory `change_reason`) must leave
+   * the dialog open and the requirement in place.
+   */
+  onDelete: (id: UUID, changeReason?: string) => Promise<boolean>;
   /** Task 3.1: wired to the "empty" EmptyState's create action (ch. 12.7/13.3). */
   onCreateNew: () => void;
 }
@@ -162,6 +169,13 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Issue #811: the extended preset requires a `change_reason` on delete too
+  // (RequirementService.delete_requirement) — mirrors RequirementForm's own
+  // `isChangeReasonRequired` gate for saves (#339).
+  const isChangeReasonRequired = activeWorkspace?.preset === 'extended';
+  const [deleteChangeReason, setDeleteChangeReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteAttempted, setDeleteAttempted] = useState(false);
   // BUG-19: persisted per tab session (sessionStorage) so navigating away to
   // a detail view and back — or to another route entirely — does not
   // silently discard the user's search/filter/sort selection.
@@ -242,6 +256,38 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     setStatusFilter('');
   };
 
+  const closeDeleteDialog = (): void => {
+    setConfirmDeleteId(null);
+    setDeleteChangeReason('');
+    setDeleteAttempted(false);
+  };
+
+  /**
+   * Issue #811: the dialog used to close as soon as this handler ran,
+   * regardless of whether `onDelete` actually succeeded — a rejected delete
+   * (e.g. missing `change_reason` under the extended preset) looked
+   * identical to a successful one. It now awaits the result and only closes
+   * on confirmed success; on failure the dialog stays open (the caller
+   * already surfaces the server message via the `req-action-error` banner
+   * above this list) so the user can supply the missing reason and retry.
+   */
+  const handleConfirmDelete = async (): Promise<void> => {
+    if (!confirmDeleteId) return;
+    if (isChangeReasonRequired && !deleteChangeReason.trim()) {
+      setDeleteAttempted(true);
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const succeeded = await onDelete(confirmDeleteId, deleteChangeReason.trim() || undefined);
+      if (succeeded) {
+        closeDeleteDialog();
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div>
       <ListToolbar
@@ -302,16 +348,50 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           message={t('actions.deleteConfirmPromptNamed', {
             name: requirements.find((req) => req.id === confirmDeleteId)?.title ?? '',
           })}
-          confirmLabel={t('actions.delete')}
-          onConfirm={() => {
-            onDelete(confirmDeleteId);
-            setConfirmDeleteId(null);
-          }}
-          onCancel={() => setConfirmDeleteId(null)}
+          confirmLabel={isDeleting ? t('actions.deleting') : t('actions.delete')}
+          onConfirm={() => void handleConfirmDelete()}
+          onCancel={closeDeleteDialog}
+          isSubmitting={isDeleting}
           testId="req-delete-dialog"
           confirmTestId="req-confirm-delete-btn"
           cancelTestId="req-cancel-delete-btn"
-        />
+        >
+          {/* Issue #811: the extended preset rejects a delete without a
+              change_reason server-side, but the dialog never offered a field
+              for it — making delete unreachable from the UI for that preset. */}
+          {isChangeReasonRequired && (
+            <div className={styles.deleteReasonField}>
+              <label htmlFor="req-delete-change-reason" className={styles.deleteReasonLabel}>
+                {t('req.changeReason')} <span className={styles.requiredMarker}>*</span>
+              </label>
+              <textarea
+                id="req-delete-change-reason"
+                data-testid="req-delete-change-reason"
+                value={deleteChangeReason}
+                onChange={(e) => {
+                  setDeleteChangeReason(e.target.value);
+                  if (deleteAttempted) setDeleteAttempted(false);
+                }}
+                placeholder={t('req.changeReasonPlaceholder')}
+                disabled={isDeleting}
+                aria-invalid={deleteAttempted && !deleteChangeReason.trim()}
+                aria-describedby={deleteAttempted && !deleteChangeReason.trim() ? 'req-delete-change-reason-error' : undefined}
+                rows={2}
+                className={styles.deleteReasonInput}
+              />
+              {deleteAttempted && !deleteChangeReason.trim() && (
+                <p
+                  id="req-delete-change-reason-error"
+                  role="alert"
+                  data-testid="req-delete-change-reason-error"
+                  className={styles.deleteReasonError}
+                >
+                  {t('req.changeReasonRequired')}
+                </p>
+              )}
+            </div>
+          )}
+        </ConfirmDialog>
       )}
 
       {/* Task 3.1 / ch. 13.3: distinguish "nothing exists" from "nothing

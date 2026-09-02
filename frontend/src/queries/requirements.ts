@@ -127,8 +127,8 @@ export function useUpdateRequirement() {
 export function useDeleteRequirement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id }: { id: UUID; workspaceId: UUID }) =>
-      requirementsApi.delete(id),
+    mutationFn: ({ id, changeReason }: { id: UUID; workspaceId: UUID; changeReason?: string }) =>
+      requirementsApi.delete(id, changeReason),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({
         queryKey: requirementKeys.list(variables.workspaceId),
