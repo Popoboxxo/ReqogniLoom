@@ -175,12 +175,90 @@ class TestDiffFirstToCurrentVersion:
         assert field_statuses["title"] == "added"
         assert field_statuses["description"] == "added"
         assert field_statuses["category"] == "added"
-        assert field_statuses["status"] == "added"
+        # Issue #767: "status" is intentionally not a version-bound diff
+        # field anymore — workflow transitions write it without bumping
+        # `version`, which made diffs on a fixed version pair unstable.
+        assert "status" not in field_statuses
 
         # "added" fields should have "to" but no "from"
         title_field = next(f for f in result["fields"] if f["name"] == "title")
         assert title_field["to"] == "New Title"
         assert "from" not in title_field
+
+
+# ---------------------------------------------------------------------------
+# diff: stable across a status-only workflow transition (issue #767)
+# ---------------------------------------------------------------------------
+
+
+class TestDiffStableAcrossWorkflowTransition:
+    """Issue #767 (QA Audit Follow-up #737).
+
+    A workflow transition writes ``status`` via
+    ``StateLifecycleManager._sync_status_mirror``, a bare ``.update()`` that
+    deliberately does not bump ``AuditableModel.version`` (it is not a
+    content edit). Before the fix, ``status`` was still a version-bound diff
+    field, so diffing the *same* version pair before and after a transition
+    returned different content for a version number that had not moved.
+
+    This test does not call the workflow engine — it simulates exactly what
+    ``_sync_status_mirror`` does to the persistence row (mutate ``status``
+    in place, leave ``version`` untouched) and asserts the diff for a fixed
+    version pair is byte-for-byte stable across that mutation.
+    """
+
+    def test_diff_unchanged_when_status_mutates_without_version_bump(self):
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        artifact_mock = _make_artifact_mock("Requirement")
+        req_mock = _make_requirement_mock(
+            title="Stable Title",
+            description="Stable description",
+            category="functional",
+            status="draft",
+            version=2,
+        )
+
+        req_model = MagicMock()
+        req_model.objects.select_related.return_value.filter.return_value.first.return_value = (
+            req_mock
+        )
+
+        def _run_diff() -> dict:
+            with patch.object(svc, "_set_tenant_context"):
+                with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                    ArtMock.objects.filter.return_value.first.return_value = artifact_mock
+                    with patch.dict(
+                        "application.artifact_diff_service._ENTITY_MODELS",
+                        {"Requirement": req_model},
+                    ):
+                        return svc.diff(
+                            artifact_id=ARTIFACT_ID,
+                            from_version=0,
+                            to_version=2,
+                            ctx=ctx,
+                        )
+
+        result_before = _run_diff()
+
+        # Simulate a workflow transition: only `status` changes, `version`
+        # (the optimistic-lock counter the diff resolves on) does not move —
+        # exactly what StateLifecycleManager._sync_status_mirror does via its
+        # `.update(status=...)`.
+        req_mock.status = "in_review"
+        assert req_mock.version == 2  # sanity: transition never touches this
+
+        result_after = _run_diff()
+
+        assert result_after == result_before
+
+        # "status" must not be a diffable field for this type anymore, on
+        # either side of the mutation.
+        field_names_before = {f["name"] for f in result_before["fields"]}
+        field_names_after = {f["name"] for f in result_after["fields"]}
+        assert "status" not in field_names_before
+        assert "status" not in field_names_after
 
 
 # ---------------------------------------------------------------------------
