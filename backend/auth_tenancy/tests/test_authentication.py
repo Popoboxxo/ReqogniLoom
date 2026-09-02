@@ -349,3 +349,32 @@ def test_max_active_keys_does_not_count_revoked_keys(user_a, settings):
     svc.revoke_api_key(user_id=user_a.id, api_key_id=result.api_key_id)
     # Revoking freed the one active slot — a new key can be created.
     svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k2")
+
+
+@pytest.mark.django_db
+def test_many_revoked_keys_do_not_block_new_active_key(user_a):
+    """Issue #711: a user with a pile of revoked keys and fewer than
+    ``MAX_ACTIVE_API_KEYS_PER_USER`` active keys must still be able to
+    create a new one — revoked rows must never count against the cap,
+    however many of them accumulate (43 observed in the reported case)."""
+    svc = _service()
+
+    # 15 revoked keys — well beyond the default active cap of 10.
+    for i in range(15):
+        result = svc.create_api_key(
+            user_id=user_a.id, tenant_id=user_a.tenant_id, name=f"dead-{i}"
+        )
+        svc.revoke_api_key(user_id=user_a.id, api_key_id=result.api_key_id)
+
+    # 5 active keys — under the cap.
+    for i in range(5):
+        svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name=f"live-{i}")
+
+    # A 6th active key must still succeed (5 active < cap of 10).
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="live-6")
+
+    active_count = ApiKey.unscoped.filter(
+        user_id=user_a.id, revoked_at__isnull=True
+    ).count()
+    assert active_count == 6
+    assert ApiKey.unscoped.filter(user_id=user_a.id).count() == 21
