@@ -1,7 +1,7 @@
 """Regression test for issue #571 (write path) — review finding F7 pin.
 
 The read-path OOM (``GET /api/v1/tracelinks/``) was fixed by deferring the
-1536-dim ``embedding`` VectorField in ``TraceLinkManager._filtered_queryset``
+wide pgvector ``embedding`` VectorField in ``TraceLinkManager._filtered_queryset``
 (see ``rest_api/tests/test_tracelink_list_pagination_571.py``). Review
 finding F7 pointed out that ``TraceLinkManager.create()`` calls the very same
 eager, tenant-wide ``get_trace_links()`` to build the cycle-detection

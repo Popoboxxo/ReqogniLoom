@@ -80,6 +80,18 @@ def workspace(tenant):
 
 
 @pytest.fixture
+def de_workspace(tenant):
+    """Same as ``workspace`` but with ``language="de"`` (issue #795)."""
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return PersistenceWorkspace.objects.create(
+            tenant=tenant, name="ai-ws-de", language="de"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
 def extended_workspace(tenant):
     """Same as ``workspace`` but on the "extended" preset tier (GitHub #452).
 
@@ -345,6 +357,78 @@ def test_decompose_without_allocation_is_validation_error(auth_context, workspac
 
     with pytest.raises(ValidationError):
         AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+
+# ---------------------------------------------------------------------------
+# Issue #795 — Workspace.language must be injected into every
+# content-generating derive prompt, not left to the provider's whim.
+# ---------------------------------------------------------------------------
+
+
+def test_derive_requirements_prompt_carries_german_instruction_for_de_workspace(
+    auth_context, de_workspace, monkeypatch
+):
+    """A `de` workspace's derive_requirements_from_need prompt asks for German."""
+    need = _make_need(auth_context, de_workspace, "Need", "Description")
+    provider = _CaptureProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_requirements_from_need(auth_context, need.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Respond in German" in prompt
+    assert "Respond in English" not in prompt
+
+
+def test_derive_requirements_prompt_carries_english_instruction_for_en_workspace(
+    auth_context, workspace, monkeypatch
+):
+    """The default (`en`) workspace's prompt explicitly pins English too.
+
+    Issue #795 observed the SAME `de` workspace drift to Chinese on one flow
+    and English on another with no instruction at all -- an un-instructed
+    provider cannot be trusted to default to English by itself, so English
+    must be requested explicitly rather than assumed.
+    """
+    need = _make_need(auth_context, workspace, "Need", "Description")
+    provider = _CaptureProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_requirements_from_need(auth_context, need.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Respond in English" in prompt
+    assert "Respond in German" not in prompt
+
+
+def test_decompose_next_level_prompt_carries_german_instruction_for_de_workspace(
+    auth_context, de_workspace, monkeypatch
+):
+    """A `de` workspace's decompose_requirement_next_level prompt asks for German.
+
+    Mirrors the second flow issue #795 named explicitly (that QA session saw
+    it answer in English despite the `de` workspace).
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=de_workspace.id, title="Parent req", ctx=auth_context
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=de_workspace.id, title="Component", ctx=auth_context
+    )
+    TraceLinkService().allocate(
+        requirement_id=req.id, architecture_element_id=arch.id, ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Respond in German" in prompt
 
 
 # ---------------------------------------------------------------------------

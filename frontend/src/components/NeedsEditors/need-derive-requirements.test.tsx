@@ -100,7 +100,7 @@ vi.mock("../../api/tracelinks", () => ({
 }));
 
 vi.mock("../../api/artifactRefs", () => ({
-  resolveArtifactRef: vi.fn().mockResolvedValue({ title: "ref", route: "" }),
+  resolveArtifactRefs: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("../../api/workspaces", () => ({

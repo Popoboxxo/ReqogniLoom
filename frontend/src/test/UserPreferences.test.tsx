@@ -321,7 +321,16 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
       expect(screen.getByTestId("visible-adr").textContent).toBe("hidden");
     });
     // risk override beats the minimal preset default (risk=false).
-    expect(screen.getByTestId("visible-risk").textContent).toBe("visible");
+    // Issue #789: `adr` above settles via the workspace-bootstrap effect
+    // (activeWorkspace.preset), while `risk` here settles via the
+    // INDEPENDENT user-preference-fetch effect (preferencesApi.get). The
+    // two async chains are not ordered relative to each other, so waiting
+    // for `adr` does not guarantee the override for `risk` has already
+    // landed — this needs its own waitFor instead of a synchronous
+    // assertion right after the one above.
+    await waitFor(() => {
+      expect(screen.getByTestId("visible-risk").textContent).toBe("visible");
+    });
     // other features still follow the minimal preset (all false).
     expect(screen.getByTestId("visible-issue").textContent).toBe("hidden");
     expect(screen.getByTestId("visible-diagrams").textContent).toBe("hidden");

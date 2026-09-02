@@ -616,6 +616,15 @@ export interface PaginatedResponse<T> {
   count: number;
   next: string | null;
   previous: string | null;
+  /**
+   * Page size actually applied by the backend (issue #571). Differs from the
+   * requested `page_size` whenever that value exceeded the endpoint's
+   * `max_page_size` — the clamp used to be silent. Optional because older
+   * backends (and hand-built test fixtures) omit it.
+   */
+  page_size?: number;
+  /** Hard upper bound the endpoint accepts for `page_size` (issue #571). */
+  max_page_size?: number;
   results: T[];
 }
 

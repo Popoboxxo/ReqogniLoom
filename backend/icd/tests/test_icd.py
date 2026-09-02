@@ -385,9 +385,8 @@ class TestIcdCreate:
 
 @pytest.mark.django_db
 class TestIcdEmbeddingDimensionGuard:
-    """Regression guard for the Task 12 fix: ``IcdVersion.embedding`` is a
-    fixed ``vector(1536)`` column, but the shipped default
-    ``EMBEDDING_PROVIDER=sentence-transformers`` produces 384-dim vectors.
+    """Regression guard for the Task 12 fix: a vector whose width differs from
+    ``IcdVersion.embedding``'s column width must never be assigned.
 
     Unlike ``RequirementService``/``TraceLinkService`` (which use a bare
     ``.update()`` after the row already exists), ``icd_manager._apply_embedding``
@@ -397,32 +396,56 @@ class TestIcdEmbeddingDimensionGuard:
     fix, an unguarded dimension mismatch here surfaced as an *uncaught*
     ``DataError`` at that INSERT, not just a swallowed one -- see the Task 12
     report.
+
+    #794: widths are derived from the column now; the previous literals
+    (384-dim provider vs ``vector(1536)`` column) were the shipped default,
+    so this class asserted that no ICD version ever got an embedding.
     """
 
-    def test_dimension_mismatch_is_skipped_not_written(
-        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
-    ):
+    def _create(self, monkeypatch, dimensions, tenant_a, workspace_id, src_id, tgt_id):
         from icd.services import create_icd
 
-        # Simulates the real default provider's 384-dim output against the
-        # 1536-dim column. Patched at the source module because
-        # ``_apply_embedding`` imports ``generate_embedding`` lazily, inside
-        # the function body.
+        # Patched at the source module because ``_apply_embedding`` imports
+        # ``generate_embedding`` lazily, inside the function body.
         monkeypatch.setattr(
             "llm_adapter.embedding_service.generate_embedding",
-            lambda text: [0.1] * 384,
+            lambda text: [0.1] * dimensions,
         )
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
-                result = create_icd(dto)
+                return create_icd(dto)
+
+    def test_dimension_mismatch_is_skipped_not_written(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        from icd.models import IcdVersion
+
+        column_dimensions = IcdVersion._meta.get_field("embedding").dimensions
+        result = self._create(
+            monkeypatch, column_dimensions + 8, tenant_a, workspace_id, src_id, tgt_id
+        )
 
         # (1) No exception propagated. (2) Mismatched vector never assigned.
         assert result.current_version.embedding is None
         # (3) The rest of the save completed: the IcdVersion (and its
         #     immutable INSERT) itself succeeded, with its real data intact.
         assert result.current_version.version_number == 1
+
+    def test_matching_dimension_is_written(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """#794: a provider-shaped vector must actually land in the column."""
+        from icd.models import IcdVersion
+
+        column_dimensions = IcdVersion._meta.get_field("embedding").dimensions
+        result = self._create(
+            monkeypatch, column_dimensions, tenant_a, workspace_id, src_id, tgt_id
+        )
+
+        assert result.current_version.embedding is not None
+        assert len(result.current_version.embedding) == column_dimensions
 
 
 @pytest.mark.django_db

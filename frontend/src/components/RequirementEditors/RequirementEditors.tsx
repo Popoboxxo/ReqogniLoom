@@ -216,6 +216,15 @@ export default function RequirementEditors(): JSX.Element {
   // the panel by default — that would be its own × close button, ahead of
   // the title input this form used to `autoFocus`. Pointing initialFocusRef
   // at the title input preserves the previous UX.
+  //
+  // Issue #800: the native `autoFocus` attribute used to stay on this input
+  // *in addition* to `initialFocusRef` — two independent focus-management
+  // mechanisms racing on the same element. The native attribute's focusing
+  // steps run as a queued task (HTML autofocus processing model), not
+  // synchronously during mount, so it could win *after* the focus trap's
+  // effect already ran, and — observed in real-browser QA — misdirect
+  // initial focus onto the description field instead. `initialFocusRef` is
+  // now the single source of truth; `autoFocus` was removed from the input.
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   /**
@@ -246,18 +255,28 @@ export default function RequirementEditors(): JSX.Element {
 
   /**
    * Handle delete requirement with confirmation.
+   *
+   * Issue #811: returns whether the delete actually succeeded so the caller
+   * (the confirm dialog in RequirementList) knows whether it may close
+   * itself. It used to be `void`-returning and fire-and-forget, so the
+   * dialog closed unconditionally the moment the user clicked "Löschen" —
+   * including on a 400 (e.g. the extended preset's mandatory `change_reason`)
+   * — leaving the requirement undeleted but the UI looking like it had
+   * succeeded.
    */
   const handleDelete = useCallback(
-    async (id: string): Promise<void> => {
-      if (!activeWorkspace) return;
+    async (id: string, changeReason?: string): Promise<boolean> => {
+      if (!activeWorkspace) return false;
       setActionError(null);
       try {
-        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id });
+        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id, changeReason });
         navigate('/requirements');
+        return true;
       } catch (err: unknown) {
         // #340: a refused delete (permission, workflow gate) must not look
         // like the row simply stayed where it was.
         setActionError(extractApiErrorMessage(err) ?? t('req.deleteFailed'));
+        return false;
       }
     },
     [activeWorkspace, deleteRequirement, navigate, t]
@@ -477,7 +496,6 @@ export default function RequirementEditors(): JSX.Element {
               // the user actually starts correcting the input.
               if (createError) setCreateError(null);
             }}
-            autoFocus
             disabled={isCreating}
             placeholder={t('editor.newRequirementTitle')}
             style={{

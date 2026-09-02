@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from django.db import models
 from pgvector.django import HnswIndex, VectorField
 
+from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantManager, UnscopedManager
 
@@ -180,14 +181,15 @@ class IcdVersion(TenantScopedModel):
     postconditions = models.JSONField(default=list, blank=True)
     invariants = models.JSONField(default=list, blank=True)
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
         null=True,
         blank=True,
         help_text=(
-            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
-            "text-embedding-3-small compatible) for cosine similarity search. "
-            "Set at creation time only — IcdVersion is immutable (DB trigger). "
-            "Best-effort: NULL when no embedding provider is configured."
+            "REQ-L2-VS-004: Semantic embedding for cosine similarity search, "
+            "sized by persistence.embedding_dimensions."
+            "EMBEDDING_VECTOR_DIMENSIONS (#794). Set at creation time only — "
+            "IcdVersion is immutable (DB trigger). Best-effort: NULL when no "
+            "embedding provider is configured."
         ),
     )
 

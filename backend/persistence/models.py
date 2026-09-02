@@ -44,6 +44,7 @@ from django.utils.crypto import salted_hmac
 from pgvector.django import HnswIndex, VectorField
 
 from persistence.custom_fields import validate_custom_fields
+from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.encryption import decrypt_secret, encrypt_secret
 from persistence.role_permissions import validate_role_permissions
 from persistence.tenancy import TenantManager, UnscopedManager
@@ -1008,13 +1009,15 @@ class Requirement(TenantScopedModel):
         help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides requirement from normal views; hard-delete via admin only.",
     )
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
         null=True,
         blank=True,
         help_text=(
-            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
-            "text-embedding-3-small compatible) for cosine similarity search. "
-            "Best-effort: NULL when no embedding provider is configured."
+            "REQ-L2-VS-004: Semantic embedding for cosine similarity search, "
+            "sized by persistence.embedding_dimensions."
+            "EMBEDDING_VECTOR_DIMENSIONS (#794 — was a hardcoded 1536 that no "
+            "shipped default provider could ever fill). Best-effort: NULL when "
+            "no embedding provider is configured."
         ),
     )
 
@@ -1362,14 +1365,14 @@ class TraceLink(TenantScopedModel):
     )
     link_type = models.CharField(max_length=64)
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
         null=True,
         blank=True,
         help_text=(
-            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
-            "text-embedding-3-small compatible) for cosine similarity search "
-            "over trace links. Best-effort: NULL when no embedding provider is "
-            "configured."
+            "REQ-L2-VS-004: Semantic embedding for cosine similarity search "
+            "over trace links, sized by persistence.embedding_dimensions."
+            "EMBEDDING_VECTOR_DIMENSIONS (#794). Best-effort: NULL when no "
+            "embedding provider is configured."
         ),
     )
 

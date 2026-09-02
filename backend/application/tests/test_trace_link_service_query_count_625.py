@@ -243,7 +243,7 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
             "single write (#625):\n" + "\n".join(cycle_selects)
         )
         assert not any('"embedding"' in sql for sql in cycle_selects), (
-            "the cycle-detection SELECT fetches the 1536-dim embedding "
+            "the cycle-detection SELECT fetches the wide pgvector embedding "
             "column (#571 F7 regression):\n" + "\n".join(cycle_selects)
         )
 

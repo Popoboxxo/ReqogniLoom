@@ -270,37 +270,43 @@ class TestCreateRequirement:
 
 
 class TestEmbeddingDimensionGuard:
-    """Regression guard for the Task 12 fix: ``Requirement.embedding`` is a
-    fixed ``vector(1536)`` column (OpenAI-shaped, pre-dates this branch), but
-    the shipped default ``EMBEDDING_PROVIDER=sentence-transformers`` produces
-    384-dim vectors. Before the fix, ``_generate_and_store_embedding`` handed
-    the mismatched vector straight to a bare ``.update()`` inside the
-    caller's ambient (``@atomic_transaction``-wrapped) transaction, which
-    Postgres rejected with a ``DataError`` — poisoning that transaction for
-    every subsequent query in the same request/test (see
-    ``application/tests/test_adr_service.py``'s original failure mode,
-    documented in the Task 12 report).
+    """Regression guard for the Task 12 fix: a vector whose width differs from
+    ``Requirement.embedding``'s column width must be skipped, not handed to a
+    bare ``.update()`` inside the caller's ambient
+    (``@atomic_transaction``-wrapped) transaction — Postgres rejects it with a
+    ``DataError`` that poisons that transaction for every subsequent query in
+    the same request/test (see ``application/tests/test_adr_service.py``'s
+    original failure mode, documented in the Task 12 report).
 
-    This is a real, integration-level test (real DB, real
-    ``create_requirement`` call, real 1536-dim column) rather than a mock of
-    ``_generate_and_store_embedding`` itself, specifically so it would catch
-    a regression to the crash/poisoning behaviour, not just to a change in
-    how the guard is implemented.
+    Real, integration-level tests (real DB, real ``create_requirement`` call,
+    real column) rather than a mock of ``_generate_and_store_embedding``
+    itself, specifically so they catch a regression to the crash/poisoning
+    behaviour, not just a change in how the guard is implemented.
+
+    #794: the mismatched width used to be spelled ``384`` here, because that
+    was what the *shipped default* provider produced against a hardcoded
+    ``vector(1536)`` column — i.e. this test asserted that the default
+    configuration wrote no embeddings, and passed. The widths are now derived
+    from the column, and ``test_matching_dimension_is_written`` pins the
+    behaviour that actually matters.
     """
 
-    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
-        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
-
-        # Simulates the real default provider's 384-dim output against the
-        # 1536-dim column. Patched at the source module (not
-        # ``application.requirement_service``) because
-        # ``_generate_and_store_embedding`` imports ``generate_embedding``
-        # lazily, inside the method body — there is no module-level name to
-        # intercept.
+    def _patch_provider(self, monkeypatch, dimensions: int) -> None:
+        # Patched at the source module (not ``application.requirement_service``)
+        # because ``_generate_and_store_embedding`` imports
+        # ``generate_embedding`` lazily, inside the method body — there is no
+        # module-level name to intercept.
         monkeypatch.setattr(
             "llm_adapter.embedding_service.generate_embedding",
-            lambda text: [0.1] * 384,
+            lambda text: [0.1] * dimensions,
         )
+
+    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+        from persistence.models import Requirement
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+
+        column_dimensions = Requirement._meta.get_field("embedding").dimensions
+        self._patch_provider(monkeypatch, column_dimensions + 8)
 
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
@@ -319,6 +325,28 @@ class TestEmbeddingDimensionGuard:
         #     persisted (refresh_from_db() above would raise
         #     Requirement.DoesNotExist otherwise), with its real data intact.
         assert requirement.title == "Dimension guard test"
+
+    def test_matching_dimension_is_written(self, monkeypatch):
+        """#794: the point of the whole issue — a provider-shaped vector must
+        actually land in the column. This is what never happened under the
+        shipped default before #794, and it is why ``artifact.search``'s
+        semantic pass returned nothing on every default deployment."""
+        from persistence.models import Requirement
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+
+        column_dimensions = Requirement._meta.get_field("embedding").dimensions
+        self._patch_provider(monkeypatch, column_dimensions)
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            requirement = RequirementService().create_requirement(
+                workspace_id=ws.id, title="Embedding write test", ctx=ctx
+            )
+            requirement.refresh_from_db()
+
+        assert requirement.embedding is not None
+        assert len(requirement.embedding) == column_dimensions
 
 
 # ---------------------------------------------------------------------------
@@ -1473,6 +1501,99 @@ class TestCheckConsistency:
         forwarded = mock_cc.call_args.kwargs["artifacts"]
         assert {"id": str(r1.id), "title": "R1", "content": "body-1"} in forwarded
         assert {"id": str(r2.id), "title": "R2", "content": ""} in forwarded
+
+
+class TestGetConsistencyStatus:
+    """GH-796: check_consistency's task_id must be retrievable via a status
+    query, tenant-scoped the same way as BundleCompressionService."""
+
+    def test_get_consistency_status_returns_task_status_for_owning_tenant(self):
+        """A task_id dispatched by check_consistency is retrievable by the
+        same tenant via get_consistency_status."""
+        from django.core.cache import cache
+
+        svc = RequirementService()
+        ctx = _make_ctx()
+        ws_id = uuid.uuid4()
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = []
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "gh796-task-1"},
+            ),
+        ):
+            dispatch_result = svc.check_consistency(ws_id, ctx)
+
+        assert dispatch_result == {"task_id": "gh796-task-1"}
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "llm_adapter.services.get_task_status",
+                return_value={"task_id": "gh796-task-1", "status": "done", "result": {"foo": "bar"}},
+            ) as mock_status,
+        ):
+            status = svc.get_consistency_status("gh796-task-1", ctx)
+
+        mock_status.assert_called_once_with("gh796-task-1")
+        assert status == {
+            "task_id": "gh796-task-1",
+            "status": "done",
+            "result": {"foo": "bar"},
+        }
+
+        cache.clear()
+
+    def test_get_consistency_status_reports_not_found_for_unknown_task_id(self):
+        """A task_id never dispatched (or dispatched by another tenant) must
+        report status=not_found instead of leaking cross-tenant task state."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+
+        with patch("application.requirement_service.ServiceBase._set_tenant_context"):
+            status = svc.get_consistency_status("never-dispatched-task", ctx)
+
+        assert status == {"task_id": "never-dispatched-task", "status": "not_found"}
+
+    def test_get_consistency_status_reports_not_found_for_foreign_tenant(self):
+        """A task_id dispatched by tenant A must not be pollable by tenant B."""
+        from django.core.cache import cache
+
+        svc = RequirementService()
+        ctx_a = _make_ctx()
+        ctx_b = _make_ctx()
+        ws_id = uuid.uuid4()
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = []
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "gh796-task-cross-tenant"},
+            ),
+        ):
+            svc.check_consistency(ws_id, ctx_a)
+
+        with patch("application.requirement_service.ServiceBase._set_tenant_context"):
+            status = svc.get_consistency_status("gh796-task-cross-tenant", ctx_b)
+
+        assert status == {"task_id": "gh796-task-cross-tenant", "status": "not_found"}
+
+        cache.clear()
 
 
 class TestRequirementDTO:

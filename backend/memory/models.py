@@ -24,6 +24,7 @@ from uuid import UUID
 from django.db import models
 from pgvector.django import HnswIndex, VectorField
 
+from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.encryption import decrypt_secret, encrypt_secret
 from persistence.models import AuditableModel, TenantScopedModel, Workspace
 
@@ -33,7 +34,10 @@ class WorkspaceMemory(TenantScopedModel):
 
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="memory_entries")
     content = models.TextField()
-    embedding = VectorField(dimensions=384, null=True, blank=True)
+    # #794: sourced from the project-wide SSOT rather than a local literal, so
+    # this column can no longer silently drift apart from the Requirement/
+    # TraceLink/IcdVersion embedding columns the way it had (384 vs 1536).
+    embedding = VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS, null=True, blank=True)
     source_event_id = models.UUIDField(null=True, blank=True)
     superseded_by = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="supersedes"
@@ -62,7 +66,8 @@ class UserTenantMemory(TenantScopedModel):
 
     user = models.ForeignKey("persistence.User", on_delete=models.CASCADE, related_name="tenant_memory_entries")
     content = models.TextField()
-    embedding = VectorField(dimensions=384, null=True, blank=True)
+    # #794: see WorkspaceMemory.embedding.
+    embedding = VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS, null=True, blank=True)
     source_event_id = models.UUIDField(null=True, blank=True)
     superseded_by = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="supersedes"

@@ -9,6 +9,7 @@ on -- ``client.peer(id).conclusions.{create,query,list,delete}`` -- so a future
 SDK rename (the surface was called ``observations`` before ``conclusions``)
 shows up as a failure here rather than only in production.
 """
+import re
 from types import SimpleNamespace
 from unittest import mock
 from uuid import uuid4
@@ -17,6 +18,10 @@ import pytest
 
 from memory.backends import MEMORY_BACKEND_REGISTRY
 from memory.honcho_backend import HonchoMemoryBackend
+
+#: Honcho v3's own id validation pattern (workspaces/peers). Any id that does
+#: not match this gets rejected with HTTP 422 -- see ``TestHonchoIdCharset``.
+_HONCHO_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _conclusion(entry_id: str, content: str):
@@ -54,7 +59,7 @@ class TestHonchoPeerNamespacing:
         user_id = uuid4()
         backend = HonchoMemoryBackend()
         peer_id = backend._peer_id(tenant_id, user_id)
-        assert peer_id == f"{tenant_id}:{user_id}"
+        assert peer_id == f"{tenant_id}_{user_id}"
 
     def test_different_tenants_same_user_id_get_different_peers(self):
         tenant_a = uuid4()
@@ -74,7 +79,7 @@ class TestHonchoPeerNamespacing:
     def test_honcho_workspace_is_per_tenant(self):
         tenant_a, tenant_b = uuid4(), uuid4()
         backend = HonchoMemoryBackend()
-        assert backend._honcho_workspace_id(tenant_a) == f"reqogniloom:{tenant_a}"
+        assert backend._honcho_workspace_id(tenant_a) == f"reqogniloom_{tenant_a}"
         assert backend._honcho_workspace_id(tenant_a) != backend._honcho_workspace_id(tenant_b)
 
     def test_unknown_scope_is_rejected(self):
@@ -87,7 +92,7 @@ class TestHonchoPeerNamespacing:
         """No method may address a raw ReqogniLoom id (the leak this guards)."""
         backend, client = _backend_with_mock_client()
         tenant_id, scope_id = uuid4(), uuid4()
-        expected_peer = f"{tenant_id}:{scope_id}"
+        expected_peer = f"{tenant_id}_{scope_id}"
 
         peer = client.peer(expected_peer)
         peer.conclusions.create.return_value = [_conclusion("abc", "f")]
@@ -104,11 +109,56 @@ class TestHonchoPeerNamespacing:
         assert str(scope_id) in expected_peer and str(tenant_id) in expected_peer
 
 
+class TestHonchoIdCharset:
+    """Regression guard for GH #793: Honcho v3 rejects any workspace/peer id
+    that does not match ``^[a-zA-Z0-9_-]+$`` with HTTP 422. UUIDs are
+    hyphenated, so joining them with ``:`` (as this backend used to) produced
+    an id Honcho always 422'd on, which the caller then saw as an unhandled
+    MCP 500 (``memory.query``/``memory.list``) for every single request --
+    not something visible in a diff, since the ids "looked" fine in Python.
+    """
+
+    def test_peer_id_matches_honchos_allowed_charset(self):
+        tenant_id, user_id = uuid4(), uuid4()
+        backend = HonchoMemoryBackend()
+        assert _HONCHO_ID_PATTERN.match(backend._peer_id(tenant_id, user_id))
+
+    def test_workspace_scope_peer_id_matches_honchos_allowed_charset(self):
+        tenant_id, workspace_id = uuid4(), uuid4()
+        backend = HonchoMemoryBackend()
+        assert _HONCHO_ID_PATTERN.match(backend._workspace_id(tenant_id, workspace_id))
+
+    def test_honcho_workspace_id_matches_honchos_allowed_charset(self):
+        tenant_id = uuid4()
+        backend = HonchoMemoryBackend()
+        assert _HONCHO_ID_PATTERN.match(backend._honcho_workspace_id(tenant_id))
+
+    @pytest.mark.parametrize("scope", ["user", "workspace"])
+    def test_query_and_list_do_not_surface_a_422_as_an_unhandled_error(self, scope):
+        """End-to-end regression for the MCP-visible symptom: before the fix,
+        ``client.peer(...)`` would have been called with a colon-namespaced
+        id; Honcho itself rejects that with a 422 that the old id shape made
+        inevitable on every call. Asserting the id charset here (rather than
+        mocking a 422 response) is the correct regression guard because the
+        bug was in id *construction*, not in error handling further down.
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, scope_id = uuid4(), uuid4()
+        peer_id = backend._scope_peer_id(tenant_id, scope, scope_id)
+        assert _HONCHO_ID_PATTERN.match(peer_id)
+
+        client.peer(peer_id).conclusions.query.return_value = []
+        client.peer(peer_id).conclusions.list.return_value = SimpleNamespace(items=[])
+
+        assert backend.query(tenant_id, scope, scope_id, "q") == []
+        assert backend.list_recent(tenant_id, scope, scope_id) == []
+
+
 class TestHonchoUpsert:
     def test_upsert_user_scope_uses_namespaced_peer(self):
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}:{user_id}")
+        peer = client.peer(f"{tenant_id}_{user_id}")
         peer.conclusions.create.return_value = [_conclusion("nano123", "some fact")]
 
         ref = backend.upsert(tenant_id, "user", user_id, "some fact")
@@ -120,7 +170,7 @@ class TestHonchoUpsert:
     def test_upsert_workspace_scope_uses_namespaced_peer(self):
         backend, client = _backend_with_mock_client()
         tenant_id, workspace_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}:{workspace_id}")
+        peer = client.peer(f"{tenant_id}_{workspace_id}")
         peer.conclusions.create.return_value = [_conclusion("nano456", "ws fact")]
 
         ref = backend.upsert(tenant_id, "workspace", workspace_id, "ws fact")
@@ -130,7 +180,7 @@ class TestHonchoUpsert:
     def test_upsert_raises_when_honcho_returns_nothing(self):
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        client.peer(f"{tenant_id}:{user_id}").conclusions.create.return_value = []
+        client.peer(f"{tenant_id}_{user_id}").conclusions.create.return_value = []
 
         with pytest.raises(RuntimeError, match="returned no object"):
             backend.upsert(tenant_id, "user", user_id, "fact")
@@ -140,7 +190,7 @@ class TestHonchoQuery:
     def test_query_returns_refs_and_passes_top_k(self):
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}:{user_id}")
+        peer = client.peer(f"{tenant_id}_{user_id}")
         peer.conclusions.query.return_value = [_conclusion("a", "one"), _conclusion("b", "two")]
 
         refs = backend.query(tenant_id, "user", user_id, "what?", top_k=2)
@@ -154,7 +204,7 @@ class TestHonchoQuery:
         Honcho nanoid into a Django UUIDField lookup."""
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        client.peer(f"{tenant_id}:{user_id}").conclusions.query.return_value = [
+        client.peer(f"{tenant_id}_{user_id}").conclusions.query.return_value = [
             _conclusion("a", "one")
         ]
 
@@ -163,7 +213,7 @@ class TestHonchoQuery:
     def test_query_clamps_top_k_to_honcho_max(self):
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}:{user_id}")
+        peer = client.peer(f"{tenant_id}_{user_id}")
         peer.conclusions.query.return_value = []
 
         backend.query(tenant_id, "user", user_id, "q", top_k=5000)
@@ -180,7 +230,7 @@ class TestHonchoListRecent:
         page = mock.MagicMock()
         page.items = [_conclusion("a", "one"), _conclusion("b", "two")]
         page.__iter__ = mock.Mock(side_effect=AssertionError("must not iterate the page"))
-        client.peer(f"{tenant_id}:{user_id}").conclusions.list.return_value = page
+        client.peer(f"{tenant_id}_{user_id}").conclusions.list.return_value = page
 
         refs = backend.list_recent(tenant_id, "user", user_id, limit=10)
 
@@ -190,7 +240,7 @@ class TestHonchoListRecent:
         """Honcho lists conclusions newest-first unless ``reverse`` is passed."""
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}:{user_id}")
+        peer = client.peer(f"{tenant_id}_{user_id}")
         peer.conclusions.list.return_value = SimpleNamespace(items=[])
 
         backend.list_recent(tenant_id, "user", user_id, limit=7)
@@ -200,7 +250,7 @@ class TestHonchoListRecent:
     def test_list_recent_truncates_to_limit_and_clamps_page_size(self):
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}:{user_id}")
+        peer = client.peer(f"{tenant_id}_{user_id}")
         peer.conclusions.list.return_value = SimpleNamespace(
             items=[_conclusion(str(i), str(i)) for i in range(100)]
         )
@@ -222,7 +272,7 @@ class TestHonchoForget:
         backend.forget(tenant_id, "nano789")
 
         client._http.delete.assert_called_once_with(
-            f"/v3/workspaces/reqogniloom:{tenant_id}/conclusions/nano789"
+            f"/v3/workspaces/reqogniloom_{tenant_id}/conclusions/nano789"
         )
 
     def test_forget_never_creates_a_peer(self):
@@ -254,7 +304,7 @@ class TestHonchoForget:
         backend.forget(caller_tenant, "some-other-tenants-nanoid")
 
         route = client._http.delete.call_args.args[0]
-        assert f"reqogniloom:{caller_tenant}" in route
+        assert f"reqogniloom_{caller_tenant}" in route
         assert str(other_tenant) not in route
 
     def test_each_tenant_gets_its_own_cached_client(self):
@@ -268,7 +318,7 @@ class TestHonchoForget:
             backend.forget(tenant_b, "n3")
 
         workspaces = [c.kwargs["workspace_id"] for c in honcho_cls.call_args_list]
-        assert workspaces == [f"reqogniloom:{tenant_a}", f"reqogniloom:{tenant_b}"]
+        assert workspaces == [f"reqogniloom_{tenant_a}", f"reqogniloom_{tenant_b}"]
 
 
 class TestHonchoBackendRegistration:

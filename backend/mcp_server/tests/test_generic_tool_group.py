@@ -631,6 +631,90 @@ def test_risk_create_without_probability_impact_via_real_service_returns_validat
     assert "probability" in result.message and "impact" in result.message
 
 
+# ---------------------------------------------------------------------------
+# #345 Finding 1, positive direction — the schema's `required` set must be
+# SUFFICIENT, not merely consistent with the service signature.
+#
+# test_create_schema_required_matches_service_signature above proves the
+# published schema agrees with `inspect.signature`. That is necessary but not
+# sufficient: a parameter can carry a default (so the signature calls it
+# optional, and the schema follows) while the service still validates it as
+# mandatory at runtime — which is exactly the failure mode #345 reported, a
+# client that trusts `tools/list` getting a 400. Every existing real-DB
+# dispatch test covers the opposite direction (omit a required field -> expect
+# VALIDATION_ERROR), so nothing caught a schema that is *honest about the
+# signature* but still under-declares what the service enforces.
+#
+# This test closes the loop: it builds the payload from the PUBLISHED schema
+# (never a hard-coded field list, so it keeps testing the real contract as the
+# schema evolves) and asserts the server accepts it.
+# ---------------------------------------------------------------------------
+
+
+def _value_for_required_field(name: str, spec: dict, workspace_id: UUID) -> object:
+    """Pick a schema-valid value for a required property.
+
+    Honours a declared ``enum`` so the payload is valid by the schema's own
+    rules — a closed value set the server also enforces (see
+    test_risk_create_schema_publishes_probability_impact_enums).
+    """
+    if name == "workspace_id":
+        return str(workspace_id)
+    enum = spec.get("enum")
+    if enum:
+        return enum[0]
+    if spec.get("type") == "integer":
+        return 1
+    return f"schema-contract-{name}"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("service_class_path,prefix", _SERVICE_PATHS)
+def test_create_accepts_exactly_the_schema_declared_required_fields(
+    service_class_path, prefix
+):
+    """#345 Finding 1: a call carrying exactly the published `required` fields
+    (and nothing else) must be accepted by the real service.
+
+    Runs against the real service and a real DB — no mocks — because the
+    mismatch #345 describes only exists between the *declared* contract and
+    the *runtime* one, which a mocked service cannot reproduce.
+    """
+    group = _crud_group_for(service_class_path, prefix)
+    _tenant, workspace, ctx = _make_tenant_workspace_ctx(f"{prefix}-mcp-345-req")
+
+    schema = next(
+        s for s in group.get_tool_schemas() if s["name"] == f"{prefix}.create"
+    )["inputSchema"]
+    properties = schema["properties"]
+
+    params = {
+        name: _value_for_required_field(name, properties[name], workspace.id)
+        for name in schema["required"]
+    }
+
+    # The MCP view arms the tenant context from the authenticated key before
+    # dispatching; some services (e.g. GlossaryService) issue tenant-scoped
+    # queries and rely on it. Mirror that here so this test exercises the
+    # schema contract rather than the harness's missing request scaffolding.
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(ctx.tenant_id)
+    try:
+        result = group._handle_create(
+            params=params, auth_context=ctx, api_key="reqlo_x"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    assert result.success is True, (
+        f"{prefix}.create declares required={schema['required']} in tools/list "
+        f"but rejected exactly those fields: "
+        f"{result.error_code} — {result.message}"
+    )
+    assert result.data["data"]["id"]
+
+
 @pytest.mark.django_db
 def test_issue_update_status_via_real_service_returns_validation_error():
     """End-to-end with the real IssueService (no mocks) — regression guard

@@ -976,6 +976,43 @@ def _parse_derivation_response(text: str) -> dict:
         return {"children": [{"title": "Generated Req", "description": text}]}
 
 
+def _parse_validation_response(text: str) -> dict:
+    """Parse a validate_artifact completion into a data dict.
+
+    Mirrors :func:`_parse_derivation_response`: some models wrap the JSON
+    payload in markdown fences, which are stripped before parsing. On
+    malformed JSON this degrades to a structured, zero-confidence result
+    instead of letting ``json.JSONDecodeError`` propagate — every provider's
+    ``validate_artifact`` used a bare ``json.loads(text)``, so a non-JSON
+    completion (e.g. prose around the JSON, or an incomplete response) raised
+    an uncaught exception whose raw parser message ("Expecting value: line 1
+    column 1 (char 0)") ended up leaking straight into the client-facing
+    error envelope (#576).
+
+    Args:
+        text: The raw completion text returned by the provider.
+
+    Returns:
+        A dict with (at least) ``score`` and ``suggestions`` keys.
+    """
+    import json
+
+    try:
+        cleaned = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning(
+            "Provider returned invalid JSON for validate_artifact: %s", text
+        )
+        return {
+            "score": 0.0,
+            "suggestions": [
+                "LLM provider returned a non-JSON response; validation "
+                "could not be scored automatically."
+            ],
+        }
+
+
 # ---------------------------------------------------------------------------
 # Anthropic provider
 # ---------------------------------------------------------------------------
@@ -1068,7 +1105,7 @@ class AnthropicProvider(_BaseHttpProvider):
             import json
 
             raw = message.content[0].text
-            data = json.loads(raw)
+            data = _parse_validation_response(raw)
             token_usage = (
                 message.usage.input_tokens + message.usage.output_tokens
                 if hasattr(message, "usage")
@@ -1292,7 +1329,7 @@ class OpenAiProvider(_BaseHttpProvider):
             "Return JSON: {score, suggestions}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1481,7 +1518,7 @@ class OllamaProvider(_BaseHttpProvider):
             "Return JSON: {score, suggestions}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1636,7 +1673,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             "Return JSON: {score, suggestions}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1810,7 +1847,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
             "Return JSON: {score, suggestions}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),

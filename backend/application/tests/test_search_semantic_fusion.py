@@ -6,20 +6,20 @@ the only one of the three embeddable types (see
 entity type today: full-text, lexical, and (new) cosine-similarity over
 ``Requirement.embedding``.
 
-Dimension note: ``Requirement.embedding`` is a hardcoded pgvector
-``vector(1536)`` column (persistence/migrations/0024_requirement_embedding.py)
--- Postgres enforces that dimension at the DB level on every INSERT/UPDATE,
-so a fixture that wants a *findable* stored embedding must use 1536 floats,
-not the 384-dim shape the ``mock``/``sentence-transformers`` providers
-produce. ``test_semantically_similar_requirement_found_without_keyword_match``
-therefore monkeypatches ``generate_embedding`` directly (bypassing the real
-provider machinery) so both the stored and the query vector are consistently
-1536-dim -- this proves the *fusion logic* in isolation from which embedding
-provider happens to be configured. The dimension-mismatch test below covers
-the realistic case (provider dimension != column dimension) explicitly, since
-that -- not a clean match -- is what the shipped default configuration
-(``EMBEDDING_PROVIDER=sentence-transformers``, 384-dim) actually produces
-against these 1536-dim columns.
+Dimension note (rewritten for #794): every embedding column is sized from
+``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``, and Postgres
+enforces that width at the DB level on every INSERT/UPDATE. These fixtures
+therefore derive their vector lengths from that constant (:data:`_DIM`) rather
+than from a literal — the literals they used to carry (1536 for the stored
+vector, 384 for "the shape the default provider actually produces") were a
+*record of the bug*: they encoded a configuration in which the stored and
+generated widths could never agree, so the semantic pass was dead on every
+default deployment.
+
+:data:`_MISMATCHED_DIM` is a deliberately wrong width, used by the tests that
+still need to prove graceful degradation when an operator points
+``EMBEDDING_PROVIDER`` at a provider whose native width differs from the
+columns'.
 """
 
 from __future__ import annotations
@@ -29,12 +29,20 @@ from uuid import uuid4
 import pytest
 
 from application.search_service import SearchService, _run_semantic_query
+from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.tests.factories import (
     active_tenant,
     editor_ctx,
     make_requirement,
     make_workspace,
 )
+
+#: The real, DB-enforced column width. Derived, never a literal, so these
+#: fixtures cannot silently drift away from the schema again (#794).
+_DIM = EMBEDDING_VECTOR_DIMENSIONS
+
+#: A width no embedding column has — simulates a misconfigured provider.
+_MISMATCHED_DIM = EMBEDDING_VECTOR_DIMENSIONS + 8
 
 
 @pytest.mark.django_db
@@ -51,16 +59,15 @@ class TestSemanticFusion:
                 title="User authentication flow",
                 description="Login and session handling",
             )
-            # Matches the real column dimension (1536) -- see module
-            # docstring for why this can't be the provider's native 384-dim
-            # shape.
-            req.embedding = [0.5] * 1536
+            # Matches the real, DB-enforced column dimension -- see the
+            # module docstring.
+            req.embedding = [0.5] * _DIM
             req.save(update_fields=["embedding"])
 
             ctx = editor_ctx(tenant, ws)
             monkeypatch.setattr(
                 "application.search_service.generate_embedding",
-                lambda text: [0.5] * 1536,
+                lambda text: [0.5] * _DIM,
             )
             # Query text has NO keyword overlap with the requirement's title
             # or description -- only the semantic pass can find it.
@@ -85,10 +92,10 @@ class TestSemanticFusion:
         assert len(result.results) == 1
 
     def test_semantic_pass_degrades_gracefully_on_dimension_mismatch(self, monkeypatch):
-        """REQ-L3-SEARCH-009: the realistic case -- the configured embedding
-        provider produces a vector of a different dimension than the stored
-        1536-dim column (e.g. the new default, sentence-transformers, is
-        384-dim). CosineDistance raises a DB-level error the moment it
+        """REQ-L3-SEARCH-009: the misconfigured case -- the configured
+        embedding provider produces a vector of a different width than the
+        stored column (e.g. ``EMBEDDING_PROVIDER=ollama``, 768-dim, against
+        384-dim columns). CosineDistance raises a DB-level error the moment it
         compares against a real, non-NULL stored row; search() must still
         return the fulltext/lexical hits, not propagate the exception (and
         must not poison the surrounding transaction for other entity types
@@ -100,15 +107,15 @@ class TestSemanticFusion:
             # queryset actually reaches a non-NULL row and pgvector has to
             # evaluate the (deliberately wrong-dimension) comparison below,
             # instead of short-circuiting on an empty result set.
-            req.embedding = [0.2] * 1536
+            req.embedding = [0.2] * _DIM
             req.save(update_fields=["embedding"])
 
             ctx = editor_ctx(tenant, ws)
-            # Simulates the real default provider's 384-dim output against
-            # the 1536-dim column.
+            # Simulates a non-default provider whose native width does not
+            # match the columns'.
             monkeypatch.setattr(
                 "application.search_service.generate_embedding",
-                lambda text: [0.1] * 384,
+                lambda text: [0.1] * _MISMATCHED_DIM,
             )
 
             result = SearchService().search(
@@ -121,18 +128,24 @@ class TestSemanticFusion:
         """Final whole-branch review Finding 5: a dimension mismatch must be
         caught BEFORE issuing the DB query (cheap, no DataError, no
         traceback) -- not caught-and-logged AFTER a doomed pgvector query,
-        which used to log a full traceback via ``logger.exception`` on every
-        single request under the shipped default config.
+        which used to log a full traceback via ``logger.exception``.
 
         Proven two ways: (1) the Requirement queryset is never even touched
-        (patched to raise if called), and (2) no ERROR-level log record is
-        produced -- only the low-noise ``logger.debug`` mirroring
-        ``RequirementService._generate_and_store_embedding``'s write-side
-        guard (Task 12).
+        (patched to raise if called), and (2) the skip is reported at
+        WARNING, not swallowed at DEBUG.
+
+        #794 inverted the level assertion here. This branch used to be the
+        *shipped default* path, so a DEBUG line was argued to be the
+        low-noise choice; in practice that meant the single observable
+        symptom of a completely dead semantic search was a log record nobody
+        would ever see at production log levels. The columns now match the
+        default provider, so reaching this branch at all means a real
+        misconfiguration and must be visible.
         """
         import logging
 
         from application.search_service import _run_semantic_query
+        from llm_adapter import embedding_service
         from persistence.models import Requirement
 
         def _boom(*args, **kwargs):
@@ -143,17 +156,25 @@ class TestSemanticFusion:
             )
 
         monkeypatch.setattr(Requirement.objects, "filter", _boom)
+        # warn_dimension_mismatch dedupes per process; clear the ledger so
+        # this test sees the first-occurrence WARNING regardless of which
+        # tests ran before it in the same session.
+        monkeypatch.setattr(embedding_service, "_warned_dimension_mismatches", set())
 
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            with caplog.at_level(logging.DEBUG, logger="application.search_service"):
-                hits = _run_semantic_query("Requirement", [0.1] * 384, tenant.id, ws.id)
+            with caplog.at_level(logging.DEBUG, logger="llm_adapter.embedding_service"):
+                hits = _run_semantic_query("Requirement", [0.1] * _MISMATCHED_DIM, tenant.id, ws.id)
 
         assert hits == []
-        assert not any(record.levelno >= logging.WARNING for record in caplog.records), (
-            "dimension mismatch must degrade at DEBUG level, not "
-            "WARNING/ERROR/EXCEPTION -- this is an expected, handled "
-            "condition under the shipped default config, not an anomaly"
+        assert any(record.levelno == logging.WARNING for record in caplog.records), (
+            "a dimension mismatch is now always a misconfiguration and must "
+            "be reported at WARNING -- silently degrading at DEBUG is exactly "
+            "how #794 stayed invisible"
+        )
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records), (
+            "the guard must short-circuit cleanly, not surface as an "
+            "exception/traceback from a doomed pgvector query"
         )
         assert any("dimension mismatch" in record.message for record in caplog.records)
 
@@ -195,10 +216,10 @@ class TestSemanticFusion:
                 title="Totally unrelated requirement title",
                 description="Some other unrelated description text.",
             )
-            query_vector = [0.9] * 1536
+            query_vector = [0.9] * _DIM
             # Opposite direction -- cosine distance is maximal (~2.0), i.e.
             # as "unrelated" to the query embedding as a vector can be.
-            req_exact.embedding = [-0.9] * 1536
+            req_exact.embedding = [-0.9] * _DIM
             req_exact.save(update_fields=["embedding"])
             req_semantic.embedding = query_vector
             req_semantic.save(update_fields=["embedding"])
@@ -299,10 +320,10 @@ class TestSemanticQueryDirectTraceLinkAndIcdVersion:
                 source=source,
                 target=target,
                 link_type="traces",
-                embedding=[0.3] * 1536,
+                embedding=[0.3] * _DIM,
             )
 
-            hits = _run_semantic_query("TraceLink", [0.3] * 1536, tenant.id, ws.id)
+            hits = _run_semantic_query("TraceLink", [0.3] * _DIM, tenant.id, ws.id)
 
         assert any(h.id == str(link.id) for h in hits)
         # workspace_id is resolved through source.workspace_id (TraceLink has
@@ -329,10 +350,10 @@ class TestSemanticQueryDirectTraceLinkAndIcdVersion:
                 icd=icd,
                 version_number=1,
                 semantic_description="A contract description",
-                embedding=[0.4] * 1536,
+                embedding=[0.4] * _DIM,
             )
 
-            hits = _run_semantic_query("IcdVersion", [0.4] * 1536, tenant.id, ws.id)
+            hits = _run_semantic_query("IcdVersion", [0.4] * _DIM, tenant.id, ws.id)
 
         assert any(h.id == str(version.id) for h in hits)
         hit = next(h for h in hits if h.id == str(version.id))

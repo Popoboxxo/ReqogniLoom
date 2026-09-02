@@ -218,3 +218,69 @@ describe("SidebarNavigation — theme mode quick toggle", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Scroll region (issue #449 / #720): the sidebar's own <nav> intentionally has
+// `overflow-y: hidden` (only .scrollContent, one level down, scrolls — see
+// SidebarNavigation.module.css) so the footer stays pinned. Several QA
+// re-reports measured the outer <nav> instead of the inner scroll region and
+// concluded the sidebar was "not scrollable". jsdom does not compute real
+// CSS layout/overflow, so this cannot assert actual scrolling here (that is
+// covered by e2e/tests/sidebar-scroll.spec.ts) — this only pins the two DOM
+// facts a jsdom test *can* verify: (1) the dedicated scroll-content element
+// exists as the single container all nav items live in, and (2) every nav
+// item — including the ones repeatedly reported as "unreachable" (Baselines,
+// Import, Workflows, SE-Auditor, System Settings, User Management, ...) —
+// is actually present in the DOM regardless of viewport size, so a real
+// scroll (verified by the e2e test) can always reach them.
+// ---------------------------------------------------------------------------
+
+describe("SidebarNavigation — scroll region contains all nav items (#449/#720)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["admin"]);
+  });
+
+  it("renders the scrollable nav-content container with every nav item nested inside it", async () => {
+    setListWorkspace(true);
+    // Use the "extended" preset so every preset-gated nav item (baselines,
+    // reviews, icds, diagrams, testCases, ...) is visible, not just the
+    // always-on ones — this is the scenario in which the sidebar has enough
+    // items to overflow a short viewport in the first place.
+    (nextListResult as { results: Array<Record<string, unknown>> }).results[0].preset = "extended";
+    renderSidebar();
+
+    const scrollContent = await screen.findByTestId("sidebar-nav-scroll-content");
+
+    // Items from every group, including the ones the bug reports named as
+    // "unreachable below the fold" in the admin section.
+    const expectedLabels = [
+      "Dashboard",
+      "Goals",
+      "Stakeholder Needs",
+      "System Requirements",
+      "Architecture",
+      "Test Cases",
+      "Test Runs",
+      "Baselines",
+      "Reviews",
+      "Import",
+      "Workflows",
+      "SE-Auditor",
+      "Workspace Settings",
+      "System Settings",
+      "User Management",
+    ];
+
+    for (const label of expectedLabels) {
+      const link = await screen.findByText(label);
+      expect(link.closest("a")).toBeInTheDocument();
+      // Every nav link must live inside the single scrollable container —
+      // not e.g. next to it as a sibling that would sit outside the scroll
+      // region and stay permanently clipped.
+      expect(scrollContent.contains(link)).toBe(true);
+    }
+  });
+});

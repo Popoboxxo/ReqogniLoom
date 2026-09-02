@@ -208,17 +208,19 @@ export function NeedList({
           }}
         >
           <label
+            htmlFor="need-new-title"
             style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}
           >
             {t('editor.title', 'Title')}
           </label>
           <input
+            id="need-new-title"
             type="text"
             data-testid="need-new-title-input"
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             autoFocus
-            placeholder={t('editor.newNeedTitle', 'e.g. As a user, I need...')}
+            placeholder={t('editor.newNeedTitle')}
             style={{
               padding: 'var(--space-2) var(--space-3)',
               borderRadius: 'var(--radius-md)',

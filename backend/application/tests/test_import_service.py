@@ -21,6 +21,7 @@ from application.import_service import (
     ImportService,
     _MAX_ROWS,
 )
+from application.test_service import TestService
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Requirement, Tenant, Workspace
 from workflow.models import WorkflowEngineDefinition, WorkflowItemState
@@ -406,5 +407,77 @@ class TestImportCsvWorkflowState:
                 assert not WorkflowItemState.objects.filter(
                     item_id=req.id, item_type="Requirement"
                 ).exists()
+        finally:
+            clear_request_tenant()
+
+
+# ---------- TestCase subtype tagging on CSV import (issue #768) ----------
+
+
+_CSV_TEST_CASES_MIXED_TYPES = """\
+title,description,test_type
+Case Unit One,First unit case,Unit
+Case System One,First system case,System
+Case Unit Two,Second unit case,Unit
+"""
+
+
+class TestImportCsvTestCaseSubtype:
+    """Regression for #768: CSV import must tag each TestCase row's backing
+
+    Artifact with its own row's ``test_type`` (``TestCase:{test_type}``), not
+    a single batch-wide value — otherwise ``TestService.list_test_cases``,
+    which filters on ``artifact__artifact_type=f"TestCase:{test_type}"``,
+    can never find the imported rows.
+    """
+
+    def _make_workspace(self):
+        tenant = Tenant.objects.create(
+            name="Import-TC-T", slug=f"import-tc-t-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Import TC WS", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        return tenant, workspace
+
+    def _ctx(self, tenant_id):
+        ctx = MagicMock()
+        ctx.tenant_id = tenant_id
+        ctx.user_id = uuid.uuid4()
+        ctx.active_roles = ("editor",)
+        return ctx
+
+    def test_imported_test_cases_are_findable_by_their_own_test_type(self):
+        tenant, workspace = self._make_workspace()
+
+        import_svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = import_svc.import_csv(
+            _CSV_TEST_CASES_MIXED_TYPES, "TestCase", workspace.id, ctx
+        )
+
+        assert result.success is True
+        assert result.imported_count == 3
+
+        set_request_tenant(tenant.id)
+        try:
+            test_svc = TestService()
+
+            unit_cases = list(
+                test_svc.list_test_cases(workspace.id, ctx, test_type="Unit")
+            )
+            system_cases = list(
+                test_svc.list_test_cases(workspace.id, ctx, test_type="System")
+            )
+
+            assert {tc.title for tc in unit_cases} == {
+                "Case Unit One",
+                "Case Unit Two",
+            }
+            assert {tc.title for tc in system_cases} == {"Case System One"}
         finally:
             clear_request_tenant()

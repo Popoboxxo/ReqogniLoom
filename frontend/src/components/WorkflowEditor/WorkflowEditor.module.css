@@ -62,9 +62,17 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
+/* Issue #718: was --font-size-xl (20px) — every other route's PageHeader h1
+   renders at --font-size-3xl (30px, --leading-tight/--tracking-tight), which
+   also drives its ~60px total header height. Matching those tokens here
+   (rather than switching this route to <PageHeader>, which owns a materially
+   different action set — preset control, edit-mode toggle, export dropdown)
+   keeps this the smallest change that closes the height/size gap. */
 .headerTitle {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
+  font-size: var(--font-size-3xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-semibold);
   color: var(--color-text);
   margin: 0;
 }

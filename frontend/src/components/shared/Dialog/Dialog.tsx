@@ -139,6 +139,14 @@ export function Dialog({
               onClick={onClose}
               aria-label={t("dialog.closeLabel", "Dialog schließen")}
               title={t("dialog.close", "Schließen")}
+              // Issue #800: a destructive, unconfirmed action (discards the
+              // whole form) must not sit in the normal keyboard Tab flow,
+              // ahead of the fields a keyboard user is filling in. Escape
+              // already closes the dialog, so the button stays reachable —
+              // just not via Tab. `tabIndex={-1}` also removes it from
+              // getFocusableElements() (see FOCUSABLE_SELECTOR), so the
+              // focus trap's initial-focus and cycling logic skip it too.
+              tabIndex={-1}
             >
               <span aria-hidden="true">×</span>
             </button>

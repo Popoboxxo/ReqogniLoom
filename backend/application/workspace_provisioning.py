@@ -21,7 +21,7 @@ from uuid import UUID
 from auth_tenancy.services.permission_definition import (
     PermissionDefinitionService,
 )
-from persistence.tenancy import TenantContext
+from persistence.middleware import clear_request_tenant, set_request_tenant
 from workflow.global_definition_store import GlobalWorkflowDefinitionStore
 from workflow.services import create_default_workflow
 
@@ -140,8 +140,19 @@ def provision_workspace_defaults_scoped(
     service tenant scope (e.g. ``WorkspaceService``) should call
     :func:`provision_workspace_defaults` directly; bootstrap/self-init callers,
     which run without a request context, use this variant.
+
+    fix #815: uses :func:`set_request_tenant`, not the bare
+    ``TenantContext.set_tenant``. Bootstrap/self-init/seed_demo run without
+    Django's ``BaseTenantMiddleware``, so nothing else arms the PostgreSQL
+    session variable (``app.current_tenant``) that the RLS policies
+    (``0015_workflow_rls_policies.py``) check. ``TenantContext.set_tenant``
+    only sets the Python-side thread-local, which satisfies the app-layer
+    ``TenantManager`` filter but leaves RLS unarmed — writes made under a
+    least-privilege DB role (``reqogniloom_app``, not the table owner) are
+    then rejected by Postgres itself, even though the ORM-level tenant scope
+    is correct.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         provision_workspace_defaults(
             workspace_id=workspace_id,
@@ -149,7 +160,7 @@ def provision_workspace_defaults_scoped(
             requirement_preset=requirement_preset,
         )
     finally:
-        TenantContext.clear_tenant()
+        clear_request_tenant()
 
 
 __all__ = [

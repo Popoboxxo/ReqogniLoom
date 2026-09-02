@@ -94,7 +94,7 @@ def _check_llm_configured() -> bool:
 
 
 class RequirementsToolGroup(BaseToolGroup):
-    """COMP-MC-003 — Requirements tool group (8 tools)."""
+    """COMP-MC-003 — Requirements tool group (9 tools)."""
 
     _TOOL_MAP = {
         "requirement.get": "_handle_get",
@@ -105,6 +105,7 @@ class RequirementsToolGroup(BaseToolGroup):
         "requirement.validate": "_handle_validate",
         "requirement.derive": "_handle_derive",
         "requirement.check_consistency": "_handle_check_consistency",
+        "requirement.check_consistency_status": "_handle_check_consistency_status",
         "requirement.outdate": "_handle_outdate",
         "requirement.reactivate": "_handle_reactivate",
     }
@@ -280,6 +281,17 @@ class RequirementsToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."}
                 },
                 "required": ["workspace_id"]
+            }
+        },
+        {
+            "name": "requirement.check_consistency_status",
+            "description": "Poll the result of a previously dispatched requirement.check_consistency task.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "task_id returned by requirement.check_consistency."}
+                },
+                "required": ["task_id"]
             }
         },
         {
@@ -704,6 +716,37 @@ class RequirementsToolGroup(BaseToolGroup):
             "workspace_id": str(workspace_id),
             "consistency_result": result,
         })
+
+    # ------------------------------------------------------------------
+    # requirement.check_consistency_status
+    # ------------------------------------------------------------------
+
+    def _handle_check_consistency_status(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.check_consistency_status — poll a check_consistency task.
+
+        GH-796: requirement.check_consistency returned a task_id with no way
+        to ever retrieve the result (orphan task). Delegates to the service,
+        which enforces tenant ownership of the task_id before proxying to
+        the LlmAdapter's generic task-status query.
+        """
+        task_id = params.get("task_id")
+        if not task_id or not isinstance(task_id, str):
+            return ToolResult.error(
+                "INVALID_PARAMS", "task_id is required and must be a string."
+            )
+
+        try:
+            result = self._service.get_consistency_status(task_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        return ToolResult.ok(result)
 
     # ------------------------------------------------------------------
     # requirement.validate

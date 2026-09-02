@@ -37,11 +37,17 @@ memory scopes are modelled as *peers* inside one Honcho workspace per tenant:
 ===================  ===========================================
 ReqogniLoom          Honcho
 ===================  ===========================================
-tenant               workspace ``reqogniloom:<tenant_id>``
-scope="user"         peer ``<tenant_id>:<user_id>``
-scope="workspace"    peer ``<tenant_id>:<workspace_id>``
+tenant               workspace ``reqogniloom_<tenant_id>``
+scope="user"         peer ``<tenant_id>_<user_id>``
+scope="workspace"    peer ``<tenant_id>_<workspace_id>``
 memory entry         conclusion (self-conclusion of that peer)
 ===================  ===========================================
+
+NOTE: the separator between the namespace prefix and the ReqogniLoom id is
+``_``, not ``:``. Honcho v3 validates every workspace/peer id against
+``^[a-zA-Z0-9_-]+$`` and rejects anything else with HTTP 422 -- a colon would
+make every single call to this backend fail (see ``test_honcho_backend.py``'s
+``TestHonchoIdCharset`` for the regression guard).
 
 Mapping the tenant (not the ReqogniLoom workspace) onto the Honcho workspace
 is what makes :meth:`forget` implementable at all: the ``MemoryBackend``
@@ -108,7 +114,7 @@ _MAX_PAGE_SIZE = 100
 #: ``client.peer()`` is a get-or-create that always POSTs to ``/peers``, so
 #: routing a delete through it would create a junk peer in every tenant's
 #: Honcho workspace -- one that Honcho would then start building a
-#: representation for. The id is deliberately not a valid ``tenant:uuid`` pair
+#: representation for. The id is deliberately not a valid ``tenant_uuid`` pair
 #: so it can never collide with a real memory peer if it ever does get sent.
 _FORGET_SCOPE_PEER = "__reqogniloom_forget__"
 
@@ -169,26 +175,34 @@ class HonchoMemoryBackend(MemoryBackend):
         return client
 
     def _peer_id(self, tenant_id: UUID, user_id: UUID) -> str:
-        """Namespace a ReqogniLoom user_id by tenant_id for Honcho's flat peer space."""
-        return f"{tenant_id}:{user_id}"
+        """Namespace a ReqogniLoom user_id by tenant_id for Honcho's flat peer space.
+
+        Uses ``_`` (not ``:``) as the separator: Honcho v3 validates every id
+        against ``^[a-zA-Z0-9_-]+$`` and returns HTTP 422 for anything else,
+        which previously turned every memory call into an unhandled 500
+        (see module docstring note and ``TestHonchoIdCharset``).
+        """
+        return f"{tenant_id}_{user_id}"
 
     def _workspace_id(self, tenant_id: UUID, workspace_id: UUID) -> str:
         """Namespace a ReqogniLoom workspace_id by tenant_id for Honcho's flat peer space.
 
         A ReqogniLoom workspace is represented as a Honcho *peer* (see the
         module docstring's mapping table): conclusions in Honcho always belong
-        to a peer, so workspace-scoped memory needs a peer to hang off.
+        to a peer, so workspace-scoped memory needs a peer to hang off. Uses
+        ``_`` (not ``:``) as the separator -- see :meth:`_peer_id`.
         """
-        return f"{tenant_id}:{workspace_id}"
+        return f"{tenant_id}_{workspace_id}"
 
     @staticmethod
     def _honcho_workspace_id(tenant_id: UUID) -> str:
         """Honcho workspace name for a ReqogniLoom tenant.
 
-        The ``reqogniloom:`` prefix keeps this app's workspaces recognisable
+        The ``reqogniloom_`` prefix keeps this app's workspaces recognisable
         (and collision-free) on a Honcho instance shared with other products.
+        Uses ``_`` (not ``:``) as the separator -- see :meth:`_peer_id`.
         """
-        return f"reqogniloom:{tenant_id}"
+        return f"reqogniloom_{tenant_id}"
 
     def _scope_peer_id(self, tenant_id: UUID, scope: str, scope_id: UUID) -> str:
         """Resolve ``(scope, scope_id)`` to the tenant-namespaced Honcho peer id.
@@ -273,7 +287,7 @@ class HonchoMemoryBackend(MemoryBackend):
         """Permanently delete a conclusion from *tenant_id*'s Honcho workspace.
 
         Cross-tenant deletion is structurally impossible: the client is bound
-        to ``reqogniloom:<tenant_id>`` and that workspace is part of the
+        to ``reqogniloom_<tenant_id>`` and that workspace is part of the
         delete route, so an ``entry_id`` belonging to another tenant resolves
         to nothing.
 

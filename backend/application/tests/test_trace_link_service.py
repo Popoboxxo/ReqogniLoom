@@ -292,21 +292,23 @@ class TestCreateTraceLink:
 
 @pytest.mark.django_db
 class TestEmbeddingDimensionGuard:
-    """Regression guard for the Task 12 fix: ``TraceLink.embedding`` is a
-    fixed ``vector(1536)`` column, but the shipped default
-    ``EMBEDDING_PROVIDER=sentence-transformers`` produces 384-dim vectors.
-    Before the fix, ``_generate_and_store_embedding`` handed the mismatched
-    vector straight to a bare ``.update()``, which Postgres rejected with a
-    ``DataError`` -- mirrors ``RequirementService``'s guard (see
+    """Regression guard for the Task 12 fix: a vector whose width differs from
+    ``TraceLink.embedding``'s column width must be skipped, not handed to a
+    bare ``.update()`` that Postgres rejects with a ``DataError`` -- mirrors
+    ``RequirementService``'s guard (see
     ``test_requirement_service.py::TestEmbeddingDimensionGuard`` and the
     Task 12 report).
 
-    Real DB, real ``create_trace_link`` call, real 1536-dim column -- this
-    file's other tests mock the DB (``_make_ctx``/``_resolve_artifact``
-    stubs), but that would hide the exact write-path this guard protects.
+    Real DB, real ``create_trace_link`` call, real column -- this file's other
+    tests mock the DB (``_make_ctx``/``_resolve_artifact`` stubs), but that
+    would hide the exact write-path this guard protects.
+
+    #794: widths are derived from the column now. They used to be literals
+    that encoded the broken default (384-dim provider vs ``vector(1536)``
+    column), so this class asserted the default configuration wrote nothing.
     """
 
-    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+    def _create_link(self, monkeypatch, dimensions: int):
         from persistence.tests.factories import (
             active_tenant,
             editor_ctx,
@@ -314,13 +316,12 @@ class TestEmbeddingDimensionGuard:
             make_workspace,
         )
 
-        # Simulates the real default provider's 384-dim output against the
-        # 1536-dim column. Patched at the source module because
+        # Patched at the source module because
         # ``_generate_and_store_embedding`` imports ``generate_embedding``
         # lazily, inside the method body.
         monkeypatch.setattr(
             "llm_adapter.embedding_service.generate_embedding",
-            lambda text: [0.1] * 384,
+            lambda text: [0.1] * dimensions,
         )
 
         with active_tenant() as tenant:
@@ -335,6 +336,13 @@ class TestEmbeddingDimensionGuard:
                 ctx=ctx,
             )
             link.refresh_from_db()
+        return link
+
+    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+        from persistence.models import TraceLink
+
+        column_dimensions = TraceLink._meta.get_field("embedding").dimensions
+        link = self._create_link(monkeypatch, column_dimensions + 8)
 
         # (1) No exception propagated. (2) Mismatched vector never written.
         assert link.embedding is None
@@ -342,6 +350,16 @@ class TestEmbeddingDimensionGuard:
         #     persisted (refresh_from_db() would raise otherwise), with its
         #     real data intact.
         assert link.link_type == "traces"
+
+    def test_matching_dimension_is_written(self, monkeypatch):
+        """#794: a provider-shaped vector must actually land in the column."""
+        from persistence.models import TraceLink
+
+        column_dimensions = TraceLink._meta.get_field("embedding").dimensions
+        link = self._create_link(monkeypatch, column_dimensions)
+
+        assert link.embedding is not None
+        assert len(link.embedding) == column_dimensions
 
 
 # ---------------------------------------------------------------------------

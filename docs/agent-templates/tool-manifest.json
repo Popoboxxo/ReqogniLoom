@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.7.0",
-  "tool_count": 171,
+  "generated_from": "reqogniloom==1.8.0-beta.5",
+  "tool_count": 172,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -3126,6 +3126,24 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.check_consistency_status",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Poll the result of a previously dispatched requirement.check_consistency task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "task_id returned by requirement.check_consistency."
+          }
+        },
+        "required": [
+          "task_id"
         ]
       }
     },

@@ -55,6 +55,14 @@ export interface ResolvedArtifact {
 /** Batch cap mirrored from `backend/traceability/service.py::RESOLVE_BATCH_LIMIT`. */
 export const RESOLVE_BATCH_LIMIT = 200;
 
+/**
+ * Page size used when walking the full link set (issue #571). Mirrors
+ * `max_page_size` of `backend/rest_api/serializers.py::TraceLinkPagination` —
+ * requesting more is clamped there (the response echoes both the applied
+ * `page_size` and `max_page_size`).
+ */
+export const TRACELINK_PAGE_SIZE = 500;
+
 export type ImpactDirection = "outgoing" | "incoming" | "both";
 
 export interface ImpactParams {
@@ -75,9 +83,19 @@ export const tracelinksApi = {
    * Fetch all TraceLinks for a workspace, following pagination links until
    * exhaustion (issue C — list() only returned the first page, capped at
    * PAGE_SIZE=25).
+   *
+   * Issue #571 (reopen): this loop is serial, so its round-trip count is
+   * `count / page_size`. At the shared default of 100 a real workspace
+   * (~1980 links) needed 20 back-to-back requests, and that pile-up — not any
+   * single response — is what OOM-killed the backend worker. `/tracelinks/`
+   * accepts up to `TRACELINK_PAGE_SIZE` per page (backend:
+   * `rest_api/serializers.py::TraceLinkPagination`), which cuts it to 4.
    */
   async listAll(workspaceId: UUID): Promise<TraceLink[]> {
-    return getAllPages<TraceLink>("/tracelinks/", { workspace_id: workspaceId });
+    return getAllPages<TraceLink>("/tracelinks/", {
+      workspace_id: workspaceId,
+      page_size: String(TRACELINK_PAGE_SIZE),
+    });
   },
 
   listForArtifact(

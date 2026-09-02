@@ -43,12 +43,22 @@ const FOCUSABLE_SELECTOR = [
  * `inert`) rather than by layout: jsdom reports no boxes at all, so a
  * geometry-based filter would report *every* element as hidden in tests
  * while behaving differently in the browser.
+ *
+ * `tabindex="-1"` is excluded explicitly (issue #800) rather than only via
+ * the `[tabindex]:not([tabindex="-1"])` selector branch: that branch alone
+ * only covers elements with no *other* matching selector (e.g. a plain
+ * `<div tabindex="-1">`). A natively focusable element such as
+ * `<button tabindex="-1">` still matches the unconditional
+ * `button:not([disabled])` branch, so without this filter an explicit
+ * `tabIndex={-1}` on a `<button>` (used to pull a control out of the Tab
+ * cycle, e.g. the Dialog's close button) had no effect at all.
  */
 export function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
   ).filter(
     (element) =>
+      element.getAttribute("tabindex") !== "-1" &&
       !element.hasAttribute("hidden") &&
       element.getAttribute("aria-hidden") !== "true" &&
       !element.closest("[inert]") &&

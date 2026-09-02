@@ -14,6 +14,7 @@
  * backdrop dismissal, which the inline variants never offered.
  */
 
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from './Dialog';
 
@@ -45,6 +46,13 @@ export interface ConfirmDialogProps {
    */
   confirmTestId?: string;
   cancelTestId?: string;
+  /**
+   * Issue #811: some deletions require additional input (e.g. a mandatory
+   * `change_reason` under the extended preset) that a plain yes/no message
+   * cannot capture. Rendered below the confirmation message, inside the same
+   * dialog, so callers can add a field without hand-rolling their own modal.
+   */
+  children?: ReactNode;
 }
 
 export function ConfirmDialog({
@@ -58,6 +66,7 @@ export function ConfirmDialog({
   isSubmitting = false,
   confirmTestId,
   cancelTestId,
+  children,
 }: ConfirmDialogProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -94,6 +103,7 @@ export function ConfirmDialog({
       }
     >
       <p data-testid={`${testId}-body`}>{message}</p>
+      {children}
     </Dialog>
   );
 }

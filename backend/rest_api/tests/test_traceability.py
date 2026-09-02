@@ -456,3 +456,93 @@ def test_resolve_artifacts_service_applies_explicit_tenant_filter_for_adr():
     assert mismatched[0].resolved is False
     assert mismatched[0].entity_type is None
     assert mismatched[0].entity_id is None
+
+
+# ---------------------------------------------------------------------------
+# #414 — the premise the frontend's resolve-based navigation rests on
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_id_and_entity_id_are_distinct_id_spaces():
+    """#414: ``Requirement.id`` and ``Requirement.artifact_id`` are two UUIDs.
+
+    ``Requirement.artifact`` is a ``OneToOneField(Artifact)``, so the entity
+    keeps its own primary key. The frontend used to treat the two as
+    interchangeable — passing a TraceLink endpoint (an Artifact id) straight to
+    ``/api/v1/requirements/<id>/`` and to the ``/requirements/<id>`` SPA route.
+    If this ever became a single id space the resolve indirection could be
+    dropped; while it does not, that indirection is mandatory.
+    """
+    tenant, workspace = _new_tenant_and_workspace("T-414-spaces", name="W")
+    artifact, requirement = _make_requirement(tenant, workspace)
+
+    assert str(requirement.artifact_id) == str(artifact.id)
+    assert str(requirement.id) != str(artifact.id), (
+        "Requirement.id must not equal its Artifact.id — #414 exists precisely "
+        "because these are two different id spaces."
+    )
+
+
+def test_entity_detail_lookup_by_artifact_id_finds_nothing():
+    """#414: the artifact id against the entity table is the 404 in the issue.
+
+    ``GET /api/v1/requirements/<artifact-id>/`` 404s on a Requirement that
+    plainly exists, because the detail route looks the row up by its own pk.
+    This is the "app 404s on its own artifacts" symptom, reproduced at the
+    query the view performs.
+    """
+    from persistence.models import Requirement
+
+    tenant, workspace = _new_tenant_and_workspace("T-414-detail", name="W")
+    artifact, requirement = _make_requirement(tenant, workspace)
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        assert Requirement.objects.filter(id=artifact.id).first() is None
+        assert Requirement.objects.filter(id=requirement.id).first() is not None
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_resolve_bridges_a_tracelink_endpoint_to_its_editor_target():
+    """#414: resolve() turns a TraceLink endpoint into a usable detail id.
+
+    A TraceLink stores Artifact ids. Feeding such an endpoint into
+    ``/traceability/resolve/`` must yield the entity id the detail endpoint and
+    the editor route actually accept — this is the bridge the frontend
+    (``api/artifactRefs.ts``) now goes through instead of guessing.
+    """
+    from persistence.models import Requirement, TraceLink
+
+    tenant, workspace = _new_tenant_and_workspace("T-414-bridge", name="W")
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    source_artifact, source_req = _make_requirement(tenant, workspace)
+    target_artifact, target_req = _make_requirement(tenant, workspace)
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        link = TraceLink.objects.create(
+            source_id=source_artifact.id,
+            target_id=target_artifact.id,
+            link_type="derives-from",
+        )
+        # The stored endpoint is an Artifact id, not the entity id.
+        assert Requirement.objects.filter(id=link.target_id).first() is None
+    finally:
+        TenantContext.clear_tenant()
+
+    resp = _resolve(ctx, [link.target_id])
+
+    assert resp.status_code == 200
+    row = resp.data[0]
+    assert row["resolved"] is True
+    assert row["entity_type"] == "Requirement"
+    # The resolved id is the one the detail endpoint / editor route accepts.
+    assert str(row["entity_id"]) == str(target_req.id)
+    assert str(row["entity_id"]) != str(target_artifact.id)
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        assert Requirement.objects.filter(id=row["entity_id"]).first() is not None
+    finally:
+        TenantContext.clear_tenant()

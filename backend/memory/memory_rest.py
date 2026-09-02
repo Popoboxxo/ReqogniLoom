@@ -131,10 +131,13 @@ def _is_superuser(user_id) -> bool:
 class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     """Partial-update payload for ``PUT /api/v1/system/memory-settings/``."""
 
-    # "openai" is a registered, documented provider (see llm_adapter.
-    # embedding_service's module docstring: existing 1536-dim deployments are
-    # told to keep EMBEDDING_PROVIDER=openai) — it must be selectable here,
-    # otherwise such a deployment cannot even re-affirm its own configuration.
+    # "openai" is a registered, documented provider and must stay selectable
+    # here so a deployment can re-affirm its own configuration. Note (#794):
+    # selecting a provider whose native output width differs from
+    # persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS disables
+    # embedding writes and semantic search for the mismatched columns — that
+    # is now reported by `manage.py check` and at WARNING on the first skip,
+    # rather than degrading silently.
     embedding_provider = serializers.ChoiceField(
         choices=["sentence-transformers", "ollama", "openai", "mock"], required=False, allow_null=True
     )

@@ -1,0 +1,40 @@
+/*
+ * Issue #811: the extended preset's mandatory `change_reason` field for
+ * DELETE, rendered inside the shared <ConfirmDialog>. Classes (not
+ * `style={{ }}`) because `src/test/ui-ratchet.test.ts` freezes the number of
+ * inline styles under `src/components` at an exact count — mirrors
+ * `RequirementEditors.module.css`'s `.actionError` / `.fieldHint` rationale.
+ */
+.deleteReasonField {
+  margin-top: var(--space-3);
+}
+
+.deleteReasonLabel {
+  font-weight: 500;
+  color: var(--color-text);
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.requiredMarker {
+  color: var(--color-danger);
+}
+
+.deleteReasonInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: var(--color-surface);
+  resize: vertical;
+}
+
+.deleteReasonError {
+  margin-top: var(--space-1);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

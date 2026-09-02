@@ -80,14 +80,34 @@ _TEXT_FIELDS = frozenset({"description", "payload", "content"})
 _JSON_FIELDS = frozenset({"steps"})
 
 # Comparable fields per entity model
+#
+# Issue #767 (QA Audit Follow-up #737): ``status`` was listed here for the
+# seven types below, but a workflow transition writes ``status`` via
+# ``StateLifecycleManager._sync_status_mirror`` with a bare ``.update()`` that
+# deliberately does NOT bump ``AuditableModel.version`` — see that method's
+# docstring: "a workflow transition is not a content edit". This diff service
+# resolves a version number to a *fixed* snapshot only for the single-row
+# model's current lock version (ADR-AS-019 / issue #213 amendment), i.e. it
+# assumes "version N" is immutable once assigned. ``status`` broke that
+# assumption: two calls to diff(..., to_version=N) made at different times
+# could disagree about "version N"'s content purely because a transition ran
+# in between, with no version bump to signal the change.
+#
+# Fix: ``status`` is excluded from the version-bound diff for every type it
+# would otherwise apply to, so the diffable field set here matches exactly
+# the fields that are guaranteed to bump ``version`` when they change. Status
+# history remains available separately via ``WorkflowHistoryEntry``
+# (append-only, one row per transition) — that is the correct place to show
+# "status changed from X to Y", not a content diff keyed on a lock counter
+# that status changes never advance.
 _ENTITY_FIELDS: Dict[str, List[str]] = {
-    "Requirement": ["title", "description", "category", "status"],
+    "Requirement": ["title", "description", "category"],
     "ArchitectureElement": ["title", "description", "element_type"],
     "TestCase": ["title", "description", "steps"],
-    "StakeholderNeed": ["title", "description", "category", "status"],
-    "Adr": ["title", "description", "context", "consequences", "status"],
-    "Risk": ["title", "description", "category", "probability", "impact", "status"],
-    "Issue": ["title", "description", "severity", "category", "status"],
+    "StakeholderNeed": ["title", "description", "category"],
+    "Adr": ["title", "description", "context", "consequences"],
+    "Risk": ["title", "description", "category", "probability", "impact"],
+    "Issue": ["title", "description", "severity", "category"],
     "GlossaryTerm": ["term", "definition", "synonyms", "abbreviation"],
     # REQ-142: Diagram has real per-version snapshots (DiagramVersion), unlike
     # the single-row entities above — see diff_for_diagram()/list_versions_for_diagram().
@@ -103,8 +123,9 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     # raises NotFoundError for any from_version/to_version pair beyond 0/1.
     # A real Goal/MainGoal version diff needs a lineage-aware
     # diff_for_goal(lineage_id, from_seq, to_seq), not this generic path.
-    "Goal": ["title", "description", "status"],
-    "MainGoal": ["content", "source", "status"],
+    # Issue #767: "status" excluded here too — same reasoning as above.
+    "Goal": ["title", "description"],
+    "MainGoal": ["content", "source"],
 }
 
 _ENTITY_MODELS = {

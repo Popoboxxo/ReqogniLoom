@@ -33,6 +33,7 @@ from typing import Any, Optional
 from django.utils import translation
 from rest_framework import pagination, serializers
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
@@ -242,10 +243,12 @@ class StandardPagination(pagination.PageNumberPagination):
     Response envelope::
 
         {
-            "count":    <int>,     # total number of matching items
-            "next":     <url|null>,  # absolute URL of the next page (null on last)
-            "previous": <url|null>,  # absolute URL of the previous page (null on first)
-            "results":  [ ... ]    # page slice of serialized items
+            "count":         <int>,  # total number of matching items
+            "next":          <url|null>,  # absolute URL of the next page (null on last)
+            "previous":      <url|null>,  # absolute URL of the previous page (null on first)
+            "page_size":     <int>,  # page size actually applied to this response
+            "max_page_size": <int>,  # hard upper bound this endpoint accepts
+            "results":       [ ... ]  # page slice of serialized items
         }
 
     Query parameters (documented in OpenAPI via
@@ -253,6 +256,16 @@ class StandardPagination(pagination.PageNumberPagination):
 
     - ``page``      — 1-based page number (default 1).
     - ``page_size`` — items per page (default 25, capped at ``max_page_size``).
+
+    Fix #571 (reopen, QA 2026-09-01): DRF clamps an out-of-range ``page_size``
+    to ``max_page_size`` *silently* — ``?page_size=5000`` answered 200 with 100
+    results and nothing in the payload said the request had been rewritten.
+    Clients sizing their fetch loop from the value they asked for therefore
+    could not tell a capped page from a short last page. ``page_size`` and
+    ``max_page_size`` are now echoed on every paginated response, so the
+    effective slice size and the endpoint's ceiling are both machine-readable.
+    The clamp itself is kept (returning 400 would break every existing caller
+    that over-asks and today gets a valid, merely smaller, page).
     """
 
     #: Default number of items returned per page when ``page_size`` is omitted.
@@ -264,12 +277,68 @@ class StandardPagination(pagination.PageNumberPagination):
     #: Query parameter selecting the 1-based page number.
     page_query_param = "page"
 
+    def get_page_size(self, request: Request) -> int | None:
+        """Resolve the effective page size and remember it for the envelope.
+
+        DRF resolves this once per request inside ``paginate_queryset`` but
+        keeps no record of the result, so ``get_paginated_response`` cannot
+        report what was actually applied. Caching it here is the whole
+        mechanism behind the ``page_size`` field (see the class docstring).
+        """
+        page_size = super().get_page_size(request)
+        self._effective_page_size = page_size
+        return page_size
+
+    def get_paginated_response(self, data: Any) -> Response:
+        """Return the ``count/next/previous/page_size/max_page_size/results`` envelope.
+
+        The two extra keys are additive — existing clients reading only
+        ``count``/``next``/``previous``/``results`` are unaffected.
+        """
+        return Response(
+            {
+                "count": self.page.paginator.count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "page_size": getattr(
+                    self, "_effective_page_size", self.page_size
+                ),
+                "max_page_size": self.max_page_size,
+                "results": data,
+            }
+        )
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        """Document the ``page_size`` ceiling in OpenAPI (fix #571 reopen).
+
+        DRF's default parameter description does not mention ``max_page_size``,
+        which is exactly what made the cap invisible to API consumers.
+        """
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter.get("name") != self.page_size_query_param:
+                continue
+            parameter["schema"] = {
+                **parameter.get("schema", {"type": "integer"}),
+                "minimum": 1,
+                "maximum": self.max_page_size,
+                "default": self.page_size,
+            }
+            parameter["description"] = (
+                f"Number of results per page (default {self.page_size}, maximum "
+                f"{self.max_page_size}). Larger values are clamped to "
+                f"{self.max_page_size}; the applied value is echoed as "
+                "'page_size' in the response."
+            )
+        return parameters
+
     def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
         """Declare the exact pagination envelope for drf-spectacular (REQ-076).
 
         Overrides DRF's default so the generated OpenAPI schema pins the
-        ``count``/``next``/``previous``/``results`` contract instead of leaving
-        it implicit. *schema* is the item schema of a single ``results`` entry.
+        ``count``/``next``/``previous``/``page_size``/``max_page_size``/
+        ``results`` contract instead of leaving it implicit. *schema* is the
+        item schema of a single ``results`` entry.
         """
         return {
             "type": "object",
@@ -298,9 +367,46 @@ class StandardPagination(pagination.PageNumberPagination):
                     ),
                     "description": "Absolute URL of the previous page, or null on the first page.",
                 },
+                "page_size": {
+                    "type": "integer",
+                    "example": 25,
+                    "description": (
+                        "Page size actually applied. Differs from the requested "
+                        "'page_size' when that value exceeded 'max_page_size'."
+                    ),
+                },
+                "max_page_size": {
+                    "type": "integer",
+                    "example": 100,
+                    "description": (
+                        "Hard upper bound this endpoint accepts for 'page_size'."
+                    ),
+                },
                 "results": schema,
             },
         }
+
+
+class TraceLinkPagination(StandardPagination):
+    """Pagination for ``GET /api/v1/tracelinks/`` — same envelope, higher ceiling.
+
+    Fix #571 (reopen, QA 2026-09-01): the traceability view needs the *whole*
+    link graph of a workspace, so the client walks every page. At the shared
+    ceiling of 100 that is 20 serial round-trips for the ~1980 links of a real
+    workspace, and it was the pile-up of those concurrent requests — not one
+    single response — that pushed the 512 MB backend container into the OOM
+    kill of the original report.
+
+    A TraceLink row is small and fixed-size (two FK ids, a link type, a version
+    and a timestamp; the wide pgvector ``embedding`` column is deferred and the
+    endpoint never joins the endpoint Artifacts — see
+    ``TraceLinkManager.get_trace_links_queryset``), so a page of 500 costs a
+    few hundred KB. That is the reason this ceiling can be raised here and not
+    globally: entities with free-text bodies (Requirement descriptions, ADR
+    rationales) have no comparable bound per row.
+    """
+
+    max_page_size = 500
 
 
 # ---------------------------------------------------------------------------
@@ -1904,6 +2010,7 @@ __all__ = [
     "GlossaryTermVersionSerializer",
     "UserProfileSerializer",
     "StandardPagination",
+    "TraceLinkPagination",
     "PresetAwareSerializerMixin",
     "CustomFieldsSerializerMixin",
     "build_error_response",

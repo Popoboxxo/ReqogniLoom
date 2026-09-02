@@ -81,6 +81,20 @@ logger = logging.getLogger(__name__)
 # the content is a deterministic placeholder, not a genuine LLM answer.
 MOCK_FALLBACK_MARKER = "[MOCK FALLBACK] "
 
+# Human-readable language names for the explicit output-language directive
+# appended to every content-generating derive prompt (issue #795: a QA
+# session against a `language="de"` workspace observed
+# ``derive_requirements_from_need`` answer in Chinese and
+# ``decompose_requirement_next_level`` answer in English, in the same
+# session with the same provider -- neither prompt ever mentioned a target
+# language at all). Keyed by ``Workspace.language``'s ISO 639-1 code; any
+# code not listed here -- including an empty/unset value -- falls back to
+# "English", matching ``Workspace.language``'s own factory default (``"en"``).
+LANGUAGE_INSTRUCTION_NAMES: Dict[str, str] = {
+    "de": "German",
+    "en": "English",
+}
+
 # SysEng 2.0 N5 (test.derive_from_requirement) prompt. Hardcoded rather than a
 # PromptTemplate slot: the flow is a standard feature (no rigor-preset gate),
 # and — mirroring the N1 precedent in architecture_decompose_service.py — a
@@ -467,6 +481,7 @@ class AiDerivationService(ServiceBase):
             need_title=need.title,
             need_description=truncate_prompt_content(need.description or ""),
         )
+        prompt += self._language_instruction(need.artifact.workspace_id)
 
         items, is_mock_fallback = self._complete_json_list(
             prompt,
@@ -633,6 +648,7 @@ class AiDerivationService(ServiceBase):
             req_description=truncate_prompt_content(req.description or ""),
             arch_elements_json=json.dumps(arch_payload),
         )
+        prompt += self._language_instruction(req.artifact.workspace_id)
 
         items, is_mock_fallback = self._complete_json_list(
             prompt,
@@ -744,6 +760,7 @@ class AiDerivationService(ServiceBase):
             req_title=req.title,
             req_description=truncate_prompt_content(req.description or ""),
         )
+        prompt += self._language_instruction(req.artifact.workspace_id)
 
         parsed, is_mock_fallback = self._complete_json_object(
             prompt,
@@ -822,6 +839,7 @@ class AiDerivationService(ServiceBase):
             ae_title=ae.title,
             ae_description=truncate_prompt_content(ae.description or ""),
         )
+        prompt += self._language_instruction(ae.artifact.workspace_id)
 
         items, is_mock_fallback = self._complete_json_list(
             prompt,
@@ -916,6 +934,7 @@ class AiDerivationService(ServiceBase):
             ctx, "workspace_to_glossary", workspace_id=workspace.id
         )
         prompt = self._render(template, workspace_text=workspace_text)
+        prompt += self._language_instruction(workspace.id)
 
         items, is_mock_fallback = self._complete_json_list(
             prompt,
@@ -993,6 +1012,7 @@ class AiDerivationService(ServiceBase):
             template,
             decision_description=truncate_prompt_content(decision_description or ""),
         )
+        prompt += self._language_instruction(workspace.id)
 
         parsed, is_mock_fallback = self._complete_json_object(
             prompt,
@@ -1579,6 +1599,51 @@ class AiDerivationService(ServiceBase):
         from application.prompt_resolver import render_template
 
         return render_template(template, **values)
+
+    @staticmethod
+    def _language_instruction(workspace_id: "UUID | str | None") -> str:
+        """Return an explicit output-language directive for *workspace_id*.
+
+        Issue #795: none of this module's content-generating derive prompts
+        ever referenced ``Workspace.language`` -- the provider was free to
+        answer in whatever language it happened to pick. Every such flow
+        below appends this directive to its fully rendered prompt so the
+        output language is pinned explicitly instead of left to chance, for
+        every configured language *including* English: the observed drift
+        (the same ``de`` workspace producing a Chinese answer from one flow
+        and an English answer from another) shows an uninstructed provider
+        cannot be trusted to default to English on its own either.
+
+        Looked up fresh per call rather than threaded through as a
+        parameter: most call sites only hold a bare workspace id (a foreign
+        key column access, not a fetched ``Workspace`` row), so one
+        lightweight primary-key lookup here is simpler than special-casing
+        the couple of flows that already hold the row.
+
+        Args:
+            workspace_id: The workspace whose ``language`` should govern the
+                response. ``None`` (no resolvable workspace) falls back to
+                English, same as an unset/unknown language code.
+
+        Returns:
+            Directive text to append to a rendered prompt (leading blank
+            line included, so it reads as its own paragraph regardless of
+            what the template body ends with).
+        """
+        language_code = "en"
+        if workspace_id is not None:
+            language_code = (
+                Workspace.objects.filter(id=workspace_id)
+                .values_list("language", flat=True)
+                .first()
+                or "en"
+            )
+        language_name = LANGUAGE_INSTRUCTION_NAMES.get(language_code, "English")
+        return (
+            f"\n\nRespond in {language_name}. All generated titles, "
+            f"descriptions and other free-text content must be written in "
+            f"{language_name}."
+        )
 
     @staticmethod
     def _resolve_and_render(

@@ -85,7 +85,23 @@
   box-sizing: border-box;
   font-family: var(--font-sans);
   color: var(--color-nav-text);
-  overflow: hidden;
+  /* Issue #449 (repeated reopen despite the inner .scrollContent already
+     scrolling correctly, see its comment below): every QA re-report
+     measured `getComputedStyle(document.querySelector('nav')).overflowY`
+     on this exact element and found `hidden`, concluding "not scrollable" —
+     even though this outer flex container never needs to scroll itself
+     (its content is exactly `.scrollWrapper` (flex: 1 1 auto) + `.footer`
+     (flex: 0 0 auto), which by flex-column layout always sums to this
+     element's own height; the real overflow lives one level down, in
+     `.scrollContent`). `overflow: hidden` here was originally chosen only
+     to avoid an accidental outer scrollbar, but since this box's own
+     scrollHeight already equals its clientHeight by construction, `auto`
+     produces zero visual/behavioral change (no scrollbar can appear) while
+     removing the literal `hidden` value that automation keeps flagging as
+     "sidebar not scrollable" on the wrong element. overflow-x stays hidden
+     since horizontal scrolling was never desired here. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .scrollWrapper {

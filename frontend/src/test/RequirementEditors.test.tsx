@@ -686,6 +686,104 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 });
 
+// ---------------------------------------------------------------------------
+// GitHub #811 — a rejected delete must not look like a successful one
+//
+// RequirementList's confirm dialog used to call `onDelete` and close itself
+// unconditionally in the same tick, without waiting for the (async) result.
+// A server rejection (e.g. the extended preset's mandatory `change_reason`
+// on delete) therefore closed the dialog and left the row in place with no
+// visible sign anything had gone wrong beyond a message the dialog-close
+// covered up. This suite reproduces the exact rejection from the issue and
+// proves the dialog now stays open, the requirement stays in the list, and
+// the failure is visible.
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors — delete flow surfaces server rejections (#811)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("keeps the dialog open, shows the server error, and leaves the requirement listed on a rejected delete", async () => {
+    vi.mocked(requirementsApi.delete).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "change_reason is required by preset policy.",
+      },
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId(`req-row-delete-${MOCK_REQUIREMENT.id}`));
+    await waitFor(() =>
+      expect(screen.getByTestId("req-delete-dialog")).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId("req-confirm-delete-btn"));
+
+    const alert = await screen.findByTestId("req-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent("change_reason is required by preset policy.");
+
+    // The dialog must NOT have closed itself just because onDelete settled.
+    expect(screen.getByTestId("req-delete-dialog")).toBeInTheDocument();
+    // No optimistic removal: the requirement is still in the list.
+    expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument();
+  });
+
+  it("closes the dialog and clears the row on a successful delete (control case)", async () => {
+    vi.mocked(requirementsApi.delete).mockResolvedValueOnce(undefined);
+    vi.mocked(requirementsApi.list).mockResolvedValueOnce({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any).mockResolvedValue({ results: [], count: 0 } as any);
+    vi.mocked(requirementsApi.listAll)
+      .mockResolvedValueOnce([MOCK_REQUIREMENT] as any)
+      .mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument()
+    );
+
+    await user.click(screen.getByTestId(`req-row-delete-${MOCK_REQUIREMENT.id}`));
+    await waitFor(() =>
+      expect(screen.getByTestId("req-delete-dialog")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("req-confirm-delete-btn"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("req-delete-dialog")).not.toBeInTheDocument()
+    );
+    expect(requirementsApi.delete).toHaveBeenCalledWith(MOCK_REQUIREMENT.id, undefined);
+  });
+});
+
 /**
  * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — the create-requirement form
  * only ever had a title input; `description` and `category` are ordinary
@@ -750,5 +848,91 @@ describe("RequirementEditors — create form has description/category fields (BU
         })
       )
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub #800 — focus trap / Tab order in the create dialog
+//
+// Root cause: the title input carried both `autoFocus` (native, queued-task
+// timing per the HTML autofocus processing model) and the Dialog's
+// `initialFocusRef` (synchronous, runs in a passive effect) — two competing
+// focus-management mechanisms on the same element that could resolve in
+// either order. In real-browser QA this misdirected initial focus onto the
+// description field, and the Dialog's close button being first in DOM order
+// put a destructive, unconfirmed action in the middle of the keyboard Tab
+// flow. Fixed by removing the redundant `autoFocus` (RequirementEditors.tsx)
+// and excluding the close button from the Tab cycle via `tabIndex={-1}`
+// (shared Dialog.tsx, so all five create dialogs benefit).
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors — create dialog focus order (#800)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("focuses the title field — not the description — right after opening", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+  });
+
+  it("tabs through the form fields before ever reaching the close button", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    // Title has a value from the moment the dialog opens onward, so Save
+    // becomes reachable as a real (non-disabled) Tab stop too — type it
+    // first to exercise the *full* field order, not a truncated one.
+    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-description-input"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-category-select"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-cancel-btn"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-save-btn"));
+
+    // Issue #800: the ×-close button must never be a Tab stop — Tab from
+    // the last field wraps straight back to the first one, not through ×.
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+    expect(document.activeElement).not.toBe(screen.getByTestId("req-new-dialog-close"));
   });
 });

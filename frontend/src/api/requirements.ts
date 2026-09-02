@@ -197,9 +197,17 @@ export const requirementsApi = {
    * GH-443: soft-delete. The requirement is NOT removed — it moves to
    * `status === "outdated"`, disappears from the default list, and stays
    * retrievable via `get(id)` and restorable via {@link reactivate}.
+   *
+   * Issue #811: `changeReason` is mandatory when the workspace preset
+   * requires it (extended preset, `PresetPolicyService.is_change_reason_required`,
+   * enforced server-side on delete too — see `RequirementService.delete_requirement`).
+   * Without it the request 400s with "change_reason is required by preset
+   * policy." — the caller must surface that failure, not swallow it.
    */
-  delete(id: UUID): Promise<void> {
-    return apiClient.delete(`/requirements/${id}/`);
+  delete(id: UUID, changeReason?: string): Promise<void> {
+    return apiClient.delete(`/requirements/${id}/`, {
+      change_reason: changeReason ?? "",
+    });
   },
 
   /** GH-443: undo a soft-delete — restores the pre-delete workflow state. */
