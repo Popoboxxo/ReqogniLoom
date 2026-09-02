@@ -112,8 +112,11 @@ describe("<Dialog> — UI concept ch. 12.8", () => {
     render(<DialogHost />);
     await user.click(screen.getByTestId("trigger"));
 
-    // The close button is the first control in the DOM order of the panel.
-    expect(document.activeElement).toBe(screen.getByTestId("dialog-close"));
+    // Issue #800: the close button precedes the content in DOM order but
+    // carries tabIndex={-1} — a destructive, unconfirmed action must not be
+    // the first (or any) Tab stop — so the first *tabbable* control is the
+    // first element inside the panel content.
+    expect(document.activeElement).toBe(screen.getByTestId("inner-first"));
   });
 
   it("honours initialFocusRef over the first element", () => {
@@ -138,7 +141,9 @@ describe("<Dialog> — UI concept ch. 12.8", () => {
     screen.getByTestId("inner-last").focus();
     await user.tab();
 
-    expect(document.activeElement).toBe(screen.getByTestId("dialog-close"));
+    // Issue #800: the close button (tabIndex={-1}) is excluded from the
+    // cycle, so wrapping lands back on the first tabbable content element.
+    expect(document.activeElement).toBe(screen.getByTestId("inner-first"));
   });
 
   it("cycles Shift+Tab from the first element back to the last", async () => {
@@ -146,7 +151,8 @@ describe("<Dialog> — UI concept ch. 12.8", () => {
     render(<DialogHost />);
     await user.click(screen.getByTestId("trigger"));
 
-    // Focus already sits on the first element (the close button).
+    // Focus already sits on the first tabbable element (the close button
+    // is excluded from the cycle — issue #800).
     await user.tab({ shift: true });
 
     expect(document.activeElement).toBe(screen.getByTestId("inner-last"));
@@ -159,7 +165,10 @@ describe("<Dialog> — UI concept ch. 12.8", () => {
 
     screen.getByTestId("outside-button").focus();
 
-    expect(document.activeElement).toBe(screen.getByTestId("dialog-close"));
+    // Issue #800: the safety net re-runs focusInitial(), which now lands on
+    // the first tabbable content element, not the (tabIndex={-1}) close
+    // button.
+    expect(document.activeElement).toBe(screen.getByTestId("inner-first"));
   });
 
   it("closes on Escape", async () => {

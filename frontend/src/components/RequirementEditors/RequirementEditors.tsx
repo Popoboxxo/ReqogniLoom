@@ -216,6 +216,15 @@ export default function RequirementEditors(): JSX.Element {
   // the panel by default — that would be its own × close button, ahead of
   // the title input this form used to `autoFocus`. Pointing initialFocusRef
   // at the title input preserves the previous UX.
+  //
+  // Issue #800: the native `autoFocus` attribute used to stay on this input
+  // *in addition* to `initialFocusRef` — two independent focus-management
+  // mechanisms racing on the same element. The native attribute's focusing
+  // steps run as a queued task (HTML autofocus processing model), not
+  // synchronously during mount, so it could win *after* the focus trap's
+  // effect already ran, and — observed in real-browser QA — misdirect
+  // initial focus onto the description field instead. `initialFocusRef` is
+  // now the single source of truth; `autoFocus` was removed from the input.
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   /**
@@ -477,7 +486,6 @@ export default function RequirementEditors(): JSX.Element {
               // the user actually starts correcting the input.
               if (createError) setCreateError(null);
             }}
-            autoFocus
             disabled={isCreating}
             placeholder={t('editor.newRequirementTitle')}
             style={{

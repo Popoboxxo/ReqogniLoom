@@ -752,3 +752,89 @@ describe("RequirementEditors — create form has description/category fields (BU
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// GitHub #800 — focus trap / Tab order in the create dialog
+//
+// Root cause: the title input carried both `autoFocus` (native, queued-task
+// timing per the HTML autofocus processing model) and the Dialog's
+// `initialFocusRef` (synchronous, runs in a passive effect) — two competing
+// focus-management mechanisms on the same element that could resolve in
+// either order. In real-browser QA this misdirected initial focus onto the
+// description field, and the Dialog's close button being first in DOM order
+// put a destructive, unconfirmed action in the middle of the keyboard Tab
+// flow. Fixed by removing the redundant `autoFocus` (RequirementEditors.tsx)
+// and excluding the close button from the Tab cycle via `tabIndex={-1}`
+// (shared Dialog.tsx, so all five create dialogs benefit).
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors — create dialog focus order (#800)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("focuses the title field — not the description — right after opening", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+  });
+
+  it("tabs through the form fields before ever reaching the close button", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    // Title has a value from the moment the dialog opens onward, so Save
+    // becomes reachable as a real (non-disabled) Tab stop too — type it
+    // first to exercise the *full* field order, not a truncated one.
+    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-description-input"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-category-select"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-cancel-btn"));
+
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-save-btn"));
+
+    // Issue #800: the ×-close button must never be a Tab stop — Tab from
+    // the last field wraps straight back to the first one, not through ×.
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+    expect(document.activeElement).not.toBe(screen.getByTestId("req-new-dialog-close"));
+  });
+});
