@@ -137,13 +137,3 @@ export async function resolveArtifactRefs(
 
   return refs;
 }
-
-/** Resolves title + route for an arbitrary linked artifact id. Never throws. */
-export async function resolveArtifactRef(id: UUID): Promise<ArtifactRef> {
-  try {
-    const refs = await resolveArtifactRefs([id]);
-    return refs[id] ?? fallbackRef(id);
-  } catch {
-    return fallbackRef(id);
-  }
-}

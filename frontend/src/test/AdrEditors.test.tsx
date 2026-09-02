@@ -10,7 +10,7 @@
  *   linked ArchitectureElement.
  *
  * REST mocked: adrsApi, tracelinksApi.listForArtifact, artifactsApi.get,
- * architectureApi.get (via resolveArtifactRef).
+ * architectureApi.get (via resolveArtifactRefs).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";

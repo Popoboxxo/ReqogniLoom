@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resolveArtifactRef, resolveArtifactRefs } from "./artifactRefs";
+import { resolveArtifactRefs } from "./artifactRefs";
 
 const mockResolve = vi.fn();
 const mockRequirementsGet = vi.fn();
@@ -59,110 +59,6 @@ function resolvesTo(entityType: string, entityId = ENTITY_ID) {
     },
   ]);
 }
-
-describe("resolveArtifactRef", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("[#414] routes a Requirement to its entity id, not its artifact id", async () => {
-    resolvesTo("Requirement");
-    mockRequirementsGet.mockResolvedValue({ title: "REQ Title" });
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref).toEqual({ title: "REQ Title", route: `/requirements/${ENTITY_ID}` });
-    // The regression: the artifact id must never appear in the route.
-    expect(ref.route).not.toBe(`/requirements/${ARTIFACT_ID}`);
-    expect(ref.route).not.toContain(ARTIFACT_ID);
-  });
-
-  it("[#414] fetches the Requirement detail with the entity id (no 404)", async () => {
-    resolvesTo("Requirement");
-    mockRequirementsGet.mockResolvedValue({ title: "REQ Title" });
-
-    await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(mockRequirementsGet).toHaveBeenCalledWith(ENTITY_ID);
-    expect(mockRequirementsGet).not.toHaveBeenCalledWith(ARTIFACT_ID);
-  });
-
-  it("[#414] routes an ArchitectureElement to its entity id", async () => {
-    resolvesTo("ArchitectureElement");
-    mockArchitectureGet.mockResolvedValue({ title: "Arch Title" });
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref).toEqual({ title: "Arch Title", route: `/architecture/${ENTITY_ID}` });
-    expect(mockArchitectureGet).toHaveBeenCalledWith(ENTITY_ID);
-  });
-
-  it("[#414] resolves through the id-space bridge with the artifact id", async () => {
-    resolvesTo("TestCase");
-    mockTestcasesGet.mockResolvedValue({ title: "TC" });
-
-    await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(mockResolve).toHaveBeenCalledWith([ARTIFACT_ID]);
-  });
-
-  it("[#414] gives a working route to a type with no title fetcher", async () => {
-    // Risk/Issue/Goal/... have no typed detail wrapper here, but their route is
-    // still known — the row must stay navigable instead of going inert.
-    resolvesTo("Risk");
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref.route).toBe(`/risks/${ENTITY_ID}`);
-    expect(ref.title).toContain(ARTIFACT_ID.slice(0, 8));
-  });
-
-  it("[UI-05] does not fake a Requirement route for an unknown entity type", async () => {
-    resolvesTo("SomeFutureType");
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref.route).toBe("");
-    expect(ref.route).not.toBe(`/requirements/${ARTIFACT_ID}`);
-    expect(mockRequirementsGet).not.toHaveBeenCalled();
-  });
-
-  it("[UI-05] does not fake a route when the id does not resolve", async () => {
-    mockResolve.mockResolvedValue([
-      { artifact_id: ARTIFACT_ID, resolved: false, entity_type: null, entity_id: null },
-    ]);
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref.route).toBe("");
-    expect(ref.title).toContain(ARTIFACT_ID.slice(0, 8));
-  });
-
-  it("[UI-05] does not fake a route when the resolve call rejects", async () => {
-    mockResolve.mockRejectedValue(new Error("network error"));
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref.route).toBe("");
-    expect(ref.route).not.toBe(`/requirements/${ARTIFACT_ID}`);
-  });
-
-  it("keeps the row navigable when only the title lookup fails", async () => {
-    resolvesTo("Requirement");
-    mockRequirementsGet.mockRejectedValue(new Error("boom"));
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref.route).toBe(`/requirements/${ENTITY_ID}`);
-    expect(ref.title).toContain(ARTIFACT_ID.slice(0, 8));
-  });
-
-  it("[UI-05] the unresolved fallback never throws and yields an id-derived title", async () => {
-    mockResolve.mockRejectedValue(new Error("boom"));
-
-    const ref = await resolveArtifactRef(ARTIFACT_ID);
-
-    expect(ref.title).toContain(ARTIFACT_ID.slice(0, 8));
-  });
-});
 
 describe("resolveArtifactRefs (batch)", () => {
   beforeEach(() => vi.clearAllMocks());

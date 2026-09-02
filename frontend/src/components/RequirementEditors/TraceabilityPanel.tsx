@@ -27,7 +27,7 @@ interface LinkItemProps {
 function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  // UI-05: an empty/undefined route means resolveArtifactRef could not
+  // UI-05: an empty/undefined route means resolveArtifactRefs could not
   // resolve this linked artifact (lookup failure or unknown type). Do not
   // guess a Requirement route in that case — treat the entry as
   // non-navigable instead of silently jumping to the wrong artifact.
