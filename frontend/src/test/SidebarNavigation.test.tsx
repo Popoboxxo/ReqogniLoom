@@ -235,6 +235,46 @@ describe("SidebarNavigation — theme mode quick toggle", () => {
 // scroll (verified by the e2e test) can always reach them.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Role-gated admin nav items (R2/T1 systemaudit 2026-09-02): a "viewer" saw
+// every nav item — including admin-only pages — with only the server
+// rejecting the actual request. Hide those links from roles that cannot use
+// the page behind them.
+// ---------------------------------------------------------------------------
+
+describe("SidebarNavigation — role-gated admin nav items (R2/T1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+  });
+
+  it("does not render admin-only items for a viewer", async () => {
+    stubAuthFetch(["viewer"]);
+    setListWorkspace(true);
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Workspace Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("System Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("User Management")).not.toBeInTheDocument();
+  });
+
+  it("renders admin-only items for an admin", async () => {
+    stubAuthFetch(["admin"]);
+    setListWorkspace(true);
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText("Workspace Settings")).toBeInTheDocument();
+    });
+    expect(screen.getByText("System Settings")).toBeInTheDocument();
+    expect(screen.getByText("User Management")).toBeInTheDocument();
+  });
+});
+
 describe("SidebarNavigation — scroll region contains all nav items (#449/#720)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

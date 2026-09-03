@@ -67,6 +67,7 @@ interface NavItem {
   labelKey: string;
   feature: string; // key in PRESET_VISIBILITY
   group: NavGroupId; // issue #317 — section grouping
+  requires?: "admin" | "editor"; // R2/T1 systemaudit 2026-09-02 — role gate, absent = visible to any authenticated role
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -110,18 +111,24 @@ const NAV_ITEMS: NavItem[] = [
   // settings; the RuleEngine already filters findings by the workspace's
   // active rigor tier so there is no separate preset-visibility gate here.
   { path: "/audit", labelKey: "nav.audit", feature: "dashboard", group: "admin" },
-  { path: "/settings", labelKey: "nav.settings", feature: "dashboard", group: "admin" },
-  // REQ-184: System Settings — tenant-wide config. Link always visible (like
-  // /settings); the page itself gates on the admin role.
-  { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard", group: "admin" },
+  // R2/T1 (systemaudit 2026-09-02): WorkspaceSettings itself fully blocks
+  // non-admins (`isAdmin` early-return), so the nav link must not dangle
+  // in front of viewers/editors either.
+  { path: "/settings", labelKey: "nav.settings", feature: "dashboard", group: "admin", requires: "admin" },
+  // REQ-184 / R2/T1: System Settings — tenant-wide config. The page fully
+  // blocks non-admins; gate the nav link the same way (was previously
+  // "always visible" per its own comment, which predates the T1 audit fix).
+  { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard", group: "admin", requires: "admin" },
   // Multi-user management design spec (Task 12): tenant-admin is a NEW,
   // tenant-wide concept distinct from the workspace `admin` role that gates
   // /settings and /system-settings — a tenant-admin need not be a workspace
   // admin of the currently active workspace (and vice versa), so this link
   // cannot simply live inside either of those pages' existing role gate.
-  // Link always visible (like every other admin-group item); the page
-  // itself gates on `useAuth().isTenantAdmin` (UX-only — real enforcement
-  // is server-side, see UserManagement.tsx's module docstring).
+  // R2/T1: no `requires` here — the generic `roles`-based gate cannot
+  // express the tenant-admin condition; see the dedicated
+  // `isTenantAdmin`-aware filter in `visibleItems` below instead. The page
+  // itself still gates on `useAuth().isTenantAdmin` (UX-only — real
+  // enforcement is server-side, see UserManagement.tsx's module docstring).
   { path: "/user-management", labelKey: "nav.userManagement", feature: "dashboard", group: "admin" },
 ];
 
@@ -140,7 +147,7 @@ export function SidebarNavigation(): JSX.Element {
     markLanguageOverrideActive,
     clearLanguageOverride,
   } = useWorkspace();
-  const { logout, roles } = useAuth();
+  const { logout, roles, isTenantAdmin } = useAuth();
   // F-02 (code review, High): the equivalent language radios on the
   // Workspace Settings page are admin-only (`WorkspaceSettings.tsx`'s
   // `isAdmin` gate). `workspace.language` is a workspace-wide field shared
@@ -391,11 +398,25 @@ export function SidebarNavigation(): JSX.Element {
       });
   };
 
+  // R2/T1 (systemaudit 2026-09-02): `requires` mirrors the workspace `roles`
+  // a server-side page gate checks (`admin` also covers `editor`-gated
+  // items, matching how every other admin check in this component treats
+  // "admin" as a superset of lesser roles).
+  const hasRole = (required?: "admin" | "editor"): boolean =>
+    !required || roles.includes(required) || roles.includes("admin");
+
   const visibleItems = NAV_ITEMS.filter((item) =>
     isFeatureVisible(item.feature)
-  ).filter(
-    (item) => item.path !== "/goals" || !!activeWorkspace?.goals_enabled
-  );
+  )
+    .filter((item) => item.path !== "/goals" || !!activeWorkspace?.goals_enabled)
+    .filter((item) => hasRole(item.requires))
+    // /user-management gates on tenant-admin (not the workspace `admin`
+    // role — see the NAV_ITEMS comment above), so it needs its own OR
+    // rather than the generic `requires` check.
+    .filter(
+      (item) =>
+        item.path !== "/user-management" || isAdmin || isTenantAdmin
+    );
 
   // Group the flat visible-item list into logical sections (issue #317) so
   // ~20 entries no longer read as one undifferentiated scrolling list.
