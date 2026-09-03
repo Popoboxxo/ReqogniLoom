@@ -104,7 +104,7 @@ function installLocalStorageStub(): void {
 }
 
 
-function stubAuthFetch(roles: string[]): void {
+function stubAuthFetch(roles: string[], isTenantAdmin?: boolean): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -114,6 +114,7 @@ function stubAuthFetch(roles: string[]): void {
         user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles },
         tenant_id: null,
         roles,
+        is_tenant_admin: isTenantAdmin,
       }),
     }) as unknown as Response)
   );
@@ -272,6 +273,22 @@ describe("SidebarNavigation — role-gated admin nav items (R2/T1)", () => {
     });
     expect(screen.getByText("System Settings")).toBeInTheDocument();
     expect(screen.getByText("User Management")).toBeInTheDocument();
+  });
+
+  // Tenant-admin is independent of the workspace `admin` role (see the
+  // NAV_ITEMS comment on /user-management) — this is exactly the case the
+  // dedicated isTenantAdmin OR-branch exists for, as opposed to the generic
+  // `requires` mechanism used for /settings and /system-settings.
+  it("renders User Management for a tenant-admin who lacks the workspace admin role, but still hides workspace/system settings", async () => {
+    stubAuthFetch(["viewer"], true);
+    setListWorkspace(true);
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText("User Management")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Workspace Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("System Settings")).not.toBeInTheDocument();
   });
 });
 
