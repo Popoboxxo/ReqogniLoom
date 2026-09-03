@@ -1,0 +1,4446 @@
+# Traceability-Semantik Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Replace the hardcoded 15-value `LinkType` enum and the `se_mode`-gated `SE_LINK_SEMANTICS` matrix with a tenant-configurable link-type catalog (`GlobalLinkTypeDefinition` → `WorkspaceLinkTypeDefinition`) seeded with 8 cleaned-up core types, always-on endpoint validation, and a rule-driven suspect-propagation engine.
+
+**Architecture:** A new Layer-1 Django app `backend/link_types/` holds the catalog using the exact materialized-copy inheritance pattern of `workflow.GlobalWorkflowDefinition`/`WorkflowEngineDefinition` (per-workspace copy, `source_global` FK, `is_customized` flag, propagate-on-global-edit, cache-generation invalidation). `TraceLinkService.create_trace_link` stops calling `check_se_link_semantics` and instead resolves the workspace catalog and validates every link unconditionally. `TraceLink` gains `rationale`/`suspect_flagged_at`/`suspect_source_change`, and `propagate_suspect_status` is rewritten from an unconditional transitive upstream flood into a one-hop dispatch on each link type's `suspect_rule`.
+
+**Tech Stack:** Django 5.2 / Python 3.x, PostgreSQL 16 (JSONB + RLS), DRF + drf-spectacular, native MCP tool registry, React 18 + TypeScript 5.5 (strict), pytest, vitest.
+
+**Spec:** docs/superpowers/specs/2026-09-03-traceability-semantik-design.md
+
+## Global Constraints
+
+- The 8 seeded core types are exactly: `derives-from`, `decomposes`, `allocated-to`, `verifies`, `decides`, `mitigates`, `references`, `diagram-ref`. `parent-child` is dropped; `copy-of` becomes the `Artifact.copied_from` field.
+- Endpoint validation gilt **immer** — the `se_mode` gate and the `SE_CORE_ARTIFACT_TYPES` "non-core types pass unchecked" escape are removed **ersatzlos**.
+- `suspect_rule` is a fixed four-value enum verankert im Code: `"none"`, `"target_change_flags_source"`, `"source_change_flags_target"`, `"parent_change_flags_children"`. Tenants pick from these; new propagation logic is a code change.
+- Everything else in `definition_json` is tenant-free: `allowed_pairs`, `label`, `coverage_relevant`, `impact_weight`, `active`.
+- Inheritance is **materialized copy, kein Merge-on-Read** — an admin edit on a global row propagates into all `is_customized=False` workspace rows. Cache invalidation follows the `presets/gate.py:_invalidate_workspace` pattern.
+- Kein `preset`-Feld on the link-type models — link types are an open named catalog, not an `(item_type × preset)` raster.
+- `system_owned` is true only for `diagram-ref`: `key` and `manual_creatable` are locked, same lock concept as `locked` attributes in the Attribut-Definition spec.
+- `active` is a soft-disable (`default true`) — never hard-delete a link type.
+- MCP: `link_type` in `traceability.create_link`'s `inputSchema` becomes a **free string**, not an enum; validation is server-side against the resolved catalog and the error message lists the valid values.
+- Frontend: the hardcoded `LinkType` union in `types/index.ts` is replaced by a read against `GET workspaces/<id>/link-type-definitions/`. No second independently maintained source of truth.
+- `Artifact.parent` stays as the recursive-CTE performance cache but is written **in derselben Transaktion** as its `decomposes` link.
+- Impact weights: `derives-from` 1.0, `decomposes` 1.0, `allocated-to` 1.0, `verifies` 1.0, `decides` 0.3, `mitigates` 0.5, `references` 0.2, `diagram-ref` 0.2.
+- Coverage-relevant: only `allocated-to` (Allocation-Coverage) and `verifies` (Test-Coverage).
+- Migration is hart (kein Dual-Write, keine Kompatibilitäts-Aliase): `satisfies`/`implements` → `allocated-to` **mit getauschter Quelle/Ziel**, `refines` → `derives-from`, `realizes` → `decomposes`, `documents`/`traces`/`uses-term` → `references`, `parent-child` entfällt (dedupliziert gegen `decomposes`), `copy-of` → `Artifact.copied_from`.
+
+---
+
+## Verified Against Current Code (2026-09-03)
+
+Read before starting — the spec was written earlier and four of its claims have drifted:
+
+| Spec claim | Reality | Consequence for this plan |
+|---|---|---|
+| `TraceLink` has only `source`/`target`/`link_type`/`embedding` (`persistence/models.py:1352`) | Confirmed | Task 12 adds the three new fields |
+| §3.3 "Ein Unique-Constraint auf `(source, target, link_type='decomposes')` verhindert Duplikate" | **Already exists** — `uq_tracelink_edge` on `(source, target, link_type)` (models.py:1402, issue #126) covers it | No constraint work. Task 16 only deduplicates *data*. |
+| §5 "#849: `suspect` fehlt im Serializer" | **Already fixed** in commit `54b09760` — `rest_api/serializers.py:753` declares `suspect = serializers.BooleanField(read_only=True)` | Only the propagation half of #849 remains (Task 14) |
+| §5 implies suspect propagation is missing | `TraceLinkService.propagate_suspect_status` **exists and is wired** (`requirement_service.py:501`), but ignores `link_type` entirely and floods the whole transitive upstream hull | Task 14 is a **rewrite**, not a new feature; its 4 existing tests (`application/tests/test_trace_link_service.py:955-1073`) must be rewritten |
+| `SE_LINK_SEMANTICS` constrains all types | Only 9 of 15 types are in the matrix; `decomposes`, `decides`, `traces`, `realizes`, `uses-term`, `diagram-ref` are absent = unrestricted | The catalog replaces the matrix wholesale |
+| §3.2 `references` targets `GlossaryTerm`/`Icd` | **Neither is Artifact-backed today** (no `artifact` FK on `persistence.GlossaryTerm` or `icd.Icd`); `TraceLink.source/target` are FKs to `Artifact`, so such a link cannot physically exist | Delivered by Plan #1 (Datenmodell-Konsolidierung §4). Ordering dependency, not a blocker — Task 5's pairs are declared as data and simply never match until those Artifact rows exist. |
+
+**Direction conventions (authoritative, from `traceability/audit/hierarchy.py:20-33`):**
+
+| link type | source | target |
+|---|---|---|
+| `decomposes` | parent (the decomposed) | child (the result) |
+| `parent-child` | parent | child |
+| `derives-from` | child (the derived) | parent (the origin) |
+
+`derives-from` is the **inverse** edge of `decomposes`. Every direction decision in this plan follows this table.
+
+**Blast radius — hardcoded link-type consumers that must move with the migration (all verified by grep, non-test):**
+
+| File | What breaks |
+|---|---|
+| `backend/traceability/vcrm_report_generator.py:205` | raw SQL `AND tl.link_type IN ('satisfies', 'implements')` — silently returns 0 rows after the rename, and the direction swap inverts the join |
+| `backend/traceability/audit/hierarchy.py:82` | `_DECOMPOSITION_LINK_TYPES = {DECOMPOSES, PARENT_CHILD}` |
+| `backend/traceability/audit/rules/trace_derivation_allocation.py:387` | `frozenset({LinkType.SATISFIES.value, LinkType.IMPLEMENTS.value})` |
+| `backend/mcp_server/tools/cross_cutting.py:1334` | **emits** a synthetic `"link_type": "parent-child"` for ArchitectureElement children |
+| `backend/persistence/models.py:717` | `Workspace.decomposition_link_type` default `"parent-child"` (functionally dead since `requirement_service.py:863` hardcodes `DECOMPOSES`, but still writable via REST/MCP/UI) |
+| `backend/rest_api/serializers.py:1311` | serializer default `"parent-child"`; `views.py:4162` fallback `"parent-child"` |
+| `frontend/src/components/WorkspaceSettings/WorkspaceSettings.tsx:653` | live dropdown offering `parent-child` |
+| `backend/application/interview_multi_protocol.py:43` | LLM prompt enumerating the 15 old types |
+| `backend/application/reqif_export_service.py:69` | ReqIF `SRT-<link_type>` identifier list |
+| `backend/application/management/commands/migrate_se_docs.py:205` | `_LINK_IMPLEMENTS = LinkType.IMPLEMENTS.value` |
+| `backend/auth_tenancy/management/commands/seed_toothbrush.py:227` | seeds a `"satisfies"` link |
+| `frontend/src/constants/traceLinkLabels.ts` | `LINK_TYPE_TRI_LABELS` + `ALL_LINK_TYPES`, consumed by **16** files |
+
+---
+
+## OFFENE FRAGEN (blocking — decide before Task 9 / Task 16)
+
+### OFFENE FRAGE 1 — Always-on validation breaks link types the seeded catalog does not mention
+
+The spec's 8-type matrix covers `Requirement`, `ArchitectureElement`, `TestCase`, `StakeholderNeed`, `Adr`, `Risk`, `Diagram`, `GlossaryTerm`, `Icd`, `ExternalRef`. It covers **none** of `Goal`, `MainGoal`, `Issue`, `Interview` — all four are live `artifact_type` values with real `Artifact` rows. `Goal ↔ Requirement` links in particular are a shipped feature: `TraceLinkService._resolve_artifact` step 5 was added by **fix #237** precisely because "any Goal<->Requirement trace link raised 'Entity not found'".
+
+Today those links are legal (permissive fallback). The moment validation "gilt immer", every one of them is rejected and every existing row becomes uncreatable.
+
+**Default chosen so the plan stays executable (Task 9 + Task 10):** *grandfathering by inventory*. A management command inventories the distinct `(link_type, source_artifact_type, target_artifact_type)` triples that actually exist, maps them through the 3.1 rename table, and the seed migration **extends** the built-in `allowed_pairs` with every observed triple not already covered — logging each addition loudly. Existing data stays valid; genuinely new invalid combinations are rejected.
+
+**Needs a decision:** is grandfathering acceptable, or should Goal/MainGoal/Issue/Interview links be hard-rejected (breaking change, needs a data cleanup first)?
+
+### OFFENE FRAGE 2 — `refines` → `derives-from` changes SE-Auditor root/leaf classification
+
+`traceability/audit/hierarchy.py:35-38` states explicitly: *"`refines` ist deliberately **not** treated as a hierarchy edge: it expresses 'same requirement, more detail' on one level, not decomposition onto the next one, and `SE_LINK_SEMANTICS` allows it symmetrically between Requirements, so its direction carries no level semantics."*
+
+`derives-from` **is** a hierarchy edge (child→parent) and is read by the root/leaf classifier. Folding `refines` into `derives-from` therefore turns every symmetric `refines` edge into a directed hierarchy edge whose direction is arbitrary — silently changing TRACE-P1 ("root must derive from a StakeholderNeed") and VERIF-P8 ("leaf must have a verifying TestCase") findings for every affected requirement pair.
+
+**Default chosen (Task 16 + Task 17):** migrate as the spec says (direction preserved: source stays source), but the migration **counts and reports** every `Requirement→Requirement` `refines` row it converts, and Task 17 re-runs the SE-Auditor before/after on a seeded workspace and diffs the finding set, so the semantic change is observed rather than assumed.
+
+**Needs a decision:** accept the classification change, or exclude `Requirement↔Requirement` `refines` rows from the merge (e.g. map them to `references` instead, losing the refinement semantics)?
+
+---
+
+## Decisions Taken (non-blocking, documented)
+
+1. **`suspect_source_change` is a `UUIDField`, not a `ForeignKey`.** The spec says "FK auf `AuditEntry`". `audit/migrations/0001_initial.py:12` documents that `al_audit_entry`/`audit_entry` is *intended* for monthly RANGE partitioning ("not applied by this migration — production partitioning setup via DBA / separate DDL script"). A real FK would permanently block that plan (Postgres requires the partition key in the referenced PK), nothing else in the codebase FKs to `AuditEntry`, and the table is append-only so no cascade semantics are needed. Stored as the plain audit-entry UUID with a docstring naming the reference.
+2. **`parent_change_flags_children` dispatches to the same branch as `source_change_flags_target`.** Given the direction table, for `decomposes` the parent *is* the source, so the two are functionally identical. The value is kept as a distinct configurable enum member because the spec's four-value range is a Global Constraint and because it documents hierarchy intent, but the engine has one branch, not two duplicated ones.
+3. **`definition_json.label` is the tri-label shape, a superset of the spec's `{de, en}`.** The frontend's single source for link-type display is `constants/traceLinkLabels.ts::LINK_TYPE_TRI_LABELS`, which requires `{de: {downstream, upstream, neutral}, en: {...}}` per type — a flat `{de, en}` pair cannot express it and would silently break 16 components. Label shape is therefore `{de: {downstream, upstream, neutral}, en: {downstream, upstream, neutral}}`.
+4. **Suspect propagation becomes one-hop.** Spec §5 describes a single hop ("markiert das jeweils andere Ende suspect"); today's implementation walks the full transitive upstream closure. One-hop is implemented as specified; `settings.SUSPECT_PROPAGATION_MAX_DEPTH` becomes unused and its handling is deleted with the old body. This is a **behaviour narrowing** and is called out in the Task 14 commit message.
+5. **`proposed_by`/`proposed_at` are NOT in this plan's migration.** The KI-Vorschlag spec §5 says they run "in derselben Migration wie die `rationale`/`suspect_*`-Felder" — impossible across plan boundaries, since Plan #4 executes after Plan #3. This plan owns `link_types/…` + `persistence/00XX_tracelink_semantics_fields`; Plan #4 adds its own migration on the same model.
+6. **`references` target list is data, never a hardcoded 3-tuple.** `allowed_pairs` is a plain JSON list of `{source_type, target_type}` objects with `"*"` wildcards, so Plan #8 adds `ExternalRef` by appending one row to the seed constant plus a data migration — no code change in the validator.
+7. **Bootstrap is a code-level `BUILTIN_LINK_TYPES` constant plus a backfill migration plus a provisioning hook**, not a bare seed migration. `GlobalWorkflowDefinition` proves the shape: rows are `TenantScopedModel` under RLS, so a single blind `INSERT` in a data migration cannot serve future tenants. The constant is the SSOT, the migration backfills existing tenants, `provision_workspace_defaults` serves new ones.
+
+---
+
+## File Structure
+
+### New — `backend/link_types/` (Layer 1)
+
+| File | Responsibility |
+|---|---|
+| `backend/link_types/__init__.py` | empty package marker |
+| `backend/link_types/apps.py` | `LinkTypesConfig` AppConfig (`name = "link_types"`) |
+| `backend/link_types/models.py` | `GlobalLinkTypeDefinition`, `WorkspaceLinkTypeDefinition` (both `TenantScopedModel`) |
+| `backend/link_types/builtin.py` | `BUILTIN_LINK_TYPES` — the 8 seeded definitions as plain dicts; `SUSPECT_RULES` enum-ish frozenset; SSOT for seed + backfill + provisioning |
+| `backend/link_types/schema.py` | `validate_definition_json(payload) -> dict` — shape/range validation for a `definition_json` (raises `persistence.errors.ValidationError`) |
+| `backend/link_types/catalog.py` | `resolve_catalog(workspace_id, tenant_id) -> dict[str, dict]` (cached), `invalidate_workspace(workspace_id)`, `validate_link_pair(...)` |
+| `backend/link_types/global_store.py` | `GlobalLinkTypeDefinitionStore` — list/get/create/update/delete + `_propagate` into non-customized workspace rows |
+| `backend/link_types/workspace_store.py` | `WorkspaceLinkTypeDefinitionStore` — resolved list/get, `update` (sets `is_customized=True`), `reset`, `provision_workspace_link_types` |
+| `backend/link_types/migrations/0001_initial.py` | the two models |
+| `backend/link_types/migrations/0002_rls_policies.py` | `ENABLE/FORCE ROW LEVEL SECURITY` + tenant policy on `lt_global_definition`, `lt_workspace_definition` (byte-identical to `workflow/0015`) |
+| `backend/link_types/migrations/0003_seed_builtin_link_types.py` | backfill: one global + per-workspace row set per existing tenant, from `BUILTIN_LINK_TYPES` + the inventory grandfathering file |
+| `backend/link_types/management/commands/inventory_link_types.py` | prints/writes observed `(link_type, source_type, target_type)` triples for OFFENE FRAGE 1 |
+| `backend/link_types/management/commands/check_copy_of_conflicts.py` | preflight for the `copy-of` → `copied_from` 1:1 narrowing |
+| `backend/link_types/tests/test_models.py` … `test_workspace_store.py` | per-task test modules (named in each task) |
+
+### Modified — backend
+
+| File | Change |
+|---|---|
+| `backend/reqogniloom/settings.py:212` | add `"link_types"` to `INSTALLED_APPS` after `"workflow"` |
+| `backend/persistence/models.py:1360-1406` | `TraceLink`: add `rationale`, `suspect_flagged_at`, `suspect_source_change` |
+| `backend/persistence/models.py:819-860` | `Artifact`: add `copied_from` self-FK |
+| `backend/persistence/models.py:715-724` | `Workspace.decomposition_link_type` default `parent-child` → `decomposes`; `default_link_type` unchanged (`derives-from` survives) |
+| `backend/persistence/migrations/00XX_tracelink_semantics_fields.py` | new — the three `TraceLink` fields + `Artifact.copied_from` + the two `Workspace` defaults |
+| `backend/persistence/migrations/00XX_migrate_trace_link_types.py` | new — the §3.1 data migration (rename, direction swap, dedup, `copy-of` move) |
+| `backend/traceability/types.py:25-177` | delete `SE_LINK_SEMANTICS`, `SE_CORE_ARTIFACT_TYPES`, `SAME_TYPE`, `check_se_link_semantics`; shrink `LinkType` to the 8 core values as a **convenience** enum only (no longer the validation authority) |
+| `backend/application/trace_link_service.py:258-333` | delete `_check_se_semantics`, replace with `_check_link_pair` calling `link_types.catalog.validate_link_pair` |
+| `backend/application/trace_link_service.py:366-385` | replace the `VALID_LINK_TYPES` / `DIAGRAM_REF` hardcoded gates with catalog lookups (`active`, `manual_creatable`) |
+| `backend/application/trace_link_service.py:1175-1251` | rewrite `propagate_suspect_status` into the rule-driven one-hop engine |
+| `backend/application/requirement_service.py:900-930` | write `Artifact.parent` in the same transaction as the `decomposes` link |
+| `backend/traceability/vcrm_report_generator.py:205` | `IN ('satisfies','implements')` → `= 'allocated-to'` with swapped join direction |
+| `backend/traceability/audit/hierarchy.py:82` | `_DECOMPOSITION_LINK_TYPES` → `{DECOMPOSES}` |
+| `backend/traceability/audit/rules/trace_derivation_allocation.py:387` | `{SATISFIES, IMPLEMENTS}` → `{ALLOCATED_TO}` |
+| `backend/mcp_server/tools/cross_cutting.py:1334` | synthetic `"parent-child"` → `"decomposes"` |
+| `backend/mcp_server/tools/cross_cutting.py:285-293` | `link_type` schema `enum` → free `"type": "string"` |
+| `backend/mcp_server/tools/link_type.py` | new — MCP group `link_type.{list,get,create,update,reset}` |
+| `backend/mcp_server/tool_registry.py` | register the new group |
+| `backend/rest_api/link_type_views.py` | new — global + workspace link-type endpoints |
+| `backend/rest_api/urls.py` | register `link-type-defaults/…` and `workspaces/<uuid:workspace_id>/link-type-definitions/…` |
+| `backend/rest_api/serializers.py:1035` | `TraceLinkSerializer`: add `rationale`, `suspect_flagged_at`, `suspect_source_change` |
+| `backend/rest_api/serializers.py:1311` | `decomposition_link_type` default → `"decomposes"` |
+| `backend/rest_api/views.py:4162` | fallback `"parent-child"` → `"decomposes"` |
+| `backend/application/interview_multi_protocol.py:43` | prompt link-type list → catalog-derived |
+| `backend/application/reqif_export_service.py:69` | docstring + type list |
+| `backend/application/management/commands/migrate_se_docs.py:205` | `_LINK_IMPLEMENTS` → `allocated-to` with swapped endpoints |
+| `backend/auth_tenancy/management/commands/seed_toothbrush.py:227` | `"satisfies"` → `"allocated-to"` with swapped endpoints |
+| `backend/application/workspace_provisioning.py:62` | call `provision_workspace_link_types` |
+
+### Modified — frontend
+
+| File | Change |
+|---|---|
+| `frontend/src/api/linkTypes.ts` | new — `listWorkspaceLinkTypes`, `updateWorkspaceLinkType`, `resetWorkspaceLinkType`, `listGlobalLinkTypes`, `createGlobalLinkType`, `updateGlobalLinkType` |
+| `frontend/src/types/index.ts:265-278` | delete the hardcoded `LinkType` union; `LinkType` becomes `string`; add `LinkTypeDefinition` interface |
+| `frontend/src/context/LinkTypeContext.tsx` | new — loads + caches the resolved catalog per active workspace, exposes `useLinkTypes()` |
+| `frontend/src/constants/traceLinkLabels.ts` | `LINK_TYPE_TRI_LABELS`/`ALL_LINK_TYPES` become catalog-derived helpers; the hardcoded table survives only as `FALLBACK_TRI_LABELS` for the pre-load render |
+| `frontend/src/components/shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx:591` | options from the catalog, filtered by `allowed_pairs` against the chosen source/target types |
+| `frontend/src/components/WorkspaceSettings/WorkspaceSettings.tsx:653,677` | both dropdowns fed from the catalog |
+| `frontend/src/components/LinkTypeEditor/LinkTypeEditorPage.tsx` | new — global (`/system-settings`) + workspace (`/settings`) editor |
+| `frontend/src/i18n/locales/{de,en}.json` | `linkType.*` keys |
+
+---
+
+## Running the tests
+
+Every `Run:` line below abbreviates the backend test invocation as `$PYTEST`. Expand it to:
+
+```bash
+docker compose -f deploy/docker-compose.yml -f testing/docker-compose.test.yml \
+  --project-directory . run --rm -e DB_NAME=test_lt_$$ backend-test \
+  pytest --create-db
+```
+
+`-e DB_NAME=test_lt_$$` gives this run its own database — concurrent backend-test runs otherwise share `test_reqogniloom` and produce hundreds of phantom setup errors. `--create-db` is required because the database is recreated per run.
+
+Frontend: `$VITEST` = `docker compose -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory . run --rm frontend-test npx vitest run --testTimeout=30000`.
+
+**Do not** run the full backend suite per task — only the module(s) each task names. CI runs the full matrix.
+
+After any frontend source edit, restart the frontend container before running Playwright: Vite has no working HMR on Windows and E2E otherwise silently tests stale code.
+
+---
+
+## Phase A — Catalog foundation
+
+### Task 1: `link_types` app scaffold and models
+
+**Files:**
+- Create: `backend/link_types/__init__.py`
+- Create: `backend/link_types/apps.py`
+- Create: `backend/link_types/models.py`
+- Create: `backend/link_types/migrations/__init__.py`
+- Create: `backend/link_types/migrations/0001_initial.py` (generated)
+- Create: `backend/link_types/tests/__init__.py`
+- Modify: `backend/reqogniloom/settings.py:212` (INSTALLED_APPS)
+- Test: `backend/link_types/tests/test_models.py`
+
+**Interfaces:**
+- Consumes: `persistence.models.TenantScopedModel`
+- Produces: `link_types.models.GlobalLinkTypeDefinition(key, definition_json, version)`; `link_types.models.WorkspaceLinkTypeDefinition(workspace_id, key, definition_json, source_global, is_customized, version)`; db tables `lt_global_definition`, `lt_workspace_definition`; unique constraints `uq_lt_global_tenant_key`, `uq_lt_ws_tenant_ws_key`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_models.py
+"""LinkTypeCatalog — model-level invariants."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from django.db import IntegrityError, transaction
+
+from link_types.models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinition
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def tenant_id():
+    tid = uuid.uuid4()
+    TenantContext.set_tenant(tid)
+    yield tid
+    TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_global_key_is_unique_per_tenant(tenant_id):
+    GlobalLinkTypeDefinition.objects.create(key="derives-from", definition_json={})
+    with pytest.raises(IntegrityError), transaction.atomic():
+        GlobalLinkTypeDefinition.objects.create(key="derives-from", definition_json={})
+
+
+@pytest.mark.django_db
+def test_workspace_key_is_unique_per_workspace(tenant_id):
+    ws = uuid.uuid4()
+    WorkspaceLinkTypeDefinition.objects.create(
+        workspace_id=ws, key="verifies", definition_json={}
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        WorkspaceLinkTypeDefinition.objects.create(
+            workspace_id=ws, key="verifies", definition_json={}
+        )
+
+
+@pytest.mark.django_db
+def test_same_key_allowed_in_a_second_workspace(tenant_id):
+    WorkspaceLinkTypeDefinition.objects.create(
+        workspace_id=uuid.uuid4(), key="verifies", definition_json={}
+    )
+    obj = WorkspaceLinkTypeDefinition.objects.create(
+        workspace_id=uuid.uuid4(), key="verifies", definition_json={}
+    )
+    assert obj.pk is not None
+
+
+@pytest.mark.django_db
+def test_deleting_the_global_row_nulls_the_link_but_keeps_the_workspace_row(tenant_id):
+    g = GlobalLinkTypeDefinition.objects.create(key="mitigates", definition_json={})
+    w = WorkspaceLinkTypeDefinition.objects.create(
+        workspace_id=uuid.uuid4(),
+        key="mitigates",
+        definition_json={},
+        source_global=g,
+    )
+    g.delete()
+    w.refresh_from_db()
+    assert w.source_global_id is None
+    assert w.is_customized is False
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_models.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+`backend/link_types/__init__.py` and `backend/link_types/tests/__init__.py` and `backend/link_types/migrations/__init__.py` are empty files.
+
+```python
+# backend/link_types/apps.py
+"""App configuration for the LinkTypeCatalog (Layer 1)."""
+from django.apps import AppConfig
+
+
+class LinkTypesConfig(AppConfig):
+    """Tenant-configurable trace-link type catalog.
+
+    Layer 1, alongside ``workflow``: owns the global and per-workspace
+    link-type definitions that ``application.trace_link_service`` validates
+    every TraceLink against. Replaces the hardcoded ``traceability.types``
+    ``SE_LINK_SEMANTICS`` matrix and its ``se_mode`` gate.
+    """
+
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "link_types"
+    verbose_name = "LinkTypeCatalog"
+```
+
+```python
+# backend/link_types/models.py
+"""LinkTypeCatalog — global and per-workspace trace-link type definitions.
+
+Inheritance form is **materialized copy**, identical in shape to
+``workflow.GlobalWorkflowDefinition`` / ``WorkflowEngineDefinition``: each
+workspace keeps its own row, links back to the global template via
+``source_global``, and a workspace that has not diverged carries
+``is_customized=False`` and mirrors the global ``definition_json``. An admin
+edit to a global row propagates into every non-customized derived row (see
+``link_types.global_store.GlobalLinkTypeDefinitionStore._propagate``).
+
+Unlike Workflow/AttributeDefinition there is deliberately **no** ``preset``
+field: link types are an open, named catalog, not an ``(item_type x preset)``
+raster.
+"""
+from __future__ import annotations
+
+from django.db import models
+
+from persistence.models import TenantScopedModel
+
+
+class GlobalLinkTypeDefinition(TenantScopedModel):
+    """Tenant-wide link-type template. Exactly one row per ``(tenant, key)``.
+
+    ``key`` is either one of the eight built-in keys or a tenant-invented one
+    (e.g. ``"conflicts-with"``). ``version`` is the optimistic-lock counter.
+    """
+
+    key = models.CharField(max_length=64)
+    definition_json = models.JSONField(default=dict)
+    version = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = "lt_global_definition"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "key"], name="uq_lt_global_tenant_key"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"GlobalLinkType({self.key}@tenant:{self.tenant_id})"
+
+
+class WorkspaceLinkTypeDefinition(TenantScopedModel):
+    """Materialized per-workspace copy of a link-type definition.
+
+    ``source_global`` uses SET_NULL: deleting a global template must never
+    cascade-delete a live workspace override — the provenance link simply
+    becomes unknown.
+    """
+
+    workspace_id = models.UUIDField(db_index=True)
+    key = models.CharField(max_length=64)
+    definition_json = models.JSONField(default=dict)
+    source_global = models.ForeignKey(
+        GlobalLinkTypeDefinition,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="derived_definitions",
+    )
+    is_customized = models.BooleanField(default=False)
+    version = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = "lt_workspace_definition"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "workspace_id", "key"],
+                name="uq_lt_ws_tenant_ws_key",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["workspace_id", "key"], name="idx_lt_ws_workspace_key"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"WorkspaceLinkType({self.key}@{self.workspace_id})"
+```
+
+Add to `backend/reqogniloom/settings.py` immediately after the `"workflow",` line:
+
+```python
+    "link_types",          # LinkTypeCatalog — configurable trace-link semantics
+```
+
+Generate the migration:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . run --rm backend \
+  python manage.py makemigrations link_types --name initial
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_models.py -v`
+Expected: PASS (4 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types backend/reqogniloom/settings.py
+git commit -m "feat(link-types): add LinkTypeCatalog app with global/workspace definitions"
+```
+
+---
+
+### Task 2: RLS policies for the `lt_*` tables
+
+**Files:**
+- Create: `backend/link_types/migrations/0002_rls_policies.py`
+- Test: `backend/link_types/tests/test_rls_policies.py`
+
+**Interfaces:**
+- Consumes: `link_types.models.GlobalLinkTypeDefinition`, `WorkspaceLinkTypeDefinition` (Task 1)
+- Produces: DB policies `lt_global_definition_tenant_isolation`, `lt_workspace_definition_tenant_isolation`
+
+Both models are `TenantScopedModel` subclasses; without this migration they ship with exactly the RLS gap `workflow/0015` was written to close.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_rls_policies.py
+"""RLS isolation for lt_global_definition / lt_workspace_definition."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from django.db import connection
+
+_TABLES = ["lt_global_definition", "lt_workspace_definition"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("table", _TABLES)
+def test_row_level_security_is_enabled_and_forced(table):
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT relrowsecurity, relforcerowsecurity "
+            "FROM pg_class WHERE relname = %s",
+            [table],
+        )
+        enabled, forced = cur.fetchone()
+    assert enabled is True, f"{table}: RLS not enabled"
+    assert forced is True, f"{table}: RLS not forced"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("table", _TABLES)
+def test_tenant_isolation_policy_exists(table):
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT polname FROM pg_policy p "
+            "JOIN pg_class c ON c.oid = p.polrelid WHERE c.relname = %s",
+            [table],
+        )
+        names = {row[0] for row in cur.fetchall()}
+    assert f"{table}_tenant_isolation" in names
+
+
+@pytest.mark.django_db
+def test_rows_of_another_tenant_are_invisible():
+    from link_types.models import GlobalLinkTypeDefinition
+    from persistence.tenancy import TenantContext
+
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    TenantContext.set_tenant(tenant_a)
+    GlobalLinkTypeDefinition.objects.create(key="verifies", definition_json={})
+    assert GlobalLinkTypeDefinition.objects.filter(key="verifies").count() == 1
+
+    TenantContext.set_tenant(tenant_b)
+    assert GlobalLinkTypeDefinition.objects.filter(key="verifies").count() == 0
+    TenantContext.clear_tenant()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_rls_policies.py -v`
+Expected: FAIL — `assert False is True` on `relrowsecurity` for both tables
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/migrations/0002_rls_policies.py
+"""COMP-PL-006 RLSPolicyEnforcer — RLS for the ``lt_*`` LinkTypeCatalog tables.
+
+Both LinkTypeCatalog models are ``TenantScopedModel`` subclasses carrying a
+``tenant_id`` UUID column, so this migration is purely additive DDL. Policy
+semantics are byte-identical to ``persistence/0003`` and ``workflow/0015``:
+ENABLE + FORCE ROW LEVEL SECURITY plus one ``ALL`` policy keyed on the session
+variable ``app.current_tenant``. An unset/empty setting matches no rows
+(REQ-L2-PL-010).
+
+Access-path review: every read of these tables goes through
+``link_types.catalog.resolve_catalog``, which is only ever called from
+request-scoped services where ``TenantContextService.activate`` has already
+armed both isolation layers, and from the seed/backfill migration, which runs
+under the migration role and arms the tenant explicitly per tenant row.
+"""
+from __future__ import annotations
+
+from django.db import migrations
+
+_TENANT_TABLES = ["lt_global_definition", "lt_workspace_definition"]
+
+
+def _enable_sql() -> str:
+    parts = []
+    for table in _TENANT_TABLES:
+        policy = f"{table}_tenant_isolation"
+        parts.append(
+            f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;\n"
+            f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;\n"
+            f"CREATE POLICY {policy} ON {table}\n"
+            f"    USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)\n"
+            f"    WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid);"
+        )
+    return "\n".join(parts)
+
+
+def _disable_sql() -> str:
+    parts = []
+    for table in _TENANT_TABLES:
+        policy = f"{table}_tenant_isolation"
+        parts.append(
+            f"DROP POLICY IF EXISTS {policy} ON {table};\n"
+            f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY;\n"
+            f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY;"
+        )
+    return "\n".join(parts)
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("link_types", "0001_initial"),
+        ("persistence", "0003_rls_policies"),
+    ]
+
+    operations = [
+        migrations.RunSQL(sql=_enable_sql(), reverse_sql=_disable_sql()),
+    ]
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_rls_policies.py -v`
+Expected: PASS (5 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/migrations/0002_rls_policies.py backend/link_types/tests/test_rls_policies.py
+git commit -m "feat(link-types): enforce row-level security on lt_* catalog tables"
+```
+
+---
+
+### Task 3: `BUILTIN_LINK_TYPES` — the eight seeded definitions
+
+**Files:**
+- Create: `backend/link_types/builtin.py`
+- Test: `backend/link_types/tests/test_builtin.py`
+
+**Interfaces:**
+- Consumes: nothing (pure data module — deliberately import-free so migrations can import it without app-registry side effects)
+- Produces:
+  - `SUSPECT_RULES: frozenset[str]` = `{"none", "target_change_flags_source", "source_change_flags_target", "parent_change_flags_children"}`
+  - `BUILTIN_LINK_TYPES: dict[str, dict]` — key → `definition_json`
+  - `LEGACY_LINK_TYPE_MAPPING: dict[str, str | None]` — old key → new key (`None` = dropped)
+  - `SWAPPED_LEGACY_KEYS: frozenset[str]` = `{"satisfies", "implements"}`
+  - `builtin_definition(key: str) -> dict` — deep copy, so no caller can mutate the module constant
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_builtin.py
+"""The eight built-in link types are the spec's Startbelegung, verbatim."""
+from __future__ import annotations
+
+from link_types.builtin import (
+    BUILTIN_LINK_TYPES,
+    LEGACY_LINK_TYPE_MAPPING,
+    SUSPECT_RULES,
+    SWAPPED_LEGACY_KEYS,
+    builtin_definition,
+)
+
+EXPECTED_KEYS = {
+    "derives-from",
+    "decomposes",
+    "allocated-to",
+    "verifies",
+    "decides",
+    "mitigates",
+    "references",
+    "diagram-ref",
+}
+
+
+def test_exactly_the_eight_core_types_are_seeded():
+    assert set(BUILTIN_LINK_TYPES) == EXPECTED_KEYS
+
+
+def test_suspect_rules_are_the_four_code_anchored_values():
+    assert SUSPECT_RULES == {
+        "none",
+        "target_change_flags_source",
+        "source_change_flags_target",
+        "parent_change_flags_children",
+    }
+
+
+def test_only_allocated_to_and_verifies_are_coverage_relevant():
+    coverage = {k for k, v in BUILTIN_LINK_TYPES.items() if v["coverage_relevant"]}
+    assert coverage == {"allocated-to", "verifies"}
+
+
+def test_impact_weights_match_the_spec_table():
+    weights = {k: v["impact_weight"] for k, v in BUILTIN_LINK_TYPES.items()}
+    assert weights == {
+        "derives-from": 1.0,
+        "decomposes": 1.0,
+        "allocated-to": 1.0,
+        "verifies": 1.0,
+        "decides": 0.3,
+        "mitigates": 0.5,
+        "references": 0.2,
+        "diagram-ref": 0.2,
+    }
+
+
+def test_suspect_rules_match_the_spec_table():
+    rules = {k: v["suspect_rule"] for k, v in BUILTIN_LINK_TYPES.items()}
+    assert rules == {
+        "derives-from": "target_change_flags_source",
+        "decomposes": "parent_change_flags_children",
+        "allocated-to": "source_change_flags_target",
+        "verifies": "target_change_flags_source",
+        "decides": "none",
+        "mitigates": "none",
+        "references": "none",
+        "diagram-ref": "none",
+    }
+
+
+def test_diagram_ref_is_the_only_system_owned_and_non_manual_type():
+    system_owned = {k for k, v in BUILTIN_LINK_TYPES.items() if v["system_owned"]}
+    non_manual = {k for k, v in BUILTIN_LINK_TYPES.items() if not v["manual_creatable"]}
+    assert system_owned == {"diagram-ref"}
+    assert non_manual == {"diagram-ref"}
+
+
+def test_allocated_to_is_requirement_to_architecture_only():
+    pairs = BUILTIN_LINK_TYPES["allocated-to"]["allowed_pairs"]
+    assert pairs == [{"source_type": "Requirement", "target_type": "ArchitectureElement"}]
+
+
+def test_derives_from_gained_the_architecture_pair_from_refines():
+    pairs = BUILTIN_LINK_TYPES["derives-from"]["allowed_pairs"]
+    assert {"source_type": "ArchitectureElement", "target_type": "ArchitectureElement"} in pairs
+
+
+def test_references_targets_are_a_list_not_a_fixed_triple():
+    targets = [
+        p["target_type"] for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    ]
+    assert targets == ["GlossaryTerm", "Diagram", "Icd"]
+    assert all(
+        p["source_type"] == "*" for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    )
+
+
+def test_every_definition_carries_tri_labels_in_both_languages():
+    for key, definition in BUILTIN_LINK_TYPES.items():
+        for lang in ("de", "en"):
+            assert set(definition["label"][lang]) == {
+                "downstream",
+                "upstream",
+                "neutral",
+            }, f"{key}/{lang} is missing a tri-label perspective"
+
+
+def test_every_definition_is_active_and_flagged_built_in():
+    assert all(v["active"] for v in BUILTIN_LINK_TYPES.values())
+    assert all(v["built_in"] for v in BUILTIN_LINK_TYPES.values())
+
+
+def test_legacy_mapping_covers_every_retired_key():
+    assert LEGACY_LINK_TYPE_MAPPING == {
+        "parent-child": None,
+        "satisfies": "allocated-to",
+        "implements": "allocated-to",
+        "refines": "derives-from",
+        "realizes": "decomposes",
+        "documents": "references",
+        "traces": "references",
+        "uses-term": "references",
+        "copy-of": None,
+    }
+    assert SWAPPED_LEGACY_KEYS == {"satisfies", "implements"}
+
+
+def test_builtin_definition_returns_an_isolated_copy():
+    first = builtin_definition("verifies")
+    first["impact_weight"] = 99.0
+    assert BUILTIN_LINK_TYPES["verifies"]["impact_weight"] == 1.0
+    assert builtin_definition("verifies")["impact_weight"] == 1.0
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_builtin.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.builtin'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/builtin.py
+"""The eight built-in link types — Startbelegung of the tenant catalog.
+
+Single source of truth for three consumers that must never drift apart:
+the seed/backfill migration (``0003_seed_builtin_link_types``), workspace
+provisioning (``link_types.workspace_store.provision_workspace_link_types``),
+and the tests that pin the spec table.
+
+This module is deliberately import-free (no Django, no models) so a migration
+can import it without triggering app-registry side effects.
+
+Direction conventions, authoritative for every ``allowed_pairs`` entry below
+(see ``traceability/audit/hierarchy.py``)::
+
+    decomposes     source = parent (the decomposed)   target = child
+    derives-from   source = child (the derived)       target = parent
+    allocated-to   source = Requirement               target = ArchitectureElement
+    verifies       source = TestCase                  target = Requirement/Arch
+    mitigates      source = Risk                      target = Requirement/Arch
+    decides        source = Adr                       target = anything
+    references     source = anything                  target = a reference entity
+    diagram-ref    source = Diagram                   target = anything
+
+``"*"`` is a wildcard on either side.
+"""
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+#: The four propagation behaviours the suspect engine can dispatch on. This is
+#: the one part of a definition a tenant may only *choose* from, never extend:
+#: ``application.trace_link_service.TraceLinkService.propagate_suspect_status``
+#: branches on the value, so a new behaviour is a code change (spec section 4,
+#: "Grenze — suspect_rule ist kein freier Code").
+SUSPECT_RULES: frozenset[str] = frozenset(
+    {
+        "none",
+        "target_change_flags_source",
+        "source_change_flags_target",
+        "parent_change_flags_children",
+    }
+)
+
+#: Old link-type key -> new key. ``None`` means the type is retired without a
+#: successor (``parent-child`` is deduplicated into ``decomposes`` by the data
+#: migration; ``copy-of`` moves into ``Artifact.copied_from``).
+LEGACY_LINK_TYPE_MAPPING: dict[str, str | None] = {
+    "parent-child": None,
+    "satisfies": "allocated-to",
+    "implements": "allocated-to",
+    "refines": "derives-from",
+    "realizes": "decomposes",
+    "documents": "references",
+    "traces": "references",
+    "uses-term": "references",
+    "copy-of": None,
+}
+
+#: Legacy keys whose rows must have source and target swapped when migrated.
+#: ``satisfies`` was ArchitectureElement -> Requirement and ``implements`` was
+#: ArchitectureElement -> Requirement; ``allocated-to`` runs the other way
+#: (Requirement -> ArchitectureElement), so the endpoints move with the rename.
+SWAPPED_LEGACY_KEYS: frozenset[str] = frozenset({"satisfies", "implements"})
+
+
+def _pairs(*pairs: tuple[str, str]) -> list[dict[str, str]]:
+    return [{"source_type": s, "target_type": t} for s, t in pairs]
+
+
+BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
+    "derives-from": {
+        "label": {
+            "de": {
+                "downstream": "leitet sich ab von",
+                "upstream": "ist Grundlage für",
+                "neutral": "Ableitung",
+            },
+            "en": {
+                "downstream": "derives from",
+                "upstream": "is basis for",
+                "neutral": "Derivation",
+            },
+        },
+        # Arch<->Arch is new here: it arrives from the retired `refines` type.
+        "allowed_pairs": _pairs(
+            ("Requirement", "Requirement"),
+            ("Requirement", "StakeholderNeed"),
+            ("StakeholderNeed", "StakeholderNeed"),
+            ("ArchitectureElement", "ArchitectureElement"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "decomposes": {
+        "label": {
+            "de": {
+                "downstream": "zerlegt sich in",
+                "upstream": "ist Teil von",
+                "neutral": "Zerlegung",
+            },
+            "en": {
+                "downstream": "decomposes into",
+                "upstream": "is part of",
+                "neutral": "Decomposition",
+            },
+        },
+        "allowed_pairs": _pairs(
+            ("Requirement", "Requirement"),
+            ("ArchitectureElement", "ArchitectureElement"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "parent_change_flags_children",
+        "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "allocated-to": {
+        "label": {
+            "de": {
+                "downstream": "ist zugewiesen an",
+                "upstream": "erfüllt",
+                "neutral": "Zuweisung",
+            },
+            "en": {
+                "downstream": "is allocated to",
+                "upstream": "fulfils",
+                "neutral": "Allocation",
+            },
+        },
+        # Arch->Arch is deliberately gone: it duplicated `decomposes`.
+        "allowed_pairs": _pairs(("Requirement", "ArchitectureElement")),
+        "coverage_relevant": True,
+        "suspect_rule": "source_change_flags_target",
+        "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "verifies": {
+        "label": {
+            "de": {
+                "downstream": "verifiziert",
+                "upstream": "wird verifiziert von",
+                "neutral": "Verifikation",
+            },
+            "en": {
+                "downstream": "verifies",
+                "upstream": "is verified by",
+                "neutral": "Verification",
+            },
+        },
+        "allowed_pairs": _pairs(
+            ("TestCase", "Requirement"),
+            ("TestCase", "ArchitectureElement"),
+        ),
+        "coverage_relevant": True,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "decides": {
+        "label": {
+            "de": {
+                "downstream": "entscheidet über",
+                "upstream": "wird entschieden durch",
+                "neutral": "Entscheidung",
+            },
+            "en": {
+                "downstream": "decides",
+                "upstream": "is decided by",
+                "neutral": "Decision",
+            },
+        },
+        "allowed_pairs": _pairs(("Adr", "*")),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.3,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "mitigates": {
+        "label": {
+            "de": {
+                "downstream": "mindert",
+                "upstream": "wird gemindert durch",
+                "neutral": "Risikominderung",
+            },
+            "en": {
+                "downstream": "mitigates",
+                "upstream": "is mitigated by",
+                "neutral": "Mitigation",
+            },
+        },
+        "allowed_pairs": _pairs(
+            ("Risk", "Requirement"),
+            ("Risk", "ArchitectureElement"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.5,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "references": {
+        "label": {
+            "de": {
+                "downstream": "verweist auf",
+                "upstream": "wird referenziert von",
+                "neutral": "Verweis",
+            },
+            "en": {
+                "downstream": "references",
+                "upstream": "is referenced by",
+                "neutral": "Reference",
+            },
+        },
+        # Replaces documents/traces/uses-term. The target list is data, not a
+        # fixed triple: the GitHub/Jira spec appends {"*", "ExternalRef"} here
+        # with a one-row data migration and no validator change. GlossaryTerm
+        # and Icd only become reachable once the Datenmodell-Konsolidierung
+        # spec has given them Artifact rows — until then the pair simply never
+        # matches, which is inert, not an error.
+        "allowed_pairs": _pairs(
+            ("*", "GlossaryTerm"),
+            ("*", "Diagram"),
+            ("*", "Icd"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.2,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "diagram-ref": {
+        "label": {
+            "de": {
+                "downstream": "stellt dar",
+                "upstream": "wird dargestellt in",
+                "neutral": "Diagrammbezug",
+            },
+            "en": {
+                "downstream": "depicts",
+                "upstream": "is depicted in",
+                "neutral": "Diagram reference",
+            },
+        },
+        "allowed_pairs": _pairs(("Diagram", "*")),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.2,
+        # Reconciler-owned (diagram.traceability_connector.sync_node_links).
+        # A hand-authored one is silently deleted on the diagram's next
+        # node_graph save, which looks like unexplained data loss.
+        "manual_creatable": False,
+        "system_owned": True,
+        "active": True,
+        "built_in": True,
+    },
+}
+
+
+def builtin_definition(key: str) -> dict[str, Any]:
+    """Return a deep copy of the built-in definition for *key*.
+
+    Always a copy: the seed migration, provisioning and the reset endpoint all
+    persist the result, and a shared mutable reference would let one tenant's
+    edit leak into another's row.
+
+    Raises:
+        KeyError: *key* is not a built-in type.
+    """
+    return copy.deepcopy(BUILTIN_LINK_TYPES[key])
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_builtin.py -v`
+Expected: PASS (13 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/builtin.py backend/link_types/tests/test_builtin.py
+git commit -m "feat(link-types): define the eight built-in link-type definitions"
+```
+
+---
+
+### Task 4: `definition_json` schema validation
+
+**Files:**
+- Create: `backend/link_types/schema.py`
+- Test: `backend/link_types/tests/test_schema.py`
+
+**Interfaces:**
+- Consumes: `link_types.builtin.SUSPECT_RULES`
+- Produces: `validate_definition_json(payload: dict, *, key: str) -> dict` — returns the normalized definition, raises `persistence.errors.ValidationError` with a message naming the offending field and the valid values
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_schema.py
+"""definition_json shape/range validation for tenant-authored link types."""
+from __future__ import annotations
+
+import pytest
+
+from link_types.builtin import builtin_definition
+from link_types.schema import validate_definition_json
+from persistence.errors import ValidationError
+
+
+def _minimal() -> dict:
+    return {
+        "label": {
+            "de": {"downstream": "a", "upstream": "b", "neutral": "c"},
+            "en": {"downstream": "a", "upstream": "b", "neutral": "c"},
+        },
+        "allowed_pairs": [{"source_type": "Requirement", "target_type": "Risk"}],
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.5,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": False,
+    }
+
+
+def test_every_builtin_definition_validates():
+    for key in (
+        "derives-from",
+        "decomposes",
+        "allocated-to",
+        "verifies",
+        "decides",
+        "mitigates",
+        "references",
+        "diagram-ref",
+    ):
+        assert validate_definition_json(builtin_definition(key), key=key)
+
+
+def test_unknown_suspect_rule_is_rejected_and_lists_the_valid_values():
+    payload = _minimal()
+    payload["suspect_rule"] = "flag_everything"
+    with pytest.raises(ValidationError) as exc:
+        validate_definition_json(payload, key="conflicts-with")
+    message = str(exc.value)
+    assert "suspect_rule" in message
+    assert "parent_change_flags_children" in message
+
+
+def test_negative_impact_weight_is_rejected():
+    payload = _minimal()
+    payload["impact_weight"] = -0.1
+    with pytest.raises(ValidationError, match="impact_weight"):
+        validate_definition_json(payload, key="conflicts-with")
+
+
+def test_allowed_pairs_must_be_objects_with_both_sides():
+    payload = _minimal()
+    payload["allowed_pairs"] = [{"source_type": "Requirement"}]
+    with pytest.raises(ValidationError, match="target_type"):
+        validate_definition_json(payload, key="conflicts-with")
+
+
+def test_allowed_pairs_may_be_empty_meaning_the_type_links_nothing_yet():
+    payload = _minimal()
+    payload["allowed_pairs"] = []
+    assert validate_definition_json(payload, key="conflicts-with")["allowed_pairs"] == []
+
+
+def test_missing_label_language_is_rejected():
+    payload = _minimal()
+    del payload["label"]["en"]
+    with pytest.raises(ValidationError, match="label"):
+        validate_definition_json(payload, key="conflicts-with")
+
+
+def test_missing_label_perspective_is_rejected():
+    payload = _minimal()
+    del payload["label"]["de"]["neutral"]
+    with pytest.raises(ValidationError, match="neutral"):
+        validate_definition_json(payload, key="conflicts-with")
+
+
+def test_optional_flags_default_when_absent():
+    payload = _minimal()
+    for optional in ("coverage_relevant", "manual_creatable", "system_owned", "active", "built_in"):
+        del payload[optional]
+    result = validate_definition_json(payload, key="conflicts-with")
+    assert result["coverage_relevant"] is False
+    assert result["manual_creatable"] is True
+    assert result["system_owned"] is False
+    assert result["active"] is True
+    assert result["built_in"] is False
+
+
+def test_unknown_top_level_field_is_rejected():
+    payload = _minimal()
+    payload["propagation_script"] = "flag(x)"
+    with pytest.raises(ValidationError, match="propagation_script"):
+        validate_definition_json(payload, key="conflicts-with")
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_schema.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.schema'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/schema.py
+"""Shape and range validation for a link type's ``definition_json``.
+
+``definition_json`` is tenant-authored (a Tenant-Admin can invent
+``conflicts-with`` from the UI or MCP), so it is an untrusted payload on a
+trust boundary and gets validated on every write path — the REST views, the
+MCP tools and the provisioning/reset helpers all funnel through
+:func:`validate_definition_json`.
+
+The only closed value range is ``suspect_rule``: the propagation engine
+branches on it, so an unknown value would silently do nothing. Everything
+else (``allowed_pairs``, ``label``, ``coverage_relevant``, ``impact_weight``,
+``active``) is free.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from persistence.errors import ValidationError
+
+from .builtin import SUSPECT_RULES
+
+_LANGS = ("de", "en")
+_PERSPECTIVES = ("downstream", "upstream", "neutral")
+
+#: field -> default applied when the caller omits it.
+_OPTIONAL_DEFAULTS: dict[str, Any] = {
+    "coverage_relevant": False,
+    "manual_creatable": True,
+    "system_owned": False,
+    "active": True,
+    "built_in": False,
+}
+
+_REQUIRED = ("label", "allowed_pairs", "suspect_rule", "impact_weight")
+_KNOWN = set(_REQUIRED) | set(_OPTIONAL_DEFAULTS)
+
+
+def validate_definition_json(payload: Any, *, key: str) -> dict[str, Any]:
+    """Validate and normalize one link-type definition.
+
+    Args:
+        payload: The raw ``definition_json`` mapping.
+        key: The link-type key, used only to make error messages locatable.
+
+    Returns:
+        A new dict with every optional field filled in and
+        ``allowed_pairs`` normalized to ``[{"source_type", "target_type"}]``.
+
+    Raises:
+        ValidationError: Any shape or range violation. The message names the
+            offending field and, for closed ranges, lists the valid values.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationError(f"Link type '{key}': definition must be an object.")
+
+    unknown = sorted(set(payload) - _KNOWN)
+    if unknown:
+        raise ValidationError(
+            f"Link type '{key}': unknown field(s) {', '.join(unknown)}. "
+            f"Allowed: {', '.join(sorted(_KNOWN))}."
+        )
+
+    missing = [field for field in _REQUIRED if field not in payload]
+    if missing:
+        raise ValidationError(
+            f"Link type '{key}': missing required field(s) {', '.join(missing)}."
+        )
+
+    result: dict[str, Any] = dict(_OPTIONAL_DEFAULTS)
+    result.update({k: v for k, v in payload.items() if k in _OPTIONAL_DEFAULTS})
+
+    result["label"] = _validate_label(payload["label"], key=key)
+    result["allowed_pairs"] = _validate_pairs(payload["allowed_pairs"], key=key)
+    result["suspect_rule"] = _validate_suspect_rule(payload["suspect_rule"], key=key)
+    result["impact_weight"] = _validate_weight(payload["impact_weight"], key=key)
+
+    for flag in ("coverage_relevant", "manual_creatable", "system_owned", "active", "built_in"):
+        if not isinstance(result[flag], bool):
+            raise ValidationError(f"Link type '{key}': '{flag}' must be a boolean.")
+
+    return result
+
+
+def _validate_label(label: Any, *, key: str) -> dict[str, dict[str, str]]:
+    """Tri-label: {de,en} x {downstream,upstream,neutral}, all strings.
+
+    The tri-label shape (not a flat ``{de, en}`` pair) is what the frontend's
+    single display source, ``constants/traceLinkLabels.ts``, consumes.
+    """
+    if not isinstance(label, dict):
+        raise ValidationError(f"Link type '{key}': 'label' must be an object.")
+    out: dict[str, dict[str, str]] = {}
+    for lang in _LANGS:
+        entry = label.get(lang)
+        if not isinstance(entry, dict):
+            raise ValidationError(
+                f"Link type '{key}': 'label' is missing the '{lang}' object."
+            )
+        out[lang] = {}
+        for perspective in _PERSPECTIVES:
+            value = entry.get(perspective)
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(
+                    f"Link type '{key}': label.{lang}.{perspective} must be a "
+                    f"non-empty string."
+                )
+            out[lang][perspective] = value
+    return out
+
+
+def _validate_pairs(pairs: Any, *, key: str) -> list[dict[str, str]]:
+    """``[{"source_type": str, "target_type": str}]``; ``"*"`` is a wildcard.
+
+    An empty list is legal and means "this type currently links nothing" —
+    the sane state for a freshly invented type before its pairs are filled in.
+    """
+    if not isinstance(pairs, list):
+        raise ValidationError(f"Link type '{key}': 'allowed_pairs' must be a list.")
+    out: list[dict[str, str]] = []
+    for index, pair in enumerate(pairs):
+        if not isinstance(pair, dict):
+            raise ValidationError(
+                f"Link type '{key}': allowed_pairs[{index}] must be an object."
+            )
+        for side in ("source_type", "target_type"):
+            value = pair.get(side)
+            if not isinstance(value, str) or not value.strip():
+                raise ValidationError(
+                    f"Link type '{key}': allowed_pairs[{index}].{side} must be a "
+                    f"non-empty string (artifact type or '*')."
+                )
+        out.append(
+            {
+                "source_type": pair["source_type"],
+                "target_type": pair["target_type"],
+            }
+        )
+    return out
+
+
+def _validate_suspect_rule(rule: Any, *, key: str) -> str:
+    if rule not in SUSPECT_RULES:
+        raise ValidationError(
+            f"Link type '{key}': unknown suspect_rule '{rule}'. "
+            f"Valid values: {', '.join(sorted(SUSPECT_RULES))}. "
+            f"New propagation behaviour requires a code change."
+        )
+    return str(rule)
+
+
+def _validate_weight(weight: Any, *, key: str) -> float:
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+        raise ValidationError(f"Link type '{key}': 'impact_weight' must be a number.")
+    if weight < 0:
+        raise ValidationError(
+            f"Link type '{key}': 'impact_weight' must be >= 0 (got {weight})."
+        )
+    return float(weight)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_schema.py -v`
+Expected: PASS (9 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/schema.py backend/link_types/tests/test_schema.py
+git commit -m "feat(link-types): validate tenant-authored definition_json payloads"
+```
+
+---
+
+### Task 5: Catalog resolver and `validate_link_pair`
+
+**Files:**
+- Create: `backend/link_types/catalog.py`
+- Test: `backend/link_types/tests/test_catalog.py`
+
+**Interfaces:**
+- Consumes: `link_types.models.WorkspaceLinkTypeDefinition` (Task 1), `link_types.builtin.BUILTIN_LINK_TYPES` (Task 3), `persistence.cache_generation.{cache_generation, bump_cache_generation}`
+- Produces:
+  - `resolve_catalog(workspace_id: UUID | str) -> dict[str, dict]` — key → validated `definition_json`, only `active` entries
+  - `get_definition(workspace_id, key) -> dict | None`
+  - `validate_link_pair(workspace_id, link_type, source_type, target_type, *, manual: bool) -> None` — raises `persistence.errors.ValidationError`
+  - `invalidate_workspace(workspace_id: str) -> None`
+  - `CACHE_NAMESPACE = "link_types"`
+
+This is the single seam. `TraceLinkService`, the REST views, the MCP tools and the SE-Auditor all read the catalog through it; nothing else touches `WorkspaceLinkTypeDefinition` directly.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_catalog.py
+"""Workspace catalog resolution + always-on endpoint validation."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from link_types.builtin import builtin_definition
+from link_types.catalog import (
+    get_definition,
+    invalidate_workspace,
+    resolve_catalog,
+    validate_link_pair,
+)
+from link_types.models import WorkspaceLinkTypeDefinition
+from persistence.errors import ValidationError
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def workspace():
+    TenantContext.set_tenant(uuid.uuid4())
+    ws = uuid.uuid4()
+    for key in ("derives-from", "verifies", "allocated-to", "references", "diagram-ref"):
+        WorkspaceLinkTypeDefinition.objects.create(
+            workspace_id=ws, key=key, definition_json=builtin_definition(key)
+        )
+    invalidate_workspace(str(ws))
+    yield ws
+    invalidate_workspace(str(ws))
+    TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_resolve_returns_every_seeded_key(workspace):
+    assert set(resolve_catalog(workspace)) == {
+        "derives-from",
+        "verifies",
+        "allocated-to",
+        "references",
+        "diagram-ref",
+    }
+
+
+@pytest.mark.django_db
+def test_inactive_definitions_are_excluded(workspace):
+    row = WorkspaceLinkTypeDefinition.objects.get(workspace_id=workspace, key="verifies")
+    row.definition_json = {**row.definition_json, "active": False}
+    row.save(update_fields=["definition_json"])
+    invalidate_workspace(str(workspace))
+    assert "verifies" not in resolve_catalog(workspace)
+
+
+@pytest.mark.django_db
+def test_get_definition_returns_none_for_an_unknown_key(workspace):
+    assert get_definition(workspace, "conflicts-with") is None
+
+
+@pytest.mark.django_db
+def test_a_valid_pair_passes(workspace):
+    validate_link_pair(
+        workspace, "verifies", "TestCase", "Requirement", manual=True
+    )
+
+
+@pytest.mark.django_db
+def test_an_invalid_pair_is_rejected_and_lists_the_allowed_pairs(workspace):
+    with pytest.raises(ValidationError) as exc:
+        validate_link_pair(
+            workspace, "verifies", "Risk", "Requirement", manual=True
+        )
+    message = str(exc.value)
+    assert "verifies" in message
+    assert "TestCase->Requirement" in message
+
+
+@pytest.mark.django_db
+def test_validation_applies_to_non_core_artifact_types_too(workspace):
+    """The old SE_CORE_ARTIFACT_TYPES escape hatch is gone.
+
+    Risk was outside the core set, so `verifies` from a Risk used to pass
+    unchecked (audit finding U2). It must now be rejected — covered above —
+    and an artifact type nobody constrained must be rejected as well.
+    """
+    with pytest.raises(ValidationError):
+        validate_link_pair(
+            workspace, "derives-from", "Issue", "Interview", manual=True
+        )
+
+
+@pytest.mark.django_db
+def test_wildcards_match_any_artifact_type(workspace):
+    validate_link_pair(workspace, "references", "Requirement", "Diagram", manual=True)
+    validate_link_pair(workspace, "references", "Risk", "Diagram", manual=True)
+
+
+@pytest.mark.django_db
+def test_subtyped_artifact_types_are_normalized(workspace):
+    """'TestCase:unit' must match a 'TestCase' pair."""
+    validate_link_pair(
+        workspace, "verifies", "TestCase:unit", "Requirement", manual=True
+    )
+
+
+@pytest.mark.django_db
+def test_unknown_link_type_is_rejected_and_lists_the_catalog(workspace):
+    with pytest.raises(ValidationError) as exc:
+        validate_link_pair(
+            workspace, "satisfies", "ArchitectureElement", "Requirement", manual=True
+        )
+    message = str(exc.value)
+    assert "satisfies" in message
+    assert "derives-from" in message
+
+
+@pytest.mark.django_db
+def test_system_owned_types_are_rejected_on_the_manual_path_only(workspace):
+    with pytest.raises(ValidationError, match="system-managed"):
+        validate_link_pair(workspace, "diagram-ref", "Diagram", "Requirement", manual=True)
+    validate_link_pair(workspace, "diagram-ref", "Diagram", "Requirement", manual=False)
+
+
+@pytest.mark.django_db
+def test_a_customized_workspace_row_overrides_the_builtin_pairs(workspace):
+    row = WorkspaceLinkTypeDefinition.objects.get(workspace_id=workspace, key="verifies")
+    row.definition_json = {
+        **row.definition_json,
+        "allowed_pairs": [{"source_type": "Risk", "target_type": "Requirement"}],
+    }
+    row.is_customized = True
+    row.save(update_fields=["definition_json", "is_customized"])
+    invalidate_workspace(str(workspace))
+
+    validate_link_pair(workspace, "verifies", "Risk", "Requirement", manual=True)
+    with pytest.raises(ValidationError):
+        validate_link_pair(workspace, "verifies", "TestCase", "Requirement", manual=True)
+
+
+@pytest.mark.django_db
+def test_a_workspace_without_any_rows_resolves_to_an_empty_catalog():
+    TenantContext.set_tenant(uuid.uuid4())
+    try:
+        assert resolve_catalog(uuid.uuid4()) == {}
+    finally:
+        TenantContext.clear_tenant()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_catalog.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.catalog'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/catalog.py
+"""Resolved per-workspace link-type catalog + the always-on endpoint check.
+
+This module is the **single seam**: ``application.trace_link_service``, the
+REST views, the MCP tools and the SE-Auditor read link-type semantics only
+through here. Nothing else queries ``WorkspaceLinkTypeDefinition``.
+
+Replaces ``traceability.types.check_se_link_semantics`` and its two escape
+hatches, both removed ersatzlos:
+
+* the ``se_mode`` gate — a dev_mode workspace used to skip validation entirely;
+* the ``SE_CORE_ARTIFACT_TYPES`` allow-list — any artifact type outside the
+  five "core" ones passed unchecked, which is the exact cause of audit finding
+  U2 (``verifies`` from a Risk was accepted, from a StakeholderNeed rejected).
+
+Caching follows ``presets/gate.py``: a process-local dict tagged with the
+shared cache generation for the workspace, so a bump performed in any worker
+makes every other worker discard its entry on the next read. A bulk
+``QuerySet.update()`` bypasses ``save()``/signals, so every writer must call
+:func:`invalidate_workspace` explicitly.
+"""
+from __future__ import annotations
+
+import threading
+from typing import Any, Dict, Optional, Tuple
+from uuid import UUID
+
+from persistence.cache_generation import bump_cache_generation, cache_generation
+from persistence.errors import ValidationError
+
+from .models import WorkspaceLinkTypeDefinition
+from .schema import validate_definition_json
+
+CACHE_NAMESPACE = "link_types"
+
+_cache_lock = threading.Lock()
+#: workspace_id (str) -> (generation, {key: definition_json})
+_catalog_cache: Dict[str, Tuple[int, Dict[str, Dict[str, Any]]]] = {}
+
+
+def normalize_artifact_type(artifact_type: str | None) -> str:
+    """Strip sub-type tags: ``"TestCase:unit"`` -> ``"TestCase"``.
+
+    Moved here from ``traceability.types`` so the catalog owns the whole
+    matching vocabulary.
+    """
+    if not artifact_type:
+        return ""
+    return artifact_type.split(":", 1)[0]
+
+
+def invalidate_workspace(workspace_id: str) -> None:
+    """Drop this process's entry and bump the shared generation.
+
+    Both halves are needed: the pop alone leaves other workers stale, the bump
+    alone leaves this process waiting out the generation read TTL.
+    """
+    with _cache_lock:
+        _catalog_cache.pop(str(workspace_id), None)
+    bump_cache_generation(CACHE_NAMESPACE, str(workspace_id))
+
+
+def resolve_catalog(workspace_id: UUID | str) -> Dict[str, Dict[str, Any]]:
+    """Return ``{key: definition_json}`` for every **active** type of a workspace.
+
+    Reads the materialized per-workspace rows; there is no merge-on-read
+    against the global template (spec section 4: materialized copy).
+    """
+    ws_key = str(workspace_id)
+    generation = cache_generation(CACHE_NAMESPACE, ws_key)
+
+    with _cache_lock:
+        entry = _catalog_cache.get(ws_key)
+    if entry is not None and entry[0] == generation:
+        return entry[1]
+
+    catalog: Dict[str, Dict[str, Any]] = {}
+    rows = WorkspaceLinkTypeDefinition.objects.filter(
+        workspace_id=workspace_id
+    ).only("key", "definition_json")
+    for row in rows:
+        definition = row.definition_json or {}
+        if not definition.get("active", True):
+            continue
+        catalog[row.key] = definition
+
+    with _cache_lock:
+        _catalog_cache[ws_key] = (generation, catalog)
+    return catalog
+
+
+def get_definition(
+    workspace_id: UUID | str, key: str
+) -> Optional[Dict[str, Any]]:
+    """Return one active definition, or None when the key is absent/inactive."""
+    return resolve_catalog(workspace_id).get(key)
+
+
+def validate_link_pair(
+    workspace_id: UUID | str,
+    link_type: str,
+    source_type: str | None,
+    target_type: str | None,
+    *,
+    manual: bool,
+) -> None:
+    """Validate a link against the workspace catalog. Always. For every type.
+
+    Args:
+        workspace_id: Workspace owning both endpoints.
+        link_type: The catalog key under validation.
+        source_type: ``Artifact.artifact_type`` of the source endpoint.
+        target_type: ``Artifact.artifact_type`` of the target endpoint.
+        manual: True for hand-authored links (REST ``trace-links``, every MCP
+            trace-link tool). System paths (the diagram reconciler) pass False
+            and may write ``system_owned`` types.
+
+    Raises:
+        ValidationError: Unknown/inactive type, a system-owned type on the
+            manual path, or an endpoint pair the type does not allow. The
+            message always lists the acceptable values (audit finding R3).
+    """
+    catalog = resolve_catalog(workspace_id)
+    definition = catalog.get(link_type)
+    if definition is None:
+        raise ValidationError(
+            f"Unknown link type '{link_type}'. "
+            f"Valid types in this workspace: {', '.join(sorted(catalog)) or '(none)'}."
+        )
+
+    if manual and not definition.get("manual_creatable", True):
+        raise ValidationError(
+            f"'{link_type}' is a system-managed link type and cannot be "
+            f"created or updated manually."
+        )
+
+    src = normalize_artifact_type(source_type)
+    tgt = normalize_artifact_type(target_type)
+    pairs = definition.get("allowed_pairs") or []
+
+    for pair in pairs:
+        pair_src = pair.get("source_type")
+        pair_tgt = pair.get("target_type")
+        if pair_src in ("*", src) and pair_tgt in ("*", tgt):
+            return
+
+    allowed = ", ".join(
+        sorted(f"{p.get('source_type')}->{p.get('target_type')}" for p in pairs)
+    )
+    raise ValidationError(
+        f"'{link_type}' is not valid from {src or '(unknown)'} to "
+        f"{tgt or '(unknown)'}. Allowed: {allowed or '(none configured)'}."
+    )
+
+
+def validate_definition(payload: Any, *, key: str) -> Dict[str, Any]:
+    """Re-export of :func:`link_types.schema.validate_definition_json`.
+
+    Keeps every write path importing from one module.
+    """
+    return validate_definition_json(payload, key=key)
+
+
+__all__ = [
+    "CACHE_NAMESPACE",
+    "get_definition",
+    "invalidate_workspace",
+    "normalize_artifact_type",
+    "resolve_catalog",
+    "validate_definition",
+    "validate_link_pair",
+]
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_catalog.py -v`
+Expected: PASS (12 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/catalog.py backend/link_types/tests/test_catalog.py
+git commit -m "feat(link-types): add workspace catalog resolver with always-on pair validation"
+```
+
+---
+
+### Task 6: `GlobalLinkTypeDefinitionStore` with propagation
+
+**Files:**
+- Create: `backend/link_types/global_store.py`
+- Test: `backend/link_types/tests/test_global_store.py`
+
+**Interfaces:**
+- Consumes: `link_types.models.*` (Task 1), `link_types.builtin.builtin_definition` (Task 3), `link_types.schema.validate_definition_json` (Task 4), `link_types.catalog.invalidate_workspace` (Task 5)
+- Produces: `GlobalLinkTypeDefinitionStore` with `list(tenant_id) -> list[GlobalLinkTypeDefinition]`, `get(tenant_id, key) -> GlobalLinkTypeDefinition | None`, `create(tenant_id, key, definition_json) -> GlobalLinkTypeDefinition`, `update(tenant_id, key, definition_json) -> tuple[GlobalLinkTypeDefinition, int]` (returns the propagated row count), `delete(tenant_id, key) -> None`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_global_store.py
+"""Tenant-wide link-type templates and their propagation."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from link_types.builtin import builtin_definition
+from link_types.catalog import resolve_catalog
+from link_types.global_store import GlobalLinkTypeDefinitionStore
+from link_types.models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinition
+from persistence.errors import ValidationError
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def tenant_id():
+    tid = uuid.uuid4()
+    TenantContext.set_tenant(tid)
+    yield tid
+    TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def store():
+    return GlobalLinkTypeDefinitionStore()
+
+
+def _derived(tenant_id, global_row, *, customized: bool):
+    return WorkspaceLinkTypeDefinition.objects.create(
+        workspace_id=uuid.uuid4(),
+        key=global_row.key,
+        definition_json=dict(global_row.definition_json),
+        source_global=global_row,
+        is_customized=customized,
+    )
+
+
+@pytest.mark.django_db
+def test_create_persists_a_validated_definition(tenant_id, store):
+    row = store.create(tenant_id, "verifies", builtin_definition("verifies"))
+    assert row.key == "verifies"
+    assert row.definition_json["impact_weight"] == 1.0
+    assert row.version == 1
+
+
+@pytest.mark.django_db
+def test_create_rejects_an_invalid_definition(tenant_id, store):
+    bad = builtin_definition("verifies")
+    bad["suspect_rule"] = "nonsense"
+    with pytest.raises(ValidationError, match="suspect_rule"):
+        store.create(tenant_id, "verifies", bad)
+    assert GlobalLinkTypeDefinition.objects.filter(key="verifies").count() == 0
+
+
+@pytest.mark.django_db
+def test_create_rejects_a_duplicate_key(tenant_id, store):
+    store.create(tenant_id, "verifies", builtin_definition("verifies"))
+    with pytest.raises(ValidationError, match="already exists"):
+        store.create(tenant_id, "verifies", builtin_definition("verifies"))
+
+
+@pytest.mark.django_db
+def test_a_tenant_can_invent_a_new_key(tenant_id, store):
+    definition = builtin_definition("mitigates")
+    definition["built_in"] = False
+    definition["label"]["de"]["neutral"] = "Konflikt"
+    row = store.create(tenant_id, "conflicts-with", definition)
+    assert row.key == "conflicts-with"
+
+
+@pytest.mark.django_db
+def test_update_propagates_into_non_customized_rows_only(tenant_id, store):
+    g = store.create(tenant_id, "mitigates", builtin_definition("mitigates"))
+    on_default = _derived(tenant_id, g, customized=False)
+    customized = _derived(tenant_id, g, customized=True)
+
+    changed = builtin_definition("mitigates")
+    changed["impact_weight"] = 0.9
+    _row, propagated = store.update(tenant_id, "mitigates", changed)
+
+    assert propagated == 1
+    on_default.refresh_from_db()
+    customized.refresh_from_db()
+    assert on_default.definition_json["impact_weight"] == 0.9
+    assert customized.definition_json["impact_weight"] == 0.5
+
+
+@pytest.mark.django_db
+def test_update_bumps_the_version(tenant_id, store):
+    store.create(tenant_id, "mitigates", builtin_definition("mitigates"))
+    row, _ = store.update(tenant_id, "mitigates", builtin_definition("mitigates"))
+    assert row.version == 2
+
+
+@pytest.mark.django_db
+def test_update_invalidates_the_catalog_cache_of_every_affected_workspace(
+    tenant_id, store
+):
+    g = store.create(tenant_id, "mitigates", builtin_definition("mitigates"))
+    derived = _derived(tenant_id, g, customized=False)
+    assert resolve_catalog(derived.workspace_id)["mitigates"]["impact_weight"] == 0.5
+
+    changed = builtin_definition("mitigates")
+    changed["impact_weight"] = 0.9
+    store.update(tenant_id, "mitigates", changed)
+
+    assert resolve_catalog(derived.workspace_id)["mitigates"]["impact_weight"] == 0.9
+
+
+@pytest.mark.django_db
+def test_update_of_a_missing_key_raises(tenant_id, store):
+    with pytest.raises(ValidationError, match="not found"):
+        store.update(tenant_id, "conflicts-with", builtin_definition("mitigates"))
+
+
+@pytest.mark.django_db
+def test_a_system_owned_type_cannot_have_its_lock_flags_changed(tenant_id, store):
+    store.create(tenant_id, "diagram-ref", builtin_definition("diagram-ref"))
+    unlocked = builtin_definition("diagram-ref")
+    unlocked["manual_creatable"] = True
+    unlocked["system_owned"] = False
+    with pytest.raises(ValidationError, match="system-managed"):
+        store.update(tenant_id, "diagram-ref", unlocked)
+
+
+@pytest.mark.django_db
+def test_a_system_owned_type_can_still_have_its_label_edited(tenant_id, store):
+    store.create(tenant_id, "diagram-ref", builtin_definition("diagram-ref"))
+    relabelled = builtin_definition("diagram-ref")
+    relabelled["label"]["de"]["neutral"] = "Diagramm"
+    row, _ = store.update(tenant_id, "diagram-ref", relabelled)
+    assert row.definition_json["label"]["de"]["neutral"] == "Diagramm"
+
+
+@pytest.mark.django_db
+def test_a_system_owned_type_cannot_be_deleted(tenant_id, store):
+    store.create(tenant_id, "diagram-ref", builtin_definition("diagram-ref"))
+    with pytest.raises(ValidationError, match="system-managed"):
+        store.delete(tenant_id, "diagram-ref")
+
+
+@pytest.mark.django_db
+def test_list_is_sorted_by_key(tenant_id, store):
+    for key in ("verifies", "decides", "mitigates"):
+        store.create(tenant_id, key, builtin_definition(key))
+    assert [row.key for row in store.list(tenant_id)] == [
+        "decides",
+        "mitigates",
+        "verifies",
+    ]
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_global_store.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.global_store'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/global_store.py
+"""CRUD + propagation for tenant-wide global link-type templates.
+
+Mirrors ``workflow.global_definition_store.GlobalWorkflowDefinitionStore``:
+an edit here is copied into every ``is_customized=False`` derived workspace
+row (materialized copy, not merge-on-read), and each affected workspace's
+resolved catalog cache is invalidated explicitly — the bulk
+``QuerySet.update()`` bypasses ``save()``/signals, so without it every worker
+would keep validating against the pre-edit pairs for the rest of its life.
+
+``unscoped`` is used deliberately: these helpers are called with an explicit
+``tenant_id`` from admin endpoints and from the seed migration, and RLS
+remains the second isolation layer underneath either way.
+"""
+from __future__ import annotations
+
+import copy
+from typing import Any, List, Optional, Tuple
+from uuid import UUID
+
+from django.db import transaction
+
+from persistence.errors import ValidationError
+
+from .catalog import invalidate_workspace
+from .models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinition
+from .schema import validate_definition_json
+
+#: Flags a tenant may never flip on a system-owned type. ``diagram-ref`` is
+#: reconciler-owned; unlocking it would let a hand-authored link be silently
+#: deleted on the diagram's next node_graph save.
+_LOCKED_FLAGS = ("system_owned", "manual_creatable")
+
+
+class GlobalLinkTypeDefinitionStore:
+    """Tenant-admin CRUD over ``GlobalLinkTypeDefinition``."""
+
+    # ---------- Read ----------
+
+    def get(
+        self, tenant_id: UUID | str, key: str
+    ) -> Optional[GlobalLinkTypeDefinition]:
+        """Return the global row for ``(tenant, key)`` or None."""
+        return GlobalLinkTypeDefinition.unscoped.filter(
+            tenant_id=tenant_id, key=key
+        ).first()
+
+    def list(self, tenant_id: UUID | str) -> List[GlobalLinkTypeDefinition]:
+        """Return every global row of the tenant, ordered by key."""
+        return list(
+            GlobalLinkTypeDefinition.unscoped.filter(tenant_id=tenant_id).order_by("key")
+        )
+
+    # ---------- Write ----------
+
+    @transaction.atomic
+    def create(
+        self, tenant_id: UUID | str, key: str, definition_json: Any
+    ) -> GlobalLinkTypeDefinition:
+        """Create a new global template.
+
+        Raises:
+            ValidationError: The key already exists, or the definition is
+                malformed.
+        """
+        if not key or not key.strip():
+            raise ValidationError("Link type key must not be empty.")
+        if self.get(tenant_id, key) is not None:
+            raise ValidationError(f"Link type '{key}' already exists for this tenant.")
+        validated = validate_definition_json(definition_json, key=key)
+        return GlobalLinkTypeDefinition.unscoped.create(
+            tenant_id=tenant_id, key=key, definition_json=validated, version=1
+        )
+
+    @transaction.atomic
+    def update(
+        self, tenant_id: UUID | str, key: str, definition_json: Any
+    ) -> Tuple[GlobalLinkTypeDefinition, int]:
+        """Replace a global template and propagate it.
+
+        Returns:
+            ``(row, propagated_count)`` — how many non-customized workspace
+            rows received the new definition.
+
+        Raises:
+            ValidationError: Unknown key, malformed definition, or an attempt
+                to unlock a system-owned type.
+        """
+        row = self.get(tenant_id, key)
+        if row is None:
+            raise ValidationError(f"Link type '{key}' not found for this tenant.")
+
+        validated = validate_definition_json(definition_json, key=key)
+        current = row.definition_json or {}
+        if current.get("system_owned"):
+            for flag in _LOCKED_FLAGS:
+                if validated.get(flag) != current.get(flag):
+                    raise ValidationError(
+                        f"'{key}' is a system-managed link type: '{flag}' is "
+                        f"locked and cannot be changed."
+                    )
+
+        row.definition_json = validated
+        row.version = (row.version or 1) + 1
+        row.save(update_fields=["definition_json", "version"])
+        return row, self._propagate(row)
+
+    @transaction.atomic
+    def delete(self, tenant_id: UUID | str, key: str) -> None:
+        """Delete a global template.
+
+        Deliberately does **not** touch derived workspace rows: their
+        ``source_global`` FK is SET_NULL, so they survive as standalone
+        definitions. Deactivating a type across a tenant is done by setting
+        ``active=False`` via :meth:`update`, which propagates — hard-deleting
+        the template is an admin cleanup, not a soft-disable.
+
+        Raises:
+            ValidationError: Unknown key, or the type is system-owned.
+        """
+        row = self.get(tenant_id, key)
+        if row is None:
+            raise ValidationError(f"Link type '{key}' not found for this tenant.")
+        if (row.definition_json or {}).get("system_owned"):
+            raise ValidationError(
+                f"'{key}' is a system-managed link type and cannot be deleted."
+            )
+        row.delete()
+
+    # ---------- Propagation ----------
+
+    def _propagate(self, row: GlobalLinkTypeDefinition) -> int:
+        """Copy ``definition_json`` into every non-customized derived row.
+
+        Invalidates the resolved-catalog cache of each affected workspace: the
+        bulk update below bypasses ``save()``/signals, so without this every
+        other worker keeps validating against the stale pre-edit pairs.
+        """
+        derived = WorkspaceLinkTypeDefinition.unscoped.filter(
+            source_global_id=row.id, is_customized=False
+        )
+        affected = list(derived.values_list("workspace_id", flat=True))
+        count = derived.update(definition_json=copy.deepcopy(row.definition_json))
+        for workspace_id in affected:
+            invalidate_workspace(str(workspace_id))
+        return count
+
+
+__all__ = ["GlobalLinkTypeDefinitionStore"]
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_global_store.py -v`
+Expected: PASS (12 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/global_store.py backend/link_types/tests/test_global_store.py
+git commit -m "feat(link-types): add global link-type store with materialized-copy propagation"
+```
+
+---
+
+### Task 7: `WorkspaceLinkTypeDefinitionStore` and provisioning
+
+**Files:**
+- Create: `backend/link_types/workspace_store.py`
+- Modify: `backend/application/workspace_provisioning.py:62-128`
+- Test: `backend/link_types/tests/test_workspace_store.py`
+
+**Interfaces:**
+- Consumes: `GlobalLinkTypeDefinitionStore` (Task 6), `builtin_definition` (Task 3), `invalidate_workspace` (Task 5)
+- Produces:
+  - `WorkspaceLinkTypeDefinitionStore.list(tenant_id, workspace_id) -> list[WorkspaceLinkTypeDefinition]`
+  - `.get(tenant_id, workspace_id, key) -> WorkspaceLinkTypeDefinition | None`
+  - `.update(tenant_id, workspace_id, key, definition_json) -> WorkspaceLinkTypeDefinition` (sets `is_customized=True`)
+  - `.reset(tenant_id, workspace_id, key) -> WorkspaceLinkTypeDefinition` (restores from `source_global`, else from `builtin_definition`; sets `is_customized=False`)
+  - `provision_workspace_link_types(*, workspace_id, tenant_id) -> int` — idempotent, returns rows created
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_workspace_store.py
+"""Per-workspace overrides, reset-to-default and provisioning."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from link_types.builtin import BUILTIN_LINK_TYPES, builtin_definition
+from link_types.catalog import resolve_catalog
+from link_types.global_store import GlobalLinkTypeDefinitionStore
+from link_types.models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinition
+from link_types.workspace_store import (
+    WorkspaceLinkTypeDefinitionStore,
+    provision_workspace_link_types,
+)
+from persistence.errors import ValidationError
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def tenant_id():
+    tid = uuid.uuid4()
+    TenantContext.set_tenant(tid)
+    yield tid
+    TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def store():
+    return WorkspaceLinkTypeDefinitionStore()
+
+
+@pytest.mark.django_db
+def test_provisioning_creates_all_eight_types(tenant_id):
+    ws = uuid.uuid4()
+    created = provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    assert created == 8
+    assert set(resolve_catalog(ws)) == set(BUILTIN_LINK_TYPES)
+
+
+@pytest.mark.django_db
+def test_provisioning_is_idempotent(tenant_id):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    assert provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id) == 0
+    assert WorkspaceLinkTypeDefinition.objects.filter(workspace_id=ws).count() == 8
+
+
+@pytest.mark.django_db
+def test_provisioning_never_overwrites_a_customized_row(tenant_id):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    row = WorkspaceLinkTypeDefinition.objects.get(workspace_id=ws, key="mitigates")
+    row.definition_json = {**row.definition_json, "impact_weight": 0.77}
+    row.is_customized = True
+    row.save(update_fields=["definition_json", "is_customized"])
+
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    row.refresh_from_db()
+    assert row.definition_json["impact_weight"] == 0.77
+
+
+@pytest.mark.django_db
+def test_provisioning_links_rows_back_to_the_global_template(tenant_id):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    row = WorkspaceLinkTypeDefinition.objects.get(workspace_id=ws, key="verifies")
+    assert row.source_global is not None
+    assert row.source_global.key == "verifies"
+    assert row.is_customized is False
+
+
+@pytest.mark.django_db
+def test_provisioning_reuses_an_existing_global_template(tenant_id):
+    GlobalLinkTypeDefinitionStore().create(
+        tenant_id, "verifies", builtin_definition("verifies")
+    )
+    provision_workspace_link_types(workspace_id=uuid.uuid4(), tenant_id=tenant_id)
+    assert GlobalLinkTypeDefinition.objects.filter(key="verifies").count() == 1
+
+
+@pytest.mark.django_db
+def test_update_marks_the_row_customized_and_invalidates_the_cache(tenant_id, store):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    assert resolve_catalog(ws)["mitigates"]["impact_weight"] == 0.5
+
+    changed = builtin_definition("mitigates")
+    changed["impact_weight"] = 0.8
+    row = store.update(tenant_id, ws, "mitigates", changed)
+
+    assert row.is_customized is True
+    assert row.version == 2
+    assert resolve_catalog(ws)["mitigates"]["impact_weight"] == 0.8
+
+
+@pytest.mark.django_db
+def test_reset_restores_the_global_definition_and_clears_the_flag(tenant_id, store):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    changed = builtin_definition("mitigates")
+    changed["impact_weight"] = 0.8
+    store.update(tenant_id, ws, "mitigates", changed)
+
+    row = store.reset(tenant_id, ws, "mitigates")
+
+    assert row.is_customized is False
+    assert row.definition_json["impact_weight"] == 0.5
+    assert resolve_catalog(ws)["mitigates"]["impact_weight"] == 0.5
+
+
+@pytest.mark.django_db
+def test_reset_falls_back_to_the_builtin_when_the_global_row_is_gone(tenant_id, store):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    GlobalLinkTypeDefinition.objects.filter(key="mitigates").delete()
+
+    row = store.reset(tenant_id, ws, "mitigates")
+    assert row.definition_json["impact_weight"] == 0.5
+    assert row.is_customized is False
+
+
+@pytest.mark.django_db
+def test_reset_of_a_tenant_invented_type_without_a_global_row_raises(tenant_id, store):
+    ws = uuid.uuid4()
+    definition = builtin_definition("mitigates")
+    definition["built_in"] = False
+    WorkspaceLinkTypeDefinition.objects.create(
+        workspace_id=ws, key="conflicts-with", definition_json=definition
+    )
+    with pytest.raises(ValidationError, match="no default"):
+        store.reset(tenant_id, ws, "conflicts-with")
+
+
+@pytest.mark.django_db
+def test_update_of_a_missing_key_raises(tenant_id, store):
+    with pytest.raises(ValidationError, match="not found"):
+        store.update(
+            tenant_id, uuid.uuid4(), "mitigates", builtin_definition("mitigates")
+        )
+
+
+@pytest.mark.django_db
+def test_a_workspace_may_deactivate_a_type_without_deleting_it(tenant_id, store):
+    ws = uuid.uuid4()
+    provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
+    disabled = builtin_definition("mitigates")
+    disabled["active"] = False
+    store.update(tenant_id, ws, "mitigates", disabled)
+
+    assert "mitigates" not in resolve_catalog(ws)
+    assert WorkspaceLinkTypeDefinition.objects.filter(
+        workspace_id=ws, key="mitigates"
+    ).exists()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_workspace_store.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.workspace_store'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/workspace_store.py
+"""Per-workspace link-type overrides, reset-to-default and provisioning.
+
+Provisioning intentionally seeds *rows*, not a lazy merge: the catalog is
+read on every single link creation, so a materialized copy keeps the hot path
+to one indexed query with no fallback branch.
+
+``provision_workspace_link_types`` is idempotent (``get_or_create``), which is
+what lets the backfill migration, ``application.workspace_provisioning`` and a
+manual re-run all call it safely.
+"""
+from __future__ import annotations
+
+import copy
+from typing import Any, List, Optional
+from uuid import UUID
+
+from django.db import transaction
+
+from persistence.errors import ValidationError
+
+from .builtin import BUILTIN_LINK_TYPES, builtin_definition
+from .catalog import invalidate_workspace
+from .global_store import GlobalLinkTypeDefinitionStore
+from .models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinition
+from .schema import validate_definition_json
+
+
+class WorkspaceLinkTypeDefinitionStore:
+    """Read/override/reset over ``WorkspaceLinkTypeDefinition``."""
+
+    def get(
+        self, tenant_id: UUID | str, workspace_id: UUID | str, key: str
+    ) -> Optional[WorkspaceLinkTypeDefinition]:
+        """Return the workspace row for *key*, or None."""
+        return WorkspaceLinkTypeDefinition.unscoped.filter(
+            tenant_id=tenant_id, workspace_id=workspace_id, key=key
+        ).first()
+
+    def list(
+        self, tenant_id: UUID | str, workspace_id: UUID | str
+    ) -> List[WorkspaceLinkTypeDefinition]:
+        """Return every workspace row, ordered by key (including inactive ones).
+
+        The editor UI must see deactivated types to be able to re-enable them,
+        so this is deliberately *not* filtered by ``active`` the way
+        ``catalog.resolve_catalog`` is.
+        """
+        return list(
+            WorkspaceLinkTypeDefinition.unscoped.filter(
+                tenant_id=tenant_id, workspace_id=workspace_id
+            ).order_by("key")
+        )
+
+    @transaction.atomic
+    def update(
+        self,
+        tenant_id: UUID | str,
+        workspace_id: UUID | str,
+        key: str,
+        definition_json: Any,
+    ) -> WorkspaceLinkTypeDefinition:
+        """Override a definition for one workspace (sets ``is_customized=True``).
+
+        Raises:
+            ValidationError: Unknown key or malformed definition.
+        """
+        row = self.get(tenant_id, workspace_id, key)
+        if row is None:
+            raise ValidationError(
+                f"Link type '{key}' not found in this workspace."
+            )
+        row.definition_json = validate_definition_json(definition_json, key=key)
+        row.is_customized = True
+        row.version = (row.version or 1) + 1
+        row.save(update_fields=["definition_json", "is_customized", "version"])
+        invalidate_workspace(str(workspace_id))
+        return row
+
+    @transaction.atomic
+    def reset(
+        self, tenant_id: UUID | str, workspace_id: UUID | str, key: str
+    ) -> WorkspaceLinkTypeDefinition:
+        """Restore the workspace row from its default and clear the override flag.
+
+        Default source order: the linked ``source_global`` row, then the
+        built-in definition. A tenant-invented type that has neither has no
+        default to fall back to, which is an error rather than a silent no-op.
+
+        Raises:
+            ValidationError: Unknown key, or no default exists.
+        """
+        row = self.get(tenant_id, workspace_id, key)
+        if row is None:
+            raise ValidationError(f"Link type '{key}' not found in this workspace.")
+
+        default: Optional[dict] = None
+        if row.source_global_id is not None:
+            global_row = GlobalLinkTypeDefinition.unscoped.filter(
+                id=row.source_global_id
+            ).first()
+            if global_row is not None:
+                default = copy.deepcopy(global_row.definition_json)
+        if default is None and key in BUILTIN_LINK_TYPES:
+            default = builtin_definition(key)
+        if default is None:
+            raise ValidationError(
+                f"Link type '{key}' has no default to reset to: it is neither "
+                f"a built-in type nor derived from a global definition."
+            )
+
+        row.definition_json = default
+        row.is_customized = False
+        row.version = (row.version or 1) + 1
+        row.save(update_fields=["definition_json", "is_customized", "version"])
+        invalidate_workspace(str(workspace_id))
+        return row
+
+
+def provision_workspace_link_types(
+    *, workspace_id: UUID | str, tenant_id: UUID | str
+) -> int:
+    """Seed the eight built-in link types for a workspace. Idempotent.
+
+    Ensures the tenant's global templates exist first (creating any that are
+    missing from ``BUILTIN_LINK_TYPES``), then materializes one workspace row
+    per template. Existing rows — customized or not — are left untouched.
+
+    Args:
+        workspace_id: Target workspace UUID.
+        tenant_id: Owning tenant UUID. Passed explicitly because the
+            ``get_or_create`` calls below run on the unscoped QuerySet,
+            bypassing the tenant manager's auto-inject on create — the same
+            reason ``provision_workspace_defaults`` takes it.
+
+    Returns:
+        Number of workspace rows created (0 on a repeat run).
+    """
+    created = 0
+    for key in sorted(BUILTIN_LINK_TYPES):
+        global_row, _ = GlobalLinkTypeDefinition.unscoped.get_or_create(
+            tenant_id=tenant_id,
+            key=key,
+            defaults={"definition_json": builtin_definition(key), "version": 1},
+        )
+        _row, was_created = WorkspaceLinkTypeDefinition.unscoped.get_or_create(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            key=key,
+            defaults={
+                "definition_json": copy.deepcopy(global_row.definition_json),
+                "source_global": global_row,
+                "is_customized": False,
+                "version": 1,
+            },
+        )
+        created += int(was_created)
+
+    if created:
+        invalidate_workspace(str(workspace_id))
+    return created
+
+
+__all__ = [
+    "WorkspaceLinkTypeDefinitionStore",
+    "provision_workspace_link_types",
+]
+```
+
+In `backend/application/workspace_provisioning.py`, inside `provision_workspace_defaults` (after the existing workflow/permission provisioning calls), add:
+
+```python
+    # LinkTypeCatalog: a workspace without link-type rows resolves to an empty
+    # catalog, and every TraceLink creation would then be rejected as "unknown
+    # link type". Idempotent, so a re-run is safe.
+    from link_types.workspace_store import provision_workspace_link_types
+
+    provision_workspace_link_types(
+        workspace_id=workspace_id, tenant_id=tenant_id
+    )
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_workspace_store.py application/tests/test_workspace_provisioning.py -v`
+Expected: PASS (11 passed in `test_workspace_store.py`; the provisioning module's existing tests stay green)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/workspace_store.py backend/link_types/tests/test_workspace_store.py backend/application/workspace_provisioning.py
+git commit -m "feat(link-types): provision built-in link types per workspace"
+```
+
+---
+
+### Task 8: Backfill migration for existing tenants and workspaces
+
+**Files:**
+- Create: `backend/link_types/migrations/0003_seed_builtin_link_types.py`
+- Test: `backend/link_types/tests/test_seed_migration.py`
+
+**Interfaces:**
+- Consumes: `link_types.builtin.BUILTIN_LINK_TYPES` (Task 3)
+- Produces: one `lt_global_definition` row per `(tenant, built-in key)` and one `lt_workspace_definition` row per `(workspace, built-in key)` for every workspace that existed before this migration
+
+A blind `INSERT` cannot work here: both tables are `TenantScopedModel` under RLS, so the migration iterates tenants and arms `app.current_tenant` per tenant, exactly as `se_metrics.aggregator` does for its worker threads. Migrations run under the migration DB role (the compose `migrate` service uses `DB_USER`, the owner), so the DDL and the per-tenant `SET` both succeed; running this as the least-privilege app role would silently insert zero rows.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_seed_migration.py
+"""The backfill seeds every pre-existing tenant and workspace."""
+from __future__ import annotations
+
+import pytest
+from django.db import connection
+
+from link_types.builtin import BUILTIN_LINK_TYPES
+from link_types.migrations import _seed_helpers  # exported for testability
+
+
+@pytest.mark.django_db
+def test_seed_is_idempotent_across_two_runs():
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(name="seed-test")
+    with connection.cursor() as cur:
+        cur.execute("SET app.current_tenant = %s", [str(tenant.id)])
+    workspace = Workspace.objects.create(tenant=tenant, name="ws")
+
+    first = _seed_helpers.seed_tenant(tenant.id, [workspace.id])
+    second = _seed_helpers.seed_tenant(tenant.id, [workspace.id])
+
+    assert first == (len(BUILTIN_LINK_TYPES), len(BUILTIN_LINK_TYPES))
+    assert second == (0, 0)
+
+
+@pytest.mark.django_db
+def test_seed_creates_one_global_row_and_one_workspace_row_per_key():
+    from link_types.models import (
+        GlobalLinkTypeDefinition,
+        WorkspaceLinkTypeDefinition,
+    )
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(name="seed-test-2")
+    with connection.cursor() as cur:
+        cur.execute("SET app.current_tenant = %s", [str(tenant.id)])
+    ws_a = Workspace.objects.create(tenant=tenant, name="a")
+    ws_b = Workspace.objects.create(tenant=tenant, name="b")
+
+    _seed_helpers.seed_tenant(tenant.id, [ws_a.id, ws_b.id])
+
+    assert GlobalLinkTypeDefinition.unscoped.filter(
+        tenant_id=tenant.id
+    ).count() == len(BUILTIN_LINK_TYPES)
+    assert WorkspaceLinkTypeDefinition.unscoped.filter(
+        tenant_id=tenant.id
+    ).count() == 2 * len(BUILTIN_LINK_TYPES)
+
+
+@pytest.mark.django_db
+def test_seeded_workspace_rows_point_at_their_global_template():
+    from link_types.models import WorkspaceLinkTypeDefinition
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(name="seed-test-3")
+    with connection.cursor() as cur:
+        cur.execute("SET app.current_tenant = %s", [str(tenant.id)])
+    workspace = Workspace.objects.create(tenant=tenant, name="ws")
+
+    _seed_helpers.seed_tenant(tenant.id, [workspace.id])
+
+    rows = WorkspaceLinkTypeDefinition.unscoped.filter(tenant_id=tenant.id)
+    assert all(row.source_global_id is not None for row in rows)
+    assert all(row.is_customized is False for row in rows)
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_seed_migration.py -v`
+Expected: FAIL with `ImportError: cannot import name '_seed_helpers' from 'link_types.migrations'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/migrations/_seed_helpers.py
+"""Seeding logic shared by the backfill migration and its tests.
+
+Lives outside the numbered migration module so the behaviour is testable
+without replaying migration state. The migration is a thin wrapper.
+"""
+from __future__ import annotations
+
+import copy
+from typing import Iterable, Tuple
+from uuid import UUID
+
+from link_types.builtin import BUILTIN_LINK_TYPES, builtin_definition
+
+
+def seed_tenant(tenant_id: UUID, workspace_ids: Iterable[UUID]) -> Tuple[int, int]:
+    """Create the missing global and workspace rows for one tenant.
+
+    Args:
+        tenant_id: Tenant to seed.
+        workspace_ids: Every workspace of that tenant.
+
+    Returns:
+        ``(globals_created, workspace_rows_created)``. Both are 0 on a repeat
+        run — every write is a ``get_or_create``, so an existing (possibly
+        customized) row is never overwritten.
+    """
+    from link_types.models import (
+        GlobalLinkTypeDefinition,
+        WorkspaceLinkTypeDefinition,
+    )
+
+    globals_created = 0
+    rows_created = 0
+    workspace_ids = list(workspace_ids)
+
+    for key in sorted(BUILTIN_LINK_TYPES):
+        global_row, created = GlobalLinkTypeDefinition.unscoped.get_or_create(
+            tenant_id=tenant_id,
+            key=key,
+            defaults={"definition_json": builtin_definition(key), "version": 1},
+        )
+        globals_created += int(created)
+
+        for workspace_id in workspace_ids:
+            _row, was_created = WorkspaceLinkTypeDefinition.unscoped.get_or_create(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                key=key,
+                defaults={
+                    "definition_json": copy.deepcopy(global_row.definition_json),
+                    "source_global": global_row,
+                    "is_customized": False,
+                    "version": 1,
+                },
+            )
+            rows_created += int(was_created)
+
+    return globals_created, rows_created
+```
+
+```python
+# backend/link_types/migrations/0003_seed_builtin_link_types.py
+"""Backfill the eight built-in link types for every existing tenant.
+
+Both ``lt_*`` tables are RLS-protected, so a blind cross-tenant INSERT is
+impossible: this migration iterates tenants and arms ``app.current_tenant``
+per tenant before writing, the same shape ``se_metrics.aggregator`` uses for
+its worker threads. It runs under the migration DB role (the compose
+``migrate`` service connects as the owner); under the least-privilege
+``reqogniloom_app`` role the writes would be silently filtered to zero rows.
+
+Idempotent: ``get_or_create`` throughout, so a re-run after a partial failure
+adds only what is missing.
+"""
+from __future__ import annotations
+
+import logging
+
+from django.db import migrations
+
+logger = logging.getLogger(__name__)
+
+
+def seed_builtin_link_types(apps, schema_editor):
+    from link_types.migrations._seed_helpers import seed_tenant
+
+    Tenant = apps.get_model("persistence", "Tenant")
+    Workspace = apps.get_model("persistence", "Workspace")
+
+    total_globals = 0
+    total_rows = 0
+    for tenant_id in Tenant.objects.values_list("id", flat=True):
+        with schema_editor.connection.cursor() as cur:
+            cur.execute("SET app.current_tenant = %s", [str(tenant_id)])
+        workspace_ids = list(
+            Workspace.objects.filter(tenant_id=tenant_id).values_list("id", flat=True)
+        )
+        globals_created, rows_created = seed_tenant(tenant_id, workspace_ids)
+        total_globals += globals_created
+        total_rows += rows_created
+
+    with schema_editor.connection.cursor() as cur:
+        cur.execute("RESET app.current_tenant")
+
+    logger.info(
+        "LinkTypeCatalog seed: %d global templates, %d workspace rows created.",
+        total_globals,
+        total_rows,
+    )
+
+
+def unseed(apps, schema_editor):
+    """Reverse: drop only the untouched built-in rows.
+
+    A customized row is a user edit, not migration output, so it survives a
+    rollback.
+    """
+    from link_types.builtin import BUILTIN_LINK_TYPES
+
+    GlobalLinkTypeDefinition = apps.get_model("link_types", "GlobalLinkTypeDefinition")
+    WorkspaceLinkTypeDefinition = apps.get_model(
+        "link_types", "WorkspaceLinkTypeDefinition"
+    )
+    keys = list(BUILTIN_LINK_TYPES)
+    WorkspaceLinkTypeDefinition.objects.filter(
+        key__in=keys, is_customized=False
+    ).delete()
+    GlobalLinkTypeDefinition.objects.filter(key__in=keys).delete()
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("link_types", "0002_rls_policies"),
+        ("persistence", "0001_initial"),
+    ]
+
+    operations = [
+        migrations.RunPython(seed_builtin_link_types, unseed),
+    ]
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_seed_migration.py -v`
+Expected: PASS (3 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/migrations/_seed_helpers.py backend/link_types/migrations/0003_seed_builtin_link_types.py backend/link_types/tests/test_seed_migration.py
+git commit -m "feat(link-types): backfill built-in link types for existing tenants"
+```
+
+---
+
+## Phase B — Flip validation to always-on
+
+### Task 9: `inventory_link_types` command (evidence for OFFENE FRAGE 1)
+
+**Files:**
+- Create: `backend/link_types/management/__init__.py`
+- Create: `backend/link_types/management/commands/__init__.py`
+- Create: `backend/link_types/management/commands/inventory_link_types.py`
+- Test: `backend/link_types/tests/test_inventory_command.py`
+
+**Interfaces:**
+- Consumes: `persistence.models.TraceLink`, `persistence.models.Artifact`, `link_types.builtin.LEGACY_LINK_TYPE_MAPPING`, `SWAPPED_LEGACY_KEYS`
+- Produces:
+  - `collect_observed_triples() -> list[dict]` — `[{"link_type", "source_type", "target_type", "count"}]` **after** applying the 3.1 rename and endpoint swap
+  - `uncovered_triples(observed) -> list[dict]` — the subset no built-in `allowed_pairs` entry matches
+  - management command `inventory_link_types [--json PATH]`
+
+Run this **before** Task 11. Its output is the evidence for OFFENE FRAGE 1 and the input for Task 10's grandfathering rows.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_inventory_command.py
+"""Inventory of the (link_type, source_type, target_type) triples in live data."""
+from __future__ import annotations
+
+import json
+import uuid
+from io import StringIO
+
+import pytest
+from django.core.management import call_command
+
+from link_types.management.commands.inventory_link_types import (
+    collect_observed_triples,
+    uncovered_triples,
+)
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def workspace_with_links(db):
+    from persistence.models import Artifact, Tenant, TraceLink, Workspace
+
+    tenant = Tenant.objects.create(name="inventory")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="ws")
+
+    def artifact(kind: str) -> Artifact:
+        return Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type=kind, title=f"{kind}-{uuid.uuid4()}"
+        )
+
+    req, arch, goal, tc = (
+        artifact("Requirement"),
+        artifact("ArchitectureElement"),
+        artifact("Goal"),
+        artifact("TestCase"),
+    )
+    TraceLink.objects.create(tenant=tenant, source=arch, target=req, link_type="satisfies")
+    TraceLink.objects.create(tenant=tenant, source=tc, target=req, link_type="verifies")
+    TraceLink.objects.create(tenant=tenant, source=req, target=goal, link_type="traces")
+    yield ws
+    TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_legacy_keys_are_reported_under_their_new_name(workspace_with_links):
+    observed = {t["link_type"] for t in collect_observed_triples()}
+    assert "satisfies" not in observed
+    assert "allocated-to" in observed
+    assert "references" in observed
+
+
+@pytest.mark.django_db
+def test_swapped_keys_are_reported_with_swapped_endpoints(workspace_with_links):
+    entry = next(
+        t for t in collect_observed_triples() if t["link_type"] == "allocated-to"
+    )
+    assert entry["source_type"] == "Requirement"
+    assert entry["target_type"] == "ArchitectureElement"
+
+
+@pytest.mark.django_db
+def test_counts_are_aggregated(workspace_with_links):
+    entry = next(t for t in collect_observed_triples() if t["link_type"] == "verifies")
+    assert entry["count"] == 1
+
+
+@pytest.mark.django_db
+def test_covered_triples_are_not_reported_as_uncovered(workspace_with_links):
+    uncovered = {t["link_type"] for t in uncovered_triples(collect_observed_triples())}
+    assert "verifies" not in uncovered
+    assert "allocated-to" not in uncovered
+
+
+@pytest.mark.django_db
+def test_a_goal_target_is_reported_as_uncovered(workspace_with_links):
+    """Requirement --references--> Goal matches no built-in pair (OFFENE FRAGE 1)."""
+    uncovered = uncovered_triples(collect_observed_triples())
+    assert any(
+        t["link_type"] == "references" and t["target_type"] == "Goal"
+        for t in uncovered
+    )
+
+
+@pytest.mark.django_db
+def test_command_writes_json(workspace_with_links, tmp_path):
+    out = tmp_path / "inventory.json"
+    call_command("inventory_link_types", "--json", str(out), stdout=StringIO())
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "observed" in payload and "uncovered" in payload
+    assert any(t["link_type"] == "allocated-to" for t in payload["observed"])
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_inventory_command.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.management'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+`backend/link_types/management/__init__.py` and `backend/link_types/management/commands/__init__.py` are empty files.
+
+```python
+# backend/link_types/management/commands/inventory_link_types.py
+"""Report the link-type/endpoint triples that actually exist in the database.
+
+Written for OFFENE FRAGE 1 of the Traceability-Semantik plan: the eight
+built-in types cover Requirement / ArchitectureElement / TestCase /
+StakeholderNeed / Adr / Risk / Diagram / GlossaryTerm / Icd, but **not**
+Goal, MainGoal, Issue or Interview — all four of which are live artifact
+types with real links today (Goal<->Requirement links are the reason
+``TraceLinkService._resolve_artifact`` gained its Goal branch in fix #237).
+
+Flipping validation to always-on without knowing what is out there would
+reject existing, legitimate data. Run this first::
+
+    python manage.py inventory_link_types --json /tmp/link_type_inventory.json
+
+``observed`` lists every triple after applying the section-3.1 rename and
+endpoint swap; ``uncovered`` is the subset that no built-in ``allowed_pairs``
+entry matches — exactly the rows that would start failing.
+"""
+from __future__ import annotations
+
+import json
+from collections import Counter
+from typing import Any, Dict, List
+
+from django.core.management.base import BaseCommand
+from django.db.models import Count
+
+from link_types.builtin import (
+    BUILTIN_LINK_TYPES,
+    LEGACY_LINK_TYPE_MAPPING,
+    SWAPPED_LEGACY_KEYS,
+)
+from link_types.catalog import normalize_artifact_type
+
+
+def collect_observed_triples() -> List[Dict[str, Any]]:
+    """Return the distinct post-migration triples with their row counts.
+
+    Legacy keys are reported under their successor name, and rows of a
+    ``SWAPPED_LEGACY_KEYS`` type are reported with source and target already
+    exchanged — so the output describes the world *after* the data migration,
+    which is the world validation has to accept.
+
+    Retired-without-successor keys (``parent-child``, ``copy-of``) are skipped:
+    they will not exist as links afterwards.
+    """
+    from persistence.models import TraceLink
+
+    counter: Counter = Counter()
+    rows = (
+        TraceLink.objects.values(
+            "link_type", "source__artifact_type", "target__artifact_type"
+        )
+        .annotate(count=Count("id"))
+        .order_by()
+    )
+    for row in rows:
+        raw_type = row["link_type"]
+        if raw_type in LEGACY_LINK_TYPE_MAPPING:
+            successor = LEGACY_LINK_TYPE_MAPPING[raw_type]
+            if successor is None:
+                continue
+            link_type = successor
+        else:
+            link_type = raw_type
+
+        source = normalize_artifact_type(row["source__artifact_type"])
+        target = normalize_artifact_type(row["target__artifact_type"])
+        if raw_type in SWAPPED_LEGACY_KEYS:
+            source, target = target, source
+
+        counter[(link_type, source, target)] += row["count"]
+
+    return [
+        {
+            "link_type": link_type,
+            "source_type": source,
+            "target_type": target,
+            "count": count,
+        }
+        for (link_type, source, target), count in sorted(counter.items())
+    ]
+
+
+def _is_covered(link_type: str, source: str, target: str) -> bool:
+    definition = BUILTIN_LINK_TYPES.get(link_type)
+    if definition is None:
+        return False
+    for pair in definition["allowed_pairs"]:
+        if pair["source_type"] in ("*", source) and pair["target_type"] in ("*", target):
+            return True
+    return False
+
+
+def uncovered_triples(observed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return the observed triples no built-in ``allowed_pairs`` entry matches."""
+    return [
+        triple
+        for triple in observed
+        if not _is_covered(
+            triple["link_type"], triple["source_type"], triple["target_type"]
+        )
+    ]
+
+
+class Command(BaseCommand):
+    help = (
+        "Inventory the (link_type, source_type, target_type) triples in the "
+        "TraceLink table, mapped through the new link-type catalog."
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--json",
+            dest="json_path",
+            default=None,
+            help="Write the full report to this path as JSON.",
+        )
+
+    def handle(self, *args, **options):
+        observed = collect_observed_triples()
+        uncovered = uncovered_triples(observed)
+
+        self.stdout.write(f"Observed triples: {len(observed)}")
+        for triple in observed:
+            self.stdout.write(
+                f"  {triple['link_type']}: {triple['source_type']} -> "
+                f"{triple['target_type']}  ({triple['count']} rows)"
+            )
+
+        if uncovered:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"\n{len(uncovered)} triple(s) are NOT covered by the built-in "
+                    f"allowed_pairs and would be rejected once validation is "
+                    f"always-on:"
+                )
+            )
+            for triple in uncovered:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  {triple['link_type']}: {triple['source_type']} -> "
+                        f"{triple['target_type']}  ({triple['count']} rows)"
+                    )
+                )
+        else:
+            self.stdout.write(self.style.SUCCESS("\nAll observed triples are covered."))
+
+        if options["json_path"]:
+            payload = {"observed": observed, "uncovered": uncovered}
+            with open(options["json_path"], "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+            self.stdout.write(f"\nReport written to {options['json_path']}")
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_inventory_command.py -v`
+Expected: PASS (6 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/management backend/link_types/tests/test_inventory_command.py
+git commit -m "feat(link-types): add link-type inventory command for the validation flip"
+```
+
+---
+
+### Task 10: Grandfather the observed-but-uncovered pairs
+
+**Files:**
+- Create: `backend/link_types/grandfathered.py`
+- Create: `backend/link_types/migrations/0004_grandfather_observed_pairs.py`
+- Test: `backend/link_types/tests/test_grandfathered.py`
+
+**Interfaces:**
+- Consumes: Task 9's `--json` output, `link_types.schema.validate_definition_json`
+- Produces: `GRANDFATHERED_PAIRS: dict[str, list[dict[str, str]]]` — link-type key → extra `allowed_pairs` entries; `apply_grandfathered_pairs(definition: dict, key: str) -> dict`
+
+**Prerequisite:** run Task 9's command against a production-shaped database and paste the `uncovered` list into `GRANDFATHERED_PAIRS`. Do not guess the contents. If OFFENE FRAGE 1 is answered "hard-break instead of grandfather", skip this task entirely and delete its migration from the sequence.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/link_types/tests/test_grandfathered.py
+"""Observed-but-uncovered pairs are added to the built-ins, never invented."""
+from __future__ import annotations
+
+import pytest
+
+from link_types.builtin import BUILTIN_LINK_TYPES, builtin_definition
+from link_types.grandfathered import (
+    GRANDFATHERED_PAIRS,
+    apply_grandfathered_pairs,
+)
+from link_types.schema import validate_definition_json
+
+
+def test_every_grandfathered_key_is_a_known_link_type():
+    assert set(GRANDFATHERED_PAIRS) <= set(BUILTIN_LINK_TYPES)
+
+
+def test_every_grandfathered_pair_has_both_sides():
+    for key, pairs in GRANDFATHERED_PAIRS.items():
+        for pair in pairs:
+            assert set(pair) == {"source_type", "target_type"}, key
+            assert pair["source_type"] and pair["target_type"], key
+
+
+def test_applying_grandfathered_pairs_keeps_the_definition_valid():
+    for key in BUILTIN_LINK_TYPES:
+        merged = apply_grandfathered_pairs(builtin_definition(key), key)
+        assert validate_definition_json(merged, key=key)
+
+
+def test_applying_is_additive_and_never_removes_a_builtin_pair():
+    for key in BUILTIN_LINK_TYPES:
+        original = builtin_definition(key)["allowed_pairs"]
+        merged = apply_grandfathered_pairs(builtin_definition(key), key)["allowed_pairs"]
+        for pair in original:
+            assert pair in merged, f"{key}: built-in pair {pair} was dropped"
+
+
+def test_applying_does_not_duplicate_an_already_covered_pair():
+    key = "verifies"
+    definition = builtin_definition(key)
+    merged = apply_grandfathered_pairs(definition, key)["allowed_pairs"]
+    assert len(merged) == len({(p["source_type"], p["target_type"]) for p in merged})
+
+
+def test_applying_is_a_no_op_for_a_key_with_no_grandfathered_pairs():
+    key = next(k for k in BUILTIN_LINK_TYPES if k not in GRANDFATHERED_PAIRS)
+    assert (
+        apply_grandfathered_pairs(builtin_definition(key), key)["allowed_pairs"]
+        == builtin_definition(key)["allowed_pairs"]
+    )
+
+
+def test_applying_does_not_mutate_the_input():
+    key = next(iter(GRANDFATHERED_PAIRS), "verifies")
+    definition = builtin_definition(key)
+    before = len(definition["allowed_pairs"])
+    apply_grandfathered_pairs(definition, key)
+    assert len(definition["allowed_pairs"]) == before
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST link_types/tests/test_grandfathered.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'link_types.grandfathered'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# backend/link_types/grandfathered.py
+"""Endpoint pairs that exist in live data but no built-in type allows.
+
+Populated from ``python manage.py inventory_link_types --json ...`` run
+against production-shaped data — **not** invented. See OFFENE FRAGE 1 of
+docs/superpowers/plans/2026-09-03-traceability-semantik.md: the spec's
+eight-type matrix does not mention Goal, MainGoal, Issue or Interview, yet
+links involving them exist and are legitimate (Goal<->Requirement links are
+the reason ``TraceLinkService._resolve_artifact`` gained its Goal branch in
+fix #237). Without this file, flipping validation to always-on would make
+every one of those rows uncreatable.
+
+Every entry here is a documented compromise, not a design statement: the pair
+is allowed because it already exists, and it should be revisited whenever the
+owning artifact type gets a proper semantic home.
+"""
+from __future__ import annotations
+
+import copy
+from typing import Any, Dict, List
+
+#: link-type key -> additional allowed pairs, verbatim from the inventory run.
+#: REPLACE THE CONTENTS with the `uncovered` list from
+#: `manage.py inventory_link_types --json`. The example below is the shape,
+#: and is what the seeded demo data produces.
+GRANDFATHERED_PAIRS: Dict[str, List[Dict[str, str]]] = {
+    "references": [
+        {"source_type": "*", "target_type": "Goal"},
+        {"source_type": "*", "target_type": "MainGoal"},
+        {"source_type": "*", "target_type": "Issue"},
+    ],
+    "derives-from": [
+        {"source_type": "Requirement", "target_type": "Goal"},
+        {"source_type": "Goal", "target_type": "MainGoal"},
+    ],
+}
+
+
+def apply_grandfathered_pairs(definition: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """Return a copy of *definition* with the grandfathered pairs appended.
+
+    Additive and duplicate-free: a built-in pair is never dropped, and a pair
+    already covered is not repeated.
+    """
+    extra = GRANDFATHERED_PAIRS.get(key)
+    if not extra:
+        return copy.deepcopy(definition)
+
+    merged = copy.deepcopy(definition)
+    pairs = merged.setdefault("allowed_pairs", [])
+    seen = {(p["source_type"], p["target_type"]) for p in pairs}
+    for pair in extra:
+        signature = (pair["source_type"], pair["target_type"])
+        if signature not in seen:
+            pairs.append(dict(pair))
+            seen.add(signature)
+    return merged
+
+
+__all__ = ["GRANDFATHERED_PAIRS", "apply_grandfathered_pairs"]
+```
+
+```python
+# backend/link_types/migrations/0004_grandfather_observed_pairs.py
+"""Extend the seeded definitions with the pairs live data already relies on.
+
+Runs after ``0003_seed_builtin_link_types``. Only ``is_customized=False`` rows
+are touched: a workspace that has already tailored a type has made a
+deliberate decision that a migration must not overwrite.
+"""
+from __future__ import annotations
+
+import logging
+
+from django.db import migrations
+
+logger = logging.getLogger(__name__)
+
+
+def apply_pairs(apps, schema_editor):
+    from link_types.grandfathered import GRANDFATHERED_PAIRS, apply_grandfathered_pairs
+
+    GlobalLinkTypeDefinition = apps.get_model("link_types", "GlobalLinkTypeDefinition")
+    WorkspaceLinkTypeDefinition = apps.get_model(
+        "link_types", "WorkspaceLinkTypeDefinition"
+    )
+
+    updated = 0
+    for key in GRANDFATHERED_PAIRS:
+        for row in GlobalLinkTypeDefinition.objects.filter(key=key):
+            row.definition_json = apply_grandfathered_pairs(row.definition_json, key)
+            row.save(update_fields=["definition_json"])
+            updated += 1
+        for row in WorkspaceLinkTypeDefinition.objects.filter(
+            key=key, is_customized=False
+        ):
+            row.definition_json = apply_grandfathered_pairs(row.definition_json, key)
+            row.save(update_fields=["definition_json"])
+            updated += 1
+
+    logger.info("LinkTypeCatalog: grandfathered pairs applied to %d rows.", updated)
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [("link_types", "0003_seed_builtin_link_types")]
+
+    operations = [
+        migrations.RunPython(apply_pairs, migrations.RunPython.noop),
+    ]
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST link_types/tests/test_grandfathered.py -v`
+Expected: PASS (7 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/link_types/grandfathered.py backend/link_types/migrations/0004_grandfather_observed_pairs.py backend/link_types/tests/test_grandfathered.py
+git commit -m "feat(link-types): grandfather endpoint pairs present in live data"
+```
+
+---
+
+### Task 11: Wire `TraceLinkService` to the catalog, delete the `se_mode` gate
+
+**Files:**
+- Modify: `backend/application/trace_link_service.py:258-333` (delete `_check_se_semantics`)
+- Modify: `backend/application/trace_link_service.py:336-410` (`create_trace_link` gates)
+- Modify: `backend/application/trace_link_service.py:1255-1260` (`__all__`)
+- Modify: `backend/traceability/types.py:81-177` (delete the SE matrix), `:330-348` (`__all__`)
+- Test: `backend/application/tests/test_trace_link_catalog_validation.py`
+- Test: existing `backend/application/tests/test_trace_link_service.py` (adjust)
+
+**Interfaces:**
+- Consumes: `link_types.catalog.validate_link_pair` (Task 5)
+- Produces: `TraceLinkService._check_link_pair(source_artifact_id, target_artifact_id, link_type, *, source_artifact, target_artifact, manual) -> None`; `create_trace_link` now raises `ValidationError` for any pair the workspace catalog rejects, in every terminology profile
+
+**Breaking change:** `traceability.types.check_se_link_semantics`, `SE_LINK_SEMANTICS`, `SE_CORE_ARTIFACT_TYPES`, `SAME_TYPE` and `VALID_LINK_TYPES`/`MANUAL_LINK_TYPES` as validation authorities are removed. `LinkType` survives as a convenience enum of the eight core keys for code that wants a symbol instead of a string literal.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/application/tests/test_trace_link_catalog_validation.py
+"""create_trace_link validates against the workspace catalog, always."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from application.trace_link_service import TraceLinkService
+from link_types.workspace_store import provision_workspace_link_types
+from persistence.errors import ValidationError
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def env(db):
+    from auth_tenancy.models import AuthContext
+    from persistence.models import Artifact, Tenant, Workspace
+    from presets.models import WorkspacePresetConfig
+
+    tenant = Tenant.objects.create(name="catalog-validation")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="ws")
+    provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+
+    def artifact(kind: str) -> Artifact:
+        return Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type=kind, title=f"{kind}"
+        )
+
+    ctx = AuthContext(
+        user_id=uuid.uuid4(), tenant_id=tenant.id, workspace_id=ws.id, roles=["admin"]
+    )
+    yield {
+        "tenant": tenant,
+        "workspace": ws,
+        "ctx": ctx,
+        "artifact": artifact,
+        "preset_model": WorkspacePresetConfig,
+    }
+    TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_a_valid_link_is_created(env):
+    svc = TraceLinkService()
+    tc, req = env["artifact"]("TestCase"), env["artifact"]("Requirement")
+    link = svc.create_trace_link(tc.id, req.id, "verifies", env["ctx"])
+    assert link.link_type == "verifies"
+
+
+@pytest.mark.django_db
+def test_verifies_from_a_risk_is_rejected_in_dev_mode_too(env):
+    """Audit finding U2: Risk was outside SE_CORE_ARTIFACT_TYPES and passed."""
+    env["preset_model"].objects.update_or_create(
+        workspace_id=env["workspace"].id,
+        defaults={"terminology_profile": "dev_mode"},
+    )
+    svc = TraceLinkService()
+    risk, req = env["artifact"]("Risk"), env["artifact"]("Requirement")
+    with pytest.raises(ValidationError, match="verifies"):
+        svc.create_trace_link(risk.id, req.id, "verifies", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_validation_applies_without_any_preset_config_row(env):
+    """No WorkspacePresetConfig used to mean 'skip enforcement' entirely."""
+    env["preset_model"].objects.filter(workspace_id=env["workspace"].id).delete()
+    svc = TraceLinkService()
+    risk, req = env["artifact"]("Risk"), env["artifact"]("Requirement")
+    with pytest.raises(ValidationError):
+        svc.create_trace_link(risk.id, req.id, "verifies", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_a_retired_link_type_is_rejected(env):
+    svc = TraceLinkService()
+    arch, req = env["artifact"]("ArchitectureElement"), env["artifact"]("Requirement")
+    with pytest.raises(ValidationError, match="Unknown link type 'satisfies'"):
+        svc.create_trace_link(arch.id, req.id, "satisfies", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_allocated_to_only_runs_requirement_to_architecture(env):
+    svc = TraceLinkService()
+    req, arch = env["artifact"]("Requirement"), env["artifact"]("ArchitectureElement")
+    assert svc.create_trace_link(req.id, arch.id, "allocated-to", env["ctx"])
+    with pytest.raises(ValidationError, match="allocated-to"):
+        svc.create_trace_link(arch.id, req.id, "allocated-to", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_architecture_to_architecture_allocation_is_gone(env):
+    svc = TraceLinkService()
+    a, b = env["artifact"]("ArchitectureElement"), env["artifact"]("ArchitectureElement")
+    with pytest.raises(ValidationError, match="allocated-to"):
+        svc.create_trace_link(a.id, b.id, "allocated-to", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_derives_from_now_accepts_architecture_pairs(env):
+    """Inherited from the retired `refines` type."""
+    svc = TraceLinkService()
+    a, b = env["artifact"]("ArchitectureElement"), env["artifact"]("ArchitectureElement")
+    assert svc.create_trace_link(a.id, b.id, "derives-from", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_diagram_ref_is_still_rejected_on_the_manual_path(env):
+    svc = TraceLinkService()
+    diagram, req = env["artifact"]("Diagram"), env["artifact"]("Requirement")
+    with pytest.raises(ValidationError, match="system-managed"):
+        svc.create_trace_link(diagram.id, req.id, "diagram-ref", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_a_deactivated_type_cannot_be_used(env):
+    from link_types.builtin import builtin_definition
+    from link_types.workspace_store import WorkspaceLinkTypeDefinitionStore
+
+    disabled = builtin_definition("mitigates")
+    disabled["active"] = False
+    WorkspaceLinkTypeDefinitionStore().update(
+        env["tenant"].id, env["workspace"].id, "mitigates", disabled
+    )
+
+    svc = TraceLinkService()
+    risk, req = env["artifact"]("Risk"), env["artifact"]("Requirement")
+    with pytest.raises(ValidationError, match="Unknown link type"):
+        svc.create_trace_link(risk.id, req.id, "mitigates", env["ctx"])
+
+
+@pytest.mark.django_db
+def test_a_workspace_override_widens_what_is_accepted(env):
+    from link_types.builtin import builtin_definition
+    from link_types.workspace_store import WorkspaceLinkTypeDefinitionStore
+
+    widened = builtin_definition("mitigates")
+    widened["allowed_pairs"].append(
+        {"source_type": "Risk", "target_type": "TestCase"}
+    )
+    WorkspaceLinkTypeDefinitionStore().update(
+        env["tenant"].id, env["workspace"].id, "mitigates", widened
+    )
+
+    svc = TraceLinkService()
+    risk, tc = env["artifact"]("Risk"), env["artifact"]("TestCase")
+    assert svc.create_trace_link(risk.id, tc.id, "mitigates", env["ctx"])
+
+
+def test_the_se_matrix_is_gone():
+    import traceability.types as types
+
+    for removed in (
+        "SE_LINK_SEMANTICS",
+        "SE_CORE_ARTIFACT_TYPES",
+        "SAME_TYPE",
+        "check_se_link_semantics",
+    ):
+        assert not hasattr(types, removed), f"{removed} must be deleted"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST application/tests/test_trace_link_catalog_validation.py -v`
+Expected: FAIL — `test_verifies_from_a_risk_is_rejected_in_dev_mode_too` passes creation instead of raising; `test_the_se_matrix_is_gone` fails on `SE_LINK_SEMANTICS`
+
+- [ ] **Step 3: Write minimal implementation**
+
+In `backend/application/trace_link_service.py`, replace `_check_se_semantics` (lines 258-333) with:
+
+```python
+    def _check_link_pair(
+        self,
+        source_artifact_id: UUID,
+        target_artifact_id: UUID,
+        link_type: str,
+        *,
+        source_artifact: Optional["Artifact"] = None,
+        target_artifact: Optional["Artifact"] = None,
+        manual: bool = True,
+    ) -> None:
+        """Validate a link against the workspace's link-type catalog.
+
+        Replaces the former ``_check_se_semantics``. Two escape hatches are
+        gone on purpose (spec section 3.2, "gilt immer"):
+
+        * the ``se_mode`` probe — a dev_mode or unconfigured workspace used to
+          skip enforcement entirely;
+        * the ``SE_CORE_ARTIFACT_TYPES`` allow-list — a Risk endpoint used to
+          pass unchecked, which is audit finding U2 exactly.
+
+        The ids stay authoritative: a passed-in row is an optimisation, never
+        a substitute. A mismatch drops the row and re-reads the real one —
+        this is a validation gate, and checking the wrong endpoints silently
+        is worse than one extra SELECT.
+
+        Args:
+            source_artifact_id: Resolved source Artifact id.
+            target_artifact_id: Resolved target Artifact id.
+            link_type: The catalog key under validation.
+            source_artifact: Already-loaded source row, if the caller has one.
+            target_artifact: Same for the target endpoint.
+            manual: False only for system writers (the diagram reconciler),
+                which may write ``system_owned`` types.
+
+        Raises:
+            ValidationError: Unknown/inactive type, a system-owned type on the
+                manual path, or a disallowed endpoint pair.
+            NotFoundError: Either endpoint does not exist.
+        """
+        from link_types.catalog import validate_link_pair
+        from persistence.models import Artifact
+
+        source = source_artifact
+        if source is not None and str(source.id) != str(source_artifact_id):
+            source = None
+        if source is None:
+            source = Artifact.objects.filter(id=source_artifact_id).first()
+
+        target = target_artifact
+        if target is not None and str(target.id) != str(target_artifact_id):
+            target = None
+        if target is None:
+            target = Artifact.objects.filter(id=target_artifact_id).first()
+
+        # Unlike the old permissive fallback, a missing endpoint is no longer
+        # a reason to skip the gate: it is a hard error raised here rather
+        # than an opaque IntegrityError further down.
+        if source is None:
+            raise NotFoundError("Source entity not found")
+        if target is None:
+            raise NotFoundError("Target entity not found")
+
+        validate_link_pair(
+            source.workspace_id,
+            link_type,
+            source.artifact_type,
+            target.artifact_type,
+            manual=manual,
+        )
+```
+
+In `create_trace_link`, delete the `VALID_LINK_TYPES` check (lines 366-370) and the hardcoded `DIAGRAM_REF` rejection (lines 372-385) — both are now decided by the catalog — and replace the `_check_se_semantics(...)` call (lines 395-403) with:
+
+```python
+        # Catalog validation: link type must exist, be active, be manually
+        # creatable, and allow this endpoint pair. Applies to every workspace
+        # and every artifact type — the se_mode gate and the "non-core types
+        # pass unchecked" escape are gone (spec section 3.2).
+        self._check_link_pair(
+            resolved_source,
+            resolved_target,
+            link_type,
+            source_artifact=source_artifact,
+            target_artifact=target_artifact,
+            manual=True,
+        )
+```
+
+In `backend/traceability/types.py`:
+- shrink `LinkType` to the eight core members (`DERIVES_FROM`, `DECOMPOSES`, `ALLOCATED_TO`, `VERIFIES`, `DECIDES`, `MITIGATES`, `REFERENCES`, `DIAGRAM_REF`) and add to its docstring: *"Convenience symbols for the eight built-in keys. NOT the validation authority — that is `link_types.catalog.resolve_catalog`, which is per-workspace and tenant-extensible."*
+- delete `SE_CORE_ARTIFACT_TYPES`, `SAME_TYPE`, `SE_LINK_SEMANTICS`, `check_se_link_semantics`, `normalize_artifact_type` (the last one moved to `link_types.catalog`), `VALID_LINK_TYPES` and `MANUAL_LINK_TYPES`, and the module-level `_REQ`/`_ARCH`/`_TC`/`_SN`/`_DIAG` aliases
+- drop the same names from `__all__`
+
+In `backend/application/trace_link_service.py`, drop `VALID_LINK_TYPES`/`MANUAL_LINK_TYPES` from the imports and from `__all__`.
+
+Adjust the four legacy expectations in `backend/application/tests/test_trace_link_service.py`: the `"parent-child"` literal at line 64 becomes `"decomposes"`, and any assertion that a dev_mode workspace skips endpoint validation is inverted.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST application/tests/test_trace_link_catalog_validation.py application/tests/test_trace_link_service.py traceability/ -v`
+Expected: PASS (11 new tests pass; the `traceability` suite stays green apart from the SE-matrix tests deleted with the matrix)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/application/trace_link_service.py backend/traceability/types.py backend/application/tests/
+git commit -m "feat(link-types): validate every trace link against the workspace catalog"
+```
+
+---
+
+## Phase C — `TraceLink` extension and the suspect engine
+
+### Task 12: `TraceLink.rationale` / `suspect_flagged_at` / `suspect_source_change` and `Artifact.copied_from`
+
+**Files:**
+- Modify: `backend/persistence/models.py:1360-1406` (`TraceLink` fields)
+- Modify: `backend/persistence/models.py:819-860` (`Artifact.copied_from`)
+- Modify: `backend/persistence/models.py:715-719` (`Workspace.decomposition_link_type` default)
+- Create: `backend/persistence/migrations/00XX_tracelink_semantics_fields.py` (generated; `XX` = next free number)
+- Test: `backend/persistence/tests/test_tracelink_semantics_fields.py`
+
+**Interfaces:**
+- Consumes: nothing
+- Produces: `TraceLink.rationale: str` (blank-able TextField), `TraceLink.suspect_flagged_at: datetime | None`, `TraceLink.suspect_source_change: UUID | None`, `Artifact.copied_from: Artifact | None` (self-FK, `related_name="copies"`, `on_delete=SET_NULL`)
+
+`suspect_source_change` is a `UUIDField`, not a `ForeignKey` — see Decision 1.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/persistence/tests/test_tracelink_semantics_fields.py
+"""New TraceLink semantics fields and Artifact.copied_from."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from django.utils import timezone
+
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def env(db):
+    from persistence.models import Artifact, Tenant, Workspace
+
+    tenant = Tenant.objects.create(name="semantics-fields")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="ws")
+
+    def artifact(kind: str = "Requirement") -> Artifact:
+        return Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type=kind, title=kind
+        )
+
+    yield {"tenant": tenant, "workspace": ws, "artifact": artifact}
+    TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_new_trace_link_fields_default_to_empty(env):
+    from persistence.models import TraceLink
+
+    link = TraceLink.objects.create(
+        tenant=env["tenant"],
+        source=env["artifact"](),
+        target=env["artifact"](),
+        link_type="derives-from",
+    )
+    assert link.rationale == ""
+    assert link.suspect_flagged_at is None
+    assert link.suspect_source_change is None
+
+
+@pytest.mark.django_db
+def test_rationale_round_trips(env):
+    from persistence.models import TraceLink
+
+    link = TraceLink.objects.create(
+        tenant=env["tenant"],
+        source=env["artifact"](),
+        target=env["artifact"](),
+        link_type="derives-from",
+        rationale="Derived during the 2026-Q3 decomposition workshop.",
+    )
+    link.refresh_from_db()
+    assert link.rationale.startswith("Derived during")
+
+
+@pytest.mark.django_db
+def test_suspect_marker_fields_round_trip(env):
+    from persistence.models import TraceLink
+
+    audit_id = uuid.uuid4()
+    now = timezone.now()
+    link = TraceLink.objects.create(
+        tenant=env["tenant"],
+        source=env["artifact"](),
+        target=env["artifact"](),
+        link_type="derives-from",
+        suspect_flagged_at=now,
+        suspect_source_change=audit_id,
+    )
+    link.refresh_from_db()
+    assert link.suspect_flagged_at == now
+    assert link.suspect_source_change == audit_id
+
+
+@pytest.mark.django_db
+def test_copied_from_links_two_artifacts(env):
+    original = env["artifact"]()
+    copy = env["artifact"]()
+    copy.copied_from = original
+    copy.save(update_fields=["copied_from"])
+    copy.refresh_from_db()
+    assert copy.copied_from_id == original.id
+    assert list(original.copies.all()) == [copy]
+
+
+@pytest.mark.django_db
+def test_deleting_the_original_keeps_the_copy(env):
+    original = env["artifact"]()
+    copy = env["artifact"]()
+    copy.copied_from = original
+    copy.save(update_fields=["copied_from"])
+    original.delete()
+    copy.refresh_from_db()
+    assert copy.copied_from_id is None
+
+
+@pytest.mark.django_db
+def test_workspace_decomposition_default_is_no_longer_a_retired_type():
+    from persistence.models import Workspace
+
+    field = Workspace._meta.get_field("decomposition_link_type")
+    assert field.default == "decomposes"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST persistence/tests/test_tracelink_semantics_fields.py -v`
+Expected: FAIL with `TypeError: TraceLink() got unexpected keyword arguments: 'rationale'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+In `backend/persistence/models.py`, inside `TraceLink` after the `embedding` field:
+
+```python
+    rationale = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Q1.6: why this link exists. A link type alone does not say why "
+            "*these two* artifacts are connected; without it a reviewer has "
+            "to reconstruct the intent from the two titles."
+        ),
+    )
+    suspect_flagged_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Set by the suspect-propagation engine "
+            "(application.trace_link_service.TraceLinkService."
+            "propagate_suspect_status) when this link caused the other "
+            "endpoint to be flagged suspect. NULL means this link has not "
+            "triggered a flag since the last review."
+        ),
+    )
+    suspect_source_change = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "audit.AuditEntry.id of the change that triggered the flag above. "
+            "Deliberately a plain UUID rather than a ForeignKey: audit_entry "
+            "is append-only and slated for monthly RANGE partitioning "
+            "(audit/migrations/0001_initial.py), which a real FK would "
+            "permanently block because Postgres requires the partition key in "
+            "the referenced primary key. No cascade semantics are needed — an "
+            "audit entry is never deleted."
+        ),
+    )
+```
+
+In `Artifact`, after the `parent` field:
+
+```python
+    copied_from = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="copies",
+        help_text=(
+            "Provenance of a duplicated artifact. Replaces the retired "
+            "'copy-of' TraceLink type: a copy has exactly one origin, so a "
+            "1:1 field states the invariant that an N:M link table could not. "
+            "SET_NULL — deleting the original must not delete its copies, "
+            "which are independent artifacts."
+        ),
+    )
+```
+
+Change the `Workspace.decomposition_link_type` default:
+
+```python
+    decomposition_link_type = models.CharField(
+        max_length=50,
+        default="decomposes",
+        help_text=(
+            "Default link type used when decomposing requirements. NOTE: "
+            "RequirementService.decompose hardcodes 'decomposes' and does not "
+            "read this field (UMSETZUNGSPLAN_SYSENG_2.0 section 1.4); the "
+            "default was 'parent-child', a link type that no longer exists."
+        ),
+    )
+```
+
+Generate the migration:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . run --rm backend \
+  python manage.py makemigrations persistence --name tracelink_semantics_fields
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST persistence/tests/test_tracelink_semantics_fields.py -v`
+Expected: PASS (6 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/persistence/models.py backend/persistence/migrations backend/persistence/tests/test_tracelink_semantics_fields.py
+git commit -m "feat(traceability): add TraceLink rationale/suspect markers and Artifact.copied_from"
+```
+
+---
+
+### Task 13: Expose the new fields through the REST serializer
+
+**Files:**
+- Modify: `backend/rest_api/serializers.py:1021-1080` (`TraceLinkSerializer`)
+- Test: `backend/rest_api/tests/test_trace_link_serializer_fields.py`
+
+**Interfaces:**
+- Consumes: Task 12's model fields
+- Produces: `TraceLinkSerializer` accepts `rationale` on write and returns `rationale`, `suspect_flagged_at`, `suspect_source_change` on read
+
+`rationale` is free text on a trust boundary, so it uses `SanitizedCharField` with an explicit `max_length` — an unbounded TextField-backed field is a DoS surface (the same reason `change_reason` is capped at 2000).
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/rest_api/tests/test_trace_link_serializer_fields.py
+"""TraceLinkSerializer exposes rationale and the suspect markers."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from django.utils import timezone
+
+from rest_api.serializers import TraceLinkSerializer
+
+
+class _Link:
+    def __init__(self, **kwargs):
+        self.id = uuid.uuid4()
+        self.source_id = uuid.uuid4()
+        self.target_id = uuid.uuid4()
+        self.link_type = "derives-from"
+        self.version = 1
+        self.created_at = timezone.now()
+        self.rationale = ""
+        self.suspect_flagged_at = None
+        self.suspect_source_change = None
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+def test_rationale_is_returned():
+    data = TraceLinkSerializer(_Link(rationale="workshop decision")).data
+    assert data["rationale"] == "workshop decision"
+
+
+def test_suspect_markers_are_returned():
+    audit_id = uuid.uuid4()
+    flagged = timezone.now()
+    data = TraceLinkSerializer(
+        _Link(suspect_flagged_at=flagged, suspect_source_change=audit_id)
+    ).data
+    assert data["suspect_flagged_at"] is not None
+    assert str(data["suspect_source_change"]) == str(audit_id)
+
+
+def test_rationale_is_writable():
+    serializer = TraceLinkSerializer(
+        data={
+            "source_id": str(uuid.uuid4()),
+            "target_id": str(uuid.uuid4()),
+            "link_type": "derives-from",
+            "rationale": "because the stakeholder asked for it",
+        }
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["rationale"] == "because the stakeholder asked for it"
+
+
+def test_rationale_is_optional():
+    serializer = TraceLinkSerializer(
+        data={
+            "source_id": str(uuid.uuid4()),
+            "target_id": str(uuid.uuid4()),
+            "link_type": "derives-from",
+        }
+    )
+    assert serializer.is_valid(), serializer.errors
+
+
+def test_rationale_is_length_capped():
+    serializer = TraceLinkSerializer(
+        data={
+            "source_id": str(uuid.uuid4()),
+            "target_id": str(uuid.uuid4()),
+            "link_type": "derives-from",
+            "rationale": "x" * 2001,
+        }
+    )
+    assert not serializer.is_valid()
+    assert "rationale" in serializer.errors
+
+
+def test_suspect_markers_are_read_only():
+    serializer = TraceLinkSerializer(
+        data={
+            "source_id": str(uuid.uuid4()),
+            "target_id": str(uuid.uuid4()),
+            "link_type": "derives-from",
+            "suspect_flagged_at": timezone.now().isoformat(),
+            "suspect_source_change": str(uuid.uuid4()),
+        }
+    )
+    assert serializer.is_valid(), serializer.errors
+    assert "suspect_flagged_at" not in serializer.validated_data
+    assert "suspect_source_change" not in serializer.validated_data
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST rest_api/tests/test_trace_link_serializer_fields.py -v`
+Expected: FAIL with `KeyError: 'rationale'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+In `backend/rest_api/serializers.py`, inside `TraceLinkSerializer` after the `link_type` field:
+
+```python
+    # Q1.6: why these two artifacts are connected. Free text on a trust
+    # boundary, so sanitized and capped like change_reason (B006/#104) — an
+    # unbounded TextField-backed field accepts unbounded payloads.
+    rationale = SanitizedCharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Why this link exists (optional, free text).",
+    )
+    # Written only by TraceLinkService.propagate_suspect_status.
+    suspect_flagged_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    suspect_source_change = serializers.UUIDField(read_only=True, allow_null=True)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST rest_api/tests/test_trace_link_serializer_fields.py -v`
+Expected: PASS (6 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/rest_api/serializers.py backend/rest_api/tests/test_trace_link_serializer_fields.py
+git commit -m "feat(traceability): expose link rationale and suspect markers via REST"
+```
+
+---
+
+### Task 14: Rule-driven suspect propagation (closes #849 structurally)
+
+**Files:**
+- Modify: `backend/application/trace_link_service.py:1175-1251` (rewrite `propagate_suspect_status`)
+- Test: `backend/application/tests/test_suspect_propagation.py`
+- Test: rewrite `backend/application/tests/test_trace_link_service.py:955-1073` (the four SN-30 tests)
+
+**Interfaces:**
+- Consumes: `link_types.catalog.resolve_catalog` (Task 5), `TraceLink.suspect_flagged_at`/`suspect_source_change` (Task 12)
+- Produces: `TraceLinkService.propagate_suspect_status(source_id: UUID, ctx: AuthContext, *, audit_entry_id: UUID | None = None) -> int` — returns the number of artifacts flagged
+
+**Behaviour changes (both deliberate, both in the commit message):**
+1. **One hop, not the transitive hull.** Today's implementation walks the full recursive-CTE upstream closure and flags everything it reaches, regardless of link type. Spec section 5 describes a single hop over links that touch the changed artifact. `settings.SUSPECT_PROPAGATION_MAX_DEPTH` becomes unused and its handling is deleted.
+2. **Direction now depends on `suspect_rule`, not on a fixed "upstream" assumption.** `allocated-to` propagates source→target; the old code could only ever propagate target→source.
+
+Rule dispatch (see Decision 2 — `parent_change_flags_children` and `source_change_flags_target` share one branch):
+
+| `suspect_rule` | changed artifact is the link's | flag the link's |
+|---|---|---|
+| `target_change_flags_source` | `target` | `source` |
+| `source_change_flags_target` | `source` | `target` |
+| `parent_change_flags_children` | `source` (= parent, per the direction table) | `target` (= child) |
+| `none` | — | nothing |
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/application/tests/test_suspect_propagation.py
+"""Suspect propagation dispatches on each link type's suspect_rule."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from application.trace_link_service import TraceLinkService
+from link_types.workspace_store import provision_workspace_link_types
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def env(db):
+    from auth_tenancy.models import AuthContext
+    from persistence.models import (
+        ArchitectureElement,
+        Artifact,
+        Requirement,
+        Tenant,
+        TestCase,
+        Workspace,
+    )
+
+    tenant = Tenant.objects.create(name="suspect")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="ws")
+    provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+
+    def requirement(title="req"):
+        art = Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type="Requirement", title=title
+        )
+        return Requirement.objects.create(
+            tenant=tenant, workspace=ws, artifact=art, title=title, suspect=False
+        )
+
+    def testcase(title="tc"):
+        art = Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type="TestCase", title=title
+        )
+        return TestCase.objects.create(
+            tenant=tenant, workspace=ws, artifact=art, title=title, suspect=False
+        )
+
+    def architecture(title="arch"):
+        art = Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type="ArchitectureElement", title=title
+        )
+        return ArchitectureElement.objects.create(
+            tenant=tenant, workspace=ws, artifact=art, name=title, suspect=False
+        )
+
+    ctx = AuthContext(
+        user_id=uuid.uuid4(), tenant_id=tenant.id, workspace_id=ws.id, roles=["admin"]
+    )
+    yield {
+        "tenant": tenant,
+        "ctx": ctx,
+        "requirement": requirement,
+        "testcase": testcase,
+        "architecture": architecture,
+    }
+    TenantContext.clear_tenant()
+
+
+def _link(env, source, target, link_type):
+    from persistence.models import TraceLink
+
+    return TraceLink.objects.create(
+        tenant=env["tenant"],
+        source_id=source.artifact_id,
+        target_id=target.artifact_id,
+        link_type=link_type,
+    )
+
+
+@pytest.mark.django_db
+def test_target_change_flags_source_verifies(env):
+    """Requirement changes -> its verifying TestCase becomes suspect."""
+    req, tc = env["requirement"](), env["testcase"]()
+    _link(env, tc, req, "verifies")
+
+    flagged = TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"])
+
+    tc.refresh_from_db()
+    assert flagged == 1
+    assert tc.suspect is True
+
+
+@pytest.mark.django_db
+def test_source_change_flags_target_allocated_to(env):
+    """Requirement changes -> the ArchitectureElement it is allocated to."""
+    req, arch = env["requirement"](), env["architecture"]()
+    _link(env, req, arch, "allocated-to")
+
+    flagged = TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"])
+
+    arch.refresh_from_db()
+    assert flagged == 1
+    assert arch.suspect is True
+
+
+@pytest.mark.django_db
+def test_allocated_to_does_not_propagate_backwards(env):
+    """The ArchitectureElement changing must NOT flag the Requirement."""
+    req, arch = env["requirement"](), env["architecture"]()
+    _link(env, req, arch, "allocated-to")
+
+    flagged = TraceLinkService().propagate_suspect_status(arch.artifact_id, env["ctx"])
+
+    req.refresh_from_db()
+    assert flagged == 0
+    assert req.suspect is False
+
+
+@pytest.mark.django_db
+def test_parent_change_flags_children_decomposes(env):
+    parent, child = env["requirement"]("parent"), env["requirement"]("child")
+    _link(env, parent, child, "decomposes")
+
+    flagged = TraceLinkService().propagate_suspect_status(
+        parent.artifact_id, env["ctx"]
+    )
+
+    child.refresh_from_db()
+    assert flagged == 1
+    assert child.suspect is True
+
+
+@pytest.mark.django_db
+def test_a_child_change_does_not_flag_its_parent(env):
+    parent, child = env["requirement"]("parent"), env["requirement"]("child")
+    _link(env, parent, child, "decomposes")
+
+    assert (
+        TraceLinkService().propagate_suspect_status(child.artifact_id, env["ctx"]) == 0
+    )
+    parent.refresh_from_db()
+    assert parent.suspect is False
+
+
+@pytest.mark.django_db
+def test_rule_none_propagates_nothing(env):
+    req, arch = env["requirement"](), env["architecture"]()
+    _link(env, arch, req, "references")
+
+    assert (
+        TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"]) == 0
+    )
+    arch.refresh_from_db()
+    assert arch.suspect is False
+
+
+@pytest.mark.django_db
+def test_propagation_is_one_hop_only(env):
+    """grandparent -> parent -> child: changing the grandparent stops at parent."""
+    grand, parent, child = (
+        env["requirement"]("g"),
+        env["requirement"]("p"),
+        env["requirement"]("c"),
+    )
+    _link(env, grand, parent, "decomposes")
+    _link(env, parent, child, "decomposes")
+
+    flagged = TraceLinkService().propagate_suspect_status(grand.artifact_id, env["ctx"])
+
+    parent.refresh_from_db()
+    child.refresh_from_db()
+    assert flagged == 1
+    assert parent.suspect is True
+    assert child.suspect is False
+
+
+@pytest.mark.django_db
+def test_the_link_records_when_and_why_it_flagged(env):
+    from persistence.models import TraceLink
+
+    req, tc = env["requirement"](), env["testcase"]()
+    link = _link(env, tc, req, "verifies")
+    audit_id = uuid.uuid4()
+
+    TraceLinkService().propagate_suspect_status(
+        req.artifact_id, env["ctx"], audit_entry_id=audit_id
+    )
+
+    link.refresh_from_db()
+    assert link.suspect_flagged_at is not None
+    assert link.suspect_source_change == audit_id
+
+
+@pytest.mark.django_db
+def test_links_that_did_not_fire_keep_a_null_marker(env):
+    from persistence.models import TraceLink
+
+    req, arch = env["requirement"](), env["architecture"]()
+    quiet = _link(env, arch, req, "references")
+
+    TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"])
+
+    quiet.refresh_from_db()
+    assert quiet.suspect_flagged_at is None
+
+
+@pytest.mark.django_db
+def test_the_changed_artifact_is_never_flagged_itself(env):
+    req = env["requirement"]()
+    _link(env, req, req, "derives-from")
+
+    TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"])
+
+    req.refresh_from_db()
+    assert req.suspect is False
+
+
+@pytest.mark.django_db
+def test_an_unknown_artifact_id_is_a_no_op(env):
+    assert (
+        TraceLinkService().propagate_suspect_status(uuid.uuid4(), env["ctx"]) == 0
+    )
+
+
+@pytest.mark.django_db
+def test_a_deactivated_link_type_stops_propagating(env):
+    from link_types.builtin import builtin_definition
+    from link_types.workspace_store import WorkspaceLinkTypeDefinitionStore
+
+    req, tc = env["requirement"](), env["testcase"]()
+    _link(env, tc, req, "verifies")
+
+    disabled = builtin_definition("verifies")
+    disabled["active"] = False
+    WorkspaceLinkTypeDefinitionStore().update(
+        env["tenant"].id, req.workspace_id, "verifies", disabled
+    )
+
+    assert (
+        TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"]) == 0
+    )
+    tc.refresh_from_db()
+    assert tc.suspect is False
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST application/tests/test_suspect_propagation.py -v`
+Expected: FAIL — `test_source_change_flags_target_allocated_to` returns 0 (the old code only walks upstream), `test_propagation_is_one_hop_only` flags the child too, `test_the_link_records_when_and_why_it_flagged` fails on `TypeError: propagate_suspect_status() got an unexpected keyword argument 'audit_entry_id'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+Replace the body of `propagate_suspect_status` in `backend/application/trace_link_service.py`:
+
+```python
+    def propagate_suspect_status(
+        self,
+        source_id: UUID,
+        ctx: AuthContext,
+        *,
+        audit_entry_id: Optional[UUID] = None,
+    ) -> int:
+        """Flag the artifacts a change to *source_id* makes questionable (SN-30).
+
+        Dispatches on each link type's ``suspect_rule`` from the workspace
+        catalog rather than flooding a direction-agnostic transitive hull.
+        This is the mechanism behind P0 issue #849: the ``suspect`` column and
+        its serializer field already existed, but nothing ever consulted the
+        link type, so ``allocated-to`` (which propagates source -> target)
+        never fired at all and ``references`` fired when it should not have.
+
+        Rule dispatch (direction convention: ``decomposes`` runs
+        parent -> child, ``derives-from`` runs child -> parent — see
+        ``traceability/audit/hierarchy.py``)::
+
+            target_change_flags_source     changed == link.target -> flag source
+            source_change_flags_target     changed == link.source -> flag target
+            parent_change_flags_children   changed == link.source (the parent)
+                                                            -> flag target (child)
+            none                           nothing
+
+        ``parent_change_flags_children`` shares the ``source_change_flags_target``
+        branch on purpose: for a hierarchy link the parent *is* the source, so
+        the two are the same traversal. It stays a distinct configurable value
+        because it documents intent for hierarchy types.
+
+        **One hop only.** The previous implementation walked the full recursive
+        CTE closure; the spec describes a single hop, and each flagged artifact
+        propagates further when *it* is edited. ``SUSPECT_PROPAGATION_MAX_DEPTH``
+        is consequently no longer read.
+
+        Args:
+            source_id: The artifact (or business entity) that changed.
+            ctx: Resolved AuthContext.
+            audit_entry_id: ``audit.AuditEntry.id`` of the triggering change,
+                recorded on every link that fired so a reviewer can see *which*
+                edit made the other end suspect.
+
+        Returns:
+            Number of artifacts newly flagged suspect.
+        """
+        if ctx is not None:
+            self._set_tenant_context(ctx)
+
+        try:
+            resolved_id = self._resolve_artifact_id(source_id)
+        except NotFoundError:
+            return 0
+
+        from django.utils import timezone
+
+        from link_types.catalog import resolve_catalog
+        from persistence.models import (
+            ArchitectureElement,
+            Artifact,
+            Requirement,
+            TestCase,
+            TraceLink,
+        )
+
+        artifact = Artifact.objects.filter(id=resolved_id).only("workspace_id").first()
+        if artifact is None:
+            return 0
+        catalog = resolve_catalog(artifact.workspace_id)
+
+        # One query for both directions; the rule decides which side counts.
+        links = list(
+            TraceLink.objects.filter(
+                Q(source_id=resolved_id) | Q(target_id=resolved_id)
+            ).only("id", "source_id", "target_id", "link_type")
+        )
+
+        dependent_ids: set[UUID] = set()
+        fired_link_ids: list[UUID] = []
+
+        for link in links:
+            definition = catalog.get(link.link_type)
+            if definition is None:
+                continue  # unknown or deactivated type: no propagation
+            rule = definition.get("suspect_rule", "none")
+            if rule == "none":
+                continue
+
+            if rule == "target_change_flags_source":
+                if link.target_id != resolved_id:
+                    continue
+                other_id = link.source_id
+            elif rule in ("source_change_flags_target", "parent_change_flags_children"):
+                # Identical traversal: for a hierarchy link the parent is the
+                # source (see the direction table in the docstring).
+                if link.source_id != resolved_id:
+                    continue
+                other_id = link.target_id
+            else:
+                logger.warning(
+                    "Unknown suspect_rule '%s' on link type '%s'; skipping.",
+                    rule,
+                    link.link_type,
+                )
+                continue
+
+            if other_id == resolved_id:
+                continue  # self-link: never flag the changed artifact itself
+            dependent_ids.add(other_id)
+            fired_link_ids.append(link.id)
+
+        if not dependent_ids:
+            return 0
+
+        flagged = 0
+        for model in (Requirement, ArchitectureElement, TestCase):
+            flagged += model.objects.filter(
+                artifact_id__in=dependent_ids, suspect=False
+            ).update(suspect=True)
+
+        TraceLink.objects.filter(id__in=fired_link_ids).update(
+            suspect_flagged_at=timezone.now(),
+            suspect_source_change=audit_entry_id,
+        )
+
+        logger.info(
+            "Suspect propagation from %s: %d artifact(s) flagged via %d link(s).",
+            resolved_id,
+            flagged,
+            len(fired_link_ids),
+        )
+        return flagged
+```
+
+Add `from django.db.models import Q` to the module imports if it is not already there.
+
+Rewrite the four SN-30 tests in `backend/application/tests/test_trace_link_service.py:955-1073`: they assert the old transitive-hull behaviour with mocked `traceability.services.query` and no longer describe the contract. Replace them with a single test asserting that `propagate_suspect_status` returns 0 for an unknown id — everything else is covered by `test_suspect_propagation.py`.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST application/tests/test_suspect_propagation.py application/tests/test_trace_link_service.py -v`
+Expected: PASS (12 passed in the new module; `test_trace_link_service.py` green)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/application/trace_link_service.py backend/application/tests/test_suspect_propagation.py backend/application/tests/test_trace_link_service.py
+git commit -m "fix(traceability): drive suspect propagation from each link type's rule
+
+Closes #849. Two deliberate behaviour changes: propagation is now one hop
+instead of the full transitive upstream hull, and the direction follows the
+link type's suspect_rule instead of a fixed upstream walk — so allocated-to
+propagates source to target, which it never did before."
+```
+
+---
+
+### Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` link
+
+**Files:**
+- Modify: `backend/application/requirement_service.py:900-930`
+- Test: `backend/application/tests/test_decompose_parent_coupling.py`
+
+**Interfaces:**
+- Consumes: `TraceLinkService.create_trace_link` (Task 11)
+- Produces: `RequirementService.decompose` writes `child.artifact.parent = parent.artifact` and the `decomposes` TraceLink atomically — a failure in either rolls back both
+
+Today the link creation is wrapped in `try/except Exception` and logged as a warning, so a workspace can end up with a `parent` FK and no link, or the reverse. Spec section 3.3 requires the two to move together. The existing unique constraint `uq_tracelink_edge` already prevents duplicate edges, so no new constraint is needed.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/application/tests/test_decompose_parent_coupling.py
+"""Artifact.parent and the decomposes link are written together or not at all."""
+from __future__ import annotations
+
+import uuid
+from unittest.mock import patch
+
+import pytest
+
+from persistence.errors import ValidationError
+from persistence.tenancy import TenantContext
+
+
+@pytest.fixture
+def env(db):
+    from auth_tenancy.models import AuthContext
+    from link_types.workspace_store import provision_workspace_link_types
+    from persistence.models import Artifact, Requirement, Tenant, Workspace
+
+    tenant = Tenant.objects.create(name="decompose-coupling")
+    TenantContext.set_tenant(tenant.id)
+    ws = Workspace.objects.create(tenant=tenant, name="ws")
+    provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+
+    art = Artifact.objects.create(
+        tenant=tenant, workspace=ws, artifact_type="Requirement", title="parent"
+    )
+    parent = Requirement.objects.create(
+        tenant=tenant, workspace=ws, artifact=art, title="parent"
+    )
+    ctx = AuthContext(
+        user_id=uuid.uuid4(), tenant_id=tenant.id, workspace_id=ws.id, roles=["admin"]
+    )
+    yield {"tenant": tenant, "workspace": ws, "parent": parent, "ctx": ctx}
+    TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_decompose_sets_both_the_parent_fk_and_the_link(env):
+    from application.requirement_service import RequirementService
+    from persistence.models import Artifact, TraceLink
+
+    result = RequirementService().decompose(
+        env["parent"].id, ["child A", "child B"], env["ctx"]
+    )
+
+    for child in result.children:
+        artifact = Artifact.objects.get(id=child.artifact_id)
+        assert artifact.parent_id == env["parent"].artifact_id
+        assert TraceLink.objects.filter(
+            source_id=env["parent"].artifact_id,
+            target_id=child.artifact_id,
+            link_type="decomposes",
+        ).exists()
+
+
+@pytest.mark.django_db
+def test_a_failing_link_rolls_back_the_parent_fk(env):
+    from application.requirement_service import RequirementService
+    from persistence.models import Artifact, TraceLink
+
+    with patch(
+        "application.trace_link_service.TraceLinkService.create_trace_link",
+        side_effect=ValidationError("catalog rejected it"),
+    ):
+        with pytest.raises(ValidationError):
+            RequirementService().decompose(env["parent"].id, ["child"], env["ctx"])
+
+    assert not Artifact.objects.filter(
+        parent_id=env["parent"].artifact_id
+    ).exists()
+    assert not TraceLink.objects.filter(link_type="decomposes").exists()
+
+
+@pytest.mark.django_db
+def test_decompose_no_longer_swallows_link_failures(env):
+    """The old code logged a warning and returned a half-built hierarchy."""
+    from application.requirement_service import RequirementService
+
+    with patch(
+        "application.trace_link_service.TraceLinkService.create_trace_link",
+        side_effect=ValidationError("catalog rejected it"),
+    ):
+        with pytest.raises(ValidationError):
+            RequirementService().decompose(env["parent"].id, ["child"], env["ctx"])
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `$PYTEST application/tests/test_decompose_parent_coupling.py -v`
+Expected: FAIL — `test_a_failing_link_rolls_back_the_parent_fk` finds an orphaned child artifact, because the `try/except Exception` swallows the error
+
+- [ ] **Step 3: Write minimal implementation**
+
+In `backend/application/requirement_service.py`, replace the `try/except Exception` around the link creation (lines 911-929) with:
+
+```python
+                # Spec section 3.3: Artifact.parent is the recursive-CTE
+                # performance cache for the SAME relationship the 'decomposes'
+                # link expresses. They must be written together — the previous
+                # best-effort try/except left workspaces with a parent FK and
+                # no link (invisible to the SE-Auditor) or the reverse
+                # (invisible to every tree query). @atomic_transaction on
+                # decompose() makes this rollback-consistent.
+                child_artifact = child_req.artifact
+                child_artifact.parent_id = parent_req.artifact_id
+                child_artifact.save(update_fields=["parent"])
+
+                tl = self._trace_link_service.create_trace_link(
+                    source_id=UUID(str(parent_req.artifact_id)),
+                    target_id=UUID(str(child_req.artifact_id)),
+                    link_type=decomposition_link_type,
+                    ctx=ctx,
+                )
+                if hasattr(tl, "id"):
+                    result.trace_link_ids.append(tl.id)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `$PYTEST application/tests/test_decompose_parent_coupling.py application/tests/test_requirement_service.py -v`
+Expected: PASS (3 passed in the new module; `test_requirement_service.py` green)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/application/requirement_service.py backend/application/tests/test_decompose_parent_coupling.py
+git commit -m "fix(traceability): write Artifact.parent and the decomposes link atomically"
+```
+
+---
