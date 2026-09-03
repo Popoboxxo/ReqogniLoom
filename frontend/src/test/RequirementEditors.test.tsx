@@ -26,6 +26,12 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // Mock API modules
 // ---------------------------------------------------------------------------
 
+// R2/T1 (systemaudit 2026-09-02): mutable so individual tests can simulate a
+// non-editor session (see the role-gate describe block below) without
+// re-declaring this whole apiClient mock — mirrors the `nextListResult`
+// pattern in SidebarNavigation.test.tsx.
+let mockAuthRoles: string[] = ["admin"];
+
 vi.mock("../api/client", async (importActual) => ({
   ...(await importActual<typeof import("../api/client")>()),
   getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
@@ -48,10 +54,10 @@ vi.mock("../api/client", async (importActual) => ({
                 last_name: "",
                 is_active: true,
                 tenant_id: "t-1",
-                roles: ["admin"],
+                roles: mockAuthRoles,
               },
               tenant_id: "t-1",
-              roles: ["admin"],
+              roles: mockAuthRoles,
             }
           : {}
       )
@@ -215,6 +221,13 @@ function renderEditor(requirementId?: string): ReturnType<typeof render> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// R2/T1: file-wide default so every pre-existing describe block below (none
+// of which touch mockAuthRoles) keeps running as an editor/admin session —
+// only the role-gate block further down overrides it, per-test.
+beforeEach(() => {
+  mockAuthRoles = ["admin"];
+});
 
 describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   beforeEach(() => {
@@ -934,5 +947,66 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
     await user.tab();
     expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
     expect(document.activeElement).not.toBe(screen.getByTestId("req-new-dialog-close"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2/T1 (systemaudit 2026-09-02): role-gated write controls
+//
+// A live audit found that a "viewer" role saw the "Testfall generieren"
+// trigger and the ✨ "Ableiten" button (REQ-008) here — only the server
+// rejected the actual write. Both must be genuinely absent from the DOM for
+// a viewer, not merely disabled ("nicht gerendert, nicht nur deaktiviert").
+// Save/Delete/Status-ändern (owned by RequirementForm/RequirementList) are
+// covered by their own colocated role-gate tests.
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("does not render 'Testfall generieren' or the Ableiten button for a viewer", async () => {
+    mockAuthRoles = ["viewer"];
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("req-derive-testcase-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("req-ai-derive-btn")).not.toBeInTheDocument();
+  });
+
+  it("renders 'Testfall generieren' and the Ableiten button for an editor", async () => {
+    mockAuthRoles = ["editor"];
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("req-derive-testcase-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
   });
 });

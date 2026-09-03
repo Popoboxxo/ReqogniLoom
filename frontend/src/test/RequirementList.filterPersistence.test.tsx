@@ -36,6 +36,14 @@ vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: mockActiveWorkspaceId } }),
 }));
 
+// R2/T1 (systemaudit 2026-09-02): RequirementList now reads roles via
+// useHasRole/useAuth to gate the per-row Delete trigger — this test is about
+// filter persistence, not role gating, so it stays on an editor session
+// (role gating itself is covered by RequirementList.roleGate.test.tsx).
+vi.mock("../context/AuthContext", () => ({
+  useAuth: () => ({ roles: ["editor"] }),
+}));
+
 function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
   return {
     id: "req-1",

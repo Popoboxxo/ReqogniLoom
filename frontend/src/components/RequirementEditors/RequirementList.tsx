@@ -22,6 +22,7 @@
 import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
+import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { ListToolbar } from '../shared/ListToolbar';
 import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
@@ -168,6 +169,10 @@ export const RequirementList: React.FC<RequirementListProps> = ({
 }) => {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
+  // R2/T1 (systemaudit 2026-09-02): a viewer must not see the per-row Delete
+  // trigger at all — only the server rejected the delete before. Shared with
+  // SidebarNavigation/RequirementForm/RequirementEditors via useHasRole.
+  const hasRole = useHasRole();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   // Issue #811: the extended preset requires a `change_reason` on delete too
   // (RequirementService.delete_requirement) — mirrors RequirementForm's own
@@ -461,32 +466,36 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     confirm overlay above already exists, but nothing ever
                     called setConfirmDeleteId with a real id — this button is
                     that missing trigger. stopPropagation keeps the click from
-                    also selecting the row (the <li> above owns onSelect). */}
-                <button
-                  type="button"
-                  data-testid={`req-row-delete-${req.id}`}
-                  aria-label={t('actions.delete')}
-                  title={t('actions.delete')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDeleteId(req.id);
-                  }}
-                  style={{
-                    flexShrink: 0,
-                    width: '22px',
-                    height: '22px',
-                    padding: 0,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--color-text-muted)',
-                    cursor: 'pointer',
-                    fontSize: '0.85rem',
-                    lineHeight: 1,
-                    borderRadius: 'var(--radius-sm)',
-                  }}
-                >
-                  ✕
-                </button>
+                    also selecting the row (the <li> above owns onSelect).
+                    R2/T1: rendered conditionally, not just disabled — a
+                    viewer must not find this trigger in the DOM at all. */}
+                {hasRole('editor') && (
+                  <button
+                    type="button"
+                    data-testid={`req-row-delete-${req.id}`}
+                    aria-label={t('actions.delete')}
+                    title={t('actions.delete')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDeleteId(req.id);
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      width: '22px',
+                      height: '22px',
+                      padding: 0,
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--color-text-muted)',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      lineHeight: 1,
+                      borderRadius: 'var(--radius-sm)',
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             );
           }}

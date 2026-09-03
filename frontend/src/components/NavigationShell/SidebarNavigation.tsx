@@ -18,6 +18,7 @@ import { ChevronDown } from "lucide-react";
 import { APP_NAME } from "../../config/app-name";
 import { useWorkspace, DEFAULT_WORKSPACE } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
+import { useHasRole } from "../../hooks/useHasRole";
 import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
 import { searchApi, type SearchHit } from "../../api/search";
@@ -147,14 +148,20 @@ export function SidebarNavigation(): JSX.Element {
     markLanguageOverrideActive,
     clearLanguageOverride,
   } = useWorkspace();
-  const { logout, roles, isTenantAdmin } = useAuth();
+  const { logout, isTenantAdmin } = useAuth();
+  // R2/T1 (systemaudit 2026-09-02): `requires` mirrors the workspace `roles`
+  // a server-side page gate checks (`admin` also covers `editor`-gated
+  // items, matching how every other admin check in this component treats
+  // "admin" as a superset of lesser roles). Shared with RequirementForm/
+  // RequirementList/RequirementEditors (Task 5) via `useHasRole`.
+  const hasRole = useHasRole();
   // F-02 (code review, High): the equivalent language radios on the
   // Workspace Settings page are admin-only (`WorkspaceSettings.tsx`'s
   // `isAdmin` gate). `workspace.language` is a workspace-wide field shared
   // by every member, so this quick toggle must respect the same boundary —
   // a non-admin flipping it here must not silently change the language for
   // the whole workspace.
-  const isAdmin = roles.includes("admin");
+  const isAdmin = hasRole("admin");
   // Theme Presets: mode-only quick toggle — keeps the current palette and
   // flips dark <-> light (the highest-frequency action). Full palette
   // switching lives in WorkspaceSettings.
@@ -397,13 +404,6 @@ export function SidebarNavigation(): JSX.Element {
         setLangNotice({ kind: "error", text: t("nav.languageSaveFailed") });
       });
   };
-
-  // R2/T1 (systemaudit 2026-09-02): `requires` mirrors the workspace `roles`
-  // a server-side page gate checks (`admin` also covers `editor`-gated
-  // items, matching how every other admin check in this component treats
-  // "admin" as a superset of lesser roles).
-  const hasRole = (required?: "admin" | "editor"): boolean =>
-    !required || roles.includes(required) || roles.includes("admin");
 
   const visibleItems = NAV_ITEMS.filter((item) =>
     isFeatureVisible(item.feature)
