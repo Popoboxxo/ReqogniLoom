@@ -53,6 +53,21 @@ All planned features are implemented (2026-08-23). Matches 1:1 the already-verif
 ## [Archive/2026-08-23-system-workspace-banners-design.md](Archive/2026-08-23-system-workspace-banners-design.md)
 All planned features are implemented (2026-08-23, PR #713). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-23-system-workspace-banners.md`). One deliberate deviation: the spec's Data Model section describes a new standalone `banners` Django app, but the model was actually placed in the existing `admin_ops` app (`backend/admin_ops/models.py`) — a documented, architecturally-justified filing decision in the plan itself ("Layer 0, alongside `admin_ops`/`audit`"), not a scope gap.
 
+## [Archive/2026-08-24-theme-presets-design.md](Archive/2026-08-24-theme-presets-design.md)
+All planned features are implemented (PR #745, merged 2026-08-25). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-24-theme-presets.md`). Resolves issue **#707** — `gh issue view 707` confirms `state: CLOSED`.
+
+## [Archive/2026-08-20-multi-palette-theming-design.md](Archive/2026-08-20-multi-palette-theming-design.md)
+All 3 phases this spec describes are fully implemented, and the structural gap (#707) that previously kept this out of Archive/ is now resolved by [Archive/2026-08-24-theme-presets-design.md](Archive/2026-08-24-theme-presets-design.md) — palette and light/dark mode are now two independent axes.
+
+## [Archive/2026-08-22-multi-artifact-interview-design.md](Archive/2026-08-22-multi-artifact-interview-design.md)
+All planned features are implemented. Adapter registry `backend/application/interview_artifact_adapters.py` (+ `tests/test_interview_artifact_adapters.py`) exists exactly as sketched in the spec; `InterviewService` implements the multi-formalize path — see the matching implementation plan `Archive/2026-08-24-multi-artifact-interview.md` above.
+
+## [Archive/2026-08-24-ai-memory-and-search-design.md](Archive/2026-08-24-ai-memory-and-search-design.md)
+All planned features are implemented. `backend/memory/` app: `backends.py` (`PgvectorMemoryBackend`), `honcho_backend.py` (`HonchoMemoryBackend`), `context_builder.py` (prompt integration), `tasks.py` (consolidation pipeline), `projector.py`. MCP tools in `backend/mcp_server/tools/memory.py`. Matches implementation plan `docs/superpowers/plans/Archive/2026-08-24-ai-memory-and-search.md`.
+
+## [Archive/2026-08-26-memory-admin-ui-design.md](Archive/2026-08-26-memory-admin-ui-design.md)
+All 5 phases implemented (PRs #746, #748, #749, #750, #751) — see the five matching `docs/superpowers/plans/Archive/2026-08-2[67]-memory-admin-phase*.md` entries for per-phase evidence.
+
 ---
 
 ## Open / deferred (not archived)
@@ -63,7 +78,7 @@ All planned features are implemented (2026-08-23, PR #713). Matches the already-
 ## [2026-08-13-hermes-ide-plugin-design.md](2026-08-13-hermes-ide-plugin-design.md)
 **Partially resolved (2026-08-20), one item remains genuinely open:**
 - **Item 1 (Requirements Views and APIs) — still not implemented, superseded.** The core `connect → list → detail → form` Requirements management flow this spec describes was never built; `integrations/hermes-plugin/reqogniloom/src/` has no Requirement-specific API endpoints or components. Superseded by the interview-management approach instead (see the two `interview-management-*-design.md` entries in `Archive/`) — mirrors `docs/superpowers/plans/2026-08-13-hermes-ide-plugin-requirements-mvp.md`'s status. Nothing left to action for this item specifically.
-- **Item 2 (Status bar item) — resolved by PR #633.** The Issue #599 SDK port (`fix/hermes-plugin-sdk-port`) added an explicit `ctx.register({ id: "reqogniloom.status", area: "statusBar.right", ... })` call in the new `activate.ts`, which this item was asking for. Re-verify once #633 merges.
+- **Item 2 (Status bar item) — resolved by PR #633 (merged 2026-08-20).** The Issue #599 SDK port (`fix/hermes-plugin-sdk-port`) added an explicit `ctx.register({ id: "reqogniloom.status", area: "statusBar.right", ... })` call in the new `activate.ts`, which this item was asking for.
 
 ## [2026-08-14-interview-management-engine-design.md](2026-08-14-interview-management-engine-design.md)
 **Not implemented — newly found gap (2026-08-20), not previously tracked.** The spec requires a CI job that runs the plugin-package build scripts (`build_opencode_package.py`, etc.) in a temp directory and diffs against the committed `dist/` state, to close a drift gap from commit `c49a503`. No such job exists in `.github/workflows/` — `version-drift-check.yml` only checks deployed API versions against git history, not the plugin packages. No GitHub issue filed yet for this specific gap.
@@ -71,5 +86,5 @@ All planned features are implemented (2026-08-23, PR #713). Matches the already-
 ## [2026-08-16-prompt-variable-catalog-design.md](2026-08-16-prompt-variable-catalog-design.md)
 **Not implemented — tracked separately.** Phase 3 (Promptfoo test infrastructure) is entirely missing: no `export_promptfoo_configs` management command, no `backend/application/prompt_testing/cases/` directory, no CI job. Already tracked as GitHub Issue #587 ("feat: Promptfoo test infrastructure for prompt templates (Phase 3, Prompt Variable Catalog)") — do not file a duplicate.
 
-## [2026-08-20-multi-palette-theming-design.md](2026-08-20-multi-palette-theming-design.md)
-**Literal scope fully implemented, structural gap remains — kept out of Archive/ (2026-08-23).** All 3 phases this spec describes are fully built (verified in `docs/superpowers/plans/index.md`'s three `2026-08-2[01]-multi-palette-theming-phase*.md` entries) — the spec's own §5 already records all three as done with exact test counts. Not archived because open issue **#707** ("Theme palette and light/dark mode cannot be combined — flat list instead of two axes") is a structural gap this spec never addressed: palette and light/dark mode share one flat `THEMES` registry instead of being two independent, combinable axes. Tracked in `docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md` Group K (P3, needs its own architectural redesign spec).
+## [2026-09-03-attribute-definition-design.md](2026-09-03-attribute-definition-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. N/Q1.2. First of several independent follow-up specs from that audit (see the audit's own decomposition into ~11 architectural themes); implementation plan not yet written.
