@@ -100,7 +100,18 @@ default         Wert
 validation      {regex | min | max | length}
 ai_elicit       bool                        (Interview fragt dieses Feld ab)
 export          bool                        (ReqIF/CSV/Bundle)
+audience        "basic" | "expert", default "basic"   (Anzeigedichte, siehe unten —
+                Amendment aus der Rollenbasierte-Sichten-Spec)
 ```
+
+**`audience` (Amendment, 2026-09-03, aus der Rollenbasierte-Sichten-Spec):** steuert nur
+die Standard-Aufklapp-Dichte in `ArtifactForm` (`expert`-Sektionen defaulten
+eingeklappt), **keine** Sicherheits- oder Sichtbarkeitsgrenze — das bleibt `visible`.
+Gesetzt und geändert wird `audience` über denselben Editor wie jedes andere
+Meta-Property (Abschnitt 6.1), also zur Laufzeit durch einen Tenant-/Workspace-Admin,
+kein Deploy nötig. Volle Herleitung/Wirkung:
+[2026-09-03-rollenbasierte-sichten-design.md](2026-09-03-rollenbasierte-sichten-design.md)
+Abschnitt 4.
 
 **Sperre für `kind=core`:** Editor-UI und Backend-Write-Pfad lassen für Core-Attribute nur
 die Meta-Properties zu (`required`, `visible`, `editable`, `section`, `order`, `label`,
@@ -194,6 +205,10 @@ wird durch eine Sektions-/Attribut-Liste ersetzt. Konkret verwaltbar:
   **zwischen** Sektionen verschieben (setzt `section` neu). `locked`-Attribute (s. 3.1)
   sind von Sektions-/Order-Änderungen nicht ausgenommen — nur `visible`/`required`/
   `editable` sind für sie gesperrt.
+- **Anzeigedichte (`audience`):** pro Attribut ein Toggle "Nur für Experten" (Amendment
+  aus der Rollenbasierte-Sichten-Spec) — schaltet zwischen `basic` (immer aufgeklappt)
+  und `expert` (defaultet eingeklappt, siehe dortige Spec Abschnitt 4). Derselbe
+  Speicherpfad wie jede andere Meta-Property, keine separate UI-Fläche.
 
 ### 6.2 Rollout-Reihenfolge der Formular-Migration
 
@@ -251,9 +266,6 @@ aufzuweichen.
 
 ## 8. Bewusst nicht in dieser Spec
 
-- **`audience: basic | expert`** (Kap. T3) — gehört fachlich zur rollenbasierten
-  Sichten-Spec (Leser/Autor/Experte, Kap. T2), nicht hierher. Das Schema in Abschnitt 3.1
-  hat dafür Platz (ein weiteres optionales Property), wird hier aber nicht spezifiziert.
 - **Tiefere Interview-Neugestaltung** über das reine Protokoll-Ableiten hinaus (z. B.
   `formalize()`-Typ-Dispatch, Transkript-Deckelung, Provenienz-Anzeige — L2.1, L2.3, L2.4)
   — eigene Spec.
