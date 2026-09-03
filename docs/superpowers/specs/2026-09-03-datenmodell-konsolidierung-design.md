@@ -29,10 +29,17 @@ Artefaktmodell, obwohl `persistence.Artifact` (ADR-05) genau dafür gebaut wurde
   gegenüber dem Audit-Text:** alle sechs haben bereits eine `artifact`-OneToOne-FK zu
   `persistence.Artifact` (REQ-L2-TE-020-Muster) — der Fehler ist die Platzierung und die
   fehlende RLS-Vererbung, nicht ein fehlendes Artifact-Backing.
-- **Diagram/Icd ohne Artifact-Backing:** anders als die sechs oben haben `Diagram` und
-  `Icd` (eigene Apps, `TenantScopedModel`, aber bewusst von `persistence.Workspace`
-  entkoppelter `workspace_id`-UUID-Feld) **kein** Artifact-Backing. Vier Orte für
-  "Artefakt" statt einem.
+- **Diagram/Icd/GlossaryTerm ohne Artifact-Backing:** anders als die sechs oben haben
+  `Diagram` und `Icd` (eigene Apps, `TenantScopedModel`, aber bewusst von
+  `persistence.Workspace` entkoppelter `workspace_id`-UUID-Feld) **kein**
+  Artifact-Backing. **Korrektur (2026-09-03, entdeckt bei der Interview-Engine-Spec):**
+  entgegen dem Audit-Text (B2), der `GlossaryTerm` in die "hat schon Artifact +
+  Spezialtabelle"-Gruppe einsortiert, hat auch `GlossaryTerm`
+  (`persistence/models.py:1833`) **kein** `artifact`-FK — bestätigt durch
+  `interview_artifact_adapters.py`s `_glossary_term`-Adapter, der jede
+  Interview-Erstellung explizit mit "GlossaryTerm is not Artifact-backed yet" ablehnt.
+  GlossaryTerm bekommt daher dieselbe Behandlung wie Diagram/Icd (Abschnitt 4), nicht nur
+  diese zwei. Fünf Orte für "Artefakt" statt einem, nicht vier.
 - **Zwei Versionierungskonzepte** (B6): Audit-Log-basiert (`versions`+`diff` über
   `backend/audit/`, inkl. `VersionReconstructor`) für Need, Requirement, Architecture,
   TestCase, Adr, Risk, Issue, Glossary — parallel dazu eigene Snapshot-Tabellen
@@ -43,10 +50,10 @@ Artefaktmodell, obwohl `persistence.Artifact` (ADR-05) genau dafür gebaut wurde
 ## 2. Ziel
 
 Jeder der 10 Artefakttypen: eine `persistence.Artifact`-Zeile + eine spezialisierte
-`TenantScopedModel`-Tabelle (wie Requirement/StakeholderNeed/ArchitectureElement/
-TestCase/GlossaryTerm heute). Eine sichtbare Status-Achse (`WorkflowItemState.
-current_state`), ein orthogonales Soft-Delete-Flag (`lifecycle_status` auf `Artifact`),
-eine Versionierungsmaschine (Audit-Log-basiert) für alle 10 Typen.
+`TenantScopedModel`-Tabelle (wie Requirement/StakeholderNeed/ArchitectureElement/TestCase
+heute — `GlossaryTerm` erst nach Abschnitt 4 dieser Spec). Eine sichtbare Status-Achse
+(`WorkflowItemState.current_state`), ein orthogonales Soft-Delete-Flag (`lifecycle_status`
+auf `Artifact`), eine Versionierungsmaschine (Audit-Log-basiert) für alle 10 Typen.
 
 ## 3. Layer-Bereinigung: Adr, Risk, Goal, MainGoal, Issue, ChangeRequest
 
@@ -61,22 +68,29 @@ eine Versionierungsmaschine (Audit-Log-basiert) für alle 10 Typen.
    Single-Entry-Point-Fassade (ADR-01) wieder her, die B9 als eingehalten lobt, aber B2
    für diese sechs Typen als verletzt markiert.
 
-## 4. Diagram/Icd: Artifact-Backing nachrüsten
+## 4. Diagram/Icd/GlossaryTerm: Artifact-Backing nachrüsten
 
 1. Neues nullable `artifact = models.OneToOneField("persistence.Artifact", ...)` auf
-   `Diagram` und `Icd`, exakt das Muster von `Adr.artifact` (REQ-L2-TE-020).
-2. **Backfill-Migration:** für jede bestehende `Diagram`-/`Icd`-Zeile eine `Artifact`-Zeile
-   erzeugen (`artifact_type="Diagram"`/`"Icd"`, `workspace` aus dem bisherigen
-   `workspace_id`-UUID-Feld aufgelöst) und die neue `artifact`-FK setzen. Ein
-   Referential-Integrity-Check nach der Migration: genau eine neue `Artifact`-Zeile pro
-   Alt-Zeile, keine verwaisten oder doppelten Verknüpfungen.
-3. Neue Zeilen: `DiagramService.create_diagram`/`IcdService.create_icd` legen künftig
-   zuerst die `Artifact`-Zeile an, dann `Diagram`/`Icd` — wie `AdrService.create_adr` es
-   heute schon tut.
-4. Das ist eine bewusste Umkehr der früheren Entkopplungs-Entscheidung (der Code-Kommentar
-   in `diagram/models.py` nennt explizit "avoid coupling ... to the persistence app's
-   Workspace table"). Konsequenz und Nutzen: `diagram-ref`-TraceLinks (Audit B4) und
-   Baseline-Scope "Document" funktionieren für Diagramme/ICDs erst dadurch überhaupt.
+   `Diagram`, `Icd` **und `GlossaryTerm`**, exakt das Muster von `Adr.artifact`
+   (REQ-L2-TE-020).
+2. **Backfill-Migration:** für jede bestehende `Diagram`-/`Icd`-/`GlossaryTerm`-Zeile eine
+   `Artifact`-Zeile erzeugen (`artifact_type="Diagram"`/`"Icd"`/`"GlossaryTerm"`,
+   `workspace` aus dem bisherigen `workspace`/`workspace_id`-Feld aufgelöst — GlossaryTerm
+   hat bereits eine echte `Workspace`-FK, keine entkoppelte UUID wie Diagram/Icd) und die
+   neue `artifact`-FK setzen. Ein Referential-Integrity-Check nach der Migration: genau
+   eine neue `Artifact`-Zeile pro Alt-Zeile, keine verwaisten oder doppelten
+   Verknüpfungen.
+3. Neue Zeilen: `DiagramService.create_diagram`/`IcdService.create_icd`/
+   `GlossaryService.create_term` legen künftig zuerst die `Artifact`-Zeile an, dann die
+   spezialisierte Zeile — wie `AdrService.create_adr` es heute schon tut.
+4. Für Diagram/Icd ist das eine bewusste Umkehr der früheren Entkopplungs-Entscheidung
+   (der Code-Kommentar in `diagram/models.py` nennt explizit "avoid coupling ... to the
+   persistence app's Workspace table"); für GlossaryTerm ist es das Schließen einer
+   bisher unbemerkten Lücke, keine Umkehr einer bewussten Entscheidung. Konsequenz und
+   Nutzen: `diagram-ref`-TraceLinks (Audit B4), Baseline-Scope "Document" für
+   Diagramme/ICDs, **und Multi-Artefakt-Interviews für GlossaryTerm** (siehe
+   [2026-09-03-interview-engine-fix-design.md](2026-09-03-interview-engine-fix-design.md))
+   funktionieren erst dadurch überhaupt.
 
 ## 5. Status-Konsolidierung
 
