@@ -48,6 +48,12 @@ logger = logging.getLogger(__name__)
 # stay fast even when a dependency is unreachable.
 _CHECK_TIMEOUT_S = 1.0
 
+# The LLM provider probe is the one check that makes a real, external
+# model round-trip. ~1s is right for a local Redis PING but far too short
+# for a completion call: a perfectly healthy provider would be reported as
+# "down" on nearly every poll. It therefore gets its own, larger budget.
+_LLM_PROBE_TIMEOUT_S = 8.0
+
 STATUS_OK = "ok"
 STATUS_DEGRADED = "degraded"
 STATUS_DOWN = "down"
@@ -175,16 +181,30 @@ def _check_llm_provider() -> dict[str, str]:
     Beyond confirming an API key string is non-empty, this sends the
     shortest possible prompt through ``LlmCapabilityInterface.complete()``
     (REQ-L2-AI-002) — the same free-form completion capability every real
-    provider already exposes, via the same resilience-wrapped transport
-    (``llm_adapter.resilient_transport.resilient_call``) every other call
-    uses. No second, parallel LLM-calling path is introduced. A misconfigured
-    or expired API key, or an unreachable provider, now shows up as
-    STATUS_DOWN with the real error instead of a false STATUS_OK.
+    provider already exposes. A misconfigured or expired API key, or an
+    unreachable provider, now shows up as STATUS_DOWN with the real error
+    instead of a false STATUS_OK.
 
     Regression context (systemaudit 2026-09-02, R5/R7): a live audit found
     /health/ reported ``llm_provider: ok`` throughout an entire session
     while every real LLM call was actually failing with 401 — the old check
     only verified that ``LLM_API_KEY`` was a non-empty string.
+
+    Two deliberate deviations from the normal call path (final review):
+
+    * ``_LLM_PROBE_TIMEOUT_S`` instead of ``_CHECK_TIMEOUT_S`` — see the
+      constant's comment; 1s would make this probe report false negatives.
+    * The probe does **not** run through
+      ``llm_adapter.resilient_transport.resilient_call``. That transport
+      books failures against a circuit breaker keyed per provider *class*
+      (``llm:<provider_name>``) — the very same breaker real traffic
+      (decompose, validate, …) uses. A health probe that keeps failing
+      would trip that shared breaker Open and start fast-failing production
+      calls, i.e. the monitoring would cause the outage it reports. The
+      probe therefore neutralises the provider instance's ``_resilient``
+      hook for this one call: single attempt, no retries, no breaker
+      bookkeeping. The timeout is still enforced — every provider's
+      ``_chat`` passes its effective timeout straight to the SDK client.
     """
     provider = settings.LLM_PROVIDER
     if provider == "mock":
@@ -204,13 +224,20 @@ def _check_llm_provider() -> dict[str, str]:
 
         cfg = ProviderConfig(
             provider_name=provider,
-            timeout=_CHECK_TIMEOUT_S,
+            timeout=_LLM_PROBE_TIMEOUT_S,
             api_key=settings.LLM_API_KEY,
             api_base_url=settings.LLM_BASE_URL or None,
             model_name=settings.LLM_MODEL,
         )
-        get_provider(cfg).complete(
-            "ping", purpose="health_check", timeout=_CHECK_TIMEOUT_S
+        probe_provider = get_provider(cfg)
+        # Bypass resilient_call/PolicyEngine for this instance only — see the
+        # docstring: the shared per-provider-class breaker must not be moved
+        # by health traffic.
+        probe_provider._resilient = (  # noqa: SLF001 - deliberate, see docstring
+            lambda call, timeout_seconds=None: call()
+        )
+        probe_provider.complete(
+            "ping", purpose="health_check", timeout=_LLM_PROBE_TIMEOUT_S
         )
     except Exception as exc:  # noqa: BLE001 - any probe failure is a "down" row
         logger.warning("System health: LLM provider probe failed - %s", exc)
