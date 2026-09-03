@@ -144,7 +144,7 @@ openai>=1.40,<2.0
 # transformers>=5.0.0,<6.0.0. The only API this codebase uses
 # (SentenceTransformer(model_name).encode(text, normalize_embeddings=True))
 # is unchanged across this range (llm_adapter/embedding_service.py).
-sentence-transformers>=6.0.0,<7.0
+sentence-transformers>=6.0.1,<7.0
 
 # PCA + cosine-similarity clustering for the Memory Admin UI Phase 5
 # visualization endpoint (application/memory_admin_service.py::_pca_2d/
