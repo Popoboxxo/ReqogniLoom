@@ -363,6 +363,15 @@ class McpHttpTransportView(CorsMixin, View):
 
     def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Return server info / health check for HTTP GET."""
+        # H1/H5.2 (systemaudit 2026-09-02): an MCP client using StreamableHTTP
+        # opens a GET here expecting either a real event stream or a clean
+        # 405 telling it none exists. Returning 200 info-JSON made the MCP
+        # TypeScript SDK treat it as a stream that immediately closed, then
+        # reconnect-loop against this endpoint until it hit the per-IP rate
+        # limit.
+        if "text/event-stream" in request.headers.get("Accept", ""):
+            return HttpResponse(status=405)
+
         # Unauthenticated discovery endpoint — cheap per call, but there is no
         # reason to serve it at an unbounded rate either. In practice only the
         # per-IP backstop can fire here, since a discovery GET carries no key.
