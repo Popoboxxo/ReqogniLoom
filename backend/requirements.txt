@@ -131,7 +131,7 @@ reqif>=0.1.0,<0.2
 # LLM_PROVIDER=anthropic|openai call crashed with a raw RuntimeError; only
 # `mock` was actually usable. Pinned consistent with the other deps above.
 anthropic>=0.122.0,<1.0
-openai>=1.40,<2.0
+openai>=3.6.0,<4.0
 # Embedding provider (REQ-L2-VS-004) — sentence-transformers is the new default
 # embedding provider (384 dims, in-process, no external service). Optional
 # providers: ollama (768 dims) and openai (1536 dims, already listed above).
