@@ -15,7 +15,7 @@ Covers:
 """
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -265,6 +265,46 @@ class TestIndividualCheckGuards:
         assert result["name"] == "llm_provider"
         # Default settings run with LLM_PROVIDER=mock -> always ok.
         assert result["status"] == STATUS_OK
+
+    def test_check_llm_provider_reports_down_on_auth_failure(self, settings) -> None:
+        """R5/R7: a real probe call must surface a bad API key, not 'ok'.
+
+        Regression test for the live audit finding (systemaudit 2026-09-02):
+        /health/ reported llm_provider: ok for an entire session while every
+        real call was failing with 401 -- the old check only verified that
+        LLM_API_KEY was a non-empty string, never made a real call.
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-invalid-key-for-this-test"
+
+        fake_provider = MagicMock()
+        fake_provider.complete.side_effect = Exception("authentication failed (HTTP 401)")
+
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["name"] == "llm_provider"
+        assert result["status"] != STATUS_OK
+        assert "401" in result["detail"] or "authentication" in result["detail"].lower()
+
+    def test_check_llm_provider_reports_ok_on_successful_probe(self, settings) -> None:
+        """A real, successful probe call reports ok (not just 'key configured')."""
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = "pong"
+
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["name"] == "llm_provider"
+        assert result["status"] == STATUS_OK
+        fake_provider.complete.assert_called_once()
 
 
 class TestSystemHealthMemoryComponents:
