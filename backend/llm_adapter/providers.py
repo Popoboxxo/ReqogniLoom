@@ -1326,7 +1326,8 @@ class OpenAiProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
         data = _parse_validation_response(text)
@@ -1515,7 +1516,8 @@ class OllamaProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
         data = _parse_validation_response(text)
@@ -1670,7 +1672,8 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
         data = _parse_validation_response(text)
@@ -1844,7 +1847,8 @@ class OpencodeGoProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
         data = _parse_validation_response(text)

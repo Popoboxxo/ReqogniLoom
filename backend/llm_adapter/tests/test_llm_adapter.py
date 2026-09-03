@@ -50,11 +50,11 @@ class TestLlmResultDataclasses:
         assert r.score == 0.85
         assert r.token_usage == 42
 
-    def test_llm_result_score_above_one_raises(self):
+    def test_llm_result_score_above_one_normalizes(self):
         from llm_adapter.interface import LlmResult
 
-        with pytest.raises(ValueError):
-            LlmResult(score=1.5, suggestions=[], provider="x", model="y", token_usage=None)
+        r = LlmResult(score=1.5, suggestions=[], provider="x", model="y", token_usage=None)
+        assert r.score == pytest.approx(0.15)
 
     def test_llm_result_score_negative_raises(self):
         from llm_adapter.interface import LlmResult
