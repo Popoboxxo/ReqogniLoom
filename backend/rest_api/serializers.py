@@ -575,6 +575,28 @@ class CustomFieldsSerializerMixin(metaclass=serializers.SerializerMetaclass):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.messages[0] if exc.messages else str(exc))
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject unrecognised top-level keys with 400 (P0 audit finding R3).
+
+        Shared by every serializer that mixes this in (Artifact, Requirement,
+        StakeholderNeed, ArchitectureElement, ...): before this check, a typo'd
+        or unsupported key (e.g. ``parent_id`` on an entity that doesn't accept
+        it) was simply absent from ``validated_data`` and the create/update
+        still returned 200/201 — indistinguishable from success. Same
+        QIRK-002/#73/#580 pattern as UserProfileSerializer/TestCaseSerializer;
+        declared once here so entities sharing this mixin don't each reimplement
+        it.
+        """
+        attrs = super().validate(attrs)  # type: ignore[misc]
+        supplied = getattr(self, "initial_data", None)
+        if isinstance(supplied, dict):
+            errors = {
+                key: ["Unknown field."] for key in supplied if key not in self.fields
+            }
+            if errors:
+                raise serializers.ValidationError(errors)
+        return attrs
+
 
 # ---------------------------------------------------------------------------
 # Optimistic locking mixin (SYSTEMAUDIT_2026-08-29, REST finding 1)

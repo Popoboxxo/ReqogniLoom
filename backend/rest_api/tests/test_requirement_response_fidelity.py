@@ -313,6 +313,36 @@ def test_requirement_response_includes_suspect_field(fidelity_env):
     assert req["suspect"] is False
 
 
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_unknown_field_on_requirement_create_returns_400(fidelity_env):
+    """R3 (P0 audit): unrecognised top-level keys must 400, not silently drop.
+
+    Previously ``CustomFieldsSerializerMixin`` had no unknown-key check, so an
+    unrecognised field (e.g. a typo) was simply absent from ``validated_data``
+    and the create still returned 201 — indistinguishable from success.
+    """
+    client = _client(fidelity_env)
+    resp = client.post(
+        "/api/v1/requirements/",
+        {
+            "workspace_id": str(fidelity_env["workspace"].id),
+            "title": "Unknown-field test",
+            "not_a_real_field": "should 400",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    # Requirement create surfaces field-level validation errors under
+    # ``error.details`` (``[{"field": ..., "errors": [...]}]``, see
+    # RequirementViewSet.create), not in ``error.message`` — same envelope
+    # shape pinned by test_testcase_unknown_field_580.py for TestCase.
+    rejected_fields = {d["field"] for d in body["error"]["details"]}
+    assert "not_a_real_field" in rejected_fields
+
+
 def test_serializer_choices_match_the_model():
     """Guard the seam itself: no choice list may drift from the model again."""
     from persistence.models import VerificationMethod
