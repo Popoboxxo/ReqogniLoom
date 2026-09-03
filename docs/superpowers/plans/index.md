@@ -122,6 +122,42 @@ All planned remediation clusters are implemented (2026-08-22, PR #698): the crit
 ## [Archive/2026-08-23-system-workspace-banners.md](Archive/2026-08-23-system-workspace-banners.md)
 All planned features are implemented (2026-08-23, PR #713, merged). `backend/admin_ops/models.py:146,153,162` — `BannerScope`, `BannerLevel`, `Banner(TenantScopedModel)`. `backend/admin_ops/banner_rest.py` — `GlobalBannerView`, `WorkspaceBannerView`, `PublicLoginBannerView`; all three routes wired in `backend/rest_api/urls.py:192,334-341`. Frontend: `BannerStack.tsx`, `SystemSettings/BannerSection.tsx`, `WorkspaceSettings/WorkspaceBannerSection.tsx`, `NavigationShell/LoginPage.tsx`, each with tests and CSS modules. The plan's own final-review fix wave (DEFAULT_TENANT_ID bug, RLS policy, `Operation.READ` gating) is recorded in the plan text itself as already resolved — no open remainder.
 
+## [Archive/2026-08-24-theme-presets.md](Archive/2026-08-24-theme-presets.md)
+All planned features are implemented (PR #745, merged 2026-08-25) and closed issue **#707**. `backend/admin_ops/models.py:286` — `ThemePalette(TenantScopedModel)`; `backend/admin_ops/theme_rest.py` — `ThemePaletteListView`, `ThemePaletteDetailView`, `ThemePaletteExportView`. Frontend `ThemeContext.tsx` rewritten for two independent axes (`paletteKey` + `mode`, `STORAGE_KEY_PALETTE`/`STORAGE_KEY_MODE`), confirmed by its own header comment ("dropped when this file was rewritten for two-axis palettes"). `gh issue view 707` confirms `state: CLOSED`. This also resolves the shared structural gap that had kept the three multi-palette-theming phase plans and their design spec out of Archive/ — see below.
+
+## [Archive/2026-08-20-multi-palette-theming-phase1.md](Archive/2026-08-20-multi-palette-theming-phase1.md)
+All planned features are implemented, and the structural gap (#707) that previously kept this out of Archive/ is now resolved by [Archive/2026-08-24-theme-presets.md](Archive/2026-08-24-theme-presets.md) (PR #745) — palette and light/dark mode are now two independent, freely combinable axes. `gh issue view 707` confirms `state: CLOSED`.
+
+## [Archive/2026-08-21-multi-palette-theming-phase2.md](Archive/2026-08-21-multi-palette-theming-phase2.md)
+All planned features are implemented; same #707 resolution as Phase 1 above applies — see [Archive/2026-08-24-theme-presets.md](Archive/2026-08-24-theme-presets.md).
+
+## [Archive/2026-08-21-multi-palette-theming-phase3.md](Archive/2026-08-21-multi-palette-theming-phase3.md)
+All planned features are implemented; same #707 resolution as Phase 1 above applies — see [Archive/2026-08-24-theme-presets.md](Archive/2026-08-24-theme-presets.md).
+
+## [Archive/2026-08-24-multi-artifact-interview.md](Archive/2026-08-24-multi-artifact-interview.md)
+All planned features are implemented (PR #742, merged). `backend/persistence/models.py:2470` — `InterviewSessionArtifact(TenantScopedModel)`. `backend/application/interview_service.py:967` — `_formalize_multi(self, ctx, session, confirmed_proposal)` implements the atomic multi-artifact formalize path; `interview.protocol.multi` prompt template and proposal-preview parsing exist per `git log --grep`. Test coverage confirmed via `test_interview_formalize_multi.py::test_single_mode_formalize_unchanged` reference in the service module.
+
+## [Archive/2026-08-24-ai-memory-and-search.md](Archive/2026-08-24-ai-memory-and-search.md)
+All planned features are implemented (PR #746). `backend/memory/` app: `backends.py` (`PgvectorMemoryBackend`), `honcho_backend.py` (`HonchoMemoryBackend`), `context_builder.py`, `tasks.py` (consolidation pipeline, `tests/test_consolidation.py` + `test_consolidation_e2e.py`), `projector.py`. MCP tools in `backend/mcp_server/tools/memory.py`.
+
+## [Archive/2026-08-24-bugfix-session.md](Archive/2026-08-24-bugfix-session.md)
+Session-log/implementation plan against 30 referenced GitHub issues (17 in scope). PR #740 ("Bugfix session 2026-08-24 … 20 commits") merged, title/date match the plan. Sample of referenced issues (#662, #663, #664, #667, #682, #708, #710) all `CLOSED`. Archived here in the same style as `Archive/2026-08-18-systemaudit-bugfix-clusters.md`.
+
+## [Archive/2026-08-26-memory-admin-phase1-workspace-overview.md](Archive/2026-08-26-memory-admin-phase1-workspace-overview.md)
+Implemented (PR #746). `backend/application/memory_admin_service.py` (`MemoryAdminService`), REST endpoints, `frontend/src/components/SystemSettings/MemoryManagementSection.tsx`.
+
+## [Archive/2026-08-26-memory-admin-phase2-health-check.md](Archive/2026-08-26-memory-admin-phase2-health-check.md)
+Implemented (PR #748). `MemoryBackend.health_check()` in `backend/memory/backends.py:125,289`; two new checks in `backend/admin_ops/health_rest.py:240-341` (`_check_memory_embedding`, memory-backend check via `backend.health_check()`).
+
+## [Archive/2026-08-26-memory-admin-phase3-system-settings-override.md](Archive/2026-08-26-memory-admin-phase3-system-settings-override.md)
+Implemented (PR #749). `SystemMemorySettings` model; `SystemMemorySettingsView`/`SystemMemorySettingsResetView`/`WorkspaceMemorySettingsView` in `backend/rest_api/urls.py:60-478`; `frontend/src/components/SystemSettings/MemorySystemSettingsSection.tsx`.
+
+## [Archive/2026-08-26-memory-admin-phase4-user-self-service.md](Archive/2026-08-26-memory-admin-phase4-user-self-service.md)
+Implemented (PR #750). `MemorySelfServiceView` (GET+DELETE `/api/v1/memory/me/`) in `backend/memory/memory_rest.py:559`; `frontend/src/components/UserProfileSettings/MemorySection.tsx`.
+
+## [Archive/2026-08-27-memory-admin-phase5-visualization.md](Archive/2026-08-27-memory-admin-phase5-visualization.md)
+Implemented (PR #751). `frontend/src/components/SystemSettings/MemoryVisualizationSection.tsx` (List/Cluster/Scatter views); backend projection endpoints in `MemoryAdminService`.
+
 ---
 
 ## Open / deferred (not archived)
@@ -137,23 +173,3 @@ All planned features are implemented (2026-08-23, PR #713, merged). `backend/adm
 
 ## [2026-08-13-hermes-ide-plugin-requirements-mvp.md](2026-08-13-hermes-ide-plugin-requirements-mvp.md)
 **Superseded, not implemented as written — kept out of Archive/ deliberately.** The direct REST-backed CRUD architecture (connect → list → detail → form) this plan describes was never built; the plan's own text states it was superseded by an interview-management approach, which was built instead (see the three `2026-08-14-interview-management-*.md` entries in `Archive/`). Nothing left to action here, but the plan's *own* scope was not implemented — kept at top level rather than archived so that distinction stays visible.
-
-## [2026-08-20-multi-palette-theming-phase1.md](2026-08-20-multi-palette-theming-phase1.md)
-**Literal scope fully implemented, but a structural gap remains — kept out of Archive/ (2026-08-23).** Verified: `backend/rest_api/serializers.py:1108` (`theme` field), `backend/rest_api/views.py:3993,4262` (`_workspace_to_dict`/PATCH whitelist), `frontend/src/context/ThemeContext.tsx` (`hasStoredThemePreference`, restore-on-first-visit mechanism), `frontend/src/test/workspace-theme-persistence.test.tsx`. Not a gap in this phase's own text — see the shared note under Phase 3 below for the actual open issue (#707).
-
-## [2026-08-21-multi-palette-theming-phase2.md](2026-08-21-multi-palette-theming-phase2.md)
-**Literal scope fully implemented, but a structural gap remains — kept out of Archive/ (2026-08-23).** Verified: `frontend/src/test/ui-ratchet.test.ts:415-416` — `HEX_LITERAL_OCCURRENCE_BASELINE` reduced 90→18, `HEX_LITERAL_FILE_BASELINE` reduced 27→4, with a full checkpoint history in comments justifying the 18 remaining unmigratable hits. Not a gap in this phase's own text — see the shared note under Phase 3 below.
-
-## [2026-08-21-multi-palette-theming-phase3.md](2026-08-21-multi-palette-theming-phase3.md)
-**Literal scope fully implemented, but a structural gap remains — kept out of Archive/ (2026-08-23).** Verified: `frontend/src/styles/tokens.css` has complete `:root[data-theme="bauhaus"]` (line 823), `"nordic"` (945), `"sepia"` (1061) blocks; `ThemeContext.tsx:51-57` registers all 5 themes; `frontend/src/test/theme-contrast.test.ts` exists; i18n keys present in both locales; `WorkspaceSettings.tsx:457,465` renders the theme picker.
-
-**Why not archived despite 100% literal completion (applies to all three phases above):** all three phases build on `ThemeContext.tsx`'s flat `THEMES` registry (`Theme = string`, one `data-theme` attribute per entry) — palette and light/dark mode are the same axis, never two independent ones. This is confirmed as the root cause of open issue **#707** ("Theme palette and light/dark mode cannot be combined — flat list instead of two axes"), tracked in `docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md` Group K (P3, needs its own architectural brainstorming — a two-axis redesign, not a patch to any single phase). The gap is structural across all three phases equally, not isolated to one — none of the three is individually "the one missing the fix." Do not re-flag the individually-verified line-level facts above as gaps; only the two-axis combinability is open, tracked at #707.
-
-## [2026-08-24-multi-artifact-interview.md](2026-08-24-multi-artifact-interview.md)
-Implementation plan for the already-approved spec. Built on extensive codebase research correcting several wrong method-signature assumptions in the original spec (StakeholderNeedService, ArchitectureService, TestService, GoalService, TraceLinkService — using the real ones now). 15 bite-sized tasks: data model, adapter registry, atomic multi-formalize, MCP/REST wiring, and frontend (proposal preview graph, chat pane, entry point, provenance badge).
-
-## [2026-08-24-theme-presets-design.md](2026-08-24-theme-presets-design.md)
-Design spec resolving #707 structurally. Palette and light/dark mode become two independent, freely combinable axes. Colors move from static CSS into DB-backed `ThemePalette` model (single source of truth), enabling admin import/export as JSON. Server-persisted per-user preset plus tenant-wide System-Admin-configurable default. Sidebar included.
-
-## [2026-08-24-theme-presets.md](2026-08-24-theme-presets.md)
-Implementation plan with 10 tasks. Self-review caught and fixed a real gap: `SidebarNavigation.tsx` and `WorkspaceContext.tsx` also consume the old `useTheme()` API and would have broken at compile time. Both now covered alongside the originally-scoped `WorkspaceSettings.tsx`.
