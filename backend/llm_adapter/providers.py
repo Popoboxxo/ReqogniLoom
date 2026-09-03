@@ -1013,6 +1013,52 @@ def _parse_validation_response(text: str) -> dict:
         }
 
 
+def _parse_consistency_response(text: str) -> dict:
+    """Parse a check_consistency completion into a data dict.
+
+    Mirrors :func:`_parse_validation_response` (#576): every provider's
+    ``check_consistency`` used a bare ``json.loads(text)``, so a completion
+    where the model wraps the JSON payload in prose (e.g. "Sure, here is the
+    analysis: {...} Hope this helps!") raised an uncaught
+    ``json.JSONDecodeError`` whose raw parser message leaked straight through
+    the Celery task result to ``get_task_status()`` (systemaudit 2026-09-02,
+    R5/R7). Markdown fences are stripped first; if that still doesn't parse,
+    the substring between the first ``{`` and the last ``}`` is tried next.
+    On persistent failure this degrades to a structured, zero-confidence
+    result instead of letting the exception propagate.
+
+    Args:
+        text: The raw completion text returned by the provider.
+
+    Returns:
+        A dict with (at least) ``score``, ``suggestions`` and ``issues`` keys.
+    """
+    import json
+
+    cleaned = text.replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    logger.warning("Provider returned invalid JSON for check_consistency: %s", text)
+    return {
+        "score": 0.0,
+        "suggestions": [
+            "LLM provider returned a non-JSON response; consistency check "
+            "could not be scored automatically."
+        ],
+        "issues": [],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Anthropic provider
 # ---------------------------------------------------------------------------
@@ -1214,10 +1260,8 @@ class AnthropicProvider(_BaseHttpProvider):
                 ),
                 timeout_seconds=effective_timeout,
             )
-            import json
-
             raw = message.content[0].text
-            data = json.loads(raw)
+            data = _parse_consistency_response(raw)
             token_usage = (
                 message.usage.input_tokens + message.usage.output_tokens
                 if hasattr(message, "usage")
@@ -1412,15 +1456,13 @@ class OpenAiProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1562,15 +1604,13 @@ class OllamaProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1718,15 +1758,13 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1893,15 +1931,13 @@ class OpencodeGoProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
