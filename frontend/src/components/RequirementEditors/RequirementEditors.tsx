@@ -413,14 +413,21 @@ export default function RequirementEditors(): JSX.Element {
     <PageHeader
       title={t('nav.requirements')}
       summary={t('requirements.summary', { count: requirements.length })}
-      primaryAction={{
-        // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
-        // GH-343): every other artifact route reads "New <Entity>".
-        label: t('requirements.newRequirement'),
-        prefixWithPlus: true,
-        onClick: toggleCreateForm,
-        testId: 'create-req-btn',
-      }}
+      // R2/T1: the route's primary create trigger is a write action — a
+      // viewer must not find it in the DOM at all (same gate as Save/Delete/
+      // Ableiten below and the list's create/delete triggers).
+      primaryAction={
+        hasRole('editor')
+          ? {
+              // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
+              // GH-343): every other artifact route reads "New <Entity>".
+              label: t('requirements.newRequirement'),
+              prefixWithPlus: true,
+              onClick: toggleCreateForm,
+              testId: 'create-req-btn',
+            }
+          : undefined
+      }
       secondaryActions={[interviewCta]}
       overflowActions={[
         {

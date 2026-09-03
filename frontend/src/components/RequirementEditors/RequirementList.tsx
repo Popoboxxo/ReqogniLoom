@@ -408,9 +408,19 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           testId="req-list-empty"
           title={t('editor.emptyTitle')}
           description={t('editor.emptyDescription')}
-          actions={[
-            { label: t('requirements.newRequirement'), onClick: onCreateNew, testId: 'req-list-empty-create' },
-          ]}
+          // R2/T1: a viewer must not be offered a create action the server
+          // would reject — same gate as the per-row Delete trigger below.
+          actions={
+            hasRole('editor')
+              ? [
+                  {
+                    label: t('requirements.newRequirement'),
+                    onClick: onCreateNew,
+                    testId: 'req-list-empty-create',
+                  },
+                ]
+              : []
+          }
         />
       ) : visibleRequirements.length === 0 ? (
         <EmptyState variant="no-match" testId="req-list-no-match" onResetFilters={resetFilters} />

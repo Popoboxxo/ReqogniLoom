@@ -22,6 +22,12 @@ vi.mock('react-i18next', () => {
     typeof fallback === 'string' ? fallback : key;
   return { useTranslation: () => ({ t }) };
 });
+// The panel's write triggers are role-gated (R2/T1) via useHasRole -> useAuth,
+// which needs an AuthProvider. These tests are about link *rendering*, so stub
+// the gate open; the gate itself is covered in ReqTraceLinkPanel.roleGate.test.tsx.
+vi.mock('../../hooks/useHasRole', () => ({
+  useHasRole: () => (): boolean => true,
+}));
 
 import * as tracelinksModule from '../../api/tracelinks';
 import * as testcasesModule from '../../api/testcases';

@@ -1009,4 +1009,25 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     expect(screen.getByTestId("req-derive-testcase-btn")).toBeInTheDocument();
     expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
   });
+
+  // Final review: the route's PageHeader primary action ("New Requirement")
+  // was the last ungated create trigger on this route.
+  it("does not render the 'New Requirement' primary action for a viewer", async () => {
+    mockAuthRoles = ["viewer"];
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("create-req-btn")).not.toBeInTheDocument();
+  });
+
+  it("renders the 'New Requirement' primary action for an editor", async () => {
+    mockAuthRoles = ["editor"];
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument();
+    });
+  });
 });

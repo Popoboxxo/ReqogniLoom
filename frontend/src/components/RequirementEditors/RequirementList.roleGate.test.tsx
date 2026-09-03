@@ -48,10 +48,10 @@ function makeRequirement(overrides: Partial<Requirement> = {}): Requirement {
 
 const REQUIREMENTS: Requirement[] = [makeRequirement()];
 
-function renderList() {
+function renderList(requirements: Requirement[] = REQUIREMENTS) {
   return render(
     <RequirementList
-      requirements={REQUIREMENTS}
+      requirements={requirements}
       onSelect={vi.fn()}
       onDelete={vi.fn()}
       onCreateNew={vi.fn()}
@@ -86,5 +86,30 @@ describe("RequirementList — role-gated Delete trigger (R2/T1)", () => {
     expect(
       screen.getByTestId(`req-row-delete-${REQUIREMENTS[0].id}`)
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * Final review: the empty-state "New Requirement" action (`onCreateNew`) was
+ * the last ungated write trigger left in this component — a viewer on an
+ * empty workspace was offered a create action the server rejects.
+ */
+describe("RequirementList — role-gated create trigger (R2/T1)", () => {
+  it("does not render the empty-state create action for a viewer", () => {
+    mockRoles(["viewer"]);
+    renderList([]);
+    expect(screen.queryByTestId("req-list-empty-create")).not.toBeInTheDocument();
+  });
+
+  it("renders the empty-state create action for an editor", () => {
+    mockRoles(["editor"]);
+    renderList([]);
+    expect(screen.getByTestId("req-list-empty-create")).toBeInTheDocument();
+  });
+
+  it("renders the empty-state create action for an admin", () => {
+    mockRoles(["admin"]);
+    renderList([]);
+    expect(screen.getByTestId("req-list-empty-create")).toBeInTheDocument();
   });
 });
