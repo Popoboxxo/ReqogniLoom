@@ -252,6 +252,64 @@ class TestGenerateDraft:
         assert kwargs["input_tokens"] > 0
         assert kwargs["output_tokens"] > 0
 
+    def test_generate_prompt_carries_german_instruction_for_de_workspace(
+        self, tenant, ctx, monkeypatch
+    ):
+        """R5/R7 Sprache (systemaudit 2026-09-02): architecture.decompose
+        (N1) never referenced Workspace.language, so a `de` workspace's
+        generated tree answered in English -- the one derive-family flow
+        issue #795 did not cover (that fix only touched
+        AiDerivationService)."""
+        from unittest.mock import MagicMock
+
+        with _active(tenant):
+            de_workspace = Workspace.objects.create(
+                tenant=tenant, name="N1-WS-DE", language="de"
+            )
+            switch_preset(str(de_workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, de_workspace)
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = '[{"title": "Child A"}]'
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            ArchitectureDecomposeService().generate_draft(
+                ctx, root.id, max_breadth=2, max_depth=1
+            )
+
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert "Respond in German" in sent_prompt
+        assert "Respond in English" not in sent_prompt
+
+    def test_generate_prompt_carries_english_instruction_for_en_workspace(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """The default (`en`) workspace's prompt explicitly pins English too
+        -- mirrors AiDerivationService's convention (issue #795)."""
+        from unittest.mock import MagicMock
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = '[{"title": "Child A"}]'
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            ArchitectureDecomposeService().generate_draft(
+                ctx, root.id, max_breadth=2, max_depth=1
+            )
+
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert "Respond in English" in sent_prompt
+        assert "Respond in German" not in sent_prompt
+
     def test_generate_requires_anchor_requirement(self, tenant, workspace, ctx):
         with _active(tenant):
             switch_preset(str(workspace.id), "extended")

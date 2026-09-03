@@ -215,6 +215,59 @@ class TestReviewReferentialIntegrity:
         assert kwargs["input_tokens"] > 0
         assert kwargs["output_tokens"] > 0
 
+    def test_prompt_carries_german_instruction_for_de_workspace(
+        self, tenant, ctx, monkeypatch
+    ):
+        """R5/R7 Sprache (systemaudit 2026-09-02): audit.ai_review never
+        referenced Workspace.language, so a `de` workspace's KI-Review
+        answered in English -- the one derive-family flow issue #795 did not
+        cover (that fix only touched AiDerivationService)."""
+        from unittest.mock import MagicMock
+
+        with _active(tenant):
+            de_workspace = Workspace.objects.create(
+                tenant=tenant, name="AiReview-WS-DE", language="de"
+            )
+            _requirement(tenant, de_workspace, "Root")
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            AiReviewService().review(de_workspace.id, ctx, tier="extended")
+
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert "Respond in German" in sent_prompt
+        assert "Respond in English" not in sent_prompt
+
+    def test_prompt_carries_english_instruction_for_en_workspace(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """The default (`en`) workspace's prompt explicitly pins English too
+        -- mirrors AiDerivationService's convention (issue #795): an
+        un-instructed provider cannot be trusted to default to English on
+        its own."""
+        from unittest.mock import MagicMock
+
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert "Respond in English" in sent_prompt
+        assert "Respond in German" not in sent_prompt
+
 
 # ---------------------------------------------------------------------------
 # BUG-15 code review M2 — the truncation signal from AuditService.run_audit()
