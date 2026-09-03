@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from django.test import Client
+from django.test import Client, override_settings
 
 from persistence.models import Tenant
 from workflow.models import GlobalWorkflowDefinition, WorkflowEngineDefinition
@@ -101,3 +101,23 @@ class TestHealthWorkflowWarning:
 
         assert response.status_code == 503
         assert body["status"] == "degraded"
+
+
+@pytest.mark.django_db
+def test_health_reports_csrf_cookie_configuration():
+    client = Client()
+    with override_settings(AUTH_COOKIE_SECURE=True, CSRF_COOKIE_SECURE=True):
+        resp = client.get("/health/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["checks"]["csrf_cookie_secure_matches_auth"] == "ok"
+
+
+@pytest.mark.django_db
+def test_health_flags_csrf_cookie_mismatch():
+    client = Client()
+    with override_settings(AUTH_COOKIE_SECURE=False, CSRF_COOKIE_SECURE=True):
+        resp = client.get("/health/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["checks"]["csrf_cookie_secure_matches_auth"] == "mismatch"
