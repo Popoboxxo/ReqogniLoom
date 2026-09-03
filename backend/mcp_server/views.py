@@ -278,6 +278,31 @@ class McpHttpTransportView(CorsMixin, View):
         handler = _get_handler()
         headers = _extract_django_headers(request)
 
+        # R3 (P0-soforthaertung task 12): a JSON-array (batch) body is not a
+        # single JSON-RPC frame dict and would crash handle_http_request into
+        # the generic 500 handler below. Batch dispatch is out of scope — no
+        # client in this codebase's integration surface sends batched
+        # requests, and the MCP spec treats batch support as optional. Reject
+        # cleanly instead of forwarding it downstream.
+        try:
+            parsed_body = json.loads(request.body)
+        except (ValueError, TypeError):
+            parsed_body = None
+        if isinstance(parsed_body, list):
+            error_body = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "error_code": "INVALID_REQUEST",
+                    "message": "Batch requests are not supported.",
+                },
+            }
+            return HttpResponse(
+                json.dumps(error_body),
+                content_type="application/json",
+                status=400,
+            )
+
         try:
             response_frame = handler.handle_http_request(
                 body=request.body,
