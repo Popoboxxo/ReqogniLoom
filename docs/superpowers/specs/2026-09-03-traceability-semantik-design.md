@@ -80,13 +80,19 @@ Artifact-Feld `copied_from` statt einem Link.
 | `verifies` | TestCase→Req, TestCase→Arch | ja (Test-Coverage) | `target_change_flags_source` | 1.0 |
 | `decides` | Adr→* | nein | `none` | 0.3 |
 | `mitigates` | Risk→Req, Risk→Arch | nein | `none` | 0.5 |
-| `references` | *→GlossaryTerm, *→Diagram, *→Icd | nein | `none` | 0.2 |
+| `references` | *→GlossaryTerm, *→Diagram, *→Icd, *→ExternalRef **(neu, siehe unten)** | nein | `none` | 0.2 |
 | `diagram-ref` | Diagram→* (nur Reconciler) | nein | `none` | 0.2 |
 
 Gilt **immer** — die heutige `se_mode`-Gate und die "Typen außerhalb des Kern-Sets sind
 unbeschränkt"-Ausnahme entfallen ersatzlos. `TraceLinkService.create_trace_link`
 validiert bei jeder manuellen Link-Erstellung gegen den aufgelösten Katalog des
 Workspaces (Abschnitt 4).
+
+**Amendment (2026-09-03, beim Schreiben der GitHub/Jira-Anbindungs-Spec):** `ExternalRef`
+ist ein weiteres Artifact-backed Zielentity für `references`, analog zu
+GlossaryTerm/Diagram/Icd — siehe
+[2026-09-03-github-jira-integration-design.md](2026-09-03-github-jira-integration-design.md)
+Abschnitt 3.1.
 
 ### 3.3 Hierarchie
 
