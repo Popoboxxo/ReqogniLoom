@@ -36,7 +36,26 @@ OpenCode already looks for them:
 
 1. Merge `dist/opencode/opencode.json.snippet`'s `mcp.reqogniloom` block
    into your project's `opencode.json` (or `~/.config/opencode/opencode.json`
-   for a user-wide install).
+   for a user-wide install). Here's the expected configuration format:
+
+   ```json
+   {
+     "mcp": {
+       "reqogniloom": {
+         "type": "http",
+         "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
+         "options": {
+           "headers": {
+             "X-API-Key": "{env:REQOGNILOOM_API_KEY}"
+           }
+         }
+       }
+     }
+   }
+   ```
+
+   **Important:** OpenCode only expands `{env:NAME}` and `{file:path}` — a bare `{...}` is sent literally and the server will reject it as an invalid key (401). Make sure to use the `env:` prefix for environment variable references.
+
 2. Copy `dist/opencode/skills/*` into your project's `.opencode/skills/`.
    Each `SKILL.md` links to `../../DOMAIN_MODEL.md`, which this package does
    not ship (see the build script's reasoning) — also copy
