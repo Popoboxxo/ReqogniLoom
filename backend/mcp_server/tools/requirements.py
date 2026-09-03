@@ -65,6 +65,11 @@ def _requirement_to_dict(req: Any) -> Dict[str, Any]:
     not tell from the HTTP-200 response whether they were actually stored,
     the same response-fidelity gap fixed for the REST boundary in #344
     (see rest_api/views.py::_dto_from_orm).
+
+    ``suspect`` was the same gap one step later: it was added to the REST
+    surface (serializer + ``_dto_from_orm``) but not here, so an MCP agent
+    could not see that a requirement had been flagged suspect by
+    ``TraceLinkService.propagate_suspect_status``.
     """
     result: Dict[str, Any] = {
         "id": str(req.id),
@@ -77,6 +82,7 @@ def _requirement_to_dict(req: Any) -> Dict[str, Any]:
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        "suspect": getattr(req, "suspect", False),
         "version": req.version,
     }
     if hasattr(req, "artifact") and req.artifact:
