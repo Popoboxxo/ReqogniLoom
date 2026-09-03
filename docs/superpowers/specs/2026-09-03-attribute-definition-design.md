@@ -82,10 +82,15 @@ Ein Eintrag pro Feld, wie im Audit (Kap. N3) skizziert:
 ```
 name            z.B. "verification_method"
 kind            core | extended            (core = Django-Modellfeld, extended = custom_fields JSON)
-type            text | textarea | number | boolean | enum | multi-enum | date | reference | user
+type            text | textarea | number | boolean | enum | multi-enum | date | reference | user | widget
+widget_key      nur bei type=widget: z. B. "risk_matrix_rpz" — siehe 6.3
+fields[]        nur bei type=widget: Liste zugrundeliegender Attribut-Namen, falls das
+                Widget mehrere Modellfelder bündelt (z. B. AdrForm: description, context,
+                consequences unter einem "markdown_tab_group"-Widget)
 options[]       für enum/multi-enum: {value, label_de, label_en}
 required        bool
 visible         bool
+locked          bool, default false        (siehe unten — systemobligatorische Felder)
 editable        bool | "workflow"          ("workflow" = nur über Transition änderbar, z. B. status)
 section         "general" | "classification" | "change_control" | <frei>
 order           int
@@ -102,6 +107,22 @@ die Meta-Properties zu (`required`, `visible`, `editable`, `section`, `order`, `
 `help_text`, `default`, Untermenge von `options`, `ai_elicit`, `export`). `name`/`type`/die
 Existenz eines Core-Attributs sind durchs Django-Modell fixiert — ein `PUT`, der eine
 dieser Eigenschaften für ein Core-Attribut ändert, wird mit 400 abgelehnt.
+
+**Systemobligatorische Attribute (`locked`):** Manche Kern-Attribute dürfen nicht
+versteckt oder optional gemacht werden, weil das System ohne sie nicht konsistent
+funktioniert — der klare Fall ist das Status-/Workflow-State-Feld (`editable: "workflow"`)
+bei allen 10 Typen. Für `locked=true`:
+
+- `visible` ist fest `true`, `required` und `editable` sind nicht änderbar. Ein `PUT`, der
+  eines dieser drei Properties für ein `locked`-Attribut ändert, wird mit 400 abgelehnt.
+- Editor-UI zeigt die Zeile ausgegraut mit Schloss-Symbol statt der üblichen Toggles, mit
+  Tooltip "systemkritisch, nicht änderbar".
+- `order`, `section`, `label`, `help_text` bleiben änderbar — das ist rein kosmetisch und
+  bricht keine Invariante.
+- `locked` ist nur auf `kind=core`-Attributen zulässig (ein Extended-Feld kann per
+  Definition nie systemkritisch sein) und wird im Bootstrap-Script pro Typ kuratiert,
+  nicht automatisch aus `blank=False` abgeleitet. Initial nur das Status-Feld je Typ;
+  weitere Kandidaten kommen als expliziter Bootstrap-Eintrag dazu, nicht durch Heuristik.
 
 ### 3.2 Bootstrap
 
@@ -164,7 +185,15 @@ existieren einmal im Renderer statt siebenmal.
 `AttributeEditorPage` unter `/system-settings` (global, Tenant-Admin) und `/settings`
 (Workspace-Override, zeigt Abweichungen vom Global) — Shell 1:1 vom Workflow-Editor
 übernommen (`EntityTypeSelector`, `PresetSegmentedControl`, `InspectorPanel`), der Canvas
-wird durch eine Sektions-/Attribut-Liste mit Drag-Order ersetzt.
+wird durch eine Sektions-/Attribut-Liste ersetzt. Konkret verwaltbar:
+
+- **Sektionen:** anlegen, umbenennen, löschen (nur wenn leer), Reihenfolge der Sektionen
+  selbst per Drag ändern. `section` im Schema (3.1) ist bewusst freier Text, keine feste
+  Enum — die drei genannten Namen sind Konvention aus dem Bestand, keine Grenze.
+- **Attribute:** per Drag sowohl innerhalb einer Sektion umsortieren (`order`) als auch
+  **zwischen** Sektionen verschieben (setzt `section` neu). `locked`-Attribute (s. 3.1)
+  sind von Sektions-/Order-Änderungen nicht ausgenommen — nur `visible`/`required`/
+  `editable` sind für sie gesperrt.
 
 ### 6.2 Rollout-Reihenfolge der Formular-Migration
 
@@ -173,6 +202,40 @@ Architecture** → **Requirement zuletzt** (meiste Sonderfälle — Klassifikati
 Change-Control-Sektion, Ableiten/Testfall-generieren/Ähnliche-finden-Aktionen —, Renderer
 muss bis dahin alle Fälle abdecken, die die anderen sechs Formulare aufgeworfen haben).
 Jedes umgestellte Formular löscht sein handgeschriebenes Pendant, kein Parallelbetrieb.
+
+### 6.3 Paritäts-Policy: vollständige Ablösung ohne Funktionsverlust
+
+Die sieben Bestandsformulare unterscheiden sich heute in Verhalten, das keine
+Design-Absicht ist, sondern gewachsene Inkonsistenz (Audit N1): Dirty-Tracking-Warnung
+nur bei vier von sieben, Delete-im-Formular bei sechs von sieben, Status als Select+
+Transition-Buttons nur bei Requirement, `AttributeVisibilityConfig` wird nur von
+`NeedForm` gelesen. Policy für die Ablösung: **jede Fähigkeit, die heute in mindestens
+einem der sieben Formulare existiert, wird im neuen Renderer für ALLE zehn Typen
+verfügbar** — die Migration ist eine Vereinheitlichung nach oben (auf das jeweils beste
+heute existierende Verhalten), nie eine Kürzung. Konkret für jedes umgestellte Formular:
+Dirty-Warnung an, Delete-im-Formular vorhanden, Status als Select+Transition-Buttons wo
+ein Workflow existiert, `AttributeVisibilityConfig`-Nachfolger (jetzt: die Definition
+selbst) wird gelesen.
+
+**Sonderfälle, die keine reine Feld-Darstellung sind:** einige Bestandsformulare haben
+Widgets, die sich nicht in einen der acht Basis-Feldtypen (6) pressen lassen —
+Risiko-Matrix mit live berechneter RPZ in `RiskForm`, drei Markdown-Editoren mit
+Edit/Vorschau-Tabs in `AdrForm` (Beschreibung, Kontext, Konsequenzen als ein
+zusammengehöriges Widget statt drei Einzelfelder). Dafür der neunte Feldtyp `type: widget`
+aus 3.1, mit `widget_key` gegen eine registrierte Komponenten-Bibliothek:
+
+| `widget_key` | Ersetzt | Bindet an (`fields[]`) |
+|---|---|---|
+| `risk_matrix_rpz` | RiskForm-Risikomatrix | `probability`, `impact`, `detection` |
+| `markdown_tab_group` | AdrForm-Drei-Editoren | `description`, `context`, `consequences` |
+| `steps_editor` | fehlt heute (Audit-Befund V: `TestCase.steps` ohne Editor) | `steps` |
+
+`steps_editor` ist damit kein Verlust gegenüber dem Bestand, sondern schließt eine
+bestehende Lücke — TestCase hat heute *keinen* Steps-Editor, der neue Renderer bekommt
+einen. Die Widget-Bibliothek ist bewusst offen erweiterbar: taucht beim
+Formular-Rollout (6.2) ein weiterer Sonderfall auf, der sich nicht als Basis-Feldtyp
+ausdrücken lässt, wird ein weiterer `widget_key` registriert statt den Renderer-Vertrag
+aufzuweichen.
 
 ## 7. Konsumenten
 
@@ -213,7 +276,8 @@ Jedes umgestellte Formular löscht sein handgeschriebenes Pendant, kein Parallel
   Produktivdaten (Requirement- und Need-Konfiguration ist heute in Nutzung) — Migration
   braucht einen Dry-Run gegen eine Kopie der Produktionsdaten vor dem Rollout.
 - Der Formular-Renderer ersetzt sieben Formulare mit sehr unterschiedlichem
-  Funktionsumfang (S6 im Audit listet Sonderfälle wie die Risikomatrix im Risk-Formular,
-  drei Markdown-Editoren im ADR-Formular) — nicht jeder Sonderfall ist über
-  Feld-Komponenten abbildbar; einzelne Formulare könnten Renderer-Slots für
-  Custom-Widgets brauchen, die über die Basis-Feldtypen aus Abschnitt 6 hinausgehen.
+  Funktionsumfang. Der `widget`-Feldtyp (6.3) deckt die heute bekannten Sonderfälle
+  (Risikomatrix, ADR-Markdown-Tabs) ab — Restrisiko ist ein Sonderfall, der erst beim
+  Rollout eines einzelnen Formulars (6.2) auffällt und einen weiteren, noch nicht
+  antizipierten `widget_key` braucht. Das verzögert das jeweilige Formular, bricht aber
+  nicht den Renderer-Vertrag, weil die Widget-Bibliothek als Erweiterungspunkt gebaut ist.
