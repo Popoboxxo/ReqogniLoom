@@ -323,7 +323,10 @@ class AiReviewService(ServiceBase):
         """
         from django.conf import settings
 
-        from application.ai_derivation_service import LlmResponseError
+        from application.ai_derivation_service import (
+            AiDerivationService,
+            LlmResponseError,
+        )
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
@@ -341,6 +344,11 @@ class AiReviewService(ServiceBase):
         prompt = AI_REVIEW_PROMPT_TEMPLATE.format(
             findings_json=json.dumps(findings_payload)
         )
+        # R5/R7 Sprache (systemaudit 2026-09-02): reuse AiDerivationService's
+        # workspace-language directive (issue #795) rather than duplicating
+        # it -- audit.ai_review is the one content-generating flow that fix
+        # did not cover (it lives in a sibling module).
+        prompt += AiDerivationService._language_instruction(workspace_id)
         context = {"findings": findings_payload}
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
         audit_logger = LlmAuditLogger()

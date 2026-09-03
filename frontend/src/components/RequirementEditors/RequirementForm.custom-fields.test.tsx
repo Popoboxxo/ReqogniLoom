@@ -41,6 +41,14 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { preset: "standard" } }),
 }));
 
+// R2/T1 (systemaudit 2026-09-02): RequirementForm now reads roles via
+// useHasRole/useAuth to gate Save — this file is about custom-field reset
+// behavior, not role gating, so it stays on an editor session (role gating
+// itself is covered by RequirementForm.test.tsx's own role-gate block).
+vi.mock("../../context/AuthContext", () => ({
+  useAuth: () => ({ roles: ["editor"] }),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string, d?: string) => d ?? k }),
 }));

@@ -174,6 +174,43 @@ class TestRequirementsToolGroup:
         svc.get_requirement.assert_called_once_with(mock_req.id, EDITOR_CTX)
         mock_audit.assert_not_called()  # read tool → no audit
 
+    @pytest.mark.parametrize("suspect", [True, False])
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_get_exposes_suspect_flag(self, mock_audit, suspect):
+        """Response fidelity (same class of gap as #409): the MCP surface must
+        expose `suspect`, which REST already returns. Without it an agent
+        cannot see that TraceLinkService.propagate_suspect_status flagged the
+        requirement."""
+        group, svc = self._group()
+        mock_req = _mock_requirement()
+        mock_req.suspect = suspect
+        svc.get_requirement.return_value = mock_req
+
+        result = group.execute_tool(
+            tool_name="requirement.get",
+            params={"id": str(mock_req.id)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert result.data["requirement"]["suspect"] is suspect
+
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_query_exposes_suspect_flag(self, mock_audit):
+        group, svc = self._group()
+        mock_req = _mock_requirement()
+        mock_req.suspect = True
+        svc.list_requirements.return_value = [mock_req]
+
+        result = group.execute_tool(
+            tool_name="requirement.query",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert result.data["requirements"][0]["suspect"] is True
+
     @patch("mcp_server.tools.requirements.write_mcp_audit")
     def test_requirement_create_calls_service_and_audits(self, mock_audit):
         group, svc = self._group()

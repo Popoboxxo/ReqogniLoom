@@ -104,7 +104,7 @@ function installLocalStorageStub(): void {
 }
 
 
-function stubAuthFetch(roles: string[]): void {
+function stubAuthFetch(roles: string[], isTenantAdmin?: boolean): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -114,6 +114,7 @@ function stubAuthFetch(roles: string[]): void {
         user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles },
         tenant_id: null,
         roles,
+        is_tenant_admin: isTenantAdmin,
       }),
     }) as unknown as Response)
   );
@@ -234,6 +235,62 @@ describe("SidebarNavigation — theme mode quick toggle", () => {
 // is actually present in the DOM regardless of viewport size, so a real
 // scroll (verified by the e2e test) can always reach them.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Role-gated admin nav items (R2/T1 systemaudit 2026-09-02): a "viewer" saw
+// every nav item — including admin-only pages — with only the server
+// rejecting the actual request. Hide those links from roles that cannot use
+// the page behind them.
+// ---------------------------------------------------------------------------
+
+describe("SidebarNavigation — role-gated admin nav items (R2/T1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+  });
+
+  it("does not render admin-only items for a viewer", async () => {
+    stubAuthFetch(["viewer"]);
+    setListWorkspace(true);
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Workspace Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("System Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("User Management")).not.toBeInTheDocument();
+  });
+
+  it("renders admin-only items for an admin", async () => {
+    stubAuthFetch(["admin"]);
+    setListWorkspace(true);
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText("Workspace Settings")).toBeInTheDocument();
+    });
+    expect(screen.getByText("System Settings")).toBeInTheDocument();
+    expect(screen.getByText("User Management")).toBeInTheDocument();
+  });
+
+  // Tenant-admin is independent of the workspace `admin` role (see the
+  // NAV_ITEMS comment on /user-management) — this is exactly the case the
+  // dedicated isTenantAdmin OR-branch exists for, as opposed to the generic
+  // `requires` mechanism used for /settings and /system-settings.
+  it("renders User Management for a tenant-admin who lacks the workspace admin role, but still hides workspace/system settings", async () => {
+    stubAuthFetch(["viewer"], true);
+    setListWorkspace(true);
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByText("User Management")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Workspace Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("System Settings")).not.toBeInTheDocument();
+  });
+});
 
 describe("SidebarNavigation — scroll region contains all nav items (#449/#720)", () => {
   beforeEach(() => {

@@ -278,6 +278,31 @@ class McpHttpTransportView(CorsMixin, View):
         handler = _get_handler()
         headers = _extract_django_headers(request)
 
+        # R3 (P0-soforthaertung task 12): a JSON-array (batch) body is not a
+        # single JSON-RPC frame dict and would crash handle_http_request into
+        # the generic 500 handler below. Batch dispatch is out of scope — no
+        # client in this codebase's integration surface sends batched
+        # requests, and the MCP spec treats batch support as optional. Reject
+        # cleanly instead of forwarding it downstream.
+        try:
+            parsed_body = json.loads(request.body)
+        except (ValueError, TypeError):
+            parsed_body = None
+        if isinstance(parsed_body, list):
+            error_body = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "error_code": "INVALID_REQUEST",
+                    "message": "Batch requests are not supported.",
+                },
+            }
+            return HttpResponse(
+                json.dumps(error_body),
+                content_type="application/json",
+                status=400,
+            )
+
         try:
             response_frame = handler.handle_http_request(
                 body=request.body,
@@ -309,12 +334,10 @@ class McpHttpTransportView(CorsMixin, View):
         if "error" in response_frame:
             numeric_code = response_frame["error"].get("code")
             error_code = _NUMERIC_TO_ERROR_CODE.get(numeric_code, "")
-            if error_code in (
-                "AUTH_FAILED",
-                "PARSE_ERROR",
-                "INVALID_REQUEST",
-            ):
+            if error_code == "AUTH_FAILED":
                 http_status = 401
+            elif error_code in ("PARSE_ERROR", "INVALID_REQUEST"):
+                http_status = 400
             elif error_code == "PERMISSION_DENIED":
                 http_status = 403
             elif error_code in ("VALIDATION_ERROR", "UNKNOWN_TOOL"):
@@ -363,6 +386,15 @@ class McpHttpTransportView(CorsMixin, View):
 
     def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Return server info / health check for HTTP GET."""
+        # H1/H5.2 (systemaudit 2026-09-02): an MCP client using StreamableHTTP
+        # opens a GET here expecting either a real event stream or a clean
+        # 405 telling it none exists. Returning 200 info-JSON made the MCP
+        # TypeScript SDK treat it as a stream that immediately closed, then
+        # reconnect-loop against this endpoint until it hit the per-IP rate
+        # limit.
+        if "text/event-stream" in request.headers.get("Accept", ""):
+            return HttpResponse(status=405)
+
         # Unauthenticated discovery endpoint — cheap per call, but there is no
         # reason to serve it at an unbounded rate either. In practice only the
         # per-IP backstop can fire here, since a discovery GET carries no key.

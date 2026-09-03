@@ -10,6 +10,22 @@ combination), run it from the **repository root**, and the stack comes up.
 | `docker-compose.override.yml` | Dev overlay: hot-reload (`uvicorn --reload` / Vite dev server), source bind-mounts, weaker defaults. Auto-applied by `make up` (see repo-root `Makefile`). | Local development against the full stack only — **not** compatible with `docker-compose.minimal.yml` (it re-adds `celery`/`celery-beat`, defeating the point of minimal). |
 | `docker-compose.override.example.yml` | Documentation only — a commented-out template for optional local services (e.g. Ollama). **Never read by Compose itself** (wrong filename on purpose); copy it to `docker-compose.override.yml` and uncomment what you need. | Reference when wiring up an optional local service. |
 
+## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
+
+**Before you deploy**, verify that `AUTH_COOKIE_SECURE` and `CSRF_COOKIE_SECURE` are set to the **same value** in `.env`. This is a common misconfiguration in deployments without a TLS-terminating reverse proxy:
+
+- **Without a reverse proxy** (development, HTTP-only deployments): Set both to `False` (empty string in `.env`).
+- **Behind a reverse proxy with TLS termination** (HTTPS): Set both to `True`.
+
+If they mismatch, every UI form submission fails with a raw Django 403 CSRF error, even though the session is valid.
+
+**Verify the configuration is correct** after deployment by calling the health check:
+```bash
+curl http://localhost:8001/health/
+```
+
+If `"csrf_cookie_secure_matches_auth"` is `"mismatch"` in the response, you must fix `.env` and restart the backend container.
+
 ## Required flag: `--project-directory .`
 
 These compose files do **not** live in the repository root. Every direct `docker compose`

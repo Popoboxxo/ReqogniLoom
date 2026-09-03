@@ -304,6 +304,45 @@ def test_create_response_atomicity_warning_is_null_for_atomic_title(fidelity_env
     assert resp.json()["atomicity_warning"] is None
 
 
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_requirement_response_includes_suspect_field(fidelity_env):
+    client = _client(fidelity_env)
+    req = _create_requirement(client, fidelity_env["workspace"].id)
+    assert "suspect" in req
+    assert req["suspect"] is False
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_unknown_field_on_requirement_create_returns_400(fidelity_env):
+    """R3 (P0 audit): unrecognised top-level keys must 400, not silently drop.
+
+    Previously ``CustomFieldsSerializerMixin`` had no unknown-key check, so an
+    unrecognised field (e.g. a typo) was simply absent from ``validated_data``
+    and the create still returned 201 — indistinguishable from success.
+    """
+    client = _client(fidelity_env)
+    resp = client.post(
+        "/api/v1/requirements/",
+        {
+            "workspace_id": str(fidelity_env["workspace"].id),
+            "title": "Unknown-field test",
+            "not_a_real_field": "should 400",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    # Requirement create surfaces field-level validation errors under
+    # ``error.details`` (``[{"field": ..., "errors": [...]}]``, see
+    # RequirementViewSet.create), not in ``error.message`` — same envelope
+    # shape pinned by test_testcase_unknown_field_580.py for TestCase.
+    rejected_fields = {d["field"] for d in body["error"]["details"]}
+    assert "not_a_real_field" in rejected_fields
+
+
 def test_serializer_choices_match_the_model():
     """Guard the seam itself: no choice list may drift from the model again."""
     from persistence.models import VerificationMethod
@@ -313,3 +352,20 @@ def test_serializer_choices_match_the_model():
         RequirementSerializer().fields["verification_method"].choices
     )
     assert serializer_choices == set(VerificationMethod.values)
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_out_of_range_page_returns_404_not_500(fidelity_env):
+    """R3 (P0 audit): an out-of-range ``page`` must 404, not 500.
+
+    DRF's ``PageNumberPagination.paginate_queryset`` raises ``NotFound`` for
+    a page past the last one, which the shared exception handler
+    (``rest_api.error_envelope.reqogniloom_exception_handler``) must map to
+    the standard ``{"error": {...}}`` 404 envelope like any other DRF error.
+    """
+    client = _client(fidelity_env)
+    resp = client.get(
+        f"/api/v1/requirements/?workspace_id={fidelity_env['workspace'].id}&page=99"
+    )
+    assert resp.status_code == 404, resp.content

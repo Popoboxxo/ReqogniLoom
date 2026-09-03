@@ -28,13 +28,59 @@
  * instead of firing blind on mount.
  */
 
+import { useEffect, useState, type CSSProperties } from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./queries/queryClient";
-import { AuthProvider } from "./context/AuthContext";
+import { readCookie } from "./api/client";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
+
+// ---------------------------------------------------------------------------
+// CSRF-cookie-unreachable banner (systemaudit 2026-09-03, R2)
+//
+// Task 1 fixed the root cause backend-side: a production deployment over
+// plain HTTP silently drops the CSRF cookie, so every write from the UI
+// 403s. This is the frontend safety net — warn the user visibly instead of
+// a confusing 403 on their next click.
+//
+// A dedicated component (not inline in AppInner) so it can be unit-tested
+// without dragging in NavigationShell's Router dependency or the
+// Theme/Workspace providers' network calls — and so it can sit inside
+// AuthProvider as a proper descendant (`useAuth` throws outside one).
+// ---------------------------------------------------------------------------
+
+const csrfWarningStyle: CSSProperties = {
+  padding: "var(--space-2) var(--space-4)",
+  borderBottom: "1px solid var(--color-border)",
+  borderLeft: "4px solid var(--color-warning)",
+  background: "color-mix(in srgb, var(--color-warning) 12%, var(--color-surface-raised))",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+};
+
+export function CsrfCookieWarning(): JSX.Element | null {
+  const { status } = useAuth();
+  const [csrfWarning, setCsrfWarning] = useState(false);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    if (window.location.protocol !== "http:") return;
+    if (readCookie("csrftoken")) return;
+    setCsrfWarning(true);
+  }, [status]);
+
+  if (!csrfWarning) return null;
+
+  return (
+    <div role="alert" style={csrfWarningStyle}>
+      Diese Instanz ist ohne TLS erreichbar, Schreibzugriffe sind blockiert.
+      Admin: AUTH_COOKIE_SECURE=false setzen oder TLS aktivieren.
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Inner wrapper — needs Router context to call useNavigate
@@ -52,6 +98,7 @@ function AppInner(): JSX.Element {
         navigate("/login", { replace: true, state: { sessionExpired: true } })
       }
     >
+      <CsrfCookieWarning />
       <ThemeProvider>
         <WorkspaceProvider>
           <NavigationShell />

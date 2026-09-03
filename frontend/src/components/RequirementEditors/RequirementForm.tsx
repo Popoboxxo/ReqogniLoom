@@ -25,6 +25,7 @@ import { useEntityType } from '../../context/EntityTypeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
+import { useHasRole } from '../../hooks/useHasRole';
 import {
   Requirement,
   RequirementType,
@@ -131,6 +132,12 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const { isFieldVisible, isFieldRequired } = useEntityType();
   const { activeWorkspace } = useWorkspace();
   const isExtendedPreset = activeWorkspace?.preset === 'extended';
+  // R2/T1 (systemaudit 2026-09-02): a viewer must not see the Save button or
+  // a live Status-ändern trigger — only the server rejected the write
+  // before. Shared with SidebarNavigation/RequirementList/RequirementEditors
+  // via useHasRole (Task 4's hasRole, extracted).
+  const hasRole = useHasRole();
+  const canEdit = hasRole('editor');
   // #412: `acceptance_criteria` is part of `mandatory_fields` for BOTH the
   // 'standard' and 'extended' presets (backend/presets/registry.py), and is
   // enforced server-side by workflow.precondition_rules.check_mandatory_fields
@@ -571,14 +578,18 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             {/* REQ: primary actions live in the header for consistency across
                 all artifact forms (P1-f). */}
             <div style={{ display: 'flex', gap: 'var(--space-3)', flexShrink: 0 }}>
-              <button
-                data-testid="save-btn"
-                className="btn-primary"
-                onClick={() => void handleSave()}
-                disabled={isSaving}
-              >
-                {isSaving ? <Spinner label={t('actions.saving')} /> : t('actions.save')}
-              </button>
+              {/* R2/T1: rendered conditionally, not just disabled — a viewer
+                  must not find this button in the DOM at all. */}
+              {canEdit && (
+                <button
+                  data-testid="save-btn"
+                  className="btn-primary"
+                  onClick={() => void handleSave()}
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Spinner label={t('actions.saving')} /> : t('actions.save')}
+                </button>
+              )}
               {onCancel && (
                 <button
                   data-testid="cancel-btn"
@@ -773,7 +784,13 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                   artifactType="requirement"
                   artifactId={requirement.id}
                   currentStatus={requirement.status}
-                  disabled={isSaving}
+                  // R2/T1: `disabled` already makes WorkflowStatusEditor
+                  // degrade to badge-only (its transition trigger is not
+                  // rendered at all, see its own `interactive` check) — a
+                  // viewer gets the same non-interactive badge as a
+                  // terminal/uninitialized status, reusing that existing
+                  // mechanism instead of adding a second one here.
+                  disabled={isSaving || !canEdit}
                   onTransitionComplete={onSaved}
                 />
               </div>

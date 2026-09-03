@@ -15,7 +15,7 @@ Covers:
 """
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -265,6 +265,124 @@ class TestIndividualCheckGuards:
         assert result["name"] == "llm_provider"
         # Default settings run with LLM_PROVIDER=mock -> always ok.
         assert result["status"] == STATUS_OK
+
+    def test_check_llm_provider_reports_down_on_auth_failure(self, settings) -> None:
+        """R5/R7: a real probe call must surface a bad API key, not 'ok'.
+
+        Regression test for the live audit finding (systemaudit 2026-09-02):
+        /health/ reported llm_provider: ok for an entire session while every
+        real call was failing with 401 -- the old check only verified that
+        LLM_API_KEY was a non-empty string, never made a real call.
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-invalid-key-for-this-test"
+
+        fake_provider = MagicMock()
+        fake_provider.complete.side_effect = Exception("authentication failed (HTTP 401)")
+
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["name"] == "llm_provider"
+        assert result["status"] != STATUS_OK
+        assert "401" in result["detail"] or "authentication" in result["detail"].lower()
+
+    def test_check_llm_provider_reports_ok_on_successful_probe(self, settings) -> None:
+        """A real, successful probe call reports ok (not just 'key configured')."""
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = "pong"
+
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["name"] == "llm_provider"
+        assert result["status"] == STATUS_OK
+        fake_provider.complete.assert_called_once()
+
+    def test_llm_probe_uses_its_own_larger_timeout(self, settings) -> None:
+        """Final review: the probe must NOT reuse _CHECK_TIMEOUT_S (1.0s).
+
+        A real completion round-trip needs seconds, so a 1s budget would
+        report a healthy provider as "down" on nearly every poll — the exact
+        inverse of the bug this check exists to fix. The previous test only
+        asserted "complete was called", never *how*, which is why this slipped
+        through; assert the actual argument values here.
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        assert health_rest._LLM_PROBE_TIMEOUT_S > health_rest._CHECK_TIMEOUT_S
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = "pong"
+
+        with patch(
+            "llm_adapter.providers.get_provider", return_value=fake_provider
+        ) as get_provider_mock:
+            result = health_rest._check_llm_provider()
+
+        assert result["status"] == STATUS_OK
+        # The per-attempt timeout actually handed to the provider call.
+        assert (
+            fake_provider.complete.call_args.kwargs["timeout"]
+            == health_rest._LLM_PROBE_TIMEOUT_S
+        )
+        # ...and the same budget on the ProviderConfig the SDK client is built from.
+        cfg = get_provider_mock.call_args.args[0]
+        assert cfg.timeout == health_rest._LLM_PROBE_TIMEOUT_S
+
+    def test_llm_probe_does_not_use_shared_resilience_transport(
+        self, settings
+    ) -> None:
+        """Final review: the probe must not book failures against the shared
+        per-provider-class circuit breaker (``llm:<provider>``) that real
+        traffic uses — a repeatedly-failing probe would otherwise trip that
+        breaker Open and fast-fail production LLM calls.
+
+        The fake provider mirrors the real ``_chat`` shape (every transport
+        call goes through ``self._resilient``); if the probe did not
+        neutralise that hook, the call would raise and the check would report
+        "down".
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        class _FakeProvider:
+            def __init__(self) -> None:
+                self.completed_with: dict | None = None
+
+            def _resilient(self, call, timeout_seconds=None):  # noqa: ANN001
+                raise AssertionError(
+                    "health probe routed through the shared resilience "
+                    "transport / circuit breaker"
+                )
+
+            def complete(self, prompt, *, purpose="", context=None, timeout=None):  # noqa: ANN001
+                self.completed_with = {"prompt": prompt, "timeout": timeout}
+                # Mirrors the real providers: the transport call goes through
+                # self._resilient(...).
+                return self._resilient(lambda: "pong", timeout_seconds=timeout)
+
+        fake_provider = _FakeProvider()
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["status"] == STATUS_OK, result["detail"]
+        assert fake_provider.completed_with == {
+            "prompt": "ping",
+            "timeout": health_rest._LLM_PROBE_TIMEOUT_S,
+        }
 
 
 class TestSystemHealthMemoryComponents:

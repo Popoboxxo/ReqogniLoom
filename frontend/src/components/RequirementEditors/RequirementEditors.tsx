@@ -27,6 +27,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
+import { useHasRole } from '../../hooks/useHasRole';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { requirementsApi } from '../../api/requirements';
@@ -65,6 +66,11 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // R2/T1 (systemaudit 2026-09-02): a viewer must not see the "Testfall
+  // generieren" trigger or the ✨ "Ableiten" button (REQ-008) — only the
+  // server rejected those writes before. Shared with SidebarNavigation/
+  // RequirementForm/RequirementList via useHasRole.
+  const hasRole = useHasRole();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta('Requirement');
   // GH-443: opt-in to soft-deleted requirements (status="outdated").
@@ -407,14 +413,21 @@ export default function RequirementEditors(): JSX.Element {
     <PageHeader
       title={t('nav.requirements')}
       summary={t('requirements.summary', { count: requirements.length })}
-      primaryAction={{
-        // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
-        // GH-343): every other artifact route reads "New <Entity>".
-        label: t('requirements.newRequirement'),
-        prefixWithPlus: true,
-        onClick: toggleCreateForm,
-        testId: 'create-req-btn',
-      }}
+      // R2/T1: the route's primary create trigger is a write action — a
+      // viewer must not find it in the DOM at all (same gate as Save/Delete/
+      // Ableiten below and the list's create/delete triggers).
+      primaryAction={
+        hasRole('editor')
+          ? {
+              // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
+              // GH-343): every other artifact route reads "New <Entity>".
+              label: t('requirements.newRequirement'),
+              prefixWithPlus: true,
+              onClick: toggleCreateForm,
+              testId: 'create-req-btn',
+            }
+          : undefined
+      }
       secondaryActions={[interviewCta]}
       overflowActions={[
         {
@@ -661,7 +674,11 @@ export default function RequirementEditors(): JSX.Element {
           requirementId={requirement.id}
           requirements={requirements}
           onLinksChanged={refresh}
-          onAiDerive={handleAiDerive}
+          // R2/T1: ReqTraceLinkPanel already renders the ✨ Ableiten button
+          // conditionally on `onAiDerive` being provided (see its own props
+          // doc) — reused here instead of adding a second gate inside the
+          // panel.
+          onAiDerive={hasRole('editor') ? handleAiDerive : undefined}
           isAiDeriving={isAiDeriving}
         />
       )}
@@ -679,16 +696,20 @@ export default function RequirementEditors(): JSX.Element {
         </div>
       )}
 
-      {/* SysEng 2.0 N5: AI-generate a TestCase draft for this requirement */}
-      <div style={{ marginTop: 'var(--space-2)' }}>
-        <button
-          type="button"
-          onClick={() => setShowDeriveTestcasePanel(true)}
-          data-testid="req-derive-testcase-btn"
-        >
-          {t('deriveTestcase.trigger')}
-        </button>
-      </div>
+      {/* SysEng 2.0 N5: AI-generate a TestCase draft for this requirement.
+          R2/T1: rendered conditionally, not just disabled — a viewer must
+          not find this trigger in the DOM at all. */}
+      {hasRole('editor') && (
+        <div style={{ marginTop: 'var(--space-2)' }}>
+          <button
+            type="button"
+            onClick={() => setShowDeriveTestcasePanel(true)}
+            data-testid="req-derive-testcase-btn"
+          >
+            {t('deriveTestcase.trigger')}
+          </button>
+        </div>
+      )}
 
       {/* REQ-L2-VS-004: semantic similarity search */}
       <SimilarRequirementsPanel

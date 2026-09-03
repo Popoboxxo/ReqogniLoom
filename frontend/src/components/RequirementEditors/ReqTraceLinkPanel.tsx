@@ -43,6 +43,7 @@ import {
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';
+import { useHasRole } from '../../hooks/useHasRole';
 import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
@@ -170,6 +171,13 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // R2/T1: same workspace-role gate as SidebarNavigation/RequirementForm/
+  // RequirementList/RequirementEditors. The panel's write triggers (create
+  // TraceLink, delete TraceLink, derive a new Requirement) were the last
+  // ungated ones in this feature area — a viewer saw controls the server
+  // then rejected. Rendered conditionally, not merely disabled.
+  const hasRole = useHasRole();
+  const canEdit = hasRole('editor');
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -536,14 +544,16 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 ✨ {isAiDeriving ? t('actions.deriving', 'Leitet ab...') : t('actions.derive', 'Ableiten')}
               </button>
             )}
-            <button
-              type="button"
-              data-testid="req-tracelink-create-btn"
-              className="btn-primary"
-              onClick={openForm}
-            >
-              {t('traceability.create')}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                data-testid="req-tracelink-create-btn"
+                className="btn-primary"
+                onClick={openForm}
+              >
+                {t('traceability.create')}
+              </button>
+            )}
             <button
               type="button"
               data-testid="req-tracelink-viewall-btn"
@@ -831,26 +841,28 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                             {displayTitle}
                           </button>
                         )}
-                        <button
-                          data-testid="req-tracelink-delete-btn"
-                          onClick={() => setPendingDeleteLinkId(link.id)}
-                          style={{
-                            marginLeft: 'auto',
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--color-danger)',
-                            cursor: 'pointer',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 600,
-                          }}
-                          title={t('actions.delete')}
-                          // #741: title alone is only the last-resort fallback in
-                          // the accessible-name computation and is never surfaced on
-                          // touch — an icon-only button needs an explicit label.
-                          aria-label={t('actions.delete')}
-                        >
-                          <span aria-hidden="true">×</span>
-                        </button>
+                        {canEdit && (
+                          <button
+                            data-testid="req-tracelink-delete-btn"
+                            onClick={() => setPendingDeleteLinkId(link.id)}
+                            style={{
+                              marginLeft: 'auto',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--color-danger)',
+                              cursor: 'pointer',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 600,
+                            }}
+                            title={t('actions.delete')}
+                            // #741: title alone is only the last-resort fallback in
+                            // the accessible-name computation and is never surfaced on
+                            // touch — an icon-only button needs an explicit label.
+                            aria-label={t('actions.delete')}
+                          >
+                            <span aria-hidden="true">×</span>
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -938,26 +950,28 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                             {displayTitle}
                           </button>
                         )}
-                        <button
-                          data-testid="req-tracelink-delete-btn"
-                          onClick={() => setPendingDeleteLinkId(link.id)}
-                          style={{
-                            marginLeft: 'auto',
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--color-danger)',
-                            cursor: 'pointer',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 600,
-                          }}
-                          title={t('actions.delete')}
-                          // #741: title alone is only the last-resort fallback in
-                          // the accessible-name computation and is never surfaced on
-                          // touch — an icon-only button needs an explicit label.
-                          aria-label={t('actions.delete')}
-                        >
-                          <span aria-hidden="true">×</span>
-                        </button>
+                        {canEdit && (
+                          <button
+                            data-testid="req-tracelink-delete-btn"
+                            onClick={() => setPendingDeleteLinkId(link.id)}
+                            style={{
+                              marginLeft: 'auto',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--color-danger)',
+                              cursor: 'pointer',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 600,
+                            }}
+                            title={t('actions.delete')}
+                            // #741: title alone is only the last-resort fallback in
+                            // the accessible-name computation and is never surfaced on
+                            // touch — an icon-only button needs an explicit label.
+                            aria-label={t('actions.delete')}
+                          >
+                            <span aria-hidden="true">×</span>
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -970,6 +984,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
       {/* Derive a new Requirement from this one, allocated to an architecture
           element — same trigger/form shell as Needs and Architecture. */}
       <div style={{ marginTop: 'var(--space-4)' }}>
+        {canEdit && (
         <DeriveRequirementForm
           isOpen={showDeriveForm}
           onOpen={openDeriveForm}
@@ -985,6 +1000,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           error={deriveError}
           testIdPrefix="req"
         />
+        )}
       </div>
 
       {pendingDeleteLinkId && (

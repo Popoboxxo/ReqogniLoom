@@ -4,6 +4,7 @@ COMP-RA-006 HealthEndpoint — supports Kubernetes and Docker health checks.
 Implements both /health/ready (readiness) and /health/live (liveness) patterns.
 """
 import logging
+from django.conf import settings as django_settings
 from django.http import JsonResponse
 from django.db import connection
 from django.views import View
@@ -36,6 +37,26 @@ class HealthView(View):
             status["status"] = "degraded"
             http_status = 503
             logger.warning("Health check: database degraded - %s", e)
+
+        # CSRF-cookie security check: AUTH_COOKIE_SECURE must match CSRF_COOKIE_SECURE
+        # to avoid CSRF failures in deployments without a TLS-terminating reverse proxy.
+        csrf_matches = (
+            django_settings.CSRF_COOKIE_SECURE == django_settings.AUTH_COOKIE_SECURE
+        )
+        status["checks"]["csrf_cookie_secure_matches_auth"] = (
+            "ok" if csrf_matches else "mismatch"
+        )
+        if not csrf_matches:
+            # Escalate via the same `warnings` mechanism the workflow check
+            # below uses: status becomes "warning", http_status stays 200 so
+            # container/k8s probes are unaffected.
+            status["warnings"].append(
+                "CSRF_COOKIE_SECURE "
+                f"({django_settings.CSRF_COOKIE_SECURE}) does not match "
+                f"AUTH_COOKIE_SECURE ({django_settings.AUTH_COOKIE_SECURE}) — "
+                "expect CSRF failures in deployments without a "
+                "TLS-terminating reverse proxy"
+            )
 
         # Workflow-definition sanity check (#40): a GlobalWorkflowDefinition or
         # WorkflowEngineDefinition row with no `states` (empty list or missing

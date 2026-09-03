@@ -3909,6 +3909,7 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        "suspect": getattr(req, "suspect", False),
         "custom_fields": _artifact_custom_fields(req),
         "version": req.version,
         "created_at": req.created_at,

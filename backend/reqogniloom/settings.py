@@ -75,8 +75,10 @@ DEBUG: bool = _debug_requested and DJANGO_ENV in _NON_PROD_ENVS
 # SA-41: All cookie security settings follow the same pattern — environment-
 # controlled with prod-safe defaults (not DEBUG, but overridable for local/HTTP dev).
 AUTH_COOKIE_SECURE: bool = config("AUTH_COOKIE_SECURE", default=not DEBUG, cast=bool)
-SESSION_COOKIE_SECURE: bool = config("SESSION_COOKIE_SECURE", default=not DEBUG, cast=bool)
-CSRF_COOKIE_SECURE: bool = config("CSRF_COOKIE_SECURE", default=not DEBUG, cast=bool)
+SESSION_COOKIE_SECURE: bool = config(
+    "SESSION_COOKIE_SECURE", default=AUTH_COOKIE_SECURE, cast=bool
+)
+CSRF_COOKIE_SECURE: bool = config("CSRF_COOKIE_SECURE", default=AUTH_COOKIE_SECURE, cast=bool)
 # TLS redirect and proxy headers — only active if a reverse proxy terminates TLS
 # and forwards traffic as HTTP with X-Forwarded-Proto. SECURE_SSL_REDIRECT defaults
 # to False (opt-in). Set to True ONLY if a TLS-terminating reverse proxy is in front

@@ -25,20 +25,43 @@ vi.mock("../../api/client", () => ({
 }));
 
 // Stub the workflow editor so this stays a focused unit test of the form.
+// R2/T1 (systemaudit 2026-09-02): also surfaces `disabled` so the role-gate
+// tests below can assert the form passes it through — the real
+// WorkflowStatusEditor already treats `disabled` as "badge only, no
+// transition trigger rendered" (not just visually inert), so RequirementForm
+// only needs to feed it the right boolean, not duplicate that behavior.
 vi.mock("../WorkflowStatusEditor", () => ({
   WorkflowStatusEditor: (props: {
     artifactType: string;
     artifactId: string;
     currentStatus: string;
+    disabled?: boolean;
   }) => (
     <div
       data-testid="workflow-status-editor-stub"
       data-artifact-type={props.artifactType}
       data-artifact-id={props.artifactId}
       data-current-status={props.currentStatus}
+      data-disabled={String(!!props.disabled)}
     />
   ),
 }));
+
+// R2/T1: role gate — RequirementForm reads roles via useAuth (through the
+// shared useHasRole hook), so mock the context module the same way
+// CustomFieldsSection.test.tsx does rather than duplicating role logic here.
+vi.mock("../../context/AuthContext");
+import * as authModule from "../../context/AuthContext";
+function mockRoles(roles: string[]): void {
+  vi.mocked(authModule.useAuth).mockReturnValue({
+    roles,
+  } as unknown as ReturnType<typeof authModule.useAuth>);
+}
+// Baseline for every describe block below that predates the role gate and
+// assumes an editor/admin session (e.g. clicking save-btn) — mockReturnValue
+// survives vi.clearAllMocks() (it only clears call/result history, not the
+// implementation), so this single call is the default for the whole file.
+mockRoles(["admin"]);
 
 // Field names an AttributeVisibilityConfig row marks as required. Empty by
 // default, mirroring the real defaults: with no config rows (the state of a
@@ -987,5 +1010,74 @@ describe("RequirementForm — reports unsaved-edit state via onDirtyChange (#672
     fireEvent.click(screen.getByTestId("save-btn"));
     await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+  });
+});
+
+/**
+ * R2/T1 (systemaudit 2026-09-02): a live audit found that a "viewer" role
+ * saw the Save button and the Status-ändern transition trigger — only the
+ * server rejected the actual write. Both must be genuinely absent from the
+ * DOM for a viewer, not merely disabled (spec: "nicht gerendert, nicht nur
+ * deaktiviert") — same contract Task 4 established for admin-only nav items.
+ */
+describe("RequirementForm — role-gated write controls (R2/T1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(requirementsApi.update).mockResolvedValue(
+      {} as unknown as Requirement
+    );
+  });
+
+  afterEach(() => {
+    // Restore the file-wide default so later describe blocks (which predate
+    // this gate) are unaffected by whatever role a test here set.
+    mockRoles(["admin"]);
+  });
+
+  it("does not render the Save button for a viewer", () => {
+    mockRoles(["viewer"]);
+    renderForm();
+    expect(screen.queryByTestId("save-btn")).not.toBeInTheDocument();
+  });
+
+  it("passes disabled=true to the workflow status editor for a viewer, hiding its transition trigger", () => {
+    mockRoles(["viewer"]);
+    renderForm();
+    expect(
+      screen.getByTestId("workflow-status-editor-stub")
+    ).toHaveAttribute("data-disabled", "true");
+  });
+
+  it("still renders the Cancel button for a viewer (not a write action)", () => {
+    mockRoles(["viewer"]);
+    render(
+      <RequirementForm
+        requirement={baseReq}
+        upstreamLinks={[]}
+        downstreamLinks={[]}
+        linkedTitles={{}}
+        linkedRoutes={{}}
+        requirements={[]}
+        workspaceId="ws-1"
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("cancel-btn")).toBeInTheDocument();
+  });
+
+  it("renders the Save button and an enabled workflow status editor for an editor", () => {
+    mockRoles(["editor"]);
+    renderForm();
+    expect(screen.getByTestId("save-btn")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("workflow-status-editor-stub")
+    ).toHaveAttribute("data-disabled", "false");
+  });
+
+  it("renders the Save button for an admin (superset of editor)", () => {
+    mockRoles(["admin"]);
+    renderForm();
+    expect(screen.getByTestId("save-btn")).toBeInTheDocument();
   });
 });
