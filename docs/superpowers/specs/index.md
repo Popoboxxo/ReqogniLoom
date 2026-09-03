@@ -87,4 +87,7 @@ All 5 phases implemented (PRs #746, #748, #749, #750, #751) — see the five mat
 **Not implemented — tracked separately.** Phase 3 (Promptfoo test infrastructure) is entirely missing: no `export_promptfoo_configs` management command, no `backend/application/prompt_testing/cases/` directory, no CI job. Already tracked as GitHub Issue #587 ("feat: Promptfoo test infrastructure for prompt templates (Phase 3, Prompt Variable Catalog)") — do not file a duplicate.
 
 ## [2026-09-03-attribute-definition-design.md](2026-09-03-attribute-definition-design.md)
-**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. N/Q1.2. First of several independent follow-up specs from that audit (see the audit's own decomposition into ~11 architectural themes); implementation plan not yet written.
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. N/Q1.2. First of several independent follow-up specs from that audit (see the audit's own decomposition into ~11 architectural themes); implementation plan not yet written. Has a real ordering dependency on the second spec below — see its Section 7.
+
+## [2026-09-03-datenmodell-konsolidierung-design.md](2026-09-03-datenmodell-konsolidierung-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. B1/B2/B6/Q2.3. Second of several independent follow-up specs from the same audit. Its Section 7 documents an ordering dependency: this spec's status-consolidation phase must land before the attribute-definition spec's bootstrap migration. Implementation plan not yet written.
