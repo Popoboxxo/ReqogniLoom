@@ -724,6 +724,11 @@ class RequirementSerializer(
             "4=Presentation). NULL until assigned explicitly."
         ),
     )
+    # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation
+    # logic (TraceLinkService.propagate_suspect_status) already existed;
+    # only the serializer never declared it, so DRF silently dropped it from
+    # every response. Read-only: only propagate_suspect_status may set it.
+    suspect = serializers.BooleanField(read_only=True)
     uid = serializers.CharField(
         max_length=64,
         read_only=True,

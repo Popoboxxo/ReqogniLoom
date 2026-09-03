@@ -304,6 +304,15 @@ def test_create_response_atomicity_warning_is_null_for_atomic_title(fidelity_env
     assert resp.json()["atomicity_warning"] is None
 
 
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_requirement_response_includes_suspect_field(fidelity_env):
+    client = _client(fidelity_env)
+    req = _create_requirement(client, fidelity_env["workspace"].id)
+    assert "suspect" in req
+    assert req["suspect"] is False
+
+
 def test_serializer_choices_match_the_model():
     """Guard the seam itself: no choice list may drift from the model again."""
     from persistence.models import VerificationMethod
