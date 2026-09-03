@@ -352,3 +352,20 @@ def test_serializer_choices_match_the_model():
         RequirementSerializer().fields["verification_method"].choices
     )
     assert serializer_choices == set(VerificationMethod.values)
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_out_of_range_page_returns_404_not_500(fidelity_env):
+    """R3 (P0 audit): an out-of-range ``page`` must 404, not 500.
+
+    DRF's ``PageNumberPagination.paginate_queryset`` raises ``NotFound`` for
+    a page past the last one, which the shared exception handler
+    (``rest_api.error_envelope.reqogniloom_exception_handler``) must map to
+    the standard ``{"error": {...}}`` 404 envelope like any other DRF error.
+    """
+    client = _client(fidelity_env)
+    resp = client.get(
+        f"/api/v1/requirements/?workspace_id={fidelity_env['workspace'].id}&page=99"
+    )
+    assert resp.status_code == 404, resp.content
