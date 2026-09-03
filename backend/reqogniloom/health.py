@@ -40,11 +40,23 @@ class HealthView(View):
 
         # CSRF-cookie security check: AUTH_COOKIE_SECURE must match CSRF_COOKIE_SECURE
         # to avoid CSRF failures in deployments without a TLS-terminating reverse proxy.
-        status["checks"]["csrf_cookie_secure_matches_auth"] = (
-            "ok"
-            if django_settings.CSRF_COOKIE_SECURE == django_settings.AUTH_COOKIE_SECURE
-            else "mismatch"
+        csrf_matches = (
+            django_settings.CSRF_COOKIE_SECURE == django_settings.AUTH_COOKIE_SECURE
         )
+        status["checks"]["csrf_cookie_secure_matches_auth"] = (
+            "ok" if csrf_matches else "mismatch"
+        )
+        if not csrf_matches:
+            # Escalate via the same `warnings` mechanism the workflow check
+            # below uses: status becomes "warning", http_status stays 200 so
+            # container/k8s probes are unaffected.
+            status["warnings"].append(
+                "CSRF_COOKIE_SECURE "
+                f"({django_settings.CSRF_COOKIE_SECURE}) does not match "
+                f"AUTH_COOKIE_SECURE ({django_settings.AUTH_COOKIE_SECURE}) — "
+                "expect CSRF failures in deployments without a "
+                "TLS-terminating reverse proxy"
+            )
 
         # Workflow-definition sanity check (#40): a GlobalWorkflowDefinition or
         # WorkflowEngineDefinition row with no `states` (empty list or missing

@@ -111,6 +111,9 @@ def test_health_reports_csrf_cookie_configuration():
     assert resp.status_code == 200
     body = resp.json()
     assert body["checks"]["csrf_cookie_secure_matches_auth"] == "ok"
+    # The "ok" case must not escalate the top-level status.
+    assert body["status"] == "ok"
+    assert not any("CSRF_COOKIE_SECURE" in w for w in body["warnings"])
 
 
 @pytest.mark.django_db
@@ -121,3 +124,9 @@ def test_health_flags_csrf_cookie_mismatch():
     assert resp.status_code == 200
     body = resp.json()
     assert body["checks"]["csrf_cookie_secure_matches_auth"] == "mismatch"
+    # Final review: a mismatch must escalate via the same `warnings`
+    # mechanism the workflow check uses, so monitoring that only watches the
+    # top-level `status` sees it. http_status must stay 200 (warning, not
+    # failure) so container/k8s probes are unaffected.
+    assert body["status"] == "warning"
+    assert any("CSRF_COOKIE_SECURE" in w for w in body["warnings"])
