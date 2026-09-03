@@ -322,6 +322,76 @@ class TestSuggestLinksReferentialIntegrity:
 
 
 # ---------------------------------------------------------------------------
+# R5/R7 (systemaudit 2026-09-02) — non-retryable provider errors fail fast
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestLinksFailsFastOnNonRetryableProviderError:
+    def test_suggest_links_fails_fast_on_non_retryable_provider_error(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """R5/R7 (systemaudit 2026-09-02): a 401 from the real provider SDK
+        must not make suggest_links wait out the full 180s
+        LLM_LONG_RUNNING_TIMEOUT (``llm_adapter/timeouts.py``) -- it must
+        abort within the resilience policy's own (short) budget instead.
+
+        Reproduces the actual call chain traced for this task: suggest_links
+        -> _complete() -> provider.complete() -> AnthropicProvider._chat()
+        -> _resilient() -> resilient_call() ->
+        PolicyEngine.execute_with_policy(), with the Anthropic SDK client
+        itself raising a 401 immediately (no network delay) -- exactly the
+        audit's reported failure mode.
+        """
+        import time
+
+        import anthropic
+
+        from application.traceability_suggest_service import SuggestLinksResponseError
+        from llm_adapter.providers import AnthropicProvider, ProviderConfig
+
+        class _Fake401(Exception):
+            status_code = 401
+
+        class _FakeMessages:
+            def create(self, **kwargs):
+                raise _Fake401("unauthorized")
+
+        class _FakeAnthropicClient:
+            def __init__(self, **kwargs):
+                self.messages = _FakeMessages()
+
+        monkeypatch.setattr(anthropic, "Anthropic", _FakeAnthropicClient)
+
+        provider = AnthropicProvider(
+            ProviderConfig(provider_name="anthropic", api_key="fake-key", timeout=30)
+        )
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: provider
+        )
+
+        with _active(tenant):
+            _need(
+                tenant, workspace, "Login authentication need",
+                "Users must authenticate securely.",
+            )
+            _requirement(
+                tenant, workspace, "Login authentication requirement",
+                "The system shall authenticate users securely.",
+            )
+
+        started = time.monotonic()
+        with _active(tenant):
+            with pytest.raises(SuggestLinksResponseError):
+                TraceabilitySuggestService().suggest_links(
+                    workspace.id, ctx, tier="standard"
+                )
+        elapsed = time.monotonic() - started
+        assert elapsed < 10.0, (
+            f"took {elapsed:.1f}s — non-retryable error was retried/awaited"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Defense-in-depth — a misbehaving provider must not leak fake references
 # ---------------------------------------------------------------------------
 
