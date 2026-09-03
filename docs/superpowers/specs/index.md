@@ -91,3 +91,6 @@ All 5 phases implemented (PRs #746, #748, #749, #750, #751) — see the five mat
 
 ## [2026-09-03-datenmodell-konsolidierung-design.md](2026-09-03-datenmodell-konsolidierung-design.md)
 **Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. B1/B2/B6/Q2.3. Second of several independent follow-up specs from the same audit. Its Section 7 documents an ordering dependency: this spec's status-consolidation phase must land before the attribute-definition spec's bootstrap migration. Implementation plan not yet written.
+
+## [2026-09-03-traceability-semantik-design.md](2026-09-03-traceability-semantik-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. B4/U1-U3/Q1.6/Q2.4. Third of several independent follow-up specs from the same audit. Reduces 15 trace-link types to 8, makes the link-type catalog a configurable Global/Workspace system object (same inheritance pattern as workflow-defaults and attribute-definition), and implements the suspect-propagation mechanism that already-filed GitHub issue #849 needs. Has a cross-spec note (Section 5) for the datenmodell-konsolidierung spec (`suspect` should eventually move to `Artifact`, not implemented there yet). Implementation plan not yet written.
