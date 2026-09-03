@@ -334,12 +334,10 @@ class McpHttpTransportView(CorsMixin, View):
         if "error" in response_frame:
             numeric_code = response_frame["error"].get("code")
             error_code = _NUMERIC_TO_ERROR_CODE.get(numeric_code, "")
-            if error_code in (
-                "AUTH_FAILED",
-                "PARSE_ERROR",
-                "INVALID_REQUEST",
-            ):
+            if error_code == "AUTH_FAILED":
                 http_status = 401
+            elif error_code in ("PARSE_ERROR", "INVALID_REQUEST"):
+                http_status = 400
             elif error_code == "PERMISSION_DENIED":
                 http_status = 403
             elif error_code in ("VALIDATION_ERROR", "UNKNOWN_TOOL"):
