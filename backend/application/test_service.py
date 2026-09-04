@@ -32,6 +32,7 @@ from django.db.models import F, Q, QuerySet
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
 from persistence.transactions import atomic_transaction
+from workflow import state_reader
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -321,9 +322,10 @@ class TestService(ServiceBase):
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
 
         REQ-006: Excludes outdated (soft-deleted) test cases by default. Pass
-        ``include_deleted=True`` for admin/audit access. ``TestCase`` is
-        registered in ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``,
-        so outdate() mirrors the "outdated" state into the `status` column.
+        ``include_deleted=True`` for admin/audit access. Datenmodell-
+        Konsolidierung Phase 1: the exclusion reads WorkflowItemState via
+        ``workflow.state_reader`` rather than the (still-present, but no
+        longer read) ``status`` mirror column.
 
         Issue #267 (same root cause as RequirementService.list_requirements):
         ``search`` case-insensitively filters on title/description/uid via
@@ -337,7 +339,16 @@ class TestService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: "outdated" is read from
+            # WorkflowItemState now that TestCase.status is no longer the
+            # seam (the column still exists as a mirror -- see
+            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS -- but it is
+            # not read here anymore).
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "TestCase", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         if test_type is not None:
             qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
         if search:

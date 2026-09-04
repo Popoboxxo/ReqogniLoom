@@ -13,6 +13,7 @@ from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
 from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
 from persistence.transactions import atomic_transaction
+from workflow import state_reader
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -54,7 +55,27 @@ class StakeholderNeedDTO:
     custom_fields: dict = None  # REQ-L2-AS-037: user-defined attributes
 
     @classmethod
-    def from_orm(cls, need: StakeholderNeed) -> "StakeholderNeedDTO":
+    def from_orm(
+        cls, need: StakeholderNeed, *, status: str | None = None
+    ) -> "StakeholderNeedDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
+
+        Pass a pre-resolved *status* when building many DTOs in one pass
+        (see ``list_by_workspace``) so the engine lookup is batched via
+        ``state_reader.current_states`` instead of once per row. When
+        omitted, resolves a single item via ``state_reader.current_state``,
+        falling back to the still-present ``status`` column when the engine
+        has no ``WorkflowItemState`` row for it -- StakeholderNeed can live
+        in a definition-less workspace (no WorkflowEngineDefinition at all),
+        so this is a real, not just theoretical, case -- or when no tenant
+        context is active (e.g. a caller building the DTO outside a
+        request-scoped service call).
+        """
+        if status is None:
+            try:
+                status = state_reader.current_state("StakeholderNeed", need.id)
+            except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
+                status = None
         return cls(
             id=need.id,
             workspace_id=need.artifact.workspace_id,
@@ -68,7 +89,7 @@ class StakeholderNeedDTO:
             title=need.title,
             description=need.description,
             category=need.category,
-            status=need.status,
+            status=status or need.status,
             moscow_priority=need.moscow_priority,
             uid=need.uid,
             suspect=need.suspect,
@@ -117,13 +138,19 @@ class StakeholderNeedService(ServiceBase):
             created_by_id=ctx.user_id,
             custom_fields=_clean_custom_fields(custom_fields),
         )
+        # Datenmodell-Konsolidierung: the `status` column is no longer read by
+        # any service-layer consumer (WorkflowItemState.current_state is
+        # authoritative, seeded below by initialize_workflow_states() from the
+        # workflow definition's own initial_state -- not from this argument).
+        # `status` is still accepted for backward API compatibility, but it is
+        # deliberately not written here; the model field's own default keeps
+        # the column non-null until it is dropped (Task 12).
         need = StakeholderNeed.objects.create(
             artifact=artifact,
             tenant_id=ctx.tenant_id,
             title=title,
             description=description,
             category=category,
-            status=status,
             moscow_priority=moscow_priority,
             created_by_id=ctx.user_id,
         )
@@ -187,17 +214,35 @@ class StakeholderNeedService(ServiceBase):
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            # Phase 0: outdate() mirrors the "outdated" state into `status`,
-            # not `lifecycle_status` (StakeholderNeed is registered in
-            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS).
-            needs = needs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: "outdated" is read from
+            # WorkflowItemState now that StakeholderNeed.status is no longer
+            # the seam (the column still exists as a mirror -- see
+            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS -- but it is
+            # not read here anymore).
+            needs = needs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "StakeholderNeed", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         if search:
             needs = needs.filter(
                 Q(title__icontains=search)
                 | Q(description__icontains=search)
                 | Q(uid__icontains=search)
             )
-        return [StakeholderNeedDTO.from_orm(n) for n in needs]
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- see
+        # rest_api/mixins/workflow_state.py's identical batching rationale).
+        needs = list(needs)
+        status_map = state_reader.current_states(
+            "StakeholderNeed", [n.id for n in needs]
+        )
+        return [
+            StakeholderNeedDTO.from_orm(
+                n, status=status_map.get(str(n.id)) or n.status
+            )
+            for n in needs
+        ]
 
     @atomic_transaction
     def update(

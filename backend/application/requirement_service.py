@@ -43,6 +43,7 @@ from persistence.models import (
 )
 from persistence.transactions import TransactionContextManager, atomic_transaction
 from traceability.types import LinkType
+from workflow import state_reader
 
 from application.base import (
     LlmNotConfiguredError,
@@ -120,13 +121,26 @@ class RequirementDTO:
 
     @classmethod
     def from_orm(cls, req: Requirement) -> "RequirementDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
+
+        Falls back to the still-present ``status`` column when the engine has
+        no ``WorkflowItemState`` row for it -- Requirement can live in a
+        definition-less workspace (no WorkflowEngineDefinition at all), so
+        this is a real, not just theoretical, case -- or when no tenant
+        context is active (e.g. a caller building the DTO outside a
+        request-scoped service call).
+        """
+        try:
+            engine_status = state_reader.current_state("Requirement", req.id)
+        except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
+            engine_status = None
         return cls(
             id=req.id,
             workspace_id=req.artifact.workspace_id,
             title=req.title,
             description=req.description,
             category=req.category,
-            status=req.status,
+            status=engine_status or req.status,
             version=req.version,
         )
 
@@ -619,11 +633,17 @@ class RequirementService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted and status != "outdated":
-            # Phase 0: delete_requirement() routes through workflow.services.outdate(),
-            # which mirrors the new state into Requirement.status (not
-            # lifecycle_status) via _STATUS_MIRROR_MODELS. Filter on the field
-            # that outdate() actually writes.
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: delete_requirement() routes
+            # through workflow.services.outdate(); "outdated" is read from
+            # WorkflowItemState now that Requirement.status is no longer the
+            # seam (the column still exists as a mirror -- see
+            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS -- but it is
+            # not read here anymore).
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Requirement", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         if status:
             qs = qs.filter(status=status)
         if search:
@@ -1100,8 +1120,13 @@ class RequirementService(ServiceBase):
 
         rows = (
             Requirement.objects.filter(artifact__workspace_id=workspace_id)
-            # Phase 0: outdate() mirrors into `status`, not `lifecycle_status`.
-            .exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: read "outdated" from
+            # WorkflowItemState, not the Requirement.status mirror.
+            .exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Requirement", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
             .only("id", "title", "description")
         )
         artifacts = [

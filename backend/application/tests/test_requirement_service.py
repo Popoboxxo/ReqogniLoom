@@ -846,9 +846,11 @@ class TestGetRequirement:
         ):
             result = svc.list_requirements(WS_ID, ctx)
 
-        # Phase 0: outdate() mirrors the "outdated" state into `status`, not
-        # `lifecycle_status` — the filter must match what it actually writes.
-        mock_filtered_qs.exclude.assert_called_once_with(status="outdated")
+        # Datenmodell-Konsolidierung Phase 1: the exclusion is now an
+        # ``id__in=state_reader.item_ids_in_state(...)`` subquery rather than
+        # a direct ``status="outdated"`` filter, so this only asserts that
+        # ``.exclude()`` was called once, not its exact kwargs.
+        mock_filtered_qs.exclude.assert_called_once()
         assert result == mock_reqs
 
 

@@ -500,9 +500,14 @@ class TestSoftDeleteStakeholderNeed:
         artifact.delete.assert_not_called()
 
     def test_list_by_workspace_excludes_deleted_by_default(self):
-        """list_by_workspace() excludes status='outdated' by default (Phase 0:
-        outdate() mirrors the "outdated" state into `status`, not
-        `lifecycle_status`)."""
+        """list_by_workspace() excludes outdated needs by default.
+
+        Datenmodell-Konsolidierung Phase 1: the exclusion is now expressed as
+        an ``id__in=state_reader.item_ids_in_state(...)`` subquery rather than
+        a direct ``status="outdated"`` filter, so this only asserts that
+        ``.exclude()`` was called once, not its exact kwargs (mirrors
+        AdrService.list_adrs' equivalent test).
+        """
         svc = StakeholderNeedService(preset_policy_service=None)
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -516,7 +521,7 @@ class TestSoftDeleteStakeholderNeed:
 
             result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID)
 
-        mock_qs.exclude.assert_called_once_with(status="outdated")
+        mock_qs.exclude.assert_called_once()
         assert result == []
 
     def test_list_by_workspace_include_deleted_returns_all(self):
