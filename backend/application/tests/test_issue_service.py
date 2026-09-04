@@ -179,8 +179,10 @@ class TestIssueValidator:
 
 class TestIssueDTO:
     def test_from_orm_maps_fields(self):
+        """Datenmodell-Konsolidierung: `status` is now supplied by the caller
+        (resolved from the workflow engine), not read off the ORM row."""
         issue = _make_issue(tags=["ui", "frontend"])
-        dto = IssueDTO.from_orm(issue)
+        dto = IssueDTO.from_orm(issue, status=issue.status)
         assert dto.id == issue.id
         assert dto.severity == issue.severity
         assert dto.status == issue.status
@@ -431,12 +433,18 @@ class TestListIssuesExcludesOutdated:
     workflow.services.outdate() by default."""
 
     def test_list_issues_excludes_outdated_by_default(self):
+        """Datenmodell-Konsolidierung: the exclusion now filters on
+        ``id__in=state_reader.item_ids_in_state(...)``, not a status kwarg."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         with (
             patch("application.issue_service.Issue.objects") as mock_mgr,
             patch("application.issue_service.IssueService._set_tenant_context"),
+            patch(
+                "application.issue_service.state_reader.item_ids_in_state",
+                return_value="OUTDATED_IDS",
+            ) as mock_seam,
         ):
             qs_mock = MagicMock()
             qs_mock.exclude.return_value = qs_mock
@@ -445,7 +453,8 @@ class TestListIssuesExcludesOutdated:
 
             svc.list_issues(workspace_id=WS_ID, ctx=ctx)
 
-        qs_mock.exclude.assert_called_once_with(status="outdated")
+        mock_seam.assert_called_once_with("Issue", "outdated", tenant_id=ctx.tenant_id)
+        qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
 
     def test_list_issues_include_deleted_skips_exclude(self):
         svc = IssueService()

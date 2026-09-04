@@ -41,6 +41,7 @@ from application.optimistic_lock import (
     lock_for_version_check,
 )
 from traceability.types import LinkType
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,9 @@ class AdrDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, adr: Adr) -> "AdrDTO":
+    def from_orm(cls, adr: Adr, *, status: str = "") -> "AdrDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
+        resolved_status = status
         return cls(
             id=adr.id,
             workspace_id=adr.workspace_id,
@@ -80,7 +83,7 @@ class AdrDTO:
             context=adr.context,
             decision=adr.decision,
             consequences=adr.consequences,
-            status=adr.status,
+            status=resolved_status,
             version=adr.version,
         )
 
@@ -193,6 +196,13 @@ class AdrService(ServiceBase):
             artifact_type="Adr",
         )
 
+        # Datenmodell-Konsolidierung: the `status` column is no longer read by
+        # any service-layer consumer (WorkflowItemState.current_state is
+        # authoritative, seeded below by initialize_workflow_states() from the
+        # workflow definition's own initial_state — not from this argument).
+        # `status` is still validated above so bad input is rejected, but it
+        # is deliberately not written here; the model field's own default
+        # keeps the column non-null until it is dropped (Task 12).
         adr = Adr.objects.create(
             artifact=artifact,
             workspace_id=workspace_id,
@@ -202,7 +212,6 @@ class AdrService(ServiceBase):
             context=context,
             decision=decision,
             consequences=consequences,
-            status=status,
             uid=uid,
             created_by=str(ctx.user_id),
         )
@@ -406,15 +415,16 @@ class AdrService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        qs = Adr.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        )
+        qs = Adr.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_deleted:
-            # Phase 0: delete_adr() routes through workflow.services.outdate(),
-            # which mirrors the new state as "outdated" (not Adr.Status.DELETED)
-            # into Adr.status via _STATUS_MIRROR_MODELS. Filter on the value
-            # outdate() actually writes.
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: soft-delete routes through
+            # workflow.services.outdate(); the state is read from
+            # WorkflowItemState now that Adr.status is no longer the seam.
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Adr", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         return qs.order_by("created_at")
 
     def list_adrs_by_status(
@@ -435,7 +445,9 @@ class AdrService(ServiceBase):
             Adr.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                status=status,
+                id__in=state_reader.item_ids_in_state(
+                    "Adr", status, tenant_id=ctx.tenant_id
+                ),
             ).order_by("created_at")
         )
 

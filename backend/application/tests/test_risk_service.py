@@ -576,12 +576,18 @@ class TestListRisksExcludesOutdated:
     workflow.services.outdate() by default."""
 
     def test_list_risks_excludes_outdated_by_default(self):
+        """Datenmodell-Konsolidierung: the exclusion now filters on
+        ``id__in=state_reader.item_ids_in_state(...)``, not a status kwarg."""
         svc = RiskService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         with (
             patch("application.risk_service.Risk.objects") as mock_mgr,
             patch("application.risk_service.RiskService._set_tenant_context"),
+            patch(
+                "application.risk_service.state_reader.item_ids_in_state",
+                return_value="OUTDATED_IDS",
+            ) as mock_seam,
         ):
             qs_mock = MagicMock()
             qs_mock.exclude.return_value = qs_mock
@@ -590,7 +596,8 @@ class TestListRisksExcludesOutdated:
 
             svc.list_risks(workspace_id=WS_ID, ctx=ctx)
 
-        qs_mock.exclude.assert_called_once_with(status="outdated")
+        mock_seam.assert_called_once_with("Risk", "outdated", tenant_id=ctx.tenant_id)
+        qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
 
     def test_list_risks_include_deleted_skips_exclude(self):
         svc = RiskService()

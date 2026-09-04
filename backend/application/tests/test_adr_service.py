@@ -108,8 +108,10 @@ class TestAdrValidator:
 
 class TestAdrDTO:
     def test_from_orm_maps_fields(self):
+        """Datenmodell-Konsolidierung: `status` is now supplied by the caller
+        (resolved from the workflow engine), not read off the ORM row."""
         adr = _make_adr(decision="Use REST")
-        dto = AdrDTO.from_orm(adr)
+        dto = AdrDTO.from_orm(adr, status=adr.status)
         assert dto.id == adr.id
         assert dto.workspace_id == adr.workspace_id
         assert dto.title == adr.title

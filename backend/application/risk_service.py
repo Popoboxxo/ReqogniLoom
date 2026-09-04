@@ -40,6 +40,7 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,9 @@ class RiskDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, risk: Risk) -> "RiskDTO":
+    def from_orm(cls, risk: Risk, *, status: str = "") -> "RiskDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
+        resolved_status = status
         return cls(
             id=risk.id,
             workspace_id=risk.workspace_id,
@@ -90,7 +93,7 @@ class RiskDTO:
             severity=risk.severity,
             owner=risk.owner,
             mitigation_strategy=risk.mitigation_strategy,
-            status=risk.status,
+            status=resolved_status,
             version=risk.version,
         )
 
@@ -210,11 +213,8 @@ class RiskService(ServiceBase):
         self._assert_write_permission(ctx)
 
         RiskValidator.validate_create(
-            title=title,
-            probability=probability,
-            impact=impact,
-            category=category,
-            status=status,
+            title=title, probability=probability, impact=impact,
+            category=category, status=status
         )
         if not 1 <= detection <= 10:
             raise ValidationError(
@@ -240,6 +240,11 @@ class RiskService(ServiceBase):
             artifact_type="Risk",
         )
 
+        # Datenmodell-Konsolidierung: `status` is validated above but no
+        # longer written to the column — WorkflowItemState.current_state
+        # (seeded below from the workflow definition's initial_state) is the
+        # authority; the model field's own default keeps the column non-null
+        # until it is dropped (Task 12).
         risk = Risk(
             artifact=artifact,
             workspace_id=workspace_id,
@@ -251,7 +256,6 @@ class RiskService(ServiceBase):
             impact=impact,
             owner=owner,
             mitigation_strategy=mitigation_strategy,
-            status=status,
             uid=uid,
             detection=detection,
             owner_user_id=owner_user_id,
@@ -494,8 +498,39 @@ class RiskService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Risk.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_deleted:
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: soft-delete routes through
+            # workflow.services.outdate(); the state is read from
+            # WorkflowItemState now that Risk.status is no longer the seam.
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Risk", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         return qs.order_by("-risk_score")
+
+    def list_risks_by_status(
+        self, workspace_id: UUID, status: str, ctx: AuthContext
+    ) -> List[Risk]:
+        """Return Risks filtered by workflow *status* (REQ-L3-RISK-010).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            status: Workflow state name to match.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Filtered list of Risk ORM instances ordered by risk_score descending.
+        """
+        self._set_tenant_context(ctx)
+        return list(
+            Risk.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                id__in=state_reader.item_ids_in_state(
+                    "Risk", status, tenant_id=ctx.tenant_id
+                ),
+            ).order_by("-risk_score")
+        )
 
     def query_risks_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext

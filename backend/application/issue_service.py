@@ -40,6 +40,7 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,9 @@ class IssueDTO:
     tags: List[str] = field(default_factory=list)
 
     @classmethod
-    def from_orm(cls, issue: Issue) -> "IssueDTO":
+    def from_orm(cls, issue: Issue, *, status: str = "") -> "IssueDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
+        resolved_status = status
         return cls(
             id=issue.id,
             workspace_id=issue.workspace_id,
@@ -83,7 +86,7 @@ class IssueDTO:
             severity=issue.severity,
             category=issue.category,
             assignee_id=issue.assignee_id,
-            status=issue.status,
+            status=resolved_status,
             version=issue.version,
             tags=issue.tags if isinstance(issue.tags, list) else [],
         )
@@ -195,10 +198,7 @@ class IssueService(ServiceBase):
         self._assert_write_permission(ctx)
 
         IssueValidator.validate_create(
-            title=title,
-            severity=severity,
-            category=category,
-            status=status,
+            title=title, severity=severity, category=category, status=status
         )
 
         # REQ-L2-TE-020: create the backing Artifact first so the Issue can
@@ -220,6 +220,11 @@ class IssueService(ServiceBase):
             artifact_type="Issue",
         )
 
+        # Datenmodell-Konsolidierung: `status` is validated above but no
+        # longer written to the column — WorkflowItemState.current_state
+        # (seeded below from the workflow definition's initial_state) is the
+        # authority; the model field's own default keeps the column non-null
+        # until it is dropped (Task 12).
         issue = Issue.objects.create(
             artifact=artifact,
             workspace_id=workspace_id,
@@ -231,7 +236,6 @@ class IssueService(ServiceBase):
             assignee_id=assignee_id,
             due_date=due_date,
             tags=tags or [],
-            status=status,
             uid=uid,
             created_by=str(ctx.user_id),
         )
@@ -445,8 +449,39 @@ class IssueService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Issue.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_deleted:
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 1: soft-delete routes through
+            # workflow.services.outdate(); the state is read from
+            # WorkflowItemState now that Issue.status is no longer the seam.
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Issue", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         return qs.order_by("created_at")
+
+    def list_issues_by_status(
+        self, workspace_id: UUID, status: str, ctx: AuthContext
+    ) -> List[Issue]:
+        """Return Issues filtered by workflow *status* (REQ-L3-ISSUE-011).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            status: Workflow state name to match.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Filtered list of Issue ORM instances.
+        """
+        self._set_tenant_context(ctx)
+        return list(
+            Issue.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                id__in=state_reader.item_ids_in_state(
+                    "Issue", status, tenant_id=ctx.tenant_id
+                ),
+            ).order_by("created_at")
+        )
 
     def list_issues_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext
