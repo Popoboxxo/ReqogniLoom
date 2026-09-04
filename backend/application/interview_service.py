@@ -26,6 +26,7 @@ from persistence.models import (
     Workspace,
 )
 from persistence.transactions import atomic_transaction
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,10 @@ class InterviewService(ServiceBase):
 
     def get_state(self, ctx, session_id: UUID) -> "dict[str, Any]":
         session = self._get_session(ctx, session_id)
+        # Datenmodell-Konsolidierung Phase 1: resolved from the engine, not
+        # the still-present mirror column -- falls back to it when the
+        # engine has no WorkflowItemState row for this session.
+        status = state_reader.current_state("Interview", session.id) or session.status
         if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
             # Multi sessions have artifact_type=None: the per-type protocol
             # resolver (get_protocol) has no answer for that and would raise
@@ -319,7 +324,7 @@ class InterviewService(ServiceBase):
             # concept, so the state shape omits both keys by design.
             return {
                 "session_id": str(session.id),
-                "status": session.status,
+                "status": status,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
@@ -327,7 +332,7 @@ class InterviewService(ServiceBase):
         phase, missing = self._current_phase_and_missing(ctx, session)
         return {
             "session_id": str(session.id),
-            "status": session.status,
+            "status": status,
             "phase": phase.name,
             "collected_fields": session.collected_fields,
             "missing_fields": [self._serialise_field(f) for f in missing],

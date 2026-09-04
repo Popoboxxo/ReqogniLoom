@@ -265,9 +265,14 @@ class GoalService(ServiceBase):
             List of dicts, one per version, ordered by sequence_number.
         """
         self._set_tenant_context(ctx)
-        qs = Goal.objects.filter(
-            lineage_id=lineage_id, tenant_id=ctx.tenant_id
-        ).order_by("sequence_number")
+        qs = list(
+            Goal.objects.filter(
+                lineage_id=lineage_id, tenant_id=ctx.tenant_id
+            ).order_by("sequence_number")
+        )
+        # Batch-resolve status for the whole lineage in one query instead of
+        # one engine lookup per version (N+1 avoidance).
+        status_map = state_reader.current_states("Goal", [g.id for g in qs])
         return [
             {
                 "id": str(g.id),
@@ -275,7 +280,7 @@ class GoalService(ServiceBase):
                 "sequence_number": g.sequence_number,
                 "label": f"v{g.sequence_number}",
                 "title": g.title,
-                "status": g.status,
+                "status": status_map.get(str(g.id)) or g.status,
                 "modified_at": g.created_at.isoformat() if g.created_at else None,
                 # Immutable per-version rows — content always retrievable (#213).
                 "content_available": True,

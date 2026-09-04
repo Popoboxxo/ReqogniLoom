@@ -14,13 +14,15 @@ from __future__ import annotations
 
 import logging
 from abc import ABC
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
 from audit.services import mcp_audit_handoff
 from mcp_server.protocol_handler import ToolResult
+from persistence.tenancy import TenantContextNotSetError
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,70 @@ def reject_unknown_params(
             f"Unknown parameter(s) for tool '{tool_name}': {', '.join(unknown)}. "
             f"Allowed parameters: {', '.join(sorted(allowed))}."
         )
+
+
+# ---------------------------------------------------------------------------
+# Workflow-engine status seam (Datenmodell-Konsolidierung Phase 1)
+# ---------------------------------------------------------------------------
+
+
+def resolve_engine_status(
+    item_type: str,
+    item_id: Any,
+    fallback: str,
+    *,
+    status_map: Optional[Dict[str, str]] = None,
+) -> str:
+    """Resolve an entity's ``status`` wire value from the workflow engine.
+
+    Every MCP payload builder that used to read an entity's own (still
+    present, Phase 0 mirror) ``status`` column now goes through this seam
+    instead -- ``WorkflowItemState.current_state`` is the single source of
+    truth (D-1); the wire key name and value vocabulary are unchanged.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) for
+    list-shaped responses so a page of N items costs one engine query
+    instead of N -- mirrors
+    ``rest_api.mixins.workflow_state.WorkflowStateSerializerMixin``'s
+    batching. Omit it to resolve a single item inline via
+    ``workflow.state_reader.current_state``.
+
+    Falls back to *fallback* -- the entity's own still-present ``status``
+    column -- when the engine has no ``WorkflowItemState`` row for the item
+    (e.g. Goal/MainGoal, which have no state backfill, or any item created
+    in a definition-less workspace), so an untracked item never silently
+    regresses to an empty string. Also falls back when no ``TenantContext``
+    is active: production dispatch (``ToolRegistry.dispatch_request``)
+    always activates it before a handler runs, so this only matters for
+    tests that call ``execute_tool`` directly against a mocked service with
+    no live tenant/DB -- the same case the column read handled before this
+    seam existed.
+    """
+    if status_map is not None:
+        engine_state = status_map.get(str(item_id))
+    else:
+        try:
+            engine_state = state_reader.current_state(item_type, item_id)
+        except TenantContextNotSetError:
+            engine_state = None
+    return engine_state if engine_state is not None else (fallback or "")
+
+
+def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str]:
+    """Batch-resolve workflow-engine states for many items in one query.
+
+    Thin, defensive wrapper over ``workflow.state_reader.current_states`` for
+    list-shaped MCP responses -- pass the result as :func:`resolve_engine_status`'s
+    *status_map* so a page of N items costs one engine query, not N. Returns
+    an empty mapping (every item then falls back to its own column) when no
+    ``TenantContext`` is active, instead of propagating
+    ``TenantContextNotSetError`` -- see :func:`resolve_engine_status` for why
+    that is safe.
+    """
+    try:
+        return state_reader.current_states(item_type, item_ids)
+    except TenantContextNotSetError:
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +308,8 @@ __all__ = [
     "optional_uuid",
     "require_uuid",
     "reject_unknown_params",
+    "resolve_engine_status",
+    "resolve_status_map",
     "write_mcp_audit",
     "mcp_audit_handoff",
 ]

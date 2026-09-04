@@ -607,9 +607,14 @@ class MainGoalService(ServiceBase):
             List of dicts, one per version, ordered by sequence_number.
         """
         self._set_tenant_context(ctx)
-        qs = MainGoal.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        ).order_by("sequence_number")
+        qs = list(
+            MainGoal.objects.filter(
+                workspace_id=workspace_id, tenant_id=ctx.tenant_id
+            ).order_by("sequence_number")
+        )
+        # Batch-resolve status for all versions in one query instead of one
+        # engine lookup per version (N+1 avoidance).
+        status_map = state_reader.current_states("MainGoal", [mg.id for mg in qs])
         return [
             {
                 "id": str(mg.id),
@@ -618,7 +623,7 @@ class MainGoalService(ServiceBase):
                 "label": f"v{mg.sequence_number}",
                 "content": mg.content,
                 "source": mg.source,
-                "status": mg.status,
+                "status": status_map.get(str(mg.id)) or mg.status,
                 "modified_at": mg.created_at.isoformat() if mg.created_at else None,
                 # Immutable per-version rows — content always retrievable (#213).
                 "content_available": True,

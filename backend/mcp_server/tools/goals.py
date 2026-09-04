@@ -23,7 +23,12 @@ from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, require_uuid
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
+)
 from workflow.definition_store import PRESET_SCHEMAS
 
 # Issue #270 finding 5: ``target_state`` used to be an unconstrained string, so
@@ -37,7 +42,9 @@ _GOAL_STATES: list[str] = list(PRESET_SCHEMAS["goal_default"]["states"])
 _MAIN_GOAL_STATES: list[str] = list(PRESET_SCHEMAS["main_goal_default"]["states"])
 
 
-def _goal_payload(goal: Any) -> Dict[str, Any]:
+def _goal_payload(
+    goal: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Serialize a Goal ORM row for the ``goal.read``/``goal.query`` responses."""
     return {
         "id": str(goal.id),
@@ -45,11 +52,13 @@ def _goal_payload(goal: Any) -> Dict[str, Any]:
         "sequence_number": goal.sequence_number,
         "title": goal.title,
         "description": goal.description,
-        "status": goal.status,
+        "status": resolve_engine_status("Goal", goal.id, goal.status, status_map=status_map),
     }
 
 
-def _main_goal_payload(main_goal: Any) -> Dict[str, Any]:
+def _main_goal_payload(
+    main_goal: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Serialize a MainGoal ORM row for the ``main_goal`` response envelope."""
     return {
         "id": str(main_goal.id),
@@ -57,7 +66,9 @@ def _main_goal_payload(main_goal: Any) -> Dict[str, Any]:
         "sequence_number": main_goal.sequence_number,
         "content": main_goal.content,
         "source": main_goal.source,
-        "status": main_goal.status,
+        "status": resolve_engine_status(
+            "MainGoal", main_goal.id, main_goal.status, status_map=status_map
+        ),
     }
 
 
@@ -324,7 +335,10 @@ class GoalToolGroup(BaseToolGroup):
         goals = GoalService().list_current(
             workspace_id, auth_context, include_archived=include_archived
         )
-        return ToolResult.ok({"goals": [_goal_payload(g) for g in goals]})
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance).
+        status_map = resolve_status_map("Goal", [g.id for g in goals])
+        return ToolResult.ok({"goals": [_goal_payload(g, status_map) for g in goals]})
 
     def _handle_create(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -473,7 +487,7 @@ class GoalToolGroup(BaseToolGroup):
                 "id": str(goal.id),
                 "lineage_id": str(goal.lineage_id),
                 "sequence_number": goal.sequence_number,
-                "status": goal.status,
+                "status": resolve_engine_status("Goal", goal.id, goal.status),
             }
         )
 

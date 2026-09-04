@@ -50,13 +50,17 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
     write_mcp_audit,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _requirement_to_dict(req: Any) -> Dict[str, Any]:
+def _requirement_to_dict(
+    req: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Serialise a Requirement ORM object to a dict for MCP response.
 
     Issue #409: SE mask fields (acceptance_criteria, type,
@@ -77,7 +81,9 @@ def _requirement_to_dict(req: Any) -> Dict[str, Any]:
         "description": req.description,
         "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
         "category": req.category,
-        "status": req.status,
+        "status": resolve_engine_status(
+            "Requirement", req.id, req.status, status_map=status_map
+        ),
         "type": getattr(req, "type", None) or "SyReq",
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
@@ -361,13 +367,19 @@ class RequirementsToolGroup(BaseToolGroup):
             )
         include_outdated = bool(params.get("include_outdated", False))
         try:
-            reqs = self._service.list_requirements(
-                workspace_id, auth_context, include_deleted=include_outdated
+            reqs = list(
+                self._service.list_requirements(
+                    workspace_id, auth_context, include_deleted=include_outdated
+                )
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- mirrors
+        # rest_api/mixins/workflow_state.py's identical rationale).
+        status_map = resolve_status_map("Requirement", [r.id for r in reqs])
         return ToolResult.ok({
-            "requirements": [_requirement_to_dict(r) for r in reqs],
+            "requirements": [_requirement_to_dict(r, status_map) for r in reqs],
             "count": len(reqs),
         })
 

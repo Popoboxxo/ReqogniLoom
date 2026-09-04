@@ -72,6 +72,8 @@ from mcp_server.tools.base import (
     reject_unknown_params,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
     write_mcp_audit,
 )
 from persistence.models import TestCase
@@ -92,7 +94,9 @@ _LIFECYCLE_STATES = frozenset(
 )
 
 
-def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
+def _test_case_to_dict(
+    tc: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Serialise a TestCase ORM object to a dict.
 
     GH-453: ``status`` and ``version`` are included, matching
@@ -111,7 +115,7 @@ def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
         "id": str(tc.id),
         "title": tc.title,
         "description": tc.description,
-        "status": tc.status,
+        "status": resolve_engine_status("TestCase", tc.id, tc.status, status_map=status_map),
         "version": tc.version,
         "steps": tc.steps if hasattr(tc, "steps") else [],
     }
@@ -409,13 +413,20 @@ class McpTestToolGroup(BaseToolGroup):
             )
         include_outdated = bool(params.get("include_outdated", False))
         try:
-            test_cases = self._service.list_test_cases(
-                workspace_id, auth_context, include_deleted=include_outdated
+            test_cases = list(
+                self._service.list_test_cases(
+                    workspace_id, auth_context, include_deleted=include_outdated
+                )
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance).
+        status_map = resolve_status_map(
+            "TestCase", [tc.id for tc in test_cases]
+        )
         return ToolResult.ok({
-            "test_cases": [_test_case_to_dict(tc) for tc in test_cases],
+            "test_cases": [_test_case_to_dict(tc, status_map) for tc in test_cases],
             "count": len(test_cases),
         })
 
