@@ -23,8 +23,27 @@ Performance (ADR-L3-BL001-01 spirit, N+1 avoidance):
   one for the Artifact headers.
 
 Tenant isolation:
-  All queries go through the ``unscoped`` manager with an explicit
-  ``tenant_id`` filter, mirroring ``BaselineStore`` and ``ScopeResolver``.
+  All *domain-row* queries (Requirement, StakeholderNeed, TestCase, Adr, Risk,
+  Issue, Goal, MainGoal, Artifact, TraceLink, ...) go through the ``unscoped``
+  manager with an explicit ``tenant_id`` filter, mirroring ``BaselineStore``
+  and ``ScopeResolver`` — this module does not depend on a thread-local
+  tenant context for those reads.
+
+  The status lookups added in Datenmodell-Konsolidierung Phase 1
+  (``_engine_status`` -> ``workflow.state_reader.current_states``) are the one
+  exception: that seam reads via ``WorkflowItemState.objects``, the
+  tenant-*scoped* manager, so it relies on an active ``TenantContext`` and
+  ignores the explicit ``tenant_id`` threaded through this module. Both
+  production entry points (``application.baseline_facade.BaselineFacade`` and
+  ``ChangeRequestService``) always set ``TenantContext`` before reaching this
+  code, so this holds in practice — but a caller that invokes
+  ``capture_states`` without an active tenant context would not get an error:
+  the Requirement/StakeholderNeed/TestCase/Adr/Risk/Issue/Goal/MainGoal rows
+  would still be captured (those reads stay ``unscoped``), only their engine
+  status would silently come back empty and every one of them would fall back
+  to the column value instead. Once Phase 1 drops that column, such a caller
+  would freeze every captured status at whatever stale value the column held
+  at drop time, permanently, with no error raised.
 """
 from __future__ import annotations
 
@@ -32,6 +51,7 @@ import uuid
 from typing import Any, Iterable, Optional
 
 from baseline.types import DeltaIndexTuple
+from workflow import state_reader
 
 
 def capture_states(
@@ -129,9 +149,11 @@ def _capture_items(
     states: dict[str, dict[str, Any]] = {}
 
     # Requirement
-    for req in Requirement.unscoped.filter(
-        artifact_id__in=uuids, tenant_id=tenant_id
-    ):
+    requirements = list(
+        Requirement.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
+    )
+    req_states = _engine_status("Requirement", [r.id for r in requirements])
+    for req in requirements:
         states[str(req.artifact_id)] = {
             "artifact_type": "requirement",
             "uid": req.uid,
@@ -139,7 +161,7 @@ def _capture_items(
             "description": req.description,
             "acceptance_criteria": req.acceptance_criteria,
             "category": req.category,
-            "status": req.status,
+            "status": req_states.get(str(req.id)) or req.status,
             "type": req.type,
             "level": req.level,
             "complexity_fibonacci": req.complexity_fibonacci,
@@ -168,16 +190,20 @@ def _capture_items(
         }
 
     # StakeholderNeed
-    for sn in StakeholderNeed.unscoped.filter(
-        artifact_id__in=uuids, tenant_id=tenant_id
-    ):
+    stakeholder_needs = list(
+        StakeholderNeed.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
+    )
+    sn_states = _engine_status(
+        "StakeholderNeed", [sn.id for sn in stakeholder_needs]
+    )
+    for sn in stakeholder_needs:
         states[str(sn.artifact_id)] = {
             "artifact_type": "stakeholder_need",
             "uid": sn.uid,
             "title": sn.title,
             "description": sn.description,
             "category": sn.category,
-            "status": sn.status,
+            "status": sn_states.get(str(sn.id)) or sn.status,
             "moscow_priority": sn.moscow_priority,
             "suspect": sn.suspect,
             "lifecycle_status": sn.lifecycle_status,
@@ -185,9 +211,11 @@ def _capture_items(
         }
 
     # TestCase
-    for tc in TestCase.unscoped.filter(
-        artifact_id__in=uuids, tenant_id=tenant_id
-    ):
+    test_cases = list(
+        TestCase.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
+    )
+    tc_states = _engine_status("TestCase", [tc.id for tc in test_cases])
+    for tc in test_cases:
         states[str(tc.artifact_id)] = {
             "artifact_type": "test_case",
             "uid": tc.uid,
@@ -195,7 +223,7 @@ def _capture_items(
             "description": tc.description,
             "steps": tc.steps,
             "test_type": tc.test_type,
-            "status": tc.status,
+            "status": tc_states.get(str(tc.id)) or tc.status,
             "suspect": tc.suspect,
             "version": tc.version,
         }
@@ -265,7 +293,9 @@ def _capture_application_entities(
             return fallback
         return header.get("artifact_type_raw") or fallback
 
-    for adr in Adr.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+    adrs = list(Adr.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    adr_states = _engine_status("Adr", [adr.id for adr in adrs])
+    for adr in adrs:
         states[str(adr.artifact_id)] = {
             "artifact_type": _raw_type(adr.artifact_id, "Adr"),
             "uid": adr.uid,
@@ -274,11 +304,13 @@ def _capture_application_entities(
             "context": adr.context,
             "decision": adr.decision,
             "consequences": adr.consequences,
-            "status": adr.status,
+            "status": adr_states.get(str(adr.id)) or adr.status,
             "version": adr.version,
         }
 
-    for risk in Risk.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+    risks = list(Risk.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    risk_states = _engine_status("Risk", [risk.id for risk in risks])
+    for risk in risks:
         states[str(risk.artifact_id)] = {
             "artifact_type": _raw_type(risk.artifact_id, "Risk"),
             "uid": risk.uid,
@@ -293,11 +325,13 @@ def _capture_application_entities(
             "owner": risk.owner,
             "owner_user_id": str(risk.owner_user_id) if risk.owner_user_id else None,
             "mitigation_strategy": risk.mitigation_strategy,
-            "status": risk.status,
+            "status": risk_states.get(str(risk.id)) or risk.status,
             "version": risk.version,
         }
 
-    for issue in Issue.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+    issues = list(Issue.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    issue_states = _engine_status("Issue", [issue.id for issue in issues])
+    for issue in issues:
         states[str(issue.artifact_id)] = {
             "artifact_type": _raw_type(issue.artifact_id, "Issue"),
             "uid": issue.uid,
@@ -308,29 +342,35 @@ def _capture_application_entities(
             "assignee_id": str(issue.assignee_id) if issue.assignee_id else None,
             "due_date": issue.due_date.isoformat() if issue.due_date else None,
             "tags": issue.tags,
-            "status": issue.status,
+            "status": issue_states.get(str(issue.id)) or issue.status,
             "version": issue.version,
         }
 
-    for goal in Goal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+    goals = list(Goal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    goal_states = _engine_status("Goal", [goal.id for goal in goals])
+    for goal in goals:
         states[str(goal.artifact_id)] = {
             "artifact_type": _raw_type(goal.artifact_id, "Goal"),
             "lineage_id": str(goal.lineage_id),
             "sequence_number": goal.sequence_number,
             "title": goal.title,
             "description": goal.description,
-            "status": goal.status,
+            "status": goal_states.get(str(goal.id)) or goal.status,
             "version": goal.version,
         }
 
-    for mg in MainGoal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+    main_goals = list(
+        MainGoal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id)
+    )
+    mg_states = _engine_status("MainGoal", [mg.id for mg in main_goals])
+    for mg in main_goals:
         states[str(mg.artifact_id)] = {
             "artifact_type": _raw_type(mg.artifact_id, "MainGoal"),
             "sequence_number": mg.sequence_number,
             "content": mg.content,
             "source": mg.source,
             "generated_from_goal_ids": mg.generated_from_goal_ids,
-            "status": mg.status,
+            "status": mg_states.get(str(mg.id)) or mg.status,
             "version": mg.version,
         }
 
@@ -509,6 +549,21 @@ def _capture_test_run_results(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _engine_status(item_type: str, entity_ids: list) -> dict[str, str]:
+    """Resolve the workflow state of *entity_ids* keyed by ``str(entity_id)``.
+
+    Datenmodell-Konsolidierung Phase 1: baselines used to snapshot the
+    denormalized ``status`` column directly. ``WorkflowItemState`` is now the
+    source of truth for a captured item's status; callers fall back to the
+    still-present column for items the engine does not track (e.g. no
+    ``WorkflowItemState`` row yet, or a definition-less workspace) — mirroring
+    ``rest_api.mixins.workflow_state`` and every Phase-1 service migration
+    (D-1: same value vocabulary, only the source changes). One query per
+    entity type keeps capture O(types), not O(rows).
+    """
+    return state_reader.current_states(item_type, entity_ids)
 
 
 def _to_uuids(item_ids: list[str]) -> list[uuid.UUID]:
