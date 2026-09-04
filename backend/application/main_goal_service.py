@@ -537,7 +537,12 @@ class MainGoalService(ServiceBase):
         return {
             "id": str(main_goal.id),
             "sequence_number": main_goal.sequence_number,
-            "status": main_goal.status,
+            # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer
+            # written by the engine — resolve the real current state instead
+            # of the (now stale) refreshed column, same fallback convention
+            # as the read-side DTO builder above.
+            "status": state_reader.current_state("MainGoal", main_goal.id)
+            or main_goal.status,
         }
 
     # ---------- Read ----------

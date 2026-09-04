@@ -375,6 +375,16 @@ def _provision_ccb(workspace: Workspace, tenant: Tenant) -> None:
     )
 
 
+def _engine_status(cr_id) -> str | None:
+    """Datenmodell-Konsolidierung Phase 1: ``ChangeRequest.status`` is no
+    longer written by the workflow engine, so tests must read the current
+    state through ``workflow.state_reader`` instead of ``cr.refresh_from_db()``
+    — that column is frozen at whatever it held at creation."""
+    from workflow import state_reader
+
+    return state_reader.current_state("ChangeRequest", cr_id)
+
+
 def _ctx_for(user_id, tenant: Tenant, roles: tuple[str, ...]) -> AuthContext:
     return AuthContext(
         user_id=user_id,
@@ -432,8 +442,7 @@ class TestSeparationOfDuties:
                 change_reason="looks good to me",
             )
 
-        cr.refresh_from_db()
-        assert cr.status == "under_review"
+        assert _engine_status(cr.id) == "under_review"
 
     def test_requestor_cannot_reject_own_change_request(
         self, tenant, extended_workspace, ctx
@@ -497,8 +506,7 @@ class TestSeparationOfDuties:
             change_reason="board decision recorded",
         )
 
-        cr.refresh_from_db()
-        assert cr.status == "approved"
+        assert _engine_status(cr.id) == "approved"
 
     def test_approval_captures_after_state_and_links_baseline(
         self, tenant, extended_workspace, ctx
@@ -518,7 +526,7 @@ class TestSeparationOfDuties:
         )
 
         cr.refresh_from_db()
-        assert cr.status == "approved"
+        assert _engine_status(cr.id) == "approved"
         assert cr.baseline_id == baseline.id
         row = ChangeRequestAffectedItem.objects.get(change_request_id=cr.id)
         assert row.state_after is not None
@@ -589,5 +597,4 @@ class TestLightweightTiersStayLightweight:
             change_reason="self-approved, lightweight tier",
         )
 
-        cr.refresh_from_db()
-        assert cr.status == "approved"
+        assert _engine_status(cr.id) == "approved"

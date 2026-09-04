@@ -93,6 +93,7 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow import state_reader
 from workflow.services import outdated_item_ids
 
 # ---------------------------------------------------------------------------
@@ -100,23 +101,34 @@ from workflow.services import outdated_item_ids
 # ``TraceLink.unscoped.filter(tenant_id=...)`` pattern used by
 # ``AuditContext.iter_trace_links()``: tenant/workspace are supplied
 # explicitly by the engine, so these bypass the thread-local ``objects``
-# manager deliberately).
+# manager deliberately. ``state_reader.current_states``'s own ``tenant_id=``
+# kwarg (N1) covers this same need — no local reimplementation required.)
 # ---------------------------------------------------------------------------
 
 
 def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | None]]:
     """Return ``{artifact_id: (title, level)}`` for active Requirements.
 
-    "Active" excludes ``status="outdated"`` (the Requirement status mirror
-    ``outdate()`` writes) — not the dead ``lifecycle_status`` column.
+    Datenmodell-Konsolidierung Phase 1: "active" is resolved through
+    ``WorkflowItemState`` (batched), falling back to the (now write-once,
+    frozen-at-creation) ``status`` column only for a Requirement that was
+    never wired into a ``WorkflowItemState`` — same fallback convention as
+    the REST serializers / baseline capture, needed here because (unlike
+    ArchitectureElement) Requirement has no backfill-migration guarantee.
     """
-    qs = Requirement.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(status="outdated")
+    rows = list(
+        Requirement.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title", "level", "status")
+    )
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
     return {
-        str(artifact_id): (title, level)
-        for artifact_id, title, level in qs.values_list("artifact_id", "title", "level")
+        str(row["artifact_id"]): (row["title"], row["level"])
+        for row in rows
+        if (states.get(str(row["id"])) or row["status"]) != "outdated"
     }
 
 
@@ -141,8 +153,8 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
 def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     """Return ``{artifact_id: title}`` for active TestCases.
 
-    "Active" excludes ``status="outdated"``, the same status mirror
-    :func:`_active_requirements` filters on.
+    Datenmodell-Konsolidierung Phase 1: "active" excludes ``"outdated"`` via
+    ``WorkflowItemState``, the same seam :func:`_active_requirements` uses.
 
     GH-574: this helper used to return every row, on the assumption that
     TestCase is never soft-deleted. That stopped being true twice over —
@@ -158,13 +170,19 @@ def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     (deleting the only TestCase covering a leaf Requirement re-opens VERIF-P8
     instead of leaving the Requirement silently "covered").
     """
-    qs = TestCase.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(status="outdated")
+    rows = list(
+        TestCase.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title", "status")
+    )
+    states = state_reader.current_states(
+        "TestCase", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
     return {
-        str(artifact_id): title
-        for artifact_id, title in qs.values_list("artifact_id", "title")
+        str(row["artifact_id"]): row["title"]
+        for row in rows
+        if (states.get(str(row["id"])) or row["status"]) != "outdated"
     }
 
 

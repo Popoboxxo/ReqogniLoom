@@ -193,16 +193,6 @@ def test_adr_and_risk_declare_no_state_literally_named_outdated() -> None:
         assert "outdated" not in [s.lower() for s in PRESET_SCHEMAS[preset]["states"]]
 
 
-def test_adr_and_risk_are_status_mirror_types() -> None:
-    """Follows from the above: their soft-delete visibility is the
-    ``status == "outdated"`` column filter in AdrService/RiskService.list, not
-    a WorkflowItemState join."""
-    from workflow.lifecycle_manager import _STATUS_MIRROR_MODELS
-
-    assert "Adr" in _STATUS_MIRROR_MODELS
-    assert "Risk" in _STATUS_MIRROR_MODELS
-
-
 # ---------------------------------------------------------------------------
 # 2. outdated_item_ids narrow-contract regression (DB)
 # ---------------------------------------------------------------------------

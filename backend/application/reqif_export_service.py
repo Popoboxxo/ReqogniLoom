@@ -540,17 +540,36 @@ class ReqifExportService(ServiceBase):
         exported_ids: Dict[UUID, str] = {}
         spec_objects: List[ReqIFSpecObject] = []
 
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the workflow engine, so it is resolved through
+        # workflow.state_reader (batched) instead of the (now write-once,
+        # frozen-at-creation) column — ReqIF is an interchange format
+        # consumed by external tools, so exporting a stale status is worse
+        # here than in an internal-only view.
+        from workflow import state_reader
+
+        need_states = state_reader.current_states(
+            "StakeholderNeed", (need.id for need in needs)
+        )
+        req_states = state_reader.current_states("Requirement", (req.id for req in reqs))
+
         for need in needs:
             exported_ids[need.artifact_id] = "StakeholderNeed"
             spec_objects.append(
-                cls._spec_object_from_need(need, custom_fields_by_id.get(need.artifact_id, {}))
+                cls._spec_object_from_need(
+                    need,
+                    custom_fields_by_id.get(need.artifact_id, {}),
+                    need_states.get(str(need.id)) or need.status,
+                )
             )
 
         for req in reqs:
             exported_ids[req.artifact_id] = "Requirement"
             spec_objects.append(
                 cls._spec_object_from_requirement(
-                    req, custom_fields_by_id.get(req.artifact_id, {})
+                    req,
+                    custom_fields_by_id.get(req.artifact_id, {}),
+                    req_states.get(str(req.id)) or req.status,
                 )
             )
 
@@ -573,14 +592,14 @@ class ReqifExportService(ServiceBase):
 
     @classmethod
     def _spec_object_from_need(
-        cls, need: Any, custom_fields: dict
+        cls, need: Any, custom_fields: dict, status: str | None = None
     ) -> ReqIFSpecObject:
         _load_reqif()
         attributes = [
             cls._string_attr(_ATTR_UID, need.uid or ""),
             cls._string_attr(_ATTR_TITLE, need.title or ""),
             cls._string_attr(_ATTR_DESCRIPTION, need.description or ""),
-            cls._string_attr(_ATTR_STATUS, need.status or ""),
+            cls._string_attr(_ATTR_STATUS, (status if status is not None else need.status) or ""),
             cls._string_attr(_ATTR_CATEGORY, need.category or ""),
         ]
         if need.moscow_priority:
@@ -600,14 +619,14 @@ class ReqifExportService(ServiceBase):
 
     @classmethod
     def _spec_object_from_requirement(
-        cls, req: Any, custom_fields: dict
+        cls, req: Any, custom_fields: dict, status: str | None = None
     ) -> ReqIFSpecObject:
         _load_reqif()
         attributes = [
             cls._string_attr(_ATTR_UID, req.uid or ""),
             cls._string_attr(_ATTR_TITLE, req.title or ""),
             cls._string_attr(_ATTR_DESCRIPTION, req.description or ""),
-            cls._string_attr(_ATTR_STATUS, req.status or ""),
+            cls._string_attr(_ATTR_STATUS, (status if status is not None else req.status) or ""),
             cls._string_attr(_ATTR_CATEGORY, req.category or ""),
         ]
         if req.verification_method:

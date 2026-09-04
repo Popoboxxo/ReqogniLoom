@@ -78,6 +78,38 @@ class TestInterviewStartAndList:
         assert response.status_code == 200
         assert start.data["id"] in [s["id"] for s in response.data["results"]]
 
+    def test_list_reflects_the_engine_state_not_the_stale_column(
+        self, authed_client, workspace
+    ):
+        """C3: Datenmodell-Konsolidierung Phase 1 -- list() iterates a raw
+        queryset, so its status resolution must be independently correct,
+        not just inherited from retrieve()'s (already-fixed) single-item
+        path. A completed session must not show "in_progress" in the list."""
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "title", "value": "SSO login"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "rationale", "value": "Users need single sign-on."},
+            format="json",
+        )
+        formalize = authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
+        assert formalize.status_code == 200, formalize.content
+
+        response = authed_client.get(f"/api/v1/interviews/?workspace_id={workspace.id}")
+
+        assert response.status_code == 200
+        by_id = {s["id"]: s for s in response.data["results"]}
+        assert by_id[session_id]["status"] == "completed"
+
 
 class TestInterviewStateAndAnswer:
     def test_answer_then_state_reflects_it(self, authed_client, workspace):

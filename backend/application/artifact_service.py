@@ -54,11 +54,9 @@ logger = logging.getLogger(__name__)
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
 _UNSET = object()
 
-#: Universal soft-delete state written by ``workflow.services.outdate()``.
-#: Mirrored into ``<Model>.status`` for the types registered in
-#: ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, and recorded only in
-#: ``WorkflowItemState`` for the ones that are not (e.g. ArchitectureElement).
-_OUTDATED_STATE = "outdated"
+#: Datenmodell-Konsolidierung Phase 1: status is no longer denormalized onto
+#: the entity row. WorkflowItemState is the only store; read it through
+#: ``workflow.services.outdated_item_ids`` / ``workflow.state_reader``.
 
 
 def _clean_custom_fields(value: object) -> dict:
@@ -430,17 +428,12 @@ class ArtifactService(ServiceBase):
         hide *why* it looks odd. Marking lets the presentation layer grey the
         row out and keep it out of "live neighbour" counts.
 
-        Soft-delete is recorded in two different places depending on the entity:
-
-        * Types registered in ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``
-          (Requirement, StakeholderNeed, TestCase, Adr) carry a mirrored
-          ``status="outdated"`` column — the same value ``AdrService.list_adrs``
-          and the SE-Auditor rule helpers filter on.
-        * ``ArchitectureElement`` has **no** mirror: ``outdate()`` writes only
-          ``WorkflowItemState`` and never touches the dead ``lifecycle_status``
-          column, so its state must be read via
-          ``workflow.services.outdated_item_ids`` (same idiom as
-          ``ArchitectureService.list_architecture_elements``).
+        Datenmodell-Konsolidierung Phase 1: the ``status``/``lifecycle_status``
+        columns are no longer written by the workflow engine for any entity,
+        so every type here (Requirement, StakeholderNeed, TestCase, Adr,
+        ArchitectureElement) resolves ``is_outdated`` the same way — via
+        ``workflow.services.outdated_item_ids`` (same idiom as
+        ``ArchitectureService.list_architecture_elements``).
 
         Only the literal state ``"outdated"`` counts as soft-deleted. Business-
         terminal states (an ADR's ``Rejected``/``Superseded``, a Requirement's
@@ -470,18 +463,37 @@ class ArtifactService(ServiceBase):
                 "is_outdated": False,
             }
 
+        from workflow.services import outdated_item_ids
+
         # Each domain entity is OneToOne on Artifact — a single artifact_id__in
         # scan per table enriches all matching entries without N+1 queries.
-        # These three mirror their workflow state into their own ``status``
-        # column, so it comes along in the same values() projection for free.
-        for model in (Requirement, StakeholderNeed, TestCase):
-            for row in model.objects.filter(artifact_id__in=str_ids).values(
-                "artifact_id", "title", "status"
-            ):
+        # Datenmodell-Konsolidierung Phase 1: the ``status`` mirror column is
+        # no longer written by the workflow engine, so ``is_outdated`` is
+        # resolved through WorkflowItemState — same seam as the
+        # ArchitectureElement block below, narrowed to the ids referenced
+        # here instead of materializing every outdated item of the tenant.
+        for model, item_type in (
+            (Requirement, "Requirement"),
+            (StakeholderNeed, "StakeholderNeed"),
+            (TestCase, "TestCase"),
+        ):
+            rows = list(
+                model.objects.filter(artifact_id__in=str_ids).values(
+                    "id", "artifact_id", "title"
+                )
+            )
+            if not rows:
+                continue
+            outdated_ids = set(
+                outdated_item_ids(item_type).filter(
+                    item_id__in=[row["id"] for row in rows]
+                )
+            )
+            for row in rows:
                 key = str(row["artifact_id"])
                 if key in result:
                     result[key]["title"] = row["title"] or ""
-                    result[key]["is_outdated"] = row["status"] == _OUTDATED_STATE
+                    result[key]["is_outdated"] = row["id"] in outdated_ids
 
         # ArchitectureElement has no status mirror — consult WorkflowItemState.
         ae_rows = list(
@@ -490,8 +502,6 @@ class ArtifactService(ServiceBase):
             )
         )
         if ae_rows:
-            from workflow.services import outdated_item_ids
-
             # Narrow the state lookup to the elements actually referenced here
             # instead of materializing every outdated element of the tenant.
             outdated_ae_ids = set(
@@ -510,13 +520,22 @@ class ArtifactService(ServiceBase):
         try:
             from application.models import Adr
 
-            for row in Adr.objects.filter(artifact_id__in=str_ids).values(
-                "artifact_id", "title", "status"
-            ):
-                key = str(row["artifact_id"])
-                if key in result:
-                    result[key]["title"] = row["title"] or ""
-                    result[key]["is_outdated"] = row["status"] == _OUTDATED_STATE
+            adr_rows = list(
+                Adr.objects.filter(artifact_id__in=str_ids).values(
+                    "id", "artifact_id", "title"
+                )
+            )
+            if adr_rows:
+                outdated_adr_ids = set(
+                    outdated_item_ids("Adr").filter(
+                        item_id__in=[row["id"] for row in adr_rows]
+                    )
+                )
+                for row in adr_rows:
+                    key = str(row["artifact_id"])
+                    if key in result:
+                        result[key]["title"] = row["title"] or ""
+                        result[key]["is_outdated"] = row["id"] in outdated_adr_ids
         except Exception:  # noqa: BLE001 — ADR model absent in some test configs
             pass
 

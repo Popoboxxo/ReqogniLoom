@@ -95,18 +95,27 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow import state_reader
 from workflow.services import outdated_item_ids
 
 # ---------------------------------------------------------------------------
 # Shared, read-only data access helpers (audit infrastructure — mirrors the
 # ``TraceLink.unscoped.filter(tenant_id=...)`` pattern already used by
 # ``AuditContext.iter_trace_links()``: tenant is supplied explicitly by the
-# engine, so these bypass the thread-local ``objects`` manager deliberately).
+# engine, so these bypass the thread-local ``objects`` manager deliberately.
+# ``state_reader.current_states``'s own ``tenant_id=`` kwarg (N1) covers this
+# same need — no local reimplementation required.)
 # ---------------------------------------------------------------------------
 
 
 def _active_requirements(context: AuditContext) -> Dict[str, str]:
-    """Return ``{artifact_id: title}`` for active, non-L4 Requirements."""
+    """Return ``{artifact_id: title}`` for active, non-L4 Requirements.
+
+    Datenmodell-Konsolidierung Phase 1: "active" is resolved through
+    ``WorkflowItemState`` (batched), falling back to the (now write-once,
+    frozen-at-creation) ``status`` column only for a Requirement never wired
+    into one — Requirement has no backfill-migration guarantee.
+    """
     # NOTE: plain ``.exclude(level=L4_PRESENTATION)`` would also drop NULL-level
     # rows under SQL three-valued-logic semantics (``NULL = 4`` is UNKNOWN,
     # ``NOT UNKNOWN`` stays UNKNOWN, row excluded) — and NULL is the level for
@@ -114,35 +123,51 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
     # docstring). The explicit ``Q(level__isnull=True) | ~Q(...)`` keeps
     # NULL-level rows unconditionally; only an *explicitly* assigned L4 is
     # skipped.
-    qs = (
+    rows = list(
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
         )
-        .exclude(status="outdated")
         .filter(Q(level__isnull=True) | ~Q(level=RequirementLevel.L4_PRESENTATION))
+        .values("id", "artifact_id", "title", "status")
+    )
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
     return {
-        str(artifact_id): title
-        for artifact_id, title in qs.values_list("artifact_id", "title")
+        str(row["artifact_id"]): row["title"]
+        for row in rows
+        if (states.get(str(row["id"])) or row["status"]) != "outdated"
     }
 
 
 def _active_stakeholder_need_ids(context: AuditContext) -> FrozenSet[str]:
     """Return the artifact-id set of active StakeholderNeeds (L0).
 
-    StakeholderNeed is registered in
-    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and its ``delete()``
-    path calls ``workflow.services.outdate()``, which writes ``status ==
-    "outdated"`` — the same status mirror Requirement uses. The now-legacy
-    ``lifecycle_status`` field is never touched by ``outdate()``, so filtering
-    on it here would silently treat a deleted StakeholderNeed as still active.
+    Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
+    (``workflow.services.outdate()``, called from its ``delete()`` path) is
+    resolved through ``WorkflowItemState`` (batched), falling back to the
+    (now write-once, frozen-at-creation) ``status`` column only for a
+    StakeholderNeed never wired into one — the same fallback
+    :func:`_active_requirements` uses, needed for the same reason (no
+    backfill-migration guarantee). The now-legacy ``lifecycle_status`` field
+    is never touched by ``outdate()`` either, so filtering on it here would
+    silently treat a deleted StakeholderNeed as still active.
     """
-    qs = StakeholderNeed.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(status="outdated")
-    return frozenset(str(v) for v in qs.values_list("artifact_id", flat=True))
+    rows = list(
+        StakeholderNeed.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "status")
+    )
+    states = state_reader.current_states(
+        "StakeholderNeed", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    return frozenset(
+        str(row["artifact_id"])
+        for row in rows
+        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+    )
 
 
 def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:

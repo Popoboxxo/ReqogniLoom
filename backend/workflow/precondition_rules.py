@@ -502,16 +502,28 @@ def check_verifies_link(
 
         live_target_exists = False
         if target_ids:
-            live_target_exists = (
+            # Datenmodell-Konsolidierung Phase 1: Requirement "outdated" is
+            # resolved through WorkflowItemState (batched), falling back to
+            # the (now write-once, frozen-at-creation) status column only
+            # for a row never wired into one.
+            from workflow import state_reader
+
+            req_rows = list(
                 Requirement.objects.filter(
                     artifact_id__in=target_ids,
                     artifact__workspace_id=workspace_id,
-                )
-                .exclude(status="outdated")
-                .exists()
+                ).values("id", "status")
+            )
+            req_states = state_reader.current_states(
+                "Requirement", (row["id"] for row in req_rows)
+            )
+            live_target_exists = any(
+                (req_states.get(str(row["id"])) or row["status"]) != "outdated"
+                for row in req_rows
+            ) or (
                 # ArchitectureElement has no status mirror — its soft-delete
                 # state lives only in WorkflowItemState (see outdated_item_ids).
-                or ArchitectureElement.objects.filter(
+                ArchitectureElement.objects.filter(
                     artifact_id__in=target_ids,
                     artifact__workspace_id=workspace_id,
                 )

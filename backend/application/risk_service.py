@@ -632,10 +632,8 @@ class RiskService(ServiceBase):
         # enforced by the engine; their errors propagate and abort this atomic
         # transaction instead of being swallowed (the previous bare
         # ``except Exception: pass`` silently flipped the status even when a gate
-        # denied the move). The engine also writes the denormalized ``status``
-        # mirror inside its own transaction (StateLifecycleManager
-        # ._sync_status_mirror), so no direct status assignment is done here. A
-        # workflow transition is not a content edit, so ``version`` is not bumped.
+        # denied the move). A workflow transition is not a content edit, so
+        # ``version`` is not bumped.
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -648,6 +646,14 @@ class RiskService(ServiceBase):
             credential=credential or "",
         )
         risk.refresh_from_db(fields=["status", "version"])
+        # Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        # ``status`` mirror (StateLifecycleManager._sync_status_mirror is
+        # deleted), so the refresh above reads the (now write-once,
+        # frozen-at-creation) column — correct the in-memory value (not
+        # persisted) so the returned Risk instance's ``.status`` reflects
+        # the real current state, same fallback convention as
+        # GoalService.transition_status.
+        risk.status = state_reader.current_state("Risk", risk.id) or risk.status
 
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same

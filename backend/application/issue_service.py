@@ -553,7 +553,20 @@ class IssueService(ServiceBase):
             workspace_id=workspace_id, tenant_id=ctx.tenant_id
         )
         if statuses:
-            qs = qs.filter(status__in=statuses)
+            # Datenmodell-Konsolidierung Phase 1: Issue.status is no longer
+            # written by the workflow engine — resolve through WorkflowItemState
+            # instead, same seam as list_issues_by_status. item_ids_in_state
+            # only matches one state at a time, so the id sets for each
+            # requested status are unioned in Python (bounded by the small
+            # IssueStatus vocabulary, not a per-row loop).
+            matched_ids: set = set()
+            for status in statuses:
+                matched_ids |= set(
+                    state_reader.item_ids_in_state(
+                        "Issue", status, tenant_id=ctx.tenant_id
+                    )
+                )
+            qs = qs.filter(id__in=matched_ids)
         if severities:
             qs = qs.filter(severity__in=severities)
         return list(qs.order_by("created_at"))
@@ -649,10 +662,8 @@ class IssueService(ServiceBase):
         # enforced by the engine; their errors propagate and abort this atomic
         # transaction instead of being swallowed (the previous bare
         # ``except Exception: pass`` silently flipped the status even when a gate
-        # denied the move). The engine also writes the denormalized ``status``
-        # mirror inside its own transaction (StateLifecycleManager
-        # ._sync_status_mirror), so no direct status assignment is done here. A
-        # workflow transition is not a content edit, so ``version`` is not bumped.
+        # denied the move). A workflow transition is not a content edit, so
+        # ``version`` is not bumped.
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -665,6 +676,14 @@ class IssueService(ServiceBase):
             credential=credential or "",
         )
         issue.refresh_from_db(fields=["status", "version"])
+        # Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        # ``status`` mirror (StateLifecycleManager._sync_status_mirror is
+        # deleted), so the refresh above reads the (now write-once,
+        # frozen-at-creation) column — correct the in-memory value (not
+        # persisted) so the returned Issue instance's ``.status`` reflects
+        # the real current state, same fallback convention as
+        # GoalService.transition_status.
+        issue.status = state_reader.current_state("Issue", issue.id) or issue.status
 
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same

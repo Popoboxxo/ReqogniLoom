@@ -507,11 +507,9 @@ class AdrService(ServiceBase):
         # enforced by the engine; their errors propagate and abort this atomic
         # transaction instead of being swallowed (the previous bare
         # ``except Exception: pass`` silently flipped the status even when a gate
-        # denied the move). The engine also writes the denormalized ``status``
-        # mirror inside its own transaction (StateLifecycleManager
-        # ._sync_status_mirror), so no direct status assignment is done here. A
-        # workflow transition is not a content edit, so ``version`` is not bumped
-        # — this matches the Requirement transition endpoint.
+        # denied the move). A workflow transition is not a content edit, so
+        # ``version`` is not bumped — this matches the Requirement transition
+        # endpoint.
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -524,6 +522,14 @@ class AdrService(ServiceBase):
             credential=credential or "",
         )
         adr.refresh_from_db(fields=["status", "version"])
+        # Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        # ``status`` mirror (StateLifecycleManager._sync_status_mirror is
+        # deleted), so the refresh above reads the (now write-once,
+        # frozen-at-creation) column — correct the in-memory value (not
+        # persisted) so the returned Adr instance's ``.status`` reflects
+        # the real current state, same fallback convention as
+        # GoalService.transition_status.
+        adr.status = state_reader.current_state("Adr", adr.id) or adr.status
 
         # REQ-L3-ADR-005: when an ADR is superseded, record which ADR replaced
         # it via a 'decides' TraceLink (new -> old). 'supersedes' is not a

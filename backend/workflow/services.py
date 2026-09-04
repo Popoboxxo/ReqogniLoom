@@ -637,12 +637,14 @@ def outdated_item_ids(
     """Return the ``item_id`` set currently in the ``"outdated"`` state for
     *item_type* (Phase 0 status-model unification follow-up).
 
-    Entity types without a denormalized status mirror (see
-    ``lifecycle_manager._STATUS_MIRROR_MODELS`` — ``ArchitectureElement``,
-    ``GlossaryTerm``, ``Icd``, ``Diagram``) have their soft-delete state
-    recorded in ``WorkflowItemState``, which stays the authoritative source.
-    Any caller that needs to exclude soft-deleted rows of such a type must
-    filter here.
+    Datenmodell-Konsolidierung Phase 1: every entity type's soft-delete state
+    is recorded in ``WorkflowItemState``, the sole authoritative source (the
+    denormalized ``status``/``lifecycle_status`` mirror this docstring used
+    to describe, ``lifecycle_manager._STATUS_MIRROR_MODELS``, is deleted —
+    those columns are now write-once at creation, frozen from then on). Any
+    caller that needs to exclude soft-deleted rows filters here, or through
+    the equivalent ``workflow.state_reader.item_ids_in_state``/
+    ``current_states`` seam.
 
     **Contract: this matches the literal state ``"outdated"`` and nothing
     else — deliberately.** ``"outdated"`` is the universal soft-delete state
@@ -662,9 +664,11 @@ def outdated_item_ids(
     ``id__in=`` subquery: ``state_meta`` is per workspace, so the state names
     could no longer be resolved without a second, materialised query.
 
-    Adr and Risk are intentionally *not* callers: both are wired into
-    ``_STATUS_MIRROR_MODELS`` and filter soft-deletes on their own
-    ``status == "outdated"`` column (``AdrService``/``RiskService.list``).
+    Adr and Risk are intentionally *not* callers of *this specific function*:
+    ``AdrService.list_adrs``/``RiskService.list_risks`` instead call the
+    sibling seam ``workflow.state_reader.item_ids_in_state(item_type,
+    "outdated", ...)`` directly — same WorkflowItemState source, same
+    contract, just a different entry point into it, not a raw column read.
     Their "Rejected"/"Superseded"/"Closed" states are business-terminal, not
     deleted, and stay visible on purpose.
 

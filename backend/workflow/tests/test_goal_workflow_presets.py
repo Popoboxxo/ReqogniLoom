@@ -13,16 +13,18 @@ as ``WorkflowDefinitionDTO.states: tuple[str, ...]``, with ``states[0]`` used
 verbatim as ``initial_state``, and via ``set(...)`` in
 ``check_downgrade_compatibility``/``check_downgrade_compatibility``-adjacent
 code), transitions use ``from_state``/``to_state``/``allowed_roles``/
-``requires_change_reason``/``signature_gate`` keys (see e.g. ``adr_default``),
-and the entity->model map used by ``StateLifecycleManager._sync_status_mirror``
-is named ``_STATUS_MIRROR_MODELS``. This test follows the actual codebase
-conventions so the registration is functionally correct for Task 4's
-``initialize_workflow_states`` / transition flow, not just superficially
-dict-shaped.
+``requires_change_reason``/``signature_gate`` keys (see e.g. ``adr_default``).
+This test follows the actual codebase conventions so the registration is
+functionally correct for Task 4's ``initialize_workflow_states`` / transition
+flow, not just superficially dict-shaped.
+
+Datenmodell-Konsolidierung Phase 1: the entity->model map this note used to
+also describe (``_STATUS_MIRROR_MODELS``, and the coverage test for Goal's/
+MainGoal's entries in it) is gone — WorkflowItemState is the only store now,
+read through ``workflow.state_reader``.
 """
 from workflow.definition_store import PRESET_SCHEMAS
 from workflow.services import _ENTITY_DEFAULT_PRESET
-from workflow.lifecycle_manager import _STATUS_MIRROR_MODELS
 
 
 def test_goal_default_preset_has_three_states():
@@ -40,8 +42,3 @@ def test_main_goal_default_preset_has_three_states():
 def test_goal_and_main_goal_registered_in_entity_default_preset():
     assert _ENTITY_DEFAULT_PRESET["Goal"] == "goal_default"
     assert _ENTITY_DEFAULT_PRESET["MainGoal"] == "main_goal_default"
-
-
-def test_goal_and_main_goal_registered_in_status_mirror_models():
-    assert _STATUS_MIRROR_MODELS["Goal"] == ("application.models", "Goal")
-    assert _STATUS_MIRROR_MODELS["MainGoal"] == ("application.models", "MainGoal")

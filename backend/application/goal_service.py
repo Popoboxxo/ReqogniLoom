@@ -613,6 +613,12 @@ class GoalService(ServiceBase):
         # WorkflowEngine inside the same atomic transaction (mirrors
         # RiskService.transition_status) — no second service-level audit here.
         goal.refresh_from_db(fields=["status", "version"])
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the engine, so the refreshed column is stale immediately after a
+        # transition. In-memory-only correction (not persisted) so the
+        # returned instance's ``status`` reflects the real current state,
+        # same fallback convention as the read-side DTO builders above.
+        goal.status = state_reader.current_state("Goal", goal.id) or goal.status
         return goal
 
 

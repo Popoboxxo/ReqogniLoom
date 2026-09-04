@@ -135,12 +135,27 @@ class TestCountOpenRequirementsPresetAware:
     """
 
     def _requirement_in_state(self, *, workspace, ctx, tenant, title, status):
+        """Put *req* in *status* — datenmodell-konsolidierung Phase 1: counting
+        now reads ``WorkflowItemState`` (via ``workflow.state_reader``), not
+        the (now write-once) ``status`` column, so the fixture must move the
+        engine state too, not just the column. Directly setting
+        ``current_state`` (rather than a real, preset-validated transition)
+        keeps this fixture able to reach states — like "verified" from a
+        freshly created "draft" item — that are not a single legal hop away.
+        """
         from application.requirement_service import RequirementService
+        from workflow.models import WorkflowItemState
 
         svc = RequirementService()
         req = svc.create_requirement(workspace_id=workspace.id, title=title, ctx=ctx)
         req.status = status
         req.save(update_fields=["status"])
+        WorkflowItemState.unscoped.filter(
+            tenant_id=tenant.id,
+            item_id=req.id,
+            item_type="Requirement",
+            workspace_id=workspace.id,
+        ).update(current_state=status)
         return req
 
     def test_extended_implemented_and_verified_are_not_open(self, workspace_ctx):

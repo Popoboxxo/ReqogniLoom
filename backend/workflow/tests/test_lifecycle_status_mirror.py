@@ -27,7 +27,6 @@ import pytest
 
 from workflow.lifecycle_manager import (
     _LIFECYCLE_MIRROR_MODELS,
-    _STATUS_MIRROR_MODELS,
     StateLifecycleManager,
     map_lifecycle_status,
 )
@@ -87,11 +86,11 @@ def test_deleted_is_never_written_by_the_mirror() -> None:
 
 def test_registry_covers_exactly_the_two_mirrorless_types() -> None:
     """The registry is intentionally narrow. Requirement/StakeholderNeed also
-    declare ``lifecycle_status`` but are ``status``-mirrored and already
-    captured by ``baseline.state_capture``; writing theirs would surface every
+    declare ``lifecycle_status``, but their soft-delete state is resolved
+    through ``workflow.state_reader``/``workflow.services.outdated_item_ids``
+    instead; writing their ``lifecycle_status`` too would surface every
     transition as two field-level baseline diffs."""
     assert set(_LIFECYCLE_MIRROR_MODELS) == {"ArchitectureElement", "GlossaryTerm"}
-    assert set(_LIFECYCLE_MIRROR_MODELS).isdisjoint(_STATUS_MIRROR_MODELS)
 
 
 class _FakeQuerySet:

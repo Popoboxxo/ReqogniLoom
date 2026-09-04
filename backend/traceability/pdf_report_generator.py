@@ -129,6 +129,17 @@ def _fetch_workspace_data(
         .order_by("category", "title")
     )
 
+    # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written by
+    # the workflow engine, so the PDF (a generated deliverable artifact) must
+    # resolve it through workflow.state_reader (batched) instead of the (now
+    # write-once, frozen-at-creation) column, or every requirement would
+    # render as permanently "draft" in the document.
+    from workflow import state_reader
+
+    req_status_map = state_reader.current_states(
+        "Requirement", (r.id for r in requirements)
+    )
+
     architecture_elements = list(
         ArchitectureElement.objects.filter(
             artifact__workspace_id=workspace_id
@@ -174,6 +185,7 @@ def _fetch_workspace_data(
         "workspace_id": str(workspace_id),
         "terminology_profile": terminology_profile,
         "requirements": requirements,
+        "req_status_map": req_status_map,
         "architecture_elements": architecture_elements,
         "testcases": testcases,
         "tracelinks": tracelinks,
@@ -238,6 +250,7 @@ def _build_requirement_document(data: dict[str, Any]) -> bytes:
 
     # Group requirements by category
     requirements = data["requirements"]
+    req_status_map = data["req_status_map"]
     categories: dict[str, list] = {}
     for req in requirements:
         cat = req.category or "(uncategorized)"
@@ -259,9 +272,10 @@ def _build_requirement_document(data: dict[str, Any]) -> bytes:
                 story.append(
                     Paragraph(_escape_xml(req.description), body_style)
                 )
+            resolved_status = req_status_map.get(str(req.id)) or req.status
             story.append(
                 Paragraph(
-                    f"Status: {req.status}  |  Version: {req.version}",
+                    f"Status: {resolved_status}  |  Version: {req.version}",
                     meta_style,
                 )
             )

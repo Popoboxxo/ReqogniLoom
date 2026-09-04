@@ -194,15 +194,26 @@ def _resolve_target_artifact_id(
     """
     if entity_type == "Requirement":
         from persistence.models import Requirement
+        from workflow import state_reader
 
-        obj = Requirement.objects.filter(id=ref_id).exclude(status="outdated").first()
-        return obj.artifact_id if obj else None
+        obj = Requirement.objects.filter(id=ref_id).first()
+        if obj is None:
+            return None
+        # Datenmodell-Konsolidierung Phase 1: resolved through the engine,
+        # falling back to the (now write-once, frozen-at-creation) status
+        # column only for a row never wired into a WorkflowItemState.
+        current = state_reader.current_state("Requirement", obj.id) or obj.status
+        return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "TestCase":
         from persistence.models import TestCase
+        from workflow import state_reader
 
-        obj = TestCase.objects.filter(id=ref_id).exclude(status="outdated").first()
-        return obj.artifact_id if obj else None
+        obj = TestCase.objects.filter(id=ref_id).first()
+        if obj is None:
+            return None
+        current = state_reader.current_state("TestCase", obj.id) or obj.status
+        return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "StakeholderNeed":
         from persistence.models import StakeholderNeed
@@ -227,13 +238,19 @@ def _resolve_target_artifact_id(
 
     if entity_type == "Adr":
         from application.models import Adr
+        from workflow import state_reader
 
-        obj = (
-            Adr.objects.filter(id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False)
-            .exclude(status=Adr.Status.DELETED)
-            .first()
-        )
-        return obj.artifact_id if obj else None
+        obj = Adr.objects.filter(
+            id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False
+        ).first()
+        if obj is None:
+            return None
+        # Datenmodell-Konsolidierung Phase 1: AdrService.delete_adr() routes
+        # through workflow.services.outdate(), which writes "outdated" (the
+        # universal soft-delete state) — not the Adr.Status.DELETED enum
+        # value this used to check, which no production write path ever set.
+        current = state_reader.current_state("Adr", obj.id) or obj.status
+        return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "Risk":
         from application.models import Risk

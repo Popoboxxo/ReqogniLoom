@@ -606,11 +606,11 @@ class RequirementService(ServiceBase):
         REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
 
-        REQ-144: Pass ``status`` to filter by the WorkflowEngine-owned lifecycle
-        mirror (e.g. ``status="in_review"`` for the review queue). ``status`` is
-        a pure read filter on the denormalized mirror column — it does not
-        affect the workflow engine and does not accept the client to *write*
-        status (see ``update_requirement``).
+        REQ-144: Pass ``status`` to filter by the WorkflowEngine's current
+        state (e.g. ``status="in_review"`` for the review queue), resolved
+        through ``workflow.state_reader`` since Datenmodell-Konsolidierung
+        Phase 1 — it does not affect the workflow engine and does not accept
+        the client to *write* status (see ``update_requirement``).
 
         GH-443: ``status="outdated"`` implies ``include_deleted``. Without
         that, the default soft-delete exclusion ran first and the explicit
@@ -636,16 +636,32 @@ class RequirementService(ServiceBase):
             # Datenmodell-Konsolidierung Phase 1: delete_requirement() routes
             # through workflow.services.outdate(); "outdated" is read from
             # WorkflowItemState now that Requirement.status is no longer the
-            # seam (the column still exists as a mirror -- see
-            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS -- but it is
-            # not read here anymore).
+            # seam -- the column still exists (write-once at creation, not
+            # written by the engine at all anymore) but is not read here.
             qs = qs.exclude(
                 id__in=state_reader.item_ids_in_state(
                     "Requirement", "outdated", tenant_id=ctx.tenant_id
                 )
             )
         if status:
-            qs = qs.filter(status=status)
+            # Datenmodell-Konsolidierung Phase 1: the mirror column this
+            # filter used to read is no longer written by the engine, so an
+            # explicit ``?status=`` value is matched through WorkflowItemState
+            # (batched), falling back to the (now write-once, frozen-at-
+            # creation) column only for a row never wired into one -- an
+            # engine-only include filter would otherwise silently drop
+            # definition-less-workspace requirements with no WorkflowItemState
+            # at all (same risk Task 6 flagged for this exact method).
+            rows = list(qs.values("id", "status"))
+            states = state_reader.current_states(
+                "Requirement", (row["id"] for row in rows)
+            )
+            matching_ids = [
+                row["id"]
+                for row in rows
+                if (states.get(str(row["id"])) or row["status"]) == status
+            ]
+            qs = qs.filter(id__in=matching_ids)
         if search:
             qs = qs.filter(
                 Q(title__icontains=search)
@@ -774,13 +790,18 @@ class RequirementService(ServiceBase):
                 "pgvector extension not available — similarity search unavailable"
             ) from exc
 
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the workflow engine — resolved through state_reader (batched)
+        # instead of the (now write-once, frozen-at-creation) column.
+        states = state_reader.current_states("Requirement", (row.id for row in rows))
+
         return [
             SimilarRequirementDTO(
                 id=row.id,
                 uid=row.uid,
                 title=row.title,
                 category=row.category,
-                status=row.status,
+                status=states.get(str(row.id)) or row.status,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
                 similarity_score=round(1.0 - float(row.distance), 6),
             )

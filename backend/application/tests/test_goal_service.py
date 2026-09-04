@@ -349,8 +349,13 @@ class GoalServiceTransitionTests(TestCase):
         )
 
         self.assertEqual(goal.status, "Freigegeben")
+        # Datenmodell-Konsolidierung Phase 1: Goal.status is no longer
+        # written by the engine, so a fresh DB fetch reads the frozen
+        # creation-time column, not the transition — read via the seam.
+        from workflow import state_reader
+
         self.assertEqual(
-            Goal.objects.get(id=created["id"]).status, "Freigegeben"
+            state_reader.current_state("Goal", goal.id), "Freigegeben"
         )
 
     def test_transition_status_rejects_role_without_approver_permission(self):
@@ -378,7 +383,9 @@ class GoalServiceTransitionTests(TestCase):
         )
 
         self.assertEqual(goal.status, "Archiviert")
-        self.assertEqual(Goal.objects.get(id=created["id"]).status, "Archiviert")
+        from workflow import state_reader
+
+        self.assertEqual(state_reader.current_state("Goal", goal.id), "Archiviert")
 
     def test_transition_status_raises_not_found_for_unknown_id(self):
         with self.assertRaises(NotFoundError):

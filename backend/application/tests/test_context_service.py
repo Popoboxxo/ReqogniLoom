@@ -158,3 +158,156 @@ class TestGetRelated:
         assert hit.artifact_id == str(req_b.artifact_id)
         assert hit.title == "Autopilot disengage"
         assert hit.edge_kind == "shares-term"
+
+
+def _link(tenant, source_artifact, target_artifact):
+    from persistence.models import TraceLink
+    from traceability.types import LinkType
+
+    TraceLink.objects.create(
+        tenant=tenant,
+        source=source_artifact,
+        target=target_artifact,
+        link_type=LinkType.TRACES,
+    )
+
+
+def _seed_risk(tenant, workspace, *, title: str, status: str):
+    from application.models import Risk
+    from persistence.models import Artifact
+
+    artifact = Artifact.objects.create(tenant=tenant, workspace=workspace, artifact_type="Risk")
+    risk = Risk.objects.create(
+        artifact=artifact,
+        workspace_id=workspace.id,
+        tenant_id=tenant.id,
+        title=title,
+        status=status,
+    )
+    return artifact, risk
+
+
+def _seed_issue(tenant, workspace, *, title: str, status: str):
+    from application.models import Issue
+    from persistence.models import Artifact
+
+    artifact = Artifact.objects.create(tenant=tenant, workspace=workspace, artifact_type="Issue")
+    issue = Issue.objects.create(
+        artifact=artifact,
+        workspace_id=workspace.id,
+        tenant_id=tenant.id,
+        title=title,
+        status=status,
+    )
+    return artifact, issue
+
+
+def _close_via_engine(tenant, workspace, item_id, item_type, preset, target_state):
+    """Drive a real WorkflowEngine transition without the (now removed)
+    ``status`` column mirror — proves the seam, not the raw column, is what
+    ``_open_risks_for_artifact``/``_open_issues_for_artifact`` must trust."""
+    from workflow.lifecycle_manager import StateLifecycleManager
+    from workflow.services import create_default_workflow
+    from workflow.transition_validator import ValidationResult
+
+    create_default_workflow(
+        workspace_id=workspace.id, preset=preset, item_type=item_type, tenant_id=tenant.id
+    )
+    manager = StateLifecycleManager()
+    manager.initialize_workflow_states([item_id], item_type, workspace.id)
+    manager.perform_transition(
+        item_id=item_id,
+        item_type=item_type,
+        workspace_id=workspace.id,
+        target_state=target_state,
+        transitioned_by="test",
+        validation_result=ValidationResult(valid=True),
+    )
+
+
+class TestOpenRisksAndIssuesReadTheEngine:
+    """Datenmodell-Konsolidierung Phase 1 (Finding A.2): ``_open_risks_for_artifact``/
+    ``_open_issues_for_artifact`` must resolve the current state through
+    ``workflow.state_reader`` — the ``status`` column is no longer written by
+    the workflow engine and would otherwise report a stale value forever."""
+
+    def test_open_risks_excludes_a_risk_closed_only_in_the_engine(self):
+        from application.context_service import _open_risks_for_artifact
+
+        tenant, workspace, ctx = seed_workspace("cg-risk-engine")
+        req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-1")
+        risk_artifact, risk = _seed_risk(
+            tenant, workspace, title="Stale risk", status="Identified"
+        )
+        _link(tenant, req.artifact, risk_artifact)
+
+        try:
+            # The raw column still says "Identified" — only WorkflowItemState
+            # says "Closed" (exactly the post-mirror-deletion state of the
+            # world: the column is frozen at whatever it held at creation).
+            _close_via_engine(tenant, workspace, risk.id, "Risk", "risk_default", "Closed")
+            result = _open_risks_for_artifact(req.artifact_id)
+        finally:
+            _clear()
+
+        assert result == []
+
+    def test_open_risks_keeps_a_tracked_open_risk_with_resolved_status(self):
+        from application.context_service import _open_risks_for_artifact
+
+        tenant, workspace, ctx = seed_workspace("cg-risk-open")
+        req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-2")
+        risk_artifact, risk = _seed_risk(
+            tenant, workspace, title="Open risk", status="Identified"
+        )
+        _link(tenant, req.artifact, risk_artifact)
+
+        try:
+            _close_via_engine(
+                tenant, workspace, risk.id, "Risk", "risk_default", "Monitored"
+            )
+            result = _open_risks_for_artifact(req.artifact_id)
+        finally:
+            _clear()
+
+        assert len(result) == 1
+        assert result[0]["status"] == "Monitored"
+
+    def test_open_risks_falls_back_to_the_column_for_an_untracked_risk(self):
+        """No WorkflowItemState row at all (e.g. a pre-Phase-0 row) — the
+        function must not silently drop it, it must fall back to the column."""
+        from application.context_service import _open_risks_for_artifact
+
+        tenant, workspace, ctx = seed_workspace("cg-risk-untracked")
+        req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-3")
+        risk_artifact, risk = _seed_risk(
+            tenant, workspace, title="Untracked closed risk", status="Closed"
+        )
+        _link(tenant, req.artifact, risk_artifact)
+
+        try:
+            result = _open_risks_for_artifact(req.artifact_id)
+        finally:
+            _clear()
+
+        assert result == []
+
+    def test_open_issues_excludes_an_issue_closed_only_in_the_engine(self):
+        from application.context_service import _open_issues_for_artifact
+
+        tenant, workspace, ctx = seed_workspace("cg-issue-engine")
+        req = seed_requirement(tenant, workspace, title="Req", uid="REQ-ISSUE-1")
+        issue_artifact, issue = _seed_issue(
+            tenant, workspace, title="Stale issue", status="Open"
+        )
+        _link(tenant, req.artifact, issue_artifact)
+
+        try:
+            _close_via_engine(
+                tenant, workspace, issue.id, "Issue", "issue_default", "Closed"
+            )
+            result = _open_issues_for_artifact(req.artifact_id)
+        finally:
+            _clear()
+
+        assert result == []

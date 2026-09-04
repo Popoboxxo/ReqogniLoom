@@ -390,6 +390,10 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
             patch("application.workflow_facade.WorkflowFacade"),
+            # _set_tenant_context is mocked above (no TenantContext ever set
+            # on this thread), so the post-transition status resolution
+            # (state_reader.current_state) must be mocked too.
+            patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             result = svc.transition_status(
@@ -420,6 +424,10 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
             patch("application.workflow_facade.WorkflowFacade"),
+            # _set_tenant_context is mocked above (no TenantContext ever set
+            # on this thread), so the post-transition status resolution
+            # (state_reader.current_state) must be mocked too.
+            patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.transition_status(
@@ -442,6 +450,10 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
             patch("application.workflow_facade.WorkflowFacade"),
+            # _set_tenant_context is mocked above (no TenantContext ever set
+            # on this thread), so the post-transition status resolution
+            # (state_reader.current_state) must be mocked too.
+            patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.transition_status(
@@ -483,6 +495,44 @@ class TestTransitionStatus:
                 svc.transition_status(
                     adr_id=ADR_ID, target_status=Adr.Status.APPROVED, ctx=ctx
                 )
+
+    @pytest.mark.django_db
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, te020_ctx, te020_workspace, te020_tenant
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``adr.refresh_from_db()`` alone would leave the
+        returned instance's ``.status`` at its stale, pre-transition column
+        value. Must be corrected in memory before returning (same fix as
+        IssueService.transition_status)."""
+        from persistence.tenancy import TenantContext
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(te020_tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=te020_workspace.id,
+                preset="adr_default",
+                item_type="Adr",
+                tenant_id=te020_tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+        adr = AdrService().create_adr(
+            workspace_id=te020_workspace.id,
+            title="Adopt event sourcing",
+            description="d",
+            ctx=te020_ctx,
+        )
+
+        updated = AdrService().transition_status(
+            adr_id=adr.id,
+            target_status="In Review",
+            ctx=te020_ctx,
+        )
+
+        assert updated.status == "In Review"
+        assert Adr.objects.get(id=adr.id).status == "Draft"  # column frozen
 
 
 # ---------------------------------------------------------------------------

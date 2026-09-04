@@ -114,9 +114,9 @@ class CoverageCalculator:
 
         # Load all Requirements in the workspace (tenant-scoped via manager)
         req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        requirements = list(req_qs.values("id", "artifact_id", "status"))
         if not include_outdated:
-            req_qs = req_qs.exclude(status="outdated")
-        requirements = list(req_qs.values("id", "artifact_id"))
+            requirements = self._exclude_outdated(requirements, "Requirement")
 
         total = len(requirements)
         if total == 0:
@@ -209,9 +209,9 @@ class CoverageCalculator:
 
         # Load requirements in workspace
         req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        requirements = list(req_qs.values("id", "artifact_id", "title", "status"))
         if not include_outdated:
-            req_qs = req_qs.exclude(status="outdated")
-        requirements = list(req_qs.values("id", "artifact_id", "title"))
+            requirements = self._exclude_outdated(requirements, "Requirement")
 
         if not requirements:
             return CoverageData(entries=[])
@@ -333,6 +333,24 @@ class CoverageCalculator:
             testcase_artifact_ids, include_outdated=False
         )
 
+    @staticmethod
+    def _exclude_outdated(rows: list[dict], item_type: str) -> list[dict]:
+        """Drop rows whose current state is "outdated".
+
+        Datenmodell-Konsolidierung Phase 1: resolved through WorkflowItemState
+        (batched), falling back to the (now write-once, frozen-at-creation)
+        ``status`` key only for a row never wired into one. *rows* must each
+        carry ``"id"`` and ``"status"`` keys (e.g. from a ``.values()`` call).
+        """
+        from workflow import state_reader
+
+        states = state_reader.current_states(item_type, (row["id"] for row in rows))
+        return [
+            row
+            for row in rows
+            if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        ]
+
     def _filter_to_testcase_ids(
         self, source_ids: set[str], *, include_outdated: bool = False
     ) -> set[str]:
@@ -354,10 +372,26 @@ class CoverageCalculator:
 
         from persistence.models import TestCase
 
-        qs = TestCase.objects.filter(artifact_id__in=source_ids)
-        if not include_outdated:
-            qs = qs.exclude(status="outdated")
-        return {str(tc_id) for tc_id in qs.values_list("artifact_id", flat=True)}
+        rows = list(
+            TestCase.objects.filter(artifact_id__in=source_ids).values(
+                "id", "artifact_id", "status"
+            )
+        )
+        if include_outdated:
+            return {str(row["artifact_id"]) for row in rows}
+
+        # Datenmodell-Konsolidierung Phase 1: "outdated" is resolved through
+        # WorkflowItemState (batched), falling back to the (now write-once,
+        # frozen-at-creation) status column only for a TestCase never wired
+        # into one.
+        from workflow import state_reader
+
+        states = state_reader.current_states("TestCase", (row["id"] for row in rows))
+        return {
+            str(row["artifact_id"])
+            for row in rows
+            if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        }
 
     def _get_covered_artifact_ids(
         self,

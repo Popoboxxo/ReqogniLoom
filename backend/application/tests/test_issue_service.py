@@ -552,13 +552,19 @@ class TestListIssuesMultiFilter:
         assert result == all_issues
 
     def test_status_filter_applied(self):
-        """Status filter is applied when statuses list is provided."""
+        """Datenmodell-Konsolidierung Phase 1: the status filter now resolves
+        through ``workflow.state_reader.item_ids_in_state`` (unioned per
+        requested status) instead of a raw ``status__in`` column filter."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         with (
             patch("application.issue_service.Issue.objects") as mock_mgr,
             patch("application.issue_service.IssueService._set_tenant_context"),
+            patch(
+                "application.issue_service.state_reader.item_ids_in_state",
+                side_effect=lambda item_type, status, tenant_id: {"id-" + status},
+            ) as mock_seam,
         ):
             qs_mock = MagicMock()
             qs_mock.filter.return_value = qs_mock
@@ -567,7 +573,57 @@ class TestListIssuesMultiFilter:
 
             svc.list_issues_multi_filter(WS_ID, ctx, statuses=["Open", "In Progress"])
 
-        qs_mock.filter.assert_called_with(status__in=["Open", "In Progress"])
+        assert mock_seam.call_count == 2
+        mock_seam.assert_any_call("Issue", "Open", tenant_id=ctx.tenant_id)
+        mock_seam.assert_any_call("Issue", "In Progress", tenant_id=ctx.tenant_id)
+        qs_mock.filter.assert_called_with(id__in={"id-Open", "id-In Progress"})
+
+    def test_status_filter_reads_the_engine_not_the_stale_column(self, issue_tenant):
+        """DB-backed: an Issue whose WorkflowItemState is "Closed" but whose
+        (now write-once, frozen-at-creation) ``status`` column still says
+        "Open" must be found under the "Closed" filter, not the column's
+        stale value — the whole point of Finding B."""
+        from persistence.tenancy import TenantContext
+        from workflow.lifecycle_manager import StateLifecycleManager
+        from workflow.services import create_default_workflow
+        from workflow.transition_validator import ValidationResult
+
+        svc = IssueService()
+        workspace_id = uuid.uuid4()
+        issue = Issue.objects.create(
+            workspace_id=workspace_id,
+            tenant_id=issue_tenant.id,
+            title="Stale-column issue",
+            status="Open",
+        )
+
+        TenantContext.set_tenant(issue_tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=workspace_id,
+                preset="issue_default",
+                item_type="Issue",
+                tenant_id=issue_tenant.id,
+            )
+            manager = StateLifecycleManager()
+            manager.initialize_workflow_states([issue.id], "Issue", workspace_id)
+            manager.perform_transition(
+                item_id=issue.id,
+                item_type="Issue",
+                workspace_id=workspace_id,
+                target_state="Closed",
+                transitioned_by="test",
+                validation_result=ValidationResult(valid=True),
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert Issue.objects.get(id=issue.id).status == "Open"  # column frozen
+
+        ctx = _make_ctx(tenant_id=issue_tenant.id)
+        found = svc.list_issues_multi_filter(workspace_id, ctx, statuses=["Closed"])
+
+        assert [i.id for i in found] == [issue.id]
 
     def test_severity_filter_applied(self):
         """Severity filter is applied when severities list is provided."""
@@ -646,6 +702,32 @@ class TestAssignIssue:
             result = svc.assign_issue(issue_id=ISSUE_ID, assignee_id=None, ctx=ctx)
 
         assert result.assignee_id is None
+
+
+# ---------------------------------------------------------------------------
+# transition_status (I8: in-memory status staleness fix)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionStatus:
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, issue, auth_ctx
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``issue.refresh_from_db()`` alone would leave
+        the returned instance's ``.status`` at its stale, pre-transition
+        column value. Must be corrected in memory before returning."""
+        svc = IssueService()
+
+        updated = svc.transition_status(
+            issue_id=issue.id,
+            target_status="In Progress",
+            ctx=auth_ctx,
+            change_reason="starting work",
+        )
+
+        assert updated.status == "In Progress"
+        assert Issue.objects.get(id=issue.id).status == "Open"  # column frozen
 
 
 # ---------------------------------------------------------------------------

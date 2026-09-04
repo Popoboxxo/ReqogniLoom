@@ -23,13 +23,24 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 def current_states(
-    item_type: str, item_ids: Iterable[UUID | str]
+    item_type: str,
+    item_ids: Iterable[UUID | str],
+    *,
+    tenant_id: UUID | str | None = None,
 ) -> dict[str, str]:
     """Resolve the current workflow state of many items in one query.
 
     Args:
         item_type: Entity type string, e.g. ``"Requirement"``.
         item_ids:  Item UUIDs (or their string form).
+        tenant_id: When given, queries via the ``unscoped`` manager with an
+                   explicit tenant filter — for call sites that run outside a
+                   request-scoped ``TenantContext`` and already do explicit
+                   tenant filtering (mirrors :func:`item_ids_in_state`).
+                   When ``None`` (default), uses the tenant-scoped ``objects``
+                   manager, which relies on the active thread-local
+                   ``TenantContext``. Keyword-only so it cannot be passed
+                   positionally into a cross-tenant read.
 
     Returns:
         Mapping ``str(item_id) -> current_state``. Items without a
@@ -39,9 +50,13 @@ def current_states(
     ids = [str(item_id) for item_id in item_ids]
     if not ids:
         return {}
-    rows = WorkflowItemState.objects.filter(
-        item_type=item_type, item_id__in=ids
-    ).values_list("item_id", "current_state")
+    if tenant_id is not None:
+        manager = WorkflowItemState.unscoped.filter(tenant_id=tenant_id)
+    else:
+        manager = WorkflowItemState.objects
+    rows = manager.filter(item_type=item_type, item_id__in=ids).values_list(
+        "item_id", "current_state"
+    )
     return {str(item_id): state for item_id, state in rows}
 
 

@@ -386,35 +386,59 @@ class TraceabilitySuggestService(ServiceBase):
             Requirement,
             StakeholderNeed,
         )
+        from workflow import state_reader
         from workflow.services import outdated_item_ids
 
         pool: Dict[str, Tuple[str, str, str]] = {}
 
-        def _add(qs, artifact_type: str) -> None:
-            for artifact_id, title, description in qs.values_list(
-                "artifact_id", "title", "description"
-            ):
+        def _add(qs, artifact_type: str, item_type: "str | None" = None) -> None:
+            """Add every row of *qs* to *pool*, keyed by artifact_id.
+
+            *item_type* given: *qs* is not yet outdated-filtered — resolved
+            through WorkflowItemState (batched, Datenmodell-Konsolidierung
+            Phase 1), falling back to the (now write-once,
+            frozen-at-creation) status column only for a row never wired
+            into one. *item_type* ``None``: *qs* is already fully filtered
+            (e.g. ArchitectureElement's ``outdated_item_ids`` exclude, which
+            has no status column to fall back to), so rows are added as-is.
+            """
+            if item_type is None:
+                for artifact_id, title, description in qs.values_list(
+                    "artifact_id", "title", "description"
+                ):
+                    aid = str(artifact_id)
+                    if aid == source_id:
+                        continue
+                    pool[aid] = (title, description, artifact_type)
+                return
+
+            rows = list(
+                qs.values_list("id", "artifact_id", "title", "description", "status")
+            )
+            # This service, like the SE-Auditor rules, is called outside a
+            # request-scoped TenantContext in some paths -- the explicit
+            # tenant_id= keeps the lookup correct regardless (N1).
+            states = state_reader.current_states(
+                item_type, (row[0] for row in rows), tenant_id=tenant_id
+            )
+            for row_id, artifact_id, title, description, status in rows:
+                if (states.get(str(row_id)) or status) == "outdated":
+                    continue
                 aid = str(artifact_id)
                 if aid == source_id:
                     continue
                 pool[aid] = (title, description, artifact_type)
 
         if rule_id in (TRACE_P1, TRACE_P1B):
-            # StakeholderNeed is registered in
-            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS and its delete()
-            # path calls workflow.services.outdate(), which writes status ==
-            # "outdated" — the same status mirror Requirement uses. The
-            # now-legacy lifecycle_status field is never touched by outdate().
             needs = StakeholderNeed.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(status="outdated")
-            _add(needs, "stakeholder_need")
+            )
+            _add(needs, "stakeholder_need", "StakeholderNeed")
         if rule_id == TRACE_P1B:
-            # Requirement has a status mirror (outdate() writes Requirement.status).
             reqs = Requirement.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(status="outdated")
-            _add(reqs, "requirement")
+            )
+            _add(reqs, "requirement", "Requirement")
         if rule_id == TRACE_P2:
             # ArchitectureElement has no status mirror — outdate() only writes
             # WorkflowItemState (see workflow.services.outdated_item_ids).

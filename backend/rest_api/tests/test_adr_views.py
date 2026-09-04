@@ -147,7 +147,16 @@ def test_supersede_success_sets_status_and_creates_decides_tracelink(
     try:
         old_adr = Adr.objects.get(id=old_id)
         new_adr = Adr.objects.get(id=new_id)
-        assert old_adr.status == Adr.Status.SUPERSEDED.value
+        # Datenmodell-Konsolidierung Phase 1: Adr.status is no longer written
+        # by the engine, so a fresh DB fetch reads the frozen creation-time
+        # column, not the transition — read via the seam (the REST response
+        # body's "status" above already went through it correctly).
+        from workflow import state_reader
+
+        assert (
+            state_reader.current_state("Adr", old_adr.id)
+            == Adr.Status.SUPERSEDED.value
+        )
         # There is no dedicated `superseded_by` column (REQ-L3-ADR-005) — the
         # 'decides' TraceLink (source=successor, target=superseded) is the
         # single source of truth the frontend's "Abgelöst durch" lookup

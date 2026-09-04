@@ -72,6 +72,7 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow import state_reader
 
 
 def _l4_level() -> int:
@@ -120,19 +121,28 @@ def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, O
 def _fetch_requirement_levels(context: AuditContext) -> Dict[str, Optional[int]]:
     """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements.
 
-    Requirement has a status mirror — ``outdate()`` writes
-    ``Requirement.status``, not the dead ``lifecycle_status`` column.
+    Datenmodell-Konsolidierung Phase 1: "non-deleted" is resolved through
+    ``WorkflowItemState`` (batched), falling back to the (now write-once,
+    frozen-at-creation) ``status`` column only for a Requirement that was
+    never wired into one — Requirement has no backfill-migration guarantee
+    (unlike ArchitectureElement, which never had a ``status`` column to begin
+    with, so :func:`_fetch_architecture_elements` above needs no fallback).
     """
     from persistence.models import Requirement
 
-    rows = (
+    rows = list(
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-        )
-        .exclude(status="outdated")
-        .values("artifact_id", "level")
+        ).values("id", "artifact_id", "level", "status")
     )
-    return {str(row["artifact_id"]): row["level"] for row in rows}
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    return {
+        str(row["artifact_id"]): row["level"]
+        for row in rows
+        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+    }
 
 
 def _derives_from_pairs(context: AuditContext) -> Set[Tuple[str, str]]:

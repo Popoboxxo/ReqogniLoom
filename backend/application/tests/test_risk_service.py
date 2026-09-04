@@ -634,6 +634,32 @@ class TestListRisksExcludesOutdated:
 
 
 # ---------------------------------------------------------------------------
+# transition_status (I8/1: in-memory status staleness fix)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionStatus:
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, risk, auth_ctx
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``risk.refresh_from_db()`` alone would leave
+        the returned instance's ``.status`` at its stale, pre-transition
+        column value. Must be corrected in memory before returning (same
+        fix as IssueService.transition_status)."""
+        svc = RiskService()
+
+        updated = svc.transition_status(
+            risk_id=risk.id,
+            target_status="Monitored",
+            ctx=auth_ctx,
+        )
+
+        assert updated.status == "Monitored"
+        assert Risk.objects.get(id=risk.id).status == "Identified"  # column frozen
+
+
+# ---------------------------------------------------------------------------
 # query_risks_by_severity — SeMetrics contract
 # ---------------------------------------------------------------------------
 

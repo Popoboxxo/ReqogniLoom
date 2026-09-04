@@ -14,8 +14,10 @@ Covered here:
   * the data migration                — forwards AND backwards, across all four
                                         storage locations and without touching
                                         other item types;
-  * a live transition                 — the mirror written by
-                                        ``_sync_status_mirror`` is lowercase.
+  * a live transition                 — ``WorkflowItemState.current_state`` is
+                                        lowercase (Datenmodell-Konsolidierung
+                                        Phase 1: there is no ``status`` mirror
+                                        write left to also check).
 
 The REST round-trip lives in ``rest_api/tests/test_testcase_status_lowercase_453.py``.
 """
@@ -430,9 +432,13 @@ def test_migration_backwards_restores_the_previous_spelling(tenant, historical_a
 # ---------------------------------------------------------------------------
 
 
-def test_live_transition_writes_a_lowercase_status_mirror(tenant) -> None:
-    """End-to-end proof that definition, item state and mirror agree after the
-    rename: a real transition through the real preset."""
+def test_live_transition_writes_a_lowercase_engine_state(tenant) -> None:
+    """End-to-end proof that definition and item state agree after the
+    rename: a real transition through the real preset writes a lowercase
+    ``current_state``. Datenmodell-Konsolidierung Phase 1: there is no
+    ``status`` mirror to also check anymore — ``TestCase.status`` is
+    write-once at creation, read the live state through
+    ``workflow.state_reader`` instead."""
     from application.test_service import TestService
     from workflow.services import create_default_workflow, transition
 
@@ -491,6 +497,7 @@ def test_live_transition_writes_a_lowercase_status_mirror(tenant) -> None:
     with _tenant_scope(tenant.id):
         state.refresh_from_db()
         assert state.current_state == "approved"
+        # The column is frozen at its creation-time value now — the mirror
+        # write this test used to also assert on is gone (Phase 1).
         test_case.refresh_from_db()
-        assert test_case.status == "approved"
-        assert test_case.status == TestCase.Status.APPROVED
+        assert test_case.status == "draft"

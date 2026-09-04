@@ -950,9 +950,11 @@ class TestWorkflowIntegration:
         assert result["status"] == "completed"
         item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
         assert item_state.current_state == "completed"
-        # status mirror (lifecycle_manager._STATUS_MIRROR_MODELS) kept in sync.
+        # Datenmodell-Konsolidierung Phase 1: the status mirror is gone —
+        # the column is frozen at its creation-time value ("in_progress"),
+        # WorkflowItemState (asserted above) is the only store now.
         session.refresh_from_db()
-        assert session.status == "completed"
+        assert session.status == "in_progress"
 
     def test_formalize_records_workflow_history_entry(self, ctx, workspace_with_interview_workflow):
         from workflow.models import WorkflowHistoryEntry, WorkflowItemState
@@ -995,3 +997,41 @@ class TestWorkflowIntegration:
 
         session.refresh_from_db()
         assert session.status == "abandoned"
+
+    def test_list_sessions_sweep_does_not_re_abandon_an_already_completed_session(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        """I5 (Datenmodell-Konsolidierung Phase 1 review round 3): the
+        ``status`` column is frozen "in_progress" for every single-mode
+        session, completed or not, so the stale-sweep prefilter must
+        distinguish real vs. resolved staleness through the engine
+        (batched) -- not just widen the raw-column-filtered candidate set.
+        An old, already-completed session must not be force-abandoned by a
+        later list_sessions() call; a genuinely-stale one still must be."""
+        from persistence.models import InterviewSession as ISModel
+        from workflow.models import WorkflowItemState
+
+        svc = InterviewService()
+        stale_time = timezone.now() - ABANDONED_TTL - timedelta(days=1)
+
+        completed = svc.start(ctx, "Requirement", workspace_with_interview_workflow.id)
+        svc.answer(ctx, completed.id, "title", "SSO login")
+        svc.answer(ctx, completed.id, "rationale", "Reduce password fatigue")
+        svc.formalize(ctx, completed.id)
+        ISModel.objects.filter(id=completed.id).update(modified_at=stale_time)
+
+        genuinely_stale = svc.start(
+            ctx, "Requirement", workspace_with_interview_workflow.id
+        )
+        ISModel.objects.filter(id=genuinely_stale.id).update(modified_at=stale_time)
+
+        list(svc.list_sessions(ctx, workspace_with_interview_workflow.id))
+
+        completed_state = WorkflowItemState.objects.get(
+            item_id=completed.id, item_type="Interview"
+        )
+        assert completed_state.current_state == "completed"  # untouched, not re-abandoned
+        stale_state = WorkflowItemState.objects.get(
+            item_id=genuinely_stale.id, item_type="Interview"
+        )
+        assert stale_state.current_state == "abandoned"
