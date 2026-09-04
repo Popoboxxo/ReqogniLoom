@@ -181,6 +181,80 @@ Abhängigkeiten nutzen — "Step 0 prüft und blockiert, statt zu duplizieren").
 
 ---
 
+## 6. ⏳ Offen — MCP-Modernisierung ↔ Dokumentensicht: doppelter Markdown-Renderer
+
+**Pläne:** `docs/superpowers/plans/2026-09-03-mcp-modernisierung.md`, Task 5 /
+`docs/superpowers/plans/2026-09-03-dokumentensicht.md`, Task 4 (beide Pläne mussten am
+2026-09-04 wegen eines Rate-Limit-Ausfalls neu erzeugt werden, siehe Hinweis unten —
+dabei liefen beide Regenerationen parallel und haben unabhängig voneinander denselben
+Modulnamen gebaut, ohne sich gegenseitig zu sehen)
+
+**Befund:** Beide Pläne definieren `application/artifact_markdown.py` mit einer Funktion
+`render_artifact_markdown()` — aber mit unterschiedlicher Signatur, weil beide Pläne
+unterschiedliche Anforderungen haben: Dokumentensicht braucht eine reine, dict-basierte
+Funktion mit Nummerierung (`render_artifact_markdown(row, *, heading_level, number,
+skip_fields)`), um viele Artefakte innerhalb eines Dokuments zu rendern; MCP-
+Modernisierung braucht eine ID-auflösende Variante mit Auth
+(`render_artifact_markdown(artifact_id, ctx)`) für einen einzelnen MCP-`resources/read`-
+Aufruf. Beide Pläne tragen jetzt einen `⚠️ KNOWN CROSS-PLAN CONFLICT`-Hinweis mit
+derselben Empfehlung.
+
+**Meine Empfehlung:** die dict-basierte, nummerierungsfähige Signatur (Dokumentensicht)
+wird die gemeinsame Low-Level-Primitive — eine ID-auflösende Variante lässt sich trivial
+darüber bauen, umgekehrt nicht. MCP-Modernisierungs Task 5 sollte umbenannt werden (z. B.
+`render_artifact_resource(artifact_id, ctx)`), intern die Feld-Reflection nutzen, um das
+`row`-Dict zu bauen, und dann an die gemeinsame Funktion zur reinen Formatierung
+delegieren. Da beide Pläne noch reine Entwurfsdokumente sind (nichts davon ist
+implementiert), ist das ein risikoloser Nachtrag — ich habe bewusst keinen der beiden
+Pläne blind umgeschrieben, weil eine echte Verschmelzung ohne laufenden Code mehr Risiko
+als Nutzen gehabt hätte.
+
+**Status:** Wartet auf deine Entscheidung — oder auf Umsetzung durch wen auch immer diese
+zwei Pläne implementiert (der Hinweis in beiden Plänen reicht ggf. auch ohne explizite
+Vorab-Entscheidung).
+
+---
+
+## 7. ⏳ Offen — Dokumentensicht: Migration bestehender Document-Scope-Baselines
+
+**Plan:** `docs/superpowers/plans/2026-09-03-dokumentensicht.md`, Task 11
+
+**Befund:** `BaselineSnapshot.artifact` (das Feld, über das eine bestehende
+`scope="document"`-Baseline ihren Root-Artefakt referenziert) wird laut Code-Verifikation
+nirgends geschrieben — jede vorhandene Zeile hat `artifact_id = NULL`. Eine automatische
+1:1-Migration bestehender Document-Baselines auf echte `Document`-Objekte ist damit nicht
+möglich (die Information, welchen Teilbaum eine alte Baseline abdeckte, existiert nur
+noch in den eingefrorenen Delta-Einträgen der Baseline selbst, nicht mehr am Baseline-
+Kopf). Der Plan sieht einen opt-in Management-Command vor, der die Scope verlustfrei aus
+den Delta-Einträgen als `fixed`-Sektion rekonstruiert.
+
+**Frage:** Zwei Varianten für den Rekonstruktions-Command: (a) ein synthetisches
+`Document` pro betroffener Baseline erzeugen (einfach, aber potenziell viele
+Dokumente mit nur einer Baseline dahinter), oder (b) Baselines mit identischem
+rekonstruierten Artefakt-Set zu einem gemeinsamen `Document` gruppieren (näher am
+Wortsinn "Dokument-Historie", kostet einen zusätzlichen Gruppierungs-Pass, birgt aber das
+Risiko, zwei aus unabhängigen Gründen identische Baselines fälschlich zusammenzuführen).
+
+**Meine Empfehlung:** Variante (a) — einfacher, keine Fehlannahme über Baseline-
+Verwandtschaft. Variante (b) ist eine Fünf-Zeilen-Änderung an Task 11, falls sich später
+zeigt, dass viele Ein-Baseline-Dokumente in der Praxis stören.
+
+**Status:** Wartet auf deine Entscheidung (Empfehlung: Variante a, Default im Plan).
+
+---
+
+## Hinweis: Fünf Pläne mussten am 2026-09-04 wiederhergestellt werden
+
+KI-Vorschlag-als-Zustand, Interview-Engine-Fix, MCP-Modernisierung, Dokumentensicht und
+Rollenbasierte-Sichten gingen durch eine Race Condition zwischen zwei gleichzeitig auf
+demselben Arbeitsverzeichnis laufenden Hintergrund-Agenten verloren (nie von Git erfasst,
+daher auch im Objekt-Store nicht wiederherstellbar — systematisch per `git fsck`
+geprüft). Alle fünf wurden mit denselben Prompts neu erzeugt, diesmal nacheinander statt
+parallel zu Commit-Arbeiten. Die neuen Versionen haben teils andere Task-Zahlen als die
+ursprünglich gemeldeten (z. B. KI-Vorschlag 16→20, Interview-Engine-Fix 15→18,
+Rollenbasierte-Sichten 19→15) — jede Regeneration hat unabhängig neu gegen den Code
+verifiziert und kam auf leicht andere, aber jeweils in sich korrekte Ergebnisse.
+
 ## Hinweis ohne Entscheidungsbedarf: GitHub-Issue #848
 
 Plan #11 (Rollenbasierte-Sichten) fand, dass `NAV_ITEMS.requires` und `useHasRole` bereits

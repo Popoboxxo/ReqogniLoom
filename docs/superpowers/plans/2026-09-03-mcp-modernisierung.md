@@ -792,6 +792,22 @@ git commit -m "feat(mcp): reject unsupported MCP-Protocol-Version request header
 
 **Decision (architecture note):** the renderer is field-*class*-driven, not field-*name*-driven — H1 from a title-like `CharField`, bullet metadata from short scalar fields, one `##` section per non-empty `TextField`. One implementation covers all nine artifact types and keeps working when the Datenmodell-Konsolidierung and Attribut-Definition specs add columns. Alternatives rejected: a per-type template table (nine copies, silently stale after each schema change) and reusing `McpArtifactProvider` (diagram-specific, see "Spec corrections").
 
+**⚠️ KNOWN CROSS-PLAN CONFLICT (found 2026-09-04, not yet reconciled — see
+`docs/superpowers/plans/2026-09-04-open-decisions.md`):** the Dokumentensicht plan
+(`2026-09-03-dokumentensicht.md`, its own Task 4) independently defines a function of the
+same name at the same module path, but with a **different signature**:
+`render_artifact_markdown(row: Mapping[str, Any], *, heading_level: int = 2, number: str
+| None = None, skip_fields: Sequence[str] = (...)) -> str` — a pure, dict-based renderer
+with numbering support, needed for rendering many artifacts inside one document. This
+plan's version resolves by `artifact_id` + `ctx` instead. **Do not implement both
+verbatim.** Recommended reconciliation at implementation time: keep the Dokumentensicht
+dict-based signature as the low-level shared primitive in `artifact_markdown.py`; rename
+this plan's ID-resolving function to something distinct (e.g.
+`render_artifact_resource(artifact_id, ctx) -> str`) and have it build the `row` dict via
+this task's field-class reflection, then delegate to the shared primitive for formatting.
+Whoever implements this task first should leave the module open for the other shape
+rather than closing it off.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `backend/application/tests/test_artifact_markdown.py`:

@@ -1237,6 +1237,21 @@ git commit -m "feat(documents): add DocumentSection CRUD, reorder and cycle guar
   ```
   Returns a Markdown block ending in a single blank line. Consumed by `DocumentReadService` (Task 6), by `ExportService.export_markdown`, and — later — by the MCP-Modernisierung spec's `resources/read`.
 
+**⚠️ KNOWN CROSS-PLAN CONFLICT (found 2026-09-04, not yet reconciled — see
+`docs/superpowers/plans/2026-09-04-open-decisions.md`):** the MCP-Modernisierung plan
+(`2026-09-03-mcp-modernisierung.md`, its own Task 5) independently defines a function of
+the same name at the same module path, but with a **different signature**:
+`render_artifact_markdown(artifact_id: UUID | str, ctx: AuthContext) -> str` —
+ID-resolving, field-class-reflection-driven, no numbering concept. **Do not implement
+both verbatim.** Recommended reconciliation at implementation time: this plan's
+dict-based, numbering-aware signature becomes the shared low-level primitive (it is the
+more general shape — an ID-resolving wrapper is trivial to build on top of a dict-based
+renderer, the reverse is not); MCP-Modernisierung's Task 5 should be renamed to something
+distinct (e.g. `render_artifact_resource(artifact_id, ctx) -> str`) and delegate to this
+function for the actual formatting after resolving its own `row` dict. Whoever implements
+either task first should leave the module open for the other shape rather than closing it
+off.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `backend/application/tests/test_artifact_markdown.py`:
