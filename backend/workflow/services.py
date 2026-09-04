@@ -67,6 +67,7 @@ from .lifecycle_manager import (
     WorkflowStateError,
 )
 from .models import WorkflowHistoryEntry, WorkflowItemState
+from .state_reader import current_state, current_states, item_ids_in_state
 from .transition_validator import (
     EC_CHANGE_REASON_REQUIRED,
     EC_ROLE_NOT_ALLOWED,
@@ -1101,4 +1102,7 @@ __all__ = [
     "OrphanedStateError",
     "StateReferencedError",
     "NoGlobalSourceError",
+    "current_state",
+    "current_states",
+    "item_ids_in_state",
 ]
