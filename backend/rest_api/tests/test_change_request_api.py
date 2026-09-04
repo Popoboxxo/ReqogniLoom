@@ -37,6 +37,22 @@ TENANT_ID = str(uuid.uuid4())
 USER_ID = str(uuid.uuid4())
 
 
+@pytest.fixture(autouse=True)
+def _tenant_context():
+    """Datenmodell-Konsolidierung: ChangeRequestSerializer.status now queries
+    WorkflowItemState (tenant-scoped) even though ``_svc()`` is mocked in
+    every test below — the real request middleware that normally sets
+    ``TenantContext`` never runs for these ``APIRequestFactory`` + ``view(req)``
+    calls. No matching rows are expected to exist; the query itself just needs
+    an active tenant to run.
+    """
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(uuid.UUID(TENANT_ID))
+    yield
+    TenantContext.clear_tenant()
+
+
 def _make_auth_context(roles=("editor", "admin")):
     from auth_tenancy.context import AuthContext, AuthMethod
 
@@ -455,11 +471,18 @@ class TestChangeRequestTransitionEndpoint:
         cr = _make_cr_orm(status="under_review")
         svc.transition_status.return_value = cr
 
-        resp = self._call_transition(
-            CR_ID,
-            {"target_status": "under_review"},
-            svc,
-        )
+        # Datenmodell-Konsolidierung: the response's `status` is now resolved
+        # from WorkflowItemState, not the mocked service's `.status` attribute
+        # — mock the read seam to simulate "the transition already committed".
+        with patch(
+            "rest_api.mixins.workflow_state.state_reader.current_states",
+            return_value={str(cr.id): "under_review"},
+        ):
+            resp = self._call_transition(
+                CR_ID,
+                {"target_status": "under_review"},
+                svc,
+            )
         assert resp.status_code == 200
         assert resp.data["status"] == "under_review"
 
@@ -491,7 +514,13 @@ class TestChangeRequestSerializer:
         )
         assert ser.is_valid(), ser.errors
 
-    def test_serializer_rejects_invalid_status(self):
+    def test_serializer_ignores_status_input(self):
+        """Datenmodell-Konsolidierung (Task 3): `status` is now resolved from
+        the WorkflowEngine (WorkflowStateSerializerMixin), same as every other
+        workflow-backed serializer — a client-supplied value, valid or not,
+        is silently ignored rather than validated. Change the lifecycle state
+        via POST /api/v1/change-requests/{id}/transition/.
+        """
         from rest_api.serializers import ChangeRequestSerializer
 
         ser = ChangeRequestSerializer(
@@ -501,17 +530,8 @@ class TestChangeRequestSerializer:
                 "status": "flying_purple_hippo",
             }
         )
-        assert not ser.is_valid()
-        assert "status" in ser.errors
-
-    def test_serializer_all_valid_statuses_pass(self):
-        from rest_api.serializers import ChangeRequestSerializer
-
-        for st in ["draft", "submitted", "under_review", "approved", "rejected", "implemented"]:
-            ser = ChangeRequestSerializer(
-                data={"workspace_id": WS_ID, "title": "CR", "status": st}
-            )
-            assert ser.is_valid(), f"Status '{st}' should be valid: {ser.errors}"
+        assert ser.is_valid(), ser.errors
+        assert "status" not in ser.validated_data
 
     def test_serializer_partial_update_accepts_just_title(self):
         from rest_api.serializers import ChangeRequestSerializer

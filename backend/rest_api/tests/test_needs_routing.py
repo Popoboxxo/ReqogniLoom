@@ -130,6 +130,7 @@ def test_flat_list_route_without_workspace_id_returns_400() -> None:
     assert response.status_code == 400
 
 
+@pytest.mark.django_db
 def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
     """Regression (CR-06/CR-07): POST /api/v1/needs/ (flat, no workspace_pk
     URL kwarg) must read workspace_id from the request body. Previously the
@@ -137,6 +138,8 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
     called the service with workspace_id=None and failed with a 404
     ("Workspace None not found")."""
     from unittest.mock import MagicMock
+
+    from persistence.tenancy import TenantContext
 
     ws_id = str(uuid.uuid4())
     factory = APIRequestFactory()
@@ -147,9 +150,10 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
     )
     from auth_tenancy.context import AuthContext, AuthMethod
 
+    tenant_id = uuid.uuid4()
     req.auth_context = AuthContext(
         user_id=uuid.uuid4(),
-        tenant_id=uuid.uuid4(),
+        tenant_id=tenant_id,
         active_roles=("admin",),
         auth_method=AuthMethod.BEARER_TOKEN,
     )
@@ -170,11 +174,20 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
     }
-    with patch(
-        "application.stakeholder_need_service.StakeholderNeedService.create",
-        return_value=fake_dto,
-    ) as mock_create:
-        response = view(req)
+    # Datenmodell-Konsolidierung: RequirementSerializer's status field now
+    # queries WorkflowItemState (tenant-scoped) even though the service call
+    # itself is mocked here — a real request has TenantContext set by
+    # middleware before the view runs, which this bare APIRequestFactory call
+    # bypasses.
+    TenantContext.set_tenant(tenant_id)
+    try:
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeedService.create",
+            return_value=fake_dto,
+        ) as mock_create:
+            response = view(req)
+    finally:
+        TenantContext.clear_tenant()
 
     assert response.status_code == 201
     assert str(mock_create.call_args.kwargs["workspace_id"]) == ws_id

@@ -364,6 +364,8 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         request: Request,
         items: Any,
         serialize: Callable[[Any], Any] | None = None,
+        *,
+        serialize_page: Callable[[list], Any] | None = None,
     ) -> Response:
         """Paginate *items* and return a paginated Response.
 
@@ -377,6 +379,16 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         already pass a pre-serialised list may omit ``serialize`` (backwards
         compatible).
 
+        ``serialize_page`` is the batched alternative: it receives the whole
+        page (a list, at most ``page_size`` items) in one call instead of once
+        per row. Required for any serializer using
+        ``WorkflowStateSerializerMixin`` (Datenmodell-Konsolidierung) — a
+        per-row ``serialize`` lambda builds a *fresh* serializer instance per
+        row, so the mixin's ``many=True`` status-map batching (one query for
+        the whole page) never kicks in and every row pays its own
+        ``WorkflowItemState`` query instead. Mutually exclusive with
+        ``serialize``.
+
         Response shape follows ``StandardPagination``:
         ``{count, next, previous, page_size, max_page_size, results}`` — the
         last two were added in #571 (reopen) so a clamped ``page_size`` stops
@@ -384,9 +396,14 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         """
         page = self.paginator.paginate_queryset(items, request, view=self)
         if page is not None:
-            results = [serialize(obj) for obj in page] if serialize else page
+            if serialize_page is not None:
+                results = serialize_page(list(page))
+            else:
+                results = [serialize(obj) for obj in page] if serialize else page
             return self.paginator.get_paginated_response(results)
         # Pagination disabled for this request — serialise the full set.
+        if serialize_page is not None:
+            return Response(serialize_page(list(items)))
         if serialize is not None:
             return Response([serialize(obj) for obj in items])
         return Response(items)
@@ -475,7 +492,9 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return self._paginate(
                 request,
                 items,
-                lambda item: StakeholderNeedSerializer(item.to_dict()).data,
+                serialize_page=lambda page: StakeholderNeedSerializer(
+                    [i.to_dict() for i in page], many=True
+                ).data,
             )
         except NotFoundError as e:
             return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
@@ -813,7 +832,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
 
         return self._paginate(
-            request, items, lambda item: RequirementSerializer(_dto_from_orm(item)).data
+            request,
+            items,
+            serialize_page=lambda page: RequirementSerializer(
+                [_dto_from_orm(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -2159,7 +2182,11 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: TestCaseSerializer(_test_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: TestCaseSerializer(
+                [_test_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4808,7 +4835,11 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: AdrSerializer(_adr_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: AdrSerializer(
+                [_adr_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4852,7 +4883,10 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 context=data.get("context", ""),
                 decision=data.get("decision", ""),
                 consequences=data.get("consequences", ""),
-                status=data.get("status", "Draft"),
+                # Datenmodell-Konsolidierung: AdrSerializer.status is now
+                # read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status —
+                # create_adr()'s own default ("Draft") is authoritative.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5081,7 +5115,11 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: RiskSerializer(_risk_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: RiskSerializer(
+                [_risk_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5127,7 +5165,10 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category", "technical"),
                 owner=data.get("owner", ""),
                 mitigation_strategy=data.get("mitigation_strategy", ""),
-                status=data.get("status", "Identified"),
+                # Datenmodell-Konsolidierung: RiskSerializer.status is now
+                # read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status —
+                # create_risk()'s own default ("Identified") is authoritative.
                 detection=data.get("detection", 5),
                 owner_user_id=data.get("owner_user_id"),
             )
@@ -5415,7 +5456,11 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if err is not None:
             return err
         return self._paginate(
-            request, items, lambda item: GoalSerializer(_goal_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: GoalSerializer(
+                [_goal_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5663,7 +5708,11 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if err is not None:
             return err
         return self._paginate(
-            request, items, lambda item: MainGoalSerializer(_main_goal_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: MainGoalSerializer(
+                [_main_goal_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5882,7 +5931,11 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: IssueSerializer(_issue_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: IssueSerializer(
+                [_issue_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5926,7 +5979,10 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 category=data.get("category", "defect"),
                 tags=data.get("tags"),
-                status=data.get("status", "Open"),
+                # Datenmodell-Konsolidierung: IssueSerializer.status is now
+                # read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status —
+                # create_issue()'s own default ("Open") is authoritative.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6127,7 +6183,11 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: ChangeRequestSerializer(_cr_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: ChangeRequestSerializer(
+                [_cr_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:

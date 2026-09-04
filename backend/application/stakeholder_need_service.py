@@ -128,6 +128,26 @@ class StakeholderNeedService(ServiceBase):
             created_by_id=ctx.user_id,
         )
 
+        # Initialize workflow state (IF-AS-EXT-OUT-001). Without this, GET
+        # never had a WorkflowItemState to resolve `status` from until the
+        # first transition — the model column above masked the gap while it
+        # was the wire source; it stopped doing so once
+        # WorkflowStateSerializerMixin (Datenmodell-Konsolidierung) became
+        # the source of truth. Mirrors create_issue/create_adr/create_risk.
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[need.id],
+                item_type="StakeholderNeed",
+                workspace_id=workspace.id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "StakeholderNeedService: workflow init skipped for need=%s", need.id
+            )
+
         self._emit_event(
             self._make_event(
                 event_type="StakeholderNeedCreated",

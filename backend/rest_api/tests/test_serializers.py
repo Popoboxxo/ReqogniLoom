@@ -235,6 +235,7 @@ class TestRequirementSerializer:
         ser = RequirementSerializer(data=data)
         assert ser.is_valid(), ser.errors
 
+    @pytest.mark.django_db
     def test_artifact_id_rendered(self) -> None:
         """#413/#416: the backing Artifact id must reach the client.
 
@@ -244,6 +245,8 @@ class TestRequirementSerializer:
         serializer simply never declared the field, so DRF dropped it and the
         traceability UI degraded to raw UUIDs.
         """
+        from persistence.tenancy import TenantContext
+
         artifact_id = str(uuid.uuid4())
         payload = {
             "id": str(uuid.uuid4()),
@@ -256,7 +259,14 @@ class TestRequirementSerializer:
             "type": "SyReq",
             "version": 1,
         }
-        data = RequirementSerializer(payload).data
+        # Datenmodell-Konsolidierung: `status` now resolves via
+        # WorkflowStateSerializerMixin, a tenant-scoped WorkflowItemState
+        # query — unrelated to what this test actually covers (artifact_id).
+        TenantContext.set_tenant(uuid.uuid4())
+        try:
+            data = RequirementSerializer(payload).data
+        finally:
+            TenantContext.clear_tenant()
         assert data["artifact_id"] == artifact_id
 
     def test_artifact_id_is_read_only(self) -> None:
@@ -450,10 +460,22 @@ class TestFreeTextSizeLimits:
 
 
 class TestIssueSerializerStatusField:
-    def test_invalid_status_error_lists_valid_choices(self) -> None:
-        """Regression (issue #26): DRF's default invalid_choice message
-        ('"<value>" is not a valid choice.') didn't enumerate the valid
-        status values, forcing MCP/API callers to guess."""
+    """Datenmodell-Konsolidierung (Task 3): `status` is now resolved from the
+    WorkflowEngine via WorkflowStateSerializerMixin, same as every other
+    workflow-backed serializer (Requirement, TestCase, ...). It used to be a
+    writable ``NormalizedChoiceField`` — IssueViewSet.create() forwarded a
+    client-supplied initial status, but initialize_workflow_states() always
+    seeded the workflow's own initial state regardless, so that value never
+    reached the true engine state, only the (now legacy) mirror column. These
+    tests covered that write-time validation/normalization; superseded by
+    ``test_status_from_engine.py`` (read-only field, engine-sourced value).
+    """
+
+    def test_status_input_is_accepted_and_ignored(self) -> None:
+        """A client-supplied status is not validated and never persisted —
+        same "accepted and ignored" contract as RequirementSerializer.status.
+        Change the lifecycle state via POST /api/v1/issues/{id}/transitions/.
+        """
         data = {
             "workspace_id": str(uuid.uuid4()),
             "title": "Test issue",
@@ -462,61 +484,8 @@ class TestIssueSerializerStatusField:
             "status": "bogus-status",
         }
         ser = IssueSerializer(data=data)
-        assert not ser.is_valid()
-        assert "status" in ser.errors
-        message = str(ser.errors["status"][0])
-        for choice in ("Open", "In Progress", "Resolved", "Closed", "Wontfix"):
-            assert choice in message
-
-    def test_valid_status_accepted(self) -> None:
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "In Progress",
-        }
-        ser = IssueSerializer(data=data)
         assert ser.is_valid(), ser.errors
-
-    def test_case_insensitive_status_lowercase(self) -> None:
-        """Issue status field accepts lowercase input and normalizes to Title-Case."""
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "open",
-        }
-        ser = IssueSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert ser.validated_data["status"] == "Open"
-
-    def test_case_insensitive_status_uppercase(self) -> None:
-        """Issue status field accepts uppercase input and normalizes to Title-Case."""
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "IN PROGRESS",
-        }
-        ser = IssueSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert ser.validated_data["status"] == "In Progress"
-
-    def test_case_insensitive_status_mixed_case(self) -> None:
-        """Issue status field accepts mixed-case input and normalizes to Title-Case."""
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "wONtFiX",
-        }
-        ser = IssueSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert ser.validated_data["status"] == "Wontfix"
+        assert "status" not in ser.validated_data
 
 
 # ---------------------------------------------------------------------------
@@ -597,8 +566,11 @@ class TestTraceLinkSerializer:
 class TestPresetAwareSerializerMixin:
     """FieldFilter applied before generating response (REQ-L3-RA002-004)."""
 
+    @pytest.mark.django_db
     def test_permitted_fields_filter_applied(self) -> None:
         """Fields not in permitted_fields are excluded from output."""
+        from persistence.tenancy import TenantContext
+
         ff = FieldFilter(permitted_fields=frozenset({"id", "title"}), required_fields=frozenset())
         data = {
             "workspace_id": str(uuid.uuid4()),
@@ -614,7 +586,14 @@ class TestPresetAwareSerializerMixin:
         # Simulate by testing the mixin logic directly via a dict.
         ser2 = RequirementSerializer({"id": str(uuid.uuid4()), "title": "T", "workspace_id": str(uuid.uuid4()), "description": "desc", "category": "func", "status": "draft", "version": 1, "created_at": None, "updated_at": None, "change_reason": None})
         ser2.field_filter = ff
-        result = ser2.to_representation(ser2.instance)
+        # Datenmodell-Konsolidierung: to_representation() now resolves
+        # `status` via a tenant-scoped WorkflowItemState query, even though
+        # the field is filtered out of the result below.
+        TenantContext.set_tenant(uuid.uuid4())
+        try:
+            result = ser2.to_representation(ser2.instance)
+        finally:
+            TenantContext.clear_tenant()
         assert "title" in result
         assert "description" not in result
 
