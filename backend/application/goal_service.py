@@ -36,6 +36,7 @@ from application.base import (
 )
 from application.models import Goal
 from persistence.models import Artifact, Tenant, Workspace
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,11 @@ class GoalService(ServiceBase):
         artifact = Artifact.objects.create(
             tenant=tenant, workspace=workspace, artifact_type="Goal"
         )
+        # Datenmodell-Konsolidierung: `status` is no longer written explicitly —
+        # WorkflowItemState.current_state (seeded below from the workflow
+        # definition's initial_state) is the authority; the model field's own
+        # default ("Entwurf") keeps the column non-null until it is dropped
+        # (Task 12).
         goal = Goal(
             artifact=artifact,
             tenant_id=tenant.id,
@@ -146,7 +152,6 @@ class GoalService(ServiceBase):
             sequence_number=sequence_number,
             title=title,
             description=description,
-            status=DRAFT_STATE,
             created_by=str(ctx.user_id),
         )
         goal.save()
@@ -154,9 +159,9 @@ class GoalService(ServiceBase):
         # Initialize workflow state (best-effort, mirrors RiskService).
         # Absent a provisioned WorkflowEngineDefinition for this
         # workspace/item_type (only backfilled for pre-existing workspaces
-        # via migration 0012), this is a silent no-op — the explicit
-        # status="Entwurf" set above is authoritative for new Goals
-        # regardless of workflow-init outcome.
+        # via migration 0012), this is a silent no-op — the Goal has no
+        # WorkflowItemState row and the still-present `status` column (via
+        # the model default above) is the fallback the dict below reads.
         try:
             from workflow.services import initialize_workflow_states
 
@@ -167,7 +172,14 @@ class GoalService(ServiceBase):
                 ctx=ctx,
             )
         except Exception:
-            logger.debug("GoalService: workflow init skipped for goal=%s", goal.id)
+            # WARNING (not DEBUG, unlike the sibling Adr/Risk/Issue services):
+            # Goal has no WorkflowItemState backfill, so a row stranded here
+            # can never self-heal (transition() requires an existing row) and
+            # would silently drop out of list_current's archive exclusion,
+            # list_effective and MainGoalService.get_current.
+            logger.warning(
+                "GoalService: workflow init skipped for goal=%s", goal.id, exc_info=True
+            )
 
         self._audit(
             ctx=ctx, operation="create", entity_type="Goal", entity_id=goal.id
@@ -196,7 +208,13 @@ class GoalService(ServiceBase):
             "sequence_number": goal.sequence_number,
             "title": goal.title,
             "description": goal.description,
-            "status": goal.status,
+            # Falls back to the still-present `status` column (model default,
+            # see above) when the engine has no WorkflowItemState row yet —
+            # e.g. workflow-init above was a silent no-op. Goal has no
+            # item-state backfill, so this is not a hypothetical case; several
+            # MCP tools (goal.create/goal.create_version) return this dict
+            # straight to the wire without a serializer fallback in between.
+            "status": state_reader.current_state("Goal", goal.id) or goal.status,
         }
 
     @staticmethod
@@ -288,7 +306,11 @@ class GoalService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Goal.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_archived:
-            qs = qs.exclude(status=ARCHIVED_STATE)
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Goal", ARCHIVED_STATE, tenant_id=ctx.tenant_id
+                )
+            )
         latest_ids = (
             qs.order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")
@@ -310,9 +332,8 @@ class GoalService(ServiceBase):
 
         Deliberately kept separate from ``list_current`` rather than filtering
         that method: ``list_current`` powers the UI/REST list, which must keep
-        showing drafts. ``status`` is the denormalized mirror the
-        WorkflowEngine writes (StateLifecycleManager._sync_status_mirror), so
-        it is authoritative for reads.
+        showing drafts. The workflow engine (``WorkflowItemState.current_state``
+        via ``state_reader``) is the authority for reads.
 
         Args:
             workspace_id: Target workspace UUID.
@@ -326,7 +347,9 @@ class GoalService(ServiceBase):
             Goal.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                status=APPROVED_STATE,
+                id__in=state_reader.item_ids_in_state(
+                    "Goal", APPROVED_STATE, tenant_id=ctx.tenant_id
+                ),
             )
             .order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")

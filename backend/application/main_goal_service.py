@@ -50,6 +50,7 @@ from application.base import (
 )
 from application.models import MainGoal
 from persistence.models import Artifact, Tenant, Workspace
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -354,6 +355,11 @@ class MainGoalService(ServiceBase):
                     artifact = Artifact.objects.create(
                         tenant=tenant, workspace=workspace, artifact_type="MainGoal"
                     )
+                    # Datenmodell-Konsolidierung: `status` is no longer written
+                    # explicitly — WorkflowItemState.current_state (seeded
+                    # below from the workflow definition's initial_state) is
+                    # the authority; the model field's own default ("Entwurf")
+                    # keeps the column non-null until it is dropped (Task 12).
                     main_goal = MainGoal(
                         artifact=artifact,
                         tenant_id=tenant.id,
@@ -362,7 +368,6 @@ class MainGoalService(ServiceBase):
                         content=content,
                         source=source,
                         generated_from_goal_ids=generated_from_goal_ids,
-                        status="Entwurf",
                         created_by=str(ctx.user_id),
                     )
                     main_goal.save()
@@ -406,9 +411,9 @@ class MainGoalService(ServiceBase):
 
         # Initialize workflow state (best-effort, mirrors GoalService/
         # RiskService). Absent a provisioned WorkflowEngineDefinition for this
-        # workspace/item_type, this is a silent no-op — the explicit
-        # status="Entwurf" set above is authoritative for new MainGoals
-        # regardless of workflow-init outcome.
+        # workspace/item_type, this is a silent no-op — the MainGoal has no
+        # WorkflowItemState row and the still-present `status` column (via
+        # the model default above) is the fallback the dict below reads.
         try:
             from workflow.services import initialize_workflow_states
 
@@ -419,9 +424,14 @@ class MainGoalService(ServiceBase):
                 ctx=ctx,
             )
         except Exception:
-            logger.debug(
+            # WARNING (not DEBUG, unlike the sibling Adr/Risk/Issue services):
+            # MainGoal has no WorkflowItemState backfill, so a row stranded
+            # here can never self-heal (transition() requires an existing
+            # row) and would silently drop out of get_current.
+            logger.warning(
                 "MainGoalService: workflow init skipped for main_goal=%s",
                 main_goal.id,
+                exc_info=True,
             )
 
         self._audit(
@@ -444,7 +454,13 @@ class MainGoalService(ServiceBase):
             "sequence_number": main_goal.sequence_number,
             "content": main_goal.content,
             "source": main_goal.source,
-            "status": main_goal.status,
+            # Falls back to the still-present `status` column (model default,
+            # see above) when the engine has no WorkflowItemState row yet.
+            # MainGoal has no item-state backfill, and the MCP
+            # main_goal.create_manual tool returns this dict straight to the
+            # wire without a serializer fallback in between.
+            "status": state_reader.current_state("MainGoal", main_goal.id)
+            or main_goal.status,
             "generated_from_goal_ids": list(main_goal.generated_from_goal_ids),
         }
 
@@ -570,7 +586,11 @@ class MainGoalService(ServiceBase):
         self._set_tenant_context(ctx)
         return (
             MainGoal.objects.filter(
-                workspace_id=workspace_id, tenant_id=ctx.tenant_id, status="Freigegeben"
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                id__in=state_reader.item_ids_in_state(
+                    "MainGoal", "Freigegeben", tenant_id=ctx.tenant_id
+                ),
             )
             .order_by("-sequence_number")
             .first()
