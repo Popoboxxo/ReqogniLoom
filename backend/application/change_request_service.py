@@ -42,6 +42,7 @@ from application.optimistic_lock import (
     lock_for_version_check,
 )
 from application.preset_policy_service import get_preset_policy_service
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,17 @@ class ChangeRequestDTO:
 
     @classmethod
     def from_orm(cls, cr: ChangeRequest) -> "ChangeRequestDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
+
+        Falls back to the still-present ``status`` column when the engine has
+        no ``WorkflowItemState`` row for it (e.g. workflow init was skipped at
+        create time), or when no tenant context is active (e.g. a caller
+        building the DTO outside a request-scoped service call).
+        """
+        try:
+            engine_status = state_reader.current_state("ChangeRequest", cr.id)
+        except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
+            engine_status = None
         return cls(
             id=cr.id,
             workspace_id=cr.workspace_id,
@@ -107,7 +119,7 @@ class ChangeRequestDTO:
             description=cr.description,
             impact_assessment=cr.impact_assessment,
             change_reason=cr.change_reason,
-            status=cr.status,
+            status=engine_status or cr.status,
             requestor_id=cr.requestor_id,
             assigned_reviewer_id=cr.assigned_reviewer_id,
             version=cr.version,
@@ -444,11 +456,11 @@ class ChangeRequestService(ServiceBase):
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
             status_filter: Optional CCB state to filter by (e.g. 'under_review').
-            include_deleted: If True, include outdated ChangeRequests. Mirrors
-                AdrService/RiskService/IssueService.list_* (Phase 1 Task 4):
-                delete_change_request() routes through workflow.services.outdate(),
-                which mirrors the "outdated" state into ChangeRequest.status via
-                _STATUS_MIRROR_MODELS. Excluded by default.
+            include_deleted: If True, include outdated ChangeRequests.
+                delete_change_request() routes through
+                workflow.services.outdate(); the "outdated" state is read from
+                WorkflowItemState (Datenmodell-Konsolidierung Phase 1).
+                Excluded by default.
 
         Returns:
             QuerySet of ChangeRequest ORM instances ordered by creation date.
@@ -458,13 +470,22 @@ class ChangeRequestService(ServiceBase):
             workspace_id=workspace_id, tenant_id=ctx.tenant_id
         )
         if status_filter:
-            qs = qs.filter(status=status_filter)
+            qs = qs.filter(
+                id__in=state_reader.item_ids_in_state(
+                    "ChangeRequest", status_filter, tenant_id=ctx.tenant_id
+                )
+            )
         if not include_deleted and status_filter != "outdated":
-            # GH-443: an explicit ``status="outdated"`` implies include_deleted.
-            # Without the guard the two filters contradicted each other and the
-            # query could only ever return an empty result set, so there was no
-            # way to list soft-deleted CRs through the status filter.
-            qs = qs.exclude(status="outdated")
+            # GH-443: an explicit ``status_filter="outdated"`` implies
+            # include_deleted. Without the guard the two filters contradicted
+            # each other and the query could only ever return an empty result
+            # set, so there was no way to list soft-deleted CRs through the
+            # status filter.
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "ChangeRequest", "outdated", tenant_id=ctx.tenant_id
+                )
+            )
         return qs.order_by("created_at")
 
     # ---------- Status Transition (REQ-157, IF-AS-INT-003) ----------
@@ -560,15 +581,19 @@ class ChangeRequestService(ServiceBase):
             change_reason=change_reason,
         )
 
-        # The engine writes the denormalized ``status`` mirror itself
-        # (StateLifecycleManager._sync_status_mirror, ChangeRequest is a
-        # registered mirror model), so no direct status assignment happens
-        # here — a ``cr.save()`` would write the stale in-memory status back.
+        # Datenmodell-Konsolidierung Phase 1: WorkflowItemState is the seam
+        # this service reads through (see ChangeRequestDTO.from_orm), so
+        # "status" is dropped from the refresh below. The engine still writes
+        # its own denormalized ``status`` mirror column on the row
+        # (StateLifecycleManager._sync_status_mirror, ChangeRequest remains a
+        # registered mirror model) — a ``cr.save()`` would clobber that with
+        # the stale in-memory status, which is why this uses a queryset
+        # ``.update()`` instead.
         update_fields: Dict[str, Any] = {"version": F("version") + 1}
         if change_reason is not None:
             update_fields["change_reason"] = change_reason
         ChangeRequest.objects.filter(id=cr.id).update(**update_fields)
-        cr.refresh_from_db(fields=["version", "status", "change_reason"])
+        cr.refresh_from_db(fields=["version", "change_reason"])
 
         if target_status in CCB_CLOSING_STATES:
             self._capture_affected_items_after(cr=cr, tenant_id=ctx.tenant_id)
