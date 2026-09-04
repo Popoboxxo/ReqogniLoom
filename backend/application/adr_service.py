@@ -100,25 +100,25 @@ class AdrValidator:
     req_id  : REQ-L1-029
     """
 
-    # REQ-006: "Deleted" is a soft-delete marker set by delete_adr(); users
-    # must not be able to create or manually set status to "Deleted" via the API.
-    VALID_STATUSES = frozenset(s for s in Adr.Status.values if s != Adr.Status.DELETED)
+    @classmethod
+    def validate_create(cls, title: str, description: str) -> None:
+        """Validate ADR create input. Status is not an input (Phase 1)."""
+        cls._validate_title(title)
+        cls._validate_description(description)
 
     @classmethod
-    def validate_create(
-        cls, title: str, description: str, status: str = "Draft"
-    ) -> None:
-        """Validate fields for ADR creation."""
+    def _validate_title(cls, title: str) -> None:
+        """Validate ADR title length constraints."""
         if not title or len(title) < 3:
             raise ValidationError("ADR title must be at least 3 characters")
         if len(title) > 200:
             raise ValidationError("ADR title must not exceed 200 characters")
+
+    @classmethod
+    def _validate_description(cls, description: str) -> None:
+        """Validate ADR description length constraint."""
         if len(description) > 10000:
             raise ValidationError("ADR description must not exceed 10,000 characters")
-        if status not in cls.VALID_STATUSES:
-            raise ValidationError(
-                f"ADR status '{status}' invalid; must be one of {sorted(cls.VALID_STATUSES)}"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -153,10 +153,12 @@ class AdrService(ServiceBase):
         context: str = "",
         decision: str = "",
         consequences: str = "",
-        status: str = "Draft",
         uid: Optional[str] = None,
     ) -> Adr:
         """Create an ADR with initial workflow state (REQ-L3-ADR-001).
+
+        The initial state comes from the workflow definition, not from the
+        caller (Datenmodell-Konsolidierung Phase 1).
 
         Args:
             workspace_id: Target workspace UUID.
@@ -167,7 +169,6 @@ class AdrService(ServiceBase):
             decision: Optional decision section (max 5,000 chars) — the
                 standard ADR "Decision" text (#373).
             consequences: Optional consequences section (max 5,000 chars).
-            status: Initial status (default: Draft).
 
         Returns:
             Persisted Adr ORM instance.
@@ -175,7 +176,7 @@ class AdrService(ServiceBase):
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        AdrValidator.validate_create(title=title, description=description, status=status)
+        AdrValidator.validate_create(title=title, description=description)
 
         # REQ-L2-TE-020: create the backing Artifact first so the ADR can
         # participate in the Artifact-to-Artifact TraceLink graph. Mirrors
@@ -196,12 +197,10 @@ class AdrService(ServiceBase):
             artifact_type="Adr",
         )
 
-        # Datenmodell-Konsolidierung: the `status` column is no longer read by
-        # any service-layer consumer (WorkflowItemState.current_state is
-        # authoritative, seeded below by initialize_workflow_states() from the
-        # workflow definition's own initial_state — not from this argument).
-        # `status` is still validated above so bad input is rejected, but it
-        # is deliberately not written here; the model field's own default
+        # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
+        # parameter at all — WorkflowItemState.current_state (seeded below by
+        # initialize_workflow_states() from the workflow definition's own
+        # initial_state) is the sole authority. The model field's own default
         # keeps the column non-null until it is dropped (Task 12).
         adr = Adr.objects.create(
             artifact=artifact,
@@ -489,10 +488,18 @@ class AdrService(ServiceBase):
         if adr is None:
             raise NotFoundError(f"ADR {adr_id} not found")
 
-        if target_status not in AdrValidator.VALID_STATUSES:
+        # REQ-006: "Deleted" is a soft-delete marker set by delete_adr(); a
+        # transition must not be able to move an ADR into it manually. This
+        # is a target-state check for the (still-active) transition endpoint,
+        # unrelated to create-time status (Datenmodell-Konsolidierung Phase 1
+        # removed the latter, not this one).
+        valid_target_statuses = frozenset(
+            s for s in Adr.Status.values if s != Adr.Status.DELETED
+        )
+        if target_status not in valid_target_statuses:
             raise ValidationError(
                 f"Invalid ADR status '{target_status}'; "
-                f"must be one of {sorted(AdrValidator.VALID_STATUSES)}"
+                f"must be one of {sorted(valid_target_statuses)}"
             )
 
         # REQ-165/REQ-167: the WorkflowEngine is the SOLE authority for the

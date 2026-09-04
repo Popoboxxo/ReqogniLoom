@@ -79,25 +79,12 @@ class TestAdrValidator:
         with pytest.raises(ValidationError, match="10,000"):
             AdrValidator.validate_create(title="Valid Title", description="x" * 10001)
 
-    def test_invalid_status_raises(self):
-        with pytest.raises(ValidationError, match="invalid"):
+    def test_validate_create_has_no_status_parameter(self):
+        """Datenmodell-Konsolidierung Phase 1: status is not a create input
+        anymore; a caller sending it gets a TypeError, not a ValidationError."""
+        with pytest.raises(TypeError):
             AdrValidator.validate_create(
                 title="Valid Title", description="ok", status="BadStatus"
-            )
-
-    def test_valid_statuses_all_pass(self):
-        # REQ-006: only workflow statuses are valid for creation; "Deleted" is a
-        # soft-delete marker set exclusively by delete_adr() — not by users.
-        for status in AdrValidator.VALID_STATUSES:
-            AdrValidator.validate_create(
-                title="Valid Title", description="ok", status=status
-            )
-
-    def test_deleted_status_not_valid_for_create(self):
-        """REQ-006: 'Deleted' must not be accepted as a creation status."""
-        with pytest.raises(ValidationError, match="invalid"):
-            AdrValidator.validate_create(
-                title="Valid Title", description="ok", status="Deleted"
             )
 
 

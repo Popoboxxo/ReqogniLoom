@@ -157,8 +157,10 @@ class TestIssueValidator:
                 title="Issue", severity="high", category="unknown"
             )
 
-    def test_invalid_status_raises(self):
-        with pytest.raises(ValidationError, match="status"):
+    def test_validate_create_has_no_status_parameter(self):
+        """Datenmodell-Konsolidierung Phase 1: status is not a create input
+        anymore; a caller sending it gets a TypeError, not a ValidationError."""
+        with pytest.raises(TypeError):
             IssueValidator.validate_create(
                 title="Issue", severity="high", status="Cancelled"
             )

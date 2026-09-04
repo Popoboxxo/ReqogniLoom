@@ -113,6 +113,9 @@ class RiskValidator:
     VALID_PROBABILITIES = frozenset(Risk.Probability.values)
     VALID_IMPACTS = frozenset(Risk.Impact.values)
     VALID_CATEGORIES = frozenset(Risk.Category.values)
+    # Datenmodell-Konsolidierung Phase 1: still used by transition_status()'s
+    # target-state validation — unrelated to create-time status, which is
+    # retired below (no longer a validate_create input).
     VALID_STATUSES = frozenset(Risk.RiskStatus.values)
 
     @classmethod
@@ -122,9 +125,8 @@ class RiskValidator:
         probability: str,
         impact: str,
         category: str = "technical",
-        status: str = "Identified",
     ) -> None:
-        """Validate fields for Risk creation."""
+        """Validate fields for Risk creation. Status is not an input (Phase 1)."""
         if not title:
             raise ValidationError("Risk title is required")
         if probability not in cls.VALID_PROBABILITIES:
@@ -141,11 +143,6 @@ class RiskValidator:
             raise ValidationError(
                 f"Risk category '{category}' invalid; "
                 f"must be one of {sorted(cls.VALID_CATEGORIES)}"
-            )
-        if status not in cls.VALID_STATUSES:
-            raise ValidationError(
-                f"Risk status '{status}' invalid; "
-                f"must be one of {sorted(cls.VALID_STATUSES)}"
             )
 
 
@@ -183,12 +180,14 @@ class RiskService(ServiceBase):
         category: str = "technical",
         owner: str = "",
         mitigation_strategy: str = "",
-        status: str = "Identified",
         uid: Optional[str] = None,
         detection: int = 5,
         owner_user_id: Optional[UUID] = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
+
+        The initial state comes from the workflow definition, not from the
+        caller (Datenmodell-Konsolidierung Phase 1).
 
         Args:
             workspace_id: Target workspace UUID.
@@ -200,7 +199,6 @@ class RiskService(ServiceBase):
             category: One of {"technical", "operational", "organizational", "business"}.
             owner: Optional owner identifier.
             mitigation_strategy: Optional mitigation description.
-            status: Initial status (default: Identified).
             detection: FMEA detection score, 1 (easy) .. 10 (impossible). Default 5
                 (REQ-L1-029).
             owner_user_id: Optional User FK for structured risk assignment
@@ -213,8 +211,7 @@ class RiskService(ServiceBase):
         self._assert_write_permission(ctx)
 
         RiskValidator.validate_create(
-            title=title, probability=probability, impact=impact,
-            category=category, status=status
+            title=title, probability=probability, impact=impact, category=category
         )
         if not 1 <= detection <= 10:
             raise ValidationError(
@@ -240,10 +237,10 @@ class RiskService(ServiceBase):
             artifact_type="Risk",
         )
 
-        # Datenmodell-Konsolidierung: `status` is validated above but no
-        # longer written to the column — WorkflowItemState.current_state
-        # (seeded below from the workflow definition's initial_state) is the
-        # authority; the model field's own default keeps the column non-null
+        # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
+        # parameter at all — WorkflowItemState.current_state (seeded below
+        # from the workflow definition's initial_state) is the sole
+        # authority. The model field's own default keeps the column non-null
         # until it is dropped (Task 12).
         risk = Risk(
             artifact=artifact,

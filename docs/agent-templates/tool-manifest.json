@@ -110,18 +110,6 @@
             "description": "Optional. 'consequences' as accepted by the adr service.",
             "default": ""
           },
-          "status": {
-            "type": "string",
-            "enum": [
-              "Approved",
-              "Draft",
-              "In Review",
-              "Rejected",
-              "Superseded"
-            ],
-            "description": "Optional. 'status' as accepted by the adr service.",
-            "default": "Draft"
-          },
           "uid": {
             "type": "string",
             "description": "Optional. 'uid' as accepted by the adr service."
@@ -2250,11 +2238,6 @@
             "type": "array",
             "description": "Optional. 'tags' as accepted by the issue service."
           },
-          "status": {
-            "type": "string",
-            "description": "Optional. 'status' as accepted by the issue service.",
-            "default": "Open"
-          },
           "uid": {
             "type": "string",
             "description": "Optional. 'uid' as accepted by the issue service."
@@ -3663,11 +3646,6 @@
             "type": "string",
             "description": "Optional. 'mitigation_strategy' as accepted by the risk service.",
             "default": ""
-          },
-          "status": {
-            "type": "string",
-            "description": "Optional. 'status' as accepted by the risk service.",
-            "default": "Identified"
           },
           "uid": {
             "type": "string",

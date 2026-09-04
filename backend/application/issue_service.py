@@ -106,6 +106,9 @@ class IssueValidator:
 
     VALID_SEVERITIES = frozenset(Issue.Severity.values)
     VALID_CATEGORIES = frozenset(Issue.Category.values)
+    # Datenmodell-Konsolidierung Phase 1: still used by transition_status()'s
+    # target-state validation — unrelated to create-time status, which is
+    # retired below (no longer a validate_create input).
     VALID_STATUSES = frozenset(Issue.IssueStatus.values)
 
     @classmethod
@@ -114,9 +117,8 @@ class IssueValidator:
         title: str,
         severity: str,
         category: str = "defect",
-        status: str = "Open",
     ) -> None:
-        """Validate fields for Issue creation."""
+        """Validate fields for Issue creation. Status is not an input (Phase 1)."""
         if not title:
             raise ValidationError("Issue title is required")
         if severity not in cls.VALID_SEVERITIES:
@@ -128,11 +130,6 @@ class IssueValidator:
             raise ValidationError(
                 f"Issue category '{category}' invalid; "
                 f"must be one of {sorted(cls.VALID_CATEGORIES)}"
-            )
-        if status not in cls.VALID_STATUSES:
-            raise ValidationError(
-                f"Issue status '{status}' invalid; "
-                f"must be one of {sorted(cls.VALID_STATUSES)}"
             )
 
 
@@ -174,10 +171,12 @@ class IssueService(ServiceBase):
         assignee_id: Optional[UUID] = None,
         due_date=None,
         tags: Optional[List[str]] = None,
-        status: str = "Open",
         uid: Optional[str] = None,
     ) -> Issue:
         """Create an Issue with initial workflow state (REQ-L3-ISSUE-001).
+
+        The initial state comes from the workflow definition, not from the
+        caller (Datenmodell-Konsolidierung Phase 1).
 
         Args:
             workspace_id: Target workspace UUID.
@@ -189,7 +188,6 @@ class IssueService(ServiceBase):
             assignee_id: Optional UUID of the assignee.
             due_date: Optional due datetime.
             tags: Optional list of string tags.
-            status: Initial status (default: Open).
 
         Returns:
             Persisted Issue ORM instance.
@@ -198,7 +196,7 @@ class IssueService(ServiceBase):
         self._assert_write_permission(ctx)
 
         IssueValidator.validate_create(
-            title=title, severity=severity, category=category, status=status
+            title=title, severity=severity, category=category
         )
 
         # REQ-L2-TE-020: create the backing Artifact first so the Issue can
@@ -220,10 +218,10 @@ class IssueService(ServiceBase):
             artifact_type="Issue",
         )
 
-        # Datenmodell-Konsolidierung: `status` is validated above but no
-        # longer written to the column — WorkflowItemState.current_state
-        # (seeded below from the workflow definition's initial_state) is the
-        # authority; the model field's own default keeps the column non-null
+        # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
+        # parameter at all — WorkflowItemState.current_state (seeded below
+        # from the workflow definition's initial_state) is the sole
+        # authority. The model field's own default keeps the column non-null
         # until it is dropped (Task 12).
         issue = Issue.objects.create(
             artifact=artifact,

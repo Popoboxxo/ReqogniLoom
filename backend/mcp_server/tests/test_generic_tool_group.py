@@ -220,14 +220,16 @@ def test_real_services_construct_without_error(service_class_path, prefix):
 # ---------------------------------------------------------------------------
 
 _EXPECTED_CREATE_FIELDS = {
-    "adr": {"title", "description", "context", "decision", "consequences", "status", "uid"},
+    # Datenmodell-Konsolidierung Phase 1: `status` retired as a create-time
+    # parameter (create_adr/create_risk/create_issue no longer accept it).
+    "adr": {"title", "description", "context", "decision", "consequences", "uid"},
     "risk": {
         "title", "probability", "impact", "description", "category", "owner",
-        "mitigation_strategy", "status", "uid", "detection", "owner_user_id",
+        "mitigation_strategy", "uid", "detection", "owner_user_id",
     },
     "issue": {
         "title", "severity", "description", "category", "assignee_id",
-        "due_date", "tags", "status", "uid",
+        "due_date", "tags", "uid",
     },
     "glossary": {"term", "definition", "synonyms", "abbreviation"},
 }
@@ -365,22 +367,19 @@ def test_issue_create_schema_publishes_severity_default_and_enum():
     assert severity["enum"] == list(Issue.Severity.values)
 
 
-def test_adr_create_schema_publishes_status_enum():
-    """#374: adr.create's `status` field must document its valid values —
-    previously absent from `_ENUM_FIELDS_BY_PREFIX`, leaving clients to
-    guess. Matches AdrValidator.VALID_STATUSES (excludes the soft-delete-only
-    "Deleted" marker, REQ-006), not the raw Adr.Status TextChoices."""
-    from application.adr_service import AdrService, AdrValidator
+def test_adr_create_schema_has_no_status_field():
+    """Datenmodell-Konsolidierung Phase 1: adr.create no longer accepts a
+    client-supplied initial status (#374's enum test is obsolete — create_adr()
+    dropped the `status` parameter entirely, so it can no longer appear in the
+    generated schema; mirrors the update-schema assertion below)."""
+    from application.adr_service import AdrService
 
     group = GenericCrudToolGroup("adr", AdrService)
     schema = next(
         s for s in group.get_tool_schemas() if s["name"] == "adr.create"
     )["inputSchema"]
 
-    status_field = schema["properties"]["status"]
-    assert status_field["enum"] == sorted(AdrValidator.VALID_STATUSES)
-    assert "Deleted" not in status_field["enum"]
-    assert status_field["default"] == "Draft"
+    assert "status" not in schema["properties"]
 
 
 def test_risk_create_schema_publishes_probability_impact_enums():

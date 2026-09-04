@@ -4883,10 +4883,13 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 context=data.get("context", ""),
                 decision=data.get("decision", ""),
                 consequences=data.get("consequences", ""),
-                # Datenmodell-Konsolidierung: AdrSerializer.status is now
-                # read-only (WorkflowStateSerializerMixin), so `data` (the
-                # validated_data) can never carry a client-supplied status —
-                # create_adr()'s own default ("Draft") is authoritative.
+                # Datenmodell-Konsolidierung Phase 1: a new ADR always starts
+                # at the workflow definition's initial_state. AdrSerializer.status
+                # is read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status, and
+                # create_adr() no longer even accepts one — a client-supplied
+                # `status` is ignored, not rejected, consistent with
+                # ADR-status-single-source.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5165,10 +5168,13 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category", "technical"),
                 owner=data.get("owner", ""),
                 mitigation_strategy=data.get("mitigation_strategy", ""),
-                # Datenmodell-Konsolidierung: RiskSerializer.status is now
-                # read-only (WorkflowStateSerializerMixin), so `data` (the
-                # validated_data) can never carry a client-supplied status —
-                # create_risk()'s own default ("Identified") is authoritative.
+                # Datenmodell-Konsolidierung Phase 1: a new Risk always starts
+                # at the workflow definition's initial_state. RiskSerializer.status
+                # is read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status, and
+                # create_risk() no longer even accepts one — a client-supplied
+                # `status` is ignored, not rejected, consistent with
+                # ADR-status-single-source.
                 detection=data.get("detection", 5),
                 owner_user_id=data.get("owner_user_id"),
             )
@@ -5979,10 +5985,9 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 category=data.get("category", "defect"),
                 tags=data.get("tags"),
-                # Datenmodell-Konsolidierung: IssueSerializer.status is now
-                # read-only (WorkflowStateSerializerMixin), so `data` (the
-                # validated_data) can never carry a client-supplied status —
-                # create_issue()'s own default ("Open") is authoritative.
+                # Datenmodell-Konsolidierung Phase 1: a new Issue always starts at the
+                # workflow definition's initial_state. A client-supplied `status` is
+                # ignored, not rejected, consistent with ADR-status-single-source.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
