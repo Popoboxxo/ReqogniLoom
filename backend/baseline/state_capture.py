@@ -301,7 +301,7 @@ def _capture_application_entities(
             return fallback
         return header.get("artifact_type_raw") or fallback
 
-    adrs = list(Adr.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    adrs = list(Adr.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     adr_states = _engine_status("Adr", [adr.id for adr in adrs])
     adr_initial_state = state_reader.initial_state("Adr")
     for adr in adrs:
@@ -317,7 +317,7 @@ def _capture_application_entities(
             "version": adr.version,
         }
 
-    risks = list(Risk.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    risks = list(Risk.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     risk_states = _engine_status("Risk", [risk.id for risk in risks])
     risk_initial_state = state_reader.initial_state("Risk")
     for risk in risks:
@@ -339,7 +339,7 @@ def _capture_application_entities(
             "version": risk.version,
         }
 
-    issues = list(Issue.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    issues = list(Issue.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     issue_states = _engine_status("Issue", [issue.id for issue in issues])
     issue_initial_state = state_reader.initial_state("Issue")
     for issue in issues:
@@ -357,7 +357,7 @@ def _capture_application_entities(
             "version": issue.version,
         }
 
-    goals = list(Goal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
+    goals = list(Goal.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     goal_states = _engine_status("Goal", [goal.id for goal in goals])
     goal_initial_state = state_reader.initial_state("Goal")
     for goal in goals:
@@ -372,7 +372,7 @@ def _capture_application_entities(
         }
 
     main_goals = list(
-        MainGoal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id)
+        MainGoal.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
     )
     mg_states = _engine_status("MainGoal", [mg.id for mg in main_goals])
     mg_initial_state = state_reader.initial_state("MainGoal")

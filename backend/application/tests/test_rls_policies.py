@@ -115,11 +115,16 @@ def test_rls_blocks_raw_query_without_tenant_setting():
     model with UUID tenant/workspace columns, so it needs no fixture graph.
     """
     from persistence.db_roles import APP_DB_ROLE
+    from persistence.models import Tenant
 
-    tenant_id = uuid.uuid4()
+    # Task 15: tenant_id is a real FK now, so the row needs an actual Tenant —
+    # a bare uuid4() would fail the constraint instead of exercising RLS.
+    tenant_id = Tenant.objects.create(name="rls-test", slug="rls-test").id
     # Created as the superuser test role, which bypasses RLS — this seeds the
-    # row regardless of the (currently unset) session variable.
-    ChangeRequest.objects.create(
+    # row regardless of the (currently unset) session variable. ``unscoped`` on
+    # purpose: this test deliberately runs with no TenantContext, which is
+    # exactly the condition the DB-layer policy below is being measured on.
+    ChangeRequest.unscoped.create(
         workspace_id=uuid.uuid4(), tenant_id=tenant_id, title="rls-test"
     )
 

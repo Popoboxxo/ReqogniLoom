@@ -201,6 +201,11 @@ def _enrich(artifact_ids: list[str], tenant_id: uuid.UUID) -> dict[str, dict]:
                 entry = info.get(key)
                 if entry is not None:
                     entry["title"] = row["title"] or ""
+        # Datenmodell-Konsolidierung Phase 2: Adr.objects is now tenant-scoped,
+        # so a missing TenantContext raises TenantContextNotSetError here and is
+        # swallowed — ADR nodes silently lose their title instead of failing
+        # loudly. Same exposure the four persistence models above already have
+        # (they are tenant-scoped too); left as-is rather than redesigned.
         except Exception:  # noqa: BLE001 — defensive, matches prior behaviour
             pass
 

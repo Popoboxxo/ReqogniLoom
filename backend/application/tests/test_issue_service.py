@@ -594,14 +594,16 @@ class TestListIssuesMultiFilter:
 
         svc = IssueService()
         workspace_id = uuid.uuid4()
-        issue = Issue.objects.create(
-            workspace_id=workspace_id,
-            tenant_id=issue_tenant.id,
-            title="Stale-column issue",
-        )
 
+        # Issue.objects is tenant-scoped since Task 15, so the create must run
+        # inside the context too — not just the workflow calls below.
         TenantContext.set_tenant(issue_tenant.id)
         try:
+            issue = Issue.objects.create(
+                workspace_id=workspace_id,
+                tenant_id=issue_tenant.id,
+                title="Stale-column issue",
+            )
             create_default_workflow(
                 workspace_id=workspace_id,
                 preset="issue_default",

@@ -23,6 +23,8 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from persistence.models import TenantScopedModel
+
 
 class DomainEventOutbox(models.Model):
     """Transactional Outbox record for COMP-AS-016 DomainEventBus.
@@ -220,11 +222,16 @@ class WebhookDeliveryLog(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class Adr(models.Model):
+class Adr(TenantScopedModel):
     """Architecture Decision Record entity — COMP-AS-013 AdrService.
 
     Stores the full lifecycle of architectural decision records with
     append-only versioning (REQ-L3-ADR-002) and tenant isolation (REQ-L3-ADR-006).
+
+    Datenmodell-Konsolidierung Phase 2: ``id``, ``version``, ``created_at``,
+    ``modified_at`` and the ``created_by``/``modified_by``/``tenant`` FKs now
+    come from :class:`persistence.models.TenantScopedModel`, so ``objects`` is
+    tenant-filtered by the manager rather than by each call site.
 
     leaf_id : COMP-AS-013
     req_id  : REQ-L1-029
@@ -238,7 +245,6 @@ class Adr(models.Model):
         SUPERSEDED = "Superseded"
         DELETED = "Deleted"  # REQ-006: soft-delete; excluded from normal list views
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # REQ-L2-TE-020: OneToOne backing Artifact so ADRs participate in the
     # TraceLink graph (which stores Artifact-to-Artifact edges). Nullable to
     # keep the schema migration additive and backward-compatible with ADR rows
@@ -254,7 +260,6 @@ class Adr(models.Model):
         help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
     )
     workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=200)
     description = models.TextField(max_length=10000)
     context = models.TextField(max_length=5000, blank=True)
@@ -270,28 +275,23 @@ class Adr(models.Model):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    version = models.IntegerField(default=1)
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
-    # column, so this is a state-only rename with no data movement.
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
     created_by_name = models.CharField(
         max_length=255, blank=True, db_column="created_by"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
-    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
-    # finds the columns already present and backfilled. Nullable because
-    # existing rows have no value until the data migration runs; auto_now
-    # mirrors AuditableModel.modified_at so every row written from here on
-    # gets a real value without waiting for the base-class swap.
-    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
-    created_by_id = models.UUIDField(null=True, blank=True)
-    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_adr"
         indexes = [
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_adr_tenant_ws"),
+            models.Index(fields=["tenant", "workspace_id"], name="idx_adr_tenant_ws"),
             models.Index(fields=["uid"], name="idx_adr_uid_btree"),
         ]
 
@@ -299,11 +299,14 @@ class Adr(models.Model):
         return f"ADR:{self.id}:{self.title[:40]}"
 
 
-class Risk(models.Model):
+class Risk(TenantScopedModel):
     """Risk entity — COMP-AS-014 RiskService.
 
     Stores risk metadata with automatic score calculation
     (probability × impact) and severity classification for SeMetrics.
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
 
     leaf_id : COMP-AS-014
     req_id  : REQ-L1-029
@@ -341,7 +344,6 @@ class Risk(models.Model):
     _PROB_NUMERIC = {"low": 1, "medium": 2, "high": 3}
     _IMPACT_NUMERIC = {"low": 1, "medium": 2, "high": 3}
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # REQ-L2-TE-020: OneToOne backing Artifact so Risks participate in the
     # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
     # Adr.artifact — nullable to keep the schema migration additive and
@@ -360,7 +362,6 @@ class Risk(models.Model):
         help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
     )
     workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     category = models.CharField(
@@ -407,28 +408,23 @@ class Risk(models.Model):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    version = models.IntegerField(default=1)
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
-    # column, so this is a state-only rename with no data movement.
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
     created_by_name = models.CharField(
         max_length=255, blank=True, db_column="created_by"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
-    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
-    # finds the columns already present and backfilled. Nullable because
-    # existing rows have no value until the data migration runs; auto_now
-    # mirrors AuditableModel.modified_at so every row written from here on
-    # gets a real value without waiting for the base-class swap.
-    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
-    created_by_id = models.UUIDField(null=True, blank=True)
-    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_risk"
         indexes = [
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_risk_tenant_ws"),
+            models.Index(fields=["tenant", "workspace_id"], name="idx_risk_tenant_ws"),
             models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
             models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
             models.Index(fields=["uid"], name="idx_risk_uid_btree"),
@@ -467,43 +463,39 @@ class Risk(models.Model):
         return f"Risk:{self.id}:{self.title[:40]}"
 
 
-class Goal(models.Model):
+class Goal(TenantScopedModel):
     """REQ-L2-TE-020 — individual workspace Goal, immutable per version row.
 
     Each edit creates a brand-new Goal row with its own dedicated Artifact
     (Variante A). ``lineage_id`` groups all versions of the same logical
     goal; ``sequence_number`` is a per-lineage monotonic counter.
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     artifact = models.OneToOneField(
         "persistence.Artifact",
         on_delete=models.CASCADE,
         related_name="goal",
     )
-    tenant_id = models.UUIDField(db_index=True)
     workspace_id = models.UUIDField(db_index=True)
     lineage_id = models.UUIDField(db_index=True)
     sequence_number = models.PositiveIntegerField()
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    version = models.IntegerField(default=1)
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
-    # column, so this is a state-only rename with no data movement.
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
     created_by_name = models.CharField(
         max_length=255, blank=True, db_column="created_by"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
-    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
-    # finds the columns already present and backfilled. Nullable because
-    # existing rows have no value until the data migration runs; auto_now
-    # mirrors AuditableModel.modified_at so every row written from here on
-    # gets a real value without waiting for the base-class swap.
-    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
-    created_by_id = models.UUIDField(null=True, blank=True)
-    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_goal"
@@ -516,20 +508,21 @@ class Goal(models.Model):
         return f"{self.title} (v{self.sequence_number})"
 
 
-class MainGoal(models.Model):
+class MainGoal(TenantScopedModel):
     """REQ-L2-TE-020 — LLM-aggregated Haupt-Ziel, immutable per version row.
 
     The valid MainGoal for a workspace is always the newest row in
     ``Freigegeben`` state — never mutated in place (Variante A).
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     artifact = models.OneToOneField(
         "persistence.Artifact",
         on_delete=models.CASCADE,
         related_name="main_goal",
     )
-    tenant_id = models.UUIDField(db_index=True)
     workspace_id = models.UUIDField(db_index=True)
     sequence_number = models.PositiveIntegerField()
     content = models.TextField()
@@ -538,23 +531,18 @@ class MainGoal(models.Model):
         choices=[("ai", "AI"), ("manual", "Manual")],
     )
     generated_from_goal_ids = models.JSONField(default=list, blank=True)
-    version = models.IntegerField(default=1)
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
-    # column, so this is a state-only rename with no data movement.
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
     created_by_name = models.CharField(
         max_length=255, blank=True, db_column="created_by"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
-    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
-    # finds the columns already present and backfilled. Nullable because
-    # existing rows have no value until the data migration runs; auto_now
-    # mirrors AuditableModel.modified_at so every row written from here on
-    # gets a real value without waiting for the base-class swap.
-    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
-    created_by_id = models.UUIDField(null=True, blank=True)
-    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_main_goal"
@@ -585,11 +573,14 @@ class MainGoal(models.Model):
 
 
 
-class Issue(models.Model):
+class Issue(TenantScopedModel):
     """Issue entity — COMP-AS-015 IssueService.
 
     Tracks defects/improvements with severity, assignee management and
     multi-filter query support.
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
 
     leaf_id : COMP-AS-015
     req_id  : REQ-L1-029
@@ -614,7 +605,6 @@ class Issue(models.Model):
         CLOSED = "Closed"
         WONTFIX = "Wontfix"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # REQ-L2-TE-020: OneToOne backing Artifact so Issues participate in the
     # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
     # Adr.artifact — nullable to keep the schema migration additive and
@@ -633,7 +623,6 @@ class Issue(models.Model):
         help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
     )
     workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     severity = models.CharField(
@@ -652,23 +641,18 @@ class Issue(models.Model):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    version = models.IntegerField(default=1)
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
-    # column, so this is a state-only rename with no data movement.
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
     created_by_name = models.CharField(
         max_length=255, blank=True, db_column="created_by"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
-    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
-    # finds the columns already present and backfilled. Nullable because
-    # existing rows have no value until the data migration runs; auto_now
-    # mirrors AuditableModel.modified_at so every row written from here on
-    # gets a real value without waiting for the base-class swap.
-    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
-    created_by_id = models.UUIDField(null=True, blank=True)
-    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_issue"
@@ -676,7 +660,7 @@ class Issue(models.Model):
             models.Index(
                 fields=["workspace_id", "severity"], name="idx_issue_ws_severity"
             ),
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_issue_tenant_ws"),
+            models.Index(fields=["tenant", "workspace_id"], name="idx_issue_tenant_ws"),
             models.Index(
                 fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
             ),
@@ -687,7 +671,7 @@ class Issue(models.Model):
         return f"Issue:{self.id}:{self.title[:40]}"
 
 
-class ChangeRequest(models.Model):
+class ChangeRequest(TenantScopedModel):
     """Change Request entity — CCB approval workflow (REQ-157).
 
     Tracks proposed changes through a formal Configuration Control Board (CCB)
@@ -708,9 +692,7 @@ class ChangeRequest(models.Model):
         REJECTED = "rejected", "Rejected"
         IMPLEMENTED = "implemented", "Implemented"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     impact_assessment = models.TextField(
@@ -731,7 +713,6 @@ class ChangeRequest(models.Model):
         blank=True,
         help_text="UUID of the user assigned as CCB reviewer.",
     )
-    version = models.IntegerField(default=1)
     # Configuration baseline of record for this change request (ISO 15288
     # §6.4.3/§6.4.9). Nullable on purpose:
     #   * the ``baselines`` preset feature is off on the ``minimal`` tier, so a
@@ -754,25 +735,21 @@ class ChangeRequest(models.Model):
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
-    # column, so this is a state-only rename with no data movement.
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
     created_by_name = models.CharField(
         max_length=255, blank=True, db_column="created_by"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
-    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
-    # finds the columns already present and backfilled. Nullable because
-    # existing rows have no value until the data migration runs; auto_now
-    # mirrors AuditableModel.modified_at so every row written from here on
-    # gets a real value without waiting for the base-class swap.
-    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
-    created_by_id = models.UUIDField(null=True, blank=True)
-    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_change_request"
         indexes = [
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_cr_tenant_ws"),
+            models.Index(fields=["tenant", "workspace_id"], name="idx_cr_tenant_ws"),
             models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
         ]
 
