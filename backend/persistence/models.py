@@ -860,6 +860,23 @@ class Artifact(TenantScopedModel):
             "A GIN index (pl_artifact_custom_fields_gin) backs JSONB queries."
         ),
     )
+    # Datenmodell-Konsolidierung Phase 4 (spec §5, Decision D-3): the single
+    # soft-delete flag for every artifact type, orthogonal to the workflow
+    # state. Before this, "outdated" was a workflow *state*, so soft-deleting
+    # an approved artifact destroyed its approval and reactivate() had to guess
+    # the previous state from WorkflowHistoryEntry. Now the two axes are
+    # independent: an artifact can be `approved` and `outdated` at once.
+    lifecycle_status = models.CharField(
+        max_length=16,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.ACTIVE,
+        db_index=True,
+        help_text=(
+            "REQ-006 soft-delete. Orthogonal to WorkflowItemState.current_state: "
+            "'outdated' hides the artifact from default listings without "
+            "changing its workflow state."
+        ),
+    )
 
     class Meta:
         db_table = "pl_artifact"

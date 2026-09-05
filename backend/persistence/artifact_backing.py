@@ -23,6 +23,40 @@ class ArtifactBackingError(RuntimeError):
     """An entity cannot be given a backing Artifact row."""
 
 
+#: ``Artifact.artifact_type`` -> ``(app_label, model_name)`` of the specialised
+#: table that owns it. The single registry for "which table backs this type" —
+#: used by ``check_artifact_backing``, by ``workflow.services.outdated_item_ids``
+#: and by the version service. Adding a new artifact type means adding one line
+#: here; nothing else has to learn about it.
+ARTIFACT_TYPE_MODELS: dict[str, tuple[str, str]] = {
+    "Requirement": ("persistence", "Requirement"),
+    "StakeholderNeed": ("persistence", "StakeholderNeed"),
+    "ArchitectureElement": ("persistence", "ArchitectureElement"),
+    "TestCase": ("persistence", "TestCase"),
+    "GlossaryTerm": ("persistence", "GlossaryTerm"),
+    "Adr": ("persistence", "Adr"),
+    "Risk": ("persistence", "Risk"),
+    "Issue": ("persistence", "Issue"),
+    "Goal": ("persistence", "Goal"),
+    "MainGoal": ("persistence", "MainGoal"),
+    "ChangeRequest": ("persistence", "ChangeRequest"),
+    "Diagram": ("diagram", "Diagram"),
+    "Icd": ("icd", "Icd"),
+}
+
+
+def model_for(artifact_type: str):
+    """Return the specialised model class backing *artifact_type*.
+
+    Raises:
+        KeyError: *artifact_type* is not a backed type.
+    """
+    from django.apps import apps
+
+    app_label, model_name = ARTIFACT_TYPE_MODELS[artifact_type]
+    return apps.get_model(app_label, model_name)
+
+
 def ensure_artifact(
     entity: models.Model,
     *,
@@ -91,4 +125,10 @@ def artifact_id_of(entity: Any, field_name: str = "artifact") -> UUID | None:
     return getattr(entity, f"{field_name}_id", None)
 
 
-__all__ = ["ArtifactBackingError", "artifact_id_of", "ensure_artifact"]
+__all__ = [
+    "ARTIFACT_TYPE_MODELS",
+    "ArtifactBackingError",
+    "artifact_id_of",
+    "ensure_artifact",
+    "model_for",
+]

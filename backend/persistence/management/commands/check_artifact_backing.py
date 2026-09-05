@@ -18,26 +18,22 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Count
 
-#: (app_label, model_name, workspace attribute) for every Artifact-backed type.
-#:
-#: The workspace attribute is ``None`` for the three types that have no
-#: workspace of their own — they are "artifact-first" models that reach their
-#: workspace *through* the mandatory Artifact FK, so there is no workspace-less
-#: row to skip.
+from persistence.artifact_backing import ARTIFACT_TYPE_MODELS
+
+#: Types with no ``workspace``/``workspace_id`` column of their own — they are
+#: "artifact-first" models that reach their workspace *only* through the
+#: mandatory Artifact FK, so there is no workspace-less row to skip.
+_NO_OWN_WORKSPACE_COLUMN = {"StakeholderNeed", "ArchitectureElement", "TestCase"}
+
+#: (app_label, model_name, workspace attribute) for every Artifact-backed type,
+#: derived from the shared registry.
 BACKED_TYPES: list[tuple[str, str, str | None]] = [
-    ("persistence", "Requirement", "workspace_id"),
-    ("persistence", "StakeholderNeed", None),
-    ("persistence", "ArchitectureElement", None),
-    ("persistence", "TestCase", None),
-    ("persistence", "GlossaryTerm", "workspace_id"),
-    ("persistence", "Adr", "workspace_id"),
-    ("persistence", "Risk", "workspace_id"),
-    ("persistence", "Issue", "workspace_id"),
-    ("persistence", "Goal", "workspace_id"),
-    ("persistence", "MainGoal", "workspace_id"),
-    ("persistence", "ChangeRequest", "workspace_id"),
-    ("diagram", "Diagram", "workspace_id"),
-    ("icd", "Icd", "workspace_id"),
+    (
+        app_label,
+        model_name,
+        None if artifact_type in _NO_OWN_WORKSPACE_COLUMN else "workspace_id",
+    )
+    for artifact_type, (app_label, model_name) in sorted(ARTIFACT_TYPE_MODELS.items())
 ]
 
 
