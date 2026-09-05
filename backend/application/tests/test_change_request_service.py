@@ -616,6 +616,14 @@ class TestTransitionStatus:
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch("application.workflow_facade.WorkflowFacade.transition"),
             patch.object(svc, "_audit"),
+            # "approved" is a CCB closing state, so transition_status calls
+            # _capture_affected_items_after, which reads
+            # ChangeRequestAffectedItem.objects. That manager is tenant-scoped
+            # since Task 15b and _set_tenant_context is patched out here, so it
+            # would raise TenantContextNotSetError. Stubbed the same way the
+            # neighbouring closing-state tests already do — this test is about
+            # rigor-gated separation of duties, not about impact capture.
+            patch.object(svc, "_capture_affected_items_after"),
             patch(
                 "application.change_request_service.get_preset_policy_service"
             ) as mock_policy,

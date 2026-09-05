@@ -1,13 +1,15 @@
-"""The six Layer-2 models are tenant-scoped (Datenmodell-Konsolidierung Phase 2).
+"""The seven Layer-2 models are tenant-scoped (Datenmodell-Konsolidierung Phase 2).
 
 Task 15 rebases ``Adr``, ``Risk``, ``Goal``, ``MainGoal``, ``Issue`` and
 ``ChangeRequest`` onto :class:`persistence.models.TenantScopedModel`, so tenant
 isolation stops being a per-call-site ``tenant_id=`` filter and becomes a
 property of the default manager (REQ-L3-PL002-001/003, ADR-03).
 
-``ChangeRequestAffectedItem`` is deliberately **not** covered here: it never
-received the Task-14 audit-field reconciliation, so moving it needs its own
-column-adding migration and is split into a follow-up task.
+Task 15b adds ``ChangeRequestAffectedItem``, which Task 15 had to leave behind:
+it never received the Task-14 audit-field reconciliation, so it needed a real
+column-adding migration (``version`` / ``modified_at`` / ``created_by`` /
+``modified_by``) rather than the state-only rename the other six enjoyed. It
+carries no ``workspace_id``, so the Decision-D-5 assertion below skips it.
 
 The behavioural half of this file is the point: structural assertions only prove
 the class hierarchy is wired, not that a query under tenant A's context genuinely
@@ -25,7 +27,12 @@ from django.apps import apps
 from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantContext, TenantContextNotSetError
 
+#: Models carrying a ``workspace_id`` column (Decision D-5 applies to these).
 MODELS = ["Adr", "Risk", "Goal", "MainGoal", "Issue", "ChangeRequest"]
+
+#: Every tenant-scoped model this app owns, including the workspace-less
+#: ``ChangeRequestAffectedItem``.
+ALL_MODELS = MODELS + ["ChangeRequestAffectedItem"]
 
 
 def _create_row(model_name: str, tenant, workspace, label: str):
@@ -33,14 +40,28 @@ def _create_row(model_name: str, tenant, workspace, label: str):
 
     ``Goal``/``MainGoal`` carry a non-nullable ``artifact`` OneToOne, so they get
     a backing :class:`persistence.models.Artifact`; the other four do not need
-    one. A tenant context must already be active — that is what the manager
-    under test requires.
+    one. ``ChangeRequestAffectedItem`` hangs off a ``ChangeRequest``, so it
+    brings its own parent row. A tenant context must already be active — that is
+    what the manager under test requires.
     """
+    from application.models import (
+        Adr,
+        ChangeRequest,
+        ChangeRequestAffectedItem,
+        Goal,
+        Issue,
+        MainGoal,
+        Risk,
+    )
     from persistence.models import Artifact
 
-    from application.models import Adr, ChangeRequest, Goal, Issue, MainGoal, Risk
-
     common = {"tenant": tenant, "workspace_id": workspace.id}
+
+    if model_name == "ChangeRequestAffectedItem":
+        parent = ChangeRequest.objects.create(title=f"CR parent {label}", **common)
+        return ChangeRequestAffectedItem.objects.create(
+            change_request=parent, tenant=tenant, item_id=str(uuid.uuid4())
+        ).id
 
     if model_name == "Adr":
         return Adr.objects.create(title=f"ADR {label}", description="d", **common).id
@@ -92,7 +113,10 @@ def two_tenants(db):
         workspace = Workspace.objects.create(tenant=tenant, name=f"ws-{label}")
         made[label] = (
             tenant,
-            {name: _create_row(name, tenant, workspace, label) for name in MODELS},
+            {
+                name: _create_row(name, tenant, workspace, label)
+                for name in ALL_MODELS
+            },
         )
     TenantContext.clear_tenant()
     return made
@@ -103,12 +127,12 @@ def two_tenants(db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_model_inherits_the_tenant_scoped_base(model_name):
     assert issubclass(apps.get_model("application", model_name), TenantScopedModel)
 
 
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_tenant_is_a_foreign_key_on_the_same_column(model_name):
     """The FK must reuse the physical ``tenant_id`` column.
 
@@ -123,7 +147,7 @@ def test_tenant_is_a_foreign_key_on_the_same_column(model_name):
     assert field.remote_field.model._meta.model_name == "tenant"
 
 
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_the_manual_uuid_duplicates_are_gone(model_name):
     """The hand-rolled ``*_id`` UUID columns must not survive as field names.
 
@@ -138,8 +162,11 @@ def test_the_manual_uuid_duplicates_are_gone(model_name):
     assert {"tenant_id", "created_by_id", "modified_by_id"}.isdisjoint(local)
 
 
-@pytest.mark.parametrize("model_name", MODELS)
-@pytest.mark.parametrize("field_name", ["id", "version", "created_at", "modified_at"])
+@pytest.mark.parametrize("model_name", ALL_MODELS)
+@pytest.mark.parametrize(
+    "field_name",
+    ["id", "version", "created_at", "modified_at", "created_by", "modified_by"],
+)
 def test_audit_fields_match_the_base_class(model_name, field_name):
     """The inherited shape must be the base's, not a leftover local override.
 
@@ -164,7 +191,7 @@ def test_workspace_id_stays_a_plain_uuid_field(model_name):
     assert field.is_relation is False
 
 
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_base_manager_is_unscoped(model_name):
     """Django internals (cascade collection, refresh_from_db) must not be scoped.
 
@@ -178,7 +205,7 @@ def test_base_manager_is_unscoped(model_name):
     assert model._meta.base_manager.name == "unscoped"
 
 
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_tenant_indexes_reference_the_field_not_the_attname(model_name):
     """``Index(fields=["tenant_id"])`` passes system checks but fails at DDL time.
 
@@ -196,12 +223,70 @@ def test_tenant_indexes_reference_the_field_not_the_attname(model_name):
 
 
 # ---------------------------------------------------------------------------
+# ChangeRequestAffectedItem specifics (Task 15b)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_affected_item_lock_version_is_distinct_from_the_snapshot_versions(
+    two_tenants,
+):
+    """The inherited ``version`` must not be confused with the domain columns.
+
+    ``ChangeRequestAffectedItem`` already carried ``version_before`` /
+    ``version_after`` (the *artifact's* version at attach / approval time).
+    ``AuditableModel`` now adds ``version``, an optimistic-concurrency counter
+    for the impact row itself. Three unrelated meanings on one model is a real
+    trap, so the split is pinned here.
+    """
+    from application.models import ChangeRequestAffectedItem
+
+    tenant_a, ids_a = two_tenants["a"]
+    TenantContext.set_tenant(tenant_a.id)
+
+    row = ChangeRequestAffectedItem.objects.get(
+        id=ids_a["ChangeRequestAffectedItem"]
+    )
+
+    assert row.version == 1
+    assert row.version_before is None
+    assert row.version_after is None
+    for name in ("version_before", "version_after"):
+        field = ChangeRequestAffectedItem._meta.get_field(name)
+        assert field.get_internal_type() == "IntegerField"
+        assert field.null is True
+
+
+@pytest.mark.django_db
+def test_affected_item_audit_stamps_are_populated_on_write(two_tenants):
+    """``modified_at`` is NOT NULL and tracks writes (``auto_now``)."""
+    from application.models import ChangeRequestAffectedItem
+
+    tenant_a, ids_a = two_tenants["a"]
+    TenantContext.set_tenant(tenant_a.id)
+    row = ChangeRequestAffectedItem.objects.get(
+        id=ids_a["ChangeRequestAffectedItem"]
+    )
+    first = row.modified_at
+
+    assert first is not None
+    assert row.created_at is not None
+    assert row.created_by is None and row.modified_by is None
+
+    row.entity_type = "trace_link"
+    row.save()
+    row.refresh_from_db()
+
+    assert row.modified_at > first
+
+
+# ---------------------------------------------------------------------------
 # Behavioural — the actual isolation proof
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_objects_is_tenant_filtered(two_tenants, model_name):
     """Under tenant A's context, tenant B's rows are invisible."""
     model = apps.get_model("application", model_name)
@@ -216,7 +301,7 @@ def test_objects_is_tenant_filtered(two_tenants, model_name):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_objects_is_tenant_filtered_the_other_way_too(two_tenants, model_name):
     """Symmetry check — proves the filter tracks the context, not row order."""
     model = apps.get_model("application", model_name)
@@ -231,7 +316,7 @@ def test_objects_is_tenant_filtered_the_other_way_too(two_tenants, model_name):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_objects_without_a_context_fails_closed(two_tenants, model_name):
     """No context must raise, never fall back to an unfiltered read."""
     model = apps.get_model("application", model_name)
@@ -242,7 +327,7 @@ def test_objects_without_a_context_fails_closed(two_tenants, model_name):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("model_name", MODELS)
+@pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_unscoped_still_crosses_tenants(two_tenants, model_name):
     """The documented escape hatch keeps working (baseline/state_capture.py)."""
     model = apps.get_model("application", model_name)

@@ -757,7 +757,7 @@ class ChangeRequest(TenantScopedModel):
         return f"CR:{self.id}:{self.title[:40]}"
 
 
-class ChangeRequestAffectedItem(models.Model):
+class ChangeRequestAffectedItem(TenantScopedModel):
     """One artifact affected by a :class:`ChangeRequest` (CCB impact record).
 
     ISO 15288 §6.4.3/§6.4.9 configuration management requires a change request
@@ -781,20 +781,29 @@ class ChangeRequestAffectedItem(models.Model):
     ``version_before`` is captured when the item is attached to the CR,
     ``version_after`` when the CR reaches ``approved`` / ``implemented``.
 
+    The inherited ``tenant`` FK reuses the physical ``tenant_id`` column that
+    ``application/0014`` created denormalised for RLS, so the row-level policy
+    ``as_change_request_affected_item_tenant_isolation`` — written against the
+    *column* — keeps matching (REQ-L2-PL-010, ADR-PL-03). The ORM manager layers
+    on top of that policy; it does not replace it.
+
+    .. warning:: Three unrelated "version" meanings meet on this model.
+       ``version_before`` / ``version_after`` are the *affected artifact's*
+       version at attach / approval time (domain data). The inherited
+       ``version`` is :class:`~persistence.models.AuditableModel`'s
+       optimistic-concurrency counter for *this impact row* and says nothing
+       about the artifact.
+
     leaf_id : COMP-AS-021
-    req_id  : REQ-157
+    req_id  : REQ-157, REQ-L2-PL-010
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     change_request = models.ForeignKey(
         ChangeRequest,
         on_delete=models.CASCADE,
         related_name="affected_items",
         db_index=True,
     )
-    # Denormalised for RLS (see application/0014): every tenant-scoped ``as_*``
-    # table carries its own tenant_id so the row-level policy can apply.
-    tenant_id = models.UUIDField(db_index=True)
 
     # Artifact UUID as string — mirrors BaselineDeltaIndexEntry.item_id.
     item_id = models.CharField(max_length=64, db_index=True)
@@ -821,11 +830,12 @@ class ChangeRequestAffectedItem(models.Model):
         help_text="Full curated entity state at approval / implementation time.",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Redundant with the inherited AuditableModel.modified_at (both auto_now).
+    # Unlike the six sibling models, this one has NO REST/MCP surface at all, so
+    # dropping it would break no published contract — but application/0023
+    # backfills modified_at *from* this column, so the removal has to be its own
+    # migration once that backfill is history everywhere.
     updated_at = models.DateTimeField(auto_now=True)
-
-    objects = models.Manager()
-    unscoped = models.Manager()
 
     class Meta:
         db_table = "as_change_request_affected_item"
@@ -839,7 +849,11 @@ class ChangeRequestAffectedItem(models.Model):
             models.Index(
                 fields=["change_request", "item_id"], name="idx_cr_affected_cr_item"
             ),
-            models.Index(fields=["tenant_id"], name="idx_cr_affected_tenant"),
+            # ``tenant``, not the ``tenant_id`` attname: Index.create_sql resolves
+            # through Options.get_field, which is keyed on field.name only and
+            # would raise FieldDoesNotExist at migrate time (system checks pass
+            # either way). Same physical column, same index name.
+            models.Index(fields=["tenant"], name="idx_cr_affected_tenant"),
         ]
 
     def __str__(self) -> str:
