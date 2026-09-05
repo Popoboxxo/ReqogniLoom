@@ -56,10 +56,10 @@ def test_bootstrap_introspection_sees_no_status_field():
         ("persistence", "Requirement"),
         ("persistence", "StakeholderNeed"),
         ("persistence", "TestCase"),
-        ("application", "Adr"),
-        ("application", "Risk"),
-        ("application", "Issue"),
-        ("application", "Goal"),
+        ("persistence", "Adr"),
+        ("persistence", "Risk"),
+        ("persistence", "Issue"),
+        ("persistence", "Goal"),
     ]:
         model = apps.get_model(app_label, model_name)
         concrete = {f.name for f in model._meta.fields}

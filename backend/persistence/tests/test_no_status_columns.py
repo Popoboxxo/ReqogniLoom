@@ -12,12 +12,12 @@ ARTIFACT_MODELS = [
     ("persistence", "StakeholderNeed"),
     ("persistence", "TestCase"),
     ("persistence", "InterviewSession"),
-    ("application", "Adr"),
-    ("application", "Risk"),
-    ("application", "Issue"),
-    ("application", "ChangeRequest"),
-    ("application", "Goal"),
-    ("application", "MainGoal"),
+    ("persistence", "Adr"),
+    ("persistence", "Risk"),
+    ("persistence", "Issue"),
+    ("persistence", "ChangeRequest"),
+    ("persistence", "Goal"),
+    ("persistence", "MainGoal"),
 ]
 
 KEPT_STATUS_MODELS = [

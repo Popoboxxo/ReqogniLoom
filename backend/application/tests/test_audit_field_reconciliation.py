@@ -22,7 +22,7 @@ MODELS = ["Adr", "Risk", "Goal", "MainGoal", "Issue", "ChangeRequest"]
 
 @pytest.mark.parametrize("model_name", MODELS)
 def test_created_by_char_field_is_renamed(model_name):
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     field = model._meta.get_field("created_by_name")
 
     assert field.get_attname_column()[1] == "created_by"
@@ -36,7 +36,7 @@ def test_created_by_is_now_the_inherited_user_fk(model_name):
     The free-text actor string lives on ``created_by_name`` (asserted above),
     so the two must not collide: distinct field names, distinct columns.
     """
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     field = model._meta.get_field("created_by")
 
     assert field.many_to_one is True
@@ -48,7 +48,7 @@ def test_created_by_is_now_the_inherited_user_fk(model_name):
 @pytest.mark.parametrize("model_name", MODELS)
 def test_modified_at_is_not_nullable_after_the_swap(model_name):
     """``AuditableModel.modified_at`` is NOT NULL; 0022 backfilled and tightened."""
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     field = model._meta.get_field("modified_at")
 
     assert field.null is False

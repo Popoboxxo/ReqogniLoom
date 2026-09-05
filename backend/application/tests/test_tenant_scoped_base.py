@@ -30,8 +30,10 @@ from persistence.tenancy import TenantContext, TenantContextNotSetError
 #: Models carrying a ``workspace_id`` column (Decision D-5 applies to these).
 MODELS = ["Adr", "Risk", "Goal", "MainGoal", "Issue", "ChangeRequest"]
 
-#: Every tenant-scoped model this app owns, including the workspace-less
-#: ``ChangeRequestAffectedItem``.
+#: Every model in the moved family, including the workspace-less
+#: ``ChangeRequestAffectedItem``. Milestone M2 moved them to the ``persistence``
+#: app label; ``application.models`` re-exports them, so the imports below and
+#: every assertion are unchanged — only ``apps.get_model``'s label moved.
 ALL_MODELS = MODELS + ["ChangeRequestAffectedItem"]
 
 
@@ -129,7 +131,7 @@ def two_tenants(db):
 
 @pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_model_inherits_the_tenant_scoped_base(model_name):
-    assert issubclass(apps.get_model("application", model_name), TenantScopedModel)
+    assert issubclass(apps.get_model("persistence", model_name), TenantScopedModel)
 
 
 @pytest.mark.parametrize("model_name", ALL_MODELS)
@@ -140,7 +142,7 @@ def test_tenant_is_a_foreign_key_on_the_same_column(model_name):
     without a policy migration — they are written against the column, not the
     Django field.
     """
-    field = apps.get_model("application", model_name)._meta.get_field("tenant")
+    field = apps.get_model("persistence", model_name)._meta.get_field("tenant")
 
     assert field.many_to_one is True
     assert field.get_attname_column()[1] == "tenant_id"
@@ -157,7 +159,7 @@ def test_the_manual_uuid_duplicates_are_gone(model_name):
     unambiguous evidence of a leftover manual duplicate, because the base class
     exposes them as FK attnames, never as field names.
     """
-    local = {f.name for f in apps.get_model("application", model_name)._meta.local_fields}
+    local = {f.name for f in apps.get_model("persistence", model_name)._meta.local_fields}
 
     assert {"tenant_id", "created_by_id", "modified_by_id"}.isdisjoint(local)
 
@@ -175,7 +177,7 @@ def test_audit_fields_match_the_base_class(model_name, field_name):
     """
     from persistence.models import AuditableModel
 
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     _n, _p, _a, own = model._meta.get_field(field_name).deconstruct()
     _n, _p, _a, base = AuditableModel._meta.get_field(field_name).deconstruct()
 
@@ -185,7 +187,7 @@ def test_audit_fields_match_the_base_class(model_name, field_name):
 @pytest.mark.parametrize("model_name", MODELS)
 def test_workspace_id_stays_a_plain_uuid_field(model_name):
     """Decision D-5: ``workspace_id`` is deliberately NOT converted to a FK."""
-    field = apps.get_model("application", model_name)._meta.get_field("workspace_id")
+    field = apps.get_model("persistence", model_name)._meta.get_field("workspace_id")
 
     assert field.get_internal_type() == "UUIDField"
     assert field.is_relation is False
@@ -200,7 +202,7 @@ def test_base_manager_is_unscoped(model_name):
     ``Options.base_manager``'s MRO fallback instead. Asserted because that
     fallback is invisible in the model source.
     """
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
 
     assert model._meta.base_manager.name == "unscoped"
 
@@ -213,7 +215,7 @@ def test_tenant_indexes_reference_the_field_not_the_attname(model_name):
     (``Options.get_field`` is keyed on ``field.name``). So a stale ``tenant_id``
     here would only surface during ``migrate``.
     """
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
 
     for index in model._meta.indexes:
         assert "tenant_id" not in index.fields, (
@@ -289,7 +291,7 @@ def test_affected_item_audit_stamps_are_populated_on_write(two_tenants):
 @pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_objects_is_tenant_filtered(two_tenants, model_name):
     """Under tenant A's context, tenant B's rows are invisible."""
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     tenant_a, ids_a = two_tenants["a"]
     _tenant_b, ids_b = two_tenants["b"]
     TenantContext.set_tenant(tenant_a.id)
@@ -304,7 +306,7 @@ def test_objects_is_tenant_filtered(two_tenants, model_name):
 @pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_objects_is_tenant_filtered_the_other_way_too(two_tenants, model_name):
     """Symmetry check — proves the filter tracks the context, not row order."""
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     _tenant_a, ids_a = two_tenants["a"]
     tenant_b, ids_b = two_tenants["b"]
     TenantContext.set_tenant(tenant_b.id)
@@ -319,7 +321,7 @@ def test_objects_is_tenant_filtered_the_other_way_too(two_tenants, model_name):
 @pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_objects_without_a_context_fails_closed(two_tenants, model_name):
     """No context must raise, never fall back to an unfiltered read."""
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     TenantContext.clear_tenant()
 
     with pytest.raises(TenantContextNotSetError):
@@ -330,7 +332,7 @@ def test_objects_without_a_context_fails_closed(two_tenants, model_name):
 @pytest.mark.parametrize("model_name", ALL_MODELS)
 def test_unscoped_still_crosses_tenants(two_tenants, model_name):
     """The documented escape hatch keeps working (baseline/state_capture.py)."""
-    model = apps.get_model("application", model_name)
+    model = apps.get_model("persistence", model_name)
     tenant_a, ids_a = two_tenants["a"]
     _tenant_b, ids_b = two_tenants["b"]
     TenantContext.set_tenant(tenant_a.id)
