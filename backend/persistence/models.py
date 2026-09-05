@@ -1831,6 +1831,16 @@ class GlossaryTerm(TenantScopedModel):
     workspace = models.ForeignKey(
         Workspace, on_delete=models.SET_NULL, null=True, blank=True, related_name="glossary_terms"
     )
+    # Datenmodell-Konsolidierung Phase 3 (spec §4): closes the gap that made
+    # interview_artifact_adapters._glossary_term reject every creation with
+    # "GlossaryTerm is not Artifact-backed yet".
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="glossary_term",
+    )
     term = models.CharField(max_length=255)
     definition = models.TextField()
     synonyms = models.JSONField(default=list, blank=True)
@@ -2963,6 +2973,15 @@ class ChangeRequest(TenantScopedModel):
         IMPLEMENTED = "implemented", "Implemented"
 
     workspace_id = models.UUIDField(db_index=True)
+    # Datenmodell-Konsolidierung Phase 3 (spec §4, correction V-1): unlike the
+    # five sibling models, ChangeRequest never had a backing Artifact.
+    artifact = models.OneToOneField(
+        Artifact,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="change_request",
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     impact_assessment = models.TextField(

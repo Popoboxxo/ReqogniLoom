@@ -103,6 +103,18 @@ class Icd(TenantScopedModel):
     """
 
     workspace_id = models.UUIDField(db_index=True)
+    # Datenmodell-Konsolidierung Phase 3 (spec §4): backing Artifact row so an
+    # ICD is a valid TraceLink endpoint and a Document-scope baseline subject.
+    # SET_NULL rather than CASCADE, matching Diagram.artifact: removing the
+    # shadow Artifact (e.g. a TraceLink cleanup cascade) must never delete the
+    # ICD itself.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="icd",
+    )
     # Source and target architecture element IDs (Artifact UUIDs)
     source_element_id = models.UUIDField(db_index=True)
     target_element_id = models.UUIDField(db_index=True)
