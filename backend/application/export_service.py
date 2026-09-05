@@ -99,7 +99,10 @@ _COMMON_APP_FIELDS = [
     ("id", "uuid"),
     ("artifact_id", "uuid"),
     ("version", "int"),
-    ("created_by", "str"),
+    # Datenmodell-Konsolidierung Task 14: model attribute renamed
+    # created_by -> created_by_name (same DB column); the CSV column
+    # follows so getattr(obj, col) keeps resolving.
+    ("created_by_name", "str"),
     ("created_at", "datetime"),
     ("updated_at", "datetime"),
 ]

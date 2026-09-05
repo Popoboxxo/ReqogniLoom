@@ -256,7 +256,7 @@ class RiskService(ServiceBase):
             uid=uid,
             detection=detection,
             owner_user_id=owner_user_id,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
         # Calculate score before save (ADR-L3-RISK-01)
         score = risk.compute_score()

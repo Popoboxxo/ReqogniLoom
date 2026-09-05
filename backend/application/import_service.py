@@ -70,7 +70,15 @@ _VALID_ENTITY_TYPES = set(_REQUIRED_FIELDS.keys())
 # Identity / audit columns handled specially by _insert_rows (not passed through
 # as plain content create kwargs).
 _IDENTITY_COLUMNS = frozenset(
-    {"id", "artifact_id", "version", "created_at", "modified_at", "updated_at", "created_by"}
+    {
+        "id",
+        "artifact_id",
+        "version",
+        "created_at",
+        "modified_at",
+        "updated_at",
+        "created_by_name",
+    }
 )
 
 
@@ -577,8 +585,8 @@ class ImportService(ServiceBase):
                     **content,
                 )
                 # Preserve exported author, else attribute to the importing user.
-                created_by = identity.get("created_by")
-                create_kwargs["created_by"] = (
+                created_by = identity.get("created_by_name")
+                create_kwargs["created_by_name"] = (
                     created_by if created_by else str(ctx.user_id)
                 )
                 mod_field = "updated_at"

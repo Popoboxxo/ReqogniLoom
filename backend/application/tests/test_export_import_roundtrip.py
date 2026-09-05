@@ -285,7 +285,7 @@ class TestAppModelRoundTrip:
             context="API design",
             consequences="Simpler clients",
             uid="ADR-RT-001",
-            created_by="author-1",
+            created_by_name="author-1",
         )
         _stamp_app(Adr, adr.id)
 
@@ -299,7 +299,7 @@ class TestAppModelRoundTrip:
         # AdrService) -- exports/re-imports at the adr_default initial state.
         assert state_reader.current_state("Adr", out.id) == "Draft"
         assert out.uid == "ADR-RT-001"
-        assert out.created_by == "author-1"
+        assert out.created_by_name == "author-1"
         assert out.workspace_id == w.id
         assert out.tenant_id == t.id
 
@@ -324,7 +324,7 @@ class TestAppModelRoundTrip:
             mitigation_strategy="Add redundancy",
             detection=8,
             uid="RISK-RT-001",
-            created_by="author-2",
+            created_by_name="author-2",
         )
         _stamp_app(Risk, risk.id)
 
@@ -358,7 +358,7 @@ class TestAppModelRoundTrip:
             assignee_id=assignee,
             tags=["frontend", "auth"],
             uid="ISSUE-RT-001",
-            created_by="author-3",
+            created_by_name="author-3",
         )
         _stamp_app(Issue, issue.id)
 

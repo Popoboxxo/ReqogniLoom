@@ -235,7 +235,7 @@ class IssueService(ServiceBase):
             due_date=due_date,
             tags=tags or [],
             uid=uid,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
 
         # Initialize workflow state (IF-AS-EXT-OUT-001)

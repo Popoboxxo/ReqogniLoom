@@ -271,9 +271,22 @@ class Adr(models.Model):
         help_text="Unique identifier (read-only, auto-generated)",
     )
     version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
+    # finds the columns already present and backfilled. Nullable because
+    # existing rows have no value until the data migration runs; auto_now
+    # mirrors AuditableModel.modified_at so every row written from here on
+    # gets a real value without waiting for the base-class swap.
+    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
+    created_by_id = models.UUIDField(null=True, blank=True)
+    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_adr"
@@ -395,9 +408,22 @@ class Risk(models.Model):
         help_text="Unique identifier (read-only, auto-generated)",
     )
     version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
+    # finds the columns already present and backfilled. Nullable because
+    # existing rows have no value until the data migration runs; auto_now
+    # mirrors AuditableModel.modified_at so every row written from here on
+    # gets a real value without waiting for the base-class swap.
+    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
+    created_by_id = models.UUIDField(null=True, blank=True)
+    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_risk"
@@ -462,9 +488,22 @@ class Goal(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
+    # finds the columns already present and backfilled. Nullable because
+    # existing rows have no value until the data migration runs; auto_now
+    # mirrors AuditableModel.modified_at so every row written from here on
+    # gets a real value without waiting for the base-class swap.
+    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
+    created_by_id = models.UUIDField(null=True, blank=True)
+    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_goal"
@@ -500,9 +539,22 @@ class MainGoal(models.Model):
     )
     generated_from_goal_ids = models.JSONField(default=list, blank=True)
     version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
+    # finds the columns already present and backfilled. Nullable because
+    # existing rows have no value until the data migration runs; auto_now
+    # mirrors AuditableModel.modified_at so every row written from here on
+    # gets a real value without waiting for the base-class swap.
+    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
+    created_by_id = models.UUIDField(null=True, blank=True)
+    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_main_goal"
@@ -601,9 +653,22 @@ class Issue(models.Model):
         help_text="Unique identifier (read-only, auto-generated)",
     )
     version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
+    # finds the columns already present and backfilled. Nullable because
+    # existing rows have no value until the data migration runs; auto_now
+    # mirrors AuditableModel.modified_at so every row written from here on
+    # gets a real value without waiting for the base-class swap.
+    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
+    created_by_id = models.UUIDField(null=True, blank=True)
+    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_issue"
@@ -687,9 +752,22 @@ class ChangeRequest(models.Model):
             "preset enables baselines."
         ),
     )
-    created_by = models.CharField(max_length=255, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Added ahead of the TenantScopedModel swap (Task 15) so the base class
+    # finds the columns already present and backfilled. Nullable because
+    # existing rows have no value until the data migration runs; auto_now
+    # mirrors AuditableModel.modified_at so every row written from here on
+    # gets a real value without waiting for the base-class swap.
+    modified_at = models.DateTimeField(null=True, blank=True, auto_now=True)
+    created_by_id = models.UUIDField(null=True, blank=True)
+    modified_by_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "as_change_request"

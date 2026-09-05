@@ -226,7 +226,7 @@ class ChangeRequestService(ServiceBase):
             change_reason=change_reason,
             requestor_id=requestor_id or ctx.user_id,
             assigned_reviewer_id=assigned_reviewer_id,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
 
         if affected_item_ids:

@@ -212,7 +212,7 @@ class AdrService(ServiceBase):
             decision=decision,
             consequences=consequences,
             uid=uid,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
 
         # Initialize workflow state (IF-AS-EXT-OUT-001)

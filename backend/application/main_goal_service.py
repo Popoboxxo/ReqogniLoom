@@ -368,7 +368,7 @@ class MainGoalService(ServiceBase):
                         content=content,
                         source=source,
                         generated_from_goal_ids=generated_from_goal_ids,
-                        created_by=str(ctx.user_id),
+                        created_by_name=str(ctx.user_id),
                     )
                     main_goal.save()
                 return main_goal

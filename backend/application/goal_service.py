@@ -152,7 +152,7 @@ class GoalService(ServiceBase):
             sequence_number=sequence_number,
             title=title,
             description=description,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
         goal.save()
 

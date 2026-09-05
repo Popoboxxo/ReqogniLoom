@@ -68,7 +68,7 @@ def _make_cr(**kwargs):
     cr.requestor_id = kwargs.get("requestor_id", USER_ID)
     cr.assigned_reviewer_id = kwargs.get("assigned_reviewer_id", None)
     cr.version = kwargs.get("version", 1)
-    cr.created_by = kwargs.get("created_by", str(USER_ID))
+    cr.created_by_name = kwargs.get("created_by_name", str(USER_ID))
     return cr
 
 
