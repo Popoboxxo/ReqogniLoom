@@ -548,21 +548,65 @@ class TestRecentChanges:
             == []
         )
 
-    def test_outdate_transition_is_reported_with_a_resolved_title(
+    def test_transition_is_reported_with_a_resolved_title(
         self, workspace_with_requirements
     ):
-        tenant, workspace, _ctx, doomed = workspace_with_requirements
+        """A real workflow transition appears, with its title resolved.
+
+        Datenmodell-Konsolidierung Phase 4 (D-3): this used to be driven by the
+        fixture's ``outdate()`` call. ``recent_changes`` is documented as "the
+        most recent *workflow transitions*" and reads ``WorkflowHistoryEntry``;
+        a soft-delete is no longer a workflow transition and writes no history,
+        so an explicit transition is performed here instead. Deletions remain
+        observable through the audit log, which the calling services still
+        write — see ``test_outdate_is_not_a_workflow_transition`` below.
+        """
+        from dataclasses import replace
+
+        from workflow.services import transition
+
+        tenant, workspace, ctx, doomed = workspace_with_requirements
+        # draft -> approved is gated to admin/approver in the standard preset.
+        approver_ctx = replace(ctx, active_roles=("admin",))
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            transition(
+                item_id=doomed.id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                target_state="approved",
+                change_reason="wsctx recent-changes fixture",
+                ctx=approver_ctx,
+            )
+        finally:
+            TenantContext.clear_tenant()
 
         changes = workspace_context_service.recent_changes(
             workspace_id=workspace.id, tenant_id=tenant.id
         )
 
-        assert changes, "the outdate() transition should be recorded"
+        assert changes, "the transition should be recorded"
         assert set(changes[0]) == {"entity_type", "title", "timestamp"}
         titles = {c["title"] for c in changes}
         # Title resolved via the bulk per-item_type lookup, not left as a UUID.
         assert "Doomed" in titles
         assert str(doomed.id) not in titles
+
+    def test_outdate_is_not_a_workflow_transition(self, workspace_with_requirements):
+        """Phase 4 (D-3): soft-delete writes a flag, not a history entry.
+
+        Pins the accepted consequence: the fixture's ``outdate()`` call alone
+        produces no ``recent_changes`` entry, because nothing transitioned.
+        """
+        tenant, workspace, _ctx, _doomed = workspace_with_requirements
+
+        assert (
+            workspace_context_service.recent_changes(
+                workspace_id=workspace.id, tenant_id=tenant.id
+            )
+            == []
+        )
 
     def test_limit_is_honoured(self, workspace_with_requirements):
         tenant, workspace, _ctx, _doomed = workspace_with_requirements

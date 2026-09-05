@@ -273,23 +273,40 @@ def test_outdated_item_ids_does_not_match_flagged_adr_states(
 
 
 @pytest.mark.django_db
-def test_outdated_item_ids_still_matches_the_universal_outdated_state(
-    p116_tenant, p116_definition
+def test_outdated_item_ids_still_matches_the_universal_soft_delete_flag(
+    p116_tenant,
 ):
     """The control assertion for the test above — the helper is not simply
-    returning nothing."""
+    returning nothing.
+
+    Datenmodell-Konsolidierung Phase 4 (D-3): the positive case is now sourced
+    from ``Artifact.lifecycle_status`` rather than from a
+    ``WorkflowItemState`` parked on the pseudo-state ``"outdated"``, which
+    ``outdate()`` no longer writes. A real Adr row with a backing Artifact is
+    required because the helper joins through that FK — the fake
+    ``_make_item_state`` row used by the negative tests above would make this
+    assertion vacuous.
+    """
+    from persistence.models import Adr, Artifact, Workspace
     from workflow.services import outdated_item_ids
 
-    definition, workspace_id = p116_definition
     with _tenant_scope(p116_tenant.id):
-        row = _make_item_state(
-            p116_tenant,
-            item_type="Adr",
-            current_state="outdated",
-            workspace_id=workspace_id,
-            definition=definition,
+        workspace = Workspace.objects.create(tenant=p116_tenant, name="p116-ws")
+        artifact = Artifact.objects.create(
+            tenant=p116_tenant,
+            workspace=workspace,
+            artifact_type="Adr",
+            lifecycle_status="outdated",
         )
-        assert row.item_id in set(outdated_item_ids("Adr", tenant_id=p116_tenant.id))
+        adr = Adr.objects.create(
+            tenant=p116_tenant,
+            artifact=artifact,
+            workspace_id=workspace.id,
+            title="p116 soft-deleted ADR",
+            description="d",
+        )
+
+        assert adr.id in set(outdated_item_ids("Adr", tenant_id=p116_tenant.id))
 
 
 @pytest.mark.django_db

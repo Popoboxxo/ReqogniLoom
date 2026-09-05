@@ -439,8 +439,10 @@ class TestListIssuesExcludesOutdated:
     workflow.services.outdate() by default."""
 
     def test_list_issues_excludes_outdated_by_default(self):
-        """Datenmodell-Konsolidierung: the exclusion now filters on
-        ``id__in=state_reader.item_ids_in_state(...)``, not a status kwarg."""
+        """Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. ``state_reader.item_ids_in_state(..., "outdated")`` no longer
+        matches anything, since ``outdate()`` writes the flag, not the state."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -448,7 +450,7 @@ class TestListIssuesExcludesOutdated:
             patch("application.issue_service.Issue.objects") as mock_mgr,
             patch("application.issue_service.IssueService._set_tenant_context"),
             patch(
-                "application.issue_service.state_reader.item_ids_in_state",
+                "workflow.services.outdated_item_ids",
                 return_value="OUTDATED_IDS",
             ) as mock_seam,
         ):
@@ -459,7 +461,7 @@ class TestListIssuesExcludesOutdated:
 
             svc.list_issues(workspace_id=WS_ID, ctx=ctx)
 
-        mock_seam.assert_called_once_with("Issue", "outdated", tenant_id=ctx.tenant_id)
+        mock_seam.assert_called_once_with("Issue", tenant_id=ctx.tenant_id)
         qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
 
     def test_list_issues_include_deleted_skips_exclude(self):
@@ -556,9 +558,11 @@ class TestListIssuesMultiFilter:
         assert result == all_issues
 
     def test_status_filter_applied(self):
-        """Datenmodell-Konsolidierung Phase 1: the status filter now resolves
-        through ``workflow.state_reader.item_ids_in_state`` (unioned per
-        requested status) instead of a raw ``status__in`` column filter."""
+        """Phase 4 (D-3): the status filter resolves through
+        ``workflow.services.item_ids_with_status`` (unioned per requested
+        status). ``"outdated"`` is a valid member of *statuses* and now lives on
+        ``Artifact.lifecycle_status``, so the literal ``item_ids_in_state`` seam
+        alone would silently miss it."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -566,7 +570,7 @@ class TestListIssuesMultiFilter:
             patch("application.issue_service.Issue.objects") as mock_mgr,
             patch("application.issue_service.IssueService._set_tenant_context"),
             patch(
-                "application.issue_service.state_reader.item_ids_in_state",
+                "workflow.services.item_ids_with_status",
                 side_effect=lambda item_type, status, tenant_id: {"id-" + status},
             ) as mock_seam,
         ):

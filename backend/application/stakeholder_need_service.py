@@ -214,15 +214,14 @@ class StakeholderNeedService(ServiceBase):
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            # Datenmodell-Konsolidierung Phase 1: "outdated" is read from
-            # WorkflowItemState now that StakeholderNeed.status is no longer
-            # the seam (the column still exists as a mirror -- see
-            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS -- but it is
-            # not read here anymore).
+            # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
+            # Artifact.lifecycle_status flag, not a workflow state --
+            # outdate() stopped writing the state, so
+            # state_reader.item_ids_in_state would match nothing here.
+            from workflow.services import outdated_item_ids
+
             needs = needs.exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "StakeholderNeed", "outdated", tenant_id=ctx.tenant_id
-                )
+                id__in=outdated_item_ids("StakeholderNeed", tenant_id=ctx.tenant_id)
             )
         if search:
             needs = needs.filter(

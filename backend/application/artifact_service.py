@@ -467,11 +467,13 @@ class ArtifactService(ServiceBase):
 
         # Each domain entity is OneToOne on Artifact — a single artifact_id__in
         # scan per table enriches all matching entries without N+1 queries.
-        # Datenmodell-Konsolidierung Phase 1: the ``status`` mirror column is
-        # no longer written by the workflow engine, so ``is_outdated`` is
-        # resolved through WorkflowItemState — same seam as the
+        # Datenmodell-Konsolidierung Phase 4 (D-3): ``is_outdated`` is resolved
+        # through ``Artifact.lifecycle_status`` — same seam as the
         # ArchitectureElement block below, narrowed to the ids referenced
         # here instead of materializing every outdated item of the tenant.
+        # The narrowing filter is ``id__in``: ``outdated_item_ids`` now returns
+        # a queryset over the *entity* table (whose pk is ``id``), not over
+        # ``WorkflowItemState`` (whose entity key was ``item_id``).
         for model, item_type in (
             (Requirement, "Requirement"),
             (StakeholderNeed, "StakeholderNeed"),
@@ -486,7 +488,7 @@ class ArtifactService(ServiceBase):
                 continue
             outdated_ids = set(
                 outdated_item_ids(item_type).filter(
-                    item_id__in=[row["id"] for row in rows]
+                    id__in=[row["id"] for row in rows]
                 )
             )
             for row in rows:
@@ -506,7 +508,7 @@ class ArtifactService(ServiceBase):
             # instead of materializing every outdated element of the tenant.
             outdated_ae_ids = set(
                 outdated_item_ids("ArchitectureElement").filter(
-                    item_id__in=[row["id"] for row in ae_rows]
+                    id__in=[row["id"] for row in ae_rows]
                 )
             )
             for row in ae_rows:
@@ -528,7 +530,7 @@ class ArtifactService(ServiceBase):
             if adr_rows:
                 outdated_adr_ids = set(
                     outdated_item_ids("Adr").filter(
-                        item_id__in=[row["id"] for row in adr_rows]
+                        id__in=[row["id"] for row in adr_rows]
                     )
                 )
                 for row in adr_rows:

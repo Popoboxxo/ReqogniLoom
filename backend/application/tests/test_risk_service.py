@@ -580,8 +580,10 @@ class TestListRisksExcludesOutdated:
     workflow.services.outdate() by default."""
 
     def test_list_risks_excludes_outdated_by_default(self):
-        """Datenmodell-Konsolidierung: the exclusion now filters on
-        ``id__in=state_reader.item_ids_in_state(...)``, not a status kwarg."""
+        """Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. ``state_reader.item_ids_in_state(..., "outdated")`` no longer
+        matches anything, since ``outdate()`` writes the flag, not the state."""
         svc = RiskService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -589,7 +591,7 @@ class TestListRisksExcludesOutdated:
             patch("application.risk_service.Risk.objects") as mock_mgr,
             patch("application.risk_service.RiskService._set_tenant_context"),
             patch(
-                "application.risk_service.state_reader.item_ids_in_state",
+                "workflow.services.outdated_item_ids",
                 return_value="OUTDATED_IDS",
             ) as mock_seam,
         ):
@@ -600,7 +602,7 @@ class TestListRisksExcludesOutdated:
 
             svc.list_risks(workspace_id=WS_ID, ctx=ctx)
 
-        mock_seam.assert_called_once_with("Risk", "outdated", tenant_id=ctx.tenant_id)
+        mock_seam.assert_called_once_with("Risk", tenant_id=ctx.tenant_id)
         qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
 
     def test_list_risks_include_deleted_skips_exclude(self):

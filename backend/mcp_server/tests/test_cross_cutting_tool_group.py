@@ -466,6 +466,34 @@ def test_get_context_full_depth_includes_all_fields(
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
 
     workspace_id, tenant_id, outdated_req_id = workspace_with_outdated_requirement
+
+    # Datenmodell-Konsolidierung Phase 4 (D-3): ``recent_changes`` is fed by
+    # ``WorkflowHistoryEntry``, and a soft-delete is no longer a workflow
+    # transition, so the fixture's outdate() alone produces no entry. A real
+    # transition is performed here to give the feed something to report — the
+    # subject of this test is that depth=full *carries* recent_changes, not how
+    # a row gets into it.
+    from dataclasses import replace
+
+    from persistence.tenancy import TenantContext
+    from workflow.services import transition
+
+    # draft -> approved is gated to admin/approver in the standard preset.
+    approver_ctx = replace(auth_ctx, active_roles=("admin",))
+
+    TenantContext.set_tenant(tenant_id)
+    try:
+        transition(
+            item_id=outdated_req_id,
+            item_type="Requirement",
+            workspace_id=workspace_id,
+            target_state="approved",
+            change_reason="depth=full recent_changes fixture",
+            ctx=approver_ctx,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
     group = CrossCuttingToolGroup()
     result = group.execute_tool(
         "workspace.get_context",
@@ -483,8 +511,8 @@ def test_get_context_full_depth_includes_all_fields(
 
     entry = ctx["recent_changes"][0]
     assert entry.keys() >= {"entity_type", "title", "timestamp"}
-    outdate_entries = [e for e in ctx["recent_changes"] if e["entity_type"] == "Requirement"]
-    assert any(e["title"] == "Outdated" for e in outdate_entries)
+    req_entries = [e for e in ctx["recent_changes"] if e["entity_type"] == "Requirement"]
+    assert any(e["title"] == "Outdated" for e in req_entries)
 
 
 # ---------------------------------------------------------------------------

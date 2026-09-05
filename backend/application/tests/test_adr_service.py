@@ -906,9 +906,11 @@ class TestAdrArtifactBackingAndTraceLinks:
         adr_in_db = Adr.objects.filter(id=adr.id).first()
         assert adr_in_db is not None, "ADR must remain in DB after soft-delete"
 
-        # Phase 0: the workflow engine's state is now the source of truth.
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved so the ADR keeps its approval while hidden.
+        assert Artifact.objects.get(pk=artifact_id).lifecycle_status == "outdated"
         item_state = WorkflowItemState.objects.get(item_id=adr.id, item_type="Adr")
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
         # REQ-006: backing Artifact must also remain in DB
         assert Artifact.objects.filter(id=artifact_id).exists(), "Artifact must remain in DB after soft-delete"

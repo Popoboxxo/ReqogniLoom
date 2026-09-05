@@ -142,10 +142,18 @@ class TestServiceFacadeDelete:
             # Not hard-deleted — row and versions remain for audit purposes.
             assert Diagram.unscoped.filter(id=diagram.id).exists()
 
+            # Datenmodell-Konsolidierung Phase 4 (D-3): the soft-delete is the
+            # Artifact flag; the workflow state is deliberately left alone.
+            from persistence.models import Artifact
+
+            assert (
+                Artifact.objects.get(pk=diagram.artifact_id).lifecycle_status
+                == "outdated"
+            )
             item_state = WorkflowItemState.objects.get(
                 item_id=diagram.id, item_type="Diagram"
             )
-            assert item_state.current_state == "outdated"
+            assert item_state.current_state == "draft"
 
     def test_delete_other_tenant_raises(self, tenant_a, tenant_b, workspace_a):
         from diagram.models import Diagram

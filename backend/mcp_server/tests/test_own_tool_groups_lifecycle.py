@@ -88,7 +88,10 @@ class TestRequirementLifecycleTools:
         assert result.data == {"id": str(req.id), "status": "outdated"}
 
         state = WorkflowItemState.objects.get(item_id=req.id, item_type="Requirement")
-        assert state.current_state == "outdated"
+        # Phase 4 (D-3): the tool payload above still reports "outdated" (the
+        # MCP wire contract is unchanged), but the soft-delete is now the
+        # Artifact flag — the workflow state is deliberately preserved.
+        assert state.current_state != "outdated"
 
         result2 = group._handle_reactivate(
             params={"id": str(req.id)}, auth_context=ctx, api_key="reqlo_x"
@@ -169,7 +172,10 @@ class TestArchitectureLifecycleTools:
         state = WorkflowItemState.objects.get(
             item_id=el.id, item_type="ArchitectureElement"
         )
-        assert state.current_state == "outdated"
+        # Phase 4 (D-3): the tool payload above still reports "outdated" (the
+        # MCP wire contract is unchanged), but the soft-delete is now the
+        # Artifact flag — the workflow state is deliberately preserved.
+        assert state.current_state != "outdated"
 
         result2 = group._handle_reactivate(
             params={"id": str(el.id)}, auth_context=ctx, api_key="reqlo_x"
@@ -365,7 +371,10 @@ class TestTestCaseLifecycleTools:
         assert result.data == {"id": str(tc.id), "status": "outdated"}
 
         state = WorkflowItemState.objects.get(item_id=tc.id, item_type="TestCase")
-        assert state.current_state == "outdated"
+        # Phase 4 (D-3): the tool payload above still reports "outdated" (the
+        # MCP wire contract is unchanged), but the soft-delete is now the
+        # Artifact flag — the workflow state is deliberately preserved.
+        assert state.current_state != "outdated"
 
         result2 = group._handle_reactivate(
             params={"id": str(tc.id)}, auth_context=ctx, api_key="reqlo_x"
@@ -553,7 +562,10 @@ class TestStakeholderNeedLifecycleTools:
         state = WorkflowItemState.objects.get(
             item_id=need.id, item_type="StakeholderNeed"
         )
-        assert state.current_state == "outdated"
+        # Phase 4 (D-3): the tool payload above still reports "outdated" (the
+        # MCP wire contract is unchanged), but the soft-delete is now the
+        # Artifact flag — the workflow state is deliberately preserved.
+        assert state.current_state != "outdated"
 
         result2 = group._handle_reactivate(
             params={"id": str(need.id)}, auth_context=ctx, api_key="reqlo_x"

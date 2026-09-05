@@ -32,7 +32,6 @@ from django.db.models import F, Q, QuerySet
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
 from persistence.transactions import atomic_transaction
-from workflow import state_reader
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -323,9 +322,9 @@ class TestService(ServiceBase):
 
         REQ-006: Excludes outdated (soft-deleted) test cases by default. Pass
         ``include_deleted=True`` for admin/audit access. Datenmodell-
-        Konsolidierung Phase 1: the exclusion reads WorkflowItemState via
-        ``workflow.state_reader`` rather than the (still-present, but no
-        longer read) ``status`` mirror column.
+        Konsolidierung Phase 4 (D-3): the exclusion reads the
+        ``Artifact.lifecycle_status`` flag via
+        ``workflow.services.outdated_item_ids``.
 
         Issue #267 (same root cause as RequirementService.list_requirements):
         ``search`` case-insensitively filters on title/description/uid via
@@ -339,15 +338,14 @@ class TestService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            # Datenmodell-Konsolidierung Phase 1: "outdated" is read from
-            # WorkflowItemState now that TestCase.status is no longer the
-            # seam (the column still exists as a mirror -- see
-            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS -- but it is
-            # not read here anymore).
+            # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
+            # Artifact.lifecycle_status flag, not a workflow state --
+            # outdate() stopped writing the state, so
+            # state_reader.item_ids_in_state would match nothing here.
+            from workflow.services import outdated_item_ids
+
             qs = qs.exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "TestCase", "outdated", tenant_id=ctx.tenant_id
-                )
+                id__in=outdated_item_ids("TestCase", tenant_id=ctx.tenant_id)
             )
         if test_type is not None:
             qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")

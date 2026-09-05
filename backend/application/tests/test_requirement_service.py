@@ -1646,10 +1646,17 @@ class TestListRequirementsExcludesOutdated:
 
         svc.delete_requirement(deleted.id, req_outdate_ctx)
 
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved.
+        from persistence.models import Artifact
+
+        assert (
+            Artifact.objects.get(pk=deleted.artifact_id).lifecycle_status == "outdated"
+        )
         item_state = WorkflowItemState.objects.get(
             item_id=deleted.id, item_type="Requirement"
         )
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
         results = svc.list_requirements(req_outdate_workspace.id, req_outdate_ctx)
         ids = {r.id for r in results}

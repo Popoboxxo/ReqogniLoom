@@ -51,7 +51,17 @@ class WorkflowStateSerializerMixin(serializers.Serializer):
     status = serializers.SerializerMethodField()
 
     def get_status(self, obj: Any) -> str:
-        """Return the item's current workflow state.
+        """Return the item's wire-level status.
+
+        Datenmodell-Konsolidierung Phase 4 (Decision D-3) split soft-delete off
+        the workflow state and onto ``Artifact.lifecycle_status``. The
+        ``state_reader`` seam re-joins the two axes for the wire (see
+        :func:`workflow.state_reader.current_states`), so a soft-deleted item
+        still reports ``"outdated"`` here — GH-443's documented contract
+        (``DELETE`` 204 → ``GET`` 200 + ``status == "outdated"``), and the only
+        signal a client has that an item is deleted. Nothing is needed in this
+        mixin for that; it is noted here because it is not obvious from the
+        call.
 
         Task 12: the ``status`` column is dropped. Falls back to
         ``workflow_item_type``'s preset initial state when the engine has no

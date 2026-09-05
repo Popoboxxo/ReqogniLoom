@@ -14,7 +14,15 @@ MODULES = [adr_service, risk_service, issue_service]
 
 def _seed_item(model_cls, item_type, states=("Draft", "outdated")):
     """Create *model_cls* rows (one per state in *states*) with matching
-    WorkflowItemState rows, mirroring the adr_fixture shape for Risk/Issue."""
+    WorkflowItemState rows, mirroring the adr_fixture shape for Risk/Issue.
+
+    Datenmodell-Konsolidierung Phase 4 (D-3): ``"outdated"`` is no longer a
+    workflow state. A row seeded as "outdated" therefore also gets
+    ``Artifact.lifecycle_status = "outdated"`` — that flag, not the
+    WorkflowItemState, is what makes it soft-deleted now. The
+    ``current_state`` value is left in place so these fixtures keep exercising
+    the "legacy row" shape the Task 23 migration is meant to clean up.
+    """
     from persistence.models import Artifact, Tenant, Workspace
     from persistence.tenancy import TenantContext
     from workflow.models import WorkflowEngineDefinition, WorkflowItemState
@@ -35,7 +43,10 @@ def _seed_item(model_cls, item_type, states=("Draft", "outdated")):
     created = []
     for state in states:
         artifact = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type=item_type
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type=item_type,
+            lifecycle_status="outdated" if state == "outdated" else "active",
         )
         kwargs = {
             "artifact": artifact,

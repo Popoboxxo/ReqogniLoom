@@ -31,8 +31,14 @@ def requirement_fixture(db):
     )
     created = []
     for state in ("draft", "outdated"):
+        # Phase 4 (D-3): the soft-delete flag lives on the Artifact, so the
+        # "outdated" row is seeded there. ``current_state`` is left as-is so
+        # this keeps exercising the legacy shape workflow/0018 cleans up.
         artifact = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="Requirement",
+            lifecycle_status="outdated" if state == "outdated" else "active",
         )
         req = Requirement.objects.create(
             tenant=tenant,
@@ -62,10 +68,23 @@ def requirement_fixture(db):
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda m: m.__name__)
 def test_no_status_column_read_remains(module):
+    """Status is resolved through a workflow seam, never off a column.
+
+    Datenmodell-Konsolidierung Phase 4 (D-3) added a second legitimate seam:
+    ``workflow.services.outdated_item_ids`` reads the ``Artifact
+    .lifecycle_status`` flag, which is now where soft-delete lives.
+    ``application.test_service`` uses only that one, so requiring the
+    ``state_reader`` import specifically would fail a module that is in fact
+    fully migrated. Either seam satisfies the property this test exists to
+    protect.
+    """
     source = inspect.getsource(module)
     assert 'exclude(status="outdated")' not in source
     assert "status=status," not in source
-    assert "from workflow import state_reader" in source
+    assert (
+        "from workflow import state_reader" in source
+        or "from workflow.services import outdated_item_ids" in source
+    )
 
 
 @pytest.mark.django_db

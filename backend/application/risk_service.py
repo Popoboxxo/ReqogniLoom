@@ -495,14 +495,14 @@ class RiskService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Risk.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_deleted:
-            # Datenmodell-Konsolidierung Phase 1: soft-delete routes through
-            # workflow.services.outdate(); the state is read from
-            # WorkflowItemState now that Risk.status is no longer the seam.
-            qs = qs.exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "Risk", "outdated", tenant_id=ctx.tenant_id
-                )
-            )
+            # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
+            # through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("Risk", tenant_id=ctx.tenant_id))
         return qs.order_by("-risk_score")
 
     def list_risks_by_status(
@@ -519,13 +519,16 @@ class RiskService(ServiceBase):
             Filtered list of Risk ORM instances ordered by risk_score descending.
         """
         self._set_tenant_context(ctx)
+        # Phase 4 (D-3): *status* is caller-supplied and may be "outdated",
+        # which now lives on Artifact.lifecycle_status rather than being a
+        # workflow state -- item_ids_with_status routes it accordingly.
+        from workflow.services import item_ids_with_status
+
         return list(
             Risk.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                id__in=state_reader.item_ids_in_state(
-                    "Risk", status, tenant_id=ctx.tenant_id
-                ),
+                id__in=item_ids_with_status("Risk", status, tenant_id=ctx.tenant_id),
             ).order_by("-risk_score")
         )
 

@@ -4,6 +4,7 @@ from persistence.models import Tenant
 from persistence.tenancy import TenantContext, TenantContextNotSetError
 from workflow.models import WorkflowItemState
 from workflow.services import outdate
+from workflow.state_reader import outdated_ids
 
 
 class _SystemAuthContext:
@@ -55,11 +56,21 @@ class Command(BaseCommand):
                     model = getattr(import_module(module_path), class_name)
                     queryset = model.objects.filter(**{field_name: deleted_value})
 
+                    already_outdated = set(
+                        outdated_ids(item_type, tenant_id=tenant.id)
+                    )
                     for obj in queryset:
                         item_state = WorkflowItemState.objects.filter(
                             item_id=obj.id, item_type=item_type
                         ).first()
-                        if item_state is None or item_state.current_state == "outdated":
+                        # Datenmodell-Konsolidierung Phase 4 (D-3): the
+                        # "already backfilled" check reads the soft-delete flag.
+                        # It used to compare ``current_state == "outdated"``,
+                        # which ``outdate()`` no longer writes — that guard
+                        # would now never fire, so every run would redo every
+                        # row (harmless but pointless work, and it would report
+                        # an inflated count).
+                        if item_state is None or obj.id in already_outdated:
                             continue  # no workflow item, or already backfilled - idempotent skip
                         outdate(
                             item_id=obj.id,

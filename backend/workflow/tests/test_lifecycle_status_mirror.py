@@ -373,20 +373,25 @@ def test_backfill_sets_outdated_on_a_pre_mirror_row(
     mirror_tenant, mirror_workspace, mirror_ctx, architecture_element
 ):
     """Simulates a row soft-deleted before the mirror existed: WorkflowItemState
-    says "outdated", the column still says "active"."""
+    says "outdated", the column still says "active".
+
+    Datenmodell-Konsolidierung Phase 4 (D-3): the legacy shape is now seeded
+    directly instead of via ``outdate()``. ``outdate()`` no longer writes
+    ``current_state = "outdated"``, so calling it here would no longer produce
+    the pre-mirror shape this migration exists to repair — the test would pass
+    vacuously against an input that cannot occur. Migration 0017 still has to
+    handle genuine legacy rows correctly (rows written before Phase 4 and not
+    yet cleaned up by ``workflow/0018``), which is exactly what is pinned here.
+    """
     from django.apps import apps as django_apps
 
     from persistence.models import ArchitectureElement
-    from workflow.services import outdate
+    from workflow.models import WorkflowItemState
 
     with _tenant_scope(mirror_tenant.id):
-        outdate(
-            item_id=architecture_element.id,
-            item_type="ArchitectureElement",
-            workspace_id=mirror_workspace.id,
-            ctx=mirror_ctx,
-            reason="p1-16 backfill test",
-        )
+        WorkflowItemState.objects.filter(
+            item_id=architecture_element.id, item_type="ArchitectureElement"
+        ).update(current_state="outdated")
         # Reset the column to the pre-mirror value.
         ArchitectureElement.objects.filter(id=architecture_element.id).update(
             lifecycle_status="active"

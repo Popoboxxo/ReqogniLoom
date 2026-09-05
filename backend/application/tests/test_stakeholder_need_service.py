@@ -624,6 +624,10 @@ class TestDeleteCallsRealOutdate:
     item to "outdated" via the real WorkflowEngine, not a direct field write."""
 
     def test_delete_calls_outdate_not_lifecycle_status(self, need_with_workflow, need_ctx):
+        """Phase 4 (D-3): delete() still routes through the workflow engine's
+        outdate(), which now flags the backing Artifact and leaves the
+        workflow state alone."""
+        from persistence.models import Artifact, StakeholderNeed
         from workflow.models import WorkflowItemState
 
         item_id, workspace_id = need_with_workflow
@@ -631,10 +635,14 @@ class TestDeleteCallsRealOutdate:
             ctx=need_ctx, need_id=item_id
         )
 
+        artifact_id = StakeholderNeed.objects.values_list(
+            "artifact_id", flat=True
+        ).get(pk=item_id)
+        assert Artifact.objects.get(pk=artifact_id).lifecycle_status == "outdated"
         item_state = WorkflowItemState.objects.get(
             item_id=item_id, item_type="StakeholderNeed"
         )
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
     def test_deleted_need_excluded_from_default_list(self, need_with_workflow, need_ctx):
         item_id, workspace_id = need_with_workflow

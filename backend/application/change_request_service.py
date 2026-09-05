@@ -477,9 +477,17 @@ class ChangeRequestService(ServiceBase):
         qs = ChangeRequest.objects.filter(
             workspace_id=workspace_id, tenant_id=ctx.tenant_id
         )
+        # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
+        # Artifact.lifecycle_status flag, not a workflow state -- outdate()
+        # stopped writing the state, so state_reader.item_ids_in_state would
+        # match nothing for it. item_ids_with_status routes the runtime
+        # *status_filter* value to whichever axis owns it, which is what keeps
+        # GH-443's ``status_filter="outdated"`` working.
+        from workflow.services import item_ids_with_status, outdated_item_ids
+
         if status_filter:
             qs = qs.filter(
-                id__in=state_reader.item_ids_in_state(
+                id__in=item_ids_with_status(
                     "ChangeRequest", status_filter, tenant_id=ctx.tenant_id
                 )
             )
@@ -490,9 +498,7 @@ class ChangeRequestService(ServiceBase):
             # set, so there was no way to list soft-deleted CRs through the
             # status filter.
             qs = qs.exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "ChangeRequest", "outdated", tenant_id=ctx.tenant_id
-                )
+                id__in=outdated_item_ids("ChangeRequest", tenant_id=ctx.tenant_id)
             )
         return qs.order_by("created_at")
 

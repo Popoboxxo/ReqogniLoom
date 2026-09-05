@@ -629,7 +629,10 @@ class TestDiagramToolGroupLifecycle:
             state = WorkflowItemState.objects.get(
                 item_id=diagram_id, item_type="Diagram"
             )
-            assert state.current_state == "outdated"
+            # Phase 4 (D-3): the tool payload above still reports "outdated"
+            # (the MCP wire contract is unchanged), but the soft-delete is now
+            # the Artifact flag — the workflow state is deliberately preserved.
+            assert state.current_state != "outdated"
 
             reactivate_result = group._handle_reactivate(
                 params={"id": diagram_id}, auth_context=ctx, api_key="reqlo_x"

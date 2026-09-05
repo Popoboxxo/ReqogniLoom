@@ -59,11 +59,21 @@ class TestCurrentStates:
         with django_assert_num_queries(0):
             assert state_reader.current_states("Requirement", []) == {}
 
-    def test_one_query_for_many_ids(self, seeded_states, django_assert_num_queries):
+    def test_constant_query_count_for_many_ids(
+        self, seeded_states, django_assert_num_queries
+    ):
+        """The N+1 guard: cost is constant in the number of ids, not linear.
+
+        Two queries since Datenmodell-Konsolidierung Phase 4 (D-3): one for
+        the workflow states and one for the soft-delete overlay
+        (``Artifact.lifecycle_status``, which is a different table). Both are
+        batched over the whole id list, so this stays flat as the list grows —
+        which is what the guard is actually protecting.
+        """
         tenant, workspace, ids = seeded_states
         TenantContext.set_tenant(tenant.id)
 
-        with django_assert_num_queries(1):
+        with django_assert_num_queries(2):
             state_reader.current_states("Requirement", ids)
 
     def test_item_type_scopes_the_lookup(self, seeded_states):

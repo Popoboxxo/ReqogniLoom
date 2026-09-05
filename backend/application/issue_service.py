@@ -447,14 +447,14 @@ class IssueService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Issue.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_deleted:
-            # Datenmodell-Konsolidierung Phase 1: soft-delete routes through
-            # workflow.services.outdate(); the state is read from
-            # WorkflowItemState now that Issue.status is no longer the seam.
-            qs = qs.exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "Issue", "outdated", tenant_id=ctx.tenant_id
-                )
-            )
+            # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
+            # through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("Issue", tenant_id=ctx.tenant_id))
         return qs.order_by("created_at")
 
     def list_issues_by_status(
@@ -471,13 +471,16 @@ class IssueService(ServiceBase):
             Filtered list of Issue ORM instances.
         """
         self._set_tenant_context(ctx)
+        # Phase 4 (D-3): *status* is caller-supplied and may be "outdated",
+        # which now lives on Artifact.lifecycle_status rather than being a
+        # workflow state -- item_ids_with_status routes it accordingly.
+        from workflow.services import item_ids_with_status
+
         return list(
             Issue.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                id__in=state_reader.item_ids_in_state(
-                    "Issue", status, tenant_id=ctx.tenant_id
-                ),
+                id__in=item_ids_with_status("Issue", status, tenant_id=ctx.tenant_id),
             ).order_by("created_at")
         )
 
@@ -554,17 +557,19 @@ class IssueService(ServiceBase):
         )
         if statuses:
             # Datenmodell-Konsolidierung Phase 1: Issue.status is no longer
-            # written by the workflow engine — resolve through WorkflowItemState
-            # instead, same seam as list_issues_by_status. item_ids_in_state
-            # only matches one state at a time, so the id sets for each
-            # requested status are unioned in Python (bounded by the small
-            # IssueStatus vocabulary, not a per-row loop).
+            # written by the workflow engine — resolve through the status
+            # seams instead, same as list_issues_by_status. Phase 4 (D-3):
+            # via item_ids_with_status, since "outdated" is a valid member of
+            # *statuses* and now lives on Artifact.lifecycle_status. Each seam
+            # only matches one status at a time, so the id sets are unioned in
+            # Python (bounded by the small IssueStatus vocabulary, not a
+            # per-row loop).
+            from workflow.services import item_ids_with_status
+
             matched_ids: set = set()
             for status in statuses:
                 matched_ids |= set(
-                    state_reader.item_ids_in_state(
-                        "Issue", status, tenant_id=ctx.tenant_id
-                    )
+                    item_ids_with_status("Issue", status, tenant_id=ctx.tenant_id)
                 )
             qs = qs.filter(id__in=matched_ids)
         if severities:

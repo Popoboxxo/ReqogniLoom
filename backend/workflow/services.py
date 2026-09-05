@@ -48,6 +48,8 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 from auth_tenancy.context import AuthContext
+from persistence.artifact_backing import model_for
+from persistence.models import Artifact, LifecycleStatus
 
 from .definition_store import (
     NoGlobalSourceError,
@@ -61,13 +63,20 @@ from .definition_store import (
     get_state_meta,
 )
 from .lifecycle_manager import (
+    _LIFECYCLE_MIRROR_MODELS,
     StateLifecycleManager,
     TransitionOutcome,
     WorkflowConflictError,
     WorkflowStateError,
 )
 from .models import WorkflowHistoryEntry, WorkflowItemState
-from .state_reader import current_state, current_states, item_ids_in_state
+from .state_reader import (
+    OUTDATED_STATUS,
+    current_state,
+    current_states,
+    item_ids_in_state,
+    outdated_ids,
+)
 from .transition_validator import (
     EC_CHANGE_REASON_REQUIRED,
     EC_ROLE_NOT_ALLOWED,
@@ -124,14 +133,17 @@ class TransitionResult:
         item_id:         UUID of the transitioned item.
         previous_state:  State before the transition.
         new_state:       State after the transition.
-        history_entry_id: UUID of the new history entry.
+        history_entry_id: UUID of the new history entry, or ``None`` when the
+            call changed no workflow state and therefore wrote no history —
+            the case for :func:`outdate`/:func:`reactivate` since
+            Datenmodell-Konsolidierung Phase 4 (Decision D-3).
         signature_seal:  HMAC-SHA256 seal (non-None when SignatureGate used).
     """
 
     item_id: UUID
     previous_state: str
     new_state: str
-    history_entry_id: UUID
+    history_entry_id: Optional[UUID]
     signature_seal: Optional[str] = None
 
 
@@ -283,6 +295,66 @@ def transition(
     )
 
 
+def _artifact_id_for(item_id: UUID, item_type: str) -> UUID | None:
+    """Resolve the backing Artifact id of an entity, or ``None`` if unbacked.
+
+    Args:
+        item_id:   Primary key of the specialised entity row.
+        item_type: Entity type string, e.g. ``"Requirement"``.
+
+    Returns:
+        The ``artifact_id`` FK value, or ``None`` when *item_type* is not a
+        backed type or the row does not exist.
+    """
+    try:
+        model = model_for(item_type)
+    except KeyError:
+        return None
+    return (
+        model.objects.filter(pk=item_id).values_list("artifact_id", flat=True).first()
+    )
+
+
+def _set_lifecycle_status(item_id: UUID, item_type: str, value: str) -> None:
+    """Write the orthogonal soft-delete flag on the backing Artifact.
+
+    Uses the tenant-scoped ``objects`` manager on purpose. ``outdate`` and
+    ``reactivate`` already require an active ``TenantContext`` — every path
+    into them goes through ``StateLifecycleManager``, which reads
+    ``WorkflowItemState.objects`` — so scoping here adds no new precondition
+    and keeps the tenant filter as the *first* isolation layer rather than
+    leaning on the ``pl_artifact`` RLS policy alone (ADR-PL-03
+    defence-in-depth). ``unscoped`` would also be RLS-safe, but silently
+    weaker.
+
+    Also keeps the Phase-1 per-entity ``lifecycle_status`` mirror in step.
+    That mirror used to be maintained by
+    ``StateLifecycleManager._sync_lifecycle_mirror``, which fired on
+    ``force_transition`` — a call :func:`outdate` no longer makes. Task 24
+    deletes the mirror and its columns outright, but until then it is still
+    *read* in production (``GlossaryTermSerializer.lifecycle_status`` is the
+    only place a soft-deleted term is observable on the wire, and
+    ``baseline.state_capture`` snapshots the column), so dropping it here
+    would open a one-task window of silently stale values.
+
+    A no-op for unbacked types: the caller's workflow bookkeeping still runs.
+
+    Args:
+        item_id:   Primary key of the specialised entity row.
+        item_type: Entity type string, e.g. ``"Requirement"``.
+        value:     A :class:`persistence.models.LifecycleStatus` value.
+    """
+    artifact_id = _artifact_id_for(item_id, item_type)
+    if artifact_id is None:
+        return
+    Artifact.objects.filter(pk=artifact_id).update(lifecycle_status=value)
+
+    if item_type in _LIFECYCLE_MIRROR_MODELS:
+        model_for(item_type).objects.filter(pk=item_id).update(
+            lifecycle_status=value
+        )
+
+
 def outdate(
     item_id: UUID | str,
     item_type: str,
@@ -297,18 +369,25 @@ def outdate(
 
     Always available — this is the system-level escape hatch, not a
     business-process transition, so it bypasses the normal preset-transition
-    validation (COMP-WE-002) entirely via
-    ``StateLifecycleManager.force_transition``.
+    validation (COMP-WE-002) entirely.
 
-    Self-healing (Phase 0 follow-up): ``force_transition`` requires an
-    existing ``WorkflowItemState`` row (plain ``.get()``, raises
-    ``WorkflowItemState.DoesNotExist`` otherwise) — a legacy item created
-    before the workflow engine was wired in for its type (previously only
-    known for ``GlossaryTerm``, but nothing prevents it for any type) would
-    make outdating it crash instead of soft-deleting it. If no state exists
-    yet, one is lazily created at the definition's initial state via
-    ``StateLifecycleManager.ensure_item_state`` (idempotent, race-safe) before
-    forcing the transition to "outdated".
+    **Datenmodell-Konsolidierung Phase 4 (Decision D-3): soft-delete is a flag
+    on the backing Artifact, not a workflow state.** The item keeps whatever
+    state it had, so an approved artifact stays approved while hidden — and
+    :func:`reactivate` no longer has to reconstruct the previous state from
+    ``WorkflowHistoryEntry``. Before Phase 4 this forced
+    ``current_state = "outdated"``, destroying the item's real state.
+
+    Idempotent: outdating an already-outdated item rewrites the same flag
+    value and returns the same unchanged workflow state.
+
+    Self-healing (Phase 0 follow-up): a ``WorkflowItemState`` row is still
+    lazily created at the definition's initial state via
+    ``StateLifecycleManager.ensure_item_state`` (idempotent, race-safe) for a
+    legacy item created before the workflow engine was wired in for its type
+    (previously only known for ``GlossaryTerm``, but nothing prevents it for
+    any type). The row is needed so the transitions API can offer moves after
+    the item is reactivated.
 
     Args:
         item_id:      UUID of the item to outdate.
@@ -328,9 +407,26 @@ def outdate(
             an ``item_id`` that was never real to begin with, not a
             legitimate pre-workflow-engine item.
 
+        reason:       Unused since Phase 4 — kept for signature compatibility.
+            No ``WorkflowHistoryEntry`` is written anymore because no workflow
+            transition happens; the soft-delete itself is recorded by the
+            calling service's ``AuditEntry``.
+
     Returns:
-        TransitionResult with the transition details (``new_state`` ==
-        "outdated").
+        TransitionResult describing the **lifecycle** transition that actually
+        happened: ``previous_state`` is the item's (unchanged) workflow state,
+        ``new_state`` is ``"outdated"``. ``history_entry_id`` is ``None``
+        because no workflow transition, and therefore no history entry, was
+        written.
+
+        Reporting the lifecycle move rather than the workflow state is
+        deliberate. Returning ``previous_state == new_state`` would tell every
+        caller "nothing happened", which is both untrue and a breaking change
+        for the REST/MCP wire contract (GH-443:
+        ``POST .../reactivate/`` answers ``previous_state == "outdated"``, and
+        ``WorkflowTransitionsMixin`` echoes these fields verbatim). D-1 pins
+        that contract. The orthogonality D-3 buys is in *storage* — the
+        workflow state is preserved on the row — not in this return value.
 
     Raises:
         WorkflowItemNotFoundError: no state exists and ``allow_lazy_init`` is
@@ -340,32 +436,26 @@ def outdate(
     workspace_uuid = UUID(str(workspace_id))
 
     lifecycle = _get_lifecycle()
-    if lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid) is None:
+    state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
+    if state is None:
         if not allow_lazy_init:
             raise WorkflowItemNotFoundError(
                 f"No workflow-tracked {item_type} {item_id_uuid} in workspace "
                 f"{workspace_uuid}."
             )
         dto = _get_store().get_definition(workspace_uuid, item_type)
-        lifecycle.ensure_item_state(
+        state = lifecycle.ensure_item_state(
             item_id_uuid, item_type, workspace_uuid, dto.initial_state
         )
 
-    outcome: TransitionOutcome = lifecycle.force_transition(
-        item_id=item_id_uuid,
-        item_type=item_type,
-        workspace_id=workspace_uuid,
-        target_state="outdated",
-        change_reason=reason,
-        actor=str(ctx.user_id),
-    )
+    _set_lifecycle_status(item_id_uuid, item_type, OUTDATED_STATUS)
 
     return TransitionResult(
         item_id=item_id_uuid,
-        previous_state=outcome.previous_state,
-        new_state=outcome.new_state,
-        history_entry_id=outcome.history_entry_id,
-        signature_seal=outcome.signature_seal,
+        previous_state=state.current_state,
+        new_state=OUTDATED_STATUS,
+        history_entry_id=None,
+        signature_seal=None,
     )
 
 
@@ -375,54 +465,55 @@ def reactivate(
     workspace_id: UUID | str,
     ctx: AuthContext,
 ) -> TransitionResult:
-    """Restore an outdated item to whatever state it was in immediately
-    before it was outdated.
+    """Clear an item's soft-delete flag, leaving its workflow state alone.
 
-    The restore target is read from the most recent WorkflowHistoryEntry
-    that transitioned the item into "outdated".
+    Datenmodell-Konsolidierung Phase 4 (Decision D-3): the two axes are
+    orthogonal, so there is nothing to "restore" — the item never lost its
+    state in the first place. This replaces the pre-Phase-4 behaviour, which
+    walked ``WorkflowHistoryEntry`` back to the state the item held before
+    :func:`outdate` overwrote it.
 
     Args:
         item_id:      UUID of the item to reactivate.
         item_type:    Entity type (e.g. "Requirement").
         workspace_id: Workspace UUID.
-        ctx:          AuthContext (``user_id`` is recorded as the actor).
+        ctx:          AuthContext. Unused since Phase 4 (no history entry is
+            written), kept for signature compatibility.
 
     Returns:
-        TransitionResult with the transition details.
+        TransitionResult describing the **lifecycle** transition:
+        ``previous_state`` is ``"outdated"``, ``new_state`` is the workflow
+        state the item kept throughout. See :func:`outdate` for why the
+        lifecycle axis rather than the workflow axis is reported here.
 
     Raises:
-        ValueError: The item's current state is not "outdated".
+        ValueError: The item has no backing Artifact, or is not currently
+            flagged as outdated.
     """
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
-    lifecycle = _get_lifecycle()
-    item_state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
-    if item_state is None or item_state.current_state != "outdated":
-        raise ValueError("item is not outdated")
+    artifact_id = _artifact_id_for(item_id_uuid, item_type)
+    if artifact_id is None:
+        raise ValueError("item has no backing artifact")
 
-    last_outdate_entry = (
-        WorkflowHistoryEntry.objects.filter(item_state=item_state, to_state="outdated")
-        .order_by("-transitioned_at")
+    current_flag = (
+        Artifact.objects.filter(pk=artifact_id)
+        .values_list("lifecycle_status", flat=True)
         .first()
     )
-    restore_to = last_outdate_entry.from_state
+    if current_flag != OUTDATED_STATUS:
+        raise ValueError("item is not outdated")
 
-    outcome: TransitionOutcome = lifecycle.force_transition(
-        item_id=item_id_uuid,
-        item_type=item_type,
-        workspace_id=workspace_uuid,
-        target_state=restore_to,
-        change_reason="reactivated",
-        actor=str(ctx.user_id),
-    )
+    _set_lifecycle_status(item_id_uuid, item_type, LifecycleStatus.ACTIVE)
 
+    state = _get_lifecycle().get_item_state(item_id_uuid, item_type, workspace_uuid)
     return TransitionResult(
         item_id=item_id_uuid,
-        previous_state=outcome.previous_state,
-        new_state=outcome.new_state,
-        history_entry_id=outcome.history_entry_id,
-        signature_seal=outcome.signature_seal,
+        previous_state=OUTDATED_STATUS,
+        new_state=state.current_state if state is not None else "",
+        history_entry_id=None,
+        signature_seal=None,
     )
 
 
@@ -634,46 +725,38 @@ def get_history(
 def outdated_item_ids(
     item_type: str, *, tenant_id: UUID | str | None = None
 ) -> "QuerySet[UUID]":
-    """Return the ``item_id`` set currently in the ``"outdated"`` state for
-    *item_type* (Phase 0 status-model unification follow-up).
+    """Return the entity ids currently soft-deleted for *item_type*.
 
-    Datenmodell-Konsolidierung Phase 1: every entity type's soft-delete state
-    is recorded in ``WorkflowItemState``, the sole authoritative source (the
-    denormalized ``status``/``lifecycle_status`` mirror this docstring used
-    to describe, ``lifecycle_manager._STATUS_MIRROR_MODELS``, is deleted —
-    those columns are now write-once at creation, frozen from then on). Any
-    caller that needs to exclude soft-deleted rows filters here, or through
-    the equivalent ``workflow.state_reader.item_ids_in_state``/
-    ``current_states`` seam.
+    Datenmodell-Konsolidierung Phase 4 (Decision D-3): reads
+    ``Artifact.lifecycle_status``, which is now the **single** soft-delete
+    flag. It still returns *entity* ids (not Artifact ids), so every existing
+    caller keeps working unchanged.
 
-    **Contract: this matches the literal state ``"outdated"`` and nothing
-    else — deliberately.** ``"outdated"`` is the universal soft-delete state
-    written by :func:`outdate` *outside* every preset's declared state list,
-    so it means exactly one thing for every entity type. Do not "generalise"
-    this to also match states flagged ``is_outdated_equivalent`` in the
-    workflow definition's ``state_meta``: that flag marks a preset's terminal
-    dead-end (``"deprecated"``, ``"Rejected"``, ``"Wontfix"``, ``"Closed"``)
-    so that automatic policies never transition *into* it — it is not a
-    visibility marker. Honouring it here would hide every ``deprecated``
-    ArchitectureElement / GlossaryTerm / Diagram from lists, audit rules,
-    validators and the workspace context, while the mirror-backed types
-    (Requirement, TestCase, StakeholderNeed …) keep their ``deprecated`` rows
-    visible because they only exclude ``status == "outdated"`` — the two
-    families would diverge in opposite directions. It would also cost the
-    laziness of the returned queryset, which callers embed as an
-    ``id__in=`` subquery: ``state_meta`` is per workspace, so the state names
-    could no longer be resolved without a second, materialised query.
+    **This is the only correct way to ask "is it soft-deleted?".** Its former
+    sibling ``workflow.state_reader.item_ids_in_state(item_type, "outdated",
+    ...)`` no longer answers that question: :func:`outdate` stopped writing
+    ``current_state = "outdated"`` in Phase 4, so that call now matches
+    nothing. Use :func:`item_ids_with_status` when the state name is a runtime
+    value that *might* be ``"outdated"``.
 
-    Adr and Risk are intentionally *not* callers of *this specific function*:
-    ``AdrService.list_adrs``/``RiskService.list_risks`` instead call the
-    sibling seam ``workflow.state_reader.item_ids_in_state(item_type,
-    "outdated", ...)`` directly — same WorkflowItemState source, same
-    contract, just a different entry point into it, not a raw column read.
-    Their "Rejected"/"Superseded"/"Closed" states are business-terminal, not
-    deleted, and stay visible on purpose.
+    **Contract: this matches the soft-delete flag and nothing else —
+    deliberately.** Do not "generalise" it to also match states flagged
+    ``is_outdated_equivalent`` in the workflow definition's ``state_meta``:
+    that flag marks a preset's terminal dead-end (``"deprecated"``,
+    ``"Rejected"``, ``"Wontfix"``, ``"Closed"``) so that automatic policies
+    never transition *into* it — it is not a visibility marker. Honouring it
+    here would hide every ``deprecated`` ArchitectureElement / GlossaryTerm /
+    Diagram from lists, audit rules, validators and the workspace context.
+    It would also cost the laziness of the returned queryset, which callers
+    embed as an ``id__in=`` subquery: ``state_meta`` is per workspace, so the
+    state names could no longer be resolved without a second, materialised
+    query.
 
     Args:
-        item_type: Entity type key (e.g. ``"ArchitectureElement"``).
+        item_type: Entity type key (e.g. ``"ArchitectureElement"``). An
+            unbacked type yields an empty queryset rather than raising, so a
+            caller filtering on a type with no Artifact backing degrades to
+            "nothing is soft-deleted" instead of a 500.
         tenant_id: When given, queries via the ``unscoped`` manager with an
             explicit tenant filter — for call sites that run outside a
             request-scoped ``TenantContext`` and already do explicit
@@ -684,18 +767,40 @@ def outdated_item_ids(
             case for request-scoped service calls.
 
     Returns:
-        Lazy ``QuerySet`` of ``item_id`` UUIDs — pass to
+        Lazy ``QuerySet`` of entity UUIDs — pass to
         ``qs.exclude(id__in=outdated_item_ids(...))``.
     """
-    if tenant_id is not None:
-        qs = WorkflowItemState.unscoped.filter(
-            tenant_id=tenant_id, item_type=item_type, current_state="outdated"
-        )
-    else:
-        qs = WorkflowItemState.objects.filter(
-            item_type=item_type, current_state="outdated"
-        )
-    return qs.values_list("item_id", flat=True)
+    return outdated_ids(item_type, tenant_id=tenant_id)
+
+
+def item_ids_with_status(
+    item_type: str, status: str, *, tenant_id: UUID | str | None = None
+) -> "QuerySet[UUID]":
+    """Return the entity ids whose wire-level ``status`` equals *status*.
+
+    Since Datenmodell-Konsolidierung Phase 4 the wire value ``"outdated"``
+    lives on a different axis than every other status value: it is
+    ``Artifact.lifecycle_status``, not ``WorkflowItemState.current_state``
+    (Decision D-3). Every other value is still a genuine workflow state.
+
+    Use this — not ``state_reader.item_ids_in_state`` — whenever *status* is a
+    **runtime value** (a REST/MCP query parameter) that could be
+    ``"outdated"``. ``item_ids_in_state`` deliberately stays a literal
+    workflow-state match, so passing ``"outdated"`` to it silently matches
+    nothing.
+
+    Args:
+        item_type: Entity type key (e.g. ``"Adr"``).
+        status:    Wire-level status value to match.
+        tenant_id: Optional explicit tenant filter, keyword-only. Same
+            semantics as :func:`outdated_item_ids`.
+
+    Returns:
+        Lazy ``QuerySet`` of entity UUIDs, usable as an ``__in`` subquery.
+    """
+    if status == OUTDATED_STATUS:
+        return outdated_item_ids(item_type, tenant_id=tenant_id)
+    return item_ids_in_state(item_type, status, tenant_id=tenant_id)
 
 
 def terminal_positive_states(
@@ -1082,6 +1187,8 @@ __all__ = [
     "list_item_states",
     "get_history",
     "outdated_item_ids",
+    "item_ids_with_status",
+    "OUTDATED_STATUS",
     "terminal_positive_states",
     "create_default_workflow",
     "update_custom_workflow",

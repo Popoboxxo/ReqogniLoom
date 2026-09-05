@@ -635,16 +635,19 @@ class RequirementService(ServiceBase):
         qs = Requirement.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
+        from workflow.services import outdated_item_ids
+
         if not include_deleted and status != "outdated":
-            # Datenmodell-Konsolidierung Phase 1: delete_requirement() routes
-            # through workflow.services.outdate(); "outdated" is read from
-            # WorkflowItemState now that Requirement.status is no longer the
-            # seam -- the column still exists (write-once at creation, not
-            # written by the engine at all anymore) but is not read here.
+            # Datenmodell-Konsolidierung Phase 4 (D-3): delete_requirement()
+            # routes through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing. The
+            # ``status != "outdated"`` guard is unchanged: an explicit
+            # ``?status=outdated`` implies include_deleted, otherwise the two
+            # filters would contradict and always return an empty set.
             qs = qs.exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "Requirement", "outdated", tenant_id=ctx.tenant_id
-                )
+                id__in=outdated_item_ids("Requirement", tenant_id=ctx.tenant_id)
             )
         if status:
             # Datenmodell-Konsolidierung Phase 1: the mirror column this
@@ -1149,15 +1152,14 @@ class RequirementService(ServiceBase):
 
         from llm_adapter.services import check_consistency as _llm_check_consistency
 
+        from workflow.services import outdated_item_ids
+
         rows = (
             Requirement.objects.filter(artifact__workspace_id=workspace_id)
-            # Datenmodell-Konsolidierung Phase 1: read "outdated" from
-            # WorkflowItemState, not the Requirement.status mirror.
-            .exclude(
-                id__in=state_reader.item_ids_in_state(
-                    "Requirement", "outdated", tenant_id=ctx.tenant_id
-                )
-            )
+            # Datenmodell-Konsolidierung Phase 4 (D-3): read "outdated" from
+            # the Artifact.lifecycle_status flag -- it is no longer a
+            # workflow state, so item_ids_in_state would match nothing.
+            .exclude(id__in=outdated_item_ids("Requirement", tenant_id=ctx.tenant_id))
             .only("id", "title", "description")
         )
         artifacts = [

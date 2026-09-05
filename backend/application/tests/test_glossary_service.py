@@ -305,8 +305,17 @@ class TestGlossaryServiceCreateDeleteWorkflowIntegration:
             # delete() must not raise WorkflowItemState.DoesNotExist anymore.
             svc.delete(glossary_real_ctx, term.id)
 
+            # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow
+            # state is deliberately preserved. The per-term mirror column is
+            # still written until Task 24 drops it, and is what
+            # GlossaryTermSerializer exposes on the wire.
+            from persistence.models import Artifact, GlossaryTerm
+
+            row = GlossaryTerm.objects.get(pk=term.id)
+            assert Artifact.objects.get(pk=row.artifact_id).lifecycle_status == "outdated"
+            assert row.lifecycle_status == "outdated"
             item_state.refresh_from_db()
-            assert item_state.current_state == "outdated"
+            assert item_state.current_state != "outdated"
         finally:
             TenantContext.clear_tenant()
 

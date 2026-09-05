@@ -816,7 +816,10 @@ def test_change_request_create_outdate_query_roundtrip():
     state = WorkflowItemState.objects.get(
         item_id=UUID(cr_id), item_type="ChangeRequest"
     )
-    assert state.current_state == "outdated"
+    # Phase 4 (D-3): the tool payload above still reports "outdated" (the MCP
+    # wire contract is unchanged), but the soft-delete is now the Artifact
+    # flag — the workflow state is deliberately preserved.
+    assert state.current_state != "outdated"
 
     result_default = group._handle_query(
         params={"workspace_id": str(workspace.id)}, auth_context=ctx, api_key="reqlo_x"

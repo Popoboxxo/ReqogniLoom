@@ -359,8 +359,11 @@ class TestDeleteChangeRequest:
 
 class TestListChangeRequests:
     def test_list_returns_queryset(self):
-        """Datenmodell-Konsolidierung: the exclusion now filters on
-        ``id__in=state_reader.item_ids_in_state(...)``, not a status kwarg."""
+        """Datenmodell-Konsolidierung Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. It used to read ``state_reader.item_ids_in_state(..., "outdated")``,
+        which no longer matches anything now that ``outdate()`` writes the flag
+        instead of the workflow state."""
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         mock_qs = MagicMock()
@@ -372,7 +375,7 @@ class TestListChangeRequests:
             patch.object(svc, "_set_tenant_context"),
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch(
-                "application.change_request_service.state_reader.item_ids_in_state",
+                "workflow.services.outdated_item_ids",
                 return_value="OUTDATED_IDS",
             ) as mock_seam,
         ):
@@ -380,15 +383,15 @@ class TestListChangeRequests:
             result = svc.list_change_requests(workspace_id=WS_ID, ctx=ctx)
 
         # Default include_deleted=False excludes outdated CRs (Phase 1 Task 4).
-        mock_seam.assert_called_once_with(
-            "ChangeRequest", "outdated", tenant_id=ctx.tenant_id
-        )
+        mock_seam.assert_called_once_with("ChangeRequest", tenant_id=ctx.tenant_id)
         mock_qs.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
         assert result is mock_qs.order_by.return_value
 
     def test_list_applies_status_filter(self):
-        """Datenmodell-Konsolidierung: the status filter now matches on
-        ``id__in=state_reader.item_ids_in_state(...)``, not a status kwarg."""
+        """Phase 4 (D-3): a runtime ``status_filter`` routes through
+        ``item_ids_with_status``, which sends ``"outdated"`` to the flag and
+        every real state to ``item_ids_in_state`` — that is what keeps GH-443's
+        ``status_filter="outdated"`` working."""
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         mock_qs = MagicMock()
@@ -400,9 +403,10 @@ class TestListChangeRequests:
             patch.object(svc, "_set_tenant_context"),
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch(
-                "application.change_request_service.state_reader.item_ids_in_state",
+                "workflow.services.item_ids_with_status",
                 return_value="UNDER_REVIEW_IDS",
             ) as mock_seam,
+            patch("workflow.services.outdated_item_ids", return_value="OUTDATED_IDS"),
         ):
             mock_objects.filter.return_value = mock_qs
             svc.list_change_requests(

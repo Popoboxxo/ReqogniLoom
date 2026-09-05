@@ -8,6 +8,7 @@ import uuid
 import pytest
 
 from application import change_request_service
+from persistence.models import Artifact
 
 
 @pytest.fixture
@@ -34,9 +35,20 @@ def cr_fixture(db):
     )
     created = {}
     for state in ("draft", "under_review", "outdated"):
+        # Phase 4 (D-3): the soft-delete flag lives on the backing Artifact,
+        # which ChangeRequest gained in Task 18/19 — so these rows need one.
+        # ``current_state`` is left as-is so this keeps exercising the legacy
+        # shape workflow/0018 cleans up.
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="ChangeRequest",
+            lifecycle_status="outdated" if state == "outdated" else "active",
+        )
         cr = ChangeRequest.objects.create(
             workspace_id=workspace.id,
             tenant_id=tenant.id,
+            artifact=artifact,
             title=f"CR {state}",
         )
         WorkflowItemState.objects.create(

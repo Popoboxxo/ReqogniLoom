@@ -132,6 +132,12 @@ def resolve_engine_status(
     *fallback* -- they call this with *fallback* omitted and rely on the
     preset-initial-state default (documented, reviewed data-loss tradeoff,
     see Task 12 report Finding 2).
+
+    Datenmodell-Konsolidierung Phase 4 (Decision D-3): soft-delete moved to
+    ``Artifact.lifecycle_status``, off the workflow state. The ``state_reader``
+    seam re-joins the two axes for the wire, so a soft-deleted item still
+    resolves to ``"outdated"`` here -- the only signal an MCP client has that it
+    is deleted. See ``workflow.state_reader.current_states``.
     """
     if status_map is not None:
         engine_state = status_map.get(str(item_id))
@@ -146,7 +152,7 @@ def resolve_engine_status(
 
 
 def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str]:
-    """Batch-resolve workflow-engine states for many items in one query.
+    """Batch-resolve wire ``status`` values for many items in one query.
 
     Thin, defensive wrapper over ``workflow.state_reader.current_states`` for
     list-shaped MCP responses -- pass the result as :func:`resolve_engine_status`'s
