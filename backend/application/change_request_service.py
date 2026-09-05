@@ -42,6 +42,7 @@ from application.optimistic_lock import (
     lock_for_version_check,
 )
 from application.preset_policy_service import get_preset_policy_service
+from persistence.artifact_backing import ensure_artifact
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,12 @@ class ChangeRequestService(ServiceBase):
             assigned_reviewer_id=assigned_reviewer_id,
             created_by_name=str(ctx.user_id),
         )
+
+        # Datenmodell-Konsolidierung Phase 3 (spec §4, correction V-1): create
+        # the backing Artifact up front — unlike its five sibling models, a
+        # ChangeRequest never had one before, so it was never a valid
+        # TraceLink endpoint or baseline subject.
+        ensure_artifact(cr, artifact_type="ChangeRequest", workspace_id=workspace_id)
 
         if affected_item_ids:
             self._replace_affected_items(

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from audit.services import log_write
+from persistence.artifact_backing import ensure_artifact
 from persistence.transactions import atomic_transaction
 
 from diagram.models import Diagram, DiagramVersion, DiagramType, PayloadFormat
@@ -219,6 +220,17 @@ class DiagramManager:
             modified_by=created_by,
             workspace_id=workspace_id,
         )
+
+        # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the backing
+        # Artifact up front instead of lazily on first TraceLink use, so a
+        # Diagram is a valid link endpoint and baseline subject from birth.
+        # Skipped for the workspace-less legacy shape (workspace_id is
+        # nullable, REQ-173) — those rows keep the pre-existing behaviour of
+        # raising only when a link is actually attempted.
+        if workspace_id is not None:
+            ensure_artifact(
+                diagram, artifact_type="Diagram", workspace_id=workspace_id
+            )
 
         # IF-L1-035: persist initial immutable version
         version = DiagramVersion.objects.create(

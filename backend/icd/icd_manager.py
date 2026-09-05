@@ -35,6 +35,8 @@ from typing import Any
 
 from django.db import transaction
 
+from persistence.artifact_backing import ensure_artifact
+
 from icd.audit_logger import get_audit_logger
 from icd.contract_validator import ValidationResult, get_validator
 from icd.models import Icd, IcdVersion
@@ -251,6 +253,13 @@ class IcdManager:
                 target_element_id=payload.target_element_id,
             )
             icd.save()
+
+            # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the
+            # backing Artifact up front instead of leaving the Icd unbacked
+            # until some later on-demand path creates one, so an ICD is a
+            # valid TraceLink endpoint and Document-scope baseline subject
+            # from birth.
+            ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
 
             # Create the first IcdVersion (immutable from DB trigger onwards)
             version = IcdVersion(

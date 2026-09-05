@@ -10,6 +10,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
+from persistence.artifact_backing import ensure_artifact
 from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
 from persistence.transactions import atomic_transaction
 
@@ -132,6 +133,13 @@ class GlossaryService(ServiceBase):
         created_by_id=ctx.user_id,
             modified_by_id=ctx.user_id,
         )
+
+        # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the backing
+        # Artifact up front so a GlossaryTerm is a valid TraceLink endpoint
+        # and interview target from birth (see the field's docstring in
+        # persistence/models.py for the interview_artifact_adapters gap this
+        # closes).
+        ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=workspace_id)
 
         GlossaryTermVersion.objects.create(
             term_fk=gt,

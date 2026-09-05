@@ -64,8 +64,17 @@ def tenant_b(db) -> Tenant:
 
 
 @pytest.fixture
-def workspace_id() -> uuid.UUID:
-    return uuid.uuid4()
+def workspace_id(tenant_a: Tenant) -> uuid.UUID:
+    """A real Workspace row's id.
+
+    Datenmodell-Konsolidierung Phase 3 (Task 19): ``create_icd`` now calls
+    ``ensure_artifact``, which inserts a ``persistence.Artifact`` row with a
+    real (non-nullable) FK to ``Workspace`` — a bare random UUID here would
+    violate that FK (only caught at the deferred constraint check on test
+    teardown, not at insert time). Which tenant owns the row does not matter
+    for this fixture's purpose: it exists purely to satisfy the FK.
+    """
+    return Workspace.unscoped.create(tenant=tenant_a, name="ws-icd-param").id
 
 
 @pytest.fixture
