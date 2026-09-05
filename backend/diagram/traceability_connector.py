@@ -48,7 +48,6 @@ import uuid
 from typing import Optional
 
 from diagram.models import Diagram
-from persistence.models import Artifact
 from traceability.services import create_trace_link
 from traceability.exceptions import TraceLinkError
 
@@ -101,33 +100,15 @@ def _resolve_artifact_id(diagram: Diagram) -> uuid.UUID:
             (persistence.models.Artifact), so a Diagram must first be
             assigned to a workspace (REQ-173) before it can back a TraceLink.
     """
-    if diagram.artifact_id is not None:
-        return diagram.artifact_id
+    from persistence.artifact_backing import ArtifactBackingError, ensure_artifact
 
-    # Ambiguous fast-path: re-fetch under a row lock so a concurrent caller
-    # racing us here blocks instead of also creating a shadow Artifact.
-    locked_diagram = Diagram.objects.select_for_update().get(pk=diagram.pk)
-
-    if locked_diagram.artifact_id is not None:
-        # Another caller created it while we were waiting for the lock.
-        diagram.artifact_id = locked_diagram.artifact_id
-        return locked_diagram.artifact_id
-
-    if locked_diagram.workspace_id is None:
-        raise TraceLinkError(
-            f"Diagram {locked_diagram.id} has no workspace_id; a Diagram "
-            "must be assigned to a workspace before it can back a TraceLink."
+    try:
+        return ensure_artifact(
+            diagram, artifact_type="Diagram", workspace_id=diagram.workspace_id
         )
-
-    artifact = Artifact.objects.create(
-        artifact_type="Diagram",
-        tenant=locked_diagram.tenant,
-        workspace_id=locked_diagram.workspace_id,
-    )
-    locked_diagram.artifact = artifact
-    locked_diagram.save(update_fields=["artifact", "modified_at"])
-    diagram.artifact = artifact
-    return artifact.id
+    except ArtifactBackingError as exc:
+        # Preserve the historical exception type for this call path.
+        raise TraceLinkError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
