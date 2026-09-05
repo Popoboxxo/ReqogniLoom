@@ -365,25 +365,44 @@ class RequirementBundleQueryService(ServiceBase):
 
         from persistence.models import Requirement
 
-        # "id" and "artifact_id" are always fetched (needed to build
-        # requirement_id / the found_under_by_req lookup) regardless of
-        # filter_mode, then stripped from the output fields dict below
-        # unless the caller actually selected them.
-        query_fields = tuple(set(selected_fields) | {"id", "artifact_id"})
-        req_rows = Requirement.unscoped.filter(
-            artifact_id__in=req_artifact_ids, tenant_id=ctx.tenant_id
-        ).values(*query_fields)
+        # Task 12: `status` is dropped from Requirement -- it can no longer
+        # be a `.values()` column. Query every *other* selected field as
+        # before, and resolve `status` separately through the workflow
+        # engine seam (batched) when the caller actually selected it.
+        wants_status = "status" in selected_fields
+        query_fields = tuple((set(selected_fields) - {"status"}) | {"id", "artifact_id"})
+        req_rows = list(
+            Requirement.unscoped.filter(
+                artifact_id__in=req_artifact_ids, tenant_id=ctx.tenant_id
+            ).values(*query_fields)
+        )
+
+        status_by_id: Dict[Any, str] = {}
+        if wants_status and req_rows:
+            from workflow import state_reader
+
+            states = state_reader.current_states(
+                "Requirement", (row["id"] for row in req_rows), tenant_id=ctx.tenant_id
+            )
+            requirement_initial_state = state_reader.initial_state("Requirement")
+            status_by_id = {
+                row["id"]: states.get(str(row["id"])) or requirement_initial_state
+                for row in req_rows
+            }
 
         items: List[BundleItem] = []
         for row in req_rows:
             artifact_id = row.pop("artifact_id")
             found_under_artifact_id, found_depth = found_under_by_req[artifact_id]
+            item_fields = {k: v for k, v in row.items() if k in selected_fields}
+            if wants_status:
+                item_fields["status"] = status_by_id[row["id"]]
             items.append(
                 BundleItem(
                     requirement_id=row["id"],
                     found_under_element_id=found_under_artifact_id,
                     depth=found_depth,
-                    fields={k: v for k, v in row.items() if k in selected_fields},
+                    fields=item_fields,
                 )
             )
 

@@ -115,7 +115,7 @@ def _test_case_to_dict(
         "id": str(tc.id),
         "title": tc.title,
         "description": tc.description,
-        "status": resolve_engine_status("TestCase", tc.id, tc.status, status_map=status_map),
+        "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),
         "version": tc.version,
         "steps": tc.steps if hasattr(tc, "steps") else [],
     }

@@ -549,16 +549,14 @@ class TestStatusMirror:
             tenant_id=self._tenant_id,
             artifact=artifact,
             title="Mirror req",
-            status="draft",
         )
 
     def test_transition_updates_workflow_item_state_only(self):
-        """A transition writes ``current_state`` but leaves the (now
-        write-once, frozen-at-creation) ``Requirement.status`` column alone —
-        the write-side mirror was deleted in Datenmodell-Konsolidierung
-        Phase 1; read the state through ``workflow.state_reader`` instead."""
-        from persistence.models import Requirement
-
+        """A transition writes ``current_state``. The (now-dropped,
+        Task 12) ``Requirement.status`` column used to stay frozen at
+        creation-time -- the write-side mirror was deleted in
+        Datenmodell-Konsolidierung Phase 1, and the column itself is gone;
+        read the state through ``workflow.state_reader`` instead."""
         ws = _ws()
         requirement = self._make_requirement(ws)
         def_record = _make_def_record(self._tenant_id, ws)
@@ -584,8 +582,8 @@ class TestStatusMirror:
 
         updated_state = WorkflowItemState.unscoped.get(pk=item_state.pk)
         assert updated_state.current_state == "in_review"
-        frozen = Requirement.unscoped.get(pk=requirement.id)
-        assert frozen.status == "draft"
+        # Task 12: Requirement.status is dropped -- there is no column left
+        # to assert stays frozen; WorkflowItemState above is the only check.
 
     def test_transition_for_any_item_type_does_not_error(self):
         """A transition no longer looks up any mirror map at all — every

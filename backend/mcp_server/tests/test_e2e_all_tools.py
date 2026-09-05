@@ -242,13 +242,15 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
             tenant=workspace.tenant,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- a fresh Requirement's engine
+        # state already starts at "draft" (every rigor preset's states[0]),
+        # no explicit seeding needed.
         return Requirement.unscoped.create(
             tenant=workspace.tenant,
             artifact=artifact,
             title=title,
             description="seeded for E2E test",
             category="functional",
-            status="draft",
         )
     finally:
         clear_request_tenant()
@@ -2519,13 +2521,13 @@ def test_e2e_requirement_get_member_role_can_read(
             tenant=e2e_workspace.tenant,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- see _seed_requirement's comment.
         req = Requirement.unscoped.create(
             tenant=e2e_workspace.tenant,
             artifact=artifact,
             title="Member-readable",
             description="",
             category="",
-            status="draft",
         )
     finally:
         clear_request_tenant()

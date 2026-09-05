@@ -35,7 +35,6 @@ def test_req_status_map_reflects_the_engine_state_not_the_stale_column():
             artifact=artifact,
             workspace=workspace,
             title="Rendered in the PDF",
-            status="draft",
         )
 
         create_default_workflow(
@@ -54,7 +53,8 @@ def test_req_status_map_reflects_the_engine_state_not_the_stale_column():
             transitioned_by="test",
             validation_result=ValidationResult(valid=True),
         )
-        assert Requirement.objects.get(id=req.id).status == "draft"  # column frozen
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
         data = _fetch_workspace_data(workspace.id, ctx=None)
     finally:
@@ -80,7 +80,6 @@ def test_req_status_map_falls_back_to_the_column_for_an_untracked_requirement():
             artifact=artifact,
             workspace=workspace,
             title="No workflow definition",
-            status="approved",
         )
 
         data = _fetch_workspace_data(workspace.id, ctx=None)
@@ -88,5 +87,7 @@ def test_req_status_map_falls_back_to_the_column_for_an_untracked_requirement():
         TenantContext.clear_tenant()
 
     assert data["req_status_map"].get(str(req.id)) is None
-    # _build_requirement_document falls back to req.status when the map has
-    # no entry — verified directly here since the map itself is the seam.
+    # Task 12: the `status` column is dropped -- _build_requirement_document
+    # falls back to the "draft" preset initial state when the map has no
+    # entry (documented, reviewed data-loss tradeoff, see the Task 12 report
+    # Finding 2), verified directly here since the map itself is the seam.

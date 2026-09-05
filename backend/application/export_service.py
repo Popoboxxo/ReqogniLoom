@@ -593,22 +593,29 @@ class ExportService(ServiceBase):
         # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
         # by the workflow engine, so a row with "status" in its spec must
         # have it resolved through workflow.state_reader (batched — one
-        # query per entity type, not per row) instead of the (now
-        # write-once, frozen-at-creation) column, or every export would
-        # report every entity as permanently "draft"/whatever it was at
-        # creation, and re-importing that export would write the wrong
-        # value back (the module docstring's promised lossless round-trip).
+        # query per entity type, not per row), or every export would report
+        # every entity as permanently "draft"/whatever it was at creation,
+        # and re-importing that export would write the wrong value back (the
+        # module docstring's promised lossless round-trip). Task 12: the
+        # ``status`` column is dropped, so a row with no WorkflowItemState
+        # falls back to *entity_type*'s preset initial state instead of the
+        # column's own value (documented, reviewed data-loss tradeoff, see
+        # the Task 12 report Finding 2).
         status_map: Dict[str, str] = {}
+        status_fallback: Optional[str] = None
         if rows and any(col == "status" for col, _kind in spec):
             from workflow import state_reader
 
             status_map = state_reader.current_states(
                 entity_type, (obj.id for obj in rows)
             )
+            status_fallback = state_reader.initial_state(entity_type)
 
         return [
             ExportService._serialize_row(
-                obj, spec, resolved_status=status_map.get(str(obj.id))
+                obj,
+                spec,
+                resolved_status=status_map.get(str(obj.id), status_fallback),
             )
             for obj in rows
         ]
@@ -619,9 +626,10 @@ class ExportService(ServiceBase):
     ) -> Dict[str, Any]:
         """Serialise a single ORM *obj* into a row dict per *spec*.
 
-        *resolved_status*, when given, overrides the ``status`` column with
-        the engine-resolved current state (falls back to the column's own
-        value when the engine has no ``WorkflowItemState`` row for *obj*).
+        *resolved_status*, when given, overrides the (now-dropped) ``status``
+        column with the engine-resolved current state, or the entity type's
+        preset initial state when the engine has no ``WorkflowItemState`` row
+        for *obj* (Task 12).
         """
         row = {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
         if resolved_status is not None and "status" in row:

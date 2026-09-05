@@ -122,26 +122,29 @@ def _fetch_requirement_levels(context: AuditContext) -> Dict[str, Optional[int]]
     """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements.
 
     Datenmodell-Konsolidierung Phase 1: "non-deleted" is resolved through
-    ``WorkflowItemState`` (batched), falling back to the (now write-once,
-    frozen-at-creation) ``status`` column only for a Requirement that was
-    never wired into one — Requirement has no backfill-migration guarantee
-    (unlike ArchitectureElement, which never had a ``status`` column to begin
-    with, so :func:`_fetch_architecture_elements` above needs no fallback).
+    ``WorkflowItemState`` (batched) — Requirement has no backfill-migration
+    guarantee (unlike ArchitectureElement, which never had a ``status``
+    column to begin with, so :func:`_fetch_architecture_elements` above needs
+    no fallback). Task 12: the ``status`` column is dropped, so a Requirement
+    never wired into one falls back to the "draft" preset initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2).
     """
     from persistence.models import Requirement
 
     rows = list(
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-        ).values("id", "artifact_id", "level", "status")
+        ).values("id", "artifact_id", "level")
     )
     states = state_reader.current_states(
         "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
+    requirement_initial_state = state_reader.initial_state("Requirement")
     return {
         str(row["artifact_id"]): row["level"]
         for row in rows
-        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
 
 

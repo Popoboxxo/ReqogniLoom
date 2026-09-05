@@ -185,13 +185,12 @@ class AdrAdmin(admin.ModelAdmin):
 
     list_display = (
         "title",
-        "status",
         "version",
         "workspace_id",
         "tenant_id",
         "updated_at",
     )
-    list_filter = ("status", "workspace_id", "tenant_id")
+    list_filter = ("workspace_id", "tenant_id")
     search_fields = ("title", "description", "context", "consequences")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at")
@@ -206,11 +205,10 @@ class RiskAdmin(admin.ModelAdmin):
         "category",
         "severity",
         "risk_score",
-        "status",
         "workspace_id",
         "updated_at",
     )
-    list_filter = ("category", "severity", "status", "workspace_id")
+    list_filter = ("category", "severity", "workspace_id")
     search_fields = ("title", "description", "mitigation_strategy", "owner")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at", "risk_score", "severity")
@@ -224,13 +222,12 @@ class IssueAdmin(admin.ModelAdmin):
         "title",
         "severity",
         "category",
-        "status",
         "assignee_id",
         "due_date",
         "workspace_id",
         "updated_at",
     )
-    list_filter = ("severity", "category", "status", "workspace_id")
+    list_filter = ("severity", "category", "workspace_id")
     search_fields = ("title", "description")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at")

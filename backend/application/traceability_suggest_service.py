@@ -396,11 +396,13 @@ class TraceabilitySuggestService(ServiceBase):
 
             *item_type* given: *qs* is not yet outdated-filtered — resolved
             through WorkflowItemState (batched, Datenmodell-Konsolidierung
-            Phase 1), falling back to the (now write-once,
-            frozen-at-creation) status column only for a row never wired
-            into one. *item_type* ``None``: *qs* is already fully filtered
-            (e.g. ArchitectureElement's ``outdated_item_ids`` exclude, which
-            has no status column to fall back to), so rows are added as-is.
+            Phase 1). Task 12: the ``status`` column is dropped, so a row
+            never wired into one falls back to *item_type*'s preset initial
+            state instead (documented, reviewed data-loss tradeoff, see Task
+            12 report Finding 2). *item_type* ``None``: *qs* is already fully
+            filtered (e.g. ArchitectureElement's ``outdated_item_ids``
+            exclude, which has no status column to fall back to), so rows are
+            added as-is.
             """
             if item_type is None:
                 for artifact_id, title, description in qs.values_list(
@@ -413,7 +415,7 @@ class TraceabilitySuggestService(ServiceBase):
                 return
 
             rows = list(
-                qs.values_list("id", "artifact_id", "title", "description", "status")
+                qs.values_list("id", "artifact_id", "title", "description")
             )
             # This service, like the SE-Auditor rules, is called outside a
             # request-scoped TenantContext in some paths -- the explicit
@@ -421,8 +423,9 @@ class TraceabilitySuggestService(ServiceBase):
             states = state_reader.current_states(
                 item_type, (row[0] for row in rows), tenant_id=tenant_id
             )
-            for row_id, artifact_id, title, description, status in rows:
-                if (states.get(str(row_id)) or status) == "outdated":
+            item_type_initial_state = state_reader.initial_state(item_type)
+            for row_id, artifact_id, title, description in rows:
+                if (states.get(str(row_id)) or item_type_initial_state) == "outdated":
                     continue
                 aid = str(artifact_id)
                 if aid == source_id:

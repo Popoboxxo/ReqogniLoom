@@ -29,13 +29,18 @@ class TestWorkflowStateSerializerMixin:
         ):
             assert _RowSerializer(row).data["status"] == "approved"
 
-    def test_missing_state_is_empty_string(self):
+    def test_missing_state_falls_back_to_initial_state(self):
+        """Task 12: the ``status`` column is dropped -- an untracked item can
+        no longer report a legacy column value, so it reports its preset's
+        initial state instead ("draft" for Requirement) rather than
+        regressing to "" (documented, reviewed data-loss tradeoff, see the
+        Task 12 report Finding 2)."""
         row = _Row(uuid.uuid4(), "R1")
         with patch(
             "rest_api.mixins.workflow_state.state_reader.current_states",
             return_value={},
         ):
-            assert _RowSerializer(row).data["status"] == ""
+            assert _RowSerializer(row).data["status"] == "draft"
 
     def test_list_resolves_all_in_one_lookup(self):
         rows = [_Row(uuid.uuid4(), "R1"), _Row(uuid.uuid4(), "R2")]
@@ -83,25 +88,32 @@ class TestWorkflowStateSerializerMixin:
         assert [entry["status"] for entry in data] == ["draft", "approved"]
         assert spy.call_count == 1
 
-    def test_untracked_object_falls_back_to_its_own_status_column(self):
-        """Phase 0 (D-1): items the engine doesn't track (Goal/MainGoal — no
-        state backfill at all — or any item created in a definition-less
-        workspace) must keep reporting their real, still-present `status`
-        column value, not silently regress to "" ."""
+    def test_untracked_object_falls_back_to_the_initial_state_not_its_own_attribute(self):
+        """Task 12: the ``status`` column is dropped, so items the engine
+        doesn't track (Goal/MainGoal — no state backfill at all — or any item
+        created in a definition-less workspace) can no longer report their
+        real, now-gone `status` column value. They report the preset's
+        initial state instead — proven here by giving the row a `.status`
+        attribute that does NOT match "draft" (the real initial state) and
+        asserting the mixin ignores it entirely."""
         row = _Row(uuid.uuid4(), "R1", status="Entwurf")
         with patch(
             "rest_api.mixins.workflow_state.state_reader.current_states",
             return_value={},
         ):
-            assert _RowSerializer(row).data["status"] == "Entwurf"
+            assert _RowSerializer(row).data["status"] == "draft"
 
-    def test_untracked_dict_falls_back_to_its_own_status_key(self):
+    def test_untracked_dict_falls_back_to_the_initial_state_not_its_own_key(self):
+        """Same as above, dict-shaped row — the dict's own ``"status"`` key is
+        no longer read at all."""
         item_id = str(uuid.uuid4())
         with patch(
             "rest_api.mixins.workflow_state.state_reader.current_states",
             return_value={},
         ):
-            data = _RowSerializer({"id": item_id, "title": "R1", "status": "draft"}).data
+            data = _RowSerializer(
+                {"id": item_id, "title": "R1", "status": "Entwurf"}
+            ).data
         assert data["status"] == "draft"
 
     def test_missing_item_type_raises(self):

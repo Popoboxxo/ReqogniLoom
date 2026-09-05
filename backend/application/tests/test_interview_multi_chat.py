@@ -101,7 +101,38 @@ def _multi_session(tenant: Tenant, ws: Workspace) -> InterviewSession:
             workspace=ws,
             artifact_type=None,
             session_kind=InterviewSession.SESSION_KIND_MULTI,
-            status=InterviewSession.STATUS_IN_PROGRESS,
+        )
+
+
+def _seed_state(tenant: Tenant, ws: Workspace, session: InterviewSession, state: str) -> None:
+    """Register *session* as engine-tracked at *state*.
+
+    Task 12: the `status` column is dropped, so a session's state can only be
+    represented by a real WorkflowItemState row now -- there is no column
+    left to set directly.
+    """
+    from workflow.models import WorkflowEngineDefinition, WorkflowItemState
+
+    with _active(tenant):
+        definition, _ = WorkflowEngineDefinition.objects.get_or_create(
+            tenant=tenant,
+            workspace_id=ws.id,
+            item_type="Interview",
+            defaults={
+                "preset": WorkflowEngineDefinition.PRESET_STANDARD,
+                "workflow_json": {
+                    "states": ["in_progress", "completed", "abandoned"],
+                    "transitions": [],
+                },
+            },
+        )
+        WorkflowItemState.objects.create(
+            tenant=tenant,
+            item_id=session.id,
+            item_type="Interview",
+            workspace_id=ws.id,
+            definition=definition,
+            current_state=state,
         )
 
 
@@ -169,8 +200,8 @@ class TestMultiChatGuards:
                 workspace=workspace,
                 artifact_type=None,
                 session_kind=InterviewSession.SESSION_KIND_MULTI,
-                status=InterviewSession.STATUS_COMPLETED,
             )
+        _seed_state(tenant, workspace, session, InterviewSession.STATUS_COMPLETED)
         provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
         monkeypatch.setattr(
             InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
@@ -194,8 +225,8 @@ class TestMultiChatGuards:
                 workspace=workspace,
                 artifact_type=None,
                 session_kind=InterviewSession.SESSION_KIND_MULTI,
-                status=InterviewSession.STATUS_ABANDONED,
             )
+        _seed_state(tenant, workspace, session, InterviewSession.STATUS_ABANDONED)
         provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
         monkeypatch.setattr(
             InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
@@ -356,7 +387,6 @@ class TestMultiChatTurn:
                 workspace=workspace,
                 artifact_type=None,
                 session_kind=InterviewSession.SESSION_KIND_MULTI,
-                status=InterviewSession.STATUS_IN_PROGRESS,
                 grounding_snapshot={"pending_proposal": proposal},
             )
 

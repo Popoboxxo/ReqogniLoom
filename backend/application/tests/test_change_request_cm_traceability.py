@@ -355,7 +355,15 @@ class TestNoSilentWorkflowBypass:
             )
 
         cr.refresh_from_db()
-        assert cr.status == "draft"
+        # Task 12: the `status` column is dropped -- resolve through the
+        # engine seam (falls back to the ccb_approval initial state, since
+        # no definition exists to create a WorkflowItemState against).
+        from workflow import state_reader
+
+        resolved = state_reader.current_state(
+            "ChangeRequest", cr.id
+        ) or state_reader.initial_state("ChangeRequest")
+        assert resolved == "draft"
         assert cr.version == 1
 
 

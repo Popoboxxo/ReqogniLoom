@@ -46,12 +46,14 @@ def _seed_multi_session_with_provenance(
     Artifact -- the exact row shape ``_formalize_multi`` writes."""
     set_request_tenant(tenant.id)
     try:
+        # Task 12: InterviewSession.status column dropped -- this endpoint
+        # only resolves provenance (session_id), not status, so no engine
+        # state seeding is needed here.
         session = InterviewSession.objects.create(
             tenant=tenant,
             workspace=workspace,
             artifact_type=None,
             session_kind=InterviewSession.SESSION_KIND_MULTI,
-            status=InterviewSession.STATUS_IN_PROGRESS,
         )
         artifact = Artifact.objects.create(
             tenant=tenant, workspace=workspace, artifact_type="Requirement"

@@ -353,17 +353,33 @@ class TestGetCoverageData:
         """``include_outdated=False`` (default) excludes outdated Requirements
         from ``entries``; ``include_outdated=True`` includes them again.
 
-        Requirement.status is a denormalized WorkflowEngine lifecycle mirror
-        (same pattern as ``_entity_counts``/``_entity_lists`` in
-        ``mcp_server/tools/cross_cutting.py``) — setting it directly here
-        avoids pulling in the full workflow-transition machinery for this
-        test.
+        Task 12: the `status` column is dropped -- "outdated" can now only
+        be represented by a real WorkflowItemState row, seeded directly here
+        (via workflow.services.outdate, the same real path
+        RequirementService.delete_requirement uses) to avoid pulling in the
+        full workflow-transition machinery for this test.
         """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-coverage-calculator"
+
         with active_tenant(tenant_a):
             _, kept_req = make_requirement(tenant_a, workspace_a, "Kept")
             _, outdated_req = make_requirement(tenant_a, workspace_a, "Outdated")
-            outdated_req.status = "outdated"
-            outdated_req.save(update_fields=["status"])
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_req.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
 
             data_default = calc.get_coverage_data(workspace_a.id)
             data_incl = calc.get_coverage_data(workspace_a.id, include_outdated=True)
@@ -383,15 +399,35 @@ class TestGetCoverageData:
     ):
         """A verifying TestCase that is outdated must not appear in
         ``entry.test_cases`` unless ``include_outdated=True`` is passed.
+
+        Task 12: the `status` column is dropped -- "outdated" can now only
+        be represented by a real WorkflowItemState row (via
+        workflow.services.outdate).
         """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-coverage-calculator"
+
         with active_tenant(tenant_a):
             art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
             active_tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-Active")
             outdated_tc_art, outdated_tc = make_test_case(
                 tenant_a, workspace_a, "TC-Outdated"
             )
-            outdated_tc.status = "outdated"
-            outdated_tc.save(update_fields=["status"])
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="testcase_default",
+                item_type="TestCase",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_tc.id,
+                item_type="TestCase",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
 
             make_trace_link(active_tc_art, art_req, tenant_a, "verifies")
             make_trace_link(outdated_tc_art, art_req, tenant_a, "verifies")

@@ -21,7 +21,6 @@ class TestInterviewSessionMultiMode:
             session = InterviewSession.objects.create(
                 workspace=workspace,
                 artifact_type="Requirement",
-                status="in_progress",
             )
             assert session.session_kind == "single"
 
@@ -31,7 +30,6 @@ class TestInterviewSessionMultiMode:
                 workspace=workspace,
                 artifact_type=None,
                 session_kind="multi",
-                status="in_progress",
             )
             assert session.artifact_type is None
             assert session.session_kind == "multi"
@@ -44,7 +42,6 @@ class TestInterviewSessionMultiMode:
                 workspace=workspace,
                 artifact_type=None,
                 session_kind="multi",
-                status="completed",
             )
             artifact = Artifact.objects.create(
                 workspace=workspace, artifact_type="Requirement"

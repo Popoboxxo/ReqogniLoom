@@ -52,7 +52,7 @@ def _make_requirement(tenant, workspace, title: str) -> Requirement:
         tenant=tenant, workspace=workspace, artifact_type="Requirement"
     )
     return Requirement.objects.create(
-        tenant=tenant, artifact=art, workspace=workspace, title=title, status="draft"
+        tenant=tenant, artifact=art, workspace=workspace, title=title
     )
 
 

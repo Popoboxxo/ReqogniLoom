@@ -98,7 +98,7 @@ def reject_unknown_params(
 def resolve_engine_status(
     item_type: str,
     item_id: Any,
-    fallback: str,
+    fallback: Optional[str] = None,
     *,
     status_map: Optional[Dict[str, str]] = None,
 ) -> str:
@@ -116,16 +116,22 @@ def resolve_engine_status(
     batching. Omit it to resolve a single item inline via
     ``workflow.state_reader.current_state``.
 
-    Falls back to *fallback* -- the entity's own still-present ``status``
-    column -- when the engine has no ``WorkflowItemState`` row for the item
-    (e.g. Goal/MainGoal, which have no state backfill, or any item created
-    in a definition-less workspace), so an untracked item never silently
-    regresses to an empty string. Also falls back when no ``TenantContext``
-    is active: production dispatch (``ToolRegistry.dispatch_request``)
-    always activates it before a handler runs, so this only matters for
-    tests that call ``execute_tool`` directly against a mocked service with
-    no live tenant/DB -- the same case the column read handled before this
-    seam existed.
+    Falls back to *fallback* when given (mainly for tests exercising the
+    fallback path with a literal), else to *item_type*'s preset initial state
+    (``workflow.state_reader.initial_state``) when the engine has no
+    ``WorkflowItemState`` row for the item (e.g. Goal/MainGoal, which have no
+    state backfill, or any item created in a definition-less workspace), so
+    an untracked item never silently regresses to an empty string. Also
+    falls back when no ``TenantContext`` is active: production dispatch
+    (``ToolRegistry.dispatch_request``) always activates it before a handler
+    runs, so this only matters for tests that call ``execute_tool`` directly
+    against a mocked service with no live tenant/DB.
+
+    Datenmodell-Konsolidierung Task 12: the entity's own ``status`` column is
+    dropped, so production callers no longer have a column value to pass as
+    *fallback* -- they call this with *fallback* omitted and rely on the
+    preset-initial-state default (documented, reviewed data-loss tradeoff,
+    see Task 12 report Finding 2).
     """
     if status_map is not None:
         engine_state = status_map.get(str(item_id))
@@ -134,7 +140,9 @@ def resolve_engine_status(
             engine_state = state_reader.current_state(item_type, item_id)
         except TenantContextNotSetError:
             engine_state = None
-    return engine_state if engine_state is not None else (fallback or "")
+    if engine_state is not None:
+        return engine_state
+    return fallback or state_reader.initial_state(item_type)
 
 
 def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str]:

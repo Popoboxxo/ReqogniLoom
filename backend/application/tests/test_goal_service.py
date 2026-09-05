@@ -51,7 +51,6 @@ class GoalModelTests(TestCase):
             sequence_number=1,
             title="Reduce onboarding time",
             description="Cut onboarding from 5 days to 2 days.",
-            status="Entwurf",
         )
         self.assertEqual(goal.artifact_id, artifact.id)
         self.assertEqual(goal.lineage_id, lineage_id)
@@ -83,7 +82,6 @@ class MainGoalModelTests(TestCase):
             content="Become the market leader in onboarding speed within 12 months.",
             source="ai",
             generated_from_goal_ids=[],
-            status="Entwurf",
         )
         self.assertEqual(main_goal.artifact_id, artifact.id)
         self.assertEqual(main_goal.source, "ai")
@@ -370,7 +368,14 @@ class GoalServiceTransitionTests(TestCase):
                 change_reason="Trying without approver role.",
             )
 
-        self.assertEqual(Goal.objects.get(id=created["id"]).status, "Entwurf")
+        # Task 12: the `status` column is dropped -- resolve through the
+        # engine seam instead of a raw attribute read.
+        from workflow import state_reader
+
+        resolved = state_reader.current_state(
+            "Goal", uuid.UUID(created["id"])
+        ) or state_reader.initial_state("Goal")
+        self.assertEqual(resolved, "Entwurf")
 
     def test_transition_status_archives_goal_directly_from_entwurf(self):
         """Basis for goal.delete (issue #216): a Draft goal must be archivable

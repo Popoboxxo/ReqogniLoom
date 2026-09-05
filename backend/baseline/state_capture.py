@@ -40,10 +40,15 @@ Tenant isolation:
   ``capture_states`` without an active tenant context would not get an error:
   the Requirement/StakeholderNeed/TestCase/Adr/Risk/Issue/Goal/MainGoal rows
   would still be captured (those reads stay ``unscoped``), only their engine
-  status would silently come back empty and every one of them would fall back
-  to the column value instead. Once Phase 1 drops that column, such a caller
-  would freeze every captured status at whatever stale value the column held
-  at drop time, permanently, with no error raised.
+  status would silently come back empty.
+
+  Task 12 dropped the ``status`` column this fallback used to read. A row
+  with no engine status now (both the "no active TenantContext" case above
+  and the genuine "no WorkflowItemState row at all" case, e.g. a
+  definition-less workspace) is captured at its type's fixed-preset initial
+  state (``state_reader.initial_state``) instead of a frozen legacy value.
+  This is an explicit, reviewed data-loss tradeoff, not a bug — see the Task
+  12 report, Finding 2.
 """
 from __future__ import annotations
 
@@ -153,6 +158,7 @@ def _capture_items(
         Requirement.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
     )
     req_states = _engine_status("Requirement", [r.id for r in requirements])
+    req_initial_state = state_reader.initial_state("Requirement")
     for req in requirements:
         states[str(req.artifact_id)] = {
             "artifact_type": "requirement",
@@ -161,7 +167,7 @@ def _capture_items(
             "description": req.description,
             "acceptance_criteria": req.acceptance_criteria,
             "category": req.category,
-            "status": req_states.get(str(req.id)) or req.status,
+            "status": req_states.get(str(req.id)) or req_initial_state,
             "type": req.type,
             "level": req.level,
             "complexity_fibonacci": req.complexity_fibonacci,
@@ -196,6 +202,7 @@ def _capture_items(
     sn_states = _engine_status(
         "StakeholderNeed", [sn.id for sn in stakeholder_needs]
     )
+    sn_initial_state = state_reader.initial_state("StakeholderNeed")
     for sn in stakeholder_needs:
         states[str(sn.artifact_id)] = {
             "artifact_type": "stakeholder_need",
@@ -203,7 +210,7 @@ def _capture_items(
             "title": sn.title,
             "description": sn.description,
             "category": sn.category,
-            "status": sn_states.get(str(sn.id)) or sn.status,
+            "status": sn_states.get(str(sn.id)) or sn_initial_state,
             "moscow_priority": sn.moscow_priority,
             "suspect": sn.suspect,
             "lifecycle_status": sn.lifecycle_status,
@@ -215,6 +222,7 @@ def _capture_items(
         TestCase.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
     )
     tc_states = _engine_status("TestCase", [tc.id for tc in test_cases])
+    tc_initial_state = state_reader.initial_state("TestCase")
     for tc in test_cases:
         states[str(tc.artifact_id)] = {
             "artifact_type": "test_case",
@@ -223,7 +231,7 @@ def _capture_items(
             "description": tc.description,
             "steps": tc.steps,
             "test_type": tc.test_type,
-            "status": tc_states.get(str(tc.id)) or tc.status,
+            "status": tc_states.get(str(tc.id)) or tc_initial_state,
             "suspect": tc.suspect,
             "version": tc.version,
         }
@@ -295,6 +303,7 @@ def _capture_application_entities(
 
     adrs = list(Adr.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     adr_states = _engine_status("Adr", [adr.id for adr in adrs])
+    adr_initial_state = state_reader.initial_state("Adr")
     for adr in adrs:
         states[str(adr.artifact_id)] = {
             "artifact_type": _raw_type(adr.artifact_id, "Adr"),
@@ -304,12 +313,13 @@ def _capture_application_entities(
             "context": adr.context,
             "decision": adr.decision,
             "consequences": adr.consequences,
-            "status": adr_states.get(str(adr.id)) or adr.status,
+            "status": adr_states.get(str(adr.id)) or adr_initial_state,
             "version": adr.version,
         }
 
     risks = list(Risk.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     risk_states = _engine_status("Risk", [risk.id for risk in risks])
+    risk_initial_state = state_reader.initial_state("Risk")
     for risk in risks:
         states[str(risk.artifact_id)] = {
             "artifact_type": _raw_type(risk.artifact_id, "Risk"),
@@ -325,12 +335,13 @@ def _capture_application_entities(
             "owner": risk.owner,
             "owner_user_id": str(risk.owner_user_id) if risk.owner_user_id else None,
             "mitigation_strategy": risk.mitigation_strategy,
-            "status": risk_states.get(str(risk.id)) or risk.status,
+            "status": risk_states.get(str(risk.id)) or risk_initial_state,
             "version": risk.version,
         }
 
     issues = list(Issue.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     issue_states = _engine_status("Issue", [issue.id for issue in issues])
+    issue_initial_state = state_reader.initial_state("Issue")
     for issue in issues:
         states[str(issue.artifact_id)] = {
             "artifact_type": _raw_type(issue.artifact_id, "Issue"),
@@ -342,12 +353,13 @@ def _capture_application_entities(
             "assignee_id": str(issue.assignee_id) if issue.assignee_id else None,
             "due_date": issue.due_date.isoformat() if issue.due_date else None,
             "tags": issue.tags,
-            "status": issue_states.get(str(issue.id)) or issue.status,
+            "status": issue_states.get(str(issue.id)) or issue_initial_state,
             "version": issue.version,
         }
 
     goals = list(Goal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id))
     goal_states = _engine_status("Goal", [goal.id for goal in goals])
+    goal_initial_state = state_reader.initial_state("Goal")
     for goal in goals:
         states[str(goal.artifact_id)] = {
             "artifact_type": _raw_type(goal.artifact_id, "Goal"),
@@ -355,7 +367,7 @@ def _capture_application_entities(
             "sequence_number": goal.sequence_number,
             "title": goal.title,
             "description": goal.description,
-            "status": goal_states.get(str(goal.id)) or goal.status,
+            "status": goal_states.get(str(goal.id)) or goal_initial_state,
             "version": goal.version,
         }
 
@@ -363,6 +375,7 @@ def _capture_application_entities(
         MainGoal.objects.filter(artifact_id__in=uuids, tenant_id=tenant_id)
     )
     mg_states = _engine_status("MainGoal", [mg.id for mg in main_goals])
+    mg_initial_state = state_reader.initial_state("MainGoal")
     for mg in main_goals:
         states[str(mg.artifact_id)] = {
             "artifact_type": _raw_type(mg.artifact_id, "MainGoal"),
@@ -370,7 +383,7 @@ def _capture_application_entities(
             "content": mg.content,
             "source": mg.source,
             "generated_from_goal_ids": mg.generated_from_goal_ids,
-            "status": mg_states.get(str(mg.id)) or mg.status,
+            "status": mg_states.get(str(mg.id)) or mg_initial_state,
             "version": mg.version,
         }
 
@@ -556,12 +569,13 @@ def _engine_status(item_type: str, entity_ids: list) -> dict[str, str]:
 
     Datenmodell-Konsolidierung Phase 1: baselines used to snapshot the
     denormalized ``status`` column directly. ``WorkflowItemState`` is now the
-    source of truth for a captured item's status; callers fall back to the
-    still-present column for items the engine does not track (e.g. no
-    ``WorkflowItemState`` row yet, or a definition-less workspace) — mirroring
-    ``rest_api.mixins.workflow_state`` and every Phase-1 service migration
-    (D-1: same value vocabulary, only the source changes). One query per
-    entity type keeps capture O(types), not O(rows).
+    source of truth for a captured item's status; callers fall back to
+    ``state_reader.initial_state`` (Task 12: the column is dropped) for items
+    the engine does not track (e.g. no ``WorkflowItemState`` row yet, or a
+    definition-less workspace) — mirroring ``rest_api.mixins.workflow_state``
+    and every Phase-1 service migration (D-1: same value vocabulary, only the
+    source changes). One query per entity type keeps capture O(types), not
+    O(rows).
     """
     return state_reader.current_states(item_type, entity_ids)
 

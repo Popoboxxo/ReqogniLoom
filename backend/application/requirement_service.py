@@ -123,12 +123,14 @@ class RequirementDTO:
     def from_orm(cls, req: Requirement) -> "RequirementDTO":
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
 
-        Falls back to the still-present ``status`` column when the engine has
-        no ``WorkflowItemState`` row for it -- Requirement can live in a
+        Task 12: the ``status`` column is dropped. Falls back to the
+        "draft" preset initial state when the engine has no
+        ``WorkflowItemState`` row for it -- Requirement can live in a
         definition-less workspace (no WorkflowEngineDefinition at all), so
         this is a real, not just theoretical, case -- or when no tenant
         context is active (e.g. a caller building the DTO outside a
-        request-scoped service call).
+        request-scoped service call). Documented, reviewed data-loss
+        tradeoff (see Task 12 report Finding 2).
         """
         try:
             engine_status = state_reader.current_state("Requirement", req.id)
@@ -140,7 +142,7 @@ class RequirementDTO:
             title=req.title,
             description=req.description,
             category=req.category,
-            status=engine_status or req.status,
+            status=engine_status or state_reader.initial_state("Requirement"),
             version=req.version,
         )
 
@@ -282,7 +284,6 @@ class RequirementService(ServiceBase):
             description=description,
             acceptance_criteria=acceptance_criteria,
             category=category,
-            status="draft",
             type=type,
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
@@ -369,7 +370,6 @@ class RequirementService(ServiceBase):
         description: Optional[str] = None,
         acceptance_criteria: Optional[str] = None,
         category: Optional[str] = None,
-        status: Optional[str] = None,
         change_reason: Optional[str] = None,
         type: Optional[str] = None,
         complexity_fibonacci: object = _UNSET,
@@ -388,11 +388,14 @@ class RequirementService(ServiceBase):
         complexity_fibonacci, verification_method, level).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
 
-        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror. The REST
-        and MCP boundaries no longer forward it — a client-sent status is
-        ignored there. The parameter is retained on this internal method for
-        low-level/administrative callers only; normal state changes must go
-        through a workflow transition (see docs/architecture/ADR-status-single-source.md).
+        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror; state
+        changes must go through a workflow transition (see
+        docs/architecture/ADR-status-single-source.md), never this method.
+        Task 12: the underlying column is dropped, so this method no longer
+        accepts a `status` parameter at all -- it used to be retained here as
+        a no-op-at-the-REST/MCP-boundary escape hatch for low-level callers,
+        but a dropped column has nothing left for even a low-level caller to
+        write to.
 
         SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
         caller's last-seen ``version``. When supplied and stale, the update is
@@ -438,8 +441,6 @@ class RequirementService(ServiceBase):
             )
         if category is not None:
             requirement.category = category
-        if status is not None:
-            requirement.status = status
         if type is not None:
             requirement.type = type
         if complexity_fibonacci is not _UNSET:
@@ -464,8 +465,10 @@ class RequirementService(ServiceBase):
             requirement.artifact.custom_fields = cleaned_custom_fields
             requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
 
-        # SN-30: If title, description, or status changed, we will propagate suspect
-        changed_critical = any(x is not None for x in [title, description, status])
+        # SN-30: If title or description changed, we will propagate suspect
+        # (Task 12: `status` dropped from this list -- it is no longer a
+        # settable field on this method at all, see the docstring above).
+        changed_critical = any(x is not None for x in [title, description])
 
         if hasattr(requirement, "suspect"):
             if suspect is not None:
@@ -647,19 +650,22 @@ class RequirementService(ServiceBase):
             # Datenmodell-Konsolidierung Phase 1: the mirror column this
             # filter used to read is no longer written by the engine, so an
             # explicit ``?status=`` value is matched through WorkflowItemState
-            # (batched), falling back to the (now write-once, frozen-at-
-            # creation) column only for a row never wired into one -- an
-            # engine-only include filter would otherwise silently drop
-            # definition-less-workspace requirements with no WorkflowItemState
-            # at all (same risk Task 6 flagged for this exact method).
-            rows = list(qs.values("id", "status"))
+            # (batched) -- an engine-only include filter would otherwise
+            # silently drop definition-less-workspace requirements with no
+            # WorkflowItemState at all (same risk Task 6 flagged for this
+            # exact method). Task 12: the ``status`` column is dropped, so a
+            # row with no WorkflowItemState falls back to the "draft" preset
+            # initial state instead (documented, reviewed data-loss
+            # tradeoff, see Task 12 report Finding 2).
+            rows = list(qs.values("id"))
             states = state_reader.current_states(
                 "Requirement", (row["id"] for row in rows)
             )
+            requirement_initial_state = state_reader.initial_state("Requirement")
             matching_ids = [
                 row["id"]
                 for row in rows
-                if (states.get(str(row["id"])) or row["status"]) == status
+                if (states.get(str(row["id"])) or requirement_initial_state) == status
             ]
             qs = qs.filter(id__in=matching_ids)
         if search:
@@ -791,9 +797,13 @@ class RequirementService(ServiceBase):
             ) from exc
 
         # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
-        # by the workflow engine — resolved through state_reader (batched)
-        # instead of the (now write-once, frozen-at-creation) column.
+        # by the workflow engine — resolved through state_reader (batched).
+        # Task 12: the ``status`` column is dropped, so a row with no
+        # WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2).
         states = state_reader.current_states("Requirement", (row.id for row in rows))
+        requirement_initial_state = state_reader.initial_state("Requirement")
 
         return [
             SimilarRequirementDTO(
@@ -801,7 +811,7 @@ class RequirementService(ServiceBase):
                 uid=row.uid,
                 title=row.title,
                 category=row.category,
-                status=states.get(str(row.id)) or row.status,
+                status=states.get(str(row.id)) or requirement_initial_state,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
                 similarity_score=round(1.0 - float(row.distance), 6),
             )

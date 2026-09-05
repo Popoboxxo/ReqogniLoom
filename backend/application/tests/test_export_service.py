@@ -405,7 +405,6 @@ class TestFetchEntitiesResolvesStatusFromEngine:
                 artifact=artifact,
                 workspace=workspace,
                 title="Export me",
-                status="draft",
             )
 
             create_default_workflow(
@@ -424,7 +423,8 @@ class TestFetchEntitiesResolvesStatusFromEngine:
                 transitioned_by="test",
                 validation_result=ValidationResult(valid=True),
             )
-            assert Requirement.objects.get(id=req.id).status == "draft"  # column frozen
+            # Task 12: the `status` column is dropped entirely -- there is no
+            # frozen creation-time column value left to also check.
 
             rows = ExportService._fetch_entities("Requirement", workspace.id, None)
         finally:

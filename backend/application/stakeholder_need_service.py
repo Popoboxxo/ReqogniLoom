@@ -63,13 +63,14 @@ class StakeholderNeedDTO:
         Pass a pre-resolved *status* when building many DTOs in one pass
         (see ``list_by_workspace``) so the engine lookup is batched via
         ``state_reader.current_states`` instead of once per row. When
-        omitted, resolves a single item via ``state_reader.current_state``,
-        falling back to the still-present ``status`` column when the engine
-        has no ``WorkflowItemState`` row for it -- StakeholderNeed can live
-        in a definition-less workspace (no WorkflowEngineDefinition at all),
-        so this is a real, not just theoretical, case -- or when no tenant
-        context is active (e.g. a caller building the DTO outside a
-        request-scoped service call).
+        omitted, resolves a single item via ``state_reader.current_state``.
+        Task 12: the ``status`` column is dropped, so a StakeholderNeed with
+        no ``WorkflowItemState`` row (a real, not just theoretical, case --
+        StakeholderNeed can live in a definition-less workspace with no
+        WorkflowEngineDefinition at all -- or when no tenant context is
+        active) falls back to the "draft" preset initial state instead
+        (documented, reviewed data-loss tradeoff, see Task 12 report
+        Finding 2).
         """
         if status is None:
             try:
@@ -89,7 +90,7 @@ class StakeholderNeedDTO:
             title=need.title,
             description=need.description,
             category=need.category,
-            status=status or need.status,
+            status=status or state_reader.initial_state("StakeholderNeed"),
             moscow_priority=need.moscow_priority,
             uid=need.uid,
             suspect=need.suspect,
@@ -138,13 +139,12 @@ class StakeholderNeedService(ServiceBase):
             created_by_id=ctx.user_id,
             custom_fields=_clean_custom_fields(custom_fields),
         )
-        # Datenmodell-Konsolidierung: the `status` column is no longer read by
-        # any service-layer consumer (WorkflowItemState.current_state is
-        # authoritative, seeded below by initialize_workflow_states() from the
-        # workflow definition's own initial_state -- not from this argument).
-        # `status` is still accepted for backward API compatibility, but it is
-        # deliberately not written here; the model field's own default keeps
-        # the column non-null until it is dropped (Task 12).
+        # Datenmodell-Konsolidierung Task 12: the `status` column was dropped.
+        # WorkflowItemState.current_state is now the sole source of truth,
+        # seeded below by initialize_workflow_states() from the workflow
+        # definition's own initial_state -- never from this argument. The
+        # `status` parameter is kept only for backward API compatibility with
+        # existing callers and is otherwise unused.
         need = StakeholderNeed.objects.create(
             artifact=artifact,
             tenant_id=ctx.tenant_id,
@@ -233,13 +233,18 @@ class StakeholderNeedService(ServiceBase):
         # Batch-resolve status for the whole page in one query instead of one
         # engine lookup per row (N+1 avoidance -- see
         # rest_api/mixins/workflow_state.py's identical batching rationale).
+        # Task 12: the ``status`` column is dropped, so a need with no
+        # WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2).
         needs = list(needs)
         status_map = state_reader.current_states(
             "StakeholderNeed", [n.id for n in needs]
         )
+        need_initial_state = state_reader.initial_state("StakeholderNeed")
         return [
             StakeholderNeedDTO.from_orm(
-                n, status=status_map.get(str(n.id)) or n.status
+                n, status=status_map.get(str(n.id)) or need_initial_state
             )
             for n in needs
         ]
@@ -252,7 +257,6 @@ class StakeholderNeedService(ServiceBase):
         title: str | Any = _UNSET,
         description: str | Any = _UNSET,
         category: str | Any = _UNSET,
-        status: str | Any = _UNSET,
         moscow_priority: str | Any = _UNSET,
         change_reason: str = "",
         custom_fields: Any = _UNSET,
@@ -265,6 +269,11 @@ class StakeholderNeedService(ServiceBase):
         refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
         overwriting a concurrent edit. Omitting it keeps the previous
         last-writer-wins behaviour.
+
+        REQ-143 / Task 12: `status` is the WorkflowEngine-owned lifecycle
+        state and its mirror column is dropped -- this method no longer
+        accepts a `status` parameter at all; state changes must go through a
+        workflow transition (see docs/architecture/ADR-status-single-source.md).
         """
         try:
             need = lock_for_version_check(
@@ -299,9 +308,6 @@ class StakeholderNeedService(ServiceBase):
         if category is not _UNSET:
             need.category = category
             changes["category"] = category
-        if status is not _UNSET:
-            need.status = status
-            changes["status"] = status
         if moscow_priority is not _UNSET:
             need.moscow_priority = moscow_priority
             changes["moscow_priority"] = moscow_priority

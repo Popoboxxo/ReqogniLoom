@@ -51,13 +51,14 @@ def capture_fixture(db):
     artifact = Artifact.objects.create(
         tenant=tenant, workspace=workspace, artifact_type="Requirement"
     )
+    # Task 12: `status` column dropped -- the WorkflowItemState created below
+    # is what actually determines this Requirement's captured status.
     req = Requirement.objects.create(
         tenant=tenant,
         artifact=artifact,
         workspace=workspace,
         title="REQ",
         description="d",
-        status="draft",
     )
     definition = WorkflowEngineDefinition.objects.create(
         tenant=tenant,
@@ -89,11 +90,15 @@ def test_requirement_snapshot_carries_the_engine_state(capture_fixture):
 
 
 @pytest.mark.django_db
-def test_untracked_requirement_falls_back_to_the_column(db):
-    """No WorkflowItemState row for the item -> the still-present column wins.
+def test_untracked_requirement_falls_back_to_the_initial_state(db):
+    """No WorkflowItemState row for the item -> the type's initial state wins.
 
-    A baseline snapshot recording "" instead of the real status would corrupt
-    the historical record (lesson from Tasks 3-7).
+    Task 12: the ``status`` column this used to fall back to is dropped, so
+    an untracked row can no longer report a frozen legacy value -- it is
+    captured at ``state_reader.initial_state("Requirement")`` ("draft")
+    instead. Explicit, reviewed data-loss tradeoff (Task 12 report,
+    Finding 2), not a bug -- recording nothing/"" would be the actual
+    regression this test guards against (lesson from Tasks 3-7).
     """
     from persistence.models import Artifact, Requirement, Tenant, Workspace
     from persistence.tenancy import TenantContext
@@ -110,7 +115,6 @@ def test_untracked_requirement_falls_back_to_the_column(db):
         workspace=workspace,
         title="REQ untracked",
         description="d",
-        status="in_review",
     )
     # Deliberately no WorkflowEngineDefinition / WorkflowItemState created.
 
@@ -118,7 +122,7 @@ def test_untracked_requirement_falls_back_to_the_column(db):
         [DeltaIndexTuple(item_id=str(artifact.id), version=1)], tenant_id=tenant.id
     )
 
-    assert states[str(artifact.id)]["status"] == "in_review"
+    assert states[str(artifact.id)]["status"] == "draft"
 
 
 @pytest.mark.django_db
@@ -148,7 +152,6 @@ def test_multi_item_capture_resolves_status_in_one_batched_call(capture_fixture)
         workspace=workspace,
         title="REQ 2",
         description="d",
-        status="draft",
     )
 
     delta_index = [

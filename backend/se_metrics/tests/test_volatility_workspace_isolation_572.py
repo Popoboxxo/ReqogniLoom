@@ -42,12 +42,13 @@ def _make_workspace_with_requirement(tenant, ws_name: str, req_title: str):
     art = Artifact.objects.create(
         tenant=tenant, workspace=workspace, artifact_type="Requirement"
     )
+    # Task 12: `status` column dropped -- unneeded here, this test only
+    # exercises audit-entry volatility, not status.
     req = Requirement.objects.create(
         tenant=tenant,
         artifact=art,
         workspace=workspace,
         title=req_title,
-        status="draft",
     )
     return workspace, req
 

@@ -187,16 +187,39 @@ class InterviewService(ServiceBase):
         if session_kind == InterviewSession.SESSION_KIND_MULTI:
             # Multi-mode sessions are not bound to one artifact type: no
             # per-type protocol applies (get_protocol has no answer for
-            # artifact_type=None), there is no single backing Artifact yet,
-            # and _formalize_multi writes the completed status directly --
-            # so no workflow init here either (same bare shape as the
-            # ORM-created multi sessions the Task 3-5 tests seed directly).
-            return InterviewSession.objects.create(
+            # artifact_type=None) and there is no single backing Artifact yet
+            # -- but the "Interview" workflow item_type is the same state
+            # machine for both kinds (state_reader.current_state("Interview",
+            # session.id) does not care about session_kind), and
+            # initialize_workflow_states needs neither artifact_type nor a
+            # backing Artifact. Datenmodell-Konsolidierung Task 12: a
+            # multi-mode session used to record its completion directly on
+            # the (now-dropped) `status` column with no engine tracking at
+            # all -- that was the only record of completion, and dropping
+            # the column would have made it unrecoverable. Registering here,
+            # same best-effort try/except convention as the single-mode
+            # branch below, closes that gap instead of accepting it.
+            session = InterviewSession.objects.create(
                 workspace_id=workspace_id,
                 artifact_type=None,
                 session_kind=session_kind,
                 collected_fields=(seed_context or {}),
             )
+            try:
+                from workflow.services import initialize_workflow_states
+
+                initialize_workflow_states(
+                    item_ids=[session.id],
+                    item_type="Interview",
+                    workspace_id=workspace_id,
+                    ctx=ctx,
+                )
+            except Exception:
+                logger.debug(
+                    "InterviewService: workflow init skipped for multi-mode "
+                    "session=%s", session.id
+                )
+            return session
         # Fail fast if the protocol config is missing/broken rather than
         # creating a session that can never progress past get_state.
         get_protocol(ctx, artifact_type, workspace_id)
@@ -246,12 +269,20 @@ class InterviewService(ServiceBase):
         # in this service that compares ``session.status`` (answer/set_target/
         # formalize/abandon/chat all call this method first) -- resolve the
         # in-memory value through the engine here, once, instead of at each
-        # call site. Not persisted: the column stays untouched (write-once at
-        # creation), only the returned object's attribute is corrected so a
-        # session that reached e.g. "completed"/"abandoned" via a real
-        # transition is not silently mistaken for still "in_progress" forever
-        # by every subsequent guard reading the frozen column value.
-        session.status = state_reader.current_state("Interview", session.id) or session.status
+        # call site. Task 12: the `status` column is dropped, so there is no
+        # column left to fall back to. ``getattr(..., None)`` picks up a
+        # value ``_lazily_abandon_if_stale`` may already have set in-memory
+        # (its own except-branch has no column to persist to either, so its
+        # correction must survive this line, not be clobbered by it); when
+        # neither the engine nor that already-resolved value exist, the
+        # session reports the interview_default preset's initial state
+        # (documented, reviewed data-loss tradeoff, see Task 12 report
+        # Finding 2).
+        session.status = (
+            state_reader.current_state("Interview", session.id)
+            or getattr(session, "status", None)
+            or state_reader.initial_state("Interview")
+        )
         return session
 
     @staticmethod
@@ -284,7 +315,13 @@ class InterviewService(ServiceBase):
         """
         if timezone.now() - session.modified_at < ABANDONED_TTL:
             return
-        current_status = state_reader.current_state("Interview", session.id) or session.status
+        # Task 12: called before _get_session's own correction runs, on a
+        # freshly-fetched *session* whose (now-dropped) `status` column can
+        # no longer be a fallback -- resolve via the engine, or the
+        # interview_default preset's initial state for an untracked session.
+        current_status = state_reader.current_state(
+            "Interview", session.id
+        ) or state_reader.initial_state("Interview")
         if current_status != InterviewSession.STATUS_IN_PROGRESS:
             return
         from workflow.lifecycle_manager import StateLifecycleManager
@@ -298,25 +335,31 @@ class InterviewService(ServiceBase):
                 change_reason=f"Inactive for {ABANDONED_TTL.days}+ days (auto-abandon)",
                 actor=str(getattr(ctx, "user_id", "") or "system"),
             )
+            session.refresh_from_db()
+            # Correct the in-memory value (not persisted) so the caller sees
+            # "abandoned" straight away instead of a stale pre-transition
+            # value. Guaranteed to resolve via the engine here (the
+            # transition above just succeeded) -- the initial-state fallback
+            # is defensive symmetry only, it never actually triggers.
+            session.status = state_reader.current_state(
+                "Interview", session.id
+            ) or state_reader.initial_state("Interview")
         except Exception:
             # No WorkflowItemState row (e.g. a session that predates this
-            # feature, or workflow init failed at creation) -- fall back to
-            # the direct field write so lazy-abandon still works instead of
-            # leaving the session stuck "in_progress" forever.
+            # feature, or workflow init failed at creation). Task 12: the
+            # `status` column is dropped, so there is no direct field write
+            # left to fall back to -- the in-memory value below is the only
+            # remaining record that this session was auto-abandoned; a later
+            # re-fetch with no engine state will resolve to the
+            # interview_default preset's initial state instead (documented,
+            # reviewed data-loss tradeoff, see Task 12 report Finding 2).
             logger.debug(
                 "InterviewService: force_transition unavailable for session=%s, "
-                "falling back to direct status write", session.id
+                "falling back to in-memory-only status", session.id
             )
             session.status = InterviewSession.STATUS_ABANDONED
             session.version = F("version") + 1
-            session.save(update_fields=["status", "modified_at", "version"])
-        session.refresh_from_db()
-        # The engine branch above no longer writes the column -- correct the
-        # in-memory value (not persisted) so the caller sees "abandoned"
-        # instead of the frozen pre-transition column value.
-        session.status = (
-            state_reader.current_state("Interview", session.id) or session.status
-        )
+            session.save(update_fields=["modified_at", "version"])
 
     def _current_phase_and_missing(self, ctx, session: InterviewSession):
         protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
@@ -968,24 +1011,32 @@ class InterviewService(ServiceBase):
                 workspace_id=session.workspace_id,
             )
             session.refresh_from_db()
-            # Datenmodell-Konsolidierung Phase 1: the transition above no
-            # longer writes the column -- correct the in-memory value (not
-            # persisted) so the dict returned below reports "completed"
-            # instead of the frozen pre-transition column value.
-            session.status = (
-                state_reader.current_state("Interview", session.id) or session.status
-            )
+            # Task 12: the `status` column is dropped -- correct the
+            # in-memory value (not persisted) so the dict returned below
+            # reports "completed". Guaranteed to resolve via the engine here
+            # (the transition above just succeeded), so the initial-state
+            # fallback is defensive symmetry only, it never actually
+            # triggers.
+            session.status = state_reader.current_state(
+                "Interview", session.id
+            ) or state_reader.initial_state("Interview")
         except Exception:
             # Same best-effort fallback as _lazily_abandon_if_stale -- a
             # session created before this feature (or with a failed
             # workflow init) has no WorkflowItemState row to transition.
+            # Task 12: the `status` column is dropped, so there is no direct
+            # field write left to fall back to -- the in-memory value below
+            # is the only remaining record of completion for this call; a
+            # later re-fetch with no engine state resolves to the
+            # interview_default preset's initial state instead (documented,
+            # reviewed data-loss tradeoff, see Task 12 report Finding 2).
             logger.debug(
                 "InterviewService: workflow transition unavailable for session=%s, "
-                "falling back to direct status write", session.id
+                "falling back to in-memory-only status", session.id
             )
             session.status = InterviewSession.STATUS_COMPLETED
             session.version = F("version") + 1
-            session.save(update_fields=["status", "modified_at", "version"])
+            session.save(update_fields=["modified_at", "version"])
 
         # formalize() (the caller) wraps this whole method in
         # @atomic_transaction, so this is already inside an active
@@ -1045,12 +1096,13 @@ class InterviewService(ServiceBase):
             locked_session = InterviewSession.objects.select_for_update().get(pk=session.pk)
             # Datenmodell-Konsolidierung Phase 1: re-resolve through the
             # engine -- the row-locked re-fetch bypasses _get_session's
-            # correction, so the column would otherwise still read the
-            # frozen creation-time value here.
-            locked_status = (
-                state_reader.current_state("Interview", locked_session.id)
-                or locked_session.status
-            )
+            # correction. Task 12: the `status` column is dropped, so a
+            # session with no WorkflowItemState row (init failed, or predates
+            # the Task 12 fix that registers multi-mode sessions too) falls
+            # back to the interview_default preset's initial state.
+            locked_status = state_reader.current_state(
+                "Interview", locked_session.id
+            ) or state_reader.initial_state("Interview")
             if locked_status != InterviewSession.STATUS_IN_PROGRESS:
                 raise ValidationError(
                     f"InterviewSession {session.pk} is {locked_status}, cannot formalize."
@@ -1094,25 +1146,36 @@ class InterviewService(ServiceBase):
                         ctx=ctx,
                     )
 
-            # I9 correction: multi-mode sessions never get a WorkflowItemState
-            # row -- start() explicitly skips initialize_workflow_states() for
-            # session_kind="multi" (no per-type protocol, no single backing
-            # Artifact at creation time). A workflow.services.transition()
-            # call here would therefore always raise WorkflowStateError (no
-            # item state to transition) and be dead code. This direct column
-            # write is genuinely the only record of a multi-mode session's
-            # completion -- _get_session's engine-first status resolution
-            # still returns the right answer for these sessions because the
-            # engine has nothing tracked for them at all, so it always falls
-            # back to this column. Not a bug today, but Task 12 (dropping the
-            # status column) needs an explicit decision for
-            # session_kind="multi" before that migration can run — flagged
-            # in this task's report for that brief.
-            session.status = InterviewSession.STATUS_COMPLETED
-            # Same optimistic-concurrency bump as _formalize_single: the
-            # status write must not silently overwrite a concurrent edit.
+            # Datenmodell-Konsolidierung Task 12: start() now registers a
+            # WorkflowItemState for multi-mode sessions too (same item_type
+            # "Interview" as single-mode), so this transitions through the
+            # engine exactly like _formalize_single -- the `status` column is
+            # dropped, so a direct column write is no longer possible, and is
+            # no longer the only record of completion. Same best-effort
+            # fallback as _lazily_abandon_if_stale/_formalize_single for a
+            # session whose init above failed (or predates this fix): the
+            # engine has nothing to transition, so completion is only
+            # reflected by the hardcoded "completed" in this method's return
+            # value below, not by a future state_reader lookup.
+            from workflow.services import transition as workflow_transition
+
+            try:
+                workflow_transition(
+                    item_id=session.id,
+                    target_state=InterviewSession.STATUS_COMPLETED,
+                    change_reason="Multi-mode interview formalized into real artifacts",
+                    ctx=ctx,
+                    item_type="Interview",
+                    workspace_id=session.workspace_id,
+                )
+            except Exception:
+                logger.debug(
+                    "InterviewService: workflow transition unavailable for "
+                    "multi-mode session=%s", session.id
+                )
+            # Same optimistic-concurrency bump as _formalize_single.
             session.version = F("version") + 1
-            session.save(update_fields=["status", "modified_at", "version"])
+            session.save(update_fields=["modified_at", "version"])
 
             # Emitted inside this same atomic() block (unlike
             # _formalize_single, which relies on formalize()'s outer
@@ -1172,19 +1235,28 @@ class InterviewService(ServiceBase):
                 workspace_id=session.workspace_id,
             )
             session.refresh_from_db()
-            # The transition above no longer writes the column -- correct
-            # the in-memory value (not persisted) for the dict below.
-            session.status = (
-                state_reader.current_state("Interview", session.id) or session.status
-            )
+            # Task 12: the `status` column is dropped -- correct the
+            # in-memory value (not persisted) for the dict below. Guaranteed
+            # to resolve via the engine here (the transition above just
+            # succeeded), so the initial-state fallback is defensive
+            # symmetry only, it never actually triggers.
+            session.status = state_reader.current_state(
+                "Interview", session.id
+            ) or state_reader.initial_state("Interview")
         except Exception:
+            # Task 12: the `status` column is dropped, so there is no direct
+            # field write left to fall back to -- the in-memory value below
+            # is the only remaining record of this abandon call; a later
+            # re-fetch with no engine state resolves to the
+            # interview_default preset's initial state instead (documented,
+            # reviewed data-loss tradeoff, see Task 12 report Finding 2).
             logger.debug(
                 "InterviewService: workflow transition unavailable for session=%s, "
-                "falling back to direct status write", session.id
+                "falling back to in-memory-only status", session.id
             )
             session.status = InterviewSession.STATUS_ABANDONED
             session.version = F("version") + 1
-            session.save(update_fields=["status", "modified_at", "version"])
+            session.save(update_fields=["modified_at", "version"])
         return {"status": session.status}
 
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
@@ -1583,19 +1655,24 @@ class InterviewService(ServiceBase):
         # only enqueue rows whose *engine* state is still "in_progress" --
         # the expensive per-candidate fetch-then-check loop now runs only
         # over the small, genuinely-stale subset, not every old session.
+        # Task 12: ``status`` is dropped from the ``.values()`` projection --
+        # a row with no WorkflowItemState falls back to the
+        # interview_default preset's initial state (documented, reviewed
+        # data-loss tradeoff, see Task 12 report Finding 2).
         candidate_rows = list(
             InterviewSession.objects.filter(
                 workspace_id=workspace_id,
                 modified_at__lt=timezone.now() - ABANDONED_TTL,
-            ).values("id", "status")
+            ).values("id")
         )
         candidate_states = state_reader.current_states(
             "Interview", (row["id"] for row in candidate_rows)
         )
+        interview_initial_state = state_reader.initial_state("Interview")
         stale_ids = [
             row["id"]
             for row in candidate_rows
-            if (candidate_states.get(str(row["id"])) or row["status"])
+            if (candidate_states.get(str(row["id"])) or interview_initial_state)
             == InterviewSession.STATUS_IN_PROGRESS
         ]
         for stale_id in stale_ids:
@@ -1607,17 +1684,18 @@ class InterviewService(ServiceBase):
         if status:
             # Datenmodell-Konsolidierung Phase 1: the status column is no
             # longer written by the engine, so an explicit status filter is
-            # matched through WorkflowItemState (batched), falling back to
-            # the (now write-once, frozen-at-creation) column only for a
-            # session never wired into one.
-            rows = list(qs.values("id", "status"))
+            # matched through WorkflowItemState (batched). Task 12: ``status``
+            # is dropped from the ``.values()`` projection -- a session never
+            # wired into a WorkflowItemState falls back to the
+            # interview_default preset's initial state.
+            rows = list(qs.values("id"))
             states = state_reader.current_states(
                 "Interview", (row["id"] for row in rows)
             )
             matching_ids = [
                 row["id"]
                 for row in rows
-                if (states.get(str(row["id"])) or row["status"]) == status
+                if (states.get(str(row["id"])) or interview_initial_state) == status
             ]
             qs = qs.filter(id__in=matching_ids)
         return qs.order_by("-modified_at")

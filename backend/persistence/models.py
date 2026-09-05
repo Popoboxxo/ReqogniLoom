@@ -884,7 +884,6 @@ class StakeholderNeed(TenantScopedModel):
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     category = models.CharField(max_length=64, blank=True)
-    status = models.CharField(max_length=64, default="draft")
     moscow_priority = models.CharField(
         max_length=16,
         null=True,
@@ -913,7 +912,6 @@ class StakeholderNeed(TenantScopedModel):
         db_table = "pl_stakeholder_need"
         indexes = [
             # REQ-039: composite indexes for dominant list-filter combinations.
-            models.Index(fields=["tenant", "status"], name="idx_sn_tnt_status"),
             models.Index(
                 fields=["tenant", "lifecycle_status"], name="idx_sn_tnt_lifecycle"
             ),
@@ -961,7 +959,6 @@ class Requirement(TenantScopedModel):
         help_text="#43: Acceptance criteria describing when the requirement is fulfilled.",
     )
     category = models.CharField(max_length=64, blank=True)
-    status = models.CharField(max_length=64, default="draft")
     type = models.CharField(
         max_length=64,
         choices=RequirementType.choices,
@@ -1034,7 +1031,6 @@ class Requirement(TenantScopedModel):
                 opclasses=["vector_cosine_ops"],
             ),
             # REQ-039: composite indexes for dominant list-filter combinations.
-            models.Index(fields=["tenant", "status"], name="idx_req_tnt_status"),
             models.Index(
                 fields=["tenant", "lifecycle_status"], name="idx_req_tnt_lifecycle"
             ),
@@ -1464,25 +1460,10 @@ class TestCase(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this test case needs review due to upstream changes.",
     )
-    # REQ-165/REQ-166: lifecycle state, historically a denormalized mirror of
-    # the WorkflowEngine state. Datenmodell-Konsolidierung Phase 1: no longer
-    # written by the engine — see the ``Status`` TextChoices docstring above.
-    # TestCase is scoped via ``artifact.workspace`` (no local workspace_id
-    # column), so a plain single-column index on ``status`` is used instead of
-    # a (workspace, status) composite — cross-relation columns cannot
-    # participate in a table index.
-    status = models.CharField(
-        max_length=32,
-        choices=Status.choices,
-        default=Status.DRAFT,
-        db_index=False,
-    )
-
     class Meta:
         db_table = "pl_testcase"
         indexes = [
             models.Index(fields=["uid"], name="idx_testcase_uid_btree"),
-            models.Index(fields=["status"], name="idx_testcase_status"),
         ]
 
     def __str__(self) -> str:
@@ -2437,16 +2418,6 @@ class InterviewSession(TenantScopedModel):
             "different-typed artifacts with provenance in InterviewSessionArtifact."
         ),
     )
-    status = models.CharField(
-        max_length=16,
-        choices=STATUS_CHOICES,
-        default=STATUS_IN_PROGRESS,
-        help_text=(
-            "Datenmodell-Konsolidierung Phase 1: superseded by "
-            "WorkflowItemState(item_type='Interview'). Dropped in "
-            "persistence/0070."
-        ),
-    )
     target_artifact = models.ForeignKey(
         Artifact,
         on_delete=models.SET_NULL,
@@ -2466,9 +2437,6 @@ class InterviewSession(TenantScopedModel):
 
     class Meta:
         db_table = "pl_interview_session"
-        indexes = [
-            models.Index(fields=["workspace", "status"], name="idx_iview_ws_status"),
-        ]
 
 
 class InterviewSessionArtifact(TenantScopedModel):

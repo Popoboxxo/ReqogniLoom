@@ -645,15 +645,18 @@ class RiskService(ServiceBase):
             change_reason=change_reason or "",
             credential=credential or "",
         )
-        risk.refresh_from_db(fields=["status", "version"])
-        # Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
-        # ``status`` mirror (StateLifecycleManager._sync_status_mirror is
-        # deleted), so the refresh above reads the (now write-once,
-        # frozen-at-creation) column — correct the in-memory value (not
-        # persisted) so the returned Risk instance's ``.status`` reflects
-        # the real current state, same fallback convention as
-        # GoalService.transition_status.
-        risk.status = state_reader.current_state("Risk", risk.id) or risk.status
+        risk.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): the ``status`` column
+        # is dropped, so it can no longer be refreshed or read as a fallback.
+        # Set the in-memory (not persisted) ``.status`` from the engine so the
+        # returned Risk instance still exposes the real current state, same
+        # fallback convention as GoalService.transition_status. The engine
+        # state is guaranteed to exist here (the transition above just
+        # succeeded), so ``state_reader.initial_state`` never actually
+        # triggers.
+        risk.status = state_reader.current_state(
+            "Risk", risk.id
+        ) or state_reader.initial_state("Risk")
 
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same

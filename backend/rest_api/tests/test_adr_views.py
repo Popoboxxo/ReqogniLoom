@@ -186,7 +186,14 @@ def test_supersede_missing_superseded_by_id_returns_400(
     # side effect on its status.
     TenantContext.set_tenant(workspace.tenant_id)
     try:
-        assert Adr.objects.get(id=adr_id).status == Adr.Status.DRAFT.value
+        # Task 12: the `status` column is dropped -- resolve through the
+        # engine seam instead of a raw attribute read.
+        from workflow import state_reader
+
+        resolved = state_reader.current_state(
+            "Adr", adr_id
+        ) or state_reader.initial_state("Adr")
+        assert resolved == Adr.Status.DRAFT.value
     finally:
         TenantContext.clear_tenant()
 
@@ -212,6 +219,13 @@ def test_supersede_malformed_uuid_returns_400_not_500(
     assert body["error"]["code"] == "VALIDATION_ERROR"
     TenantContext.set_tenant(workspace.tenant_id)
     try:
-        assert Adr.objects.get(id=adr_id).status == Adr.Status.DRAFT.value
+        # Task 12: the `status` column is dropped -- resolve through the
+        # engine seam instead of a raw attribute read.
+        from workflow import state_reader
+
+        resolved = state_reader.current_state(
+            "Adr", adr_id
+        ) or state_reader.initial_state("Adr")
+        assert resolved == Adr.Status.DRAFT.value
     finally:
         TenantContext.clear_tenant()

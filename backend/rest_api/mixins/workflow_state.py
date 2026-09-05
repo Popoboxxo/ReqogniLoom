@@ -9,6 +9,14 @@ which have no state backfill, or any item created in a definition-less
 workspace), so Phase 0 stays value-neutral and reversible until the column is
 actually dropped in Phase 1.
 
+Task 12: the column is now dropped. ``getattr(row, "status", "")`` never
+raised (it degrades gracefully to the default), but with no column left it
+would silently return ``""`` for every untracked row across every REST list/
+detail endpoint using this mixin instead of a meaningful state — a much
+broader, harder-to-notice regression than a crash. The fallback below now
+resolves ``workflow.state_reader.initial_state`` per item type instead
+(documented, reviewed data-loss tradeoff, see the Task 12 report, Finding 2).
+
 The resolution is batched deliberately. DRF builds a *single* child serializer
 for ``many=True`` and calls ``get_status`` once per row; resolving per row would
 turn every list endpoint into an N+1. The child caches the whole mapping on
@@ -45,18 +53,20 @@ class WorkflowStateSerializerMixin(serializers.Serializer):
     def get_status(self, obj: Any) -> str:
         """Return the item's current workflow state.
 
-        Falls back to the object's own (still-present, Phase 0) ``status``
-        column when the engine has no ``WorkflowItemState`` row for it —
-        Goal/MainGoal have no state backfill at all, and any item created in
-        a definition-less workspace is state-less too. Without the fallback
-        those rows would silently regress from their real value to ``""``,
-        breaking the Phase 0 "no behaviour change / fully reversible"
-        constraint (D-1).
+        Task 12: the ``status`` column is dropped. Falls back to
+        ``workflow_item_type``'s preset initial state when the engine has no
+        ``WorkflowItemState`` row for it — Goal/MainGoal have no state
+        backfill at all, and any item created in a definition-less workspace
+        is state-less too. Without this fallback those rows would silently
+        regress to ``""`` (documented, reviewed data-loss tradeoff for the
+        legacy value itself, see the Task 12 report Finding 2 — but an empty
+        string is not an acceptable *wire* value, so the initial state is
+        used instead).
         """
         engine_state = self._workflow_state_map().get(str(_row_id(obj)))
         if engine_state is not None:
             return engine_state
-        return _row_status(obj)
+        return state_reader.initial_state(self.workflow_item_type)
 
     def _workflow_state_map(self) -> dict[str, str]:
         cached = getattr(self, "_workflow_state_cache", None)
@@ -104,17 +114,6 @@ def _row_id(row: Any) -> Any:
     itself — only test doubles use ``.pk``.
     """
     return row.get("id") if isinstance(row, dict) else row.pk
-
-
-def _row_status(row: Any) -> str:
-    """Extract the Phase-0 mirror ``status`` column from a serializer row.
-
-    Same dict-vs-object shape as :func:`_row_id`. Used only as the fallback
-    for items the WorkflowEngine does not (yet) track.
-    """
-    if isinstance(row, dict):
-        return row.get("status") or ""
-    return getattr(row, "status", "") or ""
 
 
 __all__ = ["WorkflowStateSerializerMixin"]

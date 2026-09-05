@@ -4248,7 +4248,23 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
 
 
 def _goal_to_dict(goal: Any) -> dict[str, Any]:
-    """Convert Goal ORM object to serializer-compatible dict (Task 6)."""
+    """Convert Goal ORM object to serializer-compatible dict (Task 6).
+
+    Task 12: the `status` column is dropped. ``getattr(goal, "status", ...)``
+    still picks up an in-memory value a service-layer caller already
+    resolved (e.g. GoalService.transition_status's post-transition
+    correction) -- only the *default* used to be the bug: a raw ORM instance
+    (GoalService.get()/list_current(), never corrected) has no ``.status``
+    attribute at all, so ``getattr`` silently returned the hardcoded literal
+    "Entwurf" regardless of the item's real state. The fallback now resolves
+    the engine seam instead (batched by the list() call sites via
+    _resolve_goal_statuses, to avoid one query per row).
+    """
+    from workflow import state_reader
+
+    resolved_status = getattr(goal, "status", None) or state_reader.current_state(
+        "Goal", goal.id
+    ) or state_reader.initial_state("Goal")
     return {
         "id": str(goal.id),
         "workspace_id": str(goal.workspace_id),
@@ -4258,7 +4274,7 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
         "sequence_number": goal.sequence_number,
         "title": goal.title,
         "description": getattr(goal, "description", ""),
-        "status": getattr(goal, "status", "Entwurf"),
+        "status": resolved_status,
         "version": goal.version,
         "created_at": goal.created_at,
         "updated_at": goal.updated_at,
@@ -4266,7 +4282,15 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
 
 
 def _main_goal_to_dict(main_goal: Any) -> dict[str, Any]:
-    """Convert MainGoal ORM object to serializer-compatible dict (Task 6)."""
+    """Convert MainGoal ORM object to serializer-compatible dict (Task 6).
+
+    Task 12: see ``_goal_to_dict``'s docstring — identical fix.
+    """
+    from workflow import state_reader
+
+    resolved_status = getattr(main_goal, "status", None) or state_reader.current_state(
+        "MainGoal", main_goal.id
+    ) or state_reader.initial_state("MainGoal")
     return {
         "id": str(main_goal.id),
         "workspace_id": str(main_goal.workspace_id),
@@ -4274,11 +4298,29 @@ def _main_goal_to_dict(main_goal: Any) -> dict[str, Any]:
         "content": main_goal.content,
         "source": getattr(main_goal, "source", "manual"),
         "generated_from_goal_ids": list(getattr(main_goal, "generated_from_goal_ids", []) or []),
-        "status": getattr(main_goal, "status", "Entwurf"),
+        "status": resolved_status,
         "version": main_goal.version,
         "created_at": main_goal.created_at,
         "updated_at": main_goal.updated_at,
     }
+
+
+def _resolve_goal_statuses(items: list, item_type: str) -> None:
+    """Batch-resolve and set ``.status`` in-memory on every item (Task 12).
+
+    Must run before ``_apply_list_query_params`` (whose ``?status=`` filter
+    reads ``getattr(i, "status", None)``) and before ``_goal_to_dict``/
+    ``_main_goal_to_dict`` build the response -- one engine query for the
+    whole page instead of one per row.
+    """
+    from workflow import state_reader
+
+    if not items:
+        return
+    states = state_reader.current_states(item_type, (i.id for i in items))
+    initial_state = state_reader.initial_state(item_type)
+    for item in items:
+        item.status = states.get(str(item.id)) or initial_state
 
 
 def _issue_to_dict(issue: Any) -> dict[str, Any]:
@@ -5445,6 +5487,9 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # Task 12: `status` column dropped -- batch-resolve it in-memory
+        # before the ?status= filter/ordering below reads getattr(i, "status").
+        _resolve_goal_statuses(items, "Goal")
         # fix #236: apply status/search/ordering/limit query parameters.
         items, err = _apply_list_query_params(
             items,
@@ -5689,13 +5734,16 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             if error is not None:
                 return error
-            items = self._svc().list_all(workspace_id, ctx)
+            items = list(self._svc().list_all(workspace_id, ctx))
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # Task 12: `status` column dropped -- batch-resolve it in-memory
+        # before the ?status= filter/ordering below reads getattr(i, "status").
+        _resolve_goal_statuses(items, "MainGoal")
         # fix #236: apply status/source/search/ordering/limit query parameters.
         items, err = _apply_list_query_params(
             items,

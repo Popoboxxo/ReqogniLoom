@@ -175,7 +175,6 @@ def requirement_tool_env(db):
         workspace=workspace,
         title="REQ",
         description="d",
-        status="draft",
     )
     WorkflowItemState.objects.create(
         tenant=tenant,
@@ -212,16 +211,19 @@ def test_requirement_get_payload_is_json_serialisable_and_uses_engine_status(
     assert result.success is True
     payload = result.data
     assert "content" not in payload
-    # The mirror column still says "draft"; the engine says "approved" -- the
-    # response must reflect the engine, proving it is the primary source.
+    # Task 12: the mirror column is dropped -- the fixture's WorkflowItemState
+    # says "approved" and the response must reflect that (there is no column
+    # left for it to compete with).
     assert payload["requirement"]["status"] == "approved"
     json.dumps(payload)
 
 
 @pytest.mark.django_db
 def test_requirement_get_falls_back_when_untracked(requirement_tool_env):
-    """No WorkflowItemState row for this item -> its own column value, never
-    an empty string (Lesson 1 / D-1)."""
+    """No WorkflowItemState row for this item -> the "draft" preset initial
+    state, never an empty string. Task 12: the `status` column is dropped, so
+    it can no longer report a legacy value (documented, reviewed data-loss
+    tradeoff, see the Task 12 report Finding 2)."""
     from mcp_server.tools.requirements import RequirementsToolGroup
     from persistence.models import Artifact, Requirement
     from workflow.models import WorkflowItemState
@@ -236,7 +238,6 @@ def test_requirement_get_falls_back_when_untracked(requirement_tool_env):
         workspace=workspace,
         title="Untracked",
         description="d",
-        status="legacy-value",
     )
     assert not WorkflowItemState.objects.filter(item_id=untracked.id).exists()
 
@@ -248,7 +249,7 @@ def test_requirement_get_falls_back_when_untracked(requirement_tool_env):
     )
 
     assert result.success is True
-    assert result.data["requirement"]["status"] == "legacy-value"
+    assert result.data["requirement"]["status"] == "draft"
 
 
 @pytest.mark.django_db
@@ -342,7 +343,6 @@ def test_goal_list_versions_uses_engine_status_not_frozen_column():
         description="d",
         lineage_id=uuid.uuid4(),
         sequence_number=1,
-        status="Entwurf",  # the still-present mirror column stays stale
     )
     WorkflowItemState.objects.create(
         tenant=tenant,
@@ -404,7 +404,6 @@ def test_main_goal_list_versions_uses_engine_status_not_frozen_column():
         sequence_number=1,
         content="c",
         source="manual",
-        status="Entwurf",
     )
     WorkflowItemState.objects.create(
         tenant=tenant,
@@ -473,8 +472,13 @@ def test_interview_get_state_uses_engine_status_for_single_kind_session():
         workspace_id=workspace.id,
     )
 
+    from workflow import state_reader
+
     session = InterviewService().start(ctx, "Requirement", workspace.id)
-    assert session.status == "in_progress"  # sanity: still-present column value
+    # Sanity: the fixture's WorkflowEngineDefinition let initialize_workflow_states()
+    # seed a real WorkflowItemState (Task 12: the `status` column is dropped,
+    # so this is the only place "in_progress" can live now).
+    assert state_reader.current_state("Interview", session.id) == "in_progress"
 
     # Move the engine's state ahead of the mirror column without going
     # through a real transition -- proves get_state() reads the engine, not

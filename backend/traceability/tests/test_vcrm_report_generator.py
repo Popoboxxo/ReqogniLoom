@@ -93,10 +93,28 @@ class TestVCRMGeneration:
         include_outdated=True so outdated requirements don't silently
         disappear from the matrix.
         """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-vcrm-report-generator"
+
         with active_tenant(tenant_a):
             _, req = make_requirement(tenant_a, workspace_a, "Outdated-Req")
-            req.status = "outdated"
-            req.save(update_fields=["status"])
+            # Task 12: the `status` column is dropped -- "outdated" can only
+            # be represented by a real WorkflowItemState row now.
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
 
             matrix = vcrm_gen.generate_vcrm(workspace_a.id)
 

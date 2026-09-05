@@ -95,7 +95,6 @@ def reqif_workspace():
             title="Need One",
             description="First need",
             category="functional",
-            status="draft",
             moscow_priority="Must",
             uid="NEED-001",
         )
@@ -108,7 +107,6 @@ def reqif_workspace():
             title="Need Two",
             description="Second need",
             category="functional",
-            status="draft",
             uid="NEED-002",
         )
 
@@ -124,7 +122,6 @@ def reqif_workspace():
             title="Req One",
             description="Req one description",
             category="functional",
-            status="draft",
             verification_method="Test",
             uid="REQ-001",
         )
@@ -140,7 +137,6 @@ def reqif_workspace():
             title="Req Two",
             description="Req two description",
             category="functional",
-            status="in-review",
             verification_method="Review",
             uid="REQ-002",
         )
@@ -153,7 +149,6 @@ def reqif_workspace():
             title="Req Three",
             description="Req three description",
             category="non-functional",
-            status="draft",
             uid="REQ-003",
         )
 
@@ -263,7 +258,6 @@ class TestReqifExportMapping:
                 artifact=artifact,
                 title="Engine-tracked Req",
                 description="d",
-                status="draft",
                 uid="REQ-ENGINE-1",
             )
             create_default_workflow(
@@ -282,7 +276,8 @@ class TestReqifExportMapping:
                 transitioned_by="test",
                 validation_result=ValidationResult(valid=True),
             )
-            assert Requirement.objects.get(id=req.id).status == "draft"  # column frozen
+            # Task 12: the `status` column is dropped entirely -- there is no
+            # frozen creation-time column value left to also check.
 
             result = _export(workspace.id, tenant.id)
         finally:

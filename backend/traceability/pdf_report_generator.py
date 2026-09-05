@@ -203,6 +203,8 @@ def _build_requirement_document(data: dict[str, Any]) -> bytes:
 
     REQ-L2-AS-016 AC-1: requirement_document layout.
     """
+    from workflow import state_reader
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -272,7 +274,13 @@ def _build_requirement_document(data: dict[str, Any]) -> bytes:
                 story.append(
                     Paragraph(_escape_xml(req.description), body_style)
                 )
-            resolved_status = req_status_map.get(str(req.id)) or req.status
+            # Task 12: the ``status`` column is dropped -- a requirement with
+            # no WorkflowItemState falls back to the "draft" preset initial
+            # state instead (documented, reviewed data-loss tradeoff, see
+            # Task 12 report Finding 2).
+            resolved_status = req_status_map.get(
+                str(req.id)
+            ) or state_reader.initial_state("Requirement")
             story.append(
                 Paragraph(
                     f"Status: {resolved_status}  |  Version: {req.version}",

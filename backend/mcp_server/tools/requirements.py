@@ -82,7 +82,7 @@ def _requirement_to_dict(
         "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
         "category": req.category,
         "status": resolve_engine_status(
-            "Requirement", req.id, req.status, status_map=status_map
+            "Requirement", req.id, status_map=status_map
         ),
         "type": getattr(req, "type", None) or "SyReq",
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),

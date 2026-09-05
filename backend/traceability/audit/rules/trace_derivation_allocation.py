@@ -112,9 +112,11 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
     """Return ``{artifact_id: title}`` for active, non-L4 Requirements.
 
     Datenmodell-Konsolidierung Phase 1: "active" is resolved through
-    ``WorkflowItemState`` (batched), falling back to the (now write-once,
-    frozen-at-creation) ``status`` column only for a Requirement never wired
-    into one — Requirement has no backfill-migration guarantee.
+    ``WorkflowItemState`` (batched) — Requirement has no backfill-migration
+    guarantee. Task 12: the ``status`` column is dropped, so a Requirement
+    never wired into one falls back to the "draft" preset initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2); "draft" is never "outdated", so it is still counted active.
     """
     # NOTE: plain ``.exclude(level=L4_PRESENTATION)`` would also drop NULL-level
     # rows under SQL three-valued-logic semantics (``NULL = 4`` is UNKNOWN,
@@ -129,15 +131,16 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
             artifact__workspace_id=context.workspace_id,
         )
         .filter(Q(level__isnull=True) | ~Q(level=RequirementLevel.L4_PRESENTATION))
-        .values("id", "artifact_id", "title", "status")
+        .values("id", "artifact_id", "title")
     )
     states = state_reader.current_states(
         "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
+    requirement_initial_state = state_reader.initial_state("Requirement")
     return {
         str(row["artifact_id"]): row["title"]
         for row in rows
-        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
 
 
@@ -146,11 +149,12 @@ def _active_stakeholder_need_ids(context: AuditContext) -> FrozenSet[str]:
 
     Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
     (``workflow.services.outdate()``, called from its ``delete()`` path) is
-    resolved through ``WorkflowItemState`` (batched), falling back to the
-    (now write-once, frozen-at-creation) ``status`` column only for a
-    StakeholderNeed never wired into one — the same fallback
+    resolved through ``WorkflowItemState`` (batched) — the same fallback
     :func:`_active_requirements` uses, needed for the same reason (no
-    backfill-migration guarantee). The now-legacy ``lifecycle_status`` field
+    backfill-migration guarantee). Task 12: the ``status`` column is dropped,
+    so a StakeholderNeed never wired into one falls back to the "draft"
+    preset initial state instead (documented, reviewed data-loss tradeoff,
+    see Task 12 report Finding 2). The now-legacy ``lifecycle_status`` field
     is never touched by ``outdate()`` either, so filtering on it here would
     silently treat a deleted StakeholderNeed as still active.
     """
@@ -158,15 +162,16 @@ def _active_stakeholder_need_ids(context: AuditContext) -> FrozenSet[str]:
         StakeholderNeed.unscoped.filter(
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
-        ).values("id", "artifact_id", "status")
+        ).values("id", "artifact_id")
     )
     states = state_reader.current_states(
         "StakeholderNeed", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
+    need_initial_state = state_reader.initial_state("StakeholderNeed")
     return frozenset(
         str(row["artifact_id"])
         for row in rows
-        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        if (states.get(str(row["id"])) or need_initial_state) != "outdated"
     )
 
 

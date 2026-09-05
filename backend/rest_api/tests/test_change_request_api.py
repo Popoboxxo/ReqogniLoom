@@ -65,8 +65,14 @@ def _make_auth_context(roles=("editor", "admin")):
 
 
 def _make_cr_orm(**kwargs) -> MagicMock:
-    """Return a MagicMock that looks like a ChangeRequest ORM instance."""
-    cr = MagicMock(spec=ChangeRequest)
+    """Return a MagicMock that looks like a ChangeRequest ORM instance.
+
+    Task 12: no longer ``spec=ChangeRequest`` -- the `status` column is
+    dropped, but `.status` here stands in for the engine-resolved,
+    in-memory-only value ChangeRequestService sets on real instances, which
+    a real spec would now reject.
+    """
+    cr = MagicMock()
     cr.id = uuid.UUID(kwargs.get("id", CR_ID))
     cr.workspace_id = uuid.UUID(kwargs.get("workspace_id", WS_ID))
     cr.tenant_id = uuid.UUID(TENANT_ID)

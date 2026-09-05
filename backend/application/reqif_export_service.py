@@ -21,7 +21,9 @@ SPEC-OBJECT-TYPEs (one per exported artifact type)
     ATTR-UID           <- {StakeholderNeed,Requirement}.uid
     ATTR-TITLE         <- .title
     ATTR-DESCRIPTION   <- .description
-    ATTR-STATUS        <- .status
+    ATTR-STATUS        <- workflow.state_reader.current_state(...) / .initial_state(...)
+                           (Task 12: the `status` column is dropped; resolved
+                           through the workflow engine, not a model field)
     ATTR-CATEGORY      <- .category
     ATTR-CUSTOM-FIELDS <- Artifact.custom_fields, JSON-serialised (sorted keys)
                            into a single opaque STRING attribute — see
@@ -553,13 +555,20 @@ class ReqifExportService(ServiceBase):
         )
         req_states = state_reader.current_states("Requirement", (req.id for req in reqs))
 
+        # Task 12: the ``status`` column is dropped, so an item with no
+        # WorkflowItemState falls back to its preset's initial state instead
+        # (documented, reviewed data-loss tradeoff, see Task 12 report
+        # Finding 2).
+        need_initial_state = state_reader.initial_state("StakeholderNeed")
+        req_initial_state = state_reader.initial_state("Requirement")
+
         for need in needs:
             exported_ids[need.artifact_id] = "StakeholderNeed"
             spec_objects.append(
                 cls._spec_object_from_need(
                     need,
                     custom_fields_by_id.get(need.artifact_id, {}),
-                    need_states.get(str(need.id)) or need.status,
+                    need_states.get(str(need.id)) or need_initial_state,
                 )
             )
 
@@ -569,7 +578,7 @@ class ReqifExportService(ServiceBase):
                 cls._spec_object_from_requirement(
                     req,
                     custom_fields_by_id.get(req.artifact_id, {}),
-                    req_states.get(str(req.id)) or req.status,
+                    req_states.get(str(req.id)) or req_initial_state,
                 )
             )
 
@@ -595,11 +604,17 @@ class ReqifExportService(ServiceBase):
         cls, need: Any, custom_fields: dict, status: str | None = None
     ) -> ReqIFSpecObject:
         _load_reqif()
+        from workflow import state_reader
+
         attributes = [
             cls._string_attr(_ATTR_UID, need.uid or ""),
             cls._string_attr(_ATTR_TITLE, need.title or ""),
             cls._string_attr(_ATTR_DESCRIPTION, need.description or ""),
-            cls._string_attr(_ATTR_STATUS, (status if status is not None else need.status) or ""),
+            cls._string_attr(
+                _ATTR_STATUS,
+                (status if status is not None else state_reader.initial_state("StakeholderNeed"))
+                or "",
+            ),
             cls._string_attr(_ATTR_CATEGORY, need.category or ""),
         ]
         if need.moscow_priority:
@@ -622,11 +637,17 @@ class ReqifExportService(ServiceBase):
         cls, req: Any, custom_fields: dict, status: str | None = None
     ) -> ReqIFSpecObject:
         _load_reqif()
+        from workflow import state_reader
+
         attributes = [
             cls._string_attr(_ATTR_UID, req.uid or ""),
             cls._string_attr(_ATTR_TITLE, req.title or ""),
             cls._string_attr(_ATTR_DESCRIPTION, req.description or ""),
-            cls._string_attr(_ATTR_STATUS, (status if status is not None else req.status) or ""),
+            cls._string_attr(
+                _ATTR_STATUS,
+                (status if status is not None else state_reader.initial_state("Requirement"))
+                or "",
+            ),
             cls._string_attr(_ATTR_CATEGORY, req.category or ""),
         ]
         if req.verification_method:

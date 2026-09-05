@@ -186,13 +186,29 @@ class TestTraceP1b:
         assert _findings(result, TRACE_P1B) == []
 
     def test_deleted_requirement_is_excluded(self, tenant_a, workspace_a):
-        """Requirement has a status mirror (Phase 0) — ``outdate()`` writes
-        ``status``, not the dead ``lifecycle_status`` column, so the fixture
-        must set the field the rule actually reads."""
+        """Task 12: the `status` column is dropped -- ``outdate()`` now only
+        writes a real WorkflowItemState, so the fixture must register one
+        (via the same real path) instead of setting a column."""
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-trace-p1-p2-p3"
+
         with active_tenant(tenant_a):
             art, req = _requirement(tenant_a, workspace_a, title="Deleted")
-            req.status = "outdated"
-            req.save(update_fields=["status"])
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
 
             result = _run("standard", workspace_a, tenant_a)
 

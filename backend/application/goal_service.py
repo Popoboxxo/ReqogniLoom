@@ -208,13 +208,16 @@ class GoalService(ServiceBase):
             "sequence_number": goal.sequence_number,
             "title": goal.title,
             "description": goal.description,
-            # Falls back to the still-present `status` column (model default,
-            # see above) when the engine has no WorkflowItemState row yet —
-            # e.g. workflow-init above was a silent no-op. Goal has no
-            # item-state backfill, so this is not a hypothetical case; several
-            # MCP tools (goal.create/goal.create_version) return this dict
-            # straight to the wire without a serializer fallback in between.
-            "status": state_reader.current_state("Goal", goal.id) or goal.status,
+            # Datenmodell-Konsolidierung Phase 1 (Task 12): the `status`
+            # column is dropped, so a Goal with no WorkflowItemState row yet
+            # (e.g. workflow-init above was a silent no-op) can no longer
+            # fall back to it — it reports the goal_default preset's initial
+            # state instead (documented, reviewed data-loss tradeoff, see
+            # Task 12 report Finding 2). Several MCP tools
+            # (goal.create/goal.create_version) return this dict straight to
+            # the wire without a serializer fallback in between.
+            "status": state_reader.current_state("Goal", goal.id)
+            or state_reader.initial_state("Goal"),
         }
 
     @staticmethod
@@ -271,8 +274,11 @@ class GoalService(ServiceBase):
             ).order_by("sequence_number")
         )
         # Batch-resolve status for the whole lineage in one query instead of
-        # one engine lookup per version (N+1 avoidance).
+        # one engine lookup per version (N+1 avoidance). Falls back to the
+        # goal_default preset's initial state (not the dropped `status`
+        # column, Task 12) for any version with no WorkflowItemState row.
         status_map = state_reader.current_states("Goal", [g.id for g in qs])
+        goal_initial_state = state_reader.initial_state("Goal")
         return [
             {
                 "id": str(g.id),
@@ -280,7 +286,7 @@ class GoalService(ServiceBase):
                 "sequence_number": g.sequence_number,
                 "label": f"v{g.sequence_number}",
                 "title": g.title,
-                "status": status_map.get(str(g.id)) or g.status,
+                "status": status_map.get(str(g.id)) or goal_initial_state,
                 "modified_at": g.created_at.isoformat() if g.created_at else None,
                 # Immutable per-version rows — content always retrievable (#213).
                 "content_available": True,
@@ -612,13 +618,17 @@ class GoalService(ServiceBase):
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine inside the same atomic transaction (mirrors
         # RiskService.transition_status) — no second service-level audit here.
-        goal.refresh_from_db(fields=["status", "version"])
-        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
-        # by the engine, so the refreshed column is stale immediately after a
-        # transition. In-memory-only correction (not persisted) so the
-        # returned instance's ``status`` reflects the real current state,
-        # same fallback convention as the read-side DTO builders above.
-        goal.status = state_reader.current_state("Goal", goal.id) or goal.status
+        goal.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): ``status`` is dropped,
+        # so it can no longer be refreshed or read as a fallback. In-memory-
+        # only correction (not persisted) so the returned instance's
+        # ``status`` reflects the real current state, same fallback
+        # convention as the read-side DTO builders above. The engine state is
+        # guaranteed to exist here (the transition above just succeeded), so
+        # ``state_reader.initial_state`` never actually triggers.
+        goal.status = state_reader.current_state(
+            "Goal", goal.id
+        ) or state_reader.initial_state("Goal")
         return goal
 
 

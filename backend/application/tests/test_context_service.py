@@ -172,7 +172,10 @@ def _link(tenant, source_artifact, target_artifact):
     )
 
 
-def _seed_risk(tenant, workspace, *, title: str, status: str):
+def _seed_risk(tenant, workspace, *, title: str):
+    """Task 12: no `status` kwarg -- the column is dropped. A freshly-seeded
+    risk has no WorkflowItemState either, so it starts "untracked" until a
+    caller (e.g. _close_via_engine) registers one."""
     from application.models import Risk
     from persistence.models import Artifact
 
@@ -182,12 +185,14 @@ def _seed_risk(tenant, workspace, *, title: str, status: str):
         workspace_id=workspace.id,
         tenant_id=tenant.id,
         title=title,
-        status=status,
     )
     return artifact, risk
 
 
-def _seed_issue(tenant, workspace, *, title: str, status: str):
+def _seed_issue(tenant, workspace, *, title: str):
+    """Task 12: no `status` kwarg -- the column is dropped. A freshly-seeded
+    issue has no WorkflowItemState either, so it starts "untracked" until a
+    caller (e.g. _close_via_engine) registers one."""
     from application.models import Issue
     from persistence.models import Artifact
 
@@ -197,7 +202,6 @@ def _seed_issue(tenant, workspace, *, title: str, status: str):
         workspace_id=workspace.id,
         tenant_id=tenant.id,
         title=title,
-        status=status,
     )
     return artifact, issue
 
@@ -236,15 +240,12 @@ class TestOpenRisksAndIssuesReadTheEngine:
 
         tenant, workspace, ctx = seed_workspace("cg-risk-engine")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-1")
-        risk_artifact, risk = _seed_risk(
-            tenant, workspace, title="Stale risk", status="Identified"
-        )
+        risk_artifact, risk = _seed_risk(tenant, workspace, title="Stale risk")
         _link(tenant, req.artifact, risk_artifact)
 
         try:
-            # The raw column still says "Identified" — only WorkflowItemState
-            # says "Closed" (exactly the post-mirror-deletion state of the
-            # world: the column is frozen at whatever it held at creation).
+            # Task 12: the `status` column is dropped entirely -- only
+            # WorkflowItemState can say "Closed" now.
             _close_via_engine(tenant, workspace, risk.id, "Risk", "risk_default", "Closed")
             result = _open_risks_for_artifact(req.artifact_id)
         finally:
@@ -257,9 +258,7 @@ class TestOpenRisksAndIssuesReadTheEngine:
 
         tenant, workspace, ctx = seed_workspace("cg-risk-open")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-2")
-        risk_artifact, risk = _seed_risk(
-            tenant, workspace, title="Open risk", status="Identified"
-        )
+        risk_artifact, risk = _seed_risk(tenant, workspace, title="Open risk")
         _link(tenant, req.artifact, risk_artifact)
 
         try:
@@ -273,16 +272,19 @@ class TestOpenRisksAndIssuesReadTheEngine:
         assert len(result) == 1
         assert result[0]["status"] == "Monitored"
 
-    def test_open_risks_falls_back_to_the_column_for_an_untracked_risk(self):
-        """No WorkflowItemState row at all (e.g. a pre-Phase-0 row) — the
-        function must not silently drop it, it must fall back to the column."""
+    def test_open_risks_falls_back_to_the_initial_state_for_an_untracked_risk(self):
+        """No WorkflowItemState row at all (e.g. a pre-Phase-0 row). Task 12:
+        the `status` column is dropped, so the function can no longer fall
+        back to a frozen legacy value -- it reports the risk_default
+        preset's initial state ("Identified") instead (documented, reviewed
+        data-loss tradeoff, see the Task 12 report Finding 2). "Identified"
+        is an open state, so the risk must not be silently dropped from the
+        open-risks list."""
         from application.context_service import _open_risks_for_artifact
 
         tenant, workspace, ctx = seed_workspace("cg-risk-untracked")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-3")
-        risk_artifact, risk = _seed_risk(
-            tenant, workspace, title="Untracked closed risk", status="Closed"
-        )
+        risk_artifact, risk = _seed_risk(tenant, workspace, title="Untracked risk")
         _link(tenant, req.artifact, risk_artifact)
 
         try:
@@ -290,16 +292,15 @@ class TestOpenRisksAndIssuesReadTheEngine:
         finally:
             _clear()
 
-        assert result == []
+        assert len(result) == 1
+        assert result[0]["status"] == "Identified"
 
     def test_open_issues_excludes_an_issue_closed_only_in_the_engine(self):
         from application.context_service import _open_issues_for_artifact
 
         tenant, workspace, ctx = seed_workspace("cg-issue-engine")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-ISSUE-1")
-        issue_artifact, issue = _seed_issue(
-            tenant, workspace, title="Stale issue", status="Open"
-        )
+        issue_artifact, issue = _seed_issue(tenant, workspace, title="Stale issue")
         _link(tenant, req.artifact, issue_artifact)
 
         try:

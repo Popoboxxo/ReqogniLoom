@@ -41,8 +41,13 @@ TENANT_ID = uuid.uuid4()
 
 
 def _make_adr(**kwargs):
-    """Return a MagicMock that looks like an Adr ORM instance."""
-    adr = MagicMock(spec=Adr)
+    """Return a MagicMock that looks like an Adr ORM instance.
+
+    Task 12: no longer ``spec=Adr`` -- the `status` column is dropped, but
+    `.status` here stands in for the engine-resolved, in-memory-only value
+    AdrService sets on real instances, which a real spec would now reject.
+    """
+    adr = MagicMock()
     adr.id = kwargs.get("id", ADR_ID)
     adr.workspace_id = kwargs.get("workspace_id", WS_ID)
     adr.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -532,7 +537,8 @@ class TestTransitionStatus:
         )
 
         assert updated.status == "In Review"
-        assert Adr.objects.get(id=adr.id).status == "Draft"  # column frozen
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------

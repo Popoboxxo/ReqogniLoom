@@ -280,6 +280,8 @@ def workspace_fixture(db):
             workspace=workspace,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- this suite exercises
+        # value-based field diffing, not status.
         requirement = Requirement.objects.create(
             id=uuid.uuid4(),
             tenant=tenant,
@@ -290,7 +292,6 @@ def workspace_fixture(db):
             description="Original description",
             acceptance_criteria="Original criteria",
             category="functional",
-            status="draft",
         )
         yield {
             "tenant": tenant,
@@ -300,6 +301,31 @@ def workspace_fixture(db):
         }
     finally:
         TenantContext.clear_tenant()
+
+
+def _seed_workflow_state(tenant_id, workspace_id, item_type: str, item_id, state: str) -> None:
+    """Wire *item_id* into the workflow engine at a specific, non-initial
+    *state* (Task 12: ``state_capture._engine_status`` -- the seam
+    ``capture_states`` reads -- resolves status via ``WorkflowItemState``,
+    not the dropped ``status`` column, so a captured "Freigegeben"-style
+    value has to come from a real row here rather than a create() kwarg).
+    """
+    from workflow.models import WorkflowEngineDefinition, WorkflowItemState
+
+    definition, _ = WorkflowEngineDefinition.objects.get_or_create(
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        item_type=item_type,
+        defaults={"preset": "standard", "workflow_json": {"states": [state], "transitions": []}},
+    )
+    WorkflowItemState.objects.create(
+        tenant_id=tenant_id,
+        item_id=item_id,
+        item_type=item_type,
+        workspace_id=workspace_id,
+        definition=definition,
+        current_state=state,
+    )
 
 
 def _build(name: str, fx) -> uuid.UUID:
@@ -523,7 +549,7 @@ class TestStateCaptureCompleteness:
             artifact_type="Goal",
         )
         lineage_id = uuid.uuid4()
-        Goal.objects.create(
+        goal = Goal.objects.create(
             id=uuid.uuid4(),
             artifact=goal_artifact,
             tenant_id=fx["tenant"].id,
@@ -532,8 +558,13 @@ class TestStateCaptureCompleteness:
             sequence_number=1,
             title="Reduce onboarding time",
             description="Cut new-user time-to-first-artifact below 10 minutes.",
-            status="Freigegeben",
         )
+        # Task 12: `status` column dropped -- the captured status now comes
+        # from a WorkflowItemState row (mirrors
+        # test_state_capture_status_seam.py's capture_fixture), not a
+        # column value, so "Freigegeben" (a non-initial state) has to be
+        # wired through the engine to be captured at all.
+        _seed_workflow_state(fx["tenant"].id, fx["workspace"].id, "Goal", goal.id, "Freigegeben")
 
         states = capture_states(
             [DeltaIndexTuple(item_id=str(goal_artifact.id), version=1)],
@@ -570,7 +601,7 @@ class TestStateCaptureCompleteness:
             workspace=fx["workspace"],
             artifact_type="MainGoal",
         )
-        MainGoal.objects.create(
+        main_goal = MainGoal.objects.create(
             id=uuid.uuid4(),
             artifact=mg_artifact,
             tenant_id=fx["tenant"].id,
@@ -579,7 +610,10 @@ class TestStateCaptureCompleteness:
             content="Deliver a self-service onboarding flow by Q4.",
             source="ai",
             generated_from_goal_ids=["11111111-1111-1111-1111-111111111111"],
-            status="Freigegeben",
+        )
+        # Task 12: see the identical comment in the Goal test above.
+        _seed_workflow_state(
+            fx["tenant"].id, fx["workspace"].id, "MainGoal", main_goal.id, "Freigegeben"
         )
 
         states = capture_states(

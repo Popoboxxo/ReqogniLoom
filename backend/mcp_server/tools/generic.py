@@ -15,6 +15,7 @@ from mcp_server.tools.base import (
     resolve_engine_status,
     resolve_status_map,
 )
+from workflow.state_reader import STATUS_TRACKED_ITEM_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -381,16 +382,25 @@ class GenericCrudToolGroup(BaseToolGroup):
         instead of the ORM row's own column -- Datenmodell-Konsolidierung
         Phase 1, mirrors
         ``rest_api.mixins.workflow_state.WorkflowStateSerializerMixin``.
+
+        Task 12: the ``status`` column is dropped from Adr/Risk/Issue/
+        ChangeRequest, so ``obj.__dict__`` (Django only populates it with
+        real fields) no longer carries a ``"status"`` key for them either --
+        detecting "does this item_type have a status concept" via ``"status"
+        in data`` would now silently and permanently omit the key from every
+        response for these four types instead of resolving it, since the key
+        would never be there to trigger the branch. Checking membership in
+        ``STATUS_TRACKED_ITEM_TYPES`` instead keeps the behaviour independent
+        of what columns still happen to exist on the model.
         """
         if hasattr(obj, "__dict__"):
             data = {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
             # Coerce non-JSON-serializable values (UUID/datetime/date/Decimal).
             data = {k: self._jsonify(v) for k, v in data.items()}
-            if "status" in data:
+            if self._item_type in STATUS_TRACKED_ITEM_TYPES:
                 data["status"] = resolve_engine_status(
                     self._item_type,
                     getattr(obj, "id", None),
-                    data["status"],
                     status_map=status_map,
                 )
             return data

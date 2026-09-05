@@ -117,7 +117,11 @@ def issue(auth_ctx, issue_workspace):
 
 
 def _make_issue(**kwargs):
-    issue = MagicMock(spec=Issue)
+    """Task 12: no longer ``spec=Issue`` -- the `status` column is dropped,
+    but `.status` here stands in for the engine-resolved, in-memory-only
+    value IssueService sets on real instances, which a real spec would now
+    reject."""
+    issue = MagicMock()
     issue.id = kwargs.get("id", ISSUE_ID)
     issue.workspace_id = kwargs.get("workspace_id", WS_ID)
     issue.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -594,7 +598,6 @@ class TestListIssuesMultiFilter:
             workspace_id=workspace_id,
             tenant_id=issue_tenant.id,
             title="Stale-column issue",
-            status="Open",
         )
 
         TenantContext.set_tenant(issue_tenant.id)
@@ -618,7 +621,8 @@ class TestListIssuesMultiFilter:
         finally:
             TenantContext.clear_tenant()
 
-        assert Issue.objects.get(id=issue.id).status == "Open"  # column frozen
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
         ctx = _make_ctx(tenant_id=issue_tenant.id)
         found = svc.list_issues_multi_filter(workspace_id, ctx, statuses=["Closed"])
@@ -727,7 +731,8 @@ class TestTransitionStatus:
         )
 
         assert updated.status == "In Progress"
-        assert Issue.objects.get(id=issue.id).status == "Open"  # column frozen
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------

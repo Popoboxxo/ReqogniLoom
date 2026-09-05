@@ -483,76 +483,18 @@ class TestUpdateRequirement:
         assert kw["entity_type"] == "Requirement"
 
 
-    def test_update_status_round_trip(self):
-        """Update requirement status and verify it persists (REQ-L3-RF003-002)."""
+    def test_update_status_kwarg_no_longer_accepted(self):
+        """Task 12: `status` is removed from update_requirement's signature
+        entirely -- the WorkflowEngine is the sole owner of Requirement
+        status (REQ-143), and the dropped column left the old low-level
+        escape hatch with nothing to write to. Supersedes
+        test_update_status_round_trip / test_update_status_none_leaves_status_unchanged
+        (REQ-L3-RF003-002), which exercised that now-removed parameter."""
         svc = RequirementService()
         ctx = _make_ctx()
-        mock_req = _make_requirement(status="draft")
 
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
-
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            result = svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, status="approved"
-            )
-
-        assert mock_req.status == "approved"
-        assert result is mock_req
-
-    def test_update_status_none_leaves_status_unchanged(self):
-        """When status is None, the existing status must not be modified."""
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement(status="review")
-
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
-
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, title="New Title"
-            )
-
-        assert mock_req.status == "review"
+        with pytest.raises(TypeError):
+            svc.update_requirement(requirement_id=REQ_ID, ctx=ctx, status="approved")
 
     def test_update_increments_version_atomically(self):
         """update_requirement atomically increments version via F() expression (REQ-L3-PL001-002).

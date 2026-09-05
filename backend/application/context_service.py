@@ -303,9 +303,11 @@ def _open_risks_for_artifact(artifact_id: UUID) -> List[dict]:
 
     Datenmodell-Konsolidierung Phase 1: the ``status`` column is no longer
     written by the workflow engine, so the current state is resolved through
-    ``workflow.state_reader`` (batched, one query for all linked risks) and
-    only falls back to the (now write-once, frozen-at-creation) column for a
-    Risk that was never wired into a WorkflowItemState.
+    ``workflow.state_reader`` (batched, one query for all linked risks). Task
+    12: the column is dropped, so a Risk that was never wired into a
+    WorkflowItemState falls back to the risk_default preset's initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2).
     """
     from application.models import Risk
     from traceability.services import query as tl_query
@@ -317,15 +319,16 @@ def _open_risks_for_artifact(artifact_id: UUID) -> List[dict]:
         return []
     rows = list(
         Risk.objects.filter(artifact_id__in=linked_ids).values(
-            "id", "title", "severity", "status"
+            "id", "title", "severity"
         )
     )
     if not rows:
         return []
     states = state_reader.current_states("Risk", (row["id"] for row in rows))
+    risk_initial_state = state_reader.initial_state("Risk")
     result = []
     for row in rows:
-        resolved_status = states.get(str(row["id"])) or row["status"]
+        resolved_status = states.get(str(row["id"])) or risk_initial_state
         if resolved_status == Risk.RiskStatus.CLOSED:
             continue
         result.append({**row, "status": resolved_status})
@@ -346,15 +349,20 @@ def _open_issues_for_artifact(artifact_id: UUID) -> List[dict]:
     terminal = {Issue.IssueStatus.CLOSED, Issue.IssueStatus.RESOLVED, Issue.IssueStatus.WONTFIX}
     rows = list(
         Issue.objects.filter(artifact_id__in=linked_ids).values(
-            "id", "title", "severity", "status"
+            "id", "title", "severity"
         )
     )
     if not rows:
         return []
     states = state_reader.current_states("Issue", (row["id"] for row in rows))
+    # Task 12: the ``status`` column is dropped, so an Issue that was never
+    # wired into a WorkflowItemState falls back to the issue_default
+    # preset's initial state instead (documented, reviewed data-loss
+    # tradeoff, see Task 12 report Finding 2).
+    issue_initial_state = state_reader.initial_state("Issue")
     result = []
     for row in rows:
-        resolved_status = states.get(str(row["id"])) or row["status"]
+        resolved_status = states.get(str(row["id"])) or issue_initial_state
         if resolved_status in terminal:
             continue
         result.append({**row, "status": resolved_status})

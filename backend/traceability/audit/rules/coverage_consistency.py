@@ -110,25 +110,28 @@ def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | No
     """Return ``{artifact_id: (title, level)}`` for active Requirements.
 
     Datenmodell-Konsolidierung Phase 1: "active" is resolved through
-    ``WorkflowItemState`` (batched), falling back to the (now write-once,
-    frozen-at-creation) ``status`` column only for a Requirement that was
-    never wired into a ``WorkflowItemState`` — same fallback convention as
-    the REST serializers / baseline capture, needed here because (unlike
+    ``WorkflowItemState`` (batched) — needed here because (unlike
     ArchitectureElement) Requirement has no backfill-migration guarantee.
+    Task 12: the ``status`` column is dropped, so a Requirement never wired
+    into a ``WorkflowItemState`` falls back to the "draft" preset initial
+    state instead (documented, reviewed data-loss tradeoff, see Task 12
+    report Finding 2); "draft" is never "outdated", so it is still counted
+    active.
     """
     rows = list(
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
-        ).values("id", "artifact_id", "title", "level", "status")
+        ).values("id", "artifact_id", "title", "level")
     )
     states = state_reader.current_states(
         "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
+    requirement_initial_state = state_reader.initial_state("Requirement")
     return {
         str(row["artifact_id"]): (row["title"], row["level"])
         for row in rows
-        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
 
 
@@ -170,19 +173,25 @@ def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     (deleting the only TestCase covering a leaf Requirement re-opens VERIF-P8
     instead of leaving the Requirement silently "covered").
     """
+    # Task 12: the ``status`` column is dropped, so a TestCase never wired
+    # into a ``WorkflowItemState`` falls back to the testcase_default
+    # preset's initial state instead (documented, reviewed data-loss
+    # tradeoff, see Task 12 report Finding 2); the initial state is never
+    # "outdated", so it is still counted active.
     rows = list(
         TestCase.unscoped.filter(
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
-        ).values("id", "artifact_id", "title", "status")
+        ).values("id", "artifact_id", "title")
     )
     states = state_reader.current_states(
         "TestCase", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
+    testcase_initial_state = state_reader.initial_state("TestCase")
     return {
         str(row["artifact_id"]): row["title"]
         for row in rows
-        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        if (states.get(str(row["id"])) or testcase_initial_state) != "outdated"
     }
 
 

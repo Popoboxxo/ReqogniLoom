@@ -521,15 +521,19 @@ class AdrService(ServiceBase):
             change_reason=change_reason or "",
             credential=credential or "",
         )
-        adr.refresh_from_db(fields=["status", "version"])
-        # Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
-        # ``status`` mirror (StateLifecycleManager._sync_status_mirror is
-        # deleted), so the refresh above reads the (now write-once,
-        # frozen-at-creation) column — correct the in-memory value (not
-        # persisted) so the returned Adr instance's ``.status`` reflects
-        # the real current state, same fallback convention as
-        # GoalService.transition_status.
-        adr.status = state_reader.current_state("Adr", adr.id) or adr.status
+        adr.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): the ``status`` column
+        # is dropped, so it can no longer be refreshed or read as a fallback.
+        # Set the in-memory (not persisted) ``.status`` from the engine so
+        # the returned Adr instance still exposes the real current state, same
+        # fallback convention as GoalService.transition_status. The engine
+        # state is guaranteed to exist here (the transition above just
+        # succeeded), so ``state_reader.initial_state`` never actually
+        # triggers for this call site — kept only for defensive symmetry with
+        # the other resolvers.
+        adr.status = state_reader.current_state("Adr", adr.id) or state_reader.initial_state(
+            "Adr"
+        )
 
         # REQ-L3-ADR-005: when an ADR is superseded, record which ADR replaced
         # it via a 'decides' TraceLink (new -> old). 'supersedes' is not a

@@ -45,7 +45,7 @@ from workflow.precondition_rules import (
     EC_VERIFICATION_EVIDENCE_MISSING,
     EC_VERIFIES_LINK_MISSING,
 )
-from workflow.services import create_default_workflow
+from workflow.services import create_default_workflow, outdate
 from workflow.transition_validator import (
     TransitionValidator,
     ValidationRequest,
@@ -58,6 +58,12 @@ pytestmark = pytest.mark.django_db
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
+
+class _SystemCtx:
+    """Minimal AuthContext stand-in -- outdate() only reads ``user_id``."""
+
+    user_id = "system:test-se-conformance-gates"
 
 
 @pytest.fixture(autouse=True)
@@ -696,9 +702,23 @@ class TestVerifiesLinkGate:
         )
         tc_art, tc = _approvable_testcase(tenant, extended_ws, "TC of a deleted Req")
         _verifies(tenant, tc_art, req.artifact)
+        # Task 12: the `status` column is dropped -- outdating a Requirement
+        # is now only representable through the engine (workflow.services
+        # .outdate), the same real path RequirementService.delete_requirement
+        # uses in production. This class's `extended_ws` fixture only
+        # provisions a TestCase workflow definition, so a Requirement one is
+        # provisioned here too (outdate()'s lazy-init needs a definition to
+        # create the WorkflowItemState row against).
+        _make_workflow(tenant, extended_ws, "standard", "Requirement")
         TenantContext.set_tenant(tenant.id)
         try:
-            Requirement.objects.filter(pk=req.pk).update(status="outdated")
+            outdate(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=extended_ws.id,
+                ctx=_SystemCtx(),
+                reason="test: simulate soft-deleted Requirement",
+            )
         finally:
             TenantContext.clear_tenant()
 

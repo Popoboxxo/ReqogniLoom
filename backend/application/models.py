@@ -270,9 +270,6 @@ class Adr(models.Model):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    status = models.CharField(
-        max_length=32, choices=Status.choices, default=Status.DRAFT
-    )
     version = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -281,7 +278,6 @@ class Adr(models.Model):
     class Meta:
         db_table = "as_adr"
         indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_adr_ws_status"),
             models.Index(fields=["tenant_id", "workspace_id"], name="idx_adr_tenant_ws"),
             models.Index(fields=["uid"], name="idx_adr_uid_btree"),
         ]
@@ -398,9 +394,6 @@ class Risk(models.Model):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    status = models.CharField(
-        max_length=32, choices=RiskStatus.choices, default=RiskStatus.IDENTIFIED
-    )
     version = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -409,7 +402,6 @@ class Risk(models.Model):
     class Meta:
         db_table = "as_risk"
         indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_risk_ws_status"),
             models.Index(fields=["tenant_id", "workspace_id"], name="idx_risk_tenant_ws"),
             models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
             models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
@@ -469,7 +461,6 @@ class Goal(models.Model):
     sequence_number = models.PositiveIntegerField()
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    status = models.CharField(max_length=50, default="Entwurf")
     version = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -479,7 +470,6 @@ class Goal(models.Model):
         db_table = "as_goal"
         indexes = [
             models.Index(fields=["workspace_id", "lineage_id"]),
-            models.Index(fields=["workspace_id", "status"]),
         ]
         ordering = ["lineage_id", "sequence_number"]
 
@@ -509,7 +499,6 @@ class MainGoal(models.Model):
         choices=[("ai", "AI"), ("manual", "Manual")],
     )
     generated_from_goal_ids = models.JSONField(default=list, blank=True)
-    status = models.CharField(max_length=50, default="Entwurf")
     version = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -518,7 +507,6 @@ class MainGoal(models.Model):
     class Meta:
         db_table = "as_main_goal"
         indexes = [
-            models.Index(fields=["workspace_id", "status"]),
             models.Index(fields=["workspace_id", "sequence_number"]),
         ]
         # SA-16 (Systemaudit 2026-08-27): the version number is derived with a
@@ -612,9 +600,6 @@ class Issue(models.Model):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    status = models.CharField(
-        max_length=32, choices=IssueStatus.choices, default=IssueStatus.OPEN
-    )
     version = models.IntegerField(default=1)
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -623,7 +608,6 @@ class Issue(models.Model):
     class Meta:
         db_table = "as_issue"
         indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_issue_ws_status"),
             models.Index(
                 fields=["workspace_id", "severity"], name="idx_issue_ws_severity"
             ),
@@ -672,11 +656,6 @@ class ChangeRequest(models.Model):
         blank=True,
         help_text="Reason for the change request (required for submit and reject transitions).",
     )
-    status = models.CharField(
-        max_length=32,
-        choices=Status.choices,
-        default=Status.DRAFT,
-    )
     requestor_id = models.UUIDField(
         null=True,
         blank=True,
@@ -715,7 +694,6 @@ class ChangeRequest(models.Model):
     class Meta:
         db_table = "as_change_request"
         indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_cr_ws_status"),
             models.Index(fields=["tenant_id", "workspace_id"], name="idx_cr_tenant_ws"),
             models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
         ]

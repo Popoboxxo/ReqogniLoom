@@ -52,7 +52,7 @@ def _goal_payload(
         "sequence_number": goal.sequence_number,
         "title": goal.title,
         "description": goal.description,
-        "status": resolve_engine_status("Goal", goal.id, goal.status, status_map=status_map),
+        "status": resolve_engine_status("Goal", goal.id, status_map=status_map),
     }
 
 
@@ -67,7 +67,7 @@ def _main_goal_payload(
         "content": main_goal.content,
         "source": main_goal.source,
         "status": resolve_engine_status(
-            "MainGoal", main_goal.id, main_goal.status, status_map=status_map
+            "MainGoal", main_goal.id, status_map=status_map
         ),
     }
 
@@ -487,7 +487,17 @@ class GoalToolGroup(BaseToolGroup):
                 "id": str(goal.id),
                 "lineage_id": str(goal.lineage_id),
                 "sequence_number": goal.sequence_number,
-                "status": resolve_engine_status("Goal", goal.id, goal.status),
+                # fallback=goal.status: GoalService.transition_status already
+                # resolves the post-transition state onto the returned
+                # instance in memory (same convention as
+                # InterviewService._get_session) -- a live re-query would
+                # normally agree, but the transition just committed in the
+                # same call, so this avoids a redundant DB round-trip and
+                # (per resolve_engine_status's fallback contract) is what
+                # keeps a mocked-service unit test meaningful at all.
+                "status": resolve_engine_status(
+                    "Goal", goal.id, getattr(goal, "status", None)
+                ),
             }
         )
 

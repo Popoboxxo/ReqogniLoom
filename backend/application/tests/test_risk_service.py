@@ -118,7 +118,11 @@ def risk(auth_ctx, risk_workspace):
 
 
 def _make_risk(**kwargs):
-    risk = MagicMock(spec=Risk)
+    """Task 12: no longer ``spec=Risk`` -- the `status` column is dropped,
+    but `.status` here stands in for the engine-resolved, in-memory-only
+    value RiskService sets on real instances, which a real spec would now
+    reject."""
+    risk = MagicMock()
     risk.id = kwargs.get("id", RISK_ID)
     risk.workspace_id = kwargs.get("workspace_id", WS_ID)
     risk.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -656,7 +660,8 @@ class TestTransitionStatus:
         )
 
         assert updated.status == "Monitored"
-        assert Risk.objects.get(id=risk.id).status == "Identified"  # column frozen
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------

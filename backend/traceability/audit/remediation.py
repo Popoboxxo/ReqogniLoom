@@ -223,10 +223,11 @@ def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenS
 
     Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
     (``workflow.services.outdate()``, called from its ``delete()`` path) is
-    resolved through ``WorkflowItemState`` (batched), falling back to the
-    (now write-once, frozen-at-creation) ``status`` column only for a row
-    never wired into one — no backfill-migration guarantee for this type.
-    The now-legacy ``lifecycle_status`` field is never touched by
+    resolved through ``WorkflowItemState`` (batched) — no backfill-migration
+    guarantee for this type. Task 12: the ``status`` column is dropped, so a
+    row never wired into one falls back to the "draft" preset initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2). The now-legacy ``lifecycle_status`` field is never touched by
     ``outdate()`` either, so filtering on it here would silently treat a
     deleted StakeholderNeed as still active.
     """
@@ -236,15 +237,16 @@ def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenS
     rows = list(
         StakeholderNeed.unscoped.filter(
             tenant_id=tenant_id, artifact__workspace_id=workspace_id
-        ).values("id", "artifact_id", "status")
+        ).values("id", "artifact_id")
     )
     states = state_reader.current_states(
         "StakeholderNeed", (row["id"] for row in rows), tenant_id=tenant_id
     )
+    need_initial_state = state_reader.initial_state("StakeholderNeed")
     return frozenset(
         str(row["artifact_id"])
         for row in rows
-        if (states.get(str(row["id"])) or row["status"]) != "outdated"
+        if (states.get(str(row["id"])) or need_initial_state) != "outdated"
     )
 
 

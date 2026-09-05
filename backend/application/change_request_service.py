@@ -102,10 +102,12 @@ class ChangeRequestDTO:
     def from_orm(cls, cr: ChangeRequest) -> "ChangeRequestDTO":
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
 
-        Falls back to the still-present ``status`` column when the engine has
-        no ``WorkflowItemState`` row for it (e.g. workflow init was skipped at
+        Task 12: the ``status`` column is dropped. Falls back to the
+        ``ccb_approval`` preset's initial state when the engine has no
+        ``WorkflowItemState`` row for it (e.g. workflow init was skipped at
         create time), or when no tenant context is active (e.g. a caller
-        building the DTO outside a request-scoped service call).
+        building the DTO outside a request-scoped service call). Documented,
+        reviewed data-loss tradeoff (see Task 12 report Finding 2).
         """
         try:
             engine_status = state_reader.current_state("ChangeRequest", cr.id)
@@ -119,7 +121,7 @@ class ChangeRequestDTO:
             description=cr.description,
             impact_assessment=cr.impact_assessment,
             change_reason=cr.change_reason,
-            status=engine_status or cr.status,
+            status=engine_status or state_reader.initial_state("ChangeRequest"),
             requestor_id=cr.requestor_id,
             assigned_reviewer_id=cr.assigned_reviewer_id,
             version=cr.version,
@@ -222,7 +224,6 @@ class ChangeRequestService(ServiceBase):
             description=description,
             impact_assessment=impact_assessment,
             change_reason=change_reason,
-            status=ChangeRequest.Status.DRAFT,
             requestor_id=requestor_id or ctx.user_id,
             assigned_reviewer_id=assigned_reviewer_id,
             created_by=str(ctx.user_id),

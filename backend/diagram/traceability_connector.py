@@ -199,10 +199,14 @@ def _resolve_target_artifact_id(
         obj = Requirement.objects.filter(id=ref_id).first()
         if obj is None:
             return None
-        # Datenmodell-Konsolidierung Phase 1: resolved through the engine,
-        # falling back to the (now write-once, frozen-at-creation) status
-        # column only for a row never wired into a WorkflowItemState.
-        current = state_reader.current_state("Requirement", obj.id) or obj.status
+        # Datenmodell-Konsolidierung Phase 1: resolved through the engine.
+        # Task 12: the ``status`` column is dropped -- a row never wired into
+        # a WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2). Never "outdated", so it still resolves.
+        current = state_reader.current_state(
+            "Requirement", obj.id
+        ) or state_reader.initial_state("Requirement")
         return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "TestCase":
@@ -212,7 +216,9 @@ def _resolve_target_artifact_id(
         obj = TestCase.objects.filter(id=ref_id).first()
         if obj is None:
             return None
-        current = state_reader.current_state("TestCase", obj.id) or obj.status
+        current = state_reader.current_state(
+            "TestCase", obj.id
+        ) or state_reader.initial_state("TestCase")
         return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "StakeholderNeed":
@@ -249,7 +255,13 @@ def _resolve_target_artifact_id(
         # through workflow.services.outdate(), which writes "outdated" (the
         # universal soft-delete state) — not the Adr.Status.DELETED enum
         # value this used to check, which no production write path ever set.
-        current = state_reader.current_state("Adr", obj.id) or obj.status
+        # Task 12: the ``status`` column is dropped -- an untracked row falls
+        # back to the adr_default preset's initial state instead (documented,
+        # reviewed data-loss tradeoff, see Task 12 report Finding 2). Never
+        # "outdated", so it still resolves.
+        current = state_reader.current_state(
+            "Adr", obj.id
+        ) or state_reader.initial_state("Adr")
         return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "Risk":

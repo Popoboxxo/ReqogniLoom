@@ -1398,16 +1398,22 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 row["artifact_id"]: row
                 for row in model.objects.filter(
                     artifact_id__in=artifact_ids
-                ).values("id", "artifact_id", "title", "status")
+                ).values("id", "artifact_id", "title")
             }
             states = state_reader.current_states(
                 type_name, (row["id"] for row in rows_by_artifact.values())
             )
+            # Task 12: the ``status`` column is dropped from the ``.values()``
+            # projection above -- a row never wired into a WorkflowItemState
+            # falls back to *type_name*'s preset initial state instead
+            # (documented, reviewed data-loss tradeoff, see Task 12 report
+            # Finding 2).
+            type_initial_state = state_reader.initial_state(type_name)
             for neighbor in neighbors:
                 row = rows_by_artifact.get(neighbor["artifact_id"])
                 if row is None:
                     continue
-                resolved_status = states.get(str(row["id"])) or row["status"]
+                resolved_status = states.get(str(row["id"])) or type_initial_state
                 resolved.append({
                     "id": str(row["id"]),
                     "entity_type": type_name,

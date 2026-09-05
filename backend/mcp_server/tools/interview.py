@@ -34,7 +34,7 @@ def _session_to_dict(session: Any, status_map: Optional[Dict[str, str]] = None) 
         "workspace_id": str(session.workspace_id),
         "artifact_type": session.artifact_type,
         "status": resolve_engine_status(
-            "Interview", session.id, session.status, status_map=status_map
+            "Interview", session.id, status_map=status_map
         ),
     }
 
@@ -315,7 +315,7 @@ class InterviewToolGroup(BaseToolGroup):
         if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
             return {
                 "session_id": str(session.id),
-                "status": resolve_engine_status("Interview", session.id, session.status),
+                "status": resolve_engine_status("Interview", session.id),
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,

@@ -43,19 +43,26 @@ def _session_to_dict(
 
     Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written by
     the workflow engine, so it must be resolved through
-    ``workflow.state_reader`` rather than the (now write-once,
-    frozen-at-creation) column. ``retrieve()`` hands this a *session* that
-    already went through ``InterviewService.get()`` ->
-    ``InterviewService._get_session()``, which resolves ``.status`` in
-    memory before returning -- no *status_map* needed there. ``list()``
-    iterates a raw queryset, so it passes a pre-batched *status_map*
-    (mirrors ``mcp_server.tools.interview._session_to_dict``/
+    ``workflow.state_reader``. Task 12: the column itself is dropped.
+    ``retrieve()`` hands this a *session* that already went through
+    ``InterviewService.get()`` -> ``InterviewService._get_session()``, which
+    resolves ``.status`` in memory before returning -- no *status_map* needed
+    there. ``list()`` iterates a raw queryset, so it passes a pre-batched
+    *status_map* (mirrors ``mcp_server.tools.interview._session_to_dict``/
     ``resolve_engine_status`` — same seam, REST just resolves it inline
-    instead of importing the MCP-layer helper).
+    instead of importing the MCP-layer helper); ``session.status`` is never
+    read in that branch, since a raw queryset row (unlike the
+    ``_get_session()`` case) has no in-memory value to read -- it would raise
+    ``AttributeError`` now that the column is gone.
     """
-    resolved_status = session.status
     if status_map is not None:
-        resolved_status = status_map.get(str(session.id)) or session.status
+        from workflow import state_reader
+
+        resolved_status = status_map.get(str(session.id)) or state_reader.initial_state(
+            "Interview"
+        )
+    else:
+        resolved_status = session.status
     return {
         "id": str(session.id),
         "workspace_id": str(session.workspace_id),
@@ -103,9 +110,18 @@ def _started_session_state(ctx: Any, session: Any) -> "dict[str, Any]":
     # "multi" is the stable DB-choice value InterviewSession.SESSION_KIND_MULTI
     # stores -- same literal the REST callers send as session_kind.
     if session.session_kind == "multi":
+        # Task 12: *session* here is the bare object InterviewService.start()
+        # just created, not one resolved through _get_session() -- it has no
+        # in-memory ``.status`` to read (the column is dropped), so resolve
+        # via the engine directly, same fallback as InterviewService._get_session.
+        from workflow import state_reader
+
+        resolved_status = state_reader.current_state(
+            "Interview", session.id
+        ) or state_reader.initial_state("Interview")
         return {
             "id": str(session.id),
-            "status": session.status,
+            "status": resolved_status,
             "collected_fields": session.collected_fields,
             "grounding_snapshot": session.grounding_snapshot,
             "transcript": session.transcript,

@@ -454,13 +454,15 @@ class MainGoalService(ServiceBase):
             "sequence_number": main_goal.sequence_number,
             "content": main_goal.content,
             "source": main_goal.source,
-            # Falls back to the still-present `status` column (model default,
-            # see above) when the engine has no WorkflowItemState row yet.
-            # MainGoal has no item-state backfill, and the MCP
-            # main_goal.create_manual tool returns this dict straight to the
-            # wire without a serializer fallback in between.
+            # Datenmodell-Konsolidierung Phase 1 (Task 12): the `status`
+            # column is dropped, so a MainGoal with no WorkflowItemState row
+            # yet reports the main_goal_default preset's initial state
+            # instead (documented, reviewed data-loss tradeoff, see Task 12
+            # report Finding 2). The MCP main_goal.create_manual tool returns
+            # this dict straight to the wire without a serializer fallback in
+            # between.
             "status": state_reader.current_state("MainGoal", main_goal.id)
-            or main_goal.status,
+            or state_reader.initial_state("MainGoal"),
             "generated_from_goal_ids": list(main_goal.generated_from_goal_ids),
         }
 
@@ -527,7 +529,7 @@ class MainGoalService(ServiceBase):
             item_type="MainGoal",
             workspace_id=main_goal.workspace_id,
         )
-        main_goal.refresh_from_db(fields=["status", "version"])
+        main_goal.refresh_from_db(fields=["version"])
 
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the
@@ -537,12 +539,14 @@ class MainGoalService(ServiceBase):
         return {
             "id": str(main_goal.id),
             "sequence_number": main_goal.sequence_number,
-            # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer
-            # written by the engine — resolve the real current state instead
-            # of the (now stale) refreshed column, same fallback convention
-            # as the read-side DTO builder above.
+            # Datenmodell-Konsolidierung Phase 1 (Task 12): ``status`` is
+            # dropped — resolve the real current state via the engine, same
+            # fallback convention as the read-side DTO builder above. The
+            # engine state is guaranteed to exist here (the transition above
+            # just succeeded), so ``state_reader.initial_state`` never
+            # actually triggers.
             "status": state_reader.current_state("MainGoal", main_goal.id)
-            or main_goal.status,
+            or state_reader.initial_state("MainGoal"),
         }
 
     # ---------- Read ----------
@@ -618,8 +622,11 @@ class MainGoalService(ServiceBase):
             ).order_by("sequence_number")
         )
         # Batch-resolve status for all versions in one query instead of one
-        # engine lookup per version (N+1 avoidance).
+        # engine lookup per version (N+1 avoidance). Falls back to the
+        # main_goal_default preset's initial state (not the dropped `status`
+        # column, Task 12) for any version with no WorkflowItemState row.
         status_map = state_reader.current_states("MainGoal", [mg.id for mg in qs])
+        main_goal_initial_state = state_reader.initial_state("MainGoal")
         return [
             {
                 "id": str(mg.id),
@@ -628,7 +635,7 @@ class MainGoalService(ServiceBase):
                 "label": f"v{mg.sequence_number}",
                 "content": mg.content,
                 "source": mg.source,
-                "status": status_map.get(str(mg.id)) or mg.status,
+                "status": status_map.get(str(mg.id)) or main_goal_initial_state,
                 "modified_at": mg.created_at.isoformat() if mg.created_at else None,
                 # Immutable per-version rows — content always retrievable (#213).
                 "content_available": True,

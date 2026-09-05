@@ -47,8 +47,16 @@ USER_ID = uuid.uuid4()
 
 
 def _make_cr(**kwargs):
-    """Return a MagicMock that looks like a ChangeRequest ORM instance."""
-    cr = MagicMock(spec=ChangeRequest)
+    """Return a MagicMock that looks like a ChangeRequest ORM instance.
+
+    Task 12: no longer ``spec=ChangeRequest`` -- the `status` column is
+    dropped from the real model, but `.status` here stands in for the
+    engine-resolved, in-memory-only value ``ChangeRequestService`` sets on
+    real instances (state_reader.current_state(...) or
+    state_reader.initial_state(...)), which a real spec would now reject as
+    an unknown attribute.
+    """
+    cr = MagicMock()
     cr.id = kwargs.get("id", CR_ID)
     cr.workspace_id = kwargs.get("workspace_id", WS_ID)
     cr.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -149,7 +157,11 @@ class TestCreateChangeRequest:
         assert call_kwargs["title"] == "Upgrade auth system"
         assert call_kwargs["workspace_id"] == WS_ID
         assert call_kwargs["tenant_id"] == TENANT_ID
-        assert call_kwargs["status"] == ChangeRequest.Status.DRAFT
+        # Task 12: the `status` column is dropped -- create_change_request()
+        # no longer passes it to ChangeRequest.objects.create() at all (the
+        # initial state comes solely from WorkflowItemState, seeded by
+        # initialize_workflow_states() below).
+        assert "status" not in call_kwargs
 
     def test_create_validates_title(self):
         svc = ChangeRequestService()
@@ -768,9 +780,9 @@ class TestCcbStates:
         assert CCB_STATES == expected
 
     def test_initial_state_is_draft(self):
-        cr = ChangeRequest(
-            workspace_id=WS_ID,
-            tenant_id=TENANT_ID,
-            title="Test CR",
-        )
-        assert cr.status == "draft"
+        """Task 12: the `status` column (and its model-level default) is
+        dropped -- the initial state now lives solely in the ccb_approval
+        workflow definition."""
+        from workflow import state_reader
+
+        assert state_reader.initial_state("ChangeRequest") == "draft"
