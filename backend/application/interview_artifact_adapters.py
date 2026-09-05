@@ -10,10 +10,11 @@ Contract (Task 3): ``CreatedArtifactRef.artifact_id`` is ALWAYS the
 ``InterviewSessionArtifact.artifact`` and ``TraceLink`` endpoints. Subtype
 rows (Requirement, StakeholderNeed, Risk, ...) carry their own row id next to
 the artifact FK, so adapters normalize ``obj.artifact_id``/``dto.artifact_id``
-rather than the subtype id. The registry therefore covers all 8 in-scope
-types plus explicit GlossaryTerm rejection: GlossaryTerm has no Artifact
-backing row yet and is rejected with a clear ValidationError instead of
-writing an unresolvable FK.
+rather than the subtype id. The registry covers all 9 in-scope types,
+including GlossaryTerm: Datenmodell-Konsolidierung Phase 3 gave GlossaryTerm
+a backing Artifact row (see ``persistence.artifact_backing.ensure_artifact``
+and ``GlossaryService.create``), closing the gap that used to make this
+adapter reject every proposal with a ValidationError.
 """
 from __future__ import annotations
 
@@ -23,7 +24,6 @@ from uuid import UUID
 
 from application.adr_service import AdrService
 from application.architecture_service import ArchitectureService
-from application.base import ValidationError
 from application.glossary_service import GlossaryService
 from application.goal_service import GoalService
 from application.issue_service import IssueService
@@ -32,6 +32,7 @@ from application.risk_service import RiskService
 from application.stakeholder_need_service import StakeholderNeedService
 from application.test_service import TestService
 from auth_tenancy.context import AuthContext
+from persistence.models import GlossaryTerm
 
 
 @dataclass(frozen=True)
@@ -106,14 +107,21 @@ def _goal(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
 
 
 def _glossary_term(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
-    # GlossaryTerm has NO Artifact backing row (see persistence.models.GlossaryTerm),
-    # so neither an InterviewSessionArtifact provenance row nor a TraceLink
-    # endpoint can reference it. Fail fast here rather than letting a deferred
-    # ForeignKey IntegrityError roll back the whole batch at commit time.
-    raise ValidationError(
-        "GlossaryTerm is not Artifact-backed yet and cannot be created by a "
-        "multi-artifact interview"
+    # Datenmodell-Konsolidierung Phase 3: GlossaryTerm gained a backing
+    # Artifact row (spec §4), so the historical refusal no longer applies.
+    dto = GlossaryService().create(
+        ctx=ctx,
+        workspace_id=workspace_id,
+        term=fields["term"],
+        definition=fields.get("definition", ""),
+        synonyms=fields.get("synonyms"),
+        abbreviation=fields.get("abbreviation", ""),
     )
+    # GlossaryTermDTO (unlike the sibling DTOs/ORM objects above) does not
+    # expose artifact_id -- look it up directly. ensure_artifact() already
+    # populated the FK inside GlossaryService.create()'s own transaction.
+    artifact_id = GlossaryTerm.objects.values_list("artifact_id", flat=True).get(pk=dto.id)
+    return CreatedArtifactRef(artifact_id=artifact_id, artifact_type="GlossaryTerm")
 
 
 ARTIFACT_CREATION_ADAPTERS: Dict[str, Callable[[dict, AuthContext, Any], CreatedArtifactRef]] = {
