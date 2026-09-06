@@ -893,6 +893,54 @@ class Artifact(TenantScopedModel):
         return f"{self.artifact_type}:{self.id}"
 
 
+class ArtifactVersion(TenantScopedModel):
+    """Immutable content snapshot of an Artifact at one revision.
+
+    Datenmodell-Konsolidierung Phase 5 (spec §6, Decision D-4). The single
+    content-history store for every artifact type, replacing DiagramVersion,
+    IcdVersion and GlossaryTermVersion.
+
+    ``revision`` is a real revision number (1, 2, 3, …), deliberately distinct
+    from ``AuditableModel.version``, which is an optimistic-lock counter and
+    carries no history (issue #213). Rows are append-only: no service method
+    issues UPDATE or DELETE against this table.
+
+    ``payload`` is the full field snapshot as written, not a delta. Diffs are
+    computed on read (``ArtifactDiffService``), so a stored snapshot never has
+    to be replayed through a chain to be readable — which is what made the
+    three legacy version tables usable and the audit log not.
+    """
+
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.CASCADE,
+        related_name="revisions",
+    )
+    revision = models.PositiveIntegerField()
+    payload = models.JSONField(
+        default=dict,
+        help_text="Full field snapshot of the artifact at this revision.",
+    )
+    change_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "pl_artifact_version"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["artifact", "revision"],
+                name="uq_artifact_version_revision",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["artifact", "revision"], name="idx_artifactversion_hist"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.artifact_id}:r{self.revision}"
+
+
 class StakeholderNeed(TenantScopedModel):
     """Stakeholder Need entity derived from an artifact.
     
