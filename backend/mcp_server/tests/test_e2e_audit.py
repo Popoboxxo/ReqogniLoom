@@ -319,13 +319,14 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
             tenant=workspace.tenant,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- a fresh Requirement's engine
+        # state already starts at "draft" (every rigor preset's states[0]).
         return Requirement.unscoped.create(
             tenant=workspace.tenant,
             artifact=artifact,
             title=title,
             description="seeded for audit test",
             category="functional",
-            status="draft",
         )
     finally:
         clear_request_tenant()
@@ -341,12 +342,13 @@ def _seed_stakeholder_need(
             tenant=workspace.tenant,
             artifact_type="StakeholderNeed",
         )
+        # Task 12: `status` column dropped -- need_default's initial state is
+        # also "draft" (see workflow/definition_store.py PRESET_SCHEMAS).
         return StakeholderNeed.unscoped.create(
             tenant=workspace.tenant,
             artifact=artifact,
             title=title,
             description="seeded for audit test",
-            status="draft",
         )
     finally:
         clear_request_tenant()

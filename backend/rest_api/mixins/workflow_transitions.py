@@ -33,7 +33,6 @@ from application.services import (
     WorkflowFacade,
 )
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
 
 #: Keys that are never writable through PATCH on any entity, whether or not the
 #: serializer happens to declare them (#269, finding 5). ``workspace_id`` is a
@@ -147,6 +146,12 @@ class WorkflowTransitionsMixin:
                signature gates enforced) and returns the new state envelope,
                optionally with the refreshed entity embedded.
         """
+        # Imported lazily to avoid a circular import: rest_api.serializers now
+        # imports WorkflowStateSerializerMixin from this package at module
+        # load time (Datenmodell-Konsolidierung), so a top-level import here
+        # would run before rest_api.serializers finishes initializing.
+        from rest_api.serializers import build_error_response, detect_lang
+
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -249,6 +254,8 @@ class WorkflowTransitionsMixin:
             403 without the write role,
             404 when the item does not exist.
         """
+        from rest_api.serializers import build_error_response, detect_lang  # see transitions()
+
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -292,6 +299,8 @@ class WorkflowTransitionsMixin:
         the transition was signature-sealed. The seal value itself is never
         exposed — only a ``sealed`` boolean.
         """
+        from rest_api.serializers import build_error_response, detect_lang  # see transitions()
+
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -374,6 +383,8 @@ class WorkflowTransitionsMixin:
             ``version`` although nothing was written. Rejecting it keeps
             ``version`` an honest change counter.
         """
+        from rest_api.serializers import build_error_response  # see transitions()
+
         data = request.data
         if not isinstance(data, dict):
             return None

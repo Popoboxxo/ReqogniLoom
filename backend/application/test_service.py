@@ -38,6 +38,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -120,6 +121,12 @@ class TestService(ServiceBase):
         # We tag the artifact_type with test_type for differentiation
         artifact.artifact_type = f"TestCase:{test_type}"
         artifact.save(update_fields=["artifact_type"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_test_case takes no change_reason.
+        ArtifactVersionService().record(
+            test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+        )
 
         # Initialise workflow state
         try:
@@ -208,6 +215,12 @@ class TestService(ServiceBase):
         if has_field_changes(test_case, _before) or _custom_fields_changed:
             TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
             test_case.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            # update_test_case takes no change_reason.
+            ArtifactVersionService().record(
+                test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+            )
 
         self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
         self._emit_event(
@@ -321,9 +334,10 @@ class TestService(ServiceBase):
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
 
         REQ-006: Excludes outdated (soft-deleted) test cases by default. Pass
-        ``include_deleted=True`` for admin/audit access. ``TestCase`` is
-        registered in ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``,
-        so outdate() mirrors the "outdated" state into the `status` column.
+        ``include_deleted=True`` for admin/audit access. Datenmodell-
+        Konsolidierung Phase 4 (D-3): the exclusion reads the
+        ``Artifact.lifecycle_status`` flag via
+        ``workflow.services.outdated_item_ids``.
 
         Issue #267 (same root cause as RequirementService.list_requirements):
         ``search`` case-insensitively filters on title/description/uid via
@@ -337,7 +351,15 @@ class TestService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
+            # Artifact.lifecycle_status flag, not a workflow state --
+            # outdate() stopped writing the state, so
+            # state_reader.item_ids_in_state would match nothing here.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(
+                id__in=outdated_item_ids("TestCase", tenant_id=ctx.tenant_id)
+            )
         if test_type is not None:
             qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
         if search:

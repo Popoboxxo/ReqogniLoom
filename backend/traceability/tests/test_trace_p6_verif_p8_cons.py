@@ -115,7 +115,9 @@ class TestTraceP6:
         """
         with active_tenant(tenant_a):
             tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Deleted TC")
-            TestCase.objects.filter(pk=tc.pk).update(status="outdated")
+            # Task 12: the `status` column is dropped -- "outdated" can only
+            # be represented by a real WorkflowItemState row now.
+            _set_workflow_state(tenant_a, workspace_a, "TestCase", tc.id, "outdated")
 
             result = _run(tenant_a, workspace_a, tier="standard")
 
@@ -135,7 +137,9 @@ class TestTraceP6:
             req_artifact, _ = make_requirement(tenant_a, workspace_a, title="Leaf Req")
             tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Deleted TC")
             make_trace_link(tc_artifact, req_artifact, tenant_a, "verifies")
-            TestCase.objects.filter(pk=tc.pk).update(status="outdated")
+            # Task 12: the `status` column is dropped -- "outdated" can only
+            # be represented by a real WorkflowItemState row now.
+            _set_workflow_state(tenant_a, workspace_a, "TestCase", tc.id, "outdated")
 
             result = _run(tenant_a, workspace_a, tier="extended")
 

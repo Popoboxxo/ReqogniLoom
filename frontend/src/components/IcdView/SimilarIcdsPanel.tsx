@@ -184,7 +184,7 @@ export function SimilarIcdsPanel({
           }}
         >
           {state.results.map((hit) => (
-            <li key={hit.version_id}>
+            <li key={hit.icd_id}>
               <button
                 type="button"
                 data-testid={`similar-icd-result-${hit.icd_id}`}

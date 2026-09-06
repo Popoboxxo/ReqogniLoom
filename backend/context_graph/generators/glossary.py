@@ -62,6 +62,9 @@ def _title_for_artifact(artifact_id: UUID) -> str:
         row = Adr.objects.filter(artifact_id=artifact_id).values("title").first()
         if row is not None:
             return row["title"] or ""
+    # Datenmodell-Konsolidierung Phase 2: Adr.objects is tenant-scoped now, so
+    # a missing TenantContext also lands here and degrades to a blank title
+    # rather than raising. Same exposure the persistence models above have.
     except Exception:  # noqa: BLE001 — Adr model absent in some test configs
         pass
 
@@ -93,6 +96,9 @@ def _title_lookup_for_workspace(workspace_id: UUID, exclude_artifact_id: UUID) -
         ):
             if row["title"]:
                 titles[row["artifact_id"]] = row["title"]
+    # Datenmodell-Konsolidierung Phase 2: Adr.objects is tenant-scoped now, so
+    # a missing TenantContext also lands here and degrades to a blank title
+    # rather than raising. Same exposure the persistence models above have.
     except Exception:  # noqa: BLE001 — Adr model absent in some test configs
         pass
 

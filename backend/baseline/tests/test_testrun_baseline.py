@@ -386,8 +386,9 @@ class TestStateCaptureTestRuns:
             mock_art.artifact_type = "generic"
             # Issue #398: the Artifact header now also carries custom_fields
             # and parent_id, which are captured for every artifact-backed item.
+            # Task 24: lifecycle_status rides along in the same query too.
             MockArt.unscoped.filter.return_value.values_list.return_value = [
-                (art_id, "generic", {"rationale": "kept"}, None)
+                (art_id, "generic", {"rationale": "kept"}, None, "active")
             ]
             MockReq.unscoped.filter.return_value = []
             MockAE.unscoped.filter.return_value = []

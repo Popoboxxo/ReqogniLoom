@@ -615,10 +615,12 @@ class TestGetArchitectureElement:
                 "application.architecture_service.ArchitectureElement.objects.select_related",
                 return_value=mock_qs,
             ),
-            patch(
-                "workflow.models.WorkflowItemState.objects.filter",
-                return_value=MagicMock(values_list=MagicMock(return_value=[])),
-            ),
+            # Phase 4 (D-3): the exclusion reads Artifact.lifecycle_status via
+            # outdated_item_ids, not WorkflowItemState. Patched at the seam
+            # (as the sibling tests above already do) rather than at whichever
+            # table currently backs it — with _set_tenant_context mocked out,
+            # letting the real query run would raise TenantContextNotSetError.
+            patch("workflow.services.outdated_item_ids", return_value=[]),
         ):
             result = svc.list_architecture_elements(WS_ID, ctx)
 
@@ -1667,10 +1669,17 @@ class TestListArchitectureElementsExcludesOutdated:
 
         svc.delete_architecture_element(arch_el_id=deleted.id, ctx=arch_outdate_ctx)
 
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved.
+        from persistence.models import Artifact
+
+        assert (
+            Artifact.objects.get(pk=deleted.artifact_id).lifecycle_status == "outdated"
+        )
         item_state = WorkflowItemState.objects.get(
             item_id=deleted.id, item_type="ArchitectureElement"
         )
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
         elements = svc.list_architecture_elements(
             workspace_id=arch_outdate_workspace.id, ctx=arch_outdate_ctx

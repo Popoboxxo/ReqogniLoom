@@ -45,6 +45,7 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from workflow import state_reader
 
 pytestmark = pytest.mark.django_db
 
@@ -124,7 +125,6 @@ def _multi_session(tenant: Tenant, ws: Workspace) -> InterviewSession:
             workspace=ws,
             artifact_type=None,
             session_kind=InterviewSession.SESSION_KIND_MULTI,
-            status=InterviewSession.STATUS_IN_PROGRESS,
         )
 
 
@@ -157,8 +157,12 @@ class TestFormalizeMulti:
             assert InterviewSessionArtifact.objects.filter(session=session).count() == 2
             # The proposed derives-from edge (Req B -> Need A) was really created.
             assert TraceLink.objects.filter(link_type="derives-from").count() == 1
-            session.refresh_from_db()
-            assert session.status == InterviewSession.STATUS_COMPLETED
+            # Task 12: the `status` column is dropped, and this fixture's
+            # workspace has no provisioned Interview definition, so
+            # completion is only verifiable via the service response above
+            # (`result["status"]`) -- there is no WorkflowItemState/column
+            # left to independently re-check on a fresh re-fetch (documented,
+            # reviewed data-loss tradeoff, see the Task 12 report Finding 2).
 
     def test_rollback_on_error_in_third_item(
         self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
@@ -179,8 +183,14 @@ class TestFormalizeMulti:
         with _active(tenant):
             assert Requirement.objects.filter(title="Req B").count() == 0
             assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
-            session.refresh_from_db()
-            assert session.status == InterviewSession.STATUS_IN_PROGRESS
+            # Task 12: the `status` column is dropped -- resolve through the
+            # engine seam (falls back to the interview_default initial state
+            # for this definition-less fixture, which is "in_progress"
+            # anyway since no transition occurred).
+            resolved = state_reader.current_state(
+                "Interview", session.id
+            ) or state_reader.initial_state("Interview")
+            assert resolved == InterviewSession.STATUS_IN_PROGRESS
 
     def test_rejects_item_without_fields_dict(
         self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
@@ -194,8 +204,14 @@ class TestFormalizeMulti:
 
         with _active(tenant):
             assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
-            session.refresh_from_db()
-            assert session.status == InterviewSession.STATUS_IN_PROGRESS
+            # Task 12: the `status` column is dropped -- resolve through the
+            # engine seam (falls back to the interview_default initial state
+            # for this definition-less fixture, which is "in_progress"
+            # anyway since no transition occurred).
+            resolved = state_reader.current_state(
+                "Interview", session.id
+            ) or state_reader.initial_state("Interview")
+            assert resolved == InterviewSession.STATUS_IN_PROGRESS
 
     def test_rejects_out_of_range_link_index(
         self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
@@ -218,8 +234,14 @@ class TestFormalizeMulti:
         with _active(tenant):
             assert Requirement.objects.filter(title="Req B").count() == 0
             assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
-            session.refresh_from_db()
-            assert session.status == InterviewSession.STATUS_IN_PROGRESS
+            # Task 12: the `status` column is dropped -- resolve through the
+            # engine seam (falls back to the interview_default initial state
+            # for this definition-less fixture, which is "in_progress"
+            # anyway since no transition occurred).
+            resolved = state_reader.current_state(
+                "Interview", session.id
+            ) or state_reader.initial_state("Interview")
+            assert resolved == InterviewSession.STATUS_IN_PROGRESS
 
     def test_viewer_cannot_formalize_multi(
         self, tenant: Tenant, workspace: Workspace, viewer_ctx: AuthContext
@@ -278,7 +300,6 @@ class TestFormalizeMulti:
                 workspace=workspace,
                 artifact_type="Requirement",
                 session_kind=InterviewSession.SESSION_KIND_SINGLE,
-                status=InterviewSession.STATUS_IN_PROGRESS,
                 collected_fields={"title": "Solo requirement", "rationale": "Because"},
             )
         result = InterviewService().formalize(editor_ctx, session.id)

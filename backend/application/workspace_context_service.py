@@ -9,18 +9,18 @@ Historically the queries lived inline in ``mcp_server/tools/cross_cutting.py``,
 which broke ADR-01's Single-Entry-Point rule: the MCP transport layer talked to
 the ORM directly, so the same aggregation could not be reused by the REST layer
 and was invisible to the architecture ratchet. This module is that code moved
-down a layer, unchanged — same querysets, same field aliases, same
-outdated-exclusion semantics, same return shapes.
+down a layer, same field aliases, same return shapes.
 
-Two different "outdated" exclusion mechanisms are in play, and both are
-preserved verbatim because they are *not* interchangeable:
-
-* ``Requirement`` and ``TestCase`` carry a denormalized ``status`` mirror
-  column, so ``"outdated"`` is excluded with ``.exclude(status="outdated")``.
-* ``ArchitectureElement`` does **not** — its ``lifecycle_status`` column is
-  dead (``outdate()`` never writes it). The real state lives only in
-  ``WorkflowItemState``, so it is resolved via
-  ``workflow.services.outdated_item_ids()``.
+Datenmodell-Konsolidierung Phase 1: every entity type here is resolved the
+same way — through ``workflow.state_reader.current_states`` (batched, one
+query per entity type regardless of row count), falling back to the row's own
+(now write-once, frozen-at-creation) ``status``/``lifecycle_status`` column
+only for an item that was never wired into a ``WorkflowItemState`` (matches
+the fallback convention established in the REST serializers / baseline
+capture). Before this, ``Requirement``/``TestCase`` read a denormalized
+``status`` mirror column directly while ``ArchitectureElement`` already went
+through ``workflow.services.outdated_item_ids()`` — that asymmetry is gone
+now that the mirror is no longer written.
 
 Every function sets the tenant context itself rather than relying on the caller
 having done so, which is the ``ServiceBase._set_tenant_context`` convention.
@@ -76,16 +76,31 @@ def count_open_requirements(
         The count of open requirements.
     """
     from persistence.models import Requirement
+    from workflow import state_reader
     from workflow.services import terminal_positive_states
 
     _set_tenant(tenant_id)
     done_states = terminal_positive_states(workspace_id, "Requirement")
-    qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-    if done_states:
-        qs = qs.exclude(status__in=done_states)
-    if not include_outdated:
-        qs = qs.exclude(status="outdated")
-    return qs.count()
+    rows = list(
+        Requirement.objects.filter(artifact__workspace_id=workspace_id).values("id")
+    )
+    if not rows:
+        return 0
+    states = state_reader.current_states("Requirement", (row["id"] for row in rows))
+    # Task 12: the ``status`` column is dropped, so a row never wired into a
+    # WorkflowItemState falls back to the "draft" preset initial state
+    # instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    # Finding 2).
+    requirement_initial_state = state_reader.initial_state("Requirement")
+    open_count = 0
+    for row in rows:
+        resolved = states.get(str(row["id"])) or requirement_initial_state
+        if done_states and resolved in done_states:
+            continue
+        if not include_outdated and resolved == "outdated":
+            continue
+        open_count += 1
+    return open_count
 
 
 def entity_counts(
@@ -116,13 +131,25 @@ def entity_counts(
         TestCase,
         TestRunResult,
     )
+    from workflow import state_reader
     from workflow.services import outdated_item_ids
 
     _set_tenant(tenant_id)
 
+    # Task 12: the ``status`` column is dropped from every ``.values()``
+    # projection below -- a row never wired into a WorkflowItemState falls
+    # back to its preset's initial state instead (documented, reviewed
+    # data-loss tradeoff, see Task 12 report Finding 2).
     req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-    req_outdated = req_qs.filter(status="outdated").count()
-    req_active = req_qs.exclude(status="outdated").count()
+    req_rows = list(req_qs.values("id"))
+    req_states = state_reader.current_states("Requirement", (r["id"] for r in req_rows))
+    req_initial_state = state_reader.initial_state("Requirement")
+    req_outdated = sum(
+        1
+        for r in req_rows
+        if (req_states.get(str(r["id"])) or req_initial_state) == "outdated"
+    )
+    req_active = len(req_rows) - req_outdated
 
     arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
     arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
@@ -130,11 +157,19 @@ def entity_counts(
     arch_outdated = arch_qs.filter(id__in=arch_outdated_ids).count()
 
     test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
-    test_outdated = test_qs.filter(status="outdated").count()
-    test_active_qs = test_qs.exclude(status="outdated")
-    test_active = test_active_qs.count()
-    # TestCase.status is the WorkflowEngine lifecycle mirror
-    # (Draft/Ready/Approved/Deprecated/outdated) — it does NOT carry pass/fail
+    test_rows = list(test_qs.values("id"))
+    test_states = state_reader.current_states("TestCase", (r["id"] for r in test_rows))
+    test_initial_state = state_reader.initial_state("TestCase")
+    test_active_ids = {
+        r["id"]
+        for r in test_rows
+        if (test_states.get(str(r["id"])) or test_initial_state) != "outdated"
+    }
+    test_outdated = len(test_rows) - len(test_active_ids)
+    test_active_qs = test_qs.filter(id__in=test_active_ids)
+    test_active = len(test_active_ids)
+    # TestCase's current state (WorkflowEngine lifecycle:
+    # Draft/Ready/Approved/Deprecated/outdated) does NOT carry pass/fail
     # execution results. Those live on TestRunResult (one row per TestCase
     # execution within a TestRun); "pass"/"fail" here means each TestCase's
     # most recent TestRunResult.status.
@@ -155,9 +190,15 @@ def entity_counts(
     )
 
     risk_qs = Risk.objects.filter(workspace_id=workspace_id)
-    risk_open = risk_qs.filter(status=Risk.RiskStatus.IDENTIFIED).count()
-    risk_mitigated = risk_qs.filter(status=Risk.RiskStatus.MITIGATED).count()
-    risk_accepted = risk_qs.filter(status=Risk.RiskStatus.ACCEPTED).count()
+    risk_rows = list(risk_qs.values("id"))
+    risk_states = state_reader.current_states("Risk", (r["id"] for r in risk_rows))
+    risk_initial_state = state_reader.initial_state("Risk")
+    resolved_risk_statuses = [
+        risk_states.get(str(r["id"])) or risk_initial_state for r in risk_rows
+    ]
+    risk_open = resolved_risk_statuses.count(Risk.RiskStatus.IDENTIFIED)
+    risk_mitigated = resolved_risk_statuses.count(Risk.RiskStatus.MITIGATED)
+    risk_accepted = resolved_risk_statuses.count(Risk.RiskStatus.ACCEPTED)
 
     return {
         "requirements": {
@@ -216,17 +257,28 @@ def entity_lists(
         TraceLink,
     )
     from traceability.types import LinkType
+    from workflow import state_reader
     from workflow.services import outdated_item_ids
 
     _set_tenant(tenant_id)
 
-    req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-    if not include_outdated:
-        req_qs = req_qs.exclude(status="outdated")
-    requirements = [
-        {**row, "id": str(row["id"])}
-        for row in req_qs.values("id", "title", "status", "level")
-    ]
+    req_rows = list(
+        Requirement.objects.filter(artifact__workspace_id=workspace_id).values(
+            "id", "title", "level"
+        )
+    )
+    req_states = state_reader.current_states("Requirement", (r["id"] for r in req_rows))
+    # Task 12: the ``status`` column is dropped, so a row never wired into a
+    # WorkflowItemState falls back to the "draft" preset initial state
+    # instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    # Finding 2).
+    requirement_initial_state = state_reader.initial_state("Requirement")
+    requirements = []
+    for row in req_rows:
+        resolved = req_states.get(str(row["id"])) or requirement_initial_state
+        if not include_outdated and resolved == "outdated":
+            continue
+        requirements.append({**row, "id": str(row["id"]), "status": resolved})
 
     arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
     arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
@@ -260,18 +312,30 @@ def entity_lists(
         .values("target__requirement__id")[:1]
     )
     test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
-    if not include_outdated:
-        test_qs = test_qs.exclude(status="outdated")
-    tests = [
-        {
-            **row,
-            "id": str(row["id"]),
-            "linked_req_id": str(row["linked_req_id"]) if row["linked_req_id"] else None,
-        }
-        for row in test_qs.annotate(linked_req_id=linked_req_subquery).values(
-            "id", "title", "status", "linked_req_id"
+    test_rows = list(
+        test_qs.annotate(linked_req_id=linked_req_subquery).values(
+            "id", "title", "linked_req_id"
         )
-    ]
+    )
+    test_states = state_reader.current_states("TestCase", (r["id"] for r in test_rows))
+    # Task 12: the ``status`` column is dropped, so a row never wired into a
+    # WorkflowItemState falls back to the testcase_default preset's initial
+    # state instead (documented, reviewed data-loss tradeoff, see Task 12
+    # report Finding 2).
+    testcase_initial_state = state_reader.initial_state("TestCase")
+    tests = []
+    for row in test_rows:
+        resolved = test_states.get(str(row["id"])) or testcase_initial_state
+        if not include_outdated and resolved == "outdated":
+            continue
+        tests.append(
+            {
+                **row,
+                "id": str(row["id"]),
+                "status": resolved,
+                "linked_req_id": str(row["linked_req_id"]) if row["linked_req_id"] else None,
+            }
+        )
 
     return {
         "requirements_list": requirements,

@@ -85,8 +85,34 @@ def _multi_session(tenant: Tenant, ws: Workspace) -> InterviewSession:
             workspace=ws,
             artifact_type=None,
             session_kind=InterviewSession.SESSION_KIND_MULTI,
-            status=InterviewSession.STATUS_IN_PROGRESS,
         )
+
+
+def _multi_session_engine_tracked(
+    tenant: Tenant, ws: Workspace, ctx: AuthContext
+) -> InterviewSession:
+    """A multi-session with a real WorkflowItemState (Task 12).
+
+    ``test_completed_session_cannot_be_formalized_again`` needs its
+    re-formalize guard to actually persist "completed" across two calls --
+    the (now-dropped) `status` column used to do this unconditionally;
+    without a real WorkflowEngineDefinition/WorkflowItemState there is
+    nothing left to persist it to.
+    """
+    from workflow.services import create_default_workflow, initialize_workflow_states
+
+    session = _multi_session(tenant, ws)
+    with _active(tenant):
+        create_default_workflow(
+            workspace_id=ws.id,
+            preset="interview_default",
+            item_type="Interview",
+            tenant_id=tenant.id,
+        )
+        initialize_workflow_states(
+            item_ids=[session.id], item_type="Interview", workspace_id=ws.id, ctx=ctx
+        )
+    return session
 
 
 class TestMultiSessionStateAndAnswer:
@@ -129,7 +155,7 @@ class TestFormalizeMultiHardening:
     def test_completed_session_cannot_be_formalized_again(self, tenant, workspace, editor_ctx):
         # M2 behavioural anchor: the status guard must hold after completion
         # (the select_for_update lock making it race-free is structural).
-        session = _multi_session(tenant, workspace)
+        session = _multi_session_engine_tracked(tenant, workspace, editor_ctx)
         proposal = [{"type": "StakeholderNeed", "fields": {"title": "Need A"}, "links": []}]
 
         InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)

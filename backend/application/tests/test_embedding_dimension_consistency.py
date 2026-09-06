@@ -3,7 +3,8 @@
 The bug was not a crash, an exception or a failing query — every layer behaved
 exactly as designed. ``EMBEDDING_PROVIDER`` defaulted to
 ``sentence-transformers`` (384-dim) while ``Requirement``/``TraceLink``/
-``IcdVersion`` carried hardcoded ``vector(1536)`` columns, so the width guard
+``IcdVersion`` (now ``Icd``, Task 28c-2) carried hardcoded ``vector(1536)``
+columns, so the width guard
 on every write path skipped 100% of writes and the identical guard on the read
 path skipped 100% of semantic search passes. Both logged at DEBUG. Net result
 on every default deployment: zero stored embeddings and an ``artifact.search``
@@ -64,7 +65,7 @@ class TestDefaultConfigurationIsCoherent:
     def test_every_embedding_column_uses_the_single_source_of_truth(self):
         """All five columns must agree. They disagreed (1536 vs 384) precisely
         because each declared its own literal."""
-        from icd.models import IcdVersion
+        from icd.models import Icd
         from memory.models import UserTenantMemory, WorkspaceMemory
         from persistence.models import Requirement, TraceLink
 
@@ -73,7 +74,7 @@ class TestDefaultConfigurationIsCoherent:
             for model in (
                 Requirement,
                 TraceLink,
-                IcdVersion,
+                Icd,
                 WorkspaceMemory,
                 UserTenantMemory,
             )
@@ -111,7 +112,7 @@ class TestSchemaMatchesTheDeclaredWidth:
 
     @pytest.mark.parametrize(
         "table",
-        ["pl_requirement", "pl_tracelink", "icd_version", "mem_workspace_memory"],
+        ["pl_requirement", "pl_tracelink", "icd_icd", "mem_workspace_memory"],
     )
     def test_column_is_typed_to_the_ssot_width(self, table):
         from django.db import connection

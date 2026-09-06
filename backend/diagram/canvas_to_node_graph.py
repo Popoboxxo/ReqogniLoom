@@ -120,7 +120,7 @@ def convert_canvas_json_to_node_graph(canvas_json: dict) -> ConversionResult:
     """Convert one diagram's Fabric ``canvas_json`` to a ``node_graph`` v1 payload.
 
     Args:
-        canvas_json: The ``DiagramVersion.canvas_json`` dict of a
+        canvas_json: The ``Diagram.canvas_json`` dict of a
             ``canvas_stroke`` diagram's current version (never the lossy
             ``strokes`` payload — see Task 2's F2 finding for why ``strokes``
             drops every non-freehand shape).

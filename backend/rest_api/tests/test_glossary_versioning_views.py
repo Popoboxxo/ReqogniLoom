@@ -1,8 +1,10 @@
 """
 Tests for GlossaryTermViewSet.versions / GlossaryTermViewSet.diff (REQ-142).
 
-req_id: REQ-142 (versions/diff endpoints for GlossaryTerm, exposing the
-        existing immutable GlossaryTermVersion table via ArtifactDiffService)
+req_id: REQ-142 (versions/diff endpoints for GlossaryTerm, routed through the
+        generic ArtifactDiffService.list_versions/.diff since Datenmodell-
+        Konsolidierung Task 29 — Milestone M5; Task 28b first retired the
+        dedicated GlossaryTermVersion table)
 
 Covers:
   - GET /api/v1/glossary/{id}/versions/ -> 200 with version list; 404 unknown
@@ -23,6 +25,7 @@ from application.base import NotFoundError
 from rest_api.views import GlossaryTermViewSet
 
 TERM_ID = uuid.uuid4()
+ARTIFACT_ID = uuid.uuid4()
 
 
 def _make_auth_context() -> MagicMock:
@@ -34,6 +37,13 @@ def _make_auth_context() -> MagicMock:
         active_roles=("admin",),
         auth_method=AuthMethod.BEARER_TOKEN,
     )
+
+
+def _make_term_dto(**kwargs) -> MagicMock:
+    dto = MagicMock()
+    dto.version = kwargs.get("version", 2)
+    dto.artifact_id = kwargs.get("artifact_id", ARTIFACT_ID)
+    return dto
 
 
 class TestGlossaryTermViewSetVersions:
@@ -50,15 +60,20 @@ class TestGlossaryTermViewSetVersions:
         view = GlossaryTermViewSet()
         view.kwargs = {}
 
+        svc_mock = MagicMock()
+        svc_mock.get.return_value = _make_term_dto()
+
         with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
-            with patch("rest_api.views.ArtifactDiffService") as svc_cls:
-                svc_cls.return_value.list_versions_for_glossary_term.return_value = (
-                    expected
-                )
-                response = view.versions(req, pk=str(TERM_ID))
+            with patch.object(view, "_svc", return_value=svc_mock):
+                with patch("rest_api.views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.list_versions.return_value = expected
+                    response = view.versions(req, pk=str(TERM_ID))
 
         assert response.status_code == 200
         assert response.data == expected
+        svc_cls.return_value.list_versions.assert_called_once_with(
+            ARTIFACT_ID, req.auth_context
+        )
 
     def test_versions_returns_404_when_term_not_found(self) -> None:
         factory = APIRequestFactory()
@@ -68,11 +83,11 @@ class TestGlossaryTermViewSetVersions:
         view = GlossaryTermViewSet()
         view.kwargs = {}
 
+        svc_mock = MagicMock()
+        svc_mock.get.side_effect = NotFoundError("GlossaryTerm not found")
+
         with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
-            with patch("rest_api.views.ArtifactDiffService") as svc_cls:
-                svc_cls.return_value.list_versions_for_glossary_term.side_effect = (
-                    NotFoundError("GlossaryTerm not found")
-                )
+            with patch.object(view, "_svc", return_value=svc_mock):
                 response = view.versions(req, pk=str(TERM_ID))
 
         assert response.status_code == 404
@@ -87,8 +102,7 @@ class TestGlossaryTermViewSetDiff:
         req.auth_context = _make_auth_context()
         req.query_params = {"from_version": "1", "to_version": "2"}
 
-        term_dto = MagicMock()
-        term_dto.version = 2
+        term_dto = _make_term_dto(version=2)
 
         diff_result = {
             "from_version": 1,
@@ -108,13 +122,17 @@ class TestGlossaryTermViewSetDiff:
         with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
                 with patch("rest_api.views.ArtifactDiffService") as diff_svc_cls:
-                    diff_svc_cls.return_value.diff_for_glossary_term.return_value = (
-                        diff_result
-                    )
+                    diff_svc_cls.return_value.diff.return_value = diff_result
                     response = view.diff(req, pk=str(TERM_ID))
 
         assert response.status_code == 200
         assert response.data == diff_result
+        diff_svc_cls.return_value.diff.assert_called_once_with(
+            artifact_id=ARTIFACT_ID,
+            from_version=1,
+            to_version=2,
+            ctx=req.auth_context,
+        )
 
     def test_diff_returns_404_when_term_missing(self) -> None:
         factory = APIRequestFactory()
@@ -140,8 +158,7 @@ class TestGlossaryTermViewSetDiff:
         req.auth_context = _make_auth_context()
         req.query_params = {"from_version": "abc"}
 
-        term_dto = MagicMock()
-        term_dto.version = 1
+        term_dto = _make_term_dto(version=1)
 
         svc_mock = MagicMock()
         svc_mock.get.return_value = term_dto

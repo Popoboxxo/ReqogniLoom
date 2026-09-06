@@ -299,22 +299,40 @@ def _open_risks_for_artifact(artifact_id: UUID) -> List[dict]:
 
     Risk has no ``lifecycle_status``/outdate() escape hatch (Phase 0's
     universal soft-delete convention did not extend to Risk/Issue) — it
-    tracks its own lifecycle via ``status`` (RiskStatus.CLOSED is the
-    equivalent terminal state).
+    tracks its own lifecycle via workflow transitions instead (REQ-165/166).
+
+    Datenmodell-Konsolidierung Phase 1: the ``status`` column is no longer
+    written by the workflow engine, so the current state is resolved through
+    ``workflow.state_reader`` (batched, one query for all linked risks). Task
+    12: the column is dropped, so a Risk that was never wired into a
+    WorkflowItemState falls back to the risk_default preset's initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2).
     """
     from application.models import Risk
     from traceability.services import query as tl_query
+    from workflow import state_reader
 
     linked_ids = {n.entity_id for n in tl_query(artifact_id=artifact_id, direction="upstream")}
     linked_ids |= {n.entity_id for n in tl_query(artifact_id=artifact_id, direction="downstream")}
     if not linked_ids:
         return []
-    risks = (
-        Risk.objects.filter(artifact_id__in=linked_ids)
-        .exclude(status=Risk.RiskStatus.CLOSED)
-        .values("id", "title", "severity", "status")
+    rows = list(
+        Risk.objects.filter(artifact_id__in=linked_ids).values(
+            "id", "title", "severity"
+        )
     )
-    return list(risks)
+    if not rows:
+        return []
+    states = state_reader.current_states("Risk", (row["id"] for row in rows))
+    risk_initial_state = state_reader.initial_state("Risk")
+    result = []
+    for row in rows:
+        resolved_status = states.get(str(row["id"])) or risk_initial_state
+        if resolved_status == Risk.RiskStatus.CLOSED:
+            continue
+        result.append({**row, "status": resolved_status})
+    return result
 
 
 def _open_issues_for_artifact(artifact_id: UUID) -> List[dict]:
@@ -322,18 +340,33 @@ def _open_issues_for_artifact(artifact_id: UUID) -> List[dict]:
     (Closed/Resolved/Wontfix) — see :func:`_open_risks_for_artifact`."""
     from application.models import Issue
     from traceability.services import query as tl_query
+    from workflow import state_reader
 
     linked_ids = {n.entity_id for n in tl_query(artifact_id=artifact_id, direction="upstream")}
     linked_ids |= {n.entity_id for n in tl_query(artifact_id=artifact_id, direction="downstream")}
     if not linked_ids:
         return []
     terminal = {Issue.IssueStatus.CLOSED, Issue.IssueStatus.RESOLVED, Issue.IssueStatus.WONTFIX}
-    issues = (
-        Issue.objects.filter(artifact_id__in=linked_ids)
-        .exclude(status__in=terminal)
-        .values("id", "title", "severity", "status")
+    rows = list(
+        Issue.objects.filter(artifact_id__in=linked_ids).values(
+            "id", "title", "severity"
+        )
     )
-    return list(issues)
+    if not rows:
+        return []
+    states = state_reader.current_states("Issue", (row["id"] for row in rows))
+    # Task 12: the ``status`` column is dropped, so an Issue that was never
+    # wired into a WorkflowItemState falls back to the issue_default
+    # preset's initial state instead (documented, reviewed data-loss
+    # tradeoff, see Task 12 report Finding 2).
+    issue_initial_state = state_reader.initial_state("Issue")
+    result = []
+    for row in rows:
+        resolved_status = states.get(str(row["id"])) or issue_initial_state
+        if resolved_status in terminal:
+            continue
+        result.append({**row, "status": resolved_status})
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -21,17 +21,21 @@ from mcp_server.tools.base import (
     ToolResult,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
     write_mcp_audit,
 )
 from persistence.models import InterviewSession
 
 
-def _session_to_dict(session: Any) -> dict:
+def _session_to_dict(session: Any, status_map: Optional[Dict[str, str]] = None) -> dict:
     return {
         "id": str(session.id),
         "workspace_id": str(session.workspace_id),
         "artifact_type": session.artifact_type,
-        "status": session.status,
+        "status": resolve_engine_status(
+            "Interview", session.id, status_map=status_map
+        ),
     }
 
 
@@ -311,7 +315,7 @@ class InterviewToolGroup(BaseToolGroup):
         if session.session_kind == InterviewSession.SESSION_KIND_MULTI:
             return {
                 "session_id": str(session.id),
-                "status": session.status,
+                "status": resolve_engine_status("Interview", session.id),
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
@@ -362,8 +366,11 @@ class InterviewToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         status = params.get("status")
         sessions = list(self._service.list_sessions(auth_context, workspace_id, status=status))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance).
+        status_map = resolve_status_map("Interview", [s.id for s in sessions])
         return ToolResult.ok({
-            "sessions": [_session_to_dict(s) for s in sessions],
+            "sessions": [_session_to_dict(s, status_map) for s in sessions],
             "count": len(sessions),
         })
 

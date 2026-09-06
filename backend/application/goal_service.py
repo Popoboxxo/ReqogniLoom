@@ -34,8 +34,14 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.artifact_version_service import (
+    ArtifactVersionService,
+    lineage_anchor_artifact_id,
+    snapshot_fields,
+)
 from application.models import Goal
 from persistence.models import Artifact, Tenant, Workspace
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +144,11 @@ class GoalService(ServiceBase):
         artifact = Artifact.objects.create(
             tenant=tenant, workspace=workspace, artifact_type="Goal"
         )
+        # Datenmodell-Konsolidierung: `status` is no longer written explicitly —
+        # WorkflowItemState.current_state (seeded below from the workflow
+        # definition's initial_state) is the authority; the model field's own
+        # default ("Entwurf") keeps the column non-null until it is dropped
+        # (Task 12).
         goal = Goal(
             artifact=artifact,
             tenant_id=tenant.id,
@@ -146,17 +157,35 @@ class GoalService(ServiceBase):
             sequence_number=sequence_number,
             title=title,
             description=description,
-            status=DRAFT_STATE,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
         goal.save()
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): anchor the lineage's
+        # revisions on the sequence-1 Artifact so `list_revisions(anchor)`
+        # returns the whole lineage. Recording against goal.artifact_id would
+        # store one revision per Artifact (a new one is created above for every
+        # version), which is storage without history. The revision number is
+        # the lineage's own sequence_number, not an auto-allocated counter.
+        anchor_artifact_id = (
+            goal.artifact_id
+            if sequence_number == 1
+            else lineage_anchor_artifact_id(Goal, resolved_lineage_id)
+        )
+        if anchor_artifact_id is not None:
+            ArtifactVersionService().record(
+                anchor_artifact_id,
+                snapshot_fields(goal, "Goal"),
+                ctx,
+                revision=sequence_number,
+            )
 
         # Initialize workflow state (best-effort, mirrors RiskService).
         # Absent a provisioned WorkflowEngineDefinition for this
         # workspace/item_type (only backfilled for pre-existing workspaces
-        # via migration 0012), this is a silent no-op — the explicit
-        # status="Entwurf" set above is authoritative for new Goals
-        # regardless of workflow-init outcome.
+        # via migration 0012), this is a silent no-op — the Goal has no
+        # WorkflowItemState row and the still-present `status` column (via
+        # the model default above) is the fallback the dict below reads.
         try:
             from workflow.services import initialize_workflow_states
 
@@ -167,7 +196,14 @@ class GoalService(ServiceBase):
                 ctx=ctx,
             )
         except Exception:
-            logger.debug("GoalService: workflow init skipped for goal=%s", goal.id)
+            # WARNING (not DEBUG, unlike the sibling Adr/Risk/Issue services):
+            # Goal has no WorkflowItemState backfill, so a row stranded here
+            # can never self-heal (transition() requires an existing row) and
+            # would silently drop out of list_current's archive exclusion,
+            # list_effective and MainGoalService.get_current.
+            logger.warning(
+                "GoalService: workflow init skipped for goal=%s", goal.id, exc_info=True
+            )
 
         self._audit(
             ctx=ctx, operation="create", entity_type="Goal", entity_id=goal.id
@@ -196,7 +232,16 @@ class GoalService(ServiceBase):
             "sequence_number": goal.sequence_number,
             "title": goal.title,
             "description": goal.description,
-            "status": goal.status,
+            # Datenmodell-Konsolidierung Phase 1 (Task 12): the `status`
+            # column is dropped, so a Goal with no WorkflowItemState row yet
+            # (e.g. workflow-init above was a silent no-op) can no longer
+            # fall back to it — it reports the goal_default preset's initial
+            # state instead (documented, reviewed data-loss tradeoff, see
+            # Task 12 report Finding 2). Several MCP tools
+            # (goal.create/goal.create_version) return this dict straight to
+            # the wire without a serializer fallback in between.
+            "status": state_reader.current_state("Goal", goal.id)
+            or state_reader.initial_state("Goal"),
         }
 
     @staticmethod
@@ -247,9 +292,17 @@ class GoalService(ServiceBase):
             List of dicts, one per version, ordered by sequence_number.
         """
         self._set_tenant_context(ctx)
-        qs = Goal.objects.filter(
-            lineage_id=lineage_id, tenant_id=ctx.tenant_id
-        ).order_by("sequence_number")
+        qs = list(
+            Goal.objects.filter(
+                lineage_id=lineage_id, tenant_id=ctx.tenant_id
+            ).order_by("sequence_number")
+        )
+        # Batch-resolve status for the whole lineage in one query instead of
+        # one engine lookup per version (N+1 avoidance). Falls back to the
+        # goal_default preset's initial state (not the dropped `status`
+        # column, Task 12) for any version with no WorkflowItemState row.
+        status_map = state_reader.current_states("Goal", [g.id for g in qs])
+        goal_initial_state = state_reader.initial_state("Goal")
         return [
             {
                 "id": str(g.id),
@@ -257,7 +310,7 @@ class GoalService(ServiceBase):
                 "sequence_number": g.sequence_number,
                 "label": f"v{g.sequence_number}",
                 "title": g.title,
-                "status": g.status,
+                "status": status_map.get(str(g.id)) or goal_initial_state,
                 "modified_at": g.created_at.isoformat() if g.created_at else None,
                 # Immutable per-version rows — content always retrievable (#213).
                 "content_available": True,
@@ -288,7 +341,11 @@ class GoalService(ServiceBase):
         self._set_tenant_context(ctx)
         qs = Goal.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_archived:
-            qs = qs.exclude(status=ARCHIVED_STATE)
+            qs = qs.exclude(
+                id__in=state_reader.item_ids_in_state(
+                    "Goal", ARCHIVED_STATE, tenant_id=ctx.tenant_id
+                )
+            )
         latest_ids = (
             qs.order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")
@@ -310,9 +367,8 @@ class GoalService(ServiceBase):
 
         Deliberately kept separate from ``list_current`` rather than filtering
         that method: ``list_current`` powers the UI/REST list, which must keep
-        showing drafts. ``status`` is the denormalized mirror the
-        WorkflowEngine writes (StateLifecycleManager._sync_status_mirror), so
-        it is authoritative for reads.
+        showing drafts. The workflow engine (``WorkflowItemState.current_state``
+        via ``state_reader``) is the authority for reads.
 
         Args:
             workspace_id: Target workspace UUID.
@@ -326,7 +382,9 @@ class GoalService(ServiceBase):
             Goal.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                status=APPROVED_STATE,
+                id__in=state_reader.item_ids_in_state(
+                    "Goal", APPROVED_STATE, tenant_id=ctx.tenant_id
+                ),
             )
             .order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")
@@ -584,7 +642,17 @@ class GoalService(ServiceBase):
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine inside the same atomic transaction (mirrors
         # RiskService.transition_status) — no second service-level audit here.
-        goal.refresh_from_db(fields=["status", "version"])
+        goal.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): ``status`` is dropped,
+        # so it can no longer be refreshed or read as a fallback. In-memory-
+        # only correction (not persisted) so the returned instance's
+        # ``status`` reflects the real current state, same fallback
+        # convention as the read-side DTO builders above. The engine state is
+        # guaranteed to exist here (the transition above just succeeded), so
+        # ``state_reader.initial_state`` never actually triggers.
+        goal.status = state_reader.current_state(
+            "Goal", goal.id
+        ) or state_reader.initial_state("Goal")
         return goal
 
 

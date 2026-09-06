@@ -1,10 +1,18 @@
 """REQ-165/REQ-166 — Backfill missing WorkflowItemState rows for entities.
 
 Idempotent maintenance command that seeds a WorkflowItemState for every existing
-Adr / Risk / Issue / ChangeRequest / TestCase row that lacks one, at the row's
-current ``status`` (mapped onto the definition's valid states; unknown values
-fall back to the initial state). Complements
-``provision_workflow_definitions`` — run that first so a definition exists.
+Adr / Risk / Issue / ChangeRequest / TestCase row that lacks one, at the
+definition's initial state. Complements ``provision_workflow_definitions`` —
+run that first so a definition exists.
+
+Datenmodell-Konsolidierung Task 12: this command used to seed at the row's
+own ``status`` column value (mapped onto the definition's valid states;
+unknown values fell back to the initial state) -- that column is dropped, so
+there is no legacy value left to preserve. Every row this command still finds
+missing a state (no ``WorkflowEngineDefinition`` existed for its workspace at
+create/backfill time) now seeds directly at the definition's initial state
+instead. This is the same explicit, reviewed data-loss tradeoff as every
+other seam fallback in this migration — see the Task 12 report, Finding 2.
 
 Usage::
 
@@ -36,7 +44,7 @@ class Command(BaseCommand):
             help="Only backfill entities in this workspace UUID (default: all).",
         )
 
-    def _seed(self, lifecycle, *, item_id, item_type, workspace_id, tenant_id, current) -> bool:
+    def _seed(self, lifecycle, *, item_id, item_type, workspace_id, tenant_id) -> bool:
         """Ensure a WorkflowItemState exists for one row. Returns True if created."""
         TenantContext.set_tenant(tenant_id)
         try:
@@ -47,8 +55,7 @@ class Command(BaseCommand):
                 dto = lifecycle._store.get_definition(workspace_id, item_type)
             except WorkflowDefinitionError:
                 return False
-            seed_state = current if current in dto.states else dto.initial_state
-            lifecycle.ensure_item_state(item_id, item_type, workspace_id, seed_state)
+            lifecycle.ensure_item_state(item_id, item_type, workspace_id, dto.initial_state)
             return True
         finally:
             TenantContext.clear_tenant()
@@ -60,7 +67,7 @@ class Command(BaseCommand):
         created = 0
         scanned = 0
 
-        # Application models carry workspace_id + tenant_id + status directly.
+        # Application models carry workspace_id + tenant_id directly.
         for model, item_type in (
             (Adr, "Adr"),
             (Risk, "Risk"),
@@ -78,7 +85,6 @@ class Command(BaseCommand):
                     item_type=item_type,
                     workspace_id=row.workspace_id,
                     tenant_id=row.tenant_id,
-                    current=row.status,
                 ):
                     created += 1
 
@@ -94,7 +100,6 @@ class Command(BaseCommand):
                 item_type="TestCase",
                 workspace_id=tc.artifact.workspace_id,
                 tenant_id=tc.tenant_id,
-                current=tc.status,
             ):
                 created += 1
 

@@ -117,7 +117,11 @@ def issue(auth_ctx, issue_workspace):
 
 
 def _make_issue(**kwargs):
-    issue = MagicMock(spec=Issue)
+    """Task 12: no longer ``spec=Issue`` -- the `status` column is dropped,
+    but `.status` here stands in for the engine-resolved, in-memory-only
+    value IssueService sets on real instances, which a real spec would now
+    reject."""
+    issue = MagicMock()
     issue.id = kwargs.get("id", ISSUE_ID)
     issue.workspace_id = kwargs.get("workspace_id", WS_ID)
     issue.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -157,8 +161,10 @@ class TestIssueValidator:
                 title="Issue", severity="high", category="unknown"
             )
 
-    def test_invalid_status_raises(self):
-        with pytest.raises(ValidationError, match="status"):
+    def test_validate_create_has_no_status_parameter(self):
+        """Datenmodell-Konsolidierung Phase 1: status is not a create input
+        anymore; a caller sending it gets a TypeError, not a ValidationError."""
+        with pytest.raises(TypeError):
             IssueValidator.validate_create(
                 title="Issue", severity="high", status="Cancelled"
             )
@@ -179,8 +185,10 @@ class TestIssueValidator:
 
 class TestIssueDTO:
     def test_from_orm_maps_fields(self):
+        """Datenmodell-Konsolidierung: `status` is now supplied by the caller
+        (resolved from the workflow engine), not read off the ORM row."""
         issue = _make_issue(tags=["ui", "frontend"])
-        dto = IssueDTO.from_orm(issue)
+        dto = IssueDTO.from_orm(issue, status=issue.status)
         assert dto.id == issue.id
         assert dto.severity == issue.severity
         assert dto.status == issue.status
@@ -431,12 +439,20 @@ class TestListIssuesExcludesOutdated:
     workflow.services.outdate() by default."""
 
     def test_list_issues_excludes_outdated_by_default(self):
+        """Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. ``state_reader.item_ids_in_state(..., "outdated")`` no longer
+        matches anything, since ``outdate()`` writes the flag, not the state."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         with (
             patch("application.issue_service.Issue.objects") as mock_mgr,
             patch("application.issue_service.IssueService._set_tenant_context"),
+            patch(
+                "workflow.services.outdated_item_ids",
+                return_value="OUTDATED_IDS",
+            ) as mock_seam,
         ):
             qs_mock = MagicMock()
             qs_mock.exclude.return_value = qs_mock
@@ -445,7 +461,8 @@ class TestListIssuesExcludesOutdated:
 
             svc.list_issues(workspace_id=WS_ID, ctx=ctx)
 
-        qs_mock.exclude.assert_called_once_with(status="outdated")
+        mock_seam.assert_called_once_with("Issue", tenant_id=ctx.tenant_id)
+        qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
 
     def test_list_issues_include_deleted_skips_exclude(self):
         svc = IssueService()
@@ -541,13 +558,21 @@ class TestListIssuesMultiFilter:
         assert result == all_issues
 
     def test_status_filter_applied(self):
-        """Status filter is applied when statuses list is provided."""
+        """Phase 4 (D-3): the status filter resolves through
+        ``workflow.services.item_ids_with_status`` (unioned per requested
+        status). ``"outdated"`` is a valid member of *statuses* and now lives on
+        ``Artifact.lifecycle_status``, so the literal ``item_ids_in_state`` seam
+        alone would silently miss it."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         with (
             patch("application.issue_service.Issue.objects") as mock_mgr,
             patch("application.issue_service.IssueService._set_tenant_context"),
+            patch(
+                "workflow.services.item_ids_with_status",
+                side_effect=lambda item_type, status, tenant_id: {"id-" + status},
+            ) as mock_seam,
         ):
             qs_mock = MagicMock()
             qs_mock.filter.return_value = qs_mock
@@ -556,7 +581,59 @@ class TestListIssuesMultiFilter:
 
             svc.list_issues_multi_filter(WS_ID, ctx, statuses=["Open", "In Progress"])
 
-        qs_mock.filter.assert_called_with(status__in=["Open", "In Progress"])
+        assert mock_seam.call_count == 2
+        mock_seam.assert_any_call("Issue", "Open", tenant_id=ctx.tenant_id)
+        mock_seam.assert_any_call("Issue", "In Progress", tenant_id=ctx.tenant_id)
+        qs_mock.filter.assert_called_with(id__in={"id-Open", "id-In Progress"})
+
+    def test_status_filter_reads_the_engine_not_the_stale_column(self, issue_tenant):
+        """DB-backed: an Issue whose WorkflowItemState is "Closed" but whose
+        (now write-once, frozen-at-creation) ``status`` column still says
+        "Open" must be found under the "Closed" filter, not the column's
+        stale value — the whole point of Finding B."""
+        from persistence.tenancy import TenantContext
+        from workflow.lifecycle_manager import StateLifecycleManager
+        from workflow.services import create_default_workflow
+        from workflow.transition_validator import ValidationResult
+
+        svc = IssueService()
+        workspace_id = uuid.uuid4()
+
+        # Issue.objects is tenant-scoped since Task 15, so the create must run
+        # inside the context too — not just the workflow calls below.
+        TenantContext.set_tenant(issue_tenant.id)
+        try:
+            issue = Issue.objects.create(
+                workspace_id=workspace_id,
+                tenant_id=issue_tenant.id,
+                title="Stale-column issue",
+            )
+            create_default_workflow(
+                workspace_id=workspace_id,
+                preset="issue_default",
+                item_type="Issue",
+                tenant_id=issue_tenant.id,
+            )
+            manager = StateLifecycleManager()
+            manager.initialize_workflow_states([issue.id], "Issue", workspace_id)
+            manager.perform_transition(
+                item_id=issue.id,
+                item_type="Issue",
+                workspace_id=workspace_id,
+                target_state="Closed",
+                transitioned_by="test",
+                validation_result=ValidationResult(valid=True),
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
+
+        ctx = _make_ctx(tenant_id=issue_tenant.id)
+        found = svc.list_issues_multi_filter(workspace_id, ctx, statuses=["Closed"])
+
+        assert [i.id for i in found] == [issue.id]
 
     def test_severity_filter_applied(self):
         """Severity filter is applied when severities list is provided."""
@@ -635,6 +712,33 @@ class TestAssignIssue:
             result = svc.assign_issue(issue_id=ISSUE_ID, assignee_id=None, ctx=ctx)
 
         assert result.assignee_id is None
+
+
+# ---------------------------------------------------------------------------
+# transition_status (I8: in-memory status staleness fix)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionStatus:
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, issue, auth_ctx
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``issue.refresh_from_db()`` alone would leave
+        the returned instance's ``.status`` at its stale, pre-transition
+        column value. Must be corrected in memory before returning."""
+        svc = IssueService()
+
+        updated = svc.transition_status(
+            issue_id=issue.id,
+            target_status="In Progress",
+            ctx=auth_ctx,
+            change_reason="starting work",
+        )
+
+        assert updated.status == "In Progress"
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------

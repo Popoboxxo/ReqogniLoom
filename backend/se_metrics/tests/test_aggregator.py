@@ -414,8 +414,10 @@ class TestResolveRequirementTitles:
             art = Artifact.objects.create(
                 tenant=tenant, workspace=workspace, artifact_type="Requirement"
             )
+            # Task 12: `status` column dropped -- unneeded, this suite only
+            # exercises title resolution.
             return Requirement.objects.create(
-                tenant=tenant, artifact=art, title=title, status="draft"
+                tenant=tenant, artifact=art, title=title
             )
         finally:
             TenantContext.clear_tenant()
@@ -511,8 +513,10 @@ class TestComputeIncludesResolvedTitles:
             art = Artifact.objects.create(
                 tenant=tenant, workspace=workspace, artifact_type="Requirement"
             )
+            # Task 12: `status` column dropped -- unneeded, this suite only
+            # exercises title resolution.
             return Requirement.objects.create(
-                tenant=tenant, artifact=art, title=title, status="draft"
+                tenant=tenant, artifact=art, title=title
             )
         finally:
             TenantContext.clear_tenant()

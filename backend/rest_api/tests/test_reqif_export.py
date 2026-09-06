@@ -60,7 +60,6 @@ def reqif_admin_user(db):
             title="REST Need Alpha",
             description="Seeded via ORM for REST export test",
             category="functional",
-            status="draft",
             uid="NEED-REST-001",
         )
         req_art = Artifact.objects.create(
@@ -72,7 +71,6 @@ def reqif_admin_user(db):
             title="REST Req Alpha",
             description="Seeded via ORM for REST export test",
             category="functional",
-            status="draft",
             uid="REQ-REST-001",
         )
     finally:

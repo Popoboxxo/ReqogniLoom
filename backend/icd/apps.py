@@ -22,15 +22,18 @@ class IcdConfig(AppConfig):
     verbose_name = "ARCH-L1-014 IcdManagement"
 
     def ready(self) -> None:
-        """Register IcdVersion on the Layer-0 domain-model registry.
+        """Register Icd on the Layer-0 domain-model registry.
 
         SA-21: baseline/state_capture.py (Layer 1) used to lazy-import
-        ``icd.models.IcdVersion`` directly to capture ICD state in baselines
+        ``icd.models`` directly to capture ICD state in baselines
         (IF-L1-038). Same register-on-ready() pattern as
         ``application.apps.ApplicationConfig`` and ``audit.apps.AuditConfig``
         — see persistence.domain_model_registry's module docstring.
+
+        Task 28c-2: ``Icd`` replaces ``IcdVersion`` here — the contract now
+        lives on the header, and the version table is gone.
         """
-        from icd.models import IcdVersion
+        from icd.models import Icd
         from persistence.domain_model_registry import register_models
 
-        register_models({"IcdVersion": IcdVersion})
+        register_models({"Icd": Icd})

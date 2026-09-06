@@ -43,6 +43,7 @@ from persistence.models import (
 )
 from persistence.transactions import TransactionContextManager, atomic_transaction
 from traceability.types import LinkType
+from workflow import state_reader
 
 from application.base import (
     LlmNotConfiguredError,
@@ -56,6 +57,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
@@ -120,13 +122,28 @@ class RequirementDTO:
 
     @classmethod
     def from_orm(cls, req: Requirement) -> "RequirementDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
+
+        Task 12: the ``status`` column is dropped. Falls back to the
+        "draft" preset initial state when the engine has no
+        ``WorkflowItemState`` row for it -- Requirement can live in a
+        definition-less workspace (no WorkflowEngineDefinition at all), so
+        this is a real, not just theoretical, case -- or when no tenant
+        context is active (e.g. a caller building the DTO outside a
+        request-scoped service call). Documented, reviewed data-loss
+        tradeoff (see Task 12 report Finding 2).
+        """
+        try:
+            engine_status = state_reader.current_state("Requirement", req.id)
+        except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
+            engine_status = None
         return cls(
             id=req.id,
             workspace_id=req.artifact.workspace_id,
             title=req.title,
             description=req.description,
             category=req.category,
-            status=req.status,
+            status=engine_status or state_reader.initial_state("Requirement"),
             version=req.version,
         )
 
@@ -268,12 +285,20 @@ class RequirementService(ServiceBase):
             description=description,
             acceptance_criteria=acceptance_criteria,
             category=category,
-            status="draft",
             type=type,
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
             level=level,
             uid=uid,
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_requirement takes no change_reason, so the
+        # first revision is recorded without one.
+        ArtifactVersionService().record(
+            requirement.artifact_id,
+            snapshot_fields(requirement, "Requirement"),
+            ctx,
         )
 
         # Initialise workflow state (IF-AS-EXT-OUT-001)
@@ -355,7 +380,6 @@ class RequirementService(ServiceBase):
         description: Optional[str] = None,
         acceptance_criteria: Optional[str] = None,
         category: Optional[str] = None,
-        status: Optional[str] = None,
         change_reason: Optional[str] = None,
         type: Optional[str] = None,
         complexity_fibonacci: object = _UNSET,
@@ -374,11 +398,14 @@ class RequirementService(ServiceBase):
         complexity_fibonacci, verification_method, level).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
 
-        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror. The REST
-        and MCP boundaries no longer forward it — a client-sent status is
-        ignored there. The parameter is retained on this internal method for
-        low-level/administrative callers only; normal state changes must go
-        through a workflow transition (see docs/architecture/ADR-status-single-source.md).
+        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror; state
+        changes must go through a workflow transition (see
+        docs/architecture/ADR-status-single-source.md), never this method.
+        Task 12: the underlying column is dropped, so this method no longer
+        accepts a `status` parameter at all -- it used to be retained here as
+        a no-op-at-the-REST/MCP-boundary escape hatch for low-level callers,
+        but a dropped column has nothing left for even a low-level caller to
+        write to.
 
         SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
         caller's last-seen ``version``. When supplied and stale, the update is
@@ -424,8 +451,6 @@ class RequirementService(ServiceBase):
             )
         if category is not None:
             requirement.category = category
-        if status is not None:
-            requirement.status = status
         if type is not None:
             requirement.type = type
         if complexity_fibonacci is not _UNSET:
@@ -450,8 +475,10 @@ class RequirementService(ServiceBase):
             requirement.artifact.custom_fields = cleaned_custom_fields
             requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
 
-        # SN-30: If title, description, or status changed, we will propagate suspect
-        changed_critical = any(x is not None for x in [title, description, status])
+        # SN-30: If title or description changed, we will propagate suspect
+        # (Task 12: `status` dropped from this list -- it is no longer a
+        # settable field on this method at all, see the docstring above).
+        changed_critical = any(x is not None for x in [title, description])
 
         if hasattr(requirement, "suspect"):
             if suspect is not None:
@@ -472,6 +499,17 @@ class RequirementService(ServiceBase):
                 version=F("version") + 1
             )
             requirement.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): a revision is
+            # recorded under exactly the condition that makes this a content
+            # write. Recording unconditionally would append an identical
+            # snapshot for a no-op PATCH — the same phantom-revision noise
+            # #269 finding 5 removed from the version counter above.
+            ArtifactVersionService().record(
+                requirement.artifact_id,
+                snapshot_fields(requirement, "Requirement"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
         # (title/description) changed, to avoid needless LLM calls on metadata-
@@ -592,11 +630,11 @@ class RequirementService(ServiceBase):
         REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
 
-        REQ-144: Pass ``status`` to filter by the WorkflowEngine-owned lifecycle
-        mirror (e.g. ``status="in_review"`` for the review queue). ``status`` is
-        a pure read filter on the denormalized mirror column — it does not
-        affect the workflow engine and does not accept the client to *write*
-        status (see ``update_requirement``).
+        REQ-144: Pass ``status`` to filter by the WorkflowEngine's current
+        state (e.g. ``status="in_review"`` for the review queue), resolved
+        through ``workflow.state_reader`` since Datenmodell-Konsolidierung
+        Phase 1 — it does not affect the workflow engine and does not accept
+        the client to *write* status (see ``update_requirement``).
 
         GH-443: ``status="outdated"`` implies ``include_deleted``. Without
         that, the default soft-delete exclusion ran first and the explicit
@@ -618,14 +656,42 @@ class RequirementService(ServiceBase):
         qs = Requirement.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
+        from workflow.services import outdated_item_ids
+
         if not include_deleted and status != "outdated":
-            # Phase 0: delete_requirement() routes through workflow.services.outdate(),
-            # which mirrors the new state into Requirement.status (not
-            # lifecycle_status) via _STATUS_MIRROR_MODELS. Filter on the field
-            # that outdate() actually writes.
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 4 (D-3): delete_requirement()
+            # routes through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing. The
+            # ``status != "outdated"`` guard is unchanged: an explicit
+            # ``?status=outdated`` implies include_deleted, otherwise the two
+            # filters would contradict and always return an empty set.
+            qs = qs.exclude(
+                id__in=outdated_item_ids("Requirement", tenant_id=ctx.tenant_id)
+            )
         if status:
-            qs = qs.filter(status=status)
+            # Datenmodell-Konsolidierung Phase 1: the mirror column this
+            # filter used to read is no longer written by the engine, so an
+            # explicit ``?status=`` value is matched through WorkflowItemState
+            # (batched) -- an engine-only include filter would otherwise
+            # silently drop definition-less-workspace requirements with no
+            # WorkflowItemState at all (same risk Task 6 flagged for this
+            # exact method). Task 12: the ``status`` column is dropped, so a
+            # row with no WorkflowItemState falls back to the "draft" preset
+            # initial state instead (documented, reviewed data-loss
+            # tradeoff, see Task 12 report Finding 2).
+            rows = list(qs.values("id"))
+            states = state_reader.current_states(
+                "Requirement", (row["id"] for row in rows)
+            )
+            requirement_initial_state = state_reader.initial_state("Requirement")
+            matching_ids = [
+                row["id"]
+                for row in rows
+                if (states.get(str(row["id"])) or requirement_initial_state) == status
+            ]
+            qs = qs.filter(id__in=matching_ids)
         if search:
             qs = qs.filter(
                 Q(title__icontains=search)
@@ -754,13 +820,22 @@ class RequirementService(ServiceBase):
                 "pgvector extension not available — similarity search unavailable"
             ) from exc
 
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the workflow engine — resolved through state_reader (batched).
+        # Task 12: the ``status`` column is dropped, so a row with no
+        # WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2).
+        states = state_reader.current_states("Requirement", (row.id for row in rows))
+        requirement_initial_state = state_reader.initial_state("Requirement")
+
         return [
             SimilarRequirementDTO(
                 id=row.id,
                 uid=row.uid,
                 title=row.title,
                 category=row.category,
-                status=row.status,
+                status=states.get(str(row.id)) or requirement_initial_state,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
                 similarity_score=round(1.0 - float(row.distance), 6),
             )
@@ -1098,10 +1173,14 @@ class RequirementService(ServiceBase):
 
         from llm_adapter.services import check_consistency as _llm_check_consistency
 
+        from workflow.services import outdated_item_ids
+
         rows = (
             Requirement.objects.filter(artifact__workspace_id=workspace_id)
-            # Phase 0: outdate() mirrors into `status`, not `lifecycle_status`.
-            .exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 4 (D-3): read "outdated" from
+            # the Artifact.lifecycle_status flag -- it is no longer a
+            # workflow state, so item_ids_in_state would match nothing.
+            .exclude(id__in=outdated_item_ids("Requirement", tenant_id=ctx.tenant_id))
             .only("id", "title", "description")
         )
         artifacts = [

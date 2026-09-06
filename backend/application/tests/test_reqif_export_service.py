@@ -95,7 +95,6 @@ def reqif_workspace():
             title="Need One",
             description="First need",
             category="functional",
-            status="draft",
             moscow_priority="Must",
             uid="NEED-001",
         )
@@ -108,7 +107,6 @@ def reqif_workspace():
             title="Need Two",
             description="Second need",
             category="functional",
-            status="draft",
             uid="NEED-002",
         )
 
@@ -124,7 +122,6 @@ def reqif_workspace():
             title="Req One",
             description="Req one description",
             category="functional",
-            status="draft",
             verification_method="Test",
             uid="REQ-001",
         )
@@ -140,7 +137,6 @@ def reqif_workspace():
             title="Req Two",
             description="Req two description",
             category="functional",
-            status="in-review",
             verification_method="Review",
             uid="REQ-002",
         )
@@ -153,7 +149,6 @@ def reqif_workspace():
             title="Req Three",
             description="Req three description",
             category="non-functional",
-            status="draft",
             uid="REQ-003",
         )
 
@@ -238,6 +233,61 @@ class TestReqifExportMapping:
         assert need_so.attribute_map["ATTR-TITLE"].value == "Need One"
         assert need_so.attribute_map["ATTR-MOSCOW-PRIORITY"].value == "Must"
         assert "ATTR-VERIFICATION-METHOD" not in need_so.attribute_map
+
+    def test_status_is_resolved_from_the_engine_not_the_stale_column(self):
+        """C2: Datenmodell-Konsolidierung Phase 1 — the workflow engine no
+        longer writes ``status``, so a real transition must still be visible
+        in the ReqIF export, not frozen at the creation-time column value.
+        ReqIF is an interchange format for external tools — a stale status
+        here is worse than in an internal-only view."""
+        from workflow.lifecycle_manager import StateLifecycleManager
+        from workflow.services import create_default_workflow
+        from workflow.transition_validator import ValidationResult
+
+        tenant = Tenant.objects.create(
+            name="Reqif-Status-T", slug="reqif-status-t", is_active=True
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="Reqif Status WS")
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            req = Requirement.objects.create(
+                tenant=tenant,
+                artifact=artifact,
+                title="Engine-tracked Req",
+                description="d",
+                uid="REQ-ENGINE-1",
+            )
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+            manager = StateLifecycleManager()
+            manager.initialize_workflow_states([req.id], "Requirement", workspace.id)
+            manager.perform_transition(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                target_state="in_review",
+                transitioned_by="test",
+                validation_result=ValidationResult(valid=True),
+            )
+            # Task 12: the `status` column is dropped entirely -- there is no
+            # frozen creation-time column value left to also check.
+
+            result = _export(workspace.id, tenant.id)
+        finally:
+            clear_request_tenant()
+
+        bundle = ReqIFParser.parse_from_string(result.content)
+        content = bundle.core_content.req_if_content
+        spec_objects_by_id = {so.identifier: so for so in content.spec_objects}
+        so = spec_objects_by_id[_so_id(artifact.id)]
+        assert so.attribute_map["ATTR-STATUS"].value == "in_review"
 
     def test_spec_object_types_are_distinct_per_artifact_type(self, reqif_workspace):
         result = _export(reqif_workspace["workspace"].id, reqif_workspace["tenant"].id)

@@ -70,7 +70,15 @@ _VALID_ENTITY_TYPES = set(_REQUIRED_FIELDS.keys())
 # Identity / audit columns handled specially by _insert_rows (not passed through
 # as plain content create kwargs).
 _IDENTITY_COLUMNS = frozenset(
-    {"id", "artifact_id", "version", "created_at", "modified_at", "updated_at", "created_by"}
+    {
+        "id",
+        "artifact_id",
+        "version",
+        "created_at",
+        "modified_at",
+        "updated_at",
+        "created_by_name",
+    }
 )
 
 
@@ -456,19 +464,40 @@ class ImportService(ServiceBase):
 
         # REQ-143 / #113: status is never a plain content column — resolved
         # once per import call against the workspace's WorkflowEngineDefinition
-        # (if any), mirroring reqif_import_service._apply_status. This mirror
-        # only applies to the persistence-app entity types ReqIF import also
-        # covers (StakeholderNeed, Requirement, TestCase — ArchitectureElement
-        # has no status column at all, only the unrelated "lifecycle_status"
-        # soft-delete flag). Adr/Risk/Issue (application app) use their own
-        # free-text status vocabularies (e.g. "Open", "Approved", "Identified")
-        # that are NOT workflow states and must round-trip verbatim; those
-        # entities already get a separate initial WorkflowItemState via
-        # ``workflow.services.initialize_workflow_states`` when created through
-        # their own services (e.g. RiskService.create_risk) — mapping their
-        # status through _map_status here would corrupt it.
-        has_status_column = entity_type in _PERSISTENCE_ENTITY_TYPES and any(
-            col == "status" for col, _kind in spec
+        # (if any) and seeded into WorkflowItemState, mirroring
+        # reqif_import_service._apply_status. Every entity type whose field
+        # spec declares "status" goes through this (StakeholderNeed,
+        # Requirement, TestCase, Adr, Risk, Issue — ArchitectureElement has no
+        # status column at all, only the unrelated "lifecycle_status"
+        # soft-delete flag). Adr/Risk/Issue use their own free-text status
+        # vocabularies (e.g. "Open", "Approved", "Identified"), not the
+        # Requirement-style {draft, in_review, approved, deprecated, done}
+        # set -- ``_map_status`` is passed *this workspace's own*
+        # ``adr_default``/``risk_default``/``issue_default`` definition
+        # states (never a Requirement definition's), so it validates against
+        # the right vocabulary rather than corrupting it.
+        #
+        # Task 12: the ``status`` column is dropped from all six types, so a
+        # raw imported value can no longer be a ``model.objects.create()``
+        # kwarg (invalid keyword argument) -- it is always popped out of
+        # *content* below and, when a WorkflowEngineDefinition exists for
+        # this workspace/item_type, seeded into WorkflowItemState instead
+        # (extended here to Adr/Risk/Issue too, closing a pre-existing gap:
+        # CSV import bypasses AdrService/RiskService/IssueService's own
+        # ``initialize_workflow_states`` call, so before this fix these rows
+        # got no engine tracking at all). Without a definition, the imported
+        # status has nowhere left to be persisted and is discarded --
+        # documented, reviewed data-loss tradeoff, see the Task 12 report
+        # Finding 2.
+        has_status_column = any(col == "status" for col, _kind in spec)
+        # Datenmodell-Konsolidierung Task 24: `lifecycle_status` (declared for
+        # StakeholderNeed/Requirement/ArchitectureElement) is no longer a
+        # plain content column on those models either -- it moved onto the
+        # backing Artifact (Decision D-3). Same treatment as `status` above:
+        # popped out of *content* so it never reaches `model.objects.create()`
+        # as an invalid keyword argument, and applied to the Artifact instead.
+        has_lifecycle_status_column = any(
+            col == "lifecycle_status" for col, _kind in spec
         )
         definition = (
             WorkflowEngineDefinition.objects.filter(
@@ -504,11 +533,24 @@ class ImportService(ServiceBase):
             # Only entity types whose field spec declares "status" go through
             # the mirror; e.g. ArchitectureElement has no status column at all
             # (it only has the unrelated "lifecycle_status" soft-delete flag).
+            # Task 12: never put "status" back into *content* -- the column is
+            # dropped, so it can no longer be a ``model.objects.create()``
+            # kwarg.
             mapped_status = None
             if has_status_column:
                 status_raw = content.pop("status", None)
                 mapped_status = _map_status(status_raw or "", valid_states)
-                content["status"] = mapped_status
+
+            lifecycle_status_value = None
+            if has_lifecycle_status_column:
+                from persistence.models import LifecycleStatus
+
+                lifecycle_status_raw = content.pop("lifecycle_status", None)
+                lifecycle_status_value = (
+                    lifecycle_status_raw
+                    if lifecycle_status_raw in LifecycleStatus.values
+                    else LifecycleStatus.ACTIVE
+                )
 
             preserved_id = identity.get("id")
             preserved_artifact_id = identity.get("artifact_id")
@@ -541,6 +583,8 @@ class ImportService(ServiceBase):
             )
             if preserved_artifact_id is not None:
                 artifact_kwargs["id"] = preserved_artifact_id
+            if lifecycle_status_value is not None:
+                artifact_kwargs["lifecycle_status"] = lifecycle_status_value
             artifact = Artifact.objects.create(**artifact_kwargs)
 
             # ---- Entity row ----
@@ -563,8 +607,8 @@ class ImportService(ServiceBase):
                     **content,
                 )
                 # Preserve exported author, else attribute to the importing user.
-                created_by = identity.get("created_by")
-                create_kwargs["created_by"] = (
+                created_by = identity.get("created_by_name")
+                create_kwargs["created_by_name"] = (
                     created_by if created_by else str(ctx.user_id)
                 )
                 mod_field = "updated_at"
@@ -588,10 +632,11 @@ class ImportService(ServiceBase):
             # ---- WorkflowItemState (REQ-143, issue #113) ----
             # Mirrors reqif_import_service._apply_status: only created when a
             # WorkflowEngineDefinition exists for this workspace/item_type (its
-            # FK to the definition is PROTECT and requires one). Without a
-            # definition, imported rows keep the normalised status field only
-            # — same degraded-but-consistent behaviour ReqIF import falls back
-            # to.
+            # FK to the definition is PROTECT and requires one). Task 12:
+            # without a definition there is no column left to fall back to --
+            # the imported status is simply not persisted anywhere for that
+            # row (documented, reviewed data-loss tradeoff, see the Task 12
+            # report Finding 2).
             if definition is not None:
                 WorkflowItemState.objects.create(
                     item_id=obj.id,

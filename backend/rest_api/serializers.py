@@ -35,6 +35,7 @@ from rest_framework import pagination, serializers
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
 from persistence.models import ElementType
@@ -666,6 +667,7 @@ class ArtifactSerializer(
 
 
 class RequirementSerializer(
+    WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
@@ -681,6 +683,11 @@ class RequirementSerializer(
 
     select_related hint: artifact, artifact__workspace (for queryset optimization).
     """
+
+    # REQ-143 / Datenmodell-Konsolidierung: `status` is no longer a model
+    # column. It is resolved from WorkflowItemState by the mixin, which keeps
+    # the wire key and its vocabulary identical (Decision D-1).
+    workflow_item_type = "Requirement"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -699,20 +706,6 @@ class RequirementSerializer(
     # #43: acceptance_criteria describes when the requirement is considered fulfilled.
     acceptance_criteria = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
-    # REQ-143: `status` is a read-only mirror of the WorkflowEngine state. The
-    # WorkflowEngine is the single source of truth; any `status` sent by a client
-    # is silently ignored (not a 400) and the response always reflects the true,
-    # engine-owned value. Change the lifecycle state via
-    # POST /api/v1/requirements/{id}/transitions/.
-    status = serializers.CharField(
-        max_length=64,
-        read_only=True,
-        help_text=(
-            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-143). "
-            "Writes are ignored; transition via "
-            "POST /api/v1/requirements/{id}/transitions/."
-        ),
-    )
     type = serializers.ChoiceField(
         choices=['SyReq', 'UseCase', 'FeatureReq'],
         default='SyReq',
@@ -798,15 +791,19 @@ class RequirementSerializer(
 
 
 class StakeholderNeedSerializer(
+    WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
 ):
     """Serializer for StakeholderNeed entity.
-    
+
     Represents the user's problem space and needs.
     """
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "StakeholderNeed"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -819,16 +816,6 @@ class StakeholderNeedSerializer(
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
-    # REQ-143: read-only mirror of the WorkflowEngine state (see RequirementSerializer).
-    # Writes are ignored; the response always reflects the true, engine-owned value.
-    status = serializers.CharField(
-        max_length=64,
-        read_only=True,
-        help_text=(
-            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-143). "
-            "Writes are ignored."
-        ),
-    )
     moscow_priority = serializers.ChoiceField(
         choices=['Must', 'Should', 'Could', "Won't"],
         required=False,
@@ -938,6 +925,7 @@ class ArchitectureElementSerializer(
 
 
 class TestCaseSerializer(
+    WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
@@ -945,26 +933,19 @@ class TestCaseSerializer(
 ):
     """Serializer for TestCase entity (REQ-L2-RA-001)."""
 
+    # REQ-165/REQ-166 (CR-08) / Datenmodell-Konsolidierung: see
+    # RequirementSerializer. Neither create_test_case() nor update_test_case()
+    # (application/test_service.py) accept a client-supplied status, so this
+    # matches the already-correct behavior instead of advertising a writable
+    # field that PATCH has always ignored. Change the lifecycle state via
+    # POST /api/v1/testcases/{id}/transitions/.
+    workflow_item_type = "TestCase"
+
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     uid = serializers.CharField(read_only=True, allow_null=True)
-    # REQ-165/REQ-166 (CR-08): `status` is a read-only mirror of the WorkflowEngine
-    # state, same pattern as RequirementSerializer.status (REQ-143). Neither
-    # create_test_case() nor update_test_case() (application/test_service.py)
-    # accept a client-supplied status, so marking the field read-only here makes
-    # the OpenAPI contract match the actual (already-correct) behavior instead of
-    # silently advertising a writable field that PATCH has always ignored. Change
-    # the lifecycle state via POST /api/v1/testcases/{id}/transitions/.
-    status = serializers.CharField(
-        read_only=True,
-        help_text=(
-            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-165). "
-            "Writes are ignored; transition via "
-            "POST /api/v1/testcases/{id}/transitions/."
-        ),
-    )
     suspect = serializers.BooleanField(required=False, default=False)
     # SysEng 2.0 N5 (test.derive_from_requirement): test steps, previously
     # persisted on the model but not exposed through the API.
@@ -1337,9 +1318,15 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
 
 class AdrSerializer(
-    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for ADR entity (REQ-L1-029, COMP-AS-013)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Adr"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1356,10 +1343,6 @@ class AdrSerializer(
     decision = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.ChoiceField(
-        choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
-        default="Draft",
-    )
     # #290: AdrViewSet.partial_update forwards ``data.get("change_reason")`` to
     # AdrService.update_adr(), which records it on the audit event. The field was
     # never declared here, so DRF dropped it from validated_data and the audit
@@ -1377,9 +1360,15 @@ class AdrSerializer(
 
 
 class RiskSerializer(
-    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for Risk entity (REQ-L1-029, COMP-AS-014)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Risk"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1413,10 +1402,6 @@ class RiskSerializer(
     # #104: narrative field, unbounded before — cap at 10000 chars (DoS risk).
     mitigation_strategy = SanitizedCharField(allow_blank=True, default="", max_length=10000)
     uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.ChoiceField(
-        choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
-        default="Identified",
-    )
     # #290: see AdrSerializer.change_reason — RiskViewSet.partial_update
     # forwards it to RiskService.update_risk() but DRF dropped it.
     change_reason = SanitizedCharField(
@@ -1429,8 +1414,11 @@ class RiskSerializer(
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class GoalSerializer(WorkflowStateSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for Goal entity (REQ-L2-TE-020, Task 6)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Goal"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1442,7 +1430,6 @@ class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     sequence_number = serializers.IntegerField(read_only=True)
     title = SanitizedCharField(max_length=255)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
-    status = serializers.CharField(read_only=True)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -1450,8 +1437,13 @@ class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class MainGoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class MainGoalSerializer(
+    WorkflowStateSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for MainGoal entity (REQ-L2-TE-020, Task 6)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "MainGoal"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1461,7 +1453,6 @@ class MainGoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     generated_from_goal_ids = serializers.ListField(
         child=serializers.CharField(), read_only=True, required=False
     )
-    status = serializers.CharField(read_only=True)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -1544,9 +1535,21 @@ class NormalizedChoiceField(serializers.ChoiceField):
 
 
 class IssueSerializer(
-    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer. Was
+    # previously a writable field (IssueViewSet.create() accepted a
+    # client-supplied initial status) — the WorkflowEngine already ignored
+    # that value on create (initialize_workflow_states() always seeds the
+    # workflow's own initial state), so the writable field only ever fed the
+    # legacy mirror column, never the true state. Aligning it read-only here
+    # closes that latent mirror/engine divergence instead of introducing one.
+    workflow_item_type = "Issue"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1560,24 +1563,6 @@ class IssueSerializer(
         default="defect",
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
-    # REQ-165/REQ-166 (CR-08): stays writable (unlike RequirementSerializer/
-    # TestCaseSerializer.status) because IssueViewSet.create() legitimately
-    # accepts an initial status (no prior WorkflowItemState to diverge from) and
-    # several unit tests (test_serializers.py) validate/normalize this field
-    # directly. IssueViewSet.partial_update() deliberately does NOT forward
-    # `status` from PATCH to update_issue() — the WorkflowEngine is the single
-    # source of truth once the item exists (ADR-status-single-source.md); change
-    # the lifecycle state via POST /api/v1/issues/{id}/transitions/.
-    status = NormalizedChoiceField(
-        choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
-        default="Open",
-        error_messages={
-            "invalid_choice": (
-                '"{input}" is not a valid choice. Valid choices are: '
-                "Open, In Progress, Resolved, Closed, Wontfix."
-            )
-        },
-    )
     tags = serializers.JSONField(required=False, default=list)
     # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
     # forwards it to IssueService.update_issue() but DRF dropped it.
@@ -1592,13 +1577,19 @@ class IssueSerializer(
 
 
 class ChangeRequestSerializer(
-    ExpectedVersionSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for ChangeRequest entity (REQ-157, COMP-AS-017).
 
     Covers the full CCB approval lifecycle:
     draft → submitted → under_review → approved|rejected → implemented
     """
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "ChangeRequest"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1607,10 +1598,6 @@ class ChangeRequestSerializer(
     # #104: narrative CCB fields, unbounded before (DoS risk).
     impact_assessment = SanitizedCharField(allow_blank=True, default="", max_length=10000)
     change_reason = SanitizedCharField(allow_blank=True, default="", max_length=2000)
-    status = serializers.ChoiceField(
-        choices=["draft", "submitted", "under_review", "approved", "rejected", "implemented"],
-        default="draft",
-    )
     requestor_id = serializers.UUIDField(read_only=True, allow_null=True)
     assigned_reviewer_id = serializers.UUIDField(
         allow_null=True, required=False, default=None
@@ -1625,12 +1612,14 @@ class ChangeRequestSerializer(
 class IcdParameterSerializer(serializers.Serializer):
     """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
 
-    Structured, version-specific interface parameter (unit, data type,
-    direction, numeric bounds, tolerance) attached to an IcdVersion.
+    Structured interface parameter (unit, data type, direction, numeric
+    bounds, tolerance) of an ICD's current contract. Task 28c-2 replaced
+    ``icd_version_id`` with ``icd_id``: parameters belong to the ICD, not to
+    one of its revisions.
     """
 
     id = serializers.UUIDField(read_only=True)
-    icd_version_id = serializers.UUIDField(read_only=True)
+    icd_id = serializers.UUIDField(read_only=True)
     name = SanitizedCharField(max_length=200)
     description = SanitizedCharField(
         allow_blank=True, default="", max_length=2000
@@ -1845,24 +1834,10 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
     return queryset
 
 
-class GlossaryTermVersionSerializer(serializers.Serializer):
-    """Serializer for GlossaryTermVersion (REQ-L2-RA-001)."""
-
-    id = serializers.UUIDField(read_only=True)
-    term_fk_id = serializers.UUIDField(read_only=True)
-    term_version = serializers.IntegerField(read_only=True)
-    # #104: matches GlossaryTermSerializer.definition — unbounded before (DoS risk).
-    definition = SanitizedCharField(max_length=20000)
-    # #269/4: both fields are user-authored prose that the SPA, the PDF report
-    # and the ReqIF export render verbatim, yet neither was guarded — only
-    # ``term``/``definition`` were. ``synonyms`` needs the JSON variant because
-    # its payload sits inside a list, which the scalar guard skipped.
-    synonyms = SanitizedJSONField(required=False, default=list)
-    abbreviation = SanitizedCharField(
-        required=False, allow_blank=True, default=""
-    )
-    created_at = serializers.DateTimeField(read_only=True)
-    created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+# Datenmodell-Konsolidierung Task 28b: GlossaryTermVersionSerializer (dead
+# code — never wired to a view; the `/glossary/{pk}/versions/` and `/diff/`
+# endpoints below already go through ArtifactDiffService) was removed here
+# together with the GlossaryTermVersion model it serialised.
 
 
 class GlossaryTermSerializer(ExpectedVersionSerializerMixin, serializers.Serializer):
@@ -2034,7 +2009,6 @@ __all__ = [
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",
     "GlossaryTermSerializer",
-    "GlossaryTermVersionSerializer",
     "UserProfileSerializer",
     "StandardPagination",
     "TraceLinkPagination",

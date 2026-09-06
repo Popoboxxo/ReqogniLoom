@@ -19,7 +19,7 @@ isolation. Supports type filtering, pagination, and safe query parsing.
 
 Task 9 (REQ-L2-VS-004) adds a third, cosine-similarity pass over the
 ``embedding`` column of the entity types that have one (today: Requirement --
-see ``_EMBEDDABLE_TYPES`` for why TraceLink/IcdVersion are implemented but not
+see ``_EMBEDDABLE_TYPES`` for why TraceLink/Icd are implemented but not
 yet wired into ``type_filter``). When that pass contributes a hit for a given
 entity type, all three passes are combined via Reciprocal Rank Fusion
 (``_rrf_fuse``) instead of the plain max-score merge (``_merge_hits``) —
@@ -92,19 +92,23 @@ _MAX_LEXICAL_ROWS_PER_TYPE = 200
 # ---------- Semantic pass (Task 9, REQ-L2-VS-004) ----------
 #
 # Entity types that carry an ``embedding`` VectorField today. Deliberately
-# NOT the same set as SEARCHABLE_ARTIFACT_TYPES: TraceLink and IcdVersion
-# have an embedding column (populated by application/trace_link_service.py
-# and icd/icd_manager.py respectively) but no fulltext/lexical _TableSpec and
-# are not part of the public `type_filter` enum. Wiring them into
+# NOT the same set as SEARCHABLE_ARTIFACT_TYPES: TraceLink and Icd have an
+# embedding column (populated by application/trace_link_service.py and
+# icd/icd_manager.py respectively) but no fulltext/lexical _TableSpec and are
+# not part of the public `type_filter` enum. Wiring them into
 # SearchService.search()'s type_filter surface would require deciding a
 # synthetic "title" for a TraceLink (it has none) and a workspace-scoping
-# join (TraceLink -> source.workspace_id, IcdVersion -> icd.workspace_id)
+# join (TraceLink -> source.workspace_id)
 # — real product/API-surface decisions, not "add a fusion pass". This task
 # scopes that decision out: _run_semantic_query below implements and
 # directly unit-tests all three, but only "Requirement" is wired into
 # _search_entity_type's fusion, since it is the only one of the three that
 # is already a searchable type today.
-_EMBEDDABLE_TYPES: frozenset[str] = frozenset({"Requirement", "TraceLink", "IcdVersion"})
+#
+# Task 28c-2: "IcdVersion" became "Icd" — the embedding moved onto the ICD
+# header when the version table was retired, along with its HNSW index
+# (icd_version_embedding_hnsw -> icd_embedding_hnsw).
+_EMBEDDABLE_TYPES: frozenset[str] = frozenset({"Requirement", "TraceLink", "Icd"})
 
 # Standard RRF constant (see e.g. Cormack et al. 2009) — large enough that a
 # rank-1 hit in one list and a rank-1 hit in another contribute comparable
@@ -369,10 +373,10 @@ def _embedding_field_dimensions(entity_type: str) -> Optional[int]:
         return Requirement._meta.get_field("embedding").dimensions
     if entity_type == "TraceLink":
         return TraceLink._meta.get_field("embedding").dimensions
-    if entity_type == "IcdVersion":
-        from icd.models import IcdVersion  # local import, see _dispatch below
+    if entity_type == "Icd":
+        from icd.models import Icd  # local import, see _dispatch below
 
-        return IcdVersion._meta.get_field("embedding").dimensions
+        return Icd._meta.get_field("embedding").dimensions
     return None
 
 
@@ -384,7 +388,7 @@ def _run_semantic_query(
 ) -> List[SearchHit]:
     """Cosine-similarity pass over ``entity_type``'s ``embedding`` column.
 
-    REQ-L2-VS-004 (Task 9). Only Requirement/TraceLink/IcdVersion carry an
+    REQ-L2-VS-004 (Task 9). Only Requirement/TraceLink/Icd carry an
     ``embedding`` VectorField today -- everything else (and a missing/empty
     ``query_embedding``, e.g. no embedding provider configured) returns [].
 
@@ -506,33 +510,30 @@ def _run_semantic_query(
                 for obj in qs
             ]
 
-        if entity_type == "IcdVersion":
+        if entity_type == "Icd":
             # Local import: icd is an Ext-layer app; application (Layer 2) does
             # not otherwise depend on it. Mirrors the existing lazy,
             # module-local cross-layer import precedent (e.g.
             # ArchitectureElement.get_role()'s Layer0 -> Layer1 import of
             # workflow.services) rather than adding a module-level dependency
             # for a code path only reached for one of ten entity types.
-            from icd.models import IcdVersion
+            from icd.models import Icd
 
-            qs = IcdVersion.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
+            qs = Icd.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
             if workspace_id is not None:
-                qs = qs.filter(icd__workspace_id=workspace_id)
+                qs = qs.filter(workspace_id=workspace_id)
             qs = (
-                qs.annotate(
-                    distance=CosineDistance("embedding", query_embedding),
-                    ws_id=F("icd__workspace_id"),
-                )
+                qs.annotate(distance=CosineDistance("embedding", query_embedding))
                 .order_by("distance")[:_SEMANTIC_TOP_K]
             )
             return [
                 SearchHit(
                     id=str(obj.id),
                     artifact_type=entity_type,
-                    title=(obj.semantic_description or f"ICD contract v{obj.version_number}")[:200],
+                    title=(obj.name or obj.semantic_description or "ICD")[:200],
                     description=obj.semantic_description or "",
                     relevance_score=1.0 - float(obj.distance),
-                    workspace_id=str(obj.ws_id) if obj.ws_id else "",
+                    workspace_id=str(obj.workspace_id) if obj.workspace_id else "",
                 )
                 for obj in qs
             ]
@@ -815,7 +816,7 @@ class SearchService(ServiceBase):
         # real network round-trip for the openai provider, model inference for
         # sentence-transformers) -- a caller with e.g. type_filter=["TestCase"]
         # (no embedding column at all) must not pay that cost just because
-        # Requirement/TraceLink/IcdVersion exist elsewhere in the codebase.
+        # Requirement/TraceLink/Icd exist elsewhere in the codebase.
         query_embedding: Optional[List[float]] = None
         if _EMBEDDABLE_TYPES & set(effective_types):
             query_embedding = generate_embedding(query)

@@ -77,6 +77,7 @@ from persistence.models import Requirement, RequirementLevel
 from traceability.audit.hierarchy import requirement_hierarchy_edges
 from traceability.audit.registry import CONS_P11, Rule, register_rule
 from traceability.audit.types import AuditContext, Finding, Severity
+from workflow import state_reader
 
 
 def _active_requirement_levels(
@@ -86,20 +87,30 @@ def _active_requirement_levels(
 
     Mirrors ``coverage_consistency._active_requirements`` (each rule module
     keeps its own read helper — the modules are deliberately independent).
-    "Active" excludes ``status="outdated"``, the status mirror ``outdate()``
-    writes, not the dead ``lifecycle_status`` column.
+    Datenmodell-Konsolidierung Phase 1: "active" is resolved through
+    ``WorkflowItemState`` (batched) — Requirement has no backfill-migration
+    guarantee. Task 12: the ``status`` column is dropped, so a row never
+    wired into one falls back to the "draft" preset initial state instead
+    (documented, reviewed data-loss tradeoff, see Task 12 report Finding 2).
 
     ``unscoped`` is the audit infrastructure's convention: tenant and workspace
     are supplied explicitly by the engine, so the thread-local ``objects``
     manager is bypassed on purpose (same as ``AuditContext.iter_trace_links``).
     """
-    qs = Requirement.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(status="outdated")
+    rows = list(
+        Requirement.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title", "level")
+    )
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    requirement_initial_state = state_reader.initial_state("Requirement")
     return {
-        str(artifact_id): (title, level)
-        for artifact_id, title, level in qs.values_list("artifact_id", "title", "level")
+        str(row["artifact_id"]): (row["title"], row["level"])
+        for row in rows
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
 
 

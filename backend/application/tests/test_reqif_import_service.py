@@ -95,7 +95,6 @@ def source_workspace():
             title="Need One",
             description="First need",
             category="functional",
-            status="draft",
             moscow_priority="Must",
             uid="NEED-001",
         )
@@ -108,7 +107,6 @@ def source_workspace():
             title="Need Two",
             description="Second need",
             category="functional",
-            status="draft",
             uid="NEED-002",
         )
 
@@ -124,7 +122,6 @@ def source_workspace():
             title="Req One",
             description="Req one description",
             category="functional",
-            status="draft",
             verification_method="Test",
             uid="REQ-001",
         )
@@ -140,7 +137,6 @@ def source_workspace():
             title="Req Two",
             description="Req two description",
             category="functional",
-            status="in_review",
             verification_method="Review",
             uid="REQ-002",
         )
@@ -153,7 +149,6 @@ def source_workspace():
             title="Req Three",
             description="Req three description",
             category="non-functional",
-            status="draft",
             uid="REQ-003",
         )
 
@@ -459,6 +454,28 @@ class TestReqifImportStatusMapping:
                     "transitions": [],
                 },
             )
+            # Task 12: the `status` column is dropped, so req2's "in_review"
+            # source status (this test's whole premise -- the export must
+            # carry a non-default value for the mapping to be meaningful)
+            # can only be represented by a real WorkflowItemState now.
+            source_definition = WorkflowEngineDefinition.objects.create(
+                tenant=tenant,
+                workspace_id=source_workspace["workspace"].id,
+                item_type="Requirement",
+                preset=WorkflowEngineDefinition.PRESET_STANDARD,
+                workflow_json={
+                    "states": ["draft", "in_review", "approved", "deprecated"],
+                    "transitions": [],
+                },
+            )
+            WorkflowItemState.objects.create(
+                tenant=tenant,
+                item_id=source_workspace["req2"].id,
+                item_type="Requirement",
+                workspace_id=source_workspace["workspace"].id,
+                definition=source_definition,
+                current_state="in_review",
+            )
         finally:
             clear_request_tenant()
 
@@ -470,7 +487,8 @@ class TestReqifImportStatusMapping:
         )
         # req2 was exported with status "in_review", a known state of the
         # target definition -> kept as-is, and a WorkflowItemState mirrors it.
-        assert req2_copy.status == "in_review"
+        # Task 12: the `status` column is dropped, so WorkflowItemState is
+        # the only place left to check.
         state = WorkflowItemState.objects.get(
             item_id=req2_copy.id, item_type="Requirement"
         )
@@ -481,12 +499,17 @@ class TestReqifImportStatusMapping:
         self, source_workspace, target_workspace
     ):
         """No WorkflowEngineDefinition for StakeholderNeed in target_workspace ->
-        status is only normalised (unknown -> draft), no WorkflowItemState row.
+        no WorkflowItemState row is created (the FK to a definition is
+        PROTECT). Task 12: the `status` column that used to at least keep
+        the normalised ("unknown" -> "draft") value is dropped, so this case
+        now has no record of the imported status anywhere at all --
+        documented, reviewed data-loss tradeoff, see the Task 12 report
+        Finding 2.
 
         Mutates need1's ATTR-STATUS value to an unrecognised free-text status
-        before importing, so the "unknown -> draft" fallback branch of
-        _map_status is actually exercised (need1's real status is already
-        "draft", which would pass trivially without this mutation).
+        before importing, exercising the "unknown -> draft" branch of
+        _map_status (which still runs -- it just has nowhere left to persist
+        its result when there is no definition).
         """
         import re
 
@@ -512,7 +535,6 @@ class TestReqifImportStatusMapping:
         need1_copy = StakeholderNeed.objects.get(
             artifact__workspace=target_workspace, uid="NEED-001"
         )
-        assert need1_copy.status == "draft"
         assert not WorkflowItemState.objects.filter(
             item_id=need1_copy.id, item_type="StakeholderNeed"
         ).exists()
@@ -544,7 +566,10 @@ class TestReqifImportStatusMapping:
         req2_copy = Requirement.objects.get(
             artifact__workspace=target_workspace, uid="REQ-002"
         )
-        assert req2_copy.status == "backlog"
+        state = WorkflowItemState.objects.get(
+            item_id=req2_copy.id, item_type="Requirement"
+        )
+        assert state.current_state == "backlog"
 
 
 # ---------- Upsert identifier-collision handling ----------

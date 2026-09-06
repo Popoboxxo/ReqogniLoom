@@ -65,7 +65,6 @@ def _raw_insert(workspace, sequence_number: int) -> MainGoal:
         content=f"v{sequence_number}",
         source="manual",
         generated_from_goal_ids=[],
-        status="Entwurf",
     )
 
 

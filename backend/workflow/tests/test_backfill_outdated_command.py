@@ -5,43 +5,33 @@ from persistence.tenancy import TenantContext
 
 
 @pytest.mark.django_db
-def test_backfill_transitions_legacy_deleted_requirements_to_outdated(requirement_with_workflow, auth_ctx):
-    from persistence.models import Requirement
-
+def test_backfill_is_a_noop_since_the_legacy_mirror_columns_are_gone(
+    requirement_with_workflow, auth_ctx
+):
+    """Datenmodell-Konsolidierung Task 24 dropped the per-entity
+    ``lifecycle_status`` mirror columns this command used to key off
+    (Requirement/ArchitectureElement/GlossaryTerm), emptying
+    ``LEGACY_DELETED_LOOKUPS`` -- mirroring what Task 12 already did for Adr's
+    entry. The command must keep running cleanly as a no-op rather than raise
+    FieldError for a column that no longer exists."""
     item_id, workspace_id = requirement_with_workflow
     TenantContext.set_tenant(auth_ctx.tenant_id)
     try:
-        requirement = Requirement.objects.get(id=item_id)
-        requirement.lifecycle_status = "deleted"
-        requirement.save(update_fields=["lifecycle_status"])
-
-        call_command("backfill_outdated_from_legacy_status")
-
+        from persistence.models import Artifact, Requirement
         from workflow.models import WorkflowItemState
-        item_state = WorkflowItemState.objects.get(item_id=item_id, item_type="Requirement")
-        assert item_state.current_state == "outdated"
-    finally:
-        TenantContext.clear_tenant()
 
-
-@pytest.mark.django_db
-def test_backfill_is_idempotent(requirement_with_workflow, auth_ctx):
-    from persistence.models import Requirement
-
-    item_id, workspace_id = requirement_with_workflow
-    TenantContext.set_tenant(auth_ctx.tenant_id)
-    try:
-        requirement = Requirement.objects.get(id=item_id)
-        requirement.lifecycle_status = "deleted"
-        requirement.save(update_fields=["lifecycle_status"])
+        artifact_id = Requirement.objects.values_list(
+            "artifact_id", flat=True
+        ).get(pk=item_id)
+        before = Artifact.objects.get(pk=artifact_id).lifecycle_status
 
         call_command("backfill_outdated_from_legacy_status")
-        call_command("backfill_outdated_from_legacy_status")  # must not raise or double-transition
+        call_command("backfill_outdated_from_legacy_status")  # idempotent, no crash
 
-        from workflow.models import WorkflowItemState, WorkflowHistoryEntry
-        item_state = WorkflowItemState.objects.get(item_id=item_id, item_type="Requirement")
-        assert item_state.current_state == "outdated"
-        history_count = WorkflowHistoryEntry.objects.filter(item_state=item_state, to_state="outdated").count()
-        assert history_count == 1
+        assert Artifact.objects.get(pk=artifact_id).lifecycle_status == before
+        item_state = WorkflowItemState.objects.get(
+            item_id=item_id, item_type="Requirement"
+        )
+        assert item_state.current_state == "draft"
     finally:
         TenantContext.clear_tenant()

@@ -19,7 +19,7 @@ import pytest
 from diagram.mcp_artifact_provider import McpArtifactProvider
 from diagram.manager import DiagramResult
 from diagram.renderer import RenderableDiagram
-from diagram.models import Diagram, DiagramVersion
+from diagram.models import Diagram, DiagramRevision
 
 
 def _make_mock_manager(
@@ -44,7 +44,7 @@ def _make_mock_manager(
     mock_diagram.name = name
     mock_diagram.diagram_type = diagram_type
 
-    mock_version = MagicMock(spec=DiagramVersion)
+    mock_version = MagicMock(spec=DiagramRevision)
     mock_version.version_number = version_number
     mock_version.payload_format = payload_format
 

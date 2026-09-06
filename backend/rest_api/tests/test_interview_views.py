@@ -1,11 +1,22 @@
 """REST facade for interview.* -- spec §3 point 1 (dual-protocol pattern, same as requirement_bundle).
 
-Uses the shared ``tenant``/``workspace``/``authed_client`` fixtures from
+Uses the shared ``tenant``/``authed_client`` fixtures from
 rest_api/tests/conftest.py -- ``authed_client`` is a real Bearer-token-
 authenticated APIClient (logs in via /api/v1/auth/login/), which is what
 this codebase's AuthTenancyAuthentication + RbacPermission actually need
 in tests; ``force_authenticate`` never populates ``request.auth_context``
 here, so it would silently 401 every call.
+
+``workspace`` below overrides conftest.py's fixture of the same name
+(module-scoped shadowing, same precedent as test_adr_views.py's own
+``workspace`` fixture docstring): the plain conftest fixture skips
+``provision_workspace_defaults``, so it has no ``interview_default``
+WorkflowEngineDefinition. Datenmodell-Konsolidierung Task 12: with the
+``status`` column dropped, a session whose workspace never had that
+definition can never get a ``WorkflowItemState`` row at all (FK PROTECT),
+so ``formalize()``'s completion has nowhere durable to be recorded --
+every test that reads status back after a state-changing action (list,
+abandon-after-formalize) needs the real definition to exist.
 """
 from __future__ import annotations
 
@@ -14,7 +25,26 @@ from unittest.mock import patch
 
 import pytest
 
+from application.workspace_provisioning import provision_workspace_defaults
+from persistence.models import Tenant, Workspace
+from persistence.tenancy import TenantContext
+
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def workspace(tenant: Tenant) -> Workspace:
+    TenantContext.set_tenant(tenant.id)
+    try:
+        ws = Workspace.objects.create(
+            tenant=tenant, name="Bundle WS", preset={"name": "extended"}
+        )
+        provision_workspace_defaults(
+            workspace_id=ws.id, tenant_id=tenant.id, requirement_preset="extended"
+        )
+        return ws
+    finally:
+        TenantContext.clear_tenant()
 
 
 class TestInterviewStartAndList:
@@ -77,6 +107,38 @@ class TestInterviewStartAndList:
         response = authed_client.get(f"/api/v1/interviews/?workspace_id={workspace.id}")
         assert response.status_code == 200
         assert start.data["id"] in [s["id"] for s in response.data["results"]]
+
+    def test_list_reflects_the_engine_state_not_the_stale_column(
+        self, authed_client, workspace
+    ):
+        """C3: Datenmodell-Konsolidierung Phase 1 -- list() iterates a raw
+        queryset, so its status resolution must be independently correct,
+        not just inherited from retrieve()'s (already-fixed) single-item
+        path. A completed session must not show "in_progress" in the list."""
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "title", "value": "SSO login"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "rationale", "value": "Users need single sign-on."},
+            format="json",
+        )
+        formalize = authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
+        assert formalize.status_code == 200, formalize.content
+
+        response = authed_client.get(f"/api/v1/interviews/?workspace_id={workspace.id}")
+
+        assert response.status_code == 200
+        by_id = {s["id"]: s for s in response.data["results"]}
+        assert by_id[session_id]["status"] == "completed"
 
 
 class TestInterviewStateAndAnswer:

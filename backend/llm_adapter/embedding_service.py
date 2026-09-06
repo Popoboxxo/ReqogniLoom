@@ -2,7 +2,7 @@
 
 Generates semantic embeddings via configurable providers (default:
 sentence-transformers, 384 dims; optional: ollama 768 dims, openai 1536 dims)
-for Requirement/TraceLink/IcdVersion text. Kept in the LlmAdapterSystem
+for Requirement/TraceLink/Icd text. Kept in the LlmAdapterSystem
 (Layer 1) rather than in persistence (Layer 0), because it is an LLM-provider
 concern and llm_adapter is already permitted to depend on persistence — not
 the reverse.
@@ -30,7 +30,7 @@ configuration therefore works end to end with no operator action.
 
     History: ``EMBEDDING_PROVIDER``'s default changed from ``openai`` to
     ``sentence-transformers`` (Task 1 of the ai-memory-and-search plan) while
-    ``Requirement.embedding``/``TraceLink.embedding``/``IcdVersion.embedding``
+    ``Requirement.embedding``/``TraceLink.embedding``/``Icd.embedding``
     stayed hardcoded ``vector(1536)``. Because every write site guards
     ``len(vector) == column.dimensions`` before touching the DB (a mismatched
     width is a pgvector ``DataError`` that poisons the caller's ambient
@@ -276,7 +276,7 @@ class OpenAiEmbeddingProvider(EmbeddingProvider):
 
 def generate_embedding(text: str) -> Optional[List[float]]:
     """Backward-compatible facade -- existing call sites (Requirement, TraceLink,
-    IcdVersion embedding generation) are unchanged, now backed by the registry."""
+    Icd embedding generation) are unchanged, now backed by the registry."""
     if not text or not text.strip():
         return None
     try:
@@ -343,34 +343,35 @@ def get_embedding_text(requirement) -> str:
     return f"{title}\n\n{description}".strip()
 
 
-def get_icd_version_embedding_text(icd_version) -> str:
-    """Combine an IcdVersion's contract fields into embedding input.
+def get_icd_embedding_text(icd) -> str:
+    """Combine an ICD's contract fields into embedding input.
 
-    REQ-L2-VS-004. Duck-typed: accepts any object exposing the IcdVersion
-    contract attributes (ORM instance or DTO). Includes the parent ICD name
-    when the relation is available so structurally similar interfaces cluster.
+    REQ-L2-VS-004. Duck-typed: accepts any object exposing the ICD contract
+    attributes (ORM instance, ``IcdRevision`` or DTO). Includes the interface
+    name when present so structurally similar interfaces cluster.
+
+    Task 28c-2: renamed from ``get_icd_version_embedding_text`` and reads
+    ``name`` directly — the contract and the name now live on the same row,
+    so the old ``icd_id``/``icd.name`` relation walk is gone.
     """
     parts: List[str] = []
 
-    icd_name = None
-    if getattr(icd_version, "icd_id", None):
-        icd = getattr(icd_version, "icd", None)
-        icd_name = getattr(icd, "name", None) if icd is not None else None
-    if icd_name:
-        parts.append(f"Interface: {icd_name}")
+    name = getattr(icd, "name", None)
+    if name:
+        parts.append(f"Interface: {name}")
 
-    parts.append(f"Type: {getattr(icd_version, 'interface_type', '') or ''}")
+    parts.append(f"Type: {getattr(icd, 'interface_type', '') or ''}")
     parts.append(
-        f"Description: {getattr(icd_version, 'semantic_description', '') or ''}"
+        f"Description: {getattr(icd, 'semantic_description', '') or ''}"
     )
 
-    preconditions = getattr(icd_version, "preconditions", None)
+    preconditions = getattr(icd, "preconditions", None)
     if preconditions:
         parts.append(f"Preconditions: {' '.join(str(p) for p in preconditions)}")
-    postconditions = getattr(icd_version, "postconditions", None)
+    postconditions = getattr(icd, "postconditions", None)
     if postconditions:
         parts.append(f"Postconditions: {' '.join(str(p) for p in postconditions)}")
-    invariants = getattr(icd_version, "invariants", None)
+    invariants = getattr(icd, "invariants", None)
     if invariants:
         parts.append(f"Invariants: {' '.join(str(p) for p in invariants)}")
 
@@ -414,7 +415,7 @@ __all__ = [
     "get_embedding_provider",
     "generate_embedding",
     "get_embedding_text",
-    "get_icd_version_embedding_text",
+    "get_icd_embedding_text",
     "get_tracelink_embedding_text",
     "warn_dimension_mismatch",
 ]

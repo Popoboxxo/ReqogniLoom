@@ -182,6 +182,11 @@ from application.reqif_import_service import (  # noqa: F401,E402
     ReqifImportService,
 )
 
+# ---------------------------------------------------------------------------
+# Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService (spec §6, D-4)
+# ---------------------------------------------------------------------------
+from application.artifact_version_service import ArtifactVersionService  # noqa: F401,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -258,4 +263,6 @@ __all__ = [
     "ReqifImportService",
     "ReqifImportResult",
     "ReqifEntityReport",
+    # Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService
+    "ArtifactVersionService",
 ]

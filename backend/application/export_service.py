@@ -99,7 +99,10 @@ _COMMON_APP_FIELDS = [
     ("id", "uuid"),
     ("artifact_id", "uuid"),
     ("version", "int"),
-    ("created_by", "str"),
+    # Datenmodell-Konsolidierung Task 14: model attribute renamed
+    # created_by -> created_by_name (same DB column); the CSV column
+    # follows so getattr(obj, col) keeps resolving.
+    ("created_by_name", "str"),
     ("created_at", "datetime"),
     ("updated_at", "datetime"),
 ]
@@ -588,12 +591,63 @@ class ExportService(ServiceBase):
                 flt["artifact_id"] = UUID(str(artifact_id))
             qs = model.objects.filter(**flt)
 
-        return [ExportService._serialize_row(obj, spec) for obj in qs]
+        rows = list(qs)
+
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the workflow engine, so a row with "status" in its spec must
+        # have it resolved through workflow.state_reader (batched — one
+        # query per entity type, not per row), or every export would report
+        # every entity as permanently "draft"/whatever it was at creation,
+        # and re-importing that export would write the wrong value back (the
+        # module docstring's promised lossless round-trip). Task 12: the
+        # ``status`` column is dropped, so a row with no WorkflowItemState
+        # falls back to *entity_type*'s preset initial state instead of the
+        # column's own value (documented, reviewed data-loss tradeoff, see
+        # the Task 12 report Finding 2).
+        status_map: Dict[str, str] = {}
+        status_fallback: Optional[str] = None
+        if rows and any(col == "status" for col, _kind in spec):
+            from workflow import state_reader
+
+            status_map = state_reader.current_states(
+                entity_type, (obj.id for obj in rows)
+            )
+            status_fallback = state_reader.initial_state(entity_type)
+
+        return [
+            ExportService._serialize_row(
+                obj,
+                spec,
+                resolved_status=status_map.get(str(obj.id), status_fallback),
+            )
+            for obj in rows
+        ]
 
     @staticmethod
-    def _serialize_row(obj: Any, spec: List[tuple]) -> Dict[str, Any]:
-        """Serialise a single ORM *obj* into a row dict per *spec*."""
-        return {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
+    def _serialize_row(
+        obj: Any, spec: List[tuple], *, resolved_status: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Serialise a single ORM *obj* into a row dict per *spec*.
+
+        *resolved_status*, when given, overrides the (now-dropped) ``status``
+        column with the engine-resolved current state, or the entity type's
+        preset initial state when the engine has no ``WorkflowItemState`` row
+        for *obj* (Task 12).
+        """
+        row = {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
+        if resolved_status is not None and "status" in row:
+            row["status"] = resolved_status
+        if "lifecycle_status" in row:
+            # Datenmodell-Konsolidierung Task 24: the per-entity
+            # `lifecycle_status` mirror column is dropped from StakeholderNeed/
+            # Requirement/ArchitectureElement; the flag lives on the backing
+            # Artifact now (Decision D-3). `_fetch_entities` already
+            # `select_related("artifact")` for these types, so this is free.
+            artifact = getattr(obj, "artifact", None)
+            row["lifecycle_status"] = (
+                artifact.lifecycle_status if artifact is not None else "active"
+            )
+        return row
 
 
 __all__ = [

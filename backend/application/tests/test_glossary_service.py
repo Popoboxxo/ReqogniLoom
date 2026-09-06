@@ -43,7 +43,12 @@ WS_ID = uuid.uuid4()
 
 
 def _make_term(**kwargs):
-    """Return a MagicMock shaped like a GlossaryTerm ORM instance."""
+    """Return a MagicMock shaped like a GlossaryTerm ORM instance.
+
+    Datenmodell-Konsolidierung Task 24: the per-entity `lifecycle_status`
+    mirror column is gone; `GlossaryTermDTO.from_orm` reads
+    `term.artifact.lifecycle_status` instead, so the mock exposes it there.
+    """
     term = MagicMock()
     term.id = kwargs.get("id", TERM_ID)
     term.workspace_id = kwargs.get("workspace_id", WS_ID)
@@ -52,7 +57,8 @@ def _make_term(**kwargs):
     term.synonyms = kwargs.get("synonyms", [])
     term.abbreviation = kwargs.get("abbreviation", "REQ")
     term.version = kwargs.get("version", 1)
-    term.lifecycle_status = kwargs.get("lifecycle_status", "active")
+    term.artifact_id = kwargs.get("artifact_id", uuid.uuid4())
+    term.artifact.lifecycle_status = kwargs.get("lifecycle_status", "active")
     return term
 
 
@@ -69,10 +75,10 @@ class TestGlossaryTermDTO:
         assert dto.lifecycle_status == "deprecated"
 
     def test_from_orm_defaults_to_active(self):
-        """from_orm defaults lifecycle_status to 'active' when attribute absent."""
+        """from_orm defaults lifecycle_status to 'active' for a term with no
+        backing Artifact yet (workspace-less legacy row, Task 20)."""
         term = _make_term()
-        # Simulate pre-migration row with no lifecycle_status attribute
-        del term.lifecycle_status
+        term.artifact_id = None
         dto = GlossaryTermDTO.from_orm(term)
         assert dto.lifecycle_status == "active"
 
@@ -197,8 +203,9 @@ class TestGlossaryServiceList:
         ctx = _make_ctx()
         mock_term = _make_term(lifecycle_status="deleted")
 
-        # Chain: filter() → order_by() → [terms] (no exclude)
+        # Chain: select_related() → filter() → order_by() → [terms] (no exclude)
         mock_qs = MagicMock()
+        mock_qs.select_related.return_value = mock_qs
         mock_qs.filter.return_value = mock_qs
         mock_qs.order_by.return_value = [mock_term]
 
@@ -305,8 +312,16 @@ class TestGlossaryServiceCreateDeleteWorkflowIntegration:
             # delete() must not raise WorkflowItemState.DoesNotExist anymore.
             svc.delete(glossary_real_ctx, term.id)
 
+            # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow
+            # state is deliberately preserved. Task 24 dropped the per-term
+            # mirror column -- Artifact.lifecycle_status is what
+            # GlossaryTermSerializer exposes on the wire now (via the DTO).
+            from persistence.models import Artifact, GlossaryTerm
+
+            row = GlossaryTerm.objects.get(pk=term.id)
+            assert Artifact.objects.get(pk=row.artifact_id).lifecycle_status == "outdated"
             item_state.refresh_from_db()
-            assert item_state.current_state == "outdated"
+            assert item_state.current_state != "outdated"
         finally:
             TenantContext.clear_tenant()
 

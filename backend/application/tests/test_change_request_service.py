@@ -47,8 +47,16 @@ USER_ID = uuid.uuid4()
 
 
 def _make_cr(**kwargs):
-    """Return a MagicMock that looks like a ChangeRequest ORM instance."""
-    cr = MagicMock(spec=ChangeRequest)
+    """Return a MagicMock that looks like a ChangeRequest ORM instance.
+
+    Task 12: no longer ``spec=ChangeRequest`` -- the `status` column is
+    dropped from the real model, but `.status` here stands in for the
+    engine-resolved, in-memory-only value ``ChangeRequestService`` sets on
+    real instances (state_reader.current_state(...) or
+    state_reader.initial_state(...)), which a real spec would now reject as
+    an unknown attribute.
+    """
+    cr = MagicMock()
     cr.id = kwargs.get("id", CR_ID)
     cr.workspace_id = kwargs.get("workspace_id", WS_ID)
     cr.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -60,7 +68,7 @@ def _make_cr(**kwargs):
     cr.requestor_id = kwargs.get("requestor_id", USER_ID)
     cr.assigned_reviewer_id = kwargs.get("assigned_reviewer_id", None)
     cr.version = kwargs.get("version", 1)
-    cr.created_by = kwargs.get("created_by", str(USER_ID))
+    cr.created_by_name = kwargs.get("created_by_name", str(USER_ID))
     return cr
 
 
@@ -149,7 +157,11 @@ class TestCreateChangeRequest:
         assert call_kwargs["title"] == "Upgrade auth system"
         assert call_kwargs["workspace_id"] == WS_ID
         assert call_kwargs["tenant_id"] == TENANT_ID
-        assert call_kwargs["status"] == ChangeRequest.Status.DRAFT
+        # Task 12: the `status` column is dropped -- create_change_request()
+        # no longer passes it to ChangeRequest.objects.create() at all (the
+        # initial state comes solely from WorkflowItemState, seeded by
+        # initialize_workflow_states() below).
+        assert "status" not in call_kwargs
 
     def test_create_validates_title(self):
         svc = ChangeRequestService()
@@ -347,6 +359,11 @@ class TestDeleteChangeRequest:
 
 class TestListChangeRequests:
     def test_list_returns_queryset(self):
+        """Datenmodell-Konsolidierung Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. It used to read ``state_reader.item_ids_in_state(..., "outdated")``,
+        which no longer matches anything now that ``outdate()`` writes the flag
+        instead of the workflow state."""
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         mock_qs = MagicMock()
@@ -357,31 +374,49 @@ class TestListChangeRequests:
         with (
             patch.object(svc, "_set_tenant_context"),
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch(
+                "workflow.services.outdated_item_ids",
+                return_value="OUTDATED_IDS",
+            ) as mock_seam,
         ):
             mock_objects.filter.return_value = mock_qs
             result = svc.list_change_requests(workspace_id=WS_ID, ctx=ctx)
 
         # Default include_deleted=False excludes outdated CRs (Phase 1 Task 4).
-        mock_qs.exclude.assert_called_once_with(status="outdated")
+        mock_seam.assert_called_once_with("ChangeRequest", tenant_id=ctx.tenant_id)
+        mock_qs.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
         assert result is mock_qs.order_by.return_value
 
     def test_list_applies_status_filter(self):
+        """Phase 4 (D-3): a runtime ``status_filter`` routes through
+        ``item_ids_with_status``, which sends ``"outdated"`` to the flag and
+        every real state to ``item_ids_in_state`` — that is what keeps GH-443's
+        ``status_filter="outdated"`` working."""
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         mock_qs = MagicMock()
         mock_qs.filter.return_value = mock_qs
+        mock_qs.exclude.return_value = mock_qs
         mock_qs.order_by.return_value = mock_qs
 
         with (
             patch.object(svc, "_set_tenant_context"),
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch(
+                "workflow.services.item_ids_with_status",
+                return_value="UNDER_REVIEW_IDS",
+            ) as mock_seam,
+            patch("workflow.services.outdated_item_ids", return_value="OUTDATED_IDS"),
         ):
             mock_objects.filter.return_value = mock_qs
             svc.list_change_requests(
                 workspace_id=WS_ID, ctx=ctx, status_filter="under_review"
             )
 
-        mock_qs.filter.assert_called_with(status="under_review")
+        mock_seam.assert_any_call(
+            "ChangeRequest", "under_review", tenant_id=ctx.tenant_id
+        )
+        mock_qs.filter.assert_called_with(id__in="UNDER_REVIEW_IDS")
 
     def test_list_include_deleted_true_skips_exclude(self):
         """Phase 1 Task 4: include_deleted=True must surface outdated CRs too,
@@ -585,6 +620,14 @@ class TestTransitionStatus:
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch("application.workflow_facade.WorkflowFacade.transition"),
             patch.object(svc, "_audit"),
+            # "approved" is a CCB closing state, so transition_status calls
+            # _capture_affected_items_after, which reads
+            # ChangeRequestAffectedItem.objects. That manager is tenant-scoped
+            # since Task 15b and _set_tenant_context is patched out here, so it
+            # would raise TenantContextNotSetError. Stubbed the same way the
+            # neighbouring closing-state tests already do — this test is about
+            # rigor-gated separation of duties, not about impact capture.
+            patch.object(svc, "_capture_affected_items_after"),
             patch(
                 "application.change_request_service.get_preset_policy_service"
             ) as mock_policy,
@@ -749,9 +792,9 @@ class TestCcbStates:
         assert CCB_STATES == expected
 
     def test_initial_state_is_draft(self):
-        cr = ChangeRequest(
-            workspace_id=WS_ID,
-            tenant_id=TENANT_ID,
-            title="Test CR",
-        )
-        assert cr.status == "draft"
+        """Task 12: the `status` column (and its model-level default) is
+        dropped -- the initial state now lives solely in the ccb_approval
+        workflow definition."""
+        from workflow import state_reader
+
+        assert state_reader.initial_state("ChangeRequest") == "draft"

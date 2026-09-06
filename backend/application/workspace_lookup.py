@@ -83,17 +83,17 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
     "custom_field": EntityWorkspaceSpec("persistence.models.CustomFieldDefinition"),
     "test_run": EntityWorkspaceSpec("persistence.models.TestRun"),
     "interview": EntityWorkspaceSpec("persistence.models.InterviewSession"),
-    "adr": EntityWorkspaceSpec("application.models.Adr"),
-    "risk": EntityWorkspaceSpec("application.models.Risk"),
-    "issue": EntityWorkspaceSpec("application.models.Issue"),
-    "change_request": EntityWorkspaceSpec("application.models.ChangeRequest"),
-    "goal": EntityWorkspaceSpec("application.models.Goal"),
+    "adr": EntityWorkspaceSpec("persistence.models.Adr"),
+    "risk": EntityWorkspaceSpec("persistence.models.Risk"),
+    "issue": EntityWorkspaceSpec("persistence.models.Issue"),
+    "change_request": EntityWorkspaceSpec("persistence.models.ChangeRequest"),
+    "goal": EntityWorkspaceSpec("persistence.models.Goal"),
     # Every version of a lineage lives in the same workspace, so any row answers
     # a lineage-scoped question.
     "goal_lineage": EntityWorkspaceSpec(
-        "application.models.Goal", lookup_field="lineage_id"
+        "persistence.models.Goal", lookup_field="lineage_id"
     ),
-    "main_goal": EntityWorkspaceSpec("application.models.MainGoal"),
+    "main_goal": EntityWorkspaceSpec("persistence.models.MainGoal"),
     "diagram": EntityWorkspaceSpec("diagram.models.Diagram"),
     # A Global-scope BaselineSnapshot has workspace_id NULL; that resolves to
     # None and correctly falls through to the caller's unscoped path.

@@ -6,16 +6,24 @@ leaf_id: COMP-DS-001 (DiagramManager), COMP-DS-002 (DiagramValidator),
 req_id: REQ-L1-027, REQ-L2-DS-001, REQ-L1-056, REQ-L2-DS-006
 
 Entities:
-  Diagram        — the mutable header record (name, type, current version pointer)
-  DiagramVersion — append-only, immutable payload per change (version N+1)
+  Diagram        — the diagram record: identity *and* current payload
+  DiagramRevision — by-value read model over one recorded content revision
 
-Both inherit TenantScopedModel (UUID PK, tenant FK, audit fields, TenantManager).
+Datenmodell-Konsolidierung Task 28c-2 retired the ``DiagramVersion`` table.
+Content history lives in the one shared, append-only snapshot store
+(:class:`persistence.models.ArtifactVersion`, Task 27/28a) like every other
+artifact type's.
 
 Architecture reference:
   docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/
   L2_DiagramServiceSystem_Architecture.md (IF-L1-035)
 """
 from __future__ import annotations
+
+import datetime as dt
+import uuid
+from dataclasses import dataclass
+from typing import Any, Optional
 
 from django.db import models
 
@@ -62,11 +70,13 @@ class PayloadFormat(models.TextChoices):
 # ---------------------------------------------------------------------------
 
 class Diagram(TenantScopedModel):
-    """Mutable header record for a versioned diagram artefact.
+    """A versioned diagram artefact: identity plus its current payload.
 
-    COMP-DS-001 DiagramManager creates and updates Diagram objects.
-    Each write operation creates a new DiagramVersion; the current_version
-    FK is updated to point at the latest immutable snapshot.
+    COMP-DS-001 DiagramManager creates and updates Diagram objects. Each write
+    overwrites the payload in place and appends a snapshot of it to
+    :class:`persistence.models.ArtifactVersion` — the same shape every other
+    artifact type uses (Datenmodell-Konsolidierung Task 28c-2, which retired
+    the dedicated ``DiagramVersion`` table).
 
     REQ-L2-DS-001, REQ-L3-DM-001, REQ-L3-DM-002, REQ-L3-DM-003 (IF-L1-035)
     """
@@ -86,13 +96,28 @@ class Diagram(TenantScopedModel):
         choices=DiagramType.choices,
         db_index=True,
     )
-    current_version = models.ForeignKey(
-        "DiagramVersion",
-        on_delete=models.SET_NULL,
-        null=True,
+    # -- Current content (Datenmodell-Konsolidierung Task 28c-1/28c-2) -------
+    # DiagramVersion used to be both this subsystem's history store *and* the
+    # only place the current payload lived. Task 28a moved the history into
+    # persistence.ArtifactVersion, Task 28c-1 added the columns below, and
+    # Task 28c-2 made them authoritative and dropped DiagramVersion.
+    #
+    # `blank=True, default=""` rather than the NOT-NULL shape the version row
+    # had: a Diagram that has never been written still has to be representable.
+    payload_format = models.CharField(
+        max_length=16,
+        choices=PayloadFormat.choices,
         blank=True,
-        related_name="+",
+        default="",
     )
+    payload = models.TextField(blank=True, default="")
+    canvas_json = models.JSONField(null=True, blank=True, default=None)
+    # Revision number of the content above, in the same numbering space as
+    # persistence.ArtifactVersion.revision — diagram.manager allocates the two
+    # together, under the same row lock. 0 means "no revision recorded yet",
+    # which a workspace-less legacy Diagram stays at forever: Artifact.workspace
+    # is not nullable, so it can have no backing Artifact to hang history on.
+    current_revision = models.PositiveIntegerField(default=0)
     # Optional free-text description for UI / MCP context
     description = models.TextField(blank=True, default="")
     # Codeberg #353 Task 3 / #392: shadow Artifact side-channel. Diagram is
@@ -126,56 +151,69 @@ class Diagram(TenantScopedModel):
 
 
 # ---------------------------------------------------------------------------
-# DiagramVersion (immutable, append-only)
+# DiagramRevision — by-value read model for one recorded content revision
 # ---------------------------------------------------------------------------
 
-class DiagramVersion(TenantScopedModel):
-    """Immutable payload snapshot for a Diagram.
 
-    One record is created for every write (create / update).  Existing
-    records are NEVER modified after creation (REQ-L2-DS-001, REQ-L3-DM-002).
+@dataclass(frozen=True)
+class DiagramRevision:
+    """One diagram content revision, rehydrated from an ``ArtifactVersion``.
 
-    version_number increments monotonically per diagram (1, 2, 3 …).
-    payload holds the raw diagram source (Mermaid string, PlantUML string,
-    or a JSON-serialised dict depending on payload_format).
+    Datenmodell-Konsolidierung Task 28c-2. Replaces the ``DiagramVersion`` ORM
+    row that :func:`diagram.services.list_versions` / ``update_diagram`` /
+    :attr:`diagram.manager.DiagramResult.version` used to hand out. It is
+    deliberately a plain frozen dataclass, not a model: content history is no
+    longer a table of its own, it is a set of JSON snapshots in the one shared
+    :class:`persistence.models.ArtifactVersion` store, and rehydrating them
+    into an ORM instance would invite callers to ``save()`` a row that has no
+    table behind it.
 
-    IF-L1-035 (PersistenceLayer outgoing data)
+    The attribute names match the ones the retired ``DiagramVersion`` exposed,
+    so every ``version.payload`` / ``version.version_number`` reader keeps
+    working unchanged.
     """
 
-    diagram = models.ForeignKey(
-        Diagram,
-        on_delete=models.CASCADE,
-        related_name="versions",
-    )
-    version_number = models.PositiveIntegerField()
-    payload_format = models.CharField(
-        max_length=16,
-        choices=PayloadFormat.choices,
-    )
-    payload = models.TextField()
-    # Optional full canvas JSON (e.g. fabric.js canvas serialization).
-    # Additive companion to `payload` stroke data (REQ-L2-CV-005):
-    # backward-compatible — legacy versions leave this null.
-    canvas_json = models.JSONField(null=True, blank=True, default=None)
+    diagram_id: uuid.UUID
+    version_number: int
+    payload_format: str = ""
+    payload: str = ""
+    canvas_json: Optional[dict] = None
+    created_at: Optional[dt.datetime] = None
 
-    class Meta:
-        db_table = "diagram_diagramversion"
-        # Composite unique constraint: each (diagram, version_number) must be unique.
-        constraints = [
-            models.UniqueConstraint(
-                fields=["diagram", "version_number"],
-                name="uq_diagram_version_number",
-            ),
-        ]
-        indexes = [
-            models.Index(
-                fields=["diagram", "version_number"],
-                name="idx_diagramversion_history",
-            ),
-        ]
+    @classmethod
+    def from_payload(
+        cls,
+        diagram_id: uuid.UUID,
+        revision: int,
+        payload: dict[str, Any],
+        created_at: Optional[dt.datetime] = None,
+    ) -> "DiagramRevision":
+        """Build a revision from a stored ``ArtifactVersion.payload``.
 
-    def __str__(self) -> str:
-        return f"{self.diagram_id}:v{self.version_number}"
+        Keys default rather than raising: a snapshot written before a field
+        joined ``artifact_diff_service._ENTITY_FIELDS["Diagram"]`` legitimately
+        lacks it, and a history reader must not fail on its own older records.
+        """
+        return cls(
+            diagram_id=diagram_id,
+            version_number=revision,
+            payload_format=payload.get("payload_format") or "",
+            payload=payload.get("payload") or "",
+            canvas_json=payload.get("canvas_json"),
+            created_at=created_at,
+        )
+
+    @classmethod
+    def from_diagram(cls, diagram: Diagram) -> "DiagramRevision":
+        """Build the *current* revision straight off the Diagram row."""
+        return cls(
+            diagram_id=diagram.pk,
+            version_number=diagram.current_revision,
+            payload_format=diagram.payload_format,
+            payload=diagram.payload,
+            canvas_json=diagram.canvas_json,
+            created_at=diagram.modified_at,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +222,7 @@ class DiagramVersion(TenantScopedModel):
 
 __all__ = [
     "Diagram",
-    "DiagramVersion",
+    "DiagramRevision",
     "DiagramType",
     "PayloadFormat",
 ]

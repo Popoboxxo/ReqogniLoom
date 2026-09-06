@@ -10,9 +10,11 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
-from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
+from persistence.artifact_backing import ensure_artifact
+from persistence.models import GlossaryTerm, Workspace
 from persistence.transactions import atomic_transaction
 
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.optimistic_lock import (
     assert_expected_version,
@@ -32,9 +34,21 @@ class GlossaryTermDTO:
     abbreviation: str
     version: int
     lifecycle_status: str = "active"  # REQ-006: soft-delete lifecycle
+    # Datenmodell-Konsolidierung Task 29 (Milestone M5): exposed so REST views
+    # can call ArtifactDiffService.list_versions/.diff(artifact_id, ...)
+    # without a direct GlossaryTerm ORM query (layering: views use
+    # Serializer + Service, not the model directly).
+    artifact_id: Optional[UUID] = None
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
+        # Datenmodell-Konsolidierung Task 24: GlossaryTerm's own
+        # `lifecycle_status` mirror column is dropped; the flag now lives
+        # only on the backing Artifact (Decision D-3). Rows without one yet
+        # (workspace-less legacy rows, Task 20) default to "active".
+        lifecycle_status = (
+            term.artifact.lifecycle_status if term.artifact_id else "active"
+        )
         return cls(
             id=term.id,
             workspace_id=term.workspace_id,
@@ -43,7 +57,8 @@ class GlossaryTermDTO:
             synonyms=term.synonyms,
             abbreviation=term.abbreviation,
             version=term.version,
-            lifecycle_status=getattr(term, "lifecycle_status", "active"),
+            lifecycle_status=lifecycle_status,
+            artifact_id=term.artifact_id,
         )
 
 
@@ -66,7 +81,9 @@ class GlossaryService(ServiceBase):
         entities (TestCase, Issue, ADR, Risk, StakeholderNeed), which report
         ``status="outdated"`` on GET after delete via their mirrored column.
         """
-        term = GlossaryTerm.objects.filter(id=term_id).first()
+        term = GlossaryTerm.objects.select_related("artifact").filter(
+            id=term_id
+        ).first()
         if not term:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
         dto = GlossaryTermDTO.from_orm(term)
@@ -85,7 +102,7 @@ class GlossaryService(ServiceBase):
         REQ-006: Excludes soft-deleted terms (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
         """
-        qs = GlossaryTerm.objects.filter(
+        qs = GlossaryTerm.objects.select_related("artifact").filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
         if not include_deleted:
@@ -133,14 +150,19 @@ class GlossaryService(ServiceBase):
             modified_by_id=ctx.user_id,
         )
 
-        GlossaryTermVersion.objects.create(
-            term_fk=gt,
-            term_version=gt.version,
-            definition=gt.definition,
-            synonyms=gt.synonyms,
-            abbreviation=gt.abbreviation,
-            # Changed from actor_id to user_id to fix bug
-        created_by_id=ctx.user_id,
+        # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the backing
+        # Artifact up front so a GlossaryTerm is a valid TraceLink endpoint
+        # and interview target from birth (see the field's docstring in
+        # persistence/models.py for the interview_artifact_adapters gap this
+        # closes).
+        ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=workspace_id)
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. Task 28b removed the legacy GlossaryTermVersion
+        # dual-write below this comment — ArtifactVersionService is now the
+        # only history store. create() takes no change_reason.
+        ArtifactVersionService().record(
+            gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
         )
 
         # Initialise workflow state (REQ-006/Phase 0): without this,
@@ -221,14 +243,16 @@ class GlossaryService(ServiceBase):
         gt.save(update_fields=["term", "definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
         gt.refresh_from_db(fields=["version"])
 
-        GlossaryTermVersion.objects.create(
-            term_fk=gt,
-            term_version=gt.version,
-            definition=gt.definition,
-            synonyms=gt.synonyms,
-            abbreviation=gt.abbreviation,
-            # Changed from actor_id to user_id to fix bug
-        created_by_id=ctx.user_id,
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): guarded by the
+        # ``if not changed: return`` above, so this only runs for a real
+        # content write. ``ensure_artifact`` is idempotent and returns
+        # immediately when the backing already exists — it is called here so a
+        # pre-Phase-3 term (created before the backing Artifact was written at
+        # create time) starts its history instead of being silently skipped.
+        # update() takes no change_reason.
+        ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=gt.workspace_id)
+        ArtifactVersionService().record(
+            gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
         )
 
         return GlossaryTermDTO.from_orm(gt)

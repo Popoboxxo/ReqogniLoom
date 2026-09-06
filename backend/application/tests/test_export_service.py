@@ -373,3 +373,62 @@ class TestExportPdf:
                     mock_gen.assert_called_once()
                     call_kwargs = mock_gen.call_args[1]
                     assert call_kwargs["layout"] == "traceability_matrix"
+
+
+# ---------- _fetch_entities status resolution (Datenmodell-Konsolidierung Phase 1) ----------
+
+
+class TestFetchEntitiesResolvesStatusFromEngine:
+    """C1: the export row's ``status`` column is no longer written by the
+    workflow engine — ``_fetch_entities`` must resolve it through
+    ``workflow.state_reader``, not ``getattr(obj, "status")``, or every
+    export (and the CSV round-trip back into ``ImportService``) would report
+    a permanently frozen creation-time value."""
+
+    def test_requirement_export_reports_the_engine_state_not_the_stale_column(self):
+        from persistence.tenancy import TenantContext
+        from workflow.lifecycle_manager import StateLifecycleManager
+        from workflow.services import create_default_workflow
+        from workflow.transition_validator import ValidationResult
+
+        from persistence.models import Artifact, Requirement, Tenant, Workspace
+
+        tenant = Tenant.objects.create(name="export-status-tenant", slug="export-status-tenant")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="export-status-ws")
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            req = Requirement.objects.create(
+                tenant=tenant,
+                artifact=artifact,
+                workspace=workspace,
+                title="Export me",
+            )
+
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+            manager = StateLifecycleManager()
+            manager.initialize_workflow_states([req.id], "Requirement", workspace.id)
+            manager.perform_transition(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                target_state="in_review",
+                transitioned_by="test",
+                validation_result=ValidationResult(valid=True),
+            )
+            # Task 12: the `status` column is dropped entirely -- there is no
+            # frozen creation-time column value left to also check.
+
+            rows = ExportService._fetch_entities("Requirement", workspace.id, None)
+        finally:
+            TenantContext.clear_tenant()
+
+        assert len(rows) == 1
+        assert rows[0]["status"] == "in_review"

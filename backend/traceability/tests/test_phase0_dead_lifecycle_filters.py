@@ -241,8 +241,11 @@ class TestTraceDerivationAllocationExcludesOutdated:
 def outdated_adr(tenant_a, workspace_a):
     """One kept + one soft-deleted ADR, both with a backing Artifact.
 
-    ADR is registered in ``_STATUS_MIRROR_MODELS``, so ``outdate()`` writes
-    ``Adr.status = "outdated"`` — the value ``AdrService.list_adrs`` filters on.
+    Datenmodell-Konsolidierung Phase 1: ``outdate()`` writes only
+    ``WorkflowItemState`` now — ``AdrService.list_adrs`` and
+    ``resolve_artifact_titles`` both read the soft-delete state through the
+    ``workflow.state_reader``/``outdated_item_ids`` seam, not the (now
+    write-once, frozen-at-creation) ``Adr.status`` column.
     """
     from application.models import Adr
 
@@ -281,7 +284,6 @@ def outdated_adr(tenant_a, workspace_a):
     return {
         "kept_artifact_id": str(kept_art.id),
         "deleted_artifact_id": str(deleted_art.id),
-        "deleted_status": deleted.status,
     }
 
 
@@ -295,11 +297,6 @@ class TestResolveArtifactTitlesMarksOutdated:
     nothing about its lifecycle, so the Requirement detail page showed it as an
     ordinary, clickable, named neighbour — and counted it as a live relation.
     """
-
-    def test_outdate_writes_the_status_mirror(self, outdated_adr):
-        """Guard the premise: if ADR ever leaves ``_STATUS_MIRROR_MODELS`` the
-        assertions below would silently pass against an unwritten column."""
-        assert outdated_adr["deleted_status"] == "outdated"
 
     def test_marks_soft_deleted_adr_without_dropping_its_title(
         self, tenant_a, outdated_adr

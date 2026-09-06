@@ -1363,17 +1363,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
         TestCase/StakeholderNeed .id), mirroring
         ``CoverageCalculator.get_coverage_data``'s ``artifact_id -> id`` map.
 
-        Uses the same two-track outdated-exclusion split as
-        ``_entity_counts``/``_entity_lists``: Requirement/TestCase/
-        StakeholderNeed carry a denormalized ``status`` mirror column,
-        ArchitectureElement's soft-delete state lives only in
-        ``WorkflowItemState`` (resolved via ``outdated_item_ids``).
-        Neighbour types this tool does not resolve business ids/titles for
-        (e.g. Adr, Diagram) are still surfaced — with the raw artifact id as
-        ``id``, ``title=None`` and ``outdated=False`` — so the trace graph
-        is never silently truncated.
+        Datenmodell-Konsolidierung Phase 1: every neighbour type is resolved
+        the same way now — through ``WorkflowItemState``
+        (``workflow.services.outdated_item_ids``), falling back to the (now
+        write-once, frozen-at-creation) ``status`` column only for
+        Requirement/TestCase/StakeholderNeed rows never wired into one
+        (ArchitectureElement never had a ``status`` column, so it needs no
+        fallback). Neighbour types this tool does not resolve business
+        ids/titles for (e.g. Adr, Diagram) are still surfaced — with the raw
+        artifact id as ``id``, ``title=None`` and ``outdated=False`` — so the
+        trace graph is never silently truncated.
         """
         from persistence.models import ArchitectureElement, Requirement, StakeholderNeed, TestCase
+        from workflow import state_reader
         from workflow.services import outdated_item_ids
 
         by_type: Dict[str, List[Dict[str, Any]]] = {}
@@ -1396,19 +1398,29 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 row["artifact_id"]: row
                 for row in model.objects.filter(
                     artifact_id__in=artifact_ids
-                ).values("id", "artifact_id", "title", "status")
+                ).values("id", "artifact_id", "title")
             }
+            states = state_reader.current_states(
+                type_name, (row["id"] for row in rows_by_artifact.values())
+            )
+            # Task 12: the ``status`` column is dropped from the ``.values()``
+            # projection above -- a row never wired into a WorkflowItemState
+            # falls back to *type_name*'s preset initial state instead
+            # (documented, reviewed data-loss tradeoff, see Task 12 report
+            # Finding 2).
+            type_initial_state = state_reader.initial_state(type_name)
             for neighbor in neighbors:
                 row = rows_by_artifact.get(neighbor["artifact_id"])
                 if row is None:
                     continue
+                resolved_status = states.get(str(row["id"])) or type_initial_state
                 resolved.append({
                     "id": str(row["id"]),
                     "entity_type": type_name,
                     "title": row["title"],
                     "link_type": neighbor["link_type"],
                     "relation": neighbor["relation"],
-                    "outdated": row["status"] == "outdated",
+                    "outdated": resolved_status == "outdated",
                 })
 
         arch_neighbors = by_type.pop("ArchitectureElement", [])

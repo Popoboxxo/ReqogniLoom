@@ -79,8 +79,10 @@ class BundleResult:
 #     derivation is out of scope for a straight field passthrough; left for a
 #     later task if the design spec calls for it.
 #   * this set additionally includes level, suspect and lifecycle_status,
-#     which are real columns the serializer happens not to publish — they are
-#     legitimate export fields here.
+#     which the serializer happens not to publish — they are legitimate
+#     export fields here. level/suspect are real Requirement columns;
+#     lifecycle_status (like status) is not a column at all since Task 24 --
+#     it is resolved from the backing Artifact (see get_bundle).
 # created_at/modified_at are ordinary user-visible audit columns (the
 # serializer publishes them as created_at/updated_at) and are exported too.
 REQUIREMENT_ALL_FIELDS = (
@@ -365,25 +367,65 @@ class RequirementBundleQueryService(ServiceBase):
 
         from persistence.models import Requirement
 
-        # "id" and "artifact_id" are always fetched (needed to build
-        # requirement_id / the found_under_by_req lookup) regardless of
-        # filter_mode, then stripped from the output fields dict below
-        # unless the caller actually selected them.
-        query_fields = tuple(set(selected_fields) | {"id", "artifact_id"})
-        req_rows = Requirement.unscoped.filter(
-            artifact_id__in=req_artifact_ids, tenant_id=ctx.tenant_id
-        ).values(*query_fields)
+        # Task 12: `status` is dropped from Requirement -- it can no longer
+        # be a `.values()` column. Query every *other* selected field as
+        # before, and resolve `status` separately through the workflow
+        # engine seam (batched) when the caller actually selected it.
+        # Task 24: `lifecycle_status` is dropped too -- same treatment,
+        # resolved from `Artifact.lifecycle_status` (Decision D-3) instead.
+        wants_status = "status" in selected_fields
+        wants_lifecycle_status = "lifecycle_status" in selected_fields
+        query_fields = tuple(
+            (set(selected_fields) - {"status", "lifecycle_status"})
+            | {"id", "artifact_id"}
+        )
+        req_rows = list(
+            Requirement.unscoped.filter(
+                artifact_id__in=req_artifact_ids, tenant_id=ctx.tenant_id
+            ).values(*query_fields)
+        )
+
+        status_by_id: Dict[Any, str] = {}
+        if wants_status and req_rows:
+            from workflow import state_reader
+
+            states = state_reader.current_states(
+                "Requirement", (row["id"] for row in req_rows), tenant_id=ctx.tenant_id
+            )
+            requirement_initial_state = state_reader.initial_state("Requirement")
+            status_by_id = {
+                row["id"]: states.get(str(row["id"])) or requirement_initial_state
+                for row in req_rows
+            }
+
+        lifecycle_status_by_artifact_id: Dict[Any, str] = {}
+        if wants_lifecycle_status and req_rows:
+            from persistence.models import Artifact
+
+            lifecycle_status_by_artifact_id = {
+                str(artifact_id): value
+                for artifact_id, value in Artifact.unscoped.filter(
+                    id__in=(row["artifact_id"] for row in req_rows)
+                ).values_list("id", "lifecycle_status")
+            }
 
         items: List[BundleItem] = []
         for row in req_rows:
             artifact_id = row.pop("artifact_id")
             found_under_artifact_id, found_depth = found_under_by_req[artifact_id]
+            item_fields = {k: v for k, v in row.items() if k in selected_fields}
+            if wants_status:
+                item_fields["status"] = status_by_id[row["id"]]
+            if wants_lifecycle_status:
+                item_fields["lifecycle_status"] = lifecycle_status_by_artifact_id.get(
+                    str(artifact_id), "active"
+                )
             items.append(
                 BundleItem(
                     requirement_id=row["id"],
                     found_under_element_id=found_under_artifact_id,
                     depth=found_depth,
-                    fields={k: v for k, v in row.items() if k in selected_fields},
+                    fields=item_fields,
                 )
             )
 

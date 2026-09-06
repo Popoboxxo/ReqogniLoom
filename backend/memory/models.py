@@ -36,7 +36,7 @@ class WorkspaceMemory(TenantScopedModel):
     content = models.TextField()
     # #794: sourced from the project-wide SSOT rather than a local literal, so
     # this column can no longer silently drift apart from the Requirement/
-    # TraceLink/IcdVersion embedding columns the way it had (384 vs 1536).
+    # TraceLink/Icd embedding columns the way it had (384 vs 1536).
     embedding = VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS, null=True, blank=True)
     source_event_id = models.UUIDField(null=True, blank=True)
     superseded_by = models.ForeignKey(

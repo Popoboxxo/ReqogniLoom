@@ -95,7 +95,6 @@ class MainGoalModelTests(TestCase):
             content="Become the market leader in onboarding speed within 12 months.",
             source="manual",
             generated_from_goal_ids=[],
-            status="Entwurf",
         )
         self.assertEqual(main_goal.artifact_id, artifact.id)
         self.assertEqual(main_goal.source, "manual")
@@ -496,7 +495,15 @@ class MainGoalServiceApproveTests(TestCase):
             )
 
         main_goal = MainGoal.objects.get(id=created["id"])
-        self.assertEqual(main_goal.status, "Entwurf")
+        # Task 12: the `status` column is dropped -- no WorkflowItemState was
+        # ever created (no definition provisioned), so this resolves through
+        # the initial-state fallback.
+        from workflow import state_reader
+
+        resolved = state_reader.current_state(
+            "MainGoal", main_goal.id
+        ) or state_reader.initial_state("MainGoal")
+        self.assertEqual(resolved, "Entwurf")
 
 
 class MainGoalServiceReadTests(TestCase):

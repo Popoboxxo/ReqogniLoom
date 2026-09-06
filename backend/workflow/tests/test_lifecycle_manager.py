@@ -520,7 +520,8 @@ class TestTenantIsolation:
 
 @pytest.mark.django_db(transaction=True)
 class TestStatusMirror:
-    """REQ-143 — perform_transition updates the persistence `status` mirror atomically."""
+    """Datenmodell-Konsolidierung Phase 1 — perform_transition no longer writes
+    a persistence `status` mirror; WorkflowItemState is the only store."""
 
     def setup_method(self):
         self._tenant_id = _tenant_id()
@@ -548,19 +549,20 @@ class TestStatusMirror:
             tenant_id=self._tenant_id,
             artifact=artifact,
             title="Mirror req",
-            status="draft",
         )
 
-    def test_transition_updates_status_mirror(self):
-        """A transition writes both current_state and the Requirement.status mirror."""
-        from persistence.models import Requirement
-
+    def test_transition_updates_workflow_item_state_only(self):
+        """A transition writes ``current_state``. The (now-dropped,
+        Task 12) ``Requirement.status`` column used to stay frozen at
+        creation-time -- the write-side mirror was deleted in
+        Datenmodell-Konsolidierung Phase 1, and the column itself is gone;
+        read the state through ``workflow.state_reader`` instead."""
         ws = _ws()
         requirement = self._make_requirement(ws)
         def_record = _make_def_record(self._tenant_id, ws)
         item_state = WorkflowItemState.unscoped.create(
             tenant_id=self._tenant_id,
-            item_id=requirement.id,  # mirror keyed by the requirement's own id
+            item_id=requirement.id,
             item_type="Requirement",
             workspace_id=ws,
             definition=def_record,
@@ -578,20 +580,20 @@ class TestStatusMirror:
             change_reason="to review",
         )
 
-        # Both representations must now agree.
         updated_state = WorkflowItemState.unscoped.get(pk=item_state.pk)
         assert updated_state.current_state == "in_review"
-        mirrored = Requirement.unscoped.get(pk=requirement.id)
-        assert mirrored.status == "in_review"
+        # Task 12: Requirement.status is dropped -- there is no column left
+        # to assert stays frozen; WorkflowItemState above is the only check.
 
-    def test_unknown_item_type_is_noop(self):
-        """A transition for an item_type not in the mirror map does not error."""
+    def test_transition_for_any_item_type_does_not_error(self):
+        """A transition no longer looks up any mirror map at all — every
+        item_type behaves the same (no more "unknown type" no-op branch)."""
         ws = _ws()
         def_record = _make_def_record(self._tenant_id, ws)
         item_state = WorkflowItemState.unscoped.create(
             tenant_id=self._tenant_id,
             item_id=uuid.uuid4(),
-            item_type="Artifact",  # not wired into _STATUS_MIRROR_MODELS
+            item_type="Artifact",
             workspace_id=ws,
             definition=def_record,
             current_state="draft",
@@ -607,3 +609,5 @@ class TestStatusMirror:
             validation_result=_ok_result(),
         )
         assert outcome.new_state == "in_review"
+        # Task 24: the lifecycle mirror (`_sync_lifecycle_mirror`) is deleted
+        # too -- see `test_milestone_m4_gate.py` for the removal gate.

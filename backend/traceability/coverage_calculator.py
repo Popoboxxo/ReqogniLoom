@@ -114,9 +114,9 @@ class CoverageCalculator:
 
         # Load all Requirements in the workspace (tenant-scoped via manager)
         req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-        if not include_outdated:
-            req_qs = req_qs.exclude(status="outdated")
         requirements = list(req_qs.values("id", "artifact_id"))
+        if not include_outdated:
+            requirements = self._exclude_outdated(requirements, "Requirement")
 
         total = len(requirements)
         if total == 0:
@@ -209,9 +209,9 @@ class CoverageCalculator:
 
         # Load requirements in workspace
         req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-        if not include_outdated:
-            req_qs = req_qs.exclude(status="outdated")
         requirements = list(req_qs.values("id", "artifact_id", "title"))
+        if not include_outdated:
+            requirements = self._exclude_outdated(requirements, "Requirement")
 
         if not requirements:
             return CoverageData(entries=[])
@@ -319,11 +319,10 @@ class CoverageCalculator:
     ) -> set[str]:
         """Filter *testcase_artifact_ids* down to non-outdated TestCases.
 
-        TestCase.status is a denormalized WorkflowEngine lifecycle mirror
-        (same pattern as Requirement.status) — a plain ``status != "outdated"``
-        filter is therefore the cheapest correct point to apply this, no
-        ``outdated_item_ids()`` join needed (that helper is for entity types
-        without a status mirror, e.g. ArchitectureElement).
+        Task 12: TestCase's lifecycle status is resolved through
+        ``WorkflowItemState`` (the denormalized ``status`` mirror column this
+        docstring used to describe is dropped) — see
+        ``_filter_to_testcase_ids``.
 
         Thin wrapper around :meth:`_filter_to_testcase_ids` kept for backward
         compatibility — it is also called directly from
@@ -332,6 +331,28 @@ class CoverageCalculator:
         return self._filter_to_testcase_ids(
             testcase_artifact_ids, include_outdated=False
         )
+
+    @staticmethod
+    def _exclude_outdated(rows: list[dict], item_type: str) -> list[dict]:
+        """Drop rows whose current state is "outdated".
+
+        Datenmodell-Konsolidierung Phase 1: resolved through WorkflowItemState
+        (batched). *rows* must each carry an ``"id"`` key (e.g. from a
+        ``.values()`` call). Task 12: the ``status`` column is dropped, so a
+        row never wired into one falls back to *item_type*'s preset initial
+        state instead (documented, reviewed data-loss tradeoff, see Task 12
+        report Finding 2); the initial state is never "outdated", so it is
+        still kept.
+        """
+        from workflow import state_reader
+
+        states = state_reader.current_states(item_type, (row["id"] for row in rows))
+        initial_state = state_reader.initial_state(item_type)
+        return [
+            row
+            for row in rows
+            if (states.get(str(row["id"])) or initial_state) != "outdated"
+        ]
 
     def _filter_to_testcase_ids(
         self, source_ids: set[str], *, include_outdated: bool = False
@@ -354,10 +375,28 @@ class CoverageCalculator:
 
         from persistence.models import TestCase
 
-        qs = TestCase.objects.filter(artifact_id__in=source_ids)
-        if not include_outdated:
-            qs = qs.exclude(status="outdated")
-        return {str(tc_id) for tc_id in qs.values_list("artifact_id", flat=True)}
+        rows = list(
+            TestCase.objects.filter(artifact_id__in=source_ids).values(
+                "id", "artifact_id"
+            )
+        )
+        if include_outdated:
+            return {str(row["artifact_id"]) for row in rows}
+
+        # Datenmodell-Konsolidierung Phase 1: "outdated" is resolved through
+        # WorkflowItemState (batched). Task 12: the ``status`` column is
+        # dropped, so a TestCase never wired into one falls back to the
+        # testcase_default preset's initial state instead (documented,
+        # reviewed data-loss tradeoff, see Task 12 report Finding 2).
+        from workflow import state_reader
+
+        states = state_reader.current_states("TestCase", (row["id"] for row in rows))
+        testcase_initial_state = state_reader.initial_state("TestCase")
+        return {
+            str(row["artifact_id"])
+            for row in rows
+            if (states.get(str(row["id"])) or testcase_initial_state) != "outdated"
+        }
 
     def _get_covered_artifact_ids(
         self,

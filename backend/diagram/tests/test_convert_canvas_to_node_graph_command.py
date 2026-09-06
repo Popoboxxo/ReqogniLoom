@@ -23,7 +23,8 @@ import pytest
 from django.core.management import CommandError, call_command
 
 from diagram.manager import DiagramManager
-from diagram.models import DiagramVersion, PayloadFormat
+from diagram.models import PayloadFormat
+from persistence.models import ArtifactVersion
 from diagram.tests.conftest import active_tenant, make_artifact
 from persistence.models import Requirement, TraceLink
 from traceability.types import LinkType
@@ -92,6 +93,11 @@ def _make_canvas_diagram(manager, tenant, workspace, canvas_json, name="Canvas D
     )
 
 
+
+def _revision_count(diagram) -> int:
+    """Recorded content revisions of *diagram* (Task 28c-2: ArtifactVersion)."""
+    return ArtifactVersion.unscoped.filter(artifact_id=diagram.artifact_id).count()
+
 # ---------------------------------------------------------------------------
 # Happy path
 # ---------------------------------------------------------------------------
@@ -102,14 +108,14 @@ class TestConvertSingleDiagramDryRun:
     ) -> None:
         with active_tenant(tenant_a):
             diagram = _make_canvas_diagram(manager, tenant_a, workspace_a, _RECTS_AND_CONNECTOR)
-            version_count_before = DiagramVersion.unscoped.filter(diagram=diagram).count()
+            version_count_before = _revision_count(diagram)
 
         out = io.StringIO()
         call_command("convert_canvas_to_node_graph", f"--diagram={diagram.id}", stdout=out)
 
         assert "convertible" in out.getvalue()
         with active_tenant(tenant_a):
-            version_count_after = DiagramVersion.unscoped.filter(diagram=diagram).count()
+            version_count_after = _revision_count(diagram)
         assert version_count_after == version_count_before
 
     def test_apply_writes_new_node_graph_version_without_touching_the_old_one(
@@ -117,9 +123,9 @@ class TestConvertSingleDiagramDryRun:
     ) -> None:
         with active_tenant(tenant_a):
             diagram = _make_canvas_diagram(manager, tenant_a, workspace_a, _RECTS_AND_CONNECTOR)
-            original_version_id = diagram.current_version_id
-            original_payload = DiagramVersion.unscoped.get(id=original_version_id).payload
-            original_canvas_json = DiagramVersion.unscoped.get(id=original_version_id).canvas_json
+            original_revision = diagram.current_revision
+            original_payload = diagram.payload
+            original_canvas_json = diagram.canvas_json
 
         out = io.StringIO()
         call_command(
@@ -129,16 +135,19 @@ class TestConvertSingleDiagramDryRun:
 
         with active_tenant(tenant_a):
             diagram.refresh_from_db()
-            # New current version is node_graph; old canvas_stroke version untouched.
-            assert diagram.current_version.payload_format == PayloadFormat.NODE_GRAPH
-            assert diagram.current_version.version_number == 2
+            # New content is node_graph; the recorded canvas_stroke revision
+            # is untouched (Task 28c-2: an ArtifactVersion snapshot, not a row).
+            assert diagram.payload_format == PayloadFormat.NODE_GRAPH
+            assert diagram.current_revision == 2
 
-            old_version = DiagramVersion.unscoped.get(id=original_version_id)
-            assert old_version.payload_format == PayloadFormat.CANVAS_STROKE
-            assert old_version.payload == original_payload
-            assert old_version.canvas_json == original_canvas_json
+            old_version = ArtifactVersion.unscoped.get(
+                artifact_id=diagram.artifact_id, revision=original_revision
+            ).payload
+            assert old_version["payload_format"] == PayloadFormat.CANVAS_STROKE
+            assert old_version["payload"] == original_payload
+            assert old_version["canvas_json"] == original_canvas_json
 
-            payload = json.loads(diagram.current_version.payload)
+            payload = json.loads(diagram.payload)
             node_ids = {n["id"] for n in payload["nodes"]}
             assert node_ids == {"shape-a", "shape-b"}
             assert len(payload["edges"]) == 1
@@ -177,12 +186,12 @@ class TestRefusesFreehandPathDiagram:
             diagram = _make_canvas_diagram(
                 manager, tenant_a, workspace_a, _WITH_FREEHAND_PATH, name="Freehand Diagram"
             )
-            version_count_before = DiagramVersion.unscoped.filter(diagram=diagram).count()
+            version_count_before = _revision_count(diagram)
 
         call_command("convert_canvas_to_node_graph", f"--diagram={diagram.id}", "--apply")
 
         with active_tenant(tenant_a):
-            version_count_after = DiagramVersion.unscoped.filter(diagram=diagram).count()
+            version_count_after = _revision_count(diagram)
         assert version_count_after == version_count_before
 
     def test_workspace_run_still_converts_other_diagrams(
@@ -208,8 +217,8 @@ class TestRefusesFreehandPathDiagram:
         with active_tenant(tenant_a):
             good.refresh_from_db()
             bad.refresh_from_db()
-            assert good.current_version.payload_format == PayloadFormat.NODE_GRAPH
-            assert bad.current_version.payload_format == PayloadFormat.CANVAS_STROKE
+            assert good.payload_format == PayloadFormat.NODE_GRAPH
+            assert bad.payload_format == PayloadFormat.CANVAS_STROKE
 
     def test_unexpected_non_validation_error_does_not_abort_the_workspace_run(
         self, manager, tenant_a, workspace_a
@@ -258,9 +267,9 @@ class TestRefusesFreehandPathDiagram:
             good.refresh_from_db()
             boom.refresh_from_db()
             # The healthy diagram still converted despite the other one blowing up.
-            assert good.current_version.payload_format == PayloadFormat.NODE_GRAPH
-            # The failing diagram's source canvas_stroke version is untouched.
-            assert boom.current_version.payload_format == PayloadFormat.CANVAS_STROKE
+            assert good.payload_format == PayloadFormat.NODE_GRAPH
+            # The failing diagram's source canvas_stroke content is untouched.
+            assert boom.payload_format == PayloadFormat.CANVAS_STROKE
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +311,7 @@ class TestArtifactRefTriggersReconciler:
 
         with active_tenant(tenant_a):
             diagram.refresh_from_db()
-            assert diagram.current_version.payload_format == PayloadFormat.NODE_GRAPH
+            assert diagram.payload_format == PayloadFormat.NODE_GRAPH
             links = TraceLink.objects.filter(
                 link_type=LinkType.DIAGRAM_REF, target_id=req.artifact_id
             )

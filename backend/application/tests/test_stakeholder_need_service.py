@@ -500,9 +500,14 @@ class TestSoftDeleteStakeholderNeed:
         artifact.delete.assert_not_called()
 
     def test_list_by_workspace_excludes_deleted_by_default(self):
-        """list_by_workspace() excludes status='outdated' by default (Phase 0:
-        outdate() mirrors the "outdated" state into `status`, not
-        `lifecycle_status`)."""
+        """list_by_workspace() excludes outdated needs by default.
+
+        Datenmodell-Konsolidierung Phase 1: the exclusion is now expressed as
+        an ``id__in=state_reader.item_ids_in_state(...)`` subquery rather than
+        a direct ``status="outdated"`` filter, so this only asserts that
+        ``.exclude()`` was called once, not its exact kwargs (mirrors
+        AdrService.list_adrs' equivalent test).
+        """
         svc = StakeholderNeedService(preset_policy_service=None)
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -516,7 +521,7 @@ class TestSoftDeleteStakeholderNeed:
 
             result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID)
 
-        mock_qs.exclude.assert_called_once_with(status="outdated")
+        mock_qs.exclude.assert_called_once()
         assert result == []
 
     def test_list_by_workspace_include_deleted_returns_all(self):
@@ -619,6 +624,10 @@ class TestDeleteCallsRealOutdate:
     item to "outdated" via the real WorkflowEngine, not a direct field write."""
 
     def test_delete_calls_outdate_not_lifecycle_status(self, need_with_workflow, need_ctx):
+        """Phase 4 (D-3): delete() still routes through the workflow engine's
+        outdate(), which now flags the backing Artifact and leaves the
+        workflow state alone."""
+        from persistence.models import Artifact, StakeholderNeed
         from workflow.models import WorkflowItemState
 
         item_id, workspace_id = need_with_workflow
@@ -626,10 +635,14 @@ class TestDeleteCallsRealOutdate:
             ctx=need_ctx, need_id=item_id
         )
 
+        artifact_id = StakeholderNeed.objects.values_list(
+            "artifact_id", flat=True
+        ).get(pk=item_id)
+        assert Artifact.objects.get(pk=artifact_id).lifecycle_status == "outdated"
         item_state = WorkflowItemState.objects.get(
             item_id=item_id, item_type="StakeholderNeed"
         )
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
     def test_deleted_need_excluded_from_default_list(self, need_with_workflow, need_ctx):
         item_id, workspace_id = need_with_workflow

@@ -176,8 +176,8 @@ class ArtifactAdmin(admin.ModelAdmin):
 class RequirementAdmin(admin.ModelAdmin):
     """Admin view for Requirement (REQ-L1-001)."""
 
-    list_display = ("title", "status", "category", "tenant", "created_at")
-    list_filter = ("tenant", "status", "category")
+    list_display = ("title", "category", "tenant", "created_at")
+    list_filter = ("tenant", "category")
     search_fields = ("title", "description")
     ordering = ("-created_at",)
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
@@ -190,8 +190,8 @@ class RequirementAdmin(admin.ModelAdmin):
 class StakeholderNeedAdmin(admin.ModelAdmin):
     """Admin view for Stakeholder Need."""
 
-    list_display = ("title", "status", "category", "tenant", "moscow_priority", "created_at")
-    list_filter = ("tenant", "status", "category", "moscow_priority")
+    list_display = ("title", "category", "tenant", "moscow_priority", "created_at")
+    list_filter = ("tenant", "category", "moscow_priority")
     search_fields = ("title", "description")
     ordering = ("-created_at",)
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")

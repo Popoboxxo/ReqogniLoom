@@ -362,12 +362,14 @@ def test_migrate_sets_hierarchy_trace_links_and_is_idempotent(tmp_path):
 
 @pytest.mark.django_db
 def test_migrate_sets_status_field_to_draft(tmp_path):
-    """Verify that imported Requirements and StakeholderNeeds have status='draft'.
+    """Verify that imported Requirements and StakeholderNeeds resolve to
+    status "draft".
 
-    Source documents (docs/se/) do not track status for individual requirements
-    and stakeholder needs. This test ensures the migrate_se_docs command
-    explicitly sets status='draft' as the conscious default, rather than
-    relying on the model's implicit default.
+    Source documents (docs/se/) do not track status for individual
+    requirements and stakeholder needs, so they land at their type's
+    preset-declared initial state -- "draft" for both. Task 12: the `status`
+    column is dropped, so this is now resolved through
+    ``workflow.state_reader`` instead of a raw column read.
     """
     call_command("seed_demo")
     _build_docs_fixture(tmp_path)
@@ -382,22 +384,33 @@ def test_migrate_sets_status_field_to_draft(tmp_path):
     workspace = Workspace.unscoped.get(id=DEFAULT_WORKSPACE_ID)
     set_request_tenant(workspace.tenant_id)
     try:
+        from workflow import state_reader
+
         # Check StakeholderNeed status.
         sn = StakeholderNeed.objects.get(
             uid="REQ-L0-001", artifact__workspace_id=workspace.id
         )
-        assert sn.status == "draft"
+        assert (
+            state_reader.current_state("StakeholderNeed", sn.id)
+            or state_reader.initial_state("StakeholderNeed")
+        ) == "draft"
 
         # Check Requirement (L1 and L2) statuses.
         req_l1 = Requirement.objects.get(
             uid="REQ-L1-008", artifact__workspace_id=workspace.id
         )
-        assert req_l1.status == "draft"
+        assert (
+            state_reader.current_state("Requirement", req_l1.id)
+            or state_reader.initial_state("Requirement")
+        ) == "draft"
 
         req_l2 = Requirement.objects.get(
             uid="REQ-L2-AS-001", artifact__workspace_id=workspace.id
         )
-        assert req_l2.status == "draft"
+        assert (
+            state_reader.current_state("Requirement", req_l2.id)
+            or state_reader.initial_state("Requirement")
+        ) == "draft"
     finally:
         clear_request_tenant()
 
@@ -481,11 +494,11 @@ def test_migrate_table_format_imports_requirements_with_workflow_state(tmp_path)
         assert req1.title == "First Req"
         assert req1.category == "Functional"
         assert "pipe" in req1.description
-        assert req1.status == "Done"
 
         assert req2.title == "Second Req"
-        assert req2.status == "Backlog"
 
+        # Task 12: the `status` column is dropped -- WorkflowItemState below
+        # is the only place left to check the mapped status.
         # REQ-143 / issue #113: imported rows must be workflow-alive, not just
         # bare content rows — WorkflowItemState mirrors the mapped status.
         state1 = WorkflowItemState.objects.get(

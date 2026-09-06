@@ -88,6 +88,8 @@ The spec's model sketch declares `version = models.IntegerField(default=1)` on b
 
 **OFFENE FRAGE — none blocking.** Two spec ambiguities were resolved by explicit decision (D3 and D6 below) rather than by guessing; both are called out in the final report because they change behaviour the spec describes differently.
 
+**User confirmation (2026-09-06, ahead of execution, asked while Datenmodell-Konsolidierung was still finishing):** D3 and D6 both confirmed as written — no changes requested. This plan is clear to execute once Datenmodell-Konsolidierung reaches a clean final review, per the standing 11-plan sequencing instruction.
+
 ---
 
 ## Decisions

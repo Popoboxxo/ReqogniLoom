@@ -40,11 +40,52 @@ def ctx(tenant):
     )
 
 
+def _force_engine_state(tenant: Tenant, ws: Workspace, session, state: str) -> None:
+    """Register *session* as engine-tracked at *state*, provisioning a
+    WorkflowEngineDefinition first if none exists yet.
+
+    Task 12: the `status` column is dropped, so simulating "this session is
+    already completed/abandoned" for a guard test can no longer be done with
+    a raw ``InterviewSession.objects.filter(...).update(status=...)`` -- a
+    real (or directly-seeded) WorkflowItemState is the only way left.
+    """
+    from workflow.models import WorkflowEngineDefinition, WorkflowItemState
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        definition, _ = WorkflowEngineDefinition.objects.get_or_create(
+            tenant=tenant,
+            workspace_id=ws.id,
+            item_type="Interview",
+            defaults={
+                "preset": WorkflowEngineDefinition.PRESET_STANDARD,
+                "workflow_json": {
+                    "states": ["in_progress", "completed", "abandoned"],
+                    "transitions": [],
+                },
+            },
+        )
+        WorkflowItemState.objects.update_or_create(
+            item_id=session.id,
+            item_type="Interview",
+            defaults={
+                "tenant": tenant,
+                "workspace_id": ws.id,
+                "definition": definition,
+                "current_state": state,
+            },
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
 class TestStart:
     def test_start_creates_session_with_first_phase_missing_fields(self, ctx, workspace):
         session = InterviewService().start(ctx, "Requirement", workspace.id)
 
-        assert session.status == "in_progress"
+        # Task 12: the `status` column is dropped -- resolve through the
+        # same seam every real caller uses instead of a raw attribute read.
+        assert InterviewService().get_state(ctx, session.id)["status"] == "in_progress"
         assert session.artifact_type == "Requirement"
         assert session.workspace_id == workspace.id
 
@@ -105,17 +146,9 @@ class TestAnswer:
         assert state["collected_fields"]["title"] == "Login must support SSO"
         assert "title" not in [f["name"] for f in state["missing_fields"]]
 
-    def test_answer_on_completed_session_raises_validation_error(self, ctx, workspace):
-        from persistence.models import InterviewSession
-
+    def test_answer_on_completed_session_raises_validation_error(self, ctx, workspace, tenant):
         session = InterviewService().start(ctx, "Requirement", workspace.id)
-        TenantContext.set_tenant(ctx.tenant_id)
-        try:
-            InterviewSession.objects.filter(id=session.id).update(
-                status=InterviewSession.STATUS_COMPLETED
-            )
-        finally:
-            TenantContext.clear_tenant()
+        _force_engine_state(tenant, workspace, session, InterviewSession.STATUS_COMPLETED)
 
         with pytest.raises(ValidationError):
             InterviewService().answer(ctx, session.id, "title", "x")
@@ -258,9 +291,17 @@ class TestAbandonedTtl:
 
         assert state["status"] == "in_progress"
 
-    def test_list_bulk_flips_stale_sessions(self, ctx, workspace):
+    def test_list_bulk_flips_stale_sessions(self, ctx, workspace_with_interview_workflow):
+        """Task 12: the `status` column is dropped, so the stale-session
+        sweep can only actually persist "abandoned" via a real
+        WorkflowItemState -- a definition-less workspace (the plain
+        `workspace` fixture) has nothing left to flip it to (documented,
+        reviewed data-loss tradeoff, see the Task 12 report Finding 2), so
+        this test now needs a provisioned workflow to exercise the real
+        behaviour it is meant to prove."""
         from persistence.models import InterviewSession
 
+        workspace = workspace_with_interview_workflow
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         TenantContext.set_tenant(ctx.tenant_id)
         try:
@@ -488,17 +529,9 @@ class TestSetTarget:
         with pytest.raises(ValidationError):
             InterviewService().set_target(ctx, session.id, uuid.uuid4())
 
-    def test_set_target_rejects_completed_session(self, ctx, workspace):
-        from persistence.models import InterviewSession
-
+    def test_set_target_rejects_completed_session(self, ctx, workspace, tenant):
         session = InterviewService().start(ctx, "Requirement", workspace.id)
-        TenantContext.set_tenant(ctx.tenant_id)
-        try:
-            InterviewSession.objects.filter(id=session.id).update(
-                status=InterviewSession.STATUS_COMPLETED
-            )
-        finally:
-            TenantContext.clear_tenant()
+        _force_engine_state(tenant, workspace, session, InterviewSession.STATUS_COMPLETED)
 
         with pytest.raises(ValidationError):
             InterviewService().set_target(ctx, session.id, uuid.uuid4())
@@ -526,7 +559,10 @@ class TestFormalize:
             refreshed = InterviewSession.objects.get(id=session.id)
         finally:
             TenantContext.clear_tenant()
-        assert refreshed.status == InterviewSession.STATUS_COMPLETED
+        # Task 12: the `status` column is dropped -- completion is asserted
+        # above via the service response, and covered end-to-end (with a
+        # provisioned workflow) by
+        # TestWorkflowIntegration.test_formalize_transitions_workflow_state_to_completed.
         assert refreshed.resulting_artifact_ids == result["resulting_artifact_ids"]
 
         # Issue #736 regression: the id returned in resulting_artifact_ids
@@ -619,7 +655,15 @@ class TestFormalize:
         with pytest.raises(ValidationError):
             InterviewService().formalize(ctx, session.id)
 
-    def test_formalize_on_already_completed_session_raises_validation_error(self, ctx, workspace):
+    def test_formalize_on_already_completed_session_raises_validation_error(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        """Task 12: the `status` column is dropped, so this guard can only
+        actually fire when completion was persisted to a real
+        WorkflowItemState -- a definition-less workspace has nothing left to
+        persist it to (documented, reviewed data-loss tradeoff, see the
+        Task 12 report Finding 2)."""
+        workspace = workspace_with_interview_workflow
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "x")
         InterviewService().answer(ctx, session.id, "rationale", "y")
@@ -636,6 +680,10 @@ class TestFormalize:
             InterviewService().formalize(ctx, session.id)
 
         # Must not have created anything or marked the session completed.
+        # Task 12: the `status` column is dropped -- resolve through the
+        # same seam every real caller uses instead of a raw attribute read.
+        assert InterviewService().get_state(ctx, session.id)["status"] == "in_progress"
+
         from persistence.models import InterviewSession
 
         TenantContext.set_tenant(ctx.tenant_id)
@@ -643,7 +691,6 @@ class TestFormalize:
             refreshed = InterviewSession.objects.get(id=session.id)
         finally:
             TenantContext.clear_tenant()
-        assert refreshed.status == InterviewSession.STATUS_IN_PROGRESS
         assert refreshed.resulting_artifact_ids == []
 
     def test_formalize_rejects_empty_title_even_if_protocol_has_no_title_field(self, ctx, workspace):
@@ -811,7 +858,15 @@ class TestGenerateChatTurn:
         assert kwargs["input_tokens"] > 0
         assert kwargs["output_tokens"] > 0
 
-    def test_completed_session_raises_validation_error(self, ctx, workspace, monkeypatch):
+    def test_completed_session_raises_validation_error(
+        self, ctx, workspace_with_interview_workflow, monkeypatch
+    ):
+        """Task 12: the `status` column is dropped, so this guard can only
+        actually fire when completion was persisted to a real
+        WorkflowItemState -- a definition-less workspace has nothing left to
+        persist it to (documented, reviewed data-loss tradeoff, see the
+        Task 12 report Finding 2)."""
+        workspace = workspace_with_interview_workflow
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login")
         InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
@@ -932,9 +987,15 @@ class TestWorkflowIntegration:
     def test_start_without_provisioned_workflow_still_succeeds(self, ctx, workspace):
         """The plain `workspace` fixture has no 'interview_default'
         definition -- initialize_workflow_states must fail closed
-        (best-effort try/except) without blocking session creation."""
+        (best-effort try/except) without blocking session creation.
+
+        Task 12: the `status` column is dropped, so a freshly-created
+        session (never touched by ``_get_session``'s in-memory correction)
+        has no ``.status`` attribute to read directly -- resolve it through
+        the same seam every real caller uses instead.
+        """
         session = InterviewService().start(ctx, "Requirement", workspace.id)
-        assert session.status == "in_progress"
+        assert InterviewService().get_state(ctx, session.id)["status"] == "in_progress"
 
     def test_formalize_transitions_workflow_state_to_completed(
         self, ctx, workspace_with_interview_workflow
@@ -950,9 +1011,9 @@ class TestWorkflowIntegration:
         assert result["status"] == "completed"
         item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
         assert item_state.current_state == "completed"
-        # status mirror (lifecycle_manager._STATUS_MIRROR_MODELS) kept in sync.
-        session.refresh_from_db()
-        assert session.status == "completed"
+        # Task 12: the `status` column is dropped entirely -- WorkflowItemState
+        # (asserted above) is the only store now, there is no frozen
+        # creation-time column value left to also check.
 
     def test_formalize_records_workflow_history_entry(self, ctx, workspace_with_interview_workflow):
         from workflow.models import WorkflowHistoryEntry, WorkflowItemState
@@ -984,14 +1045,55 @@ class TestWorkflowIntegration:
     def test_lazy_abandon_without_provisioned_workflow_falls_back(self, ctx, workspace):
         """No WorkflowItemState row exists (workspace fixture has no
         provisioned workflow) -- force_transition raises DoesNotExist, and
-        the direct-field-write fallback must still flip the status."""
+        the in-memory-only fallback must still flip the status (Task 12: the
+        `status` column is dropped, so this can no longer be a direct field
+        write -- there is nothing left to persist it to; the in-memory value
+        _get_session returns is the only record, see the Task 12 report
+        Finding 2)."""
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         from persistence.models import InterviewSession as ISModel
 
         stale_time = timezone.now() - ABANDONED_TTL - timedelta(days=1)
         ISModel.objects.filter(id=session.id).update(modified_at=stale_time)
 
-        InterviewService()._get_session(ctx, session.id)
+        resolved = InterviewService()._get_session(ctx, session.id)
 
-        session.refresh_from_db()
-        assert session.status == "abandoned"
+        assert resolved.status == "abandoned"
+
+    def test_list_sessions_sweep_does_not_re_abandon_an_already_completed_session(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        """I5 (Datenmodell-Konsolidierung Phase 1 review round 3): the
+        ``status`` column is frozen "in_progress" for every single-mode
+        session, completed or not, so the stale-sweep prefilter must
+        distinguish real vs. resolved staleness through the engine
+        (batched) -- not just widen the raw-column-filtered candidate set.
+        An old, already-completed session must not be force-abandoned by a
+        later list_sessions() call; a genuinely-stale one still must be."""
+        from persistence.models import InterviewSession as ISModel
+        from workflow.models import WorkflowItemState
+
+        svc = InterviewService()
+        stale_time = timezone.now() - ABANDONED_TTL - timedelta(days=1)
+
+        completed = svc.start(ctx, "Requirement", workspace_with_interview_workflow.id)
+        svc.answer(ctx, completed.id, "title", "SSO login")
+        svc.answer(ctx, completed.id, "rationale", "Reduce password fatigue")
+        svc.formalize(ctx, completed.id)
+        ISModel.objects.filter(id=completed.id).update(modified_at=stale_time)
+
+        genuinely_stale = svc.start(
+            ctx, "Requirement", workspace_with_interview_workflow.id
+        )
+        ISModel.objects.filter(id=genuinely_stale.id).update(modified_at=stale_time)
+
+        list(svc.list_sessions(ctx, workspace_with_interview_workflow.id))
+
+        completed_state = WorkflowItemState.objects.get(
+            item_id=completed.id, item_type="Interview"
+        )
+        assert completed_state.current_state == "completed"  # untouched, not re-abandoned
+        stale_state = WorkflowItemState.objects.get(
+            item_id=genuinely_stale.id, item_type="Interview"
+        )
+        assert stale_state.current_state == "abandoned"

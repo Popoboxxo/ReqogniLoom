@@ -350,7 +350,6 @@ def run():
             ctx=ctx,
             description="Mögliches Risiko während der Produktlebensdauer bei intensiver Nutzung.",
             category="technical",
-            status="Identified"
         )
         req_key = list(reqs.keys())[i % len(reqs)]
         # REQ-L2-TE-020: RiskService.create_risk now creates the backing Artifact
@@ -365,7 +364,6 @@ def run():
         iss = issue_svc.create_issue(
             workspace_id=ws_id,
             title=issue_texts[i % len(issue_texts)],
-            status="Open",
             severity="high",
             ctx=ctx,
             description="Problem aufgetreten während der Integrationstests der Vorserie."
@@ -383,7 +381,6 @@ def run():
         adr = adr_svc.create_adr(
             workspace_id=ws_id,
             title=adr_texts[i % len(adr_texts)],
-            status="Approved",
             description="Entscheidung getroffen aufgrund von Kosten vs. Nutzen Analyse sowie Lieferketten-Stabilität.",
             ctx=ctx
         )

@@ -41,8 +41,13 @@ TENANT_ID = uuid.uuid4()
 
 
 def _make_adr(**kwargs):
-    """Return a MagicMock that looks like an Adr ORM instance."""
-    adr = MagicMock(spec=Adr)
+    """Return a MagicMock that looks like an Adr ORM instance.
+
+    Task 12: no longer ``spec=Adr`` -- the `status` column is dropped, but
+    `.status` here stands in for the engine-resolved, in-memory-only value
+    AdrService sets on real instances, which a real spec would now reject.
+    """
+    adr = MagicMock()
     adr.id = kwargs.get("id", ADR_ID)
     adr.workspace_id = kwargs.get("workspace_id", WS_ID)
     adr.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -79,25 +84,12 @@ class TestAdrValidator:
         with pytest.raises(ValidationError, match="10,000"):
             AdrValidator.validate_create(title="Valid Title", description="x" * 10001)
 
-    def test_invalid_status_raises(self):
-        with pytest.raises(ValidationError, match="invalid"):
+    def test_validate_create_has_no_status_parameter(self):
+        """Datenmodell-Konsolidierung Phase 1: status is not a create input
+        anymore; a caller sending it gets a TypeError, not a ValidationError."""
+        with pytest.raises(TypeError):
             AdrValidator.validate_create(
                 title="Valid Title", description="ok", status="BadStatus"
-            )
-
-    def test_valid_statuses_all_pass(self):
-        # REQ-006: only workflow statuses are valid for creation; "Deleted" is a
-        # soft-delete marker set exclusively by delete_adr() — not by users.
-        for status in AdrValidator.VALID_STATUSES:
-            AdrValidator.validate_create(
-                title="Valid Title", description="ok", status=status
-            )
-
-    def test_deleted_status_not_valid_for_create(self):
-        """REQ-006: 'Deleted' must not be accepted as a creation status."""
-        with pytest.raises(ValidationError, match="invalid"):
-            AdrValidator.validate_create(
-                title="Valid Title", description="ok", status="Deleted"
             )
 
 
@@ -108,8 +100,10 @@ class TestAdrValidator:
 
 class TestAdrDTO:
     def test_from_orm_maps_fields(self):
+        """Datenmodell-Konsolidierung: `status` is now supplied by the caller
+        (resolved from the workflow engine), not read off the ORM row."""
         adr = _make_adr(decision="Use REST")
-        dto = AdrDTO.from_orm(adr)
+        dto = AdrDTO.from_orm(adr, status=adr.status)
         assert dto.id == adr.id
         assert dto.workspace_id == adr.workspace_id
         assert dto.title == adr.title
@@ -401,6 +395,10 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
             patch("application.workflow_facade.WorkflowFacade"),
+            # _set_tenant_context is mocked above (no TenantContext ever set
+            # on this thread), so the post-transition status resolution
+            # (state_reader.current_state) must be mocked too.
+            patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             result = svc.transition_status(
@@ -431,6 +429,10 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
             patch("application.workflow_facade.WorkflowFacade"),
+            # _set_tenant_context is mocked above (no TenantContext ever set
+            # on this thread), so the post-transition status resolution
+            # (state_reader.current_state) must be mocked too.
+            patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.transition_status(
@@ -453,6 +455,10 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
             patch("application.workflow_facade.WorkflowFacade"),
+            # _set_tenant_context is mocked above (no TenantContext ever set
+            # on this thread), so the post-transition status resolution
+            # (state_reader.current_state) must be mocked too.
+            patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.transition_status(
@@ -494,6 +500,45 @@ class TestTransitionStatus:
                 svc.transition_status(
                     adr_id=ADR_ID, target_status=Adr.Status.APPROVED, ctx=ctx
                 )
+
+    @pytest.mark.django_db
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, te020_ctx, te020_workspace, te020_tenant
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``adr.refresh_from_db()`` alone would leave the
+        returned instance's ``.status`` at its stale, pre-transition column
+        value. Must be corrected in memory before returning (same fix as
+        IssueService.transition_status)."""
+        from persistence.tenancy import TenantContext
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(te020_tenant.id)
+        try:
+            create_default_workflow(
+                workspace_id=te020_workspace.id,
+                preset="adr_default",
+                item_type="Adr",
+                tenant_id=te020_tenant.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+        adr = AdrService().create_adr(
+            workspace_id=te020_workspace.id,
+            title="Adopt event sourcing",
+            description="d",
+            ctx=te020_ctx,
+        )
+
+        updated = AdrService().transition_status(
+            adr_id=adr.id,
+            target_status="In Review",
+            ctx=te020_ctx,
+        )
+
+        assert updated.status == "In Review"
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------
@@ -861,9 +906,11 @@ class TestAdrArtifactBackingAndTraceLinks:
         adr_in_db = Adr.objects.filter(id=adr.id).first()
         assert adr_in_db is not None, "ADR must remain in DB after soft-delete"
 
-        # Phase 0: the workflow engine's state is now the source of truth.
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved so the ADR keeps its approval while hidden.
+        assert Artifact.objects.get(pk=artifact_id).lifecycle_status == "outdated"
         item_state = WorkflowItemState.objects.get(item_id=adr.id, item_type="Adr")
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
         # REQ-006: backing Artifact must also remain in DB
         assert Artifact.objects.filter(id=artifact_id).exists(), "Artifact must remain in DB after soft-delete"

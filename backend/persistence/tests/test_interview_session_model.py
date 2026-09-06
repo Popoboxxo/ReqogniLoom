@@ -36,7 +36,12 @@ class TestInterviewSessionDefaults:
         finally:
             TenantContext.clear_tenant()
 
-        assert session.status == "in_progress"
+        # Task 12: the `status` column is dropped -- this raw create bypasses
+        # InterviewService.start() (no WorkflowItemState either), so the
+        # "default" is now the interview_default preset's initial state.
+        from workflow import state_reader
+
+        assert state_reader.initial_state("Interview") == "in_progress"
         assert session.collected_fields == {}
         assert session.grounding_snapshot == {}
         assert session.resulting_artifact_ids == []

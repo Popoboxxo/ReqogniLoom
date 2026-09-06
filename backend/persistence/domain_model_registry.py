@@ -4,7 +4,7 @@ SA-21 (SYSTEMAUDIT_2026-08-27 §4.1 #3): ``traceability/service.py`` and
 ``baseline/state_capture.py`` (both Layer 1) resolve Artifact <-> domain-entity
 across *every* Generic Artifact Model type, including five entity types
 (``Adr``, ``Risk``, ``Issue``, ``Goal``, ``MainGoal``) whose Django models live
-in ``application.models`` (Layer 2), plus ``IcdVersion`` from the ``icd`` app
+in ``application.models`` (Layer 2), plus ``Icd`` from the ``icd`` app
 for baseline state capture — both lazy imports going the wrong direction in
 the layering.
 

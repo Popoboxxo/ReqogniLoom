@@ -105,7 +105,8 @@ export default function ArchitectureEditors(): JSX.Element {
   const [newDescription, setNewDescription] = useState('');
   const [listSearch, setListSearch] = useState('');
   // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
-  // workflow status, so we filter on the available lifecycle_status field.
+  // workflow status, so we filter on the available lifecycle_status field —
+  // sourced from the backing Artifact since the Datenmodell-Konsolidierung.
   const [statusFilter, setStatusFilter] = useState('');
 
   // Delete-confirmation target from list context menu
@@ -458,7 +459,8 @@ export default function ArchitectureEditors(): JSX.Element {
           filters={[
             {
               // REQ-175: lifecycle-status filter. ArchitectureElement has no
-              // denormalized workflow status, so this filters lifecycle_status.
+              // denormalized workflow status, so this filters lifecycle_status
+              // (backing-Artifact soft-delete flag, not a workflow state).
               id: 'status',
               allLabel: t('editor.allStatuses', 'All Statuses'),
               value: statusFilter,

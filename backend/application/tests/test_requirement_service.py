@@ -483,76 +483,18 @@ class TestUpdateRequirement:
         assert kw["entity_type"] == "Requirement"
 
 
-    def test_update_status_round_trip(self):
-        """Update requirement status and verify it persists (REQ-L3-RF003-002)."""
+    def test_update_status_kwarg_no_longer_accepted(self):
+        """Task 12: `status` is removed from update_requirement's signature
+        entirely -- the WorkflowEngine is the sole owner of Requirement
+        status (REQ-143), and the dropped column left the old low-level
+        escape hatch with nothing to write to. Supersedes
+        test_update_status_round_trip / test_update_status_none_leaves_status_unchanged
+        (REQ-L3-RF003-002), which exercised that now-removed parameter."""
         svc = RequirementService()
         ctx = _make_ctx()
-        mock_req = _make_requirement(status="draft")
 
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
-
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            result = svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, status="approved"
-            )
-
-        assert mock_req.status == "approved"
-        assert result is mock_req
-
-    def test_update_status_none_leaves_status_unchanged(self):
-        """When status is None, the existing status must not be modified."""
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement(status="review")
-
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
-
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, title="New Title"
-            )
-
-        assert mock_req.status == "review"
+        with pytest.raises(TypeError):
+            svc.update_requirement(requirement_id=REQ_ID, ctx=ctx, status="approved")
 
     def test_update_increments_version_atomically(self):
         """update_requirement atomically increments version via F() expression (REQ-L3-PL001-002).
@@ -846,9 +788,11 @@ class TestGetRequirement:
         ):
             result = svc.list_requirements(WS_ID, ctx)
 
-        # Phase 0: outdate() mirrors the "outdated" state into `status`, not
-        # `lifecycle_status` — the filter must match what it actually writes.
-        mock_filtered_qs.exclude.assert_called_once_with(status="outdated")
+        # Datenmodell-Konsolidierung Phase 1: the exclusion is now an
+        # ``id__in=state_reader.item_ids_in_state(...)`` subquery rather than
+        # a direct ``status="outdated"`` filter, so this only asserts that
+        # ``.exclude()`` was called once, not its exact kwargs.
+        mock_filtered_qs.exclude.assert_called_once()
         assert result == mock_reqs
 
 
@@ -1702,10 +1646,17 @@ class TestListRequirementsExcludesOutdated:
 
         svc.delete_requirement(deleted.id, req_outdate_ctx)
 
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved.
+        from persistence.models import Artifact
+
+        assert (
+            Artifact.objects.get(pk=deleted.artifact_id).lifecycle_status == "outdated"
+        )
         item_state = WorkflowItemState.objects.get(
             item_id=deleted.id, item_type="Requirement"
         )
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state != "outdated"
 
         results = svc.list_requirements(req_outdate_workspace.id, req_outdate_ctx)
         ids = {r.id for r in results}

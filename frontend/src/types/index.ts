@@ -172,9 +172,13 @@ export interface SimilarRequirement {
 /** A single ICD similarity-search hit (REQ-L2-VS-004). */
 export interface SimilarIcd {
   icd_id: UUID;
-  version_id: UUID;
   name: string;
   interface_type: string;
+  /**
+   * The matched ICD's current contract revision. Backend Task 28c-2 dropped
+   * the companion `version_id`: the embedding moved onto the ICD row itself,
+   * so there is no version row left to identify.
+   */
   version_number: number;
   /** Cosine similarity in [~-1, 1]; higher means more similar. */
   similarity_score: number;
@@ -249,7 +253,8 @@ export interface ArchitectureElement {
   suspect?: boolean;
   change_reason?: string;
   custom_fields?: CustomFields;
-  /** REQ-006: lifecycle status; 'deleted' elements are hidden in normal views */
+  /** Soft-delete flag. Since the Datenmodell-Konsolidierung it lives on the
+   *  backing Artifact and is orthogonal to `status` (the workflow state). */
   lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -988,7 +993,8 @@ export interface GlossaryTerm {
   synonyms: string[];
   abbreviation?: string;
   is_global?: boolean;
-  /** REQ-006: lifecycle status; 'deleted' terms are hidden in normal views */
+  /** Soft-delete flag. Since the Datenmodell-Konsolidierung it lives on the
+   *  backing Artifact and is orthogonal to `status` (the workflow state). */
   lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   /**
    * UI-59 (Systemaudit 2026-08-27 AP-5): optimistic-lock version counter —

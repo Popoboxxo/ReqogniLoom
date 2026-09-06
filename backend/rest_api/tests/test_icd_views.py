@@ -375,3 +375,252 @@ class TestIcdViewSetFreeTextSanitization:
                     response = view(req)
 
         assert response.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Task 28c-2: the ?version= contract on the parameters endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestParametersVersionParam:
+    """Pins the ``?version=`` decision Task 28c-2 had to make.
+
+    ``IcdParameter`` became current-state-only, so ``?version=`` no longer
+    selects a live row set. It is honoured from the recorded
+    ``parameters_snapshot`` rather than ignored, because ignoring it would
+    answer a question about revision N with revision "current"'s data — see
+    the module docstring of ``rest_api.icd_views``.
+    """
+
+    def _icd(self, current_revision: int = 2):
+        from icd.models import Icd
+
+        icd = MagicMock(spec=Icd)
+        icd.id = FAKE_ICD_ID
+        icd.tenant_id = FAKE_TENANT_ID
+        icd.current_revision = current_revision
+        return icd
+
+    def _get(self, version: str | None):
+        factory = APIRequestFactory()
+        path = "/api/v1/icds/%s/parameters/" % FAKE_ICD_ID
+        if version is not None:
+            path += "?version=%s" % version
+        req = factory.get(path)
+        req.auth_context = _make_auth_context()
+        return req
+
+    def _call_get(self, version, icd, *, history=None, live=()):
+        from icd.models import IcdRevision
+
+        view = IcdViewSet.as_view({"get": "parameters"})
+        req = self._get(version)
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch(
+                    "rest_api.icd_views.IcdRevision.from_icd",
+                    return_value=IcdRevision(
+                        icd_id=icd.id, version_number=icd.current_revision
+                    ),
+                ):
+                    with patch(
+                        "rest_api.icd_views.get_icd_history",
+                        return_value=history or [],
+                    ):
+                        with patch(
+                            "rest_api.icd_views.list_icd_parameters",
+                            return_value=list(live),
+                        ):
+                            return view(req, pk=str(FAKE_ICD_ID))
+
+    def test_current_revision_serves_the_live_rows(self) -> None:
+        param = MagicMock()
+        param.id = uuid.uuid4()
+        param.icd_id = FAKE_ICD_ID
+        param.name = "voltage"
+        param.description = ""
+        param.unit = "V"
+        param.data_type = "float"
+        param.direction = "input"
+        param.min_value = None
+        param.max_value = None
+        param.nominal_value = ""
+        param.tolerance = ""
+        param.ordering = 0
+        param.created_at = None
+        param.modified_at = None
+
+        response = self._call_get(None, self._icd(), live=[param])
+
+        assert response.status_code == 200
+        body = response.data["results"] if "results" in response.data else response.data
+        assert [p["name"] for p in body] == ["voltage"]
+        assert body[0]["id"] == str(param.id)
+
+    def test_historical_revision_serves_the_recorded_snapshot(self) -> None:
+        from icd.models import IcdRevision
+
+        historical = IcdRevision(
+            icd_id=FAKE_ICD_ID,
+            version_number=1,
+            parameters_snapshot=[{"name": "voltage", "unit": "V", "ordering": 0}],
+            parameters_captured=True,
+        )
+
+        response = self._call_get("1", self._icd(), history=[historical])
+
+        assert response.status_code == 200
+        body = response.data["results"] if "results" in response.data else response.data
+        assert [p["name"] for p in body] == ["voltage"]
+        # A snapshot entry is a recorded value, not an addressable row.
+        assert body[0]["id"] is None
+
+    def test_revision_without_a_recorded_snapshot_is_404_not_an_empty_list(self) -> None:
+        """A revision written before the cut-over never captured its parameter
+        set; answering ``[]`` would be a confident wrong answer."""
+        from icd.models import IcdRevision
+
+        historical = IcdRevision(
+            icd_id=FAKE_ICD_ID, version_number=1, parameters_captured=False
+        )
+
+        response = self._call_get("1", self._icd(), history=[historical])
+
+        assert response.status_code == 404
+
+    def test_unknown_revision_is_404(self) -> None:
+        response = self._call_get("99", self._icd(), history=[])
+
+        assert response.status_code == 404
+
+    def test_non_integer_version_is_400_not_500(self) -> None:
+        response = self._call_get("not-a-number", self._icd())
+
+        assert response.status_code == 400
+
+    def test_post_to_a_historical_revision_is_rejected(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/icds/%s/parameters/" % FAKE_ICD_ID,
+            data={"name": "voltage", "version": 1},
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+        view = IcdViewSet.as_view({"post": "parameters"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=self._icd()):
+                with patch("rest_api.icd_views.create_icd_parameter") as create:
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Datenmodell-Konsolidierung Task 29 (Milestone M5): versions/diff unified
+# onto the generic ArtifactDiffService, replacing the hand-rolled dispatch
+# against icd.services.get_icd_history / a fixed six-field DBC comparison.
+# ---------------------------------------------------------------------------
+
+
+class TestIcdViewSetVersionsAndDiff:
+    def _icd(self, artifact_id=None, current_revision: int = 2):
+        from icd.models import Icd
+
+        icd = MagicMock(spec=Icd)
+        icd.id = FAKE_ICD_ID
+        icd.tenant_id = FAKE_TENANT_ID
+        icd.artifact_id = artifact_id or uuid.uuid4()
+        icd.current_revision = current_revision
+        return icd
+
+    def test_versions_delegates_to_the_generic_service(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/icds/%s/versions/" % FAKE_ICD_ID)
+        req.auth_context = _make_auth_context()
+
+        icd = self._icd()
+        expected = [{"version": 0, "label": "Creation baseline"}]
+
+        view = IcdViewSet.as_view({"get": "versions"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch("rest_api.icd_views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.list_versions.return_value = expected
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 200
+        assert response.data == expected
+        svc_cls.return_value.list_versions.assert_called_once_with(
+            icd.artifact_id, req.auth_context
+        )
+
+    def test_diff_delegates_to_the_generic_service(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.get(
+            "/api/v1/icds/%s/diff/?from_version=1&to_version=2" % FAKE_ICD_ID
+        )
+        req.query_params = {"from_version": "1", "to_version": "2"}
+        req.auth_context = _make_auth_context()
+
+        icd = self._icd()
+        diff_result = {
+            "from_version": 1,
+            "to_version": 2,
+            "entity_type": "Icd",
+            "fields": [
+                {"name": "name", "status": "unchanged", "from": "x", "to": "x"}
+            ],
+        }
+
+        view = IcdViewSet.as_view({"get": "diff"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch("rest_api.icd_views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.diff.return_value = diff_result
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 200
+        assert response.data == diff_result
+        svc_cls.return_value.diff.assert_called_once_with(
+            artifact_id=icd.artifact_id,
+            from_version=1,
+            to_version=2,
+            ctx=req.auth_context,
+        )
+
+    def test_diff_returns_404_when_service_raises_not_found(self) -> None:
+        from application.base import NotFoundError
+
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/icds/%s/diff/" % FAKE_ICD_ID)
+        req.query_params = {}
+        req.auth_context = _make_auth_context()
+
+        icd = self._icd()
+
+        view = IcdViewSet.as_view({"get": "diff"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch("rest_api.icd_views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.diff.side_effect = NotFoundError(
+                        "Version 99 not available"
+                    )
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 404

@@ -723,27 +723,29 @@ class ReqifImportService(ServiceBase):
     ) -> None:
         """Mirror ``0003_reconcile_status_mirror.reconcile_status_mirror``.
 
-        Sets ``entity.status`` (not yet saved — caller saves once at the end)
-        and creates/updates the matching ``WorkflowItemState`` row IFF a
+        Creates/updates the matching ``WorkflowItemState`` row IFF a
         ``WorkflowEngineDefinition`` exists for this workspace/item_type.
         ``entity.id`` is available before the first save (UUID PK default is
         assigned client-side), so this can run before ``entity.save()``.
+
+        Task 12: the ``status`` column is dropped, so a mapped value can no
+        longer be persisted on ``entity`` itself -- without a
+        ``WorkflowEngineDefinition`` there is nowhere left to record it, and
+        the imported status is discarded (documented, reviewed data-loss
+        tradeoff, see the Task 12 report Finding 2; mirrors the identical
+        ``definition is None`` discard in ``import_service._insert_rows``'s
+        CSV import path).
         """
         from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 
         definition = WorkflowEngineDefinition.objects.filter(
             workspace_id=str(workspace_id), item_type=item_type
         ).first()
-
-        valid_states = None
-        if definition is not None:
-            valid_states = list((definition.workflow_json or {}).get("states", []))
-
-        mapped = _map_status(status_raw, valid_states)
-        entity.status = mapped
-
         if definition is None:
             return
+
+        valid_states = list((definition.workflow_json or {}).get("states", []))
+        mapped = _map_status(status_raw, valid_states)
 
         state_row = WorkflowItemState.objects.filter(
             item_id=entity.id, item_type=item_type

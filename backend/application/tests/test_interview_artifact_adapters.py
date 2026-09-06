@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from application.base import ValidationError
 from application.interview_artifact_adapters import (
     ARTIFACT_CREATION_ADAPTERS,
     CreatedArtifactRef,
@@ -119,16 +118,34 @@ class TestArtifactCreationAdapters:
             artifact_id=fake_issue.artifact_id, artifact_type="Issue"
         )
 
-    def test_glossary_term_adapter_rejects_even_for_editor(self):
-        # The rejection is type-based, NOT role-based: even a fully
-        # privileged editor ctx must hit the explicit ValidationError --
-        # GlossaryTerm has no Artifact backing row to reference.
+    def test_glossary_term_adapter_normalizes_dto(self):
+        # Datenmodell-Konsolidierung Phase 3: GlossaryTerm gained a backing
+        # Artifact row, so the adapter creates a real term instead of
+        # rejecting the proposal.
         fake_ctx = MagicMock()
-        with pytest.raises(ValidationError) as excinfo:
-            ARTIFACT_CREATION_ADAPTERS["GlossaryTerm"](
+        fake_dto = MagicMock(id=uuid.uuid4())
+        fake_artifact_id = uuid.uuid4()
+        with patch(
+            "application.interview_artifact_adapters.GlossaryService.create",
+            return_value=fake_dto,
+        ) as mocked, patch(
+            "application.interview_artifact_adapters.GlossaryTerm.objects"
+        ) as mocked_qs:
+            mocked_qs.values_list.return_value.get.return_value = fake_artifact_id
+            ref = ARTIFACT_CREATION_ADAPTERS["GlossaryTerm"](
                 {"term": "X", "definition": "Y"}, fake_ctx, "ws-1"
             )
-        assert "GlossaryTerm" in str(excinfo.value)
+        mocked.assert_called_once_with(
+            ctx=fake_ctx,
+            workspace_id="ws-1",
+            term="X",
+            definition="Y",
+            synonyms=None,
+            abbreviation="",
+        )
+        assert ref == CreatedArtifactRef(
+            artifact_id=fake_artifact_id, artifact_type="GlossaryTerm"
+        )
 
     def test_risk_adapter_requires_probability_and_impact(self):
         fake_ctx = MagicMock()

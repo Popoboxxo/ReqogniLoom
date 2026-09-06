@@ -122,13 +122,19 @@ def _make_adr(tenant, workspace):
     from application.models import Adr
 
     artifact = _make_artifact(tenant, workspace, "Adr")
-    entity = Adr.objects.create(
-        artifact=artifact,
-        workspace_id=workspace.id,
-        tenant_id=tenant.id,
-        title="ADR A",
-        description="desc",
-    )
+    # Task 15: these models are TenantScopedModel now, so `objects`
+    # requires an active context exactly like the persistence builders above.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        entity = Adr.objects.create(
+            artifact=artifact,
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            title="ADR A",
+            description="desc",
+        )
+    finally:
+        TenantContext.clear_tenant()
     return artifact, entity
 
 
@@ -136,12 +142,18 @@ def _make_risk(tenant, workspace):
     from application.models import Risk
 
     artifact = _make_artifact(tenant, workspace, "Risk")
-    entity = Risk.objects.create(
-        artifact=artifact,
-        workspace_id=workspace.id,
-        tenant_id=tenant.id,
-        title="Risk A",
-    )
+    # Task 15: these models are TenantScopedModel now, so `objects`
+    # requires an active context exactly like the persistence builders above.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        entity = Risk.objects.create(
+            artifact=artifact,
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            title="Risk A",
+        )
+    finally:
+        TenantContext.clear_tenant()
     return artifact, entity
 
 
@@ -149,12 +161,18 @@ def _make_issue(tenant, workspace):
     from application.models import Issue
 
     artifact = _make_artifact(tenant, workspace, "Issue")
-    entity = Issue.objects.create(
-        artifact=artifact,
-        workspace_id=workspace.id,
-        tenant_id=tenant.id,
-        title="Issue A",
-    )
+    # Task 15: these models are TenantScopedModel now, so `objects`
+    # requires an active context exactly like the persistence builders above.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        entity = Issue.objects.create(
+            artifact=artifact,
+            workspace_id=workspace.id,
+            tenant_id=tenant.id,
+            title="Issue A",
+        )
+    finally:
+        TenantContext.clear_tenant()
     return artifact, entity
 
 
@@ -162,14 +180,20 @@ def _make_goal(tenant, workspace):
     from application.models import Goal
 
     artifact = _make_artifact(tenant, workspace, "Goal")
-    entity = Goal.objects.create(
-        artifact=artifact,
-        tenant_id=tenant.id,
-        workspace_id=workspace.id,
-        lineage_id=uuid.uuid4(),
-        sequence_number=1,
-        title="Goal A",
-    )
+    # Task 15: these models are TenantScopedModel now, so `objects`
+    # requires an active context exactly like the persistence builders above.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        entity = Goal.objects.create(
+            artifact=artifact,
+            tenant_id=tenant.id,
+            workspace_id=workspace.id,
+            lineage_id=uuid.uuid4(),
+            sequence_number=1,
+            title="Goal A",
+        )
+    finally:
+        TenantContext.clear_tenant()
     return artifact, entity
 
 
@@ -177,14 +201,20 @@ def _make_main_goal(tenant, workspace):
     from application.models import MainGoal
 
     artifact = _make_artifact(tenant, workspace, "MainGoal")
-    entity = MainGoal.objects.create(
-        artifact=artifact,
-        tenant_id=tenant.id,
-        workspace_id=workspace.id,
-        sequence_number=1,
-        content="Main goal content",
-        source="manual",
-    )
+    # Task 15: these models are TenantScopedModel now, so `objects`
+    # requires an active context exactly like the persistence builders above.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        entity = MainGoal.objects.create(
+            artifact=artifact,
+            tenant_id=tenant.id,
+            workspace_id=workspace.id,
+            sequence_number=1,
+            content="Main goal content",
+            source="manual",
+        )
+    finally:
+        TenantContext.clear_tenant()
     return artifact, entity
 
 
@@ -293,11 +323,14 @@ def test_resolve_does_not_leak_cross_tenant_artifact():
 
 
 def test_resolve_does_not_leak_cross_tenant_adr():
-    """Same isolation guarantee for an application-layer (non-tenant-scoped
-    model) type — Adr, Risk, Issue, Goal, MainGoal all skip TenantScopedModel
-    and carry their own tenant_id column, so their isolation depends entirely
-    on the Artifact-side filter in resolve_artifacts(); this is the type most
-    likely to regress if that assumption is ever weakened.
+    """Same isolation guarantee for an application-layer type.
+
+    Adr, Risk, Issue, Goal and MainGoal used to skip TenantScopedModel and carry
+    a hand-rolled ``tenant_id`` column, which made their isolation depend
+    entirely on the Artifact-side filter in ``resolve_artifacts()``. Task 15
+    (Datenmodell-Konsolidierung Phase 2) moved them onto TenantScopedModel, so
+    the manager now scopes them as well — this test keeps asserting the
+    Artifact-side guarantee, which must hold independently of that.
     """
     tenant_a, workspace_a = _new_tenant_and_workspace("T-A-adr-leak", name="WA")
     tenant_b, workspace_b = _new_tenant_and_workspace("T-B-adr-leak", name="WB")

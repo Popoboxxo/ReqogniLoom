@@ -283,6 +283,7 @@ class TestCanvasAutoSaveCreate:
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
                 name="Test Canvas",
+                workspace_id=workspace_a.id,
             )
 
         assert diagram.id is not None
@@ -295,10 +296,11 @@ class TestCanvasAutoSaveCreate:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
-        assert diagram.current_version is not None
-        assert diagram.current_version.payload_format == PayloadFormat.CANVAS_STROKE
+        assert diagram.current_revision == 1
+        assert diagram.payload_format == PayloadFormat.CANVAS_STROKE
 
     def test_create_persists_json_payload(self, canvas_editor, tenant_a, workspace_a):
         with active_tenant(tenant_a):
@@ -306,9 +308,10 @@ class TestCanvasAutoSaveCreate:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
-        payload = json.loads(diagram.current_version.payload)
+        payload = json.loads(diagram.payload)
         assert "strokes" in payload
         assert len(payload["strokes"]) == 3
 
@@ -319,6 +322,7 @@ class TestCanvasAutoSaveCreate:
                     diagram_id=None,
                     stroke_data={"strokes": [{"type": "invalid"}]},
                     tenant=tenant_a,
+                    workspace_id=workspace_a.id,
                 )
 
     def test_create_writes_audit_log(self, canvas_editor, tenant_a, workspace_a):
@@ -328,6 +332,7 @@ class TestCanvasAutoSaveCreate:
                     diagram_id=None,
                     stroke_data=VALID_CANVAS_STROKES,
                     tenant=tenant_a,
+                    workspace_id=workspace_a.id,
                 )
 
         mock_log.assert_called_once()
@@ -341,17 +346,18 @@ class TestCanvasAutoSaveCreate:
 class TestCanvasAutoSaveUpdate:
     """REQ-L2-DS-006 AC3: Auto-Save creates new version on update."""
 
-    def _make_canvas(self, canvas_editor, tenant_a):
+    def _make_canvas(self, canvas_editor, tenant_a, workspace_a):
         return canvas_editor.handle_stroke_update(
             diagram_id=None,
             stroke_data=VALID_CANVAS_STROKES,
             tenant=tenant_a,
             name="Auto-Save Test",
+            workspace_id=workspace_a.id,
         )
 
     def test_update_creates_new_version(self, canvas_editor, tenant_a, workspace_a):
         with active_tenant(tenant_a):
-            diagram = self._make_canvas(canvas_editor, tenant_a)
+            diagram = self._make_canvas(canvas_editor, tenant_a, workspace_a)
             updated = canvas_editor.handle_stroke_update(
                 diagram_id=diagram.id,
                 stroke_data={
@@ -364,25 +370,22 @@ class TestCanvasAutoSaveUpdate:
                 tenant=tenant_a,
             )
 
-        assert updated.current_version.version_number == 2
+        assert updated.current_revision == 2
 
     def test_update_old_version_unchanged(self, canvas_editor, tenant_a, workspace_a):
-        from diagram.models import DiagramVersion
-
         with active_tenant(tenant_a):
-            diagram = self._make_canvas(canvas_editor, tenant_a)
-            original_payload = diagram.current_version.payload
+            diagram = self._make_canvas(canvas_editor, tenant_a, workspace_a)
+            original_payload = diagram.payload
 
             canvas_editor.handle_stroke_update(
                 diagram_id=diagram.id,
                 stroke_data={"strokes": [], "width": 800, "height": 600},
                 tenant=tenant_a,
             )
+            # Task 28c-2: revision 1 is an ArtifactVersion snapshot now.
+            old_version = _revision_payload(diagram, 1)
 
-        old_version = DiagramVersion.unscoped.get(
-            diagram_id=diagram.id, version_number=1
-        )
-        assert old_version.payload == original_payload
+        assert old_version["payload"] == original_payload
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +785,7 @@ class TestGetCanvasUsesCanvasJson:
                 diagram_id=None,
                 stroke_data=stroke_data,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             result = canvas_editor.get_canvas(diagram.id)
 
@@ -798,6 +802,7 @@ class TestGetCanvasUsesCanvasJson:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             result = canvas_editor.get_canvas(diagram.id)
 
@@ -889,6 +894,7 @@ class TestCanvasTraceLink:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
         with patch.object(
@@ -926,6 +932,7 @@ class TestCanvasTraceLink:
                         stroke_data=VALID_CANVAS_STROKES,
                         tenant=tenant_a,
                         target_id=target_id,
+                        workspace_id=workspace_a.id,
                     )
 
         # The DiagramManager calls traceability internally on create
@@ -946,6 +953,7 @@ class TestGetCanvas:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             result = canvas_editor.get_canvas(diagram.id)
 
@@ -960,6 +968,7 @@ class TestGetCanvas:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             canvas_editor.handle_stroke_update(
                 diagram_id=diagram.id,
@@ -1003,14 +1012,15 @@ class TestCanvasJsonPersistence:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
-        assert diagram.current_version.canvas_json is None
+        assert diagram.canvas_json is None
 
     def test_canvas_json_populates_new_field(
         self, canvas_editor, tenant_a, workspace_a
     ):
-        """canvas_json in the payload is persisted on the new DiagramVersion field."""
+        """canvas_json in the payload is persisted on the Diagram row."""
         stroke_data = {**VALID_CANVAS_STROKES, "canvas_json": SAMPLE_CANVAS_JSON}
 
         with active_tenant(tenant_a):
@@ -1018,9 +1028,10 @@ class TestCanvasJsonPersistence:
                 diagram_id=None,
                 stroke_data=stroke_data,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
-        assert diagram.current_version.canvas_json == SAMPLE_CANVAS_JSON
+        assert diagram.canvas_json == SAMPLE_CANVAS_JSON
 
     def test_canvas_json_excluded_from_stroke_payload(
         self, canvas_editor, tenant_a, workspace_a
@@ -1033,9 +1044,10 @@ class TestCanvasJsonPersistence:
                 diagram_id=None,
                 stroke_data=stroke_data,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
-        payload = json.loads(diagram.current_version.payload)
+        payload = json.loads(diagram.payload)
         assert "canvas_json" not in payload
         assert "strokes" in payload
 
@@ -1050,6 +1062,7 @@ class TestCanvasJsonPersistence:
                 diagram_id=None,
                 stroke_data=stroke_data,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             result = canvas_editor.get_canvas(diagram.id)
 
@@ -1064,6 +1077,7 @@ class TestCanvasJsonPersistence:
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             result = canvas_editor.get_canvas(diagram.id)
 
@@ -1072,14 +1086,13 @@ class TestCanvasJsonPersistence:
     def test_update_adds_canvas_json_new_version_only(
         self, canvas_editor, tenant_a, workspace_a
     ):
-        """Updating with canvas_json stores it on the new version; v1 stays None."""
-        from diagram.models import DiagramVersion
-
+        """Updating with canvas_json stores it on the new revision; v1 stays None."""
         with active_tenant(tenant_a):
             diagram = canvas_editor.handle_stroke_update(
                 diagram_id=None,
                 stroke_data=VALID_CANVAS_STROKES,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             canvas_editor.handle_stroke_update(
                 diagram_id=diagram.id,
@@ -1087,11 +1100,20 @@ class TestCanvasJsonPersistence:
                 tenant=tenant_a,
             )
 
-        v1 = DiagramVersion.unscoped.get(diagram_id=diagram.id, version_number=1)
-        v2 = DiagramVersion.unscoped.get(diagram_id=diagram.id, version_number=2)
-        assert v1.canvas_json is None
-        assert v2.canvas_json == SAMPLE_CANVAS_JSON
+            v1 = _revision_payload(diagram, 1)
+            v2 = _revision_payload(diagram, 2)
+        assert v1["canvas_json"] is None
+        assert v2["canvas_json"] == SAMPLE_CANVAS_JSON
 
+
+
+def _revision_payload(diagram, revision: int) -> dict:
+    """Return the recorded ArtifactVersion payload for *revision* (Task 28c-2)."""
+    from persistence.models import ArtifactVersion
+
+    return ArtifactVersion.unscoped.get(
+        artifact_id=diagram.artifact_id, revision=revision
+    ).payload
 
 # ---------------------------------------------------------------------------
 # Helpers

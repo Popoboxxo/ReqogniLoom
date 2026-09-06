@@ -8,7 +8,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from application.base import NotFoundError, OptimisticLockError
 from auth_tenancy.context import AuthContext
-from mcp_server.tools.base import BaseToolGroup, ToolResult, require_uuid
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    ToolResult,
+    require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
+)
+from workflow.state_reader import STATUS_TRACKED_ITEM_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +52,6 @@ _OPTIONAL_RE = re.compile(r"^(?:typing\.)?Optional\[(.+)\]$")
 # service accepts an initial ``status`` there, so the enum values are useful
 # to document up front instead of leaving clients to guess.
 _ENUM_FIELDS_BY_PREFIX: Dict[str, Dict[str, str]] = {
-    "adr": {"status": "Status"},
     "risk": {
         "probability": "Probability",
         "impact": "Impact",
@@ -93,16 +99,6 @@ def _enum_values(prefix: str, field: str) -> Optional[List[str]]:
     if choices_attr is None:
         return None
     try:
-        # #374: "Deleted" is a soft-delete marker (REQ-006) that
-        # AdrValidator.VALID_STATUSES deliberately excludes from what a
-        # client may set via create/transition — the advertised enum must
-        # match what the service actually accepts, not the full model
-        # TextChoices.
-        if prefix == "adr" and field == "status":
-            from application.adr_service import AdrValidator
-
-            return sorted(AdrValidator.VALID_STATUSES)
-
         from application import models as application_models
 
         model = getattr(application_models, prefix.capitalize())
@@ -375,12 +371,39 @@ class GenericCrudToolGroup(BaseToolGroup):
             return str(value)
         return value
 
-    def _to_dict(self, obj: Any) -> Dict[str, Any]:
-        """Convert object to dict dynamically."""
+    def _to_dict(
+        self, obj: Any, *, status_map: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Convert object to dict dynamically.
+
+        ``status`` (present for Adr/Risk/Issue/ChangeRequest; absent for
+        GlossaryTerm, which has no ``status`` column at all -- see
+        ``lifecycle_status``) is resolved from the workflow-engine seam
+        instead of the ORM row's own column -- Datenmodell-Konsolidierung
+        Phase 1, mirrors
+        ``rest_api.mixins.workflow_state.WorkflowStateSerializerMixin``.
+
+        Task 12: the ``status`` column is dropped from Adr/Risk/Issue/
+        ChangeRequest, so ``obj.__dict__`` (Django only populates it with
+        real fields) no longer carries a ``"status"`` key for them either --
+        detecting "does this item_type have a status concept" via ``"status"
+        in data`` would now silently and permanently omit the key from every
+        response for these four types instead of resolving it, since the key
+        would never be there to trigger the branch. Checking membership in
+        ``STATUS_TRACKED_ITEM_TYPES`` instead keeps the behaviour independent
+        of what columns still happen to exist on the model.
+        """
         if hasattr(obj, "__dict__"):
             data = {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
             # Coerce non-JSON-serializable values (UUID/datetime/date/Decimal).
-            return {k: self._jsonify(v) for k, v in data.items()}
+            data = {k: self._jsonify(v) for k, v in data.items()}
+            if self._item_type in STATUS_TRACKED_ITEM_TYPES:
+                data["status"] = resolve_engine_status(
+                    self._item_type,
+                    getattr(obj, "id", None),
+                    status_map=status_map,
+                )
+            return data
         return {"id": str(getattr(obj, "id", ""))}
 
     def _handle_read(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -519,9 +542,18 @@ class GenericCrudToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         include_outdated = params.get("include_outdated", False)
         try:
-            results = self._list_method(
-                workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
+            results = list(
+                self._list_method(
+                    workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
+                )
             )
-            return ToolResult.ok({"items": [self._to_dict(r) for r in results]})
+            # Batch-resolve status for the whole page in one query instead of
+            # one engine lookup per row (N+1 avoidance).
+            status_map = resolve_status_map(
+                self._item_type, [getattr(r, "id", None) for r in results]
+            )
+            return ToolResult.ok({
+                "items": [self._to_dict(r, status_map=status_map) for r in results]
+            })
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))

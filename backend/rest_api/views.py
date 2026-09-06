@@ -364,6 +364,8 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         request: Request,
         items: Any,
         serialize: Callable[[Any], Any] | None = None,
+        *,
+        serialize_page: Callable[[list], Any] | None = None,
     ) -> Response:
         """Paginate *items* and return a paginated Response.
 
@@ -377,6 +379,16 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         already pass a pre-serialised list may omit ``serialize`` (backwards
         compatible).
 
+        ``serialize_page`` is the batched alternative: it receives the whole
+        page (a list, at most ``page_size`` items) in one call instead of once
+        per row. Required for any serializer using
+        ``WorkflowStateSerializerMixin`` (Datenmodell-Konsolidierung) — a
+        per-row ``serialize`` lambda builds a *fresh* serializer instance per
+        row, so the mixin's ``many=True`` status-map batching (one query for
+        the whole page) never kicks in and every row pays its own
+        ``WorkflowItemState`` query instead. Mutually exclusive with
+        ``serialize``.
+
         Response shape follows ``StandardPagination``:
         ``{count, next, previous, page_size, max_page_size, results}`` — the
         last two were added in #571 (reopen) so a clamped ``page_size`` stops
@@ -384,9 +396,14 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
         """
         page = self.paginator.paginate_queryset(items, request, view=self)
         if page is not None:
-            results = [serialize(obj) for obj in page] if serialize else page
+            if serialize_page is not None:
+                results = serialize_page(list(page))
+            else:
+                results = [serialize(obj) for obj in page] if serialize else page
             return self.paginator.get_paginated_response(results)
         # Pagination disabled for this request — serialise the full set.
+        if serialize_page is not None:
+            return Response(serialize_page(list(items)))
         if serialize is not None:
             return Response([serialize(obj) for obj in items])
         return Response(items)
@@ -475,7 +492,9 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return self._paginate(
                 request,
                 items,
-                lambda item: StakeholderNeedSerializer(item.to_dict()).data,
+                serialize_page=lambda page: StakeholderNeedSerializer(
+                    [i.to_dict() for i in page], many=True
+                ).data,
             )
         except NotFoundError as e:
             return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
@@ -813,7 +832,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
 
         return self._paginate(
-            request, items, lambda item: RequirementSerializer(_dto_from_orm(item)).data
+            request,
+            items,
+            serialize_page=lambda page: RequirementSerializer(
+                [_dto_from_orm(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -2159,7 +2182,11 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: TestCaseSerializer(_test_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: TestCaseSerializer(
+                [_test_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4221,7 +4248,23 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
 
 
 def _goal_to_dict(goal: Any) -> dict[str, Any]:
-    """Convert Goal ORM object to serializer-compatible dict (Task 6)."""
+    """Convert Goal ORM object to serializer-compatible dict (Task 6).
+
+    Task 12: the `status` column is dropped. ``getattr(goal, "status", ...)``
+    still picks up an in-memory value a service-layer caller already
+    resolved (e.g. GoalService.transition_status's post-transition
+    correction) -- only the *default* used to be the bug: a raw ORM instance
+    (GoalService.get()/list_current(), never corrected) has no ``.status``
+    attribute at all, so ``getattr`` silently returned the hardcoded literal
+    "Entwurf" regardless of the item's real state. The fallback now resolves
+    the engine seam instead (batched by the list() call sites via
+    _resolve_goal_statuses, to avoid one query per row).
+    """
+    from workflow import state_reader
+
+    resolved_status = getattr(goal, "status", None) or state_reader.current_state(
+        "Goal", goal.id
+    ) or state_reader.initial_state("Goal")
     return {
         "id": str(goal.id),
         "workspace_id": str(goal.workspace_id),
@@ -4231,7 +4274,7 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
         "sequence_number": goal.sequence_number,
         "title": goal.title,
         "description": getattr(goal, "description", ""),
-        "status": getattr(goal, "status", "Entwurf"),
+        "status": resolved_status,
         "version": goal.version,
         "created_at": goal.created_at,
         "updated_at": goal.updated_at,
@@ -4239,7 +4282,15 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
 
 
 def _main_goal_to_dict(main_goal: Any) -> dict[str, Any]:
-    """Convert MainGoal ORM object to serializer-compatible dict (Task 6)."""
+    """Convert MainGoal ORM object to serializer-compatible dict (Task 6).
+
+    Task 12: see ``_goal_to_dict``'s docstring — identical fix.
+    """
+    from workflow import state_reader
+
+    resolved_status = getattr(main_goal, "status", None) or state_reader.current_state(
+        "MainGoal", main_goal.id
+    ) or state_reader.initial_state("MainGoal")
     return {
         "id": str(main_goal.id),
         "workspace_id": str(main_goal.workspace_id),
@@ -4247,11 +4298,29 @@ def _main_goal_to_dict(main_goal: Any) -> dict[str, Any]:
         "content": main_goal.content,
         "source": getattr(main_goal, "source", "manual"),
         "generated_from_goal_ids": list(getattr(main_goal, "generated_from_goal_ids", []) or []),
-        "status": getattr(main_goal, "status", "Entwurf"),
+        "status": resolved_status,
         "version": main_goal.version,
         "created_at": main_goal.created_at,
         "updated_at": main_goal.updated_at,
     }
+
+
+def _resolve_goal_statuses(items: list, item_type: str) -> None:
+    """Batch-resolve and set ``.status`` in-memory on every item (Task 12).
+
+    Must run before ``_apply_list_query_params`` (whose ``?status=`` filter
+    reads ``getattr(i, "status", None)``) and before ``_goal_to_dict``/
+    ``_main_goal_to_dict`` build the response -- one engine query for the
+    whole page instead of one per row.
+    """
+    from workflow import state_reader
+
+    if not items:
+        return
+    states = state_reader.current_states(item_type, (i.id for i in items))
+    initial_state = state_reader.initial_state(item_type)
+    for item in items:
+        item.status = states.get(str(item.id)) or initial_state
 
 
 def _issue_to_dict(issue: Any) -> dict[str, Any]:
@@ -4808,7 +4877,11 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: AdrSerializer(_adr_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: AdrSerializer(
+                [_adr_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4852,7 +4925,13 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 context=data.get("context", ""),
                 decision=data.get("decision", ""),
                 consequences=data.get("consequences", ""),
-                status=data.get("status", "Draft"),
+                # Datenmodell-Konsolidierung Phase 1: a new ADR always starts
+                # at the workflow definition's initial_state. AdrSerializer.status
+                # is read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status, and
+                # create_adr() no longer even accepts one — a client-supplied
+                # `status` is ignored, not rejected, consistent with
+                # ADR-status-single-source.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5081,7 +5160,11 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: RiskSerializer(_risk_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: RiskSerializer(
+                [_risk_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5127,7 +5210,13 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category", "technical"),
                 owner=data.get("owner", ""),
                 mitigation_strategy=data.get("mitigation_strategy", ""),
-                status=data.get("status", "Identified"),
+                # Datenmodell-Konsolidierung Phase 1: a new Risk always starts
+                # at the workflow definition's initial_state. RiskSerializer.status
+                # is read-only (WorkflowStateSerializerMixin), so `data` (the
+                # validated_data) can never carry a client-supplied status, and
+                # create_risk() no longer even accepts one — a client-supplied
+                # `status` is ignored, not rejected, consistent with
+                # ADR-status-single-source.
                 detection=data.get("detection", 5),
                 owner_user_id=data.get("owner_user_id"),
             )
@@ -5398,6 +5487,9 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # Task 12: `status` column dropped -- batch-resolve it in-memory
+        # before the ?status= filter/ordering below reads getattr(i, "status").
+        _resolve_goal_statuses(items, "Goal")
         # fix #236: apply status/search/ordering/limit query parameters.
         items, err = _apply_list_query_params(
             items,
@@ -5415,7 +5507,11 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if err is not None:
             return err
         return self._paginate(
-            request, items, lambda item: GoalSerializer(_goal_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: GoalSerializer(
+                [_goal_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5638,13 +5734,16 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             if error is not None:
                 return error
-            items = self._svc().list_all(workspace_id, ctx)
+            items = list(self._svc().list_all(workspace_id, ctx))
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # Task 12: `status` column dropped -- batch-resolve it in-memory
+        # before the ?status= filter/ordering below reads getattr(i, "status").
+        _resolve_goal_statuses(items, "MainGoal")
         # fix #236: apply status/source/search/ordering/limit query parameters.
         items, err = _apply_list_query_params(
             items,
@@ -5663,7 +5762,11 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if err is not None:
             return err
         return self._paginate(
-            request, items, lambda item: MainGoalSerializer(_main_goal_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: MainGoalSerializer(
+                [_main_goal_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5882,7 +5985,11 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: IssueSerializer(_issue_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: IssueSerializer(
+                [_issue_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -5926,7 +6033,9 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 category=data.get("category", "defect"),
                 tags=data.get("tags"),
-                status=data.get("status", "Open"),
+                # Datenmodell-Konsolidierung Phase 1: a new Issue always starts at the
+                # workflow definition's initial_state. A client-supplied `status` is
+                # ignored, not rejected, consistent with ADR-status-single-source.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6127,7 +6236,11 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: ChangeRequestSerializer(_cr_to_dict(item)).data
+            request,
+            items,
+            serialize_page=lambda page: ChangeRequestSerializer(
+                [_cr_to_dict(i) for i in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -7267,17 +7380,18 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/glossary/{pk}/versions/ — list GlossaryTermVersions
-        chronologically.
+        """GET /api/v1/glossary/{pk}/versions/ — list revisions chronologically.
 
-        REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
+        REQ-142: delegates to ArtifactDiffService (COMP-AS-019). Task 29
+        (Milestone M5): routes through the generic ``list_versions``.
         """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            result = ArtifactDiffService().list_versions_for_glossary_term(
-                UUID(pk), ctx
-            )
+            term_id = UUID(pk)
+            term = self._svc().get(ctx, term_id)
+
+            result = ArtifactDiffService().list_versions(term.artifact_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -7288,9 +7402,10 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/glossary/{pk}/diff/?from_version=0&to_version=2
 
-        REQ-142: Structured field-level diff between two GlossaryTermVersions.
+        REQ-142: Structured field-level diff between two glossary term revisions.
         Delegates to ArtifactDiffService (COMP-AS-019); reuses the same
-        diff computation as the requirement diff endpoint.
+        diff computation as the requirement diff endpoint. Task 29 (Milestone
+        M5): routes through the generic ``diff``.
         """
         lang = detect_lang(request)
         try:
@@ -7303,8 +7418,8 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 request.query_params.get("to_version", str(term.version))
             )
 
-            result = ArtifactDiffService().diff_for_glossary_term(
-                term_id=term_id,
+            result = ArtifactDiffService().diff(
+                artifact_id=term.artifact_id,
                 from_version=from_version,
                 to_version=to_version,
                 ctx=ctx,

@@ -34,6 +34,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import Adr, DomainEventOutbox
 from application.optimistic_lock import (
@@ -41,6 +42,7 @@ from application.optimistic_lock import (
     lock_for_version_check,
 )
 from traceability.types import LinkType
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,9 @@ class AdrDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, adr: Adr) -> "AdrDTO":
+    def from_orm(cls, adr: Adr, *, status: str = "") -> "AdrDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
+        resolved_status = status
         return cls(
             id=adr.id,
             workspace_id=adr.workspace_id,
@@ -80,7 +84,7 @@ class AdrDTO:
             context=adr.context,
             decision=adr.decision,
             consequences=adr.consequences,
-            status=adr.status,
+            status=resolved_status,
             version=adr.version,
         )
 
@@ -97,25 +101,25 @@ class AdrValidator:
     req_id  : REQ-L1-029
     """
 
-    # REQ-006: "Deleted" is a soft-delete marker set by delete_adr(); users
-    # must not be able to create or manually set status to "Deleted" via the API.
-    VALID_STATUSES = frozenset(s for s in Adr.Status.values if s != Adr.Status.DELETED)
+    @classmethod
+    def validate_create(cls, title: str, description: str) -> None:
+        """Validate ADR create input. Status is not an input (Phase 1)."""
+        cls._validate_title(title)
+        cls._validate_description(description)
 
     @classmethod
-    def validate_create(
-        cls, title: str, description: str, status: str = "Draft"
-    ) -> None:
-        """Validate fields for ADR creation."""
+    def _validate_title(cls, title: str) -> None:
+        """Validate ADR title length constraints."""
         if not title or len(title) < 3:
             raise ValidationError("ADR title must be at least 3 characters")
         if len(title) > 200:
             raise ValidationError("ADR title must not exceed 200 characters")
+
+    @classmethod
+    def _validate_description(cls, description: str) -> None:
+        """Validate ADR description length constraint."""
         if len(description) > 10000:
             raise ValidationError("ADR description must not exceed 10,000 characters")
-        if status not in cls.VALID_STATUSES:
-            raise ValidationError(
-                f"ADR status '{status}' invalid; must be one of {sorted(cls.VALID_STATUSES)}"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +154,12 @@ class AdrService(ServiceBase):
         context: str = "",
         decision: str = "",
         consequences: str = "",
-        status: str = "Draft",
         uid: Optional[str] = None,
     ) -> Adr:
         """Create an ADR with initial workflow state (REQ-L3-ADR-001).
+
+        The initial state comes from the workflow definition, not from the
+        caller (Datenmodell-Konsolidierung Phase 1).
 
         Args:
             workspace_id: Target workspace UUID.
@@ -164,7 +170,6 @@ class AdrService(ServiceBase):
             decision: Optional decision section (max 5,000 chars) — the
                 standard ADR "Decision" text (#373).
             consequences: Optional consequences section (max 5,000 chars).
-            status: Initial status (default: Draft).
 
         Returns:
             Persisted Adr ORM instance.
@@ -172,7 +177,7 @@ class AdrService(ServiceBase):
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        AdrValidator.validate_create(title=title, description=description, status=status)
+        AdrValidator.validate_create(title=title, description=description)
 
         # REQ-L2-TE-020: create the backing Artifact first so the ADR can
         # participate in the Artifact-to-Artifact TraceLink graph. Mirrors
@@ -193,6 +198,11 @@ class AdrService(ServiceBase):
             artifact_type="Adr",
         )
 
+        # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
+        # parameter at all — WorkflowItemState.current_state (seeded below by
+        # initialize_workflow_states() from the workflow definition's own
+        # initial_state) is the sole authority. The model field's own default
+        # keeps the column non-null until it is dropped (Task 12).
         adr = Adr.objects.create(
             artifact=artifact,
             workspace_id=workspace_id,
@@ -202,9 +212,14 @@ class AdrService(ServiceBase):
             context=context,
             decision=decision,
             consequences=consequences,
-            status=status,
             uid=uid,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_adr takes no change_reason.
+        ArtifactVersionService().record(
+            adr.artifact_id, snapshot_fields(adr, "Adr"), ctx
         )
 
         # Initialize workflow state (IF-AS-EXT-OUT-001)
@@ -304,6 +319,14 @@ class AdrService(ServiceBase):
         if has_field_changes(adr, _before):
             Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
             adr.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                adr.artifact_id,
+                snapshot_fields(adr, "Adr"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         self._audit(
             ctx=ctx,
@@ -406,15 +429,16 @@ class AdrService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        qs = Adr.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        )
+        qs = Adr.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
         if not include_deleted:
-            # Phase 0: delete_adr() routes through workflow.services.outdate(),
-            # which mirrors the new state as "outdated" (not Adr.Status.DELETED)
-            # into Adr.status via _STATUS_MIRROR_MODELS. Filter on the value
-            # outdate() actually writes.
-            qs = qs.exclude(status="outdated")
+            # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
+            # through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("Adr", tenant_id=ctx.tenant_id))
         return qs.order_by("created_at")
 
     def list_adrs_by_status(
@@ -431,11 +455,16 @@ class AdrService(ServiceBase):
             Filtered list of Adr ORM instances.
         """
         self._set_tenant_context(ctx)
+        # Phase 4 (D-3): *status* is caller-supplied and may be "outdated",
+        # which now lives on Artifact.lifecycle_status rather than being a
+        # workflow state -- item_ids_with_status routes it accordingly.
+        from workflow.services import item_ids_with_status
+
         return list(
             Adr.objects.filter(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-                status=status,
+                id__in=item_ids_with_status("Adr", status, tenant_id=ctx.tenant_id),
             ).order_by("created_at")
         )
 
@@ -477,10 +506,18 @@ class AdrService(ServiceBase):
         if adr is None:
             raise NotFoundError(f"ADR {adr_id} not found")
 
-        if target_status not in AdrValidator.VALID_STATUSES:
+        # REQ-006: "Deleted" is a soft-delete marker set by delete_adr(); a
+        # transition must not be able to move an ADR into it manually. This
+        # is a target-state check for the (still-active) transition endpoint,
+        # unrelated to create-time status (Datenmodell-Konsolidierung Phase 1
+        # removed the latter, not this one).
+        valid_target_statuses = frozenset(
+            s for s in Adr.Status.values if s != Adr.Status.DELETED
+        )
+        if target_status not in valid_target_statuses:
             raise ValidationError(
                 f"Invalid ADR status '{target_status}'; "
-                f"must be one of {sorted(AdrValidator.VALID_STATUSES)}"
+                f"must be one of {sorted(valid_target_statuses)}"
             )
 
         # REQ-165/REQ-167: the WorkflowEngine is the SOLE authority for the
@@ -488,11 +525,9 @@ class AdrService(ServiceBase):
         # enforced by the engine; their errors propagate and abort this atomic
         # transaction instead of being swallowed (the previous bare
         # ``except Exception: pass`` silently flipped the status even when a gate
-        # denied the move). The engine also writes the denormalized ``status``
-        # mirror inside its own transaction (StateLifecycleManager
-        # ._sync_status_mirror), so no direct status assignment is done here. A
-        # workflow transition is not a content edit, so ``version`` is not bumped
-        # — this matches the Requirement transition endpoint.
+        # denied the move). A workflow transition is not a content edit, so
+        # ``version`` is not bumped — this matches the Requirement transition
+        # endpoint.
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -504,7 +539,19 @@ class AdrService(ServiceBase):
             change_reason=change_reason or "",
             credential=credential or "",
         )
-        adr.refresh_from_db(fields=["status", "version"])
+        adr.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): the ``status`` column
+        # is dropped, so it can no longer be refreshed or read as a fallback.
+        # Set the in-memory (not persisted) ``.status`` from the engine so
+        # the returned Adr instance still exposes the real current state, same
+        # fallback convention as GoalService.transition_status. The engine
+        # state is guaranteed to exist here (the transition above just
+        # succeeded), so ``state_reader.initial_state`` never actually
+        # triggers for this call site — kept only for defensive symmetry with
+        # the other resolvers.
+        adr.status = state_reader.current_state("Adr", adr.id) or state_reader.initial_state(
+            "Adr"
+        )
 
         # REQ-L3-ADR-005: when an ADR is superseded, record which ADR replaced
         # it via a 'decides' TraceLink (new -> old). 'supersedes' is not a

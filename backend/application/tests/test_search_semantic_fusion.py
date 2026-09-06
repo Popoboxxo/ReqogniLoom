@@ -291,16 +291,15 @@ class TestEmbeddingGenerationGatedByTypeFilter:
 
 
 @pytest.mark.django_db
-class TestSemanticQueryDirectTraceLinkAndIcdVersion:
-    """Direct coverage for ``_run_semantic_query``'s TraceLink/IcdVersion
-    branches.
+class TestSemanticQueryDirectTraceLinkAndIcd:
+    """Direct coverage for ``_run_semantic_query``'s TraceLink/Icd branches.
 
     Neither type is wired into ``SearchService.search()``'s public
     ``type_filter`` surface (see ``search_service._EMBEDDABLE_TYPES``'s
     docstring: they have no fulltext/lexical ``_TableSpec`` and no natural
     "title", so exposing them as new searchable types is a separate product/
     API-surface decision this task deliberately scopes out). These tests
-    exist to prove the "Consumes TraceLink.embedding / IcdVersion.embedding"
+    exist to prove the "Consumes TraceLink.embedding / Icd.embedding"
     part of this task's interface contract is real and correct, independent
     of that wiring decision.
     """
@@ -331,8 +330,13 @@ class TestSemanticQueryDirectTraceLinkAndIcdVersion:
         hit = next(h for h in hits if h.id == str(link.id))
         assert hit.workspace_id == str(ws.id)
 
-    def test_icdversion_semantic_query_finds_matching_embedding(self):
-        from icd.models import Icd, IcdVersion
+    def test_icd_semantic_query_finds_matching_embedding(self):
+        """Task 28c-2: the embedding lives on the mutable Icd row now.
+
+        It used to sit on the immutable IcdVersion, which is why it had to be
+        assigned on the INSERT itself; the header can simply be updated.
+        """
+        from icd.models import Icd
 
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
@@ -341,20 +345,12 @@ class TestSemanticQueryDirectTraceLinkAndIcdVersion:
                 source_element_id=uuid4(),
                 target_element_id=uuid4(),
                 name="Test ICD",
-            )
-            # embedding must be set on the INSERT itself: IcdVersion is
-            # immutable (BEFORE UPDATE/DELETE trigger, icd/migrations/
-            # 0001_initial.py) -- a subsequent .save(update_fields=...) would
-            # raise "IcdVersion records are immutable".
-            version = IcdVersion.objects.create(
-                icd=icd,
-                version_number=1,
                 semantic_description="A contract description",
                 embedding=[0.4] * _DIM,
             )
 
-            hits = _run_semantic_query("IcdVersion", [0.4] * _DIM, tenant.id, ws.id)
+            hits = _run_semantic_query("Icd", [0.4] * _DIM, tenant.id, ws.id)
 
-        assert any(h.id == str(version.id) for h in hits)
-        hit = next(h for h in hits if h.id == str(version.id))
+        assert any(h.id == str(icd.id) for h in hits)
+        hit = next(h for h in hits if h.id == str(icd.id))
         assert hit.workspace_id == str(ws.id)

@@ -377,7 +377,8 @@ class TestImportCsvWorkflowState:
             assert len(reqs) == 2
             for req in reqs:
                 # _CSV_VALID's status column is "draft" — a known state.
-                assert req.status == "draft"
+                # Task 12: the `status` column is dropped, so the imported
+                # value is only checkable via WorkflowItemState now.
                 state = WorkflowItemState.objects.get(
                     item_id=req.id, item_type="Requirement"
                 )
@@ -387,9 +388,17 @@ class TestImportCsvWorkflowState:
         finally:
             clear_request_tenant()
 
-    def test_import_without_definition_normalises_status_but_creates_no_item_state(
+    def test_import_without_definition_creates_row_with_no_persisted_status(
         self,
     ):
+        """Task 12: with no WorkflowEngineDefinition, the imported status
+        value has nowhere left to be persisted -- the dropped `status`
+        column used to keep the normalised value even without an item state;
+        now the row is created successfully (no crash) but carries no status
+        record at all (documented, reviewed data-loss tradeoff, see the Task
+        12 report Finding 2). ``state_reader``/``RequirementDTO`` resolve
+        such a row to the "draft" preset initial state, not the CSV's raw
+        value, since there is nothing left to read it from."""
         tenant, workspace = self._make_workspace()
 
         svc = ImportService()
@@ -403,7 +412,6 @@ class TestImportCsvWorkflowState:
             reqs = list(Requirement.objects.filter(artifact__workspace=workspace))
             assert len(reqs) == 2
             for req in reqs:
-                assert req.status == "draft"  # known global state -> kept as-is
                 assert not WorkflowItemState.objects.filter(
                     item_id=req.id, item_type="Requirement"
                 ).exists()

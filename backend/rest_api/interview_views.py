@@ -35,14 +35,39 @@ from rest_api.views import _service_error_response, detect_lang, get_auth_contex
 _SERVICE_EXCEPTIONS = (ValidationError, NotFoundError, PermissionDeniedError, OptimisticLockError)
 
 
-def _session_to_dict(session: Any) -> "dict[str, Any]":
+def _session_to_dict(
+    session: Any, status_map: "dict[str, str] | None" = None
+) -> "dict[str, Any]":
     """Bare session summary -- used by list()/retrieve(), which don't need
-    the full get_state() computation (phase/missing_fields/grounding)."""
+    the full get_state() computation (phase/missing_fields/grounding).
+
+    Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written by
+    the workflow engine, so it must be resolved through
+    ``workflow.state_reader``. Task 12: the column itself is dropped.
+    ``retrieve()`` hands this a *session* that already went through
+    ``InterviewService.get()`` -> ``InterviewService._get_session()``, which
+    resolves ``.status`` in memory before returning -- no *status_map* needed
+    there. ``list()`` iterates a raw queryset, so it passes a pre-batched
+    *status_map* (mirrors ``mcp_server.tools.interview._session_to_dict``/
+    ``resolve_engine_status`` — same seam, REST just resolves it inline
+    instead of importing the MCP-layer helper); ``session.status`` is never
+    read in that branch, since a raw queryset row (unlike the
+    ``_get_session()`` case) has no in-memory value to read -- it would raise
+    ``AttributeError`` now that the column is gone.
+    """
+    if status_map is not None:
+        from workflow import state_reader
+
+        resolved_status = status_map.get(str(session.id)) or state_reader.initial_state(
+            "Interview"
+        )
+    else:
+        resolved_status = session.status
     return {
         "id": str(session.id),
         "workspace_id": str(session.workspace_id),
         "artifact_type": session.artifact_type,
-        "status": session.status,
+        "status": resolved_status,
     }
 
 
@@ -85,9 +110,18 @@ def _started_session_state(ctx: Any, session: Any) -> "dict[str, Any]":
     # "multi" is the stable DB-choice value InterviewSession.SESSION_KIND_MULTI
     # stores -- same literal the REST callers send as session_kind.
     if session.session_kind == "multi":
+        # Task 12: *session* here is the bare object InterviewService.start()
+        # just created, not one resolved through _get_session() -- it has no
+        # in-memory ``.status`` to read (the column is dropped), so resolve
+        # via the engine directly, same fallback as InterviewService._get_session.
+        from workflow import state_reader
+
+        resolved_status = state_reader.current_state(
+            "Interview", session.id
+        ) or state_reader.initial_state("Interview")
         return {
             "id": str(session.id),
-            "status": session.status,
+            "status": resolved_status,
             "collected_fields": session.collected_fields,
             "grounding_snapshot": session.grounding_snapshot,
             "transcript": session.transcript,
@@ -155,12 +189,19 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return error
         try:
             ctx = get_auth_context(request)
-            sessions = InterviewService().list_sessions(
-                ctx, workspace_id, status=request.query_params.get("status")
+            sessions = list(
+                InterviewService().list_sessions(
+                    ctx, workspace_id, status=request.query_params.get("status")
+                )
             )
         except _SERVICE_EXCEPTIONS as exc:
             return _service_error_response(exc, lang)
-        return Response({"results": [_session_to_dict(s) for s in sessions]})
+        from workflow import state_reader
+
+        status_map = state_reader.current_states("Interview", (s.id for s in sessions))
+        return Response(
+            {"results": [_session_to_dict(s, status_map=status_map) for s in sessions]}
+        )
 
     @action(detail=False, methods=["get"], url_path="by-artifact/(?P<artifact_id>[^/.]+)")
     def by_artifact(self, request: Request, artifact_id: str, **kwargs: Any) -> Response:

@@ -48,7 +48,6 @@ import uuid
 from typing import Optional
 
 from diagram.models import Diagram
-from persistence.models import Artifact
 from traceability.services import create_trace_link
 from traceability.exceptions import TraceLinkError
 
@@ -101,33 +100,15 @@ def _resolve_artifact_id(diagram: Diagram) -> uuid.UUID:
             (persistence.models.Artifact), so a Diagram must first be
             assigned to a workspace (REQ-173) before it can back a TraceLink.
     """
-    if diagram.artifact_id is not None:
-        return diagram.artifact_id
+    from persistence.artifact_backing import ArtifactBackingError, ensure_artifact
 
-    # Ambiguous fast-path: re-fetch under a row lock so a concurrent caller
-    # racing us here blocks instead of also creating a shadow Artifact.
-    locked_diagram = Diagram.objects.select_for_update().get(pk=diagram.pk)
-
-    if locked_diagram.artifact_id is not None:
-        # Another caller created it while we were waiting for the lock.
-        diagram.artifact_id = locked_diagram.artifact_id
-        return locked_diagram.artifact_id
-
-    if locked_diagram.workspace_id is None:
-        raise TraceLinkError(
-            f"Diagram {locked_diagram.id} has no workspace_id; a Diagram "
-            "must be assigned to a workspace before it can back a TraceLink."
+    try:
+        return ensure_artifact(
+            diagram, artifact_type="Diagram", workspace_id=diagram.workspace_id
         )
-
-    artifact = Artifact.objects.create(
-        artifact_type="Diagram",
-        tenant=locked_diagram.tenant,
-        workspace_id=locked_diagram.workspace_id,
-    )
-    locked_diagram.artifact = artifact
-    locked_diagram.save(update_fields=["artifact", "modified_at"])
-    diagram.artifact = artifact
-    return artifact.id
+    except ArtifactBackingError as exc:
+        # Preserve the historical exception type for this call path.
+        raise TraceLinkError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +154,9 @@ def _resolve_target_artifact_id(
         ``traceability.coverage_calculator._exclude_outdated_testcase_ids``).
       * ``ArchitectureElement``: no status mirror -> excluded via
         ``workflow.services.outdated_item_ids("ArchitectureElement")``.
-      * ``StakeholderNeed``: REQ-006 ``lifecycle_status == "deleted"``.
+      * ``StakeholderNeed``: ``Artifact.lifecycle_status`` via
+        ``workflow.services.outdated_item_ids("StakeholderNeed")`` (Task 24 --
+        the per-entity ``lifecycle_status`` column is dropped).
       * ``Adr``: its own ``Adr.Status.DELETED`` sentinel on ``status``.
       * ``Risk`` / ``Issue``: hard-deleted by ``RiskService.delete_risk`` /
         ``IssueService.delete_issue`` — a missing row already covers this,
@@ -194,22 +177,45 @@ def _resolve_target_artifact_id(
     """
     if entity_type == "Requirement":
         from persistence.models import Requirement
+        from workflow import state_reader
 
-        obj = Requirement.objects.filter(id=ref_id).exclude(status="outdated").first()
-        return obj.artifact_id if obj else None
+        obj = Requirement.objects.filter(id=ref_id).first()
+        if obj is None:
+            return None
+        # Datenmodell-Konsolidierung Phase 1: resolved through the engine.
+        # Task 12: the ``status`` column is dropped -- a row never wired into
+        # a WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2). Never "outdated", so it still resolves.
+        current = state_reader.current_state(
+            "Requirement", obj.id
+        ) or state_reader.initial_state("Requirement")
+        return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "TestCase":
         from persistence.models import TestCase
+        from workflow import state_reader
 
-        obj = TestCase.objects.filter(id=ref_id).exclude(status="outdated").first()
-        return obj.artifact_id if obj else None
+        obj = TestCase.objects.filter(id=ref_id).first()
+        if obj is None:
+            return None
+        current = state_reader.current_state(
+            "TestCase", obj.id
+        ) or state_reader.initial_state("TestCase")
+        return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "StakeholderNeed":
         from persistence.models import StakeholderNeed
+        from workflow.services import outdated_item_ids
 
+        # Datenmodell-Konsolidierung Task 24: StakeholderNeed.lifecycle_status
+        # (the raw column this used to check for the legacy "deleted" sentinel)
+        # is dropped. StakeholderNeedService.list_by_workspace already excludes
+        # via the Artifact.lifecycle_status-backed outdated_item_ids() seam
+        # (outdate() writes "outdated", not "deleted"), so this mirrors that.
         obj = (
             StakeholderNeed.objects.filter(id=ref_id)
-            .exclude(lifecycle_status="deleted")
+            .exclude(id__in=outdated_item_ids("StakeholderNeed", tenant_id=tenant_id))
             .first()
         )
         return obj.artifact_id if obj else None
@@ -227,13 +233,25 @@ def _resolve_target_artifact_id(
 
     if entity_type == "Adr":
         from application.models import Adr
+        from workflow import state_reader
 
-        obj = (
-            Adr.objects.filter(id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False)
-            .exclude(status=Adr.Status.DELETED)
-            .first()
-        )
-        return obj.artifact_id if obj else None
+        obj = Adr.objects.filter(
+            id=ref_id, tenant_id=tenant_id, artifact_id__isnull=False
+        ).first()
+        if obj is None:
+            return None
+        # Datenmodell-Konsolidierung Phase 1: AdrService.delete_adr() routes
+        # through workflow.services.outdate(), which writes "outdated" (the
+        # universal soft-delete state) — not the Adr.Status.DELETED enum
+        # value this used to check, which no production write path ever set.
+        # Task 12: the ``status`` column is dropped -- an untracked row falls
+        # back to the adr_default preset's initial state instead (documented,
+        # reviewed data-loss tradeoff, see Task 12 report Finding 2). Never
+        # "outdated", so it still resolves.
+        current = state_reader.current_state(
+            "Adr", obj.id
+        ) or state_reader.initial_state("Adr")
+        return obj.artifact_id if current != "outdated" else None
 
     if entity_type == "Risk":
         from application.models import Risk

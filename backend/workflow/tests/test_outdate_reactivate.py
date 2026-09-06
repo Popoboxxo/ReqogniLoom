@@ -2,11 +2,18 @@
 Tests for the universal outdate()/reactivate() escape hatch (Task 2, Phase 0
 status-unification).
 
+Datenmodell-Konsolidierung Phase 4 (Decision D-3) changed what these two
+functions write: soft-delete is now the ``Artifact.lifecycle_status`` flag and
+the item's ``WorkflowItemState.current_state`` is left untouched. The
+assertions below were rewritten accordingly — they used to check
+``current_state == "outdated"`` and a ``WorkflowHistoryEntry`` into
+``"outdated"``, neither of which exists anymore because no workflow transition
+happens.
+
 Covers:
-  - outdate() transitions an item to "outdated" from any current state,
-    bypassing the normal preset-transition-list validation.
-  - reactivate() restores the state the item was in immediately before it was
-    outdated (read from the most recent WorkflowHistoryEntry into "outdated").
+  - outdate() flags an item from any current state, bypassing the normal
+    preset-transition-list validation, without disturbing that state.
+  - reactivate() clears the flag, likewise without touching the state.
   - reactivate() raises ValueError when the item is not currently outdated.
 """
 from __future__ import annotations
@@ -15,10 +22,18 @@ import uuid
 
 import pytest
 
-from persistence.models import Tenant, Workspace
+from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.tenancy import TenantContext
-from workflow.models import WorkflowHistoryEntry, WorkflowItemState
+from workflow.models import WorkflowItemState
 from workflow.services import create_default_workflow, outdate, reactivate
+
+
+def _flag_of(item_id):
+    """Return the soft-delete flag on a Requirement's backing Artifact."""
+    artifact_id = Requirement.objects.values_list("artifact_id", flat=True).get(
+        pk=item_id
+    )
+    return Artifact.objects.get(pk=artifact_id).lifecycle_status
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +103,14 @@ def requirement_with_workflow(db, tenant, workspace, auth_ctx):
 
 
 @pytest.mark.django_db
-def test_outdate_transitions_from_any_current_state(requirement_with_workflow, auth_ctx):
+def test_outdate_flags_from_any_current_state(requirement_with_workflow, auth_ctx):
+    """Phase 4 (D-3): the flag goes on the Artifact, the state stays put.
+
+    Pre-Phase-4 this asserted ``current_state == "outdated"`` plus a
+    ``WorkflowHistoryEntry`` carrying ``reason``. Neither applies now: no
+    transition happens, so the engine writes no history — the soft-delete is
+    recorded by the calling service's ``AuditEntry`` instead.
+    """
     item_id, workspace_id = requirement_with_workflow
 
     # workflow.services operates on the tenant-scoped manager directly — the
@@ -104,22 +126,29 @@ def test_outdate_transitions_from_any_current_state(requirement_with_workflow, a
             reason="superseded by REQ-99",
         )
 
+        # The result reports the *lifecycle* move; the workflow state is what
+        # stayed put, which is the whole point of D-3.
+        assert result.previous_state == "draft"
         assert result.new_state == "outdated"
+        assert result.history_entry_id is None
         item_state = WorkflowItemState.objects.get(item_id=item_id, item_type="Requirement")
-        assert item_state.current_state == "outdated"
-        history = (
-            WorkflowHistoryEntry.objects.filter(item_state=item_state)
-            .order_by("-transitioned_at")
-            .first()
-        )
-        assert history.to_state == "outdated"
-        assert history.change_reason == "superseded by REQ-99"
+        assert item_state.current_state == "draft"
+        assert _flag_of(item_id) == "outdated"
     finally:
         TenantContext.clear_tenant()
 
 
 @pytest.mark.django_db
-def test_reactivate_restores_previous_state(requirement_with_workflow, auth_ctx):
+def test_reactivate_clears_the_flag_and_leaves_the_state(
+    requirement_with_workflow, auth_ctx
+):
+    """Phase 4 (D-3): there is nothing to "restore" — the state never moved.
+
+    The state assertion is deliberately kept identical to the pre-Phase-4
+    version ("draft" round-trips) because the *observable* outcome for a caller
+    is unchanged; what changed is that it no longer depends on a
+    ``WorkflowHistoryEntry`` walk. The flag assertion is what is new.
+    """
     item_id, workspace_id = requirement_with_workflow
 
     TenantContext.set_tenant(auth_ctx.tenant_id)
@@ -131,14 +160,16 @@ def test_reactivate_restores_previous_state(requirement_with_workflow, auth_ctx)
             ctx=auth_ctx,
             reason="test",
         )
+        assert _flag_of(item_id) == "outdated"
 
         result = reactivate(
             item_id=item_id, item_type="Requirement", workspace_id=workspace_id, ctx=auth_ctx
         )
 
-        assert result.new_state == "draft"  # the state it was in before outdate()
+        assert result.new_state == "draft"
         item_state = WorkflowItemState.objects.get(item_id=item_id, item_type="Requirement")
         assert item_state.current_state == "draft"
+        assert _flag_of(item_id) == "active"
     finally:
         TenantContext.clear_tenant()
 
@@ -173,9 +204,13 @@ def test_reactivate_raises_if_not_currently_outdated(requirement_with_workflow, 
 @pytest.mark.django_db
 def test_outdate_self_heals_missing_workflow_item_state(tenant, workspace, auth_ctx):
     """An item with a workflow definition but NO WorkflowItemState row must
-    still be outdate()-able (no DoesNotExist crash), landing in "outdated"."""
-    from persistence.models import Artifact, Requirement
+    still be outdate()-able (no DoesNotExist crash).
 
+    Phase 4 (D-3): it now lands on the definition's initial state with the
+    soft-delete flag set, rather than in a hijacked "outdated" state. The row
+    is still created — the transitions API needs it to offer moves once the
+    item is reactivated.
+    """
     TenantContext.set_tenant(tenant.id)
     try:
         create_default_workflow(
@@ -210,6 +245,7 @@ def test_outdate_self_heals_missing_workflow_item_state(tenant, workspace, auth_
         item_state = WorkflowItemState.objects.get(
             item_id=requirement.id, item_type="Requirement"
         )
-        assert item_state.current_state == "outdated"
+        assert item_state.current_state == "draft"
+        assert _flag_of(requirement.id) == "outdated"
     finally:
         TenantContext.clear_tenant()

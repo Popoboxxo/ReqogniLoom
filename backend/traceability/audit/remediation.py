@@ -221,19 +221,33 @@ def clear_remediation_registry() -> None:  # pragma: no cover — test/tooling h
 def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenSet[str]:
     """Return artifact ids of active StakeholderNeeds in the workspace.
 
-    StakeholderNeed is registered in
-    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and its ``delete()``
-    path calls ``workflow.services.outdate()``, which writes ``status ==
-    "outdated"`` — the same status mirror Requirement uses. The now-legacy
-    ``lifecycle_status`` field is never touched by ``outdate()``, so filtering
-    on it here would silently treat a deleted StakeholderNeed as still active.
+    Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
+    (``workflow.services.outdate()``, called from its ``delete()`` path) is
+    resolved through ``WorkflowItemState`` (batched) — no backfill-migration
+    guarantee for this type. Task 12: the ``status`` column is dropped, so a
+    row never wired into one falls back to the "draft" preset initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2). The now-legacy ``lifecycle_status`` field is never touched by
+    ``outdate()`` either, so filtering on it here would silently treat a
+    deleted StakeholderNeed as still active.
     """
     from persistence.models import StakeholderNeed
+    from workflow import state_reader
 
-    qs = StakeholderNeed.unscoped.filter(
-        tenant_id=tenant_id, artifact__workspace_id=workspace_id
-    ).exclude(status="outdated")
-    return frozenset(str(v) for v in qs.values_list("artifact_id", flat=True))
+    rows = list(
+        StakeholderNeed.unscoped.filter(
+            tenant_id=tenant_id, artifact__workspace_id=workspace_id
+        ).values("id", "artifact_id")
+    )
+    states = state_reader.current_states(
+        "StakeholderNeed", (row["id"] for row in rows), tenant_id=tenant_id
+    )
+    need_initial_state = state_reader.initial_state("StakeholderNeed")
+    return frozenset(
+        str(row["artifact_id"])
+        for row in rows
+        if (states.get(str(row["id"])) or need_initial_state) != "outdated"
+    )
 
 
 def _architecture_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenSet[str]:

@@ -151,7 +151,7 @@ def requirement_allocated_to(tenant: Tenant, workspace: Workspace):
                 tenant=tenant, workspace=workspace, artifact_type="Requirement"
             )
             req = Requirement.objects.create(
-                tenant=tenant, artifact=art, title="Req A", status="draft"
+                tenant=tenant, artifact=art, title="Req A"
             )
             TraceLink.objects.create(
                 tenant=tenant,

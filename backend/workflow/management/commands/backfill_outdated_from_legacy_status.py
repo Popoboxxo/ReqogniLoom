@@ -4,7 +4,7 @@ from persistence.models import Tenant
 from persistence.tenancy import TenantContext, TenantContextNotSetError
 from workflow.models import WorkflowItemState
 from workflow.services import outdate
-from application.models import Adr
+from workflow.state_reader import outdated_ids
 
 
 class _SystemAuthContext:
@@ -12,12 +12,15 @@ class _SystemAuthContext:
     user_id = "system:backfill_outdated_from_legacy_status"
 
 
-LEGACY_DELETED_LOOKUPS = [
-    ("persistence.models", "Requirement", "lifecycle_status", "deleted", "Requirement"),
-    ("persistence.models", "ArchitectureElement", "lifecycle_status", "deleted", "ArchitectureElement"),
-    ("persistence.models", "GlossaryTerm", "lifecycle_status", "deleted", "GlossaryTerm"),
-    ("application.models", "Adr", "status", Adr.Status.DELETED, "Adr"),
-]
+# Datenmodell-Konsolidierung Task 12 removed the Adr lookup that used to key
+# off the (already-dropped) ``status`` column, for the same reason Task 24
+# now empties this list entirely: Requirement/ArchitectureElement/
+# GlossaryTerm's ``lifecycle_status`` columns are dropped too, so
+# ``model.objects.filter(lifecycle_status=...)`` would raise FieldError if it
+# ran (no such field). Documented, reviewed data-loss tradeoff: any row never
+# backfilled by this one-shot command before Task 24 stays un-flagged as
+# "outdated" going forward (same tradeoff as the Task 12 report, Finding 2).
+LEGACY_DELETED_LOOKUPS: list[tuple[str, str, str, str, str]] = []
 
 
 class Command(BaseCommand):
@@ -45,11 +48,21 @@ class Command(BaseCommand):
                     model = getattr(import_module(module_path), class_name)
                     queryset = model.objects.filter(**{field_name: deleted_value})
 
+                    already_outdated = set(
+                        outdated_ids(item_type, tenant_id=tenant.id)
+                    )
                     for obj in queryset:
                         item_state = WorkflowItemState.objects.filter(
                             item_id=obj.id, item_type=item_type
                         ).first()
-                        if item_state is None or item_state.current_state == "outdated":
+                        # Datenmodell-Konsolidierung Phase 4 (D-3): the
+                        # "already backfilled" check reads the soft-delete flag.
+                        # It used to compare ``current_state == "outdated"``,
+                        # which ``outdate()`` no longer writes — that guard
+                        # would now never fire, so every run would redo every
+                        # row (harmless but pointless work, and it would report
+                        # an inflated count).
+                        if item_state is None or obj.id in already_outdated:
                             continue  # no workflow item, or already backfilled - idempotent skip
                         outdate(
                             item_id=obj.id,

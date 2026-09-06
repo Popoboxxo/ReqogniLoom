@@ -93,6 +93,7 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow import state_reader
 from workflow.services import outdated_item_ids
 
 # ---------------------------------------------------------------------------
@@ -100,23 +101,37 @@ from workflow.services import outdated_item_ids
 # ``TraceLink.unscoped.filter(tenant_id=...)`` pattern used by
 # ``AuditContext.iter_trace_links()``: tenant/workspace are supplied
 # explicitly by the engine, so these bypass the thread-local ``objects``
-# manager deliberately).
+# manager deliberately. ``state_reader.current_states``'s own ``tenant_id=``
+# kwarg (N1) covers this same need — no local reimplementation required.)
 # ---------------------------------------------------------------------------
 
 
 def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | None]]:
     """Return ``{artifact_id: (title, level)}`` for active Requirements.
 
-    "Active" excludes ``status="outdated"`` (the Requirement status mirror
-    ``outdate()`` writes) — not the dead ``lifecycle_status`` column.
+    Datenmodell-Konsolidierung Phase 1: "active" is resolved through
+    ``WorkflowItemState`` (batched) — needed here because (unlike
+    ArchitectureElement) Requirement has no backfill-migration guarantee.
+    Task 12: the ``status`` column is dropped, so a Requirement never wired
+    into a ``WorkflowItemState`` falls back to the "draft" preset initial
+    state instead (documented, reviewed data-loss tradeoff, see Task 12
+    report Finding 2); "draft" is never "outdated", so it is still counted
+    active.
     """
-    qs = Requirement.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(status="outdated")
+    rows = list(
+        Requirement.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title", "level")
+    )
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    requirement_initial_state = state_reader.initial_state("Requirement")
     return {
-        str(artifact_id): (title, level)
-        for artifact_id, title, level in qs.values_list("artifact_id", "title", "level")
+        str(row["artifact_id"]): (row["title"], row["level"])
+        for row in rows
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
 
 
@@ -141,8 +156,8 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
 def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     """Return ``{artifact_id: title}`` for active TestCases.
 
-    "Active" excludes ``status="outdated"``, the same status mirror
-    :func:`_active_requirements` filters on.
+    Datenmodell-Konsolidierung Phase 1: "active" excludes ``"outdated"`` via
+    ``WorkflowItemState``, the same seam :func:`_active_requirements` uses.
 
     GH-574: this helper used to return every row, on the assumption that
     TestCase is never soft-deleted. That stopped being true twice over —
@@ -158,13 +173,25 @@ def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     (deleting the only TestCase covering a leaf Requirement re-opens VERIF-P8
     instead of leaving the Requirement silently "covered").
     """
-    qs = TestCase.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(status="outdated")
+    # Task 12: the ``status`` column is dropped, so a TestCase never wired
+    # into a ``WorkflowItemState`` falls back to the testcase_default
+    # preset's initial state instead (documented, reviewed data-loss
+    # tradeoff, see Task 12 report Finding 2); the initial state is never
+    # "outdated", so it is still counted active.
+    rows = list(
+        TestCase.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title")
+    )
+    states = state_reader.current_states(
+        "TestCase", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    testcase_initial_state = state_reader.initial_state("TestCase")
     return {
-        str(artifact_id): title
-        for artifact_id, title in qs.values_list("artifact_id", "title")
+        str(row["artifact_id"]): row["title"]
+        for row in rows
+        if (states.get(str(row["id"])) or testcase_initial_state) != "outdated"
     }
 
 

@@ -118,7 +118,11 @@ def risk(auth_ctx, risk_workspace):
 
 
 def _make_risk(**kwargs):
-    risk = MagicMock(spec=Risk)
+    """Task 12: no longer ``spec=Risk`` -- the `status` column is dropped,
+    but `.status` here stands in for the engine-resolved, in-memory-only
+    value RiskService sets on real instances, which a real spec would now
+    reject."""
+    risk = MagicMock()
     risk.id = kwargs.get("id", RISK_ID)
     risk.workspace_id = kwargs.get("workspace_id", WS_ID)
     risk.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -576,12 +580,20 @@ class TestListRisksExcludesOutdated:
     workflow.services.outdate() by default."""
 
     def test_list_risks_excludes_outdated_by_default(self):
+        """Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. ``state_reader.item_ids_in_state(..., "outdated")`` no longer
+        matches anything, since ``outdate()`` writes the flag, not the state."""
         svc = RiskService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         with (
             patch("application.risk_service.Risk.objects") as mock_mgr,
             patch("application.risk_service.RiskService._set_tenant_context"),
+            patch(
+                "workflow.services.outdated_item_ids",
+                return_value="OUTDATED_IDS",
+            ) as mock_seam,
         ):
             qs_mock = MagicMock()
             qs_mock.exclude.return_value = qs_mock
@@ -590,7 +602,8 @@ class TestListRisksExcludesOutdated:
 
             svc.list_risks(workspace_id=WS_ID, ctx=ctx)
 
-        qs_mock.exclude.assert_called_once_with(status="outdated")
+        mock_seam.assert_called_once_with("Risk", tenant_id=ctx.tenant_id)
+        qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
 
     def test_list_risks_include_deleted_skips_exclude(self):
         svc = RiskService()
@@ -624,6 +637,33 @@ class TestListRisksExcludesOutdated:
             )
         )
         assert risk.id in [r.id for r in results_incl]
+
+
+# ---------------------------------------------------------------------------
+# transition_status (I8/1: in-memory status staleness fix)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionStatus:
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, risk, auth_ctx
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``risk.refresh_from_db()`` alone would leave
+        the returned instance's ``.status`` at its stale, pre-transition
+        column value. Must be corrected in memory before returning (same
+        fix as IssueService.transition_status)."""
+        svc = RiskService()
+
+        updated = svc.transition_status(
+            risk_id=risk.id,
+            target_status="Monitored",
+            ctx=auth_ctx,
+        )
+
+        assert updated.status == "Monitored"
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------

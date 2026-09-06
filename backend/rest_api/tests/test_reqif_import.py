@@ -70,7 +70,6 @@ def reqif_import_admin_user(db):
             title="REST Import Need Alpha",
             description="Seeded via ORM for REST import round-trip test",
             category="functional",
-            status="draft",
             uid="NEED-IMP-001",
         )
         req_art = Artifact.objects.create(
@@ -82,7 +81,6 @@ def reqif_import_admin_user(db):
             title="REST Import Req Alpha",
             description="Seeded via ORM for REST import round-trip test",
             category="functional",
-            status="draft",
             uid="REQ-IMP-001",
         )
     finally:

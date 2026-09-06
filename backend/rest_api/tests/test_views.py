@@ -54,7 +54,17 @@ def _make_auth_context(roles: tuple[str, ...] = ("admin",)) -> MagicMock:
 
 
 def _make_request(method: str, data: dict | None = None, params: dict | None = None, roles: tuple[str, ...] = ("admin",)) -> Any:
-    """Build an APIRequestFactory request with mock auth context attached."""
+    """Build an APIRequestFactory request with mock auth context attached.
+
+    Also activates ``TenantContext`` for the built request's tenant:
+    ``view(req)`` bypasses the real middleware stack that normally does this,
+    but WorkflowStateSerializerMixin's ``status`` field (Datenmodell-
+    Konsolidierung) needs an active tenant to resolve even when the service
+    layer itself is mocked. conftest.py's autouse fixture clears it after
+    each test.
+    """
+    from persistence.tenancy import TenantContext
+
     factory = APIRequestFactory()
     req_fn = getattr(factory, method.lower())
     url = "/api/v1/requirements/"
@@ -65,7 +75,9 @@ def _make_request(method: str, data: dict | None = None, params: dict | None = N
         req = req_fn(f"{url}?{query_string}")
     else:
         req = req_fn(url)
-    req.auth_context = _make_auth_context(roles)
+    auth_context = _make_auth_context(roles)
+    req.auth_context = auth_context
+    TenantContext.set_tenant(auth_context.tenant_id)
     return req
 
 
@@ -141,9 +153,14 @@ class TestAuthEnforcement:
 
 
 class _FakeSerializer:
-    """Minimal serializer stand-in: exposes the input dict as ``.data``."""
+    """Minimal serializer stand-in: exposes the input as ``.data`` verbatim.
 
-    def __init__(self, data: Any) -> None:
+    Accepts ``many=True`` (ignored beyond accepting the kwarg) since
+    ``_paginate(..., serialize_page=...)`` batches the whole page into one
+    ``XSerializer(dicts, many=True)`` call.
+    """
+
+    def __init__(self, data: Any, many: bool = False) -> None:
         self.data = data
 
 
@@ -262,6 +279,7 @@ class TestRequirementViewSetRouting:
             response = view(req)
         assert response.status_code == 400
 
+    @pytest.mark.django_db
     def test_create_returns_201(self) -> None:
         data = {
             "workspace_id": str(uuid.uuid4()),
@@ -284,28 +302,27 @@ class TestRequirementViewSetRouting:
         assert response.status_code == 400
         assert "error" in response.data
 
+    @pytest.mark.django_db
     def test_partial_update_returns_200(self) -> None:
         data = {"title": "Updated"}
-        factory = APIRequestFactory()
-        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
-        req.auth_context = _make_auth_context()
+        req = _make_request("patch", data=data)
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         with patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
 
+    @pytest.mark.django_db
     def test_partial_update_response_includes_uid(self) -> None:
         """Regression: PATCH response must expose stored uid (_dto_from_orm)."""
         data = {"title": "Updated"}
-        factory = APIRequestFactory()
-        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
-        req.auth_context = _make_auth_context()
+        req = _make_request("patch", data=data)
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         with patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
         assert response.data["uid"] == "SYS-REQ-042"
 
+    @pytest.mark.django_db
     def test_partial_update_does_not_forward_uid(self) -> None:
         """Regression: PATCH must not forward uid (read-only) to service.
 
@@ -313,9 +330,7 @@ class TestRequirementViewSetRouting:
         overwrite the stored uid with NULL. The view must omit uid entirely.
         """
         data = {"title": "Updated"}
-        factory = APIRequestFactory()
-        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
-        req.auth_context = _make_auth_context()
+        req = _make_request("patch", data=data)
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         svc_mock = self._svc_mock()
         with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
@@ -439,9 +454,18 @@ class TestRequirementStatusSingleSource:
         view = RequirementViewSet.as_view({"post": "transitions"})
         # After the transition the mirror shows the new state.
         svc_mock = self._svc_mock(status="in_review")
+        # Datenmodell-Konsolidierung: the embedded requirement's `status` is
+        # now resolved from WorkflowItemState (rest_api/mixins/workflow_state.py),
+        # not svc_mock.status — mock the read seam directly to simulate "the
+        # transition already committed" the same way a real WorkflowFacade call
+        # would leave the row.
         with (
             patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock),
             patch("rest_api.mixins.workflow_transitions.WorkflowFacade", return_value=facade),
+            patch(
+                "rest_api.mixins.workflow_state.state_reader.current_states",
+                return_value={str(svc_mock.get_requirement.return_value.id): "in_review"},
+            ),
         ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200

@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from diagram.manager import DiagramManager, DiagramResult
-from diagram.models import Diagram, DiagramType, DiagramVersion, PayloadFormat
+from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.svg_safety import escape_xml_text
 from diagram.traceability_connector import TraceabilityConnector
 from diagram.validator import DiagramValidator
@@ -60,13 +60,13 @@ class CanvasExportResult:
         diagram_id:  UUID of the canvas diagram.
         stroke_data: JSON-serialised stroke data (primary format).
         svg:         SVG string (derived export format).
-        version:     Current DiagramVersion.
+        version:     Current DiagramRevision.
     """
 
     diagram_id: uuid.UUID
     stroke_data: dict
     svg: str
-    version: Optional[DiagramVersion] = None
+    version: Optional[DiagramRevision] = None
     # Optional full canvas JSON (e.g. fabric.js). None for legacy versions.
     canvas_json: Optional[dict] = None
 
@@ -502,6 +502,7 @@ class CanvasEditor:
         user: Optional[object] = None,
         name: str = "Canvas Drawing",
         target_id: Optional[uuid.UUID] = None,
+        workspace_id: Optional[uuid.UUID] = None,
     ) -> Diagram:
         """Validate and persist canvas stroke data (Auto-Save entry point).
 
@@ -517,6 +518,11 @@ class CanvasEditor:
             user:        Optional User ORM object for audit.
             name:        Diagram name (used only on create).
             target_id:   Optional target Artifact UUID for TraceLink creation.
+            workspace_id: Owning workspace UUID, used only on create. Without
+                it the new Diagram has no backing Artifact and therefore no
+                recorded content history at all (Task 28c-2 — Artifact.workspace
+                is not nullable). Only the current payload survives; every
+                revision list and diff for it comes back empty.
 
         Returns:
             The created or updated Diagram ORM object.
@@ -554,6 +560,7 @@ class CanvasEditor:
                 created_by=user,
                 target_id=target_id,
                 canvas_json=canvas_json,
+                workspace_id=workspace_id,
             )
         else:
             # IF-DS-INT-005: update existing canvas diagram (new version)
@@ -668,7 +675,7 @@ class CanvasEditor:
             version_number=version_number,
         )
 
-        # Parse stroke data from the version payload
+        # Parse stroke data from the revision payload
         stroke_data: dict = {}
         if result.version and result.version.payload:
             try:
