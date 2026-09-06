@@ -63,7 +63,6 @@ from .definition_store import (
     get_state_meta,
 )
 from .lifecycle_manager import (
-    _LIFECYCLE_MIRROR_MODELS,
     StateLifecycleManager,
     TransitionOutcome,
     WorkflowConflictError,
@@ -327,15 +326,10 @@ def _set_lifecycle_status(item_id: UUID, item_type: str, value: str) -> None:
     defence-in-depth). ``unscoped`` would also be RLS-safe, but silently
     weaker.
 
-    Also keeps the Phase-1 per-entity ``lifecycle_status`` mirror in step.
-    That mirror used to be maintained by
-    ``StateLifecycleManager._sync_lifecycle_mirror``, which fired on
-    ``force_transition`` — a call :func:`outdate` no longer makes. Task 24
-    deletes the mirror and its columns outright, but until then it is still
-    *read* in production (``GlossaryTermSerializer.lifecycle_status`` is the
-    only place a soft-deleted term is observable on the wire, and
-    ``baseline.state_capture`` snapshots the column), so dropping it here
-    would open a one-task window of silently stale values.
+    Datenmodell-Konsolidierung Phase 4 (Task 24) removed the per-entity
+    ``lifecycle_status`` mirror columns and every reader that used to consult
+    them (``GlossaryTermSerializer``, ``baseline.state_capture``) now reads
+    ``Artifact.lifecycle_status`` directly, so this is the only write left.
 
     A no-op for unbacked types: the caller's workflow bookkeeping still runs.
 
@@ -348,11 +342,6 @@ def _set_lifecycle_status(item_id: UUID, item_type: str, value: str) -> None:
     if artifact_id is None:
         return
     Artifact.objects.filter(pk=artifact_id).update(lifecycle_status=value)
-
-    if item_type in _LIFECYCLE_MIRROR_MODELS:
-        model_for(item_type).objects.filter(pk=item_id).update(
-            lifecycle_status=value
-        )
 
 
 def outdate(

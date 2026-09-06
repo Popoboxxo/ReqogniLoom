@@ -249,7 +249,8 @@ export interface ArchitectureElement {
   suspect?: boolean;
   change_reason?: string;
   custom_fields?: CustomFields;
-  /** REQ-006: lifecycle status; 'deleted' elements are hidden in normal views */
+  /** Soft-delete flag. Since the Datenmodell-Konsolidierung it lives on the
+   *  backing Artifact and is orthogonal to `status` (the workflow state). */
   lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -988,7 +989,8 @@ export interface GlossaryTerm {
   synonyms: string[];
   abbreviation?: string;
   is_global?: boolean;
-  /** REQ-006: lifecycle status; 'deleted' terms are hidden in normal views */
+  /** Soft-delete flag. Since the Datenmodell-Konsolidierung it lives on the
+   *  backing Artifact and is orthogonal to `status` (the workflow state). */
   lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   /**
    * UI-59 (Systemaudit 2026-08-27 AP-5): optimistic-lock version counter —

@@ -42,9 +42,10 @@ type FilterMode = "" | "workspace" | "global";
 // artifact list (Adr/Risk/Issue/...) offers a lifecycle-status filter and a
 // sort dropdown via ListToolbar — Glossary only had the workspace/global
 // filter. Mirrors ArchitectureEditors.tsx's ARCH_LIFECYCLE_STATUSES (same
-// GlossaryTerm.lifecycle_status vocabulary, "deleted" excluded since deleted
-// terms are already hidden from the loaded list — see the type's own
-// comment in types/index.ts).
+// lifecycle_status vocabulary — sourced from the backing Artifact since the
+// Datenmodell-Konsolidierung, "deleted" excluded since deleted terms are
+// already hidden from the loaded list — see the type's own comment in
+// types/index.ts).
 const GLOSSARY_LIFECYCLE_STATUSES = ["active", "outdated", "deprecated"] as const;
 
 type SortKey = "default" | "term" | "status" | "updated";

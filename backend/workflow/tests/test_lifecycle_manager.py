@@ -609,12 +609,5 @@ class TestStatusMirror:
             validation_result=_ok_result(),
         )
         assert outcome.new_state == "in_review"
-
-    def test_lifecycle_mirror_uses_pk_filter_under_rls(self):
-        """SA-22 regression coverage for the surviving ``_sync_lifecycle_mirror``
-        (its dedicated RLS suite, ``test_status_mirror_rls_sa22.py``, was
-        deleted along with the ``_sync_status_mirror`` it covered)."""
-        import inspect
-
-        source = inspect.getsource(StateLifecycleManager._sync_lifecycle_mirror)
-        assert "unscoped.filter(pk=" in source
+        # Task 24: the lifecycle mirror (`_sync_lifecycle_mirror`) is deleted
+        # too -- see `test_milestone_m4_gate.py` for the removal gate.

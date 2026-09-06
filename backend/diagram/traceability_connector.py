@@ -154,7 +154,9 @@ def _resolve_target_artifact_id(
         ``traceability.coverage_calculator._exclude_outdated_testcase_ids``).
       * ``ArchitectureElement``: no status mirror -> excluded via
         ``workflow.services.outdated_item_ids("ArchitectureElement")``.
-      * ``StakeholderNeed``: REQ-006 ``lifecycle_status == "deleted"``.
+      * ``StakeholderNeed``: ``Artifact.lifecycle_status`` via
+        ``workflow.services.outdated_item_ids("StakeholderNeed")`` (Task 24 --
+        the per-entity ``lifecycle_status`` column is dropped).
       * ``Adr``: its own ``Adr.Status.DELETED`` sentinel on ``status``.
       * ``Risk`` / ``Issue``: hard-deleted by ``RiskService.delete_risk`` /
         ``IssueService.delete_issue`` — a missing row already covers this,
@@ -204,10 +206,16 @@ def _resolve_target_artifact_id(
 
     if entity_type == "StakeholderNeed":
         from persistence.models import StakeholderNeed
+        from workflow.services import outdated_item_ids
 
+        # Datenmodell-Konsolidierung Task 24: StakeholderNeed.lifecycle_status
+        # (the raw column this used to check for the legacy "deleted" sentinel)
+        # is dropped. StakeholderNeedService.list_by_workspace already excludes
+        # via the Artifact.lifecycle_status-backed outdated_item_ids() seam
+        # (outdate() writes "outdated", not "deleted"), so this mirrors that.
         obj = (
             StakeholderNeed.objects.filter(id=ref_id)
-            .exclude(lifecycle_status="deleted")
+            .exclude(id__in=outdated_item_ids("StakeholderNeed", tenant_id=tenant_id))
             .first()
         )
         return obj.artifact_id if obj else None

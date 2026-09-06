@@ -461,7 +461,14 @@ class TestStateCaptureCompleteness:
         # Regression list from the audit: these three were absent.
         assert state["acceptance_criteria"] == "Original criteria"
         assert state["level"] == 1
-        assert state["lifecycle_status"] == req.lifecycle_status
+        # Task 24: the per-entity mirror column is gone; the flag lives on
+        # the backing Artifact now (Decision D-3).
+        from persistence.models import Artifact
+
+        assert (
+            state["lifecycle_status"]
+            == Artifact.objects.get(pk=fx["artifact"].id).lifecycle_status
+        )
         # The shared Artifact envelope — where a user-defined "rationale"
         # custom field would live.
         assert "custom_fields" in state

@@ -12,23 +12,15 @@ class _SystemAuthContext:
     user_id = "system:backfill_outdated_from_legacy_status"
 
 
-# Datenmodell-Konsolidierung Task 12: the ``("application.models", "Adr",
-# "status", Adr.Status.DELETED, "Adr")`` lookup that used to live here is
-# removed -- it filtered on the (now-dropped) ``status`` column to find
-# legacy pre-WorkflowEngine "deleted" Adrs. That column was the only record
-# of which Adrs were in that legacy state; with it gone, this lookup can
-# never match anything again and would only raise FieldError if it ran
-# (Adr.objects.filter(status=...) -- no such field). Documented, reviewed
-# data-loss tradeoff: any Adr never backfilled by this one-shot command
-# before Task 12 stays un-flagged as "outdated" going forward (see the Task
-# 12 report, Finding 2). Requirement/ArchitectureElement/GlossaryTerm below
-# are unaffected -- they key off ``lifecycle_status``, a separate column this
-# task does not touch.
-LEGACY_DELETED_LOOKUPS = [
-    ("persistence.models", "Requirement", "lifecycle_status", "deleted", "Requirement"),
-    ("persistence.models", "ArchitectureElement", "lifecycle_status", "deleted", "ArchitectureElement"),
-    ("persistence.models", "GlossaryTerm", "lifecycle_status", "deleted", "GlossaryTerm"),
-]
+# Datenmodell-Konsolidierung Task 12 removed the Adr lookup that used to key
+# off the (already-dropped) ``status`` column, for the same reason Task 24
+# now empties this list entirely: Requirement/ArchitectureElement/
+# GlossaryTerm's ``lifecycle_status`` columns are dropped too, so
+# ``model.objects.filter(lifecycle_status=...)`` would raise FieldError if it
+# ran (no such field). Documented, reviewed data-loss tradeoff: any row never
+# backfilled by this one-shot command before Task 24 stays un-flagged as
+# "outdated" going forward (same tradeoff as the Task 12 report, Finding 2).
+LEGACY_DELETED_LOOKUPS: list[tuple[str, str, str, str, str]] = []
 
 
 class Command(BaseCommand):

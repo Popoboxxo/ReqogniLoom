@@ -17,12 +17,20 @@ from django.core.management import call_command
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
-MIGRATION = ("persistence", "0073_backfill_artifact_backing")
-
-
 def _historical_apps():
-    """The model registry ``0073``'s RunPython functions really receive."""
-    return MigrationExecutor(connection).loader.project_state(MIGRATION).apps
+    """The model registry ``0073``'s RunPython functions really receive.
+
+    Datenmodell-Konsolidierung Task 24: pinning this to the ``0073`` node
+    itself (as before) freezes a ``GlossaryTerm`` model that still declares
+    ``lifecycle_status`` -- a field ``0075_drop_entity_lifecycle_status``
+    later removes from the *physical* table. ``0073``'s own logic never
+    touches that field (only ``artifact``/``workspace_id``/``tenant_id``), so
+    resolving to the graph's current head instead keeps the registry in
+    lockstep with whatever schema the shared test DB actually has, with no
+    migration reference to bump the next time a later migration drops a
+    column an earlier RunPython's model happens to also declare.
+    """
+    return MigrationExecutor(connection).loader.project_state().apps
 
 
 def _migration_module():

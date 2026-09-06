@@ -166,33 +166,27 @@ def derive_architecture_role(*, has_parent: bool, has_children: bool) -> str:
 
 
 class LifecycleStatus(models.TextChoices):
-    """Denormalized lifecycle projection for entities that are never hard-deleted.
+    """Soft-delete flag, orthogonal to the workflow state (REQ-006).
 
-    REQ-006 introduced this as the soft-delete marker for ArchitectureElement
-    and GlossaryTerm. Phase 0 (status-model unification) then moved every
-    soft-delete onto ``workflow.services.outdate()``, and this column was left
-    behind unwritten — it read ``"active"`` on every row regardless of the real
-    state. SYSTEMAUDIT P1-16 made it a real mirror again:
-    ``workflow.lifecycle_manager.StateLifecycleManager._sync_lifecycle_mirror``
-    now projects ``WorkflowItemState.current_state`` onto it inside the
-    transition's transaction.
+    REQ-006 originally introduced this as a per-entity mirror on
+    ArchitectureElement and GlossaryTerm (and an unwritten legacy column on
+    Requirement and StakeholderNeed). Datenmodell-Konsolidierung Phase 4
+    (Decision D-3) replaced every one of those per-entity columns with a
+    single column on ``Artifact``: ``workflow.services.outdate()``/
+    ``reactivate()`` write it directly, so an artifact can be ``approved`` and
+    ``outdated`` at the same time instead of the old model where soft-delete
+    destroyed the workflow state.
 
     Read-only for application code:
 
-    * **Authoritative source is ``WorkflowItemState``**, not this column. Exact
-      filters (``workflow.services.outdated_item_ids``) must query there; this
-      column exists for readers that cannot join it — serializers, CSV export,
-      the frontend status filters and ``baseline.state_capture``.
-    * Mirrored for **ArchitectureElement** and **GlossaryTerm** only (the two
-      types with no ``status`` column). ``Requirement`` and ``StakeholderNeed``
-      also declare the field, but their soft-delete state is resolved through
-      ``workflow.state_reader``/``workflow.services.outdated_item_ids``
-      instead; theirs stays a legacy, unwritten column on purpose (Datenmodell-
-      Konsolidierung Phase 1 — see ``lifecycle_manager._LIFECYCLE_MIRROR_MODELS``).
+    * **Authoritative for the lifecycle axis is ``Artifact.lifecycle_status``**;
+      the workflow axis is still resolved through ``WorkflowItemState``
+      (``workflow.state_reader``/``workflow.services.outdated_item_ids``).
+      Serializers, CSV export, the frontend status filters and
+      ``baseline.state_capture`` all read the artifact-level value.
     * ``DELETED`` is a legacy value only — the workflow engine writes
       ``OUTDATED`` for a soft-delete. Rows still carrying ``"deleted"`` are the
-      input of the ``backfill_outdated_from_legacy_status`` management command
-      and are never overwritten by the mirror backfill.
+      input of the ``backfill_outdated_from_legacy_status`` management command.
 
     Hard-delete remains available only via the Django admin panel.
     """
@@ -928,21 +922,9 @@ class StakeholderNeed(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this need requires review due to upstream changes.",
     )
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides need from normal views; hard-delete via admin only.",
-    )
 
     class Meta:
         db_table = "pl_stakeholder_need"
-        indexes = [
-            # REQ-039: composite indexes for dominant list-filter combinations.
-            models.Index(
-                fields=["tenant", "lifecycle_status"], name="idx_sn_tnt_lifecycle"
-            ),
-        ]
 
     def __str__(self) -> str:
         return self.title
@@ -1026,12 +1008,6 @@ class Requirement(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this requirement needs review due to upstream changes.",
     )
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides requirement from normal views; hard-delete via admin only.",
-    )
     embedding = VectorField(
         dimensions=EMBEDDING_VECTOR_DIMENSIONS,
         null=True,
@@ -1056,10 +1032,6 @@ class Requirement(TenantScopedModel):
                 m=16,
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
-            ),
-            # REQ-039: composite indexes for dominant list-filter combinations.
-            models.Index(
-                fields=["tenant", "lifecycle_status"], name="idx_req_tnt_lifecycle"
             ),
             # #44: uid is looked up scoped to a workspace (via artifact__workspace)
             # on every create/update to enforce uniqueness at the application layer
@@ -1164,12 +1136,6 @@ class ArchitectureElement(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this element needs review due to upstream changes.",
     )
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides element from normal views; hard-delete via admin only.",
-    )
 
     class Meta:
         db_table = "pl_architecture_element"
@@ -1177,10 +1143,6 @@ class ArchitectureElement(TenantScopedModel):
             # REQ-039: composite indexes for dominant list-filter combinations.
             models.Index(
                 fields=["tenant", "element_type"], name="idx_archelem_tnt_type"
-            ),
-            models.Index(
-                fields=["tenant", "lifecycle_status"],
-                name="idx_archelem_tnt_lifecyc",
             ),
         ]
 
@@ -1338,13 +1300,12 @@ class ArchitectureElement(TenantScopedModel):
         children so a parent whose only child was removed correctly collapses
         back to a leaf.
 
-        ArchitectureElement has no denormalized ``status`` mirror. Since
-        SYSTEMAUDIT P1-16 ``outdate()`` (``workflow.services``) does project
-        the state onto ``lifecycle_status``, but ``WorkflowItemState`` stays
-        the authoritative source, so the children check keeps excluding
-        against ``workflow.services.outdated_item_ids`` — that is also the
-        only variant that is correct for rows soft-deleted before the mirror
-        existed. SA-21: this used to be a direct, lazy Layer 0 -> Layer 1
+        ArchitectureElement has no denormalized ``status`` mirror.
+        ``Artifact.lifecycle_status`` (Datenmodell-Konsolidierung Phase 4) is
+        the soft-delete flag now, but ``WorkflowItemState`` stays the
+        authoritative source for the workflow axis, so the children check
+        keeps excluding against ``workflow.services.outdated_item_ids``.
+        SA-21: this used to be a direct, lazy Layer 0 -> Layer 1
         import; it now goes through ``persistence.status_provider`` (a
         Layer-0-owned seam that ``WorkflowConfig.ready()`` registers the real
         implementation into at startup), so this module no longer imports
@@ -1863,12 +1824,6 @@ class GlossaryTerm(TenantScopedModel):
     synonyms = models.JSONField(default=list, blank=True)
     abbreviation = models.CharField(max_length=64, blank=True)
     version = models.IntegerField(default=1)
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides term from normal views; hard-delete via admin only.",
-    )
 
     class Meta:
         db_table = "pl_glossary_term"

@@ -140,16 +140,22 @@ def _capture_items(
     # Artifact headers — the shared envelope of every artifact-backed entity.
     # ``artifact_type`` doubles as a fallback discriminator; ``custom_fields``
     # and ``parent`` are real, user-visible state that no subtype table holds.
+    # Datenmodell-Konsolidierung Task 24: ``lifecycle_status`` rides along in
+    # this same query -- it used to be a per-entity mirror column, now it is
+    # this shared Artifact envelope's own field (Decision D-3), so there is
+    # no separate query needed to resolve it.
     artifact_header_by_id: dict[str, dict[str, Any]] = {}
-    for art_id, art_type, custom_fields, parent_id in (
+    artifact_lifecycle: dict[str, str] = {}
+    for art_id, art_type, custom_fields, parent_id, lifecycle_status in (
         Artifact.unscoped.filter(id__in=uuids, tenant_id=tenant_id)
-        .values_list("id", "artifact_type", "custom_fields", "parent_id")
+        .values_list("id", "artifact_type", "custom_fields", "parent_id", "lifecycle_status")
     ):
         artifact_header_by_id[str(art_id)] = {
             "artifact_type_raw": art_type,
             "custom_fields": custom_fields or {},
             "artifact_parent_id": str(parent_id) if parent_id else None,
         }
+        artifact_lifecycle[str(art_id)] = lifecycle_status
 
     states: dict[str, dict[str, Any]] = {}
 
@@ -173,7 +179,7 @@ def _capture_items(
             "complexity_fibonacci": req.complexity_fibonacci,
             "verification_method": req.verification_method,
             "suspect": req.suspect,
-            "lifecycle_status": req.lifecycle_status,
+            "lifecycle_status": artifact_lifecycle.get(str(req.artifact_id), "active"),
             "version": req.version,
         }
 
@@ -191,7 +197,7 @@ def _capture_items(
             "asil_level": ae.asil_level,
             "make_or_buy": ae.make_or_buy,
             "suspect": ae.suspect,
-            "lifecycle_status": ae.lifecycle_status,
+            "lifecycle_status": artifact_lifecycle.get(str(ae.artifact_id), "active"),
             "version": ae.version,
         }
 
@@ -213,7 +219,7 @@ def _capture_items(
             "status": sn_states.get(str(sn.id)) or sn_initial_state,
             "moscow_priority": sn.moscow_priority,
             "suspect": sn.suspect,
-            "lifecycle_status": sn.lifecycle_status,
+            "lifecycle_status": artifact_lifecycle.get(str(sn.artifact_id), "active"),
             "version": sn.version,
         }
 

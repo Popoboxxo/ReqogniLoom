@@ -70,72 +70,6 @@ class TransitionOutcome:
     signature_seal: Optional[str] = None
 
 
-# SYSTEMAUDIT P1-16: denormalized `lifecycle_status` mirror.
-#
-# ``persistence.models.LifecycleStatus`` ("active"/"outdated"/"deprecated"/
-# "deleted") exists on four models, but until this change *nothing in
-# production code ever wrote it* — every soft-delete path routes through
-# ``workflow.services.outdate()``, which only writes WorkflowItemState (the
-# ``status`` mirror this comment used to also mention was deleted in
-# Datenmodell-Konsolidierung Phase 1 — see ``workflow.state_reader``). The
-# column therefore read "active" on every row forever, including the two
-# types whose ``LifecycleStatus`` docstring claims it exists for.
-#
-# Only ArchitectureElement and GlossaryTerm are wired up here, on purpose:
-#   * Neither has a ``status`` column, so ``lifecycle_status`` is the ONLY
-#     lifecycle signal they can expose to readers that do not join
-#     WorkflowItemState — the REST GlossaryTerm serializer (issue #440), the
-#     CSV export, the frontend's ArchitectureEditors/GlossaryView status
-#     filters, and most importantly ``baseline.state_capture``, which
-#     snapshots ``ae.lifecycle_status`` and captures no other status field for
-#     ArchitectureElement (so a deprecation was structurally invisible to
-#     every baseline diff, issue #398).
-#   * Requirement and StakeholderNeed also carry a (equally never-written)
-#     ``lifecycle_status`` column, but their soft-delete state is resolved
-#     through ``workflow.state_reader``/``workflow.services.outdated_item_ids``
-#     instead, so writing their ``lifecycle_status`` too would only duplicate
-#     that signal and make every workflow transition surface as *two*
-#     field-level baseline diffs. Left legacy/read-only.
-#
-# WorkflowItemState remains authoritative: this is a projection for readers
-# that cannot join it. Filters that must be exact
-# (``workflow.services.outdated_item_ids``) keep querying WorkflowItemState,
-# which also stays correct for rows written before this change.
-_LIFECYCLE_MIRROR_MODELS: dict[str, tuple[str, str]] = {
-    "ArchitectureElement": ("persistence.models", "ArchitectureElement"),
-    "GlossaryTerm": ("persistence.models", "GlossaryTerm"),
-}
-
-# Workflow state -> ``persistence.models.LifecycleStatus`` value. Looked up
-# case-insensitively so a workspace that renamed its states in Title Case
-# (Extended preset, ADR-06) still mirrors correctly. Every other state —
-# "draft", "in_review", "approved", or anything a custom workflow invents —
-# maps to "active": the entity is a live artifact.
-#
-# ``LifecycleStatus.DELETED`` is deliberately never written. It is a legacy
-# value from before Phase 0 (rows still carrying it are the input of
-# ``workflow.management.commands.backfill_outdated_from_legacy_status``); the
-# workflow engine's equivalent is "outdated".
-_LIFECYCLE_STATUS_BY_STATE: dict[str, str] = {
-    "outdated": "outdated",
-    "deprecated": "deprecated",
-}
-_LIFECYCLE_STATUS_DEFAULT = "active"
-
-
-def map_lifecycle_status(new_state: str | None) -> str:
-    """Map a workflow state name onto a ``LifecycleStatus`` value.
-
-    Args:
-        new_state: ``WorkflowItemState.current_state`` after the transition.
-
-    Returns:
-        One of ``"active"`` / ``"outdated"`` / ``"deprecated"``.
-    """
-    key = (new_state or "").strip().lower()
-    return _LIFECYCLE_STATUS_BY_STATE.get(key, _LIFECYCLE_STATUS_DEFAULT)
-
-
 class StateLifecycleManager:
     """Manages WorkflowItemState lifecycle and append-only history.
 
@@ -370,14 +304,6 @@ class StateLifecycleManager:
                 f"(409 Conflict)"
             )
 
-        # SYSTEMAUDIT P1-16: update the denormalized `lifecycle_status` mirror
-        # atomically within this same transaction, for the types that have no
-        # `status` column (ArchitectureElement/GlossaryTerm). Datenmodell-
-        # Konsolidierung Phase 1: the `status` mirror this used to also write
-        # is gone — WorkflowItemState.current_state is the only store now,
-        # read it through workflow.state_reader.
-        self._sync_lifecycle_mirror(item_id, item_type, target_state)
-
         # Append-only history entry (REQ-L2-WE-003, ADR-L3-WE003-03).
         # Use the unscoped manager to bypass TenantManager.get_queryset()
         # during INSERT (tenant_id comes from item_state.tenant_id).
@@ -457,79 +383,12 @@ class StateLifecycleManager:
             tenant_id=item_state.tenant_id,
         )
 
-        # SYSTEMAUDIT P1-16: outdate()/reactivate() reach the persistence layer
-        # exclusively through force_transition, so this is the call that makes
-        # a soft-deleted ArchitectureElement/GlossaryTerm report "outdated" on
-        # its own row instead of "active" forever.
-        self._sync_lifecycle_mirror(item_id, item_type, target_state)
-
         return TransitionOutcome(
             item_state_id=item_state.pk,
             history_entry_id=history.pk,
             previous_state=previous_state,
             new_state=target_state,
             signature_seal=None,
-        )
-
-    @staticmethod
-    def _sync_lifecycle_mirror(item_id: UUID, item_type: str, new_state: str) -> None:
-        """Write the denormalized ``lifecycle_status`` mirror (SYSTEMAUDIT P1-16).
-
-        Written only from inside a transition's atomic transaction, via the
-        ``unscoped`` manager filtered on the primary key (no TenantContext
-        needed), and via a bare ``.update()`` so the entity ``version`` is not
-        bumped and no domain event is emitted — a workflow transition is not a
-        content edit.
-
-        .. warning:: **Tenant isolation here rests on RLS, not on this query —
-           SA-22 (Systemaudit 2026-08-27 §4.6 F8).**
-
-           The UPDATE carries no tenant predicate, so at the ORM level a caller
-           that supplies a foreign ``item_id`` would write another tenant's row.
-           What actually closes that hole is the database: both tables in
-           ``_LIFECYCLE_MIRROR_MODELS`` carry an ``ENABLE`` + ``FORCE ROW LEVEL
-           SECURITY`` tenant-isolation policy (``pl_architecture_element``:
-           persistence/0003 · ``pl_glossary_term``: persistence/0067), and
-           runtime traffic connects as the non-superuser ``reqogniloom_app``
-           role (settings ``DATABASES`` + persistence/db_roles), for which
-           those policies are not optional. A cross-tenant ``pk`` therefore
-           matches zero rows instead of being overwritten.
-
-           Note this is *not* the ``workflow`` RLS migration (0015) — that one
-           protects the ``we_*`` tables; this write lands on the
-           persistence tables listed above.
-
-           Consequences for future edits:
-             * Do not "optimise" this into raw SQL, a superuser connection or a
-               management command that runs without ``app.current_tenant``: the
-               only guard would be gone, and additionally the write would
-               silently become a no-op wherever the session variable is unset.
-             * If a new entity is added to ``_LIFECYCLE_MIRROR_MODELS``, its
-               table MUST get an RLS policy in the same change (SA-22).
-           Regression coverage: ``workflow/tests/test_lifecycle_manager.py``.
-
-        The value is a *mapping* of the workflow state, not the state itself
-        (see :func:`map_lifecycle_status`): ``lifecycle_status`` has a fixed
-        four-value vocabulary while ``current_state`` is per-preset free text,
-        so writing the raw state would produce values outside
-        ``LifecycleStatus.choices``.
-
-        Unknown item types (every type not in the map) are a silent no-op.
-        """
-        mapping = _LIFECYCLE_MIRROR_MODELS.get(item_type)
-        if mapping is None:
-            return
-        # Both entries are ``persistence.models`` (Layer 0) — ``workflow``
-        # (Layer 1) depending on ``persistence`` is the permitted direction,
-        # so this resolves directly instead of via the (removed,
-        # Datenmodell-Konsolidierung Phase 1) Layer-2 registry indirection
-        # that only the deleted status mirror ever needed.
-        from importlib import import_module
-
-        module_path, class_name = mapping
-        model = getattr(import_module(module_path), class_name)
-        model.unscoped.filter(pk=item_id).update(
-            lifecycle_status=map_lifecycle_status(new_state)
         )
 
     # -- Read helpers ---------------------------------------------------------

@@ -36,6 +36,13 @@ class GlossaryTermDTO:
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
+        # Datenmodell-Konsolidierung Task 24: GlossaryTerm's own
+        # `lifecycle_status` mirror column is dropped; the flag now lives
+        # only on the backing Artifact (Decision D-3). Rows without one yet
+        # (workspace-less legacy rows, Task 20) default to "active".
+        lifecycle_status = (
+            term.artifact.lifecycle_status if term.artifact_id else "active"
+        )
         return cls(
             id=term.id,
             workspace_id=term.workspace_id,
@@ -44,7 +51,7 @@ class GlossaryTermDTO:
             synonyms=term.synonyms,
             abbreviation=term.abbreviation,
             version=term.version,
-            lifecycle_status=getattr(term, "lifecycle_status", "active"),
+            lifecycle_status=lifecycle_status,
         )
 
 
@@ -67,7 +74,9 @@ class GlossaryService(ServiceBase):
         entities (TestCase, Issue, ADR, Risk, StakeholderNeed), which report
         ``status="outdated"`` on GET after delete via their mirrored column.
         """
-        term = GlossaryTerm.objects.filter(id=term_id).first()
+        term = GlossaryTerm.objects.select_related("artifact").filter(
+            id=term_id
+        ).first()
         if not term:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
         dto = GlossaryTermDTO.from_orm(term)
@@ -86,7 +95,7 @@ class GlossaryService(ServiceBase):
         REQ-006: Excludes soft-deleted terms (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
         """
-        qs = GlossaryTerm.objects.filter(
+        qs = GlossaryTerm.objects.select_related("artifact").filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
         if not include_deleted:

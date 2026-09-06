@@ -490,6 +490,15 @@ class ImportService(ServiceBase):
         # documented, reviewed data-loss tradeoff, see the Task 12 report
         # Finding 2.
         has_status_column = any(col == "status" for col, _kind in spec)
+        # Datenmodell-Konsolidierung Task 24: `lifecycle_status` (declared for
+        # StakeholderNeed/Requirement/ArchitectureElement) is no longer a
+        # plain content column on those models either -- it moved onto the
+        # backing Artifact (Decision D-3). Same treatment as `status` above:
+        # popped out of *content* so it never reaches `model.objects.create()`
+        # as an invalid keyword argument, and applied to the Artifact instead.
+        has_lifecycle_status_column = any(
+            col == "lifecycle_status" for col, _kind in spec
+        )
         definition = (
             WorkflowEngineDefinition.objects.filter(
                 workspace_id=str(workspace_id), item_type=entity_type
@@ -532,6 +541,17 @@ class ImportService(ServiceBase):
                 status_raw = content.pop("status", None)
                 mapped_status = _map_status(status_raw or "", valid_states)
 
+            lifecycle_status_value = None
+            if has_lifecycle_status_column:
+                from persistence.models import LifecycleStatus
+
+                lifecycle_status_raw = content.pop("lifecycle_status", None)
+                lifecycle_status_value = (
+                    lifecycle_status_raw
+                    if lifecycle_status_raw in LifecycleStatus.values
+                    else LifecycleStatus.ACTIVE
+                )
+
             preserved_id = identity.get("id")
             preserved_artifact_id = identity.get("artifact_id")
             version = identity.get("version")
@@ -563,6 +583,8 @@ class ImportService(ServiceBase):
             )
             if preserved_artifact_id is not None:
                 artifact_kwargs["id"] = preserved_artifact_id
+            if lifecycle_status_value is not None:
+                artifact_kwargs["lifecycle_status"] = lifecycle_status_value
             artifact = Artifact.objects.create(**artifact_kwargs)
 
             # ---- Entity row ----

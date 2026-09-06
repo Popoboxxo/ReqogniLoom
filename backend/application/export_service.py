@@ -637,6 +637,16 @@ class ExportService(ServiceBase):
         row = {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
         if resolved_status is not None and "status" in row:
             row["status"] = resolved_status
+        if "lifecycle_status" in row:
+            # Datenmodell-Konsolidierung Task 24: the per-entity
+            # `lifecycle_status` mirror column is dropped from StakeholderNeed/
+            # Requirement/ArchitectureElement; the flag lives on the backing
+            # Artifact now (Decision D-3). `_fetch_entities` already
+            # `select_related("artifact")` for these types, so this is free.
+            artifact = getattr(obj, "artifact", None)
+            row["lifecycle_status"] = (
+                artifact.lifecycle_status if artifact is not None else "active"
+            )
         return row
 
 
