@@ -1,4 +1,4 @@
-"""The three legacy version tables' history survives the move to ArtifactVersion.
+"""The legacy version tables' history survives the move to ArtifactVersion.
 
 Datenmodell-Konsolidierung Phase 5, spec section 6.2 ("ohne Historienverlust").
 
@@ -11,6 +11,15 @@ actually does with rows.
 The function is registry-agnostic — it only calls ``get_model``/``.objects`` —
 so handing it ``django.apps.apps`` exercises the same code path the migration
 runs, with the live models standing in for the historical ones.
+
+Datenmodell-Konsolidierung Task 28b: GlossaryTermVersion (and its
+``pl_glossary_term_version`` table) is now dropped, so the migration's
+``SOURCES`` entry for it can no longer be exercised here — the table it would
+query is physically gone in this test database. ``_migrate_history()`` below
+excludes that one entry (Diagram/Icd are untouched and still run the real
+function body); the GlossaryTermVersion-specific copy behaviour (reading
+``term`` from the owner) was already verified while the table still existed,
+in Task 28a's own commit history.
 """
 import uuid
 from importlib import import_module
@@ -27,10 +36,20 @@ _MIGRATION = "persistence.migrations.0078_migrate_legacy_versions"
 
 
 def _migrate_history():
-    """Run the migration's copy step against the live models."""
+    """Run the migration's copy step against the live models.
+
+    Task 28b: temporarily strips the GlossaryTermVersion entry from the
+    module's ``SOURCES`` list — its table no longer exists — without editing
+    the already-applied migration file itself.
+    """
     module = import_module(_MIGRATION)
-    with connection.schema_editor() as schema_editor:
-        module.migrate_history(apps, schema_editor)
+    original_sources = module.SOURCES
+    module.SOURCES = [s for s in original_sources if s[1] != "GlossaryTermVersion"]
+    try:
+        with connection.schema_editor() as schema_editor:
+            module.migrate_history(apps, schema_editor)
+    finally:
+        module.SOURCES = original_sources
 
 
 @pytest.fixture
@@ -216,34 +235,13 @@ def test_icd_payload_reads_the_name_from_the_header(env):
     assert payload["preconditions"] == ["p"]
 
 
-def test_glossary_payload_reads_the_term_from_the_owner(env):
-    """GlossaryTermVersion snapshots the definition, not the term itself."""
-    from application.artifact_version_service import ArtifactVersionService
-    from persistence.models import GlossaryTerm, GlossaryTermVersion
-
-    tenant, workspace, user = env
-    term = GlossaryTerm.objects.create(
-        tenant=tenant,
-        workspace=workspace,
-        term="Widget",
-        definition="v2",
-        artifact=_artifact(tenant, workspace, "GlossaryTerm"),
-    )
-    GlossaryTermVersion.objects.create(
-        tenant=tenant, term_fk=term, term_version=1, definition="v1"
-    )
-
-    _migrate_history()
-
-    payload = ArtifactVersionService().get_payload(
-        term.artifact_id, 1, _ctx(tenant, workspace, user)
-    )
-    assert payload == {
-        "term": "Widget",
-        "definition": "v1",
-        "synonyms": [],
-        "abbreviation": "",
-    }
+# Datenmodell-Konsolidierung Task 28b: the
+# test_glossary_payload_reads_the_term_from_the_owner test (which built a
+# fixture row directly via the now-removed GlossaryTermVersion model) was
+# retired here — the model, and the table it backed, no longer exist. The
+# behaviour it verified (reading `term` from the owner rather than the
+# version row) was already exercised while the table still existed, in
+# Task 28a's own commit history.
 
 
 def _ctx(tenant, workspace, user):

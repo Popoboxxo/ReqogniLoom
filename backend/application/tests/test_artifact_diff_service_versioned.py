@@ -2,9 +2,11 @@
 Tests for ArtifactDiffService diagram/glossary version+diff helpers (REQ-142).
 
 req_id: REQ-142 — real per-version diff/versions endpoints for Diagram and
-        GlossaryTerm, backed by the actual immutable version tables
-        (DiagramVersion, GlossaryTermVersion) rather than the single-row
-        "current state only" fallback used for Requirement/ArchitectureElement/etc.
+        GlossaryTerm, backed by real history stores (DiagramVersion for
+        Diagram; the generic ArtifactVersion store, via
+        ArtifactVersionService, for GlossaryTerm since Task 28b) rather than
+        the single-row "current state only" fallback used for
+        Requirement/ArchitectureElement/etc.
 
 Covers:
   - list_versions_for_diagram: chronological order, 404 for unknown diagram
@@ -59,21 +61,6 @@ def _make_diagram_version(
     v.payload_format = payload_format
     v.canvas_json = canvas_json
     v.created_at = datetime(2026, 1, version_number, tzinfo=timezone.utc)
-    return v
-
-
-def _make_term_version(
-    term_version: int,
-    definition: str = "A stated need.",
-    synonyms=None,
-    abbreviation: str = "REQ",
-) -> MagicMock:
-    v = MagicMock()
-    v.term_version = term_version
-    v.definition = definition
-    v.synonyms = synonyms or []
-    v.abbreviation = abbreviation
-    v.created_at = datetime(2026, 1, term_version, tzinfo=timezone.utc)
     return v
 
 
@@ -206,32 +193,33 @@ class TestDiffForDiagram:
 
 
 class TestListVersionsForGlossaryTerm:
-    """REQ-142: GlossaryTermVersion listing must be chronological (term_version asc)."""
+    """REQ-142/Task 28b: listing delegates to ArtifactVersionService.list_revisions."""
 
     def test_returns_versions_chronologically(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        t1 = _make_term_version(1, definition="Old def")
-        t2 = _make_term_version(2, definition="New def")
+        term_mock = MagicMock()
+        term_mock.artifact_id = uuid.uuid4()
+        expected = [
+            {"version": 1, "label": "v1", "modified_at": None, "content_available": True},
+            {"version": 2, "label": "v2", "modified_at": None, "content_available": True},
+        ]
 
         with patch.object(svc, "_set_tenant_context"):
             with patch(
                 "application.artifact_diff_service.GlossaryTerm.objects"
             ) as term_objects:
-                term_objects.filter.return_value.exists.return_value = True
+                term_objects.filter.return_value.first.return_value = term_mock
                 with patch(
-                    "persistence.models.GlossaryTermVersion.objects"
-                ) as version_objects:
-                    version_objects.filter.return_value.order_by.return_value = [
-                        t1,
-                        t2,
-                    ]
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.list_revisions.return_value = expected
                     result = svc.list_versions_for_glossary_term(TERM_ID, ctx)
 
         assert [r["version"] for r in result] == [1, 2]
-        version_objects.filter.return_value.order_by.assert_called_once_with(
-            "term_version"
+        version_svc_cls.return_value.list_revisions.assert_called_once_with(
+            term_mock.artifact_id, ctx
         )
 
     def test_unknown_term_raises_not_found(self):
@@ -242,7 +230,7 @@ class TestListVersionsForGlossaryTerm:
             with patch(
                 "application.artifact_diff_service.GlossaryTerm.objects"
             ) as term_objects:
-                term_objects.filter.return_value.exists.return_value = False
+                term_objects.filter.return_value.first.return_value = None
                 with pytest.raises(NotFoundError):
                     svc.list_versions_for_glossary_term(TERM_ID, ctx)
 
@@ -253,7 +241,7 @@ class TestListVersionsForGlossaryTerm:
 
 
 class TestDiffForGlossaryTerm:
-    """REQ-142: field-level diff between two real GlossaryTermVersion snapshots."""
+    """REQ-142/Task 28b: field-level diff via ArtifactVersionService.get_payload."""
 
     def test_diff_detects_definition_change(self):
         svc = ArtifactDiffService()
@@ -262,14 +250,23 @@ class TestDiffForGlossaryTerm:
         term_mock = MagicMock()
         term_mock.id = TERM_ID
         term_mock.term = "Requirement"
+        term_mock.artifact_id = uuid.uuid4()
 
-        t1 = _make_term_version(1, definition="Old def", abbreviation="REQ")
-        t2 = _make_term_version(2, definition="New def", abbreviation="REQ")
+        payload_v1 = {
+            "term": "Requirement",
+            "definition": "Old def",
+            "synonyms": [],
+            "abbreviation": "REQ",
+        }
+        payload_v2 = {
+            "term": "Requirement",
+            "definition": "New def",
+            "synonyms": [],
+            "abbreviation": "REQ",
+        }
 
-        def _filter_side_effect(**kwargs):
-            m = MagicMock()
-            m.first.return_value = t1 if kwargs.get("term_version") == 1 else t2
-            return m
+        def _get_payload_side_effect(artifact_id, revision, ctx):
+            return payload_v1 if revision == 1 else payload_v2
 
         with patch.object(svc, "_set_tenant_context"):
             with patch(
@@ -277,9 +274,11 @@ class TestDiffForGlossaryTerm:
             ) as term_objects:
                 term_objects.filter.return_value.first.return_value = term_mock
                 with patch(
-                    "persistence.models.GlossaryTermVersion.objects"
-                ) as version_objects:
-                    version_objects.filter.side_effect = _filter_side_effect
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.side_effect = (
+                        _get_payload_side_effect
+                    )
                     result = svc.diff_for_glossary_term(
                         TERM_ID, from_version=1, to_version=2, ctx=ctx
                     )
@@ -288,7 +287,6 @@ class TestDiffForGlossaryTerm:
         field_statuses = {f["name"]: f["status"] for f in result["fields"]}
         assert field_statuses["definition"] == "modified"
         assert field_statuses["abbreviation"] == "unchanged"
-        # "term" is immutable — taken from the parent GlossaryTerm for both sides.
         assert field_statuses["term"] == "unchanged"
 
     def test_unknown_to_version_raises_not_found(self):
@@ -298,6 +296,7 @@ class TestDiffForGlossaryTerm:
         term_mock = MagicMock()
         term_mock.id = TERM_ID
         term_mock.term = "Requirement"
+        term_mock.artifact_id = uuid.uuid4()
 
         with patch.object(svc, "_set_tenant_context"):
             with patch(
@@ -305,9 +304,9 @@ class TestDiffForGlossaryTerm:
             ) as term_objects:
                 term_objects.filter.return_value.first.return_value = term_mock
                 with patch(
-                    "persistence.models.GlossaryTermVersion.objects"
-                ) as version_objects:
-                    version_objects.filter.return_value.first.return_value = None
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = None
                     with pytest.raises(NotFoundError, match="99"):
                         svc.diff_for_glossary_term(
                             TERM_ID, from_version=0, to_version=99, ctx=ctx

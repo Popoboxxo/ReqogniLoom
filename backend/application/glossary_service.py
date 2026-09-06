@@ -11,7 +11,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
 from persistence.artifact_backing import ensure_artifact
-from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
+from persistence.models import GlossaryTerm, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
@@ -152,21 +152,11 @@ class GlossaryService(ServiceBase):
         ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=workspace_id)
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
-        # appends a revision. Runs alongside the legacy GlossaryTermVersion row
-        # below, which Task 28/29 retires once this store is the only reader.
-        # create() takes no change_reason.
+        # appends a revision. Task 28b removed the legacy GlossaryTermVersion
+        # dual-write below this comment — ArtifactVersionService is now the
+        # only history store. create() takes no change_reason.
         ArtifactVersionService().record(
             gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
-        )
-
-        GlossaryTermVersion.objects.create(
-            term_fk=gt,
-            term_version=gt.version,
-            definition=gt.definition,
-            synonyms=gt.synonyms,
-            abbreviation=gt.abbreviation,
-            # Changed from actor_id to user_id to fix bug
-        created_by_id=ctx.user_id,
         )
 
         # Initialise workflow state (REQ-006/Phase 0): without this,
@@ -257,16 +247,6 @@ class GlossaryService(ServiceBase):
         ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=gt.workspace_id)
         ArtifactVersionService().record(
             gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
-        )
-
-        GlossaryTermVersion.objects.create(
-            term_fk=gt,
-            term_version=gt.version,
-            definition=gt.definition,
-            synonyms=gt.synonyms,
-            abbreviation=gt.abbreviation,
-            # Changed from actor_id to user_id to fix bug
-        created_by_id=ctx.user_id,
         )
 
         return GlossaryTermDTO.from_orm(gt)

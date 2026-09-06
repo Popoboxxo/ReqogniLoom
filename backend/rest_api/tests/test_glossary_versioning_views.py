@@ -2,7 +2,8 @@
 Tests for GlossaryTermViewSet.versions / GlossaryTermViewSet.diff (REQ-142).
 
 req_id: REQ-142 (versions/diff endpoints for GlossaryTerm, exposing the
-        existing immutable GlossaryTermVersion table via ArtifactDiffService)
+        generic ArtifactVersion history store via ArtifactDiffService;
+        Task 28b retired the dedicated GlossaryTermVersion table)
 
 Covers:
   - GET /api/v1/glossary/{id}/versions/ -> 200 with version list; 404 unknown

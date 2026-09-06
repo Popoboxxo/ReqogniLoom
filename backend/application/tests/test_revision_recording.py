@@ -20,7 +20,7 @@ def env(db):
     workspace = Workspace.objects.create(
         tenant=tenant, name="ws-rev-record", goals_enabled=True
     )
-    # A real User row: StakeholderNeed.created_by and GlossaryTermVersion
+    # A real User row: StakeholderNeed.created_by and ArtifactVersion
     # .created_by are FKs, so a synthetic ctx.user_id fails their constraint.
     user = User.objects.create(
         username="rev-record", email="rev-record@example.com", tenant=tenant

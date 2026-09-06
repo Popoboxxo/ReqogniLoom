@@ -373,9 +373,10 @@ class AuditableModel(models.Model):
          (``expected_version`` on update paths).
        * Never present it as "this artifact has N revisions". Retrievable
          history comes from Baselines (:mod:`baseline`), from the append-only
-         audit trail (:mod:`audit`), or — for the few types that have real
-         version tables — from ``DiagramVersion`` / ``GlossaryTermVersion`` /
-         ``PromptTemplate``.
+         audit trail (:mod:`audit`), from the generic ``ArtifactVersion``
+         store (GlossaryTerm, since Task 28b), or — for the remaining types
+         that still have their own real version tables — from
+         ``DiagramVersion`` / ``PromptTemplate``.
 
        :attr:`lock_version` is the unambiguous alias; prefer it in new code.
        The column is not renamed because ``version`` is part of the published
@@ -1881,20 +1882,10 @@ class GlossaryTerm(TenantScopedModel):
         return self.term
 
 
-class GlossaryTermVersion(TenantScopedModel):
-    """Immutable version snapshot of GlossaryTerm."""
-
-    term_fk = models.ForeignKey(
-        GlossaryTerm, on_delete=models.CASCADE, related_name="versions"
-    )
-    term_version = models.IntegerField()
-    definition = models.TextField()
-    synonyms = models.JSONField(default=list, blank=True)
-    abbreviation = models.CharField(max_length=64, blank=True)
-
-    class Meta:
-        db_table = "pl_glossary_term_version"
-        unique_together = (("term_fk", "term_version"),)
+# Datenmodell-Konsolidierung Task 28b: GlossaryTermVersion (the immutable
+# per-term history table) was retired here. GlossaryTerm's history now lives
+# exclusively in the generic persistence.ArtifactVersion store (Task 27/28a
+# copied every legacy row across before this drop).
 
 
 # ---------------------------------------------------------------------------
@@ -3198,7 +3189,6 @@ __all__ = [
     "TestRun",
     "TestRunResult",
     "GlossaryTerm",
-    "GlossaryTermVersion",
     "LlmProvider",
     "LlmSettings",
     "TokenUsageRecord",

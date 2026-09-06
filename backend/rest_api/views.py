@@ -7380,8 +7380,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/glossary/{pk}/versions/ — list GlossaryTermVersions
-        chronologically.
+        """GET /api/v1/glossary/{pk}/versions/ — list revisions chronologically.
 
         REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
         """
@@ -7401,7 +7400,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/glossary/{pk}/diff/?from_version=0&to_version=2
 
-        REQ-142: Structured field-level diff between two GlossaryTermVersions.
+        REQ-142: Structured field-level diff between two glossary term revisions.
         Delegates to ArtifactDiffService (COMP-AS-019); reuses the same
         diff computation as the requirement diff endpoint.
         """

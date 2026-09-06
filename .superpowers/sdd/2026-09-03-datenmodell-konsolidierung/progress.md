@@ -357,6 +357,13 @@ Task 28 split, per the implementer's own recommendation:
 - **28a (this section, commit PENDING):** land `0078` now — safe, non-destructive, unblocks nothing, blocks nothing.
 - **28b (next):** retire `GlossaryTermVersion` only — clean, small, standard-tier (same shape as Task 24's schema drop).
 - **28c (after 28b):** the Expand/Contract for Diagram and ICD — move current content onto the header rows, backfill from `current_version`, add the ICD embedding column + HNSW index, repoint `IcdParameter` at `Icd`, migrate the ~32 affected modules, then drop `DiagramVersion`/`IcdVersion` and swap `current_version` → `current_revision`. Senior-developer/opus tier — this is now the largest single-task blast radius in the whole plan.
-Task 28a: complete (commit PENDING).
+Task 28a: complete (commit 1d5fd5b8).
+
+## Task 28b: Retire `GlossaryTermVersion`
+
+Standard tier (developer, sonnet) — self-authored dispatch (not from the plan's generated brief, since this is a coordinator-initiated split of the original Task 28). Implementer: agent a362fbff5e970c1b4. BASE=1d5fd5b8.
+Report DONE: full `persistence/ application/ rest_api/` regression 3199 passed, 1 skipped (pre-existing, unrelated), 0 failed. Removed the dual-write in `GlossaryService.create()`/`.update()`, deleted the model, dropped the table via migration `0079` (correctly depends on `0078`, confirmed explicitly). Reader sweep found one thing the dispatch didn't anticipate (`GlossaryTermVersionSerializer` was dead code, never wired to any view — removed outright) and did a real reimplementation (not just compile-fix) of `ArtifactDiffService`'s glossary version/diff helpers through `ArtifactVersionService`, since the existing return shapes already matched exactly what the old hand-built code produced — verified this personally by reading the diff, clean 1:1 replacement.
+**Real, well-reasoned deviation found in Task 28a's own test file** (`test_legacy_version_migration.py`): its `_migrate_history()` helper uses the *live* `django.apps.apps` registry (a deliberate Task 28a shortcut, not a bug) rather than a real historical migration-state registry, so once `GlossaryTermVersion` left `models.py` entirely, every test in that file — not just glossary-specific ones — would have hit `LookupError` via the `SOURCES` list's unconditional 3-model resolution. Fixed scoped to the test file only (a temporary monkeypatch of `SOURCES` for the duration of each call, restoring after) — the already-applied `0078` migration itself is untouched and unaffected in real `manage.py migrate` runs, which use a proper historical registry. One glossary-specific fixture test deleted as having no meaningful post-drop equivalent (the behavior it verified was already proven once, while the table existed, in Task 28a's own commit).
+Task 28b: complete (commit PENDING).
 
 ---

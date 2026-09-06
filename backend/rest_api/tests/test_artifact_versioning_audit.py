@@ -480,7 +480,7 @@ def test_issue_payload_exposes_the_lock_version(
 def test_glossary_term_versions_and_diff(
     client: APIClient, workspace: PersistenceWorkspace
 ) -> None:
-    """GlossaryTerm writes a GlossaryTermVersion row per update."""
+    """GlossaryTerm writes an ArtifactVersion row per update (Task 28b)."""
     created = client.post(
         "/api/v1/glossary/",
         {

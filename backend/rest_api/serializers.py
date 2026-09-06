@@ -1832,24 +1832,10 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
     return queryset
 
 
-class GlossaryTermVersionSerializer(serializers.Serializer):
-    """Serializer for GlossaryTermVersion (REQ-L2-RA-001)."""
-
-    id = serializers.UUIDField(read_only=True)
-    term_fk_id = serializers.UUIDField(read_only=True)
-    term_version = serializers.IntegerField(read_only=True)
-    # #104: matches GlossaryTermSerializer.definition — unbounded before (DoS risk).
-    definition = SanitizedCharField(max_length=20000)
-    # #269/4: both fields are user-authored prose that the SPA, the PDF report
-    # and the ReqIF export render verbatim, yet neither was guarded — only
-    # ``term``/``definition`` were. ``synonyms`` needs the JSON variant because
-    # its payload sits inside a list, which the scalar guard skipped.
-    synonyms = SanitizedJSONField(required=False, default=list)
-    abbreviation = SanitizedCharField(
-        required=False, allow_blank=True, default=""
-    )
-    created_at = serializers.DateTimeField(read_only=True)
-    created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+# Datenmodell-Konsolidierung Task 28b: GlossaryTermVersionSerializer (dead
+# code — never wired to a view; the `/glossary/{pk}/versions/` and `/diff/`
+# endpoints below already go through ArtifactDiffService) was removed here
+# together with the GlossaryTermVersion model it serialised.
 
 
 class GlossaryTermSerializer(ExpectedVersionSerializerMixin, serializers.Serializer):
@@ -2021,7 +2007,6 @@ __all__ = [
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",
     "GlossaryTermSerializer",
-    "GlossaryTermVersionSerializer",
     "UserProfileSerializer",
     "StandardPagination",
     "TraceLinkPagination",

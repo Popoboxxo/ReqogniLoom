@@ -62,6 +62,7 @@ from traceability.types import normalize_artifact_type
 
 from application.models import Adr, Goal, Issue, MainGoal, Risk
 
+from application.artifact_version_service import ArtifactVersionService
 from application.base import NotFoundError, ServiceBase
 
 logger = logging.getLogger(__name__)
@@ -755,8 +756,12 @@ class ArtifactDiffService(ServiceBase):
     # ------------------------------------------------------------------
     # GlossaryTerm version/diff helpers (REQ-142)
     #
-    # GlossaryTerm also has a real immutable version table
-    # (GlossaryTermVersion). Same rationale as the Diagram helpers above.
+    # Datenmodell-Konsolidierung Task 28b: the dedicated GlossaryTermVersion
+    # table was dropped. History now lives in the generic ArtifactVersion
+    # store (Task 27 records it on every create()/update(), Task 28a copied
+    # the legacy rows across) — routed through ArtifactVersionService, which
+    # already returns the same version/label/modified_at/content_available
+    # shape this method used to build by hand.
     # ------------------------------------------------------------------
 
     def list_versions_for_glossary_term(
@@ -764,27 +769,14 @@ class ArtifactDiffService(ServiceBase):
         term_id: UUID,
         ctx: AuthContext,
     ) -> List[Dict[str, Any]]:
-        """List all GlossaryTermVersions for a term, chronologically (REQ-142)."""
+        """List all revisions for a glossary term, chronologically (REQ-142)."""
         self._set_tenant_context(ctx)
 
-        if not GlossaryTerm.objects.filter(id=term_id).exists():
+        term = GlossaryTerm.objects.filter(id=term_id).first()
+        if term is None:
             raise NotFoundError(f"GlossaryTerm {term_id} not found")
 
-        from persistence.models import GlossaryTermVersion
-
-        versions = GlossaryTermVersion.objects.filter(term_fk_id=term_id).order_by(
-            "term_version"
-        )
-        return [
-            {
-                "version": v.term_version,
-                "label": f"v{v.term_version}",
-                "modified_at": v.created_at.isoformat() if v.created_at else None,
-                # Real immutable snapshot rows — content is always retrievable.
-                "content_available": True,
-            }
-            for v in versions
-        ]
+        return ArtifactVersionService().list_revisions(term.artifact_id, ctx)
 
     def diff_for_glossary_term(
         self,
@@ -793,7 +785,7 @@ class ArtifactDiffService(ServiceBase):
         to_version: int,
         ctx: AuthContext,
     ) -> Dict[str, Any]:
-        """Compute structured diff between two GlossaryTermVersions (REQ-142).
+        """Compute structured diff between two glossary term revisions (REQ-142).
 
         Both versions must actually exist (version 0 is the empty creation
         baseline).
@@ -804,13 +796,13 @@ class ArtifactDiffService(ServiceBase):
         if term is None:
             raise NotFoundError(f"GlossaryTerm {term_id} not found")
 
-        from_snapshot = self._resolve_glossary_term_snapshot(term, from_version)
+        from_snapshot = self._resolve_glossary_term_snapshot(term, from_version, ctx)
         if from_snapshot is None and from_version != 0:
             raise NotFoundError(
                 f"Version {from_version} not available for glossary term {term_id}"
             )
 
-        to_snapshot = self._resolve_glossary_term_snapshot(term, to_version)
+        to_snapshot = self._resolve_glossary_term_snapshot(term, to_version, ctx)
         if to_snapshot is None:
             raise NotFoundError(
                 f"Version {to_version} not available for glossary term {term_id}"
@@ -829,31 +821,20 @@ class ArtifactDiffService(ServiceBase):
 
     @staticmethod
     def _resolve_glossary_term_snapshot(
-        term: Any, version_number: int
+        term: Any, version_number: int, ctx: AuthContext
     ) -> Optional[Dict[str, Any]]:
-        """Resolve field values for a specific GlossaryTermVersion row.
+        """Resolve field values for a specific glossary term revision.
 
-        Version 0 → None (empty creation baseline). ``term`` (the name) is
-        immutable once created, so it is taken from the parent GlossaryTerm
-        for every version.
+        Version 0 → None (empty creation baseline). Task 28b: reads through
+        ArtifactVersionService instead of the dropped GlossaryTermVersion
+        table; the stored payload already carries ``term``/``definition``/
+        ``synonyms``/``abbreviation`` (see ``migrate_legacy_versions``'s
+        ``_glossary_payload`` and ``glossary_service.snapshot_fields``).
         """
         if version_number == 0:
             return None
 
-        from persistence.models import GlossaryTermVersion
-
-        v = GlossaryTermVersion.objects.filter(
-            term_fk_id=term.id, term_version=version_number
-        ).first()
-        if v is None:
-            return None
-
-        return {
-            "term": term.term,
-            "definition": v.definition,
-            "synonyms": v.synonyms,
-            "abbreviation": v.abbreviation,
-        }
+        return ArtifactVersionService().get_payload(term.artifact_id, version_number, ctx)
 
 
 __all__ = [
