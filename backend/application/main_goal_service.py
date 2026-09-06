@@ -42,6 +42,11 @@ from django.db import IntegrityError, transaction
 
 from persistence.transactions import atomic_transaction
 
+from application.artifact_version_service import (
+    ArtifactVersionService,
+    lineage_anchor_artifact_id,
+    snapshot_fields,
+)
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -408,6 +413,29 @@ class MainGoalService(ServiceBase):
             ctx=ctx,
         )
         sequence_number = main_goal.sequence_number
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): anchor the lineage's
+        # revisions on the sequence-1 Artifact so `list_revisions(anchor)`
+        # returns the whole lineage. Recording against main_goal.artifact_id
+        # would store one revision per Artifact (a new one is created for every
+        # version), which is storage without history. MainGoal has no
+        # lineage_id column — its lineage is the workspace, whose
+        # (workspace_id, sequence_number) pair is unique by DB constraint.
+        # Recorded here rather than inside _insert_with_next_sequence, whose
+        # nested atomic block is rolled back and retried on a sequence
+        # collision.
+        anchor_artifact_id = (
+            main_goal.artifact_id
+            if sequence_number == 1
+            else lineage_anchor_artifact_id(MainGoal, workspace_id=workspace.id)
+        )
+        if anchor_artifact_id is not None:
+            ArtifactVersionService().record(
+                anchor_artifact_id,
+                snapshot_fields(main_goal, "MainGoal"),
+                ctx,
+                revision=sequence_number,
+            )
 
         # Initialize workflow state (best-effort, mirrors GoalService/
         # RiskService). Absent a provisioned WorkflowEngineDefinition for this

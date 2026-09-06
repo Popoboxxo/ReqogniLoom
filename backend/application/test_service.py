@@ -38,6 +38,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -120,6 +121,12 @@ class TestService(ServiceBase):
         # We tag the artifact_type with test_type for differentiation
         artifact.artifact_type = f"TestCase:{test_type}"
         artifact.save(update_fields=["artifact_type"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_test_case takes no change_reason.
+        ArtifactVersionService().record(
+            test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+        )
 
         # Initialise workflow state
         try:
@@ -208,6 +215,12 @@ class TestService(ServiceBase):
         if has_field_changes(test_case, _before) or _custom_fields_changed:
             TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
             test_case.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            # update_test_case takes no change_reason.
+            ArtifactVersionService().record(
+                test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+            )
 
         self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
         self._emit_event(

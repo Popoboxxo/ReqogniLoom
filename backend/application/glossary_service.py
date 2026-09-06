@@ -14,6 +14,7 @@ from persistence.artifact_backing import ensure_artifact
 from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
 from persistence.transactions import atomic_transaction
 
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.optimistic_lock import (
     assert_expected_version,
@@ -150,6 +151,14 @@ class GlossaryService(ServiceBase):
         # closes).
         ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=workspace_id)
 
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. Runs alongside the legacy GlossaryTermVersion row
+        # below, which Task 28/29 retires once this store is the only reader.
+        # create() takes no change_reason.
+        ArtifactVersionService().record(
+            gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
+        )
+
         GlossaryTermVersion.objects.create(
             term_fk=gt,
             term_version=gt.version,
@@ -237,6 +246,18 @@ class GlossaryService(ServiceBase):
         gt.modified_by_id = ctx.user_id
         gt.save(update_fields=["term", "definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
         gt.refresh_from_db(fields=["version"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): guarded by the
+        # ``if not changed: return`` above, so this only runs for a real
+        # content write. ``ensure_artifact`` is idempotent and returns
+        # immediately when the backing already exists — it is called here so a
+        # pre-Phase-3 term (created before the backing Artifact was written at
+        # create time) starts its history instead of being silently skipped.
+        # update() takes no change_reason.
+        ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=gt.workspace_id)
+        ArtifactVersionService().record(
+            gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
+        )
 
         GlossaryTermVersion.objects.create(
             term_fk=gt,

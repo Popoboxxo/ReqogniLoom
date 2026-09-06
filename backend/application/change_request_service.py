@@ -26,6 +26,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import F, QuerySet
 
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -236,6 +237,17 @@ class ChangeRequestService(ServiceBase):
         # TraceLink endpoint or baseline subject.
         ensure_artifact(cr, artifact_type="ChangeRequest", workspace_id=workspace_id)
 
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): a CR's impact
+        # assessment is exactly the kind of text a CCB reviewer must be able to
+        # compare across revisions; WorkflowHistoryEntry records only state
+        # moves and would answer nothing about a silently rewritten assessment.
+        ArtifactVersionService().record(
+            cr.artifact_id,
+            snapshot_fields(cr, "ChangeRequest"),
+            ctx,
+            change_reason=change_reason or "",
+        )
+
         if affected_item_ids:
             self._replace_affected_items(
                 cr=cr, item_ids=affected_item_ids, tenant_id=ctx.tenant_id
@@ -366,6 +378,20 @@ class ChangeRequestService(ServiceBase):
         cr.save()
         ChangeRequest.objects.filter(id=cr.id).update(version=F("version") + 1)
         cr.refresh_from_db(fields=["version"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1). Recorded
+        # unconditionally, mirroring this service's unconditional version bump
+        # above. ``ensure_artifact`` is idempotent and returns immediately when
+        # the backing exists — called here so a pre-Phase-3 CR (created before
+        # ChangeRequest had a backing Artifact at all) starts its history
+        # instead of being silently skipped.
+        ensure_artifact(cr, artifact_type="ChangeRequest", workspace_id=cr.workspace_id)
+        ArtifactVersionService().record(
+            cr.artifact_id,
+            snapshot_fields(cr, "ChangeRequest"),
+            ctx,
+            change_reason=change_reason or "",
+        )
 
         self._audit(
             ctx=ctx,

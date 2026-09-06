@@ -57,6 +57,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
@@ -291,6 +292,15 @@ class RequirementService(ServiceBase):
             uid=uid,
         )
 
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_requirement takes no change_reason, so the
+        # first revision is recorded without one.
+        ArtifactVersionService().record(
+            requirement.artifact_id,
+            snapshot_fields(requirement, "Requirement"),
+            ctx,
+        )
+
         # Initialise workflow state (IF-AS-EXT-OUT-001)
         try:
             from workflow.services import initialize_workflow_states
@@ -489,6 +499,17 @@ class RequirementService(ServiceBase):
                 version=F("version") + 1
             )
             requirement.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): a revision is
+            # recorded under exactly the condition that makes this a content
+            # write. Recording unconditionally would append an identical
+            # snapshot for a no-op PATCH — the same phantom-revision noise
+            # #269 finding 5 removed from the version counter above.
+            ArtifactVersionService().record(
+                requirement.artifact_id,
+                snapshot_fields(requirement, "Requirement"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
         # (title/description) changed, to avoid needless LLM calls on metadata-

@@ -39,6 +39,7 @@ from persistence.models import (
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import _clean_custom_fields
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 from application.optimistic_lock import assert_expected_version
@@ -176,6 +177,14 @@ class ArchitectureService(ServiceBase):
             asil_level=asil_level,
             make_or_buy=make_or_buy,
             uid=uid,
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_architecture_element takes no change_reason.
+        ArtifactVersionService().record(
+            arch_el.artifact_id,
+            snapshot_fields(arch_el, "ArchitectureElement"),
+            ctx,
         )
 
         # Initialise workflow state
@@ -332,6 +341,17 @@ class ArchitectureService(ServiceBase):
                 f"and write (expected version {current_version})."
             )
         arch_el.refresh_from_db(fields=["version"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded after the
+        # compare-and-swap UPDATE, which is this service's version-bump gate.
+        # Unlike its sibling services it bumps unconditionally, so the revision
+        # follows that same (pre-existing) semantics. update_architecture_element
+        # takes no change_reason.
+        ArtifactVersionService().record(
+            arch_el.artifact_id,
+            snapshot_fields(arch_el, "ArchitectureElement"),
+            ctx,
+        )
 
         self._audit(ctx=ctx, operation="update", entity_type="ArchitectureElement", entity_id=arch_el_id)
         self._emit_event(

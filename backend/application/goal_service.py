@@ -34,6 +34,11 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.artifact_version_service import (
+    ArtifactVersionService,
+    lineage_anchor_artifact_id,
+    snapshot_fields,
+)
 from application.models import Goal
 from persistence.models import Artifact, Tenant, Workspace
 from workflow import state_reader
@@ -155,6 +160,25 @@ class GoalService(ServiceBase):
             created_by_name=str(ctx.user_id),
         )
         goal.save()
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): anchor the lineage's
+        # revisions on the sequence-1 Artifact so `list_revisions(anchor)`
+        # returns the whole lineage. Recording against goal.artifact_id would
+        # store one revision per Artifact (a new one is created above for every
+        # version), which is storage without history. The revision number is
+        # the lineage's own sequence_number, not an auto-allocated counter.
+        anchor_artifact_id = (
+            goal.artifact_id
+            if sequence_number == 1
+            else lineage_anchor_artifact_id(Goal, resolved_lineage_id)
+        )
+        if anchor_artifact_id is not None:
+            ArtifactVersionService().record(
+                anchor_artifact_id,
+                snapshot_fields(goal, "Goal"),
+                ctx,
+                revision=sequence_number,
+            )
 
         # Initialize workflow state (best-effort, mirrors RiskService).
         # Absent a provisioned WorkflowEngineDefinition for this

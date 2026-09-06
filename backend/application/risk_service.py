@@ -34,6 +34,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox, Risk
 from application.optimistic_lock import (
@@ -264,6 +265,12 @@ class RiskService(ServiceBase):
         risk.severity = Risk.score_to_severity(score)
         risk.save()
 
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_risk takes no change_reason.
+        ArtifactVersionService().record(
+            risk.artifact_id, snapshot_fields(risk, "Risk"), ctx
+        )
+
         # Initialize workflow state
         try:
             from workflow.services import initialize_workflow_states
@@ -389,6 +396,14 @@ class RiskService(ServiceBase):
         if has_field_changes(risk, _before):
             Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
             risk.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                risk.artifact_id,
+                snapshot_fields(risk, "Risk"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         self._audit(
             ctx=ctx,

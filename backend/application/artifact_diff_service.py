@@ -126,6 +126,25 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     # Issue #767: "status" excluded here too — same reasoning as above.
     "Goal": ["title", "description"],
     "MainGoal": ["content", "source"],
+    # Datenmodell-Konsolidierung Phase 5 (Task 27): these two types record
+    # content revisions into ArtifactVersion and therefore need a field list —
+    # `snapshot_fields()` reads exactly this table, so a missing entry would be
+    # a silently empty snapshot. They have no `_ENTITY_MODELS` entry, so the
+    # generic entity-diff dispatch is unaffected by their presence here.
+    #
+    # Icd's fields span two rows (`name` on Icd, the contract fields on the
+    # current IcdVersion), so `icd_manager` assembles that payload itself
+    # rather than calling `snapshot_fields` on a single entity.
+    "Icd": [
+        "name",
+        "direction",
+        "interface_type",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+    ],
+    "ChangeRequest": ["title", "description", "impact_assessment"],
 }
 
 _ENTITY_MODELS = {

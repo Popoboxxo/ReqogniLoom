@@ -20,6 +20,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import (
     NotFoundError,
     ServiceBase,
@@ -153,6 +154,12 @@ class StakeholderNeedService(ServiceBase):
             category=category,
             moscow_priority=moscow_priority,
             created_by_id=ctx.user_id,
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create() takes no change_reason.
+        ArtifactVersionService().record(
+            need.artifact_id, snapshot_fields(need, "StakeholderNeed"), ctx
         )
 
         # Initialize workflow state (IF-AS-EXT-OUT-001). Without this, GET
@@ -332,6 +339,15 @@ class StakeholderNeedService(ServiceBase):
             need.modified_by_id = ctx.user_id
             need.save()
             need.refresh_from_db()
+
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                need.artifact_id,
+                snapshot_fields(need, "StakeholderNeed"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
             self._emit_event(
                 self._make_event(

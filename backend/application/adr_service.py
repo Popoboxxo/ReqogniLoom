@@ -34,6 +34,7 @@ from application.artifact_service import (
     has_field_changes,
     snapshot_versioned_fields,
 )
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import Adr, DomainEventOutbox
 from application.optimistic_lock import (
@@ -215,6 +216,12 @@ class AdrService(ServiceBase):
             created_by_name=str(ctx.user_id),
         )
 
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_adr takes no change_reason.
+        ArtifactVersionService().record(
+            adr.artifact_id, snapshot_fields(adr, "Adr"), ctx
+        )
+
         # Initialize workflow state (IF-AS-EXT-OUT-001)
         try:
             from workflow.services import initialize_workflow_states
@@ -312,6 +319,14 @@ class AdrService(ServiceBase):
         if has_field_changes(adr, _before):
             Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
             adr.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                adr.artifact_id,
+                snapshot_fields(adr, "Adr"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         self._audit(
             ctx=ctx,

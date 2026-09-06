@@ -36,6 +36,7 @@ from typing import Any
 from django.db import transaction
 
 from persistence.artifact_backing import ensure_artifact
+from persistence.models import ArtifactVersion
 
 from icd.audit_logger import get_audit_logger
 from icd.contract_validator import ValidationResult, get_validator
@@ -43,6 +44,50 @@ from icd.models import Icd, IcdVersion
 from icd.traceability_connector import get_connector
 
 logger = logging.getLogger(__name__)
+
+
+def _record_artifact_revision(icd: Icd, version: IcdVersion) -> None:
+    """Append the ``ArtifactVersion`` snapshot mirroring *version*.
+
+    Writes the row directly instead of calling
+    ``application.artifact_version_service.ArtifactVersionService``: this module
+    is Layer 1/Ext and must not import Layer 2 (ADR-01, single entry point).
+
+    The payload carries the field list registered for ``"Icd"`` in
+    ``application.artifact_diff_service._ENTITY_FIELDS``. It spans two rows —
+    ``name`` lives on the Icd header, the contract fields on the immutable
+    version — so it is assembled here rather than snapshotted off one entity.
+
+    The revision number is taken from ``IcdVersion.version_number`` rather than
+    allocated with a ``MAX(revision) + 1`` read, keeping the two numbering
+    spaces identical for the ``IcdVersion`` retirement in spec section 6.2 and
+    saving one round trip per write.
+
+    Args:
+        icd:     The ICD header the version belongs to.
+        version: The freshly persisted immutable version row.
+
+    Must run inside the caller's transaction so the snapshot rolls back with
+    the version it describes.
+    """
+    # Idempotent no-op when the backing already exists; this only fires for a
+    # pre-Phase-3 ICD, which would otherwise never start a history at all.
+    ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
+
+    ArtifactVersion.objects.create(
+        tenant=icd.tenant,
+        artifact_id=icd.artifact_id,
+        revision=version.version_number,
+        payload={
+            "name": icd.name,
+            "direction": version.direction,
+            "interface_type": version.interface_type,
+            "semantic_description": version.semantic_description,
+            "preconditions": list(version.preconditions),
+            "postconditions": list(version.postconditions),
+            "invariants": list(version.invariants),
+        },
+    )
 
 
 def _apply_embedding(version: IcdVersion) -> None:
@@ -283,6 +328,10 @@ class IcdManager:
             icd.current_version = version
             icd.save(update_fields=["current_version", "modified_at", "version"])
 
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror v1 into
+            # the shared revision store.
+            _record_artifact_revision(icd, version)
+
             # IF-ICD-INT-002: create realizes TraceLink. The engine stores
             # Artifact IDs, so resolve the ArchitectureElement IDs first.
             TenantContext.set_tenant(str(tenant.id))
@@ -401,6 +450,10 @@ class IcdManager:
             # Advance the header pointer
             icd.current_version = new_version
             icd.save(update_fields=["current_version", "modified_at", "version"])
+
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror vN into
+            # the shared revision store.
+            _record_artifact_revision(icd, new_version)
 
             # IF-ICD-INT-003: audit breaking changes
             if validation_result.is_breaking:

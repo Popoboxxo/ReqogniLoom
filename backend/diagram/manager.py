@@ -26,12 +26,63 @@ from typing import Optional
 
 from audit.services import log_write
 from persistence.artifact_backing import ensure_artifact
+from persistence.models import ArtifactVersion
 from persistence.transactions import atomic_transaction
 
 from diagram.models import Diagram, DiagramVersion, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderableDiagram
 from diagram.traceability_connector import TraceabilityConnector, sync_node_links
 from diagram.validator import DiagramValidator, DiagramValidationError  # noqa: F401 re-export
+
+
+# ---------------------------------------------------------------------------
+# Content history (Datenmodell-Konsolidierung Phase 5, spec section 6.1)
+# ---------------------------------------------------------------------------
+
+def _record_artifact_revision(diagram: Diagram, version: DiagramVersion) -> None:
+    """Append the ``ArtifactVersion`` snapshot mirroring *version*.
+
+    Writes the row directly instead of calling
+    ``application.artifact_version_service.ArtifactVersionService``: this module
+    is Layer 1/Ext and must not import Layer 2 (ADR-01, single entry point).
+
+    The revision number is taken from ``DiagramVersion.version_number`` rather
+    than allocated with a ``MAX(revision) + 1`` read. That keeps the two
+    numbering spaces identical — which is the precondition for retiring
+    ``DiagramVersion`` in favour of this table (spec section 6.2) without
+    renumbering existing history — and saves one round trip per write.
+
+    Silently skipped for a workspace-less legacy Diagram: ``Artifact.workspace``
+    is not nullable, so such a row cannot have a backing Artifact to hang the
+    revision on (same limitation ``create_diagram`` already documents).
+
+    Args:
+        diagram: The Diagram header the version belongs to.
+        version: The freshly persisted immutable version row.
+
+    Must run inside the caller's transaction so the snapshot rolls back with
+    the version it describes.
+    """
+    if diagram.artifact_id is None:
+        if diagram.workspace_id is None:
+            return
+        # Idempotent no-op when the backing already exists; this call only
+        # fires for pre-Phase-3 diagrams, which would otherwise never start
+        # a history at all.
+        ensure_artifact(
+            diagram, artifact_type="Diagram", workspace_id=diagram.workspace_id
+        )
+
+    ArtifactVersion.objects.create(
+        tenant=diagram.tenant,
+        artifact_id=diagram.artifact_id,
+        revision=version.version_number,
+        payload={
+            "payload_format": version.payload_format,
+            "payload": version.payload,
+            "canvas_json": version.canvas_json,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +299,10 @@ class DiagramManager:
         diagram.current_version = version
         diagram.save(update_fields=["current_version", "modified_at"])
 
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror v1 into the
+        # shared revision store.
+        _record_artifact_revision(diagram, version)
+
         # IF-L1-036: audit log entry for create
         log_write(
             actor=str(created_by.id) if created_by else "system",
@@ -348,6 +403,10 @@ class DiagramManager:
         diagram.current_version = new_version
         diagram.modified_by = modified_by
         diagram.save(update_fields=["current_version", "modified_by", "modified_at"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror vN into the
+        # shared revision store.
+        _record_artifact_revision(diagram, new_version)
 
         # IF-L1-036: audit log
         log_write(
