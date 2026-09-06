@@ -18,6 +18,19 @@
 
 ## Eigene Notizen
 
+**Tool-Nutzung bei Agenten-Dispatches (Codebase-Exploration):** Für alle
+dispatchten Agenten (developer, senior-developer, code-reviewer, etc.), die
+in diesem Repo größere Recherche-/Implementierungsarbeit leisten, gilt:
+Codebase-Navigation zuerst über die verfügbaren Graph-/Index-Tools statt
+über rohes Grep/Read, um Tokens zu sparen:
+- **graphify** (`graphify query/path/explain`) — Architektur-/Datei-Fragen, Pflicht laut Hook wenn `graphify-out/graph.json` existiert.
+- **ProjectAtlas** (`mcp__projectatlas__*`, z.B. `atlas_context`, `atlas_search`, `atlas_overview`, `atlas_symbols`) — Datei-/Ordner-Overviews, Symbol-Suche, Purpose-Queue.
+- **tokensave** (`mcp__tokensave__*`, z.B. `tokensave_context`, `tokensave_search`) — Code-Graph-Kontext, Aufrufer/Aufgerufene, wenn Repowise nicht verbunden ist.
+- **Repowise** (`.claude/CLAUDE.md`, `get_answer`/`get_context`/`get_risk`/…) — bevorzugt, wenn MCP-Server verbunden ist (Session-Neustart nötig nach Aktivierung); fällt der Server aus, auf ProjectAtlas/tokensave/graphify ausweichen.
+Erst nach der Graph-/Index-Orientierung gezielt Read/Grep auf konkrete
+Dateien/Zeilen. Rohes Read/Grep bleibt richtig für erschöpfende Literal-
+Suchen (z.B. "jeden Call-Site umbenennen") und zum tatsächlichen Editieren.
+
 Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
 
 ---
@@ -108,7 +121,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
+Generiert von agent-meta v0.101.0-beta.3 — `2026-09-06`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 
