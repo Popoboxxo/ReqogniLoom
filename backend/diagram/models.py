@@ -93,6 +93,34 @@ class Diagram(TenantScopedModel):
         blank=True,
         related_name="+",
     )
+    # -- Current content (Datenmodell-Konsolidierung Task 28c-1, Expand) -----
+    # DiagramVersion is both this subsystem's history store *and* the only
+    # place the current payload lives. Task 28a moved the history into
+    # persistence.ArtifactVersion; these three columns take over the "current
+    # content" half so DiagramVersion can be dropped in Task 28c-2.
+    #
+    # During the Expand phase both stores coexist: every write path still
+    # writes DiagramVersion and still moves `current_version`, and nothing
+    # reads the columns below yet. Migration 0010 backfills them from
+    # `current_version`; Task 28c-2 repoints the readers and the writers.
+    #
+    # `blank=True, default=""` rather than the non-null NOT-NULL shape of
+    # DiagramVersion.payload_format: a Diagram with `current_version IS NULL`
+    # has no payload to backfill and must stay representable.
+    payload_format = models.CharField(
+        max_length=16,
+        choices=PayloadFormat.choices,
+        blank=True,
+        default="",
+    )
+    payload = models.TextField(blank=True, default="")
+    canvas_json = models.JSONField(null=True, blank=True, default=None)
+    # Revision number of the content above, in the same numbering space as
+    # DiagramVersion.version_number and persistence.ArtifactVersion.revision
+    # (diagram.manager._record_artifact_revision keeps the two identical).
+    # 0 means "no revision recorded yet" — the only valid state for a Diagram
+    # with no current_version.
+    current_revision = models.PositiveIntegerField(default=0)
     # Optional free-text description for UI / MCP context
     description = models.TextField(blank=True, default="")
     # Codeberg #353 Task 3 / #392: shadow Artifact side-channel. Diagram is
