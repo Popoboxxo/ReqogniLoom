@@ -1,11 +1,11 @@
 """
 Tests for ArtifactDiffService diagram/glossary version+diff helpers (REQ-142).
 
-req_id: REQ-142 — real per-version diff/versions endpoints for Diagram and
-        GlossaryTerm, backed by real history stores (DiagramVersion for
-        Diagram; the generic ArtifactVersion store, via
-        ArtifactVersionService, for GlossaryTerm since Task 28b) rather than
-        the single-row "current state only" fallback used for
+req_id: REQ-142 — real per-revision diff/versions endpoints for Diagram and
+        GlossaryTerm, both backed by the generic ArtifactVersion store via
+        ArtifactVersionService (GlossaryTerm since Task 28b, Diagram since
+        Task 28c-2 retired DiagramVersion) rather than the single-row
+        "current state only" fallback used for
         Requirement/ArchitectureElement/etc.
 
 Covers:
@@ -24,7 +24,6 @@ rest_api/tests/test_versioning.py, which avoid a django_db dependency.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -49,19 +48,24 @@ DIAGRAM_ID = uuid.uuid4()
 TERM_ID = uuid.uuid4()
 
 
-def _make_diagram_version(
-    version_number: int,
+def _make_diagram(artifact_id=None) -> MagicMock:
+    """A Diagram row stub carrying the backing Artifact id the helpers read."""
+    diagram = MagicMock()
+    diagram.artifact_id = artifact_id if artifact_id is not None else uuid.uuid4()
+    return diagram
+
+
+def _diagram_payload(
     payload: str = "graph TD;\nA-->B",
     payload_format: str = "mermaid",
     canvas_json=None,
-) -> MagicMock:
-    v = MagicMock()
-    v.version_number = version_number
-    v.payload = payload
-    v.payload_format = payload_format
-    v.canvas_json = canvas_json
-    v.created_at = datetime(2026, 1, version_number, tzinfo=timezone.utc)
-    return v
+) -> dict:
+    """One stored ArtifactVersion payload for a Diagram revision."""
+    return {
+        "payload_format": payload_format,
+        "payload": payload,
+        "canvas_json": canvas_json,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -70,27 +74,50 @@ def _make_diagram_version(
 
 
 class TestListVersionsForDiagram:
-    """REQ-142: DiagramVersion listing must be chronological (version_number asc)."""
+    """REQ-142/Task 28c-2: listing delegates to ArtifactVersionService.list_revisions."""
 
     def test_returns_versions_chronologically(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        v1 = _make_diagram_version(1, payload="A")
-        v2 = _make_diagram_version(2, payload="B")
+        diagram = _make_diagram()
+        expected = [
+            {"version": 1, "label": "v1", "modified_at": None, "content_available": True},
+            {"version": 2, "label": "v2", "modified_at": None, "content_available": True},
+        ]
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.exists.return_value = True
-                with patch("diagram.models.DiagramVersion.objects") as version_objects:
-                    version_objects.filter.return_value.order_by.return_value = [v1, v2]
+                diagram_objects.filter.return_value.first.return_value = diagram
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.list_revisions.return_value = expected
                     result = svc.list_versions_for_diagram(DIAGRAM_ID, ctx)
 
         assert [r["version"] for r in result] == [1, 2]
         assert result[0]["label"] == "v1"
-        version_objects.filter.return_value.order_by.assert_called_once_with(
-            "version_number"
+        version_svc_cls.return_value.list_revisions.assert_called_once_with(
+            diagram.artifact_id, ctx
         )
+
+    def test_workspaceless_diagram_has_no_recorded_history(self):
+        """Task 28c-2: no backing Artifact -> nothing to hang revisions off.
+
+        Artifact.workspace is not nullable, so a workspace-less legacy Diagram
+        can never have had an ArtifactVersion row (diagram.manager has skipped
+        those since Task 27). An empty list is the honest answer.
+        """
+        svc = ArtifactDiffService()
+        ctx = _make_ctx()
+
+        diagram = MagicMock()
+        diagram.artifact_id = None
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch("diagram.models.Diagram.objects") as diagram_objects:
+                diagram_objects.filter.return_value.first.return_value = diagram
+                assert svc.list_versions_for_diagram(DIAGRAM_ID, ctx) == []
 
     def test_unknown_diagram_raises_not_found(self):
         svc = ArtifactDiffService()
@@ -98,7 +125,7 @@ class TestListVersionsForDiagram:
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.exists.return_value = False
+                diagram_objects.filter.return_value.first.return_value = None
                 with pytest.raises(NotFoundError):
                     svc.list_versions_for_diagram(DIAGRAM_ID, ctx)
 
@@ -109,25 +136,26 @@ class TestListVersionsForDiagram:
 
 
 class TestDiffForDiagram:
-    """REQ-142: field-level diff between two real DiagramVersion snapshots."""
+    """REQ-142: field-level diff between two recorded Diagram revisions."""
 
     def test_diff_detects_payload_change(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        v1 = _make_diagram_version(1, payload="graph TD;\nA-->B")
-        v2 = _make_diagram_version(2, payload="graph TD;\nA-->C")
-
-        def _filter_side_effect(**kwargs):
-            m = MagicMock()
-            m.first.return_value = v1 if kwargs.get("version_number") == 1 else v2
-            return m
+        payloads = {
+            1: _diagram_payload(payload="graph TD;\nA-->B"),
+            2: _diagram_payload(payload="graph TD;\nA-->C"),
+        }
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.exists.return_value = True
-                with patch("diagram.models.DiagramVersion.objects") as version_objects:
-                    version_objects.filter.side_effect = _filter_side_effect
+                diagram_objects.filter.return_value.first.return_value = _make_diagram()
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.side_effect = (
+                        lambda _artifact_id, revision, _ctx: payloads.get(revision)
+                    )
                     result = svc.diff_for_diagram(
                         DIAGRAM_ID, from_version=1, to_version=2, ctx=ctx
                     )
@@ -145,13 +173,15 @@ class TestDiffForDiagram:
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        v1 = _make_diagram_version(1)
-
         with patch.object(svc, "_set_tenant_context"):
             with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.exists.return_value = True
-                with patch("diagram.models.DiagramVersion.objects") as version_objects:
-                    version_objects.filter.return_value.first.return_value = v1
+                diagram_objects.filter.return_value.first.return_value = _make_diagram()
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = (
+                        _diagram_payload()
+                    )
                     result = svc.diff_for_diagram(
                         DIAGRAM_ID, from_version=0, to_version=1, ctx=ctx
                     )
@@ -166,9 +196,11 @@ class TestDiffForDiagram:
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.exists.return_value = True
-                with patch("diagram.models.DiagramVersion.objects") as version_objects:
-                    version_objects.filter.return_value.first.return_value = None
+                diagram_objects.filter.return_value.first.return_value = _make_diagram()
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = None
                     with pytest.raises(NotFoundError, match="99"):
                         svc.diff_for_diagram(
                             DIAGRAM_ID, from_version=0, to_version=99, ctx=ctx
@@ -180,7 +212,7 @@ class TestDiffForDiagram:
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.exists.return_value = False
+                diagram_objects.filter.return_value.first.return_value = None
                 with pytest.raises(NotFoundError):
                     svc.diff_for_diagram(
                         DIAGRAM_ID, from_version=0, to_version=1, ctx=ctx

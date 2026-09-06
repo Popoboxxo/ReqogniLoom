@@ -517,13 +517,12 @@ class TestDiagramToolGroupExportSvg:
             # node type past validate_node_graph (write path validates on
             # create/update, so this simulates a bypass — e.g. a future
             # write path or manual DB edit — reaching the render path).
-            from diagram.models import DiagramVersion
+            # Task 28c-2: the current payload lives on the Diagram row itself.
+            from diagram.models import Diagram
 
-            version = DiagramVersion.objects.get(
-                diagram_id=diagram_id, version_number=1
-            )
-            version.payload = version.payload.replace('"box"', '"hexagon"')
-            version.save(update_fields=["payload"])
+            diagram = Diagram.objects.get(id=diagram_id)
+            diagram.payload = diagram.payload.replace('"box"', '"hexagon"')
+            diagram.save(update_fields=["payload"])
 
             get_result = group._handle_get(
                 params={"id": diagram_id, "export_format": "svg"},

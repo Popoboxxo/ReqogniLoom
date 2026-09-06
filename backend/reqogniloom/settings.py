@@ -183,7 +183,7 @@ DJANGO_APPS = [
     # `django.contrib.postgres` now errors unless this app is installed.
     # pgvector's HnswIndex subclasses PostgresIndex, so the five models
     # carrying one (persistence.Requirement/TraceLink, memory.WorkspaceMemory/
-    # UserTenantMemory, icd.IcdVersion) failed `manage.py check` on 6.1.
+    # UserTenantMemory, icd.Icd) failed `manage.py check` on 6.1.
     # Safe to add: the app declares no models and ships no migrations
     # directory, so it creates no tables and no migration is generated — the
     # RLS/multi-tenancy surface is untouched. Its `ready()` only registers

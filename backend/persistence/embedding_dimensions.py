@@ -27,7 +27,7 @@ read-side guard (``application.search_service._run_semantic_query``)
 short-circuited 100% of semantic passes -- silently, by design, because
 embedding generation is best-effort and must never fail the surrounding write.
 Net effect: zero embeddings were ever persisted for
-Requirement/TraceLink/IcdVersion and ``artifact.search``'s semantic pass was
+Requirement/TraceLink/Icd and ``artifact.search``'s semantic pass was
 permanently empty on every default deployment.
 
 This module pins all five columns to the dimension the *default* provider

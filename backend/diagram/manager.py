@@ -7,15 +7,20 @@ req_id: REQ-L1-027, REQ-L2-DS-001, REQ-L3-DM-001, REQ-L3-DM-002,
 
 External interfaces:
   IF-L1-032 (input):  ApplicationService triggers create/update/get/list
-  IF-L1-035 (output): Diagram + DiagramVersion entities → PersistenceLayer
+  IF-L1-035 (output): Diagram entities → PersistenceLayer
   IF-L1-036 (output): Audit log entries → AuditLog
   IF-DS-INT-001:      DiagramManager → DiagramValidator
   IF-DS-INT-002:      DiagramManager → DiagramRenderer
   IF-DS-INT-003:      DiagramManager → TraceabilityConnector
 
-Coordinates CRUD operations on Diagram artefacts.  Every content-changing
-operation produces a new immutable DiagramVersion (REQ-L2-DS-001).  The
-DiagramVersion history is never modified after creation.
+Coordinates CRUD operations on Diagram artefacts. Every content-changing
+operation overwrites the Diagram's payload and appends an immutable snapshot
+of it to ``persistence.ArtifactVersion`` (REQ-L2-DS-001). Recorded revisions
+are never modified after creation.
+
+Datenmodell-Konsolidierung Task 28c-2 retired the ``DiagramVersion`` table;
+:class:`diagram.models.DiagramRevision` is the read model those snapshots are
+rehydrated into.
 """
 from __future__ import annotations
 
@@ -29,43 +34,67 @@ from persistence.artifact_backing import ensure_artifact
 from persistence.models import ArtifactVersion
 from persistence.transactions import atomic_transaction
 
-from diagram.models import Diagram, DiagramVersion, DiagramType, PayloadFormat
+from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderableDiagram
 from diagram.traceability_connector import TraceabilityConnector, sync_node_links
 from diagram.validator import DiagramValidator, DiagramValidationError  # noqa: F401 re-export
+
+
+class DiagramRevisionNotFoundError(LookupError):
+    """No recorded content revision exists under the requested number.
+
+    Task 28c-2 replacement for ``DiagramVersion.DoesNotExist``, which callers
+    used to catch when asking ``get_diagram`` for a historical version.
+    Subclasses ``LookupError`` so ``except LookupError`` keeps catching it.
+    """
+
+
+#: Content columns a write touches on ``Diagram``, plus the audit columns
+#: ``AuditableModel.save`` maintains. Named once so create and update cannot
+#: drift apart in what they persist.
+_CONTENT_UPDATE_FIELDS = [
+    "payload_format",
+    "payload",
+    "canvas_json",
+    "current_revision",
+    "modified_at",
+]
 
 
 # ---------------------------------------------------------------------------
 # Content history (Datenmodell-Konsolidierung Phase 5, spec section 6.1)
 # ---------------------------------------------------------------------------
 
-def _record_artifact_revision(diagram: Diagram, version: DiagramVersion) -> None:
-    """Append the ``ArtifactVersion`` snapshot mirroring *version*.
+def _record_artifact_revision(diagram: Diagram) -> int:
+    """Append the ``ArtifactVersion`` snapshot of *diagram*'s current content.
 
     Writes the row directly instead of calling
     ``application.artifact_version_service.ArtifactVersionService``: this module
     is Layer 1/Ext and must not import Layer 2 (ADR-01, single entry point).
 
-    The revision number is taken from ``DiagramVersion.version_number`` rather
-    than allocated with a ``MAX(revision) + 1`` read. That keeps the two
-    numbering spaces identical — which is the precondition for retiring
-    ``DiagramVersion`` in favour of this table (spec section 6.2) without
-    renumbering existing history — and saves one round trip per write.
+    The revision number is allocated as ``current_revision + 1`` while holding
+    a row lock on the Diagram, the same discipline
+    ``ArtifactVersionService.record`` uses on the Artifact row, so two
+    concurrent writers cannot allocate the same number and collide on
+    ``uq_artifact_version_revision``.
 
-    Silently skipped for a workspace-less legacy Diagram: ``Artifact.workspace``
-    is not nullable, so such a row cannot have a backing Artifact to hang the
-    revision on (same limitation ``create_diagram`` already documents).
+    The counter is advanced either way, but the snapshot is skipped for a
+    workspace-less legacy Diagram: ``Artifact.workspace`` is not nullable, so
+    such a row cannot have a backing Artifact to hang the revision on (the same
+    limitation ``create_diagram`` already documents, and the same rows Task 28a
+    could not copy history for). Its current content still lives on the row
+    itself; only its *history* is unavailable.
 
     Args:
-        diagram: The Diagram header the version belongs to.
-        version: The freshly persisted immutable version row.
+        diagram: The Diagram, already carrying the content to snapshot.
+
+    Returns:
+        The newly allocated revision number.
 
     Must run inside the caller's transaction so the snapshot rolls back with
-    the version it describes.
+    the content it describes.
     """
-    if diagram.artifact_id is None:
-        if diagram.workspace_id is None:
-            return
+    if diagram.artifact_id is None and diagram.workspace_id is not None:
         # Idempotent no-op when the backing already exists; this call only
         # fires for pre-Phase-3 diagrams, which would otherwise never start
         # a history at all.
@@ -73,16 +102,29 @@ def _record_artifact_revision(diagram: Diagram, version: DiagramVersion) -> None
             diagram, artifact_type="Diagram", workspace_id=diagram.workspace_id
         )
 
-    ArtifactVersion.objects.create(
-        tenant=diagram.tenant,
-        artifact_id=diagram.artifact_id,
-        revision=version.version_number,
-        payload={
-            "payload_format": version.payload_format,
-            "payload": version.payload,
-            "canvas_json": version.canvas_json,
-        },
+    # The lock is on the row whose counter is being incremented. update_diagram
+    # holds no lock of its own, so this is where concurrent writers serialise.
+    locked_revision = (
+        Diagram.unscoped.select_for_update()
+        .filter(pk=diagram.pk)
+        .values_list("current_revision", flat=True)
+        .first()
     )
+    revision = (locked_revision or 0) + 1
+    diagram.current_revision = revision
+
+    if diagram.artifact_id is not None:
+        ArtifactVersion.objects.create(
+            tenant=diagram.tenant,
+            artifact_id=diagram.artifact_id,
+            revision=revision,
+            payload={
+                "payload_format": diagram.payload_format,
+                "payload": diagram.payload,
+                "canvas_json": diagram.canvas_json,
+            },
+        )
+    return revision
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +182,7 @@ def _sync_node_graph_links(
     always run together on every node_graph create/update. No-op for every
     other ``payload_format`` — mirrors :func:`_canonicalize_payload`.
 
-    MUST run AFTER the Diagram/DiagramVersion rows for this write have been
-    persisted (``sync_node_links`` needs ``diagram.tenant_id`` and, for
+    MUST run AFTER the Diagram row for this write has been persisted (``sync_node_links`` needs ``diagram.tenant_id`` and, for
     Diagrams that already have refs, the shadow Artifact) and inside the same
     ``@atomic_transaction`` as the rest of the write, so an aborted
     reconciliation rolls back the whole save.
@@ -172,10 +213,10 @@ def _sync_node_graph_links(
 
 @dataclass
 class DiagramResult:
-    """Return type for get_diagram — bundles header, version and render data."""
+    """Return type for get_diagram — bundles the row, a revision and render data."""
 
     diagram: Diagram
-    version: Optional[DiagramVersion]
+    version: Optional[DiagramRevision]
     renderable: Optional[RenderableDiagram]
 
 
@@ -226,11 +267,11 @@ class DiagramManager:
         canvas_json: Optional[dict] = None,
         workspace_id: Optional[uuid.UUID] = None,
     ) -> Diagram:
-        """Create a new Diagram and its initial DiagramVersion (v1).
+        """Create a new Diagram with its content at revision 1.
 
         REQ-L3-DM-001 acceptance criteria:
           - Payload is validated before persistence (IF-DS-INT-001).
-          - Creates Diagram entity and DiagramVersion v1 (IF-L1-035).
+          - Creates the Diagram entity and records revision 1 (IF-L1-035).
           - Returns the UUID of the created Diagram.
           - Writes audit log entry (IF-L1-036).
           - Optionally creates a 'documents' TraceLink if target_id is given
@@ -261,7 +302,7 @@ class DiagramManager:
         # pre-persistence — no-op for every other payload_format.
         content = _canonicalize_payload(payload_format, content)
 
-        # IF-L1-035: persist Diagram header (current_version set after version exists)
+        # IF-L1-035: persist the Diagram row, content included.
         diagram = Diagram.objects.create(
             name=name,
             diagram_type=diagram_type,
@@ -270,6 +311,9 @@ class DiagramManager:
             created_by=created_by,
             modified_by=created_by,
             workspace_id=workspace_id,
+            payload_format=payload_format,
+            payload=content,
+            canvas_json=canvas_json,
         )
 
         # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the backing
@@ -283,25 +327,11 @@ class DiagramManager:
                 diagram, artifact_type="Diagram", workspace_id=workspace_id
             )
 
-        # IF-L1-035: persist initial immutable version
-        version = DiagramVersion.objects.create(
-            diagram=diagram,
-            version_number=1,
-            payload_format=payload_format,
-            payload=content,
-            canvas_json=canvas_json,
-            tenant=tenant,
-            created_by=created_by,
-            modified_by=created_by,
-        )
-
-        # Update current_version pointer
-        diagram.current_version = version
-        diagram.save(update_fields=["current_version", "modified_at"])
-
-        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror v1 into the
-        # shared revision store.
-        _record_artifact_revision(diagram, version)
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): record revision 1 in
+        # the shared revision store and advance the row's counter.
+        _record_artifact_revision(diagram)
+        diagram.save(update_fields=["current_revision", "modified_at"])
+        version = DiagramRevision.from_diagram(diagram)
 
         # IF-L1-036: audit log entry for create
         log_write(
@@ -347,12 +377,12 @@ class DiagramManager:
         modified_by: Optional[object] = None,
         target_id: Optional[uuid.UUID] = None,
         canvas_json: Optional[dict] = None,
-    ) -> DiagramVersion:
-        """Create a new DiagramVersion (N+1); old versions remain unchanged.
+    ) -> DiagramRevision:
+        """Record content revision N+1; recorded revisions remain unchanged.
 
         REQ-L3-DM-002 acceptance criteria:
-          - New version created only if payload is valid (IF-DS-INT-001).
-          - Existing versions remain unmodified.
+          - New revision recorded only if payload is valid (IF-DS-INT-001).
+          - Existing revisions remain unmodified.
           - Audit log entry written (IF-L1-036).
 
         Args:
@@ -363,7 +393,7 @@ class DiagramManager:
             target_id:      Optional UUID for additional TraceLink.
 
         Returns:
-            The newly created DiagramVersion ORM object.
+            The newly recorded DiagramRevision.
 
         Raises:
             Diagram.DoesNotExist:  If diagram_id is not found.
@@ -378,35 +408,19 @@ class DiagramManager:
         # pre-persistence — no-op for every other payload_format.
         content = _canonicalize_payload(payload_format, content)
 
-        # Determine next version number — find current max
-        last_version = (
-            DiagramVersion.unscoped
-            .filter(diagram=diagram)
-            .order_by("-version_number")
-            .first()
-        )
-        next_number = (last_version.version_number + 1) if last_version else 1
-
-        # IF-L1-035: persist new immutable version
-        new_version = DiagramVersion.objects.create(
-            diagram=diagram,
-            version_number=next_number,
-            payload_format=payload_format,
-            payload=content,
-            canvas_json=canvas_json,
-            tenant=diagram.tenant,
-            created_by=modified_by,
-            modified_by=modified_by,
-        )
-
-        # Update current_version pointer on header
-        diagram.current_version = new_version
+        # IF-L1-035: overwrite the content in place — the Diagram row IS the
+        # current content since Task 28c-2; history is the ArtifactVersion
+        # trail appended below.
+        diagram.payload_format = payload_format
+        diagram.payload = content
+        diagram.canvas_json = canvas_json
         diagram.modified_by = modified_by
-        diagram.save(update_fields=["current_version", "modified_by", "modified_at"])
 
-        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror vN into the
-        # shared revision store.
-        _record_artifact_revision(diagram, new_version)
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): record vN in the
+        # shared revision store and advance the row's counter.
+        _record_artifact_revision(diagram)
+        diagram.save(update_fields=[*_CONTENT_UPDATE_FIELDS, "modified_by"])
+        new_version = DiagramRevision.from_diagram(diagram)
 
         # IF-L1-036: audit log
         log_write(
@@ -455,8 +469,8 @@ class DiagramManager:
 
         Args:
             diagram_id:     UUID of the diagram to retrieve.
-            version_number: Optional specific version to retrieve.
-                            Defaults to current_version.
+            version_number: Optional specific revision to retrieve.
+                            Defaults to the current one.
 
         Returns:
             DiagramResult with diagram, version and renderable fields.
@@ -469,23 +483,21 @@ class DiagramManager:
                 rows are excluded via ``workflow.services.outdated_item_ids``
                 instead of a ``lifecycle_status`` filter, mirroring
                 ``diagram.services.list_diagrams``.
-            DiagramVersion.DoesNotExist: If version_number not found.
+            DiagramRevisionNotFoundError: If version_number has no recorded
+                snapshot.
         """
         from workflow.services import outdated_item_ids
 
-        diagram = (
-            Diagram.objects.select_related("current_version")
-            .exclude(id__in=outdated_item_ids("Diagram"))
-            .get(id=diagram_id)
-        )
+        diagram = Diagram.objects.exclude(
+            id__in=outdated_item_ids("Diagram")
+        ).get(id=diagram_id)
 
-        if version_number is not None:
-            version = DiagramVersion.unscoped.get(
-                diagram=diagram,
-                version_number=version_number,
-            )
+        if version_number is not None and version_number != diagram.current_revision:
+            version = self._resolve_revision(diagram, version_number)
+        elif diagram.current_revision:
+            version = DiagramRevision.from_diagram(diagram)
         else:
-            version = diagram.current_version
+            version = None
 
         renderable = None
         if version is not None:
@@ -510,34 +522,77 @@ class DiagramManager:
     def list_versions(
         self,
         diagram_id: uuid.UUID,
-    ) -> list[DiagramVersion]:
-        """Return all DiagramVersions for a Diagram, chronologically.
+    ) -> list[DiagramRevision]:
+        """Return all recorded content revisions of a Diagram, chronologically.
 
         REQ-L3-DM-004 acceptance criteria:
-          - List includes version_number, created_at, created_by.
+          - List includes version_number and created_at.
 
         Args:
-            diagram_id: UUID of the parent Diagram.
+            diagram_id: UUID of the Diagram.
 
         Returns:
-            List of DiagramVersion objects sorted ascending by version_number.
+            List of DiagramRevision objects sorted ascending by version_number.
 
         Raises:
             Diagram.DoesNotExist: If diagram_id not found.
         """
         # Verify the diagram is accessible within the active tenant context.
-        Diagram.objects.get(id=diagram_id)
+        diagram = Diagram.objects.get(id=diagram_id)
+        if diagram.artifact_id is None:
+            # Workspace-less legacy row: no backing Artifact, so no recorded
+            # history. Its current content is all there is.
+            return (
+                [DiagramRevision.from_diagram(diagram)]
+                if diagram.current_revision
+                else []
+            )
 
-        return list(
-            DiagramVersion.unscoped
-            .filter(diagram_id=diagram_id)
-            .select_related("created_by")
-            .order_by("version_number")
+        return [
+            DiagramRevision.from_payload(
+                diagram_id=diagram_id,
+                revision=row.revision,
+                payload=row.payload or {},
+                created_at=row.created_at,
+            )
+            for row in ArtifactVersion.unscoped.filter(
+                artifact_id=diagram.artifact_id, tenant_id=diagram.tenant_id
+            ).order_by("revision")
+        ]
+
+    @staticmethod
+    def _resolve_revision(
+        diagram: Diagram, version_number: int
+    ) -> DiagramRevision:
+        """Return the recorded snapshot for *version_number*.
+
+        Raises:
+            DiagramRevisionNotFoundError: No snapshot stored under that number.
+        """
+        row = (
+            ArtifactVersion.unscoped.filter(
+                artifact_id=diagram.artifact_id,
+                tenant_id=diagram.tenant_id,
+                revision=version_number,
+            ).first()
+            if diagram.artifact_id is not None
+            else None
+        )
+        if row is None:
+            raise DiagramRevisionNotFoundError(
+                f"Revision {version_number} not found for diagram {diagram.pk}"
+            )
+        return DiagramRevision.from_payload(
+            diagram_id=diagram.pk,
+            revision=row.revision,
+            payload=row.payload or {},
+            created_at=row.created_at,
         )
 
 
 __all__ = [
     "DiagramManager",
     "DiagramResult",
+    "DiagramRevisionNotFoundError",
     "DiagramValidationError",
 ]

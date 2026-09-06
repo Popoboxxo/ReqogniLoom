@@ -40,6 +40,7 @@ class TestServiceFacadeCreate:
                 payload_format="mermaid",
                 content=VALID_MERMAID_BLOCK,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
         assert diagram.id is not None
@@ -53,9 +54,10 @@ class TestServiceFacadeCreate:
                 payload_format="mermaid",
                 content=VALID_MERMAID_FLOW,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
-        assert diagram.current_version.version_number == 1
+        assert diagram.current_revision == 1
 
 
 class TestServiceFacadeUpdate:
@@ -69,6 +71,7 @@ class TestServiceFacadeUpdate:
                 payload_format="mermaid",
                 content=VALID_MERMAID_FLOW,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             new_version = update_diagram(
                 diagram_id=diagram.id,
@@ -90,6 +93,7 @@ class TestServiceFacadeGet:
                 payload_format="mermaid",
                 content="flowchart LR\n  U-->S",
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             result = get_diagram(diagram.id)
 
@@ -165,6 +169,7 @@ class TestServiceFacadeDelete:
                 payload_format="mermaid",
                 content=VALID_MERMAID_BLOCK,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
 
         with active_tenant(tenant_b):
@@ -289,6 +294,7 @@ class TestServiceFacadeListVersions:
                 payload_format="mermaid",
                 content=VALID_MERMAID_BLOCK,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             update_diagram(
                 diagram_id=diagram.id,
@@ -313,6 +319,7 @@ class TestServiceFacadeMcpArtifact:
                 payload_format="mermaid",
                 content=VALID_MERMAID_BLOCK,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
             response = get_mcp_artifact(str(diagram.id))
 

@@ -9,12 +9,20 @@ arch_id: ARCH-L1-014
 Central coordination service for Interface Control Documents.
 
 Implements:
-  - create_icd  : creates Icd + IcdVersion(v1), links via TraceabilityConnector
-  - update_icd  : appends a new IcdVersion, runs breaking-change detection,
-                  calls AuditLogger on breaking changes
+  - create_icd  : creates the Icd with its contract at revision 1, links via
+                  TraceabilityConnector
+  - update_icd  : overwrites the contract in place, appends the new revision
+                  snapshot, runs breaking-change detection, calls AuditLogger
+                  on breaking changes
   - validate_compatibility: standalone contract check without persisting
-  - get_icd_history: all IcdVersions for one Icd
-  - get_icd_versions: current versions for a workspace (IF-L1-038, BaselineService)
+  - get_icd_history: all contract revisions of one Icd
+  - get_icd_versions: current revision per ICD in a workspace (IF-L1-038,
+                      BaselineService)
+
+Datenmodell-Konsolidierung Task 28c-2: the ``IcdVersion`` table is gone. The
+current contract lives on the :class:`icd.models.Icd` header and its history in
+the one shared :class:`persistence.models.ArtifactVersion` store, rehydrated
+into :class:`icd.models.IcdRevision` for readers.
 
 Internal interfaces consumed:
   IF-ICD-INT-001: ContractValidator.validate_contract
@@ -40,93 +48,129 @@ from persistence.models import ArtifactVersion
 
 from icd.audit_logger import get_audit_logger
 from icd.contract_validator import ValidationResult, get_validator
-from icd.models import Icd, IcdVersion
+from icd.models import Icd, IcdRevision
 from icd.traceability_connector import get_connector
 
 logger = logging.getLogger(__name__)
 
+#: Fields written to ``Icd`` by a contract create/update, plus the audit
+#: columns ``AuditableModel.save`` maintains. Named once so the two write
+#: paths cannot drift apart in what they persist.
+_CONTRACT_UPDATE_FIELDS = [
+    "direction",
+    "interface_type",
+    "semantic_description",
+    "preconditions",
+    "postconditions",
+    "invariants",
+    "embedding",
+    "current_revision",
+    "modified_at",
+    "version",
+]
 
-def _record_artifact_revision(icd: Icd, version: IcdVersion) -> None:
-    """Append the ``ArtifactVersion`` snapshot mirroring *version*.
+
+def _record_artifact_revision(icd: Icd) -> int:
+    """Append the ``ArtifactVersion`` snapshot of *icd*'s current contract.
 
     Writes the row directly instead of calling
     ``application.artifact_version_service.ArtifactVersionService``: this module
     is Layer 1/Ext and must not import Layer 2 (ADR-01, single entry point).
 
     The payload carries the field list registered for ``"Icd"`` in
-    ``application.artifact_diff_service._ENTITY_FIELDS``. It spans two rows —
-    ``name`` lives on the Icd header, the contract fields on the immutable
-    version — so it is assembled here rather than snapshotted off one entity.
+    ``application.artifact_diff_service._ENTITY_FIELDS`` — including
+    ``parameters_snapshot``, the by-value rendering of the structured
+    parameters, which are current-state-only child rows and would otherwise be
+    the one part of an ICD with no recoverable history.
 
-    The revision number is taken from ``IcdVersion.version_number`` rather than
-    allocated with a ``MAX(revision) + 1`` read, keeping the two numbering
-    spaces identical for the ``IcdVersion`` retirement in spec section 6.2 and
-    saving one round trip per write.
+    The revision number is allocated as ``current_revision + 1`` while holding
+    a row lock on the ICD header, the same discipline
+    ``ArtifactVersionService.record`` uses on the Artifact row, so two
+    concurrent writers cannot allocate the same number and collide on
+    ``uq_artifact_version_revision``.
 
     Args:
-        icd:     The ICD header the version belongs to.
-        version: The freshly persisted immutable version row.
+        icd: The ICD header, already carrying the contract to snapshot.
+
+    Returns:
+        The newly allocated revision number.
 
     Must run inside the caller's transaction so the snapshot rolls back with
-    the version it describes.
+    the contract it describes.
     """
     # Idempotent no-op when the backing already exists; this only fires for a
     # pre-Phase-3 ICD, which would otherwise never start a history at all.
     ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
 
+    # The lock is on the row whose counter is being incremented. update_icd
+    # already holds it; create_icd's row is this transaction's own uncommitted
+    # INSERT. Re-reading through it makes the allocation correct for any
+    # future caller that holds neither.
+    locked_revision = (
+        Icd.unscoped.select_for_update()
+        .filter(pk=icd.pk)
+        .values_list("current_revision", flat=True)
+        .first()
+    )
+    revision = (locked_revision or 0) + 1
+    icd.current_revision = revision
+
     ArtifactVersion.objects.create(
         tenant=icd.tenant,
         artifact_id=icd.artifact_id,
-        revision=version.version_number,
+        revision=revision,
         payload={
             "name": icd.name,
-            "direction": version.direction,
-            "interface_type": version.interface_type,
-            "semantic_description": version.semantic_description,
-            "preconditions": list(version.preconditions),
-            "postconditions": list(version.postconditions),
-            "invariants": list(version.invariants),
+            "direction": icd.direction,
+            "interface_type": icd.interface_type,
+            "semantic_description": icd.semantic_description,
+            "preconditions": list(icd.preconditions or []),
+            "postconditions": list(icd.postconditions or []),
+            "invariants": list(icd.invariants or []),
+            "parameters_snapshot": icd.parameters_snapshot,
         },
     )
+    return revision
 
 
-def _apply_embedding(version: IcdVersion) -> None:
-    """Best-effort: set ``version.embedding`` in-place before it is saved.
+def _apply_embedding(icd: Icd) -> None:
+    """Best-effort: set ``icd.embedding`` in-place before the header is saved.
 
-    REQ-L2-VS-004. IcdVersion is immutable (BEFORE UPDATE trigger), so the
-    embedding MUST be assigned before the initial INSERT — it can never be
-    patched in afterwards. Never raises: a provider/network failure must not
-    fail the surrounding create/update transaction (best-effort, mirrors
-    RequirementService._generate_and_store_embedding).
+    REQ-L2-VS-004. Unlike the retired immutable ``IcdVersion``, the ICD header
+    is mutable, so the embedding is regenerated on every contract change and a
+    generation that failed once can simply be retried by the next write (or by
+    ``manage.py backfill_embeddings --model icd``). Never raises: a
+    provider/network failure must not fail the surrounding create/update
+    transaction (best-effort, mirrors
+    ``RequirementService._generate_and_store_embedding``).
     """
     try:
         from llm_adapter.embedding_service import (
             generate_embedding,
-            get_icd_version_embedding_text,
+            get_icd_embedding_text,
             warn_dimension_mismatch,
         )
 
-        embedding = generate_embedding(get_icd_version_embedding_text(version))
-        field_dimensions = IcdVersion._meta.get_field("embedding").dimensions
+        embedding = generate_embedding(get_icd_embedding_text(icd))
+        field_dimensions = Icd._meta.get_field("embedding").dimensions
         if embedding is not None and len(embedding) == field_dimensions:
-            version.embedding = embedding
+            icd.embedding = embedding
         elif embedding is not None:
             # Dimension mismatch (a non-default EMBEDDING_PROVIDER whose
             # native width differs from EMBEDDING_VECTOR_DIMENSIONS — see
             # RequirementService._generate_and_store_embedding and #794 for
-            # the full rationale). Unlike the Requirement/TraceLink write
-            # paths, this function only sets the in-memory attribute; the
-            # actual INSERT happens later, outside this try/except, so an
-            # unguarded assignment here would surface as an *uncaught*
-            # DataError at save() time instead of a caught one here. Skip
-            # the assignment so ``version.embedding`` stays unset (None).
+            # the full rationale). This function only sets the in-memory
+            # attribute; the actual write happens later, outside this
+            # try/except, so an unguarded assignment would surface as an
+            # *uncaught* DataError at save() time instead of a caught one
+            # here. Skip the assignment so the previous value survives.
             warn_dimension_mismatch(
                 "IcdManager", len(embedding), field_dimensions
             )
     except Exception as exc:  # noqa: BLE001 — best-effort
         logger.debug(
             "IcdManager: embedding generation skipped for icd=%s: %s",
-            getattr(version, "icd_id", None),
+            getattr(icd, "pk", None),
             exc,
         )
 
@@ -159,7 +203,7 @@ class IcdCreateDTO:
 
 @dataclass
 class IcdUpdateDTO:
-    """Input payload for updating an existing ICD (appends a new IcdVersion).
+    """Input payload for updating an ICD (records a new contract revision).
 
     leaf_id: COMP-ICD-001
     req_id:  REQ-L2-ICD-001, REQ-L2-ICD-002, REQ-L2-ICD-003
@@ -176,13 +220,13 @@ class IcdUpdateDTO:
 
 @dataclass
 class IcdResult:
-    """Return value wrapping Icd + current IcdVersion + validation state.
+    """Return value wrapping Icd + its current contract revision + validation.
 
     leaf_id: COMP-ICD-001
     """
 
     icd: Icd
-    current_version: IcdVersion
+    current_version: IcdRevision
     validation_result: ValidationResult | None = None
 
 
@@ -190,12 +234,14 @@ class IcdResult:
 class SimilarIcdDTO:
     """A single ICD similarity-search hit (REQ-L2-VS-004).
 
-    Identifies the matched ICD by its header id plus the current version that
-    carried the matched embedding, and the cosine similarity_score.
+    Identifies the matched ICD by its id and the cosine ``similarity_score``.
+
+    Task 28c-2 removed the ``version_id`` field: the embedding now lives on the
+    ICD header, so there is no version row to identify. ``version_number`` is
+    the ICD's current revision.
     """
 
     icd_id: uuid.UUID
-    version_id: uuid.UUID
     name: str
     interface_type: str
     version_number: int
@@ -245,19 +291,19 @@ class IcdManager:
     # ------------------------------------------------------------------
 
     def create_icd(self, payload: IcdCreateDTO) -> IcdResult:
-        """Create a new ICD with initial version 1.
+        """Create a new ICD with its contract at revision 1.
 
         Steps:
           1. Validate syntax of incoming payload (ContractValidator).
-          2. Persist Icd header and IcdVersion(version=1) atomically.
-          3. Point Icd.current_version to the new IcdVersion.
+          2. Persist the Icd row carrying the contract, atomically.
+          3. Snapshot revision 1 into the shared ArtifactVersion store.
           4. Call TraceabilityConnector to create 'realizes' TraceLink (IF-ICD-INT-002).
 
         Args:
             payload: IcdCreateDTO with all required fields.
 
         Returns:
-            IcdResult with the new Icd and IcdVersion.
+            IcdResult with the new Icd and its revision-1 IcdRevision.
 
         Raises:
             ValueError: When syntax validation fails.
@@ -287,8 +333,6 @@ class IcdManager:
         with transaction.atomic():
             tenant = Tenant.objects.get(pk=payload.tenant_id)
 
-            # Create the Icd header (without current_version yet to avoid
-            # a chicken-and-egg FK constraint)
             icd = Icd(
                 id=uuid.uuid4(),
                 tenant=tenant,
@@ -296,22 +340,6 @@ class IcdManager:
                 name=payload.name,
                 source_element_id=payload.source_element_id,
                 target_element_id=payload.target_element_id,
-            )
-            icd.save()
-
-            # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the
-            # backing Artifact up front instead of leaving the Icd unbacked
-            # until some later on-demand path creates one, so an ICD is a
-            # valid TraceLink endpoint and Document-scope baseline subject
-            # from birth.
-            ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
-
-            # Create the first IcdVersion (immutable from DB trigger onwards)
-            version = IcdVersion(
-                id=uuid.uuid4(),
-                tenant=tenant,
-                icd=icd,
-                version_number=1,
                 direction=payload.direction,
                 interface_type=payload.interface_type,
                 semantic_description=payload.semantic_description,
@@ -319,18 +347,26 @@ class IcdManager:
                 postconditions=list(payload.postconditions),
                 invariants=list(payload.invariants),
             )
-            # REQ-L2-VS-004: assign the semantic embedding BEFORE the INSERT —
-            # IcdVersion is immutable, so it cannot be patched in afterwards.
-            _apply_embedding(version)
-            version.save()
+            # REQ-L2-VS-004: best-effort, so it is assigned before the INSERT
+            # to save a round trip — but unlike the retired immutable
+            # IcdVersion, a failure here is recoverable on the next update.
+            _apply_embedding(icd)
+            icd.save()
 
-            # Point the header at its first version
-            icd.current_version = version
-            icd.save(update_fields=["current_version", "modified_at", "version"])
+            # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the
+            # backing Artifact up front instead of leaving the Icd unbacked
+            # until some later on-demand path creates one, so an ICD is a
+            # valid TraceLink endpoint and Document-scope baseline subject
+            # from birth. Task 28c-2 additionally makes it the anchor the
+            # contract history hangs off, so it must exist before the first
+            # revision is recorded.
+            ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
 
-            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror v1 into
-            # the shared revision store.
-            _record_artifact_revision(icd, version)
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): record revision 1
+            # in the shared revision store and advance the header's counter.
+            _record_artifact_revision(icd)
+            icd.save(update_fields=_CONTRACT_UPDATE_FIELDS)
+            version = IcdRevision.from_icd(icd)
 
             # IF-ICD-INT-002: create realizes TraceLink. The engine stores
             # Artifact IDs, so resolve the ArchitectureElement IDs first.
@@ -360,15 +396,15 @@ class IcdManager:
         payload: IcdUpdateDTO,
         tenant_id: uuid.UUID,
     ) -> IcdResult:
-        """Append a new IcdVersion and run breaking-change detection.
+        """Overwrite the contract, snapshot it, and run breaking-change detection.
 
         Steps:
-          1. Load the current IcdVersion.
-          2. Build the new version by merging payload fields onto the current state.
+          1. Load and lock the Icd row (its columns are the current contract).
+          2. Merge the payload fields onto the current state.
           3. Validate syntax of the merged payload.
           4. Run ContractValidator.validate_contract (IF-ICD-INT-001).
-          5. Persist the new IcdVersion (append-only via INSERT).
-          6. Update Icd.current_version pointer.
+          5. Persist the merged contract onto the header.
+          6. Append the new revision to the shared ArtifactVersion store.
           7. If breaking changes detected: call AuditLogger (IF-ICD-INT-003).
 
         Args:
@@ -382,7 +418,7 @@ class IcdManager:
                 ownership check of its own either, unlike its sibling actions).
 
         Returns:
-            IcdResult with the updated Icd and new IcdVersion.
+            IcdResult with the updated Icd and the new IcdRevision.
             validation_result is populated with the breaking-change assessment.
 
         Raises:
@@ -394,15 +430,17 @@ class IcdManager:
         """
         with transaction.atomic():
             icd: Icd = Icd.unscoped.select_for_update().get(pk=icd_id, tenant_id=tenant_id)
-            old_version: IcdVersion = icd.current_version  # type: ignore[assignment]
+            old_preconditions = list(icd.preconditions or [])
+            old_postconditions = list(icd.postconditions or [])
+            old_invariants = list(icd.invariants or [])
 
             # Merge payload onto current state (None fields keep old value)
-            new_direction = payload.direction if payload.direction is not None else old_version.direction
-            new_interface_type = payload.interface_type if payload.interface_type is not None else old_version.interface_type
-            new_semantic_description = payload.semantic_description if payload.semantic_description is not None else old_version.semantic_description
-            new_preconditions = list(payload.preconditions) if payload.preconditions is not None else list(old_version.preconditions)
-            new_postconditions = list(payload.postconditions) if payload.postconditions is not None else list(old_version.postconditions)
-            new_invariants = list(payload.invariants) if payload.invariants is not None else list(old_version.invariants)
+            new_direction = payload.direction if payload.direction is not None else icd.direction
+            new_interface_type = payload.interface_type if payload.interface_type is not None else icd.interface_type
+            new_semantic_description = payload.semantic_description if payload.semantic_description is not None else icd.semantic_description
+            new_preconditions = list(payload.preconditions) if payload.preconditions is not None else old_preconditions
+            new_postconditions = list(payload.postconditions) if payload.postconditions is not None else old_postconditions
+            new_invariants = list(payload.invariants) if payload.invariants is not None else old_invariants
 
             # Syntax check on merged data
             syntax_check = self._validator.validate_syntax(
@@ -422,38 +460,30 @@ class IcdManager:
 
             # IF-ICD-INT-001: semantic breaking-change detection
             validation_result = self._validator.validate_contract(
-                old_preconditions=list(old_version.preconditions),
-                old_postconditions=list(old_version.postconditions),
-                old_invariants=list(old_version.invariants),
+                old_preconditions=old_preconditions,
+                old_postconditions=old_postconditions,
+                old_invariants=old_invariants,
                 new_preconditions=new_preconditions,
                 new_postconditions=new_postconditions,
                 new_invariants=new_invariants,
             )
 
-            # Append new IcdVersion (immutable after save; DB trigger prevents updates)
-            new_version = IcdVersion(
-                id=uuid.uuid4(),
-                tenant=icd.tenant,
-                icd=icd,
-                version_number=old_version.version_number + 1,
-                direction=new_direction,
-                interface_type=new_interface_type,
-                semantic_description=new_semantic_description,
-                preconditions=new_preconditions,
-                postconditions=new_postconditions,
-                invariants=new_invariants,
-            )
-            # REQ-L2-VS-004: embed at INSERT time (immutable version).
-            _apply_embedding(new_version)
-            new_version.save()
+            # Overwrite the contract in place — the header IS the current
+            # contract since Task 28c-2; history is the ArtifactVersion trail.
+            icd.direction = new_direction
+            icd.interface_type = new_interface_type
+            icd.semantic_description = new_semantic_description
+            icd.preconditions = new_preconditions
+            icd.postconditions = new_postconditions
+            icd.invariants = new_invariants
+            # REQ-L2-VS-004: regenerate for the new contract text.
+            _apply_embedding(icd)
 
-            # Advance the header pointer
-            icd.current_version = new_version
-            icd.save(update_fields=["current_version", "modified_at", "version"])
-
-            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): mirror vN into
-            # the shared revision store.
-            _record_artifact_revision(icd, new_version)
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): record vN in the
+            # shared revision store and advance the header's counter.
+            _record_artifact_revision(icd)
+            icd.save(update_fields=_CONTRACT_UPDATE_FIELDS)
+            new_version = IcdRevision.from_icd(icd)
 
             # IF-ICD-INT-003: audit breaking changes
             if validation_result.is_breaking:
@@ -476,7 +506,7 @@ class IcdManager:
         new_payload: dict[str, Any],
         tenant_id: uuid.UUID,
     ) -> ValidationResult:
-        """Check proposed contract data against the current IcdVersion without persisting.
+        """Check proposed contract data against the current contract without persisting.
 
         Useful for dry-run validation before committing an update.
 
@@ -492,19 +522,25 @@ class IcdManager:
         IF:     IF-L1-037
         """
         icd: Icd = Icd.unscoped.get(pk=icd_id, tenant_id=tenant_id)
-        old: IcdVersion = icd.current_version  # type: ignore[assignment]
+        old_preconditions = list(icd.preconditions or [])
+        old_postconditions = list(icd.postconditions or [])
+        old_invariants = list(icd.invariants or [])
 
         syntax_check = self._validator.validate_syntax(new_payload)
         if not syntax_check.is_valid_syntax:
             return syntax_check
 
         return self._validator.validate_contract(
-            old_preconditions=list(old.preconditions),
-            old_postconditions=list(old.postconditions),
-            old_invariants=list(old.invariants),
-            new_preconditions=list(new_payload.get("preconditions", old.preconditions)),
-            new_postconditions=list(new_payload.get("postconditions", old.postconditions)),
-            new_invariants=list(new_payload.get("invariants", old.invariants)),
+            old_preconditions=old_preconditions,
+            old_postconditions=old_postconditions,
+            old_invariants=old_invariants,
+            new_preconditions=list(
+                new_payload.get("preconditions", old_preconditions)
+            ),
+            new_postconditions=list(
+                new_payload.get("postconditions", old_postconditions)
+            ),
+            new_invariants=list(new_payload.get("invariants", old_invariants)),
         )
 
     # ------------------------------------------------------------------
@@ -513,8 +549,12 @@ class IcdManager:
 
     def get_icd_history(
         self, icd_id: uuid.UUID, tenant_id: uuid.UUID
-    ) -> list[IcdVersion]:
-        """Return all IcdVersions for the given ICD, ordered oldest-first.
+    ) -> list[IcdRevision]:
+        """Return all contract revisions of the given ICD, oldest-first.
+
+        Task 28c-2: reads the shared ``ArtifactVersion`` store rather than the
+        retired ``IcdVersion`` table. Returns an empty list for an ICD with no
+        backing Artifact, which is the only shape that can carry no history.
 
         Args:
             icd_id: UUID of the Icd.
@@ -525,45 +565,61 @@ class IcdManager:
                 (exactly what happened to the REST PATCH/update_icd path).
 
         Returns:
-            List of IcdVersion objects ordered by version_number ascending.
+            List of IcdRevision objects ordered by version_number ascending.
 
         req_id: REQ-L2-ICD-001
         IF:     IF-L1-037
         """
-        return list(
-            IcdVersion.unscoped.filter(icd_id=icd_id, tenant_id=tenant_id)
-            .order_by("version_number")
+        artifact_id = (
+            Icd.unscoped.filter(pk=icd_id, tenant_id=tenant_id)
+            .values_list("artifact_id", flat=True)
+            .first()
         )
+        if artifact_id is None:
+            return []
+
+        rows = ArtifactVersion.unscoped.filter(
+            artifact_id=artifact_id, tenant_id=tenant_id
+        ).order_by("revision")
+        return [
+            IcdRevision.from_payload(
+                icd_id=icd_id,
+                revision=row.revision,
+                payload=row.payload or {},
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
 
     # ------------------------------------------------------------------
     # get_icd_versions — IF-L1-038 (BaselineService snapshot)
     # ------------------------------------------------------------------
 
-    def get_icd_versions(self, workspace_id: uuid.UUID) -> list[IcdVersion]:
-        """Return the current (latest) IcdVersion for each ICD in a workspace.
+    def get_icd_versions(self, workspace_id: uuid.UUID) -> list[IcdRevision]:
+        """Return the current contract revision of each ICD in a workspace.
 
         Used by BaselineService (IF-L1-038) to capture a point-in-time snapshot
         of all interface contracts within a workspace.
-
-        The result set contains exactly one IcdVersion per Icd (the most recent),
-        filtered by workspace_id.
 
         Args:
             workspace_id: UUID of the workspace to snapshot.
 
         Returns:
-            List of IcdVersion objects — one per active ICD in the workspace.
+            List of IcdRevision objects — one per ICD in the workspace that has
+            at least one recorded revision.
 
         req_id: REQ-L2-ICD-005
         IF:     IF-L1-038
         """
-        # Fetch all Icd headers in this workspace, select_related for efficiency
-        icds = Icd.unscoped.filter(
-            workspace_id=workspace_id,
-            current_version__isnull=False,
-        ).select_related("current_version")
-
-        return [icd.current_version for icd in icds]  # type: ignore[misc]
+        # ponytail: IcdRevision.from_icd reads each ICD's parameters, i.e. one
+        # extra query per ICD. Batch it if this ever serves a hot path; today
+        # it has no production caller.
+        return [
+            IcdRevision.from_icd(icd)
+            for icd in Icd.unscoped.filter(
+                workspace_id=workspace_id, current_revision__gt=0
+            )
+        ]
 
     # ------------------------------------------------------------------
     # find_similar_icds — semantic similarity (REQ-L2-VS-004)
@@ -575,15 +631,15 @@ class IcdManager:
         tenant_id: uuid.UUID,
         limit: int = 10,
     ) -> list[SimilarIcdDTO]:
-        """Return the ICDs whose current version is most similar to *icd_id*.
+        """Return the ICDs whose contract is most similar to *icd_id*'s.
 
         REQ-L2-VS-004: cosine-distance nearest-neighbour search over the
-        pgvector ``embedding`` column of the current IcdVersion, tenant-scoped
-        and excluding the query ICD itself. Mirrors
-        RequirementService.find_similar_requirements.
+        pgvector ``embedding`` column of the Icd header (Task 28c-2 moved it
+        there from the retired IcdVersion), tenant-scoped and excluding the
+        query ICD itself. Mirrors RequirementService.find_similar_requirements.
 
         Args:
-            icd_id: Query ICD (its current version must have a non-null embedding).
+            icd_id: Query ICD (must have a non-null embedding).
             tenant_id: Tenant scope.
             limit: Max results (clamped to 1..50, default 10).
 
@@ -592,21 +648,16 @@ class IcdManager:
 
         Raises:
             Icd.DoesNotExist: Query ICD does not exist.
-            ValueError: Query ICD's current version has no embedding.
+            ValueError: Query ICD has no embedding.
             IcdPgVectorUnavailableError: pgvector package/extension unavailable.
         """
         from django.db.utils import OperationalError, ProgrammingError
 
-        icd = (
-            Icd.unscoped.filter(id=icd_id, tenant_id=tenant_id)
-            .select_related("current_version")
-            .first()
-        )
+        icd = Icd.unscoped.filter(id=icd_id, tenant_id=tenant_id).first()
         if icd is None:
             raise Icd.DoesNotExist(f"Icd {icd_id} not found")
 
-        query_version = icd.current_version
-        if query_version is None or query_version.embedding is None:
+        if icd.embedding is None:
             raise ValueError(
                 "ICD has no embedding — similarity search not possible"
             )
@@ -620,20 +671,10 @@ class IcdManager:
 
         safe_limit = max(1, min(int(limit or 10), 50))
 
-        # Compare against the current version of every other ICD in the tenant.
-        current_version_ids = (
-            Icd.unscoped.filter(
-                tenant_id=tenant_id, current_version__isnull=False
-            )
-            .exclude(id=icd.id)
-            .values_list("current_version_id", flat=True)
-        )
         queryset = (
-            IcdVersion.unscoped.filter(
-                id__in=list(current_version_ids), embedding__isnull=False
-            )
-            .select_related("icd")
-            .annotate(distance=CosineDistance("embedding", query_version.embedding))
+            Icd.unscoped.filter(tenant_id=tenant_id, embedding__isnull=False)
+            .exclude(id=icd.id)
+            .annotate(distance=CosineDistance("embedding", icd.embedding))
             .order_by("distance")[:safe_limit]
         )
 
@@ -646,11 +687,10 @@ class IcdManager:
 
         return [
             SimilarIcdDTO(
-                icd_id=row.icd_id,
-                version_id=row.id,
-                name=row.icd.name if row.icd_id else "",
+                icd_id=row.id,
+                name=row.name,
                 interface_type=row.interface_type or "",
-                version_number=row.version_number,
+                version_number=row.current_revision,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
                 similarity_score=round(1.0 - float(row.distance), 6),
             )

@@ -6,19 +6,24 @@ req_id:  REQ-L1-028, REQ-L2-ICD-001, REQ-L2-ICD-002
 arch_id: ARCH-L1-014
 
 Defines two entities:
-  - Icd       : logical identity of an Interface Control Document
-  - IcdVersion: immutable, append-only version record (Design-by-Contract fields)
+  - Icd         : an Interface Control Document — identity *and* current
+                  Design-by-Contract payload
+  - IcdParameter: a structured parameter of the ICD's current contract
 
-DB-level immutability for IcdVersion is enforced via a BEFORE UPDATE/DELETE
-trigger in migration 0001_initial, mirroring the baseline immutability pattern
-(ADR-ICD-01, baseline/migrations/0001_initial.py).
+Datenmodell-Konsolidierung Task 28c-2 retired ``IcdVersion``. Contract history
+now lives in the one shared, append-only snapshot store
+(:class:`persistence.models.ArtifactVersion`, Task 27/28a) like every other
+artifact type's; :class:`IcdRevision` below is the by-value read model those
+snapshots are rehydrated into.
 
-IF-L1-040: persistence of Icd and IcdVersion entities.
+IF-L1-040: persistence of Icd and IcdParameter entities.
 """
 from __future__ import annotations
 
+import datetime as dt
 import uuid
-from typing import Any, TYPE_CHECKING
+from dataclasses import dataclass, field as dataclass_field
+from typing import Any
 
 from django.db import models
 from pgvector.django import HnswIndex, VectorField
@@ -26,9 +31,6 @@ from pgvector.django import HnswIndex, VectorField
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantManager, UnscopedManager
-
-if TYPE_CHECKING:
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -91,11 +93,14 @@ class IcdParameterDirection(models.TextChoices):
 # ---------------------------------------------------------------------------
 
 class Icd(TenantScopedModel):
-    """Logical identity of an Interface Control Document.
+    """An Interface Control Document: identity plus its current contract.
 
-    Stores the stable identity (source/target elements, workspace) and points
-    to the current active IcdVersion via ``current_version``. Every update
-    appends a new IcdVersion; this header is the only mutable record.
+    Stores the stable identity (source/target elements, workspace) *and* the
+    current Design-by-Contract payload. Every update overwrites the payload in
+    place and appends a snapshot of it to
+    :class:`persistence.models.ArtifactVersion` — the same shape every other
+    artifact type uses (Datenmodell-Konsolidierung Task 28c-2, which retired
+    the dedicated ``IcdVersion`` table).
 
     leaf_id: COMP-ICD-001
     req_id:  REQ-L2-ICD-001, REQ-L2-ICD-002
@@ -119,24 +124,11 @@ class Icd(TenantScopedModel):
     source_element_id = models.UUIDField(db_index=True)
     target_element_id = models.UUIDField(db_index=True)
     name = models.CharField(max_length=500)
-    # FK to the most recent IcdVersion (null until first version is saved)
-    current_version = models.OneToOneField(
-        "IcdVersion",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="current_for_icd",
-    )
-    # -- Current contract (Datenmodell-Konsolidierung Task 28c-1, Expand) ----
-    # IcdVersion is both this subsystem's history store *and* the only place
-    # the current Design-by-Contract payload lives. Task 28a moved the history
-    # into persistence.ArtifactVersion; the columns below take over the
-    # "current content" half so IcdVersion can be dropped in Task 28c-2.
-    #
-    # During the Expand phase both stores coexist: every write path still
-    # writes IcdVersion and still moves `current_version`, and nothing reads
-    # the columns below yet. Migration 0011 backfills them from
-    # `current_version`; Task 28c-2 repoints the readers and the writers.
+    # -- Current contract (Datenmodell-Konsolidierung Task 28c-1/28c-2) ------
+    # IcdVersion used to be both this subsystem's history store *and* the only
+    # place the current Design-by-Contract payload lived. Task 28a moved the
+    # history into persistence.ArtifactVersion, Task 28c-1 added the columns
+    # below, and Task 28c-2 made them authoritative and dropped IcdVersion.
     direction = models.CharField(
         max_length=32,
         choices=IcdDirection.choices,
@@ -160,17 +152,16 @@ class Icd(TenantScopedModel):
         help_text=(
             "REQ-L2-VS-004: Semantic embedding for cosine similarity search, "
             "sized by persistence.embedding_dimensions."
-            "EMBEDDING_VECTOR_DIMENSIONS (#794). Unlike IcdVersion.embedding "
-            "this row is mutable, so it is re-generated on every contract "
-            "change. Best-effort: NULL when no embedding provider is "
-            "configured."
+            "EMBEDDING_VECTOR_DIMENSIONS (#794). This row is mutable, so the "
+            "embedding is re-generated on every contract change and a failed "
+            "generation can be retried. Best-effort: NULL when no embedding "
+            "provider is configured."
         ),
     )
     # Revision number of the contract above, in the same numbering space as
-    # IcdVersion.version_number and persistence.ArtifactVersion.revision
-    # (icd.icd_manager._record_artifact_revision keeps the two identical).
-    # 0 means "no revision recorded yet" — the only valid state for an Icd
-    # with no current_version.
+    # persistence.ArtifactVersion.revision — icd.icd_manager allocates the two
+    # together, under the same row lock. 0 means "no revision recorded yet",
+    # which is only reachable for a row whose backing Artifact is missing.
     current_revision = models.PositiveIntegerField(default=0)
 
     objects = TenantManager()
@@ -184,9 +175,10 @@ class Icd(TenantScopedModel):
                 fields=["source_element_id", "target_element_id"],
                 name="idx_icd_source_target",
             ),
-            # REQ-L2-VS-004: mirrors icd_version_embedding_hnsw so ICD
-            # semantic search keeps its index once search_service reads the
-            # current contract off this row instead of off IcdVersion.
+            # REQ-L2-VS-004: HNSW approximate-nearest-neighbour index for
+            # cosine-distance similarity queries (embedding <=> query_vector).
+            # Replaces icd_version_embedding_hnsw, which went away with
+            # IcdVersion (Task 28c-2).
             HnswIndex(
                 name="icd_embedding_hnsw",
                 fields=["embedding"],
@@ -203,15 +195,14 @@ class Icd(TenantScopedModel):
     def parameters_snapshot(self) -> list[dict[str, Any]]:
         """Return this ICD's structured parameters as a JSON-safe list.
 
-        Datenmodell-Konsolidierung Task 28c-1. Every other artifact type's
-        fields are captured *by value* into each ``ArtifactVersion`` payload;
-        ``IcdParameter`` is the one exception, because it lives in its own
-        child rows. This property is the bridge: it renders the current
-        parameter set into the same by-value shape, so
-        ``application.artifact_version_service.snapshot_fields`` can pick it
-        up through a plain ``getattr`` once ``"parameters_snapshot"`` is added
-        to ``_ENTITY_FIELDS["Icd"]`` (Task 28c-2 — see the report for why that
-        wiring is deliberately not part of the Expand step).
+        Datenmodell-Konsolidierung Task 28c-1/28c-2. Every other artifact
+        type's fields are captured *by value* into each ``ArtifactVersion``
+        payload; ``IcdParameter`` is the one exception, because it lives in
+        its own child rows. This property is the bridge: it renders the
+        current parameter set into the same by-value shape, and
+        ``"parameters_snapshot"`` is registered in
+        ``artifact_diff_service._ENTITY_FIELDS["Icd"]`` so the stored and the
+        diffed field sets stay identical by construction.
 
         Reads through ``unscoped`` with an explicit ``tenant_id`` rather than
         the ``parameters`` related manager: the related manager is derived
@@ -250,146 +241,134 @@ class Icd(TenantScopedModel):
 
 
 # ---------------------------------------------------------------------------
-# IcdVersion — immutable Design-by-Contract record
-# REQ-L2-ICD-001 (immutable), REQ-L2-ICD-002 (DbC fields)
+# IcdRevision — by-value read model for one historical contract revision
+# REQ-L2-ICD-001 (history), REQ-L2-ICD-002 (DbC fields)
 # ---------------------------------------------------------------------------
 
-class IcdVersion(TenantScopedModel):
-    """Immutable snapshot of an ICD contract at a specific revision.
 
-    Each update to an ICD appends a new IcdVersion row; existing rows are
-    never modified or deleted. DB-level enforcement via trigger (see migration).
+@dataclass(frozen=True)
+class IcdRevision:
+    """One ICD contract revision, rehydrated from an ``ArtifactVersion`` row.
 
-    Design-by-Contract fields (REQ-L2-ICD-002):
-      - direction / interface_type : structural contract metadata
-      - semantic_description       : human-readable contract intent
-      - preconditions              : caller obligations (JSON list of strings)
-      - postconditions             : callee guarantees (JSON list of strings)
-      - invariants                 : conditions that must always hold (JSON list)
+    Datenmodell-Konsolidierung Task 28c-2. Replaces the ``IcdVersion`` ORM row
+    that :func:`icd.services.get_icd_history` and
+    :func:`icd.services.get_icd_versions` used to return. It is deliberately a
+    plain frozen dataclass, not a model: contract history is no longer a table
+    of its own, it is a set of JSON snapshots in the one shared
+    :class:`persistence.models.ArtifactVersion` store, and rehydrating them
+    into an ORM instance would invite callers to ``save()`` a row that has no
+    table behind it.
 
-    leaf_id: COMP-ICD-001, COMP-ICD-002
-    req_id:  REQ-L2-ICD-001, REQ-L2-ICD-002
-    IF:      IF-L1-040 (output to PersistenceLayer)
+    The attribute names match the ones the retired ``IcdVersion`` exposed, so
+    every ``revision.version_number`` / ``revision.preconditions`` reader
+    keeps working unchanged.
     """
 
-    icd = models.ForeignKey(
-        Icd,
-        on_delete=models.CASCADE,
-        related_name="versions",
-        db_index=True,
-    )
-    version_number = models.PositiveIntegerField()
-    direction = models.CharField(
-        max_length=32,
-        choices=IcdDirection.choices,
-        default=IcdDirection.UNIDIRECTIONAL,
-    )
-    interface_type = models.CharField(
-        max_length=32,
-        choices=IcdType.choices,
-        blank=True,
-        default="",
-        help_text="Interface type classification: provides, requires, event-in, event-out, data, control.",
-    )
-    semantic_description = models.TextField(blank=True, default="")
-    # Design-by-Contract fields — stored as JSON lists of strings
-    preconditions = models.JSONField(default=list, blank=True)
-    postconditions = models.JSONField(default=list, blank=True)
-    invariants = models.JSONField(default=list, blank=True)
-    embedding = VectorField(
-        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
-        null=True,
-        blank=True,
-        help_text=(
-            "REQ-L2-VS-004: Semantic embedding for cosine similarity search, "
-            "sized by persistence.embedding_dimensions."
-            "EMBEDDING_VECTOR_DIMENSIONS (#794). Set at creation time only — "
-            "IcdVersion is immutable (DB trigger). Best-effort: NULL when no "
-            "embedding provider is configured."
-        ),
-    )
+    icd_id: uuid.UUID
+    version_number: int
+    name: str = ""
+    direction: str = IcdDirection.UNIDIRECTIONAL
+    interface_type: str = ""
+    semantic_description: str = ""
+    preconditions: list[str] = dataclass_field(default_factory=list)
+    postconditions: list[str] = dataclass_field(default_factory=list)
+    invariants: list[str] = dataclass_field(default_factory=list)
+    parameters_snapshot: list[dict[str, Any]] = dataclass_field(default_factory=list)
+    #: ``False`` for a revision recorded before ``parameters_snapshot`` joined
+    #: ``_ENTITY_FIELDS["Icd"]`` (Task 28c-2). Distinguishes "this revision had
+    #: no parameters" from "this revision's parameters were never captured" —
+    #: without it, both render as an empty list and the API would answer a
+    #: question about revision N with a confident, wrong ``[]``.
+    parameters_captured: bool = True
+    created_at: dt.datetime | None = None
 
-    objects = TenantManager()
-    unscoped = UnscopedManager()
+    @classmethod
+    def from_payload(
+        cls,
+        icd_id: uuid.UUID,
+        revision: int,
+        payload: dict[str, Any],
+        created_at: dt.datetime | None = None,
+    ) -> "IcdRevision":
+        """Build a revision from a stored ``ArtifactVersion.payload``.
 
-    class Meta:
-        db_table = "icd_version"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["icd", "version_number"],
-                name="uq_icd_version_number",
-            ),
-        ]
-        indexes = [
-            models.Index(
-                fields=["icd", "version_number"],
-                name="idx_icd_version_icd_num",
-            ),
-            models.Index(
-                fields=["icd", "-created_at"],
-                name="idx_icd_version_icd_cat",
-            ),
-            # REQ-L2-VS-004: HNSW approximate-nearest-neighbour index for
-            # cosine-distance similarity queries (embedding <=> query_vector).
-            HnswIndex(
-                name="icd_version_embedding_hnsw",
-                fields=["embedding"],
-                m=16,
-                ef_construction=64,
-                opclasses=["vector_cosine_ops"],
-            ),
-        ]
+        Every field defaults rather than raising on a missing key: payloads
+        written before a field joined ``_ENTITY_FIELDS["Icd"]`` legitimately
+        lack it (``parameters_snapshot`` is the first such case), and a
+        history reader must not fail on its own older records.
 
-    def __str__(self) -> str:  # pragma: no cover
-        return f"IcdVersion(icd={self.icd_id}, v{self.version_number})"
+        Args:
+            icd_id:     Owning ICD's primary key.
+            revision:   Revision number (``ArtifactVersion.revision``).
+            payload:    The stored snapshot dict.
+            created_at: When the revision was recorded.
+        """
+        return cls(
+            icd_id=icd_id,
+            version_number=revision,
+            name=payload.get("name") or "",
+            direction=payload.get("direction") or IcdDirection.UNIDIRECTIONAL,
+            interface_type=payload.get("interface_type") or "",
+            semantic_description=payload.get("semantic_description") or "",
+            preconditions=list(payload.get("preconditions") or []),
+            postconditions=list(payload.get("postconditions") or []),
+            invariants=list(payload.get("invariants") or []),
+            parameters_snapshot=list(payload.get("parameters_snapshot") or []),
+            parameters_captured="parameters_snapshot" in payload,
+            created_at=created_at,
+        )
+
+    @classmethod
+    def from_icd(cls, icd: "Icd") -> "IcdRevision":
+        """Build the *current* revision straight off the ICD header."""
+        return cls(
+            icd_id=icd.pk,
+            version_number=icd.current_revision,
+            name=icd.name,
+            direction=icd.direction,
+            interface_type=icd.interface_type,
+            semantic_description=icd.semantic_description,
+            preconditions=list(icd.preconditions or []),
+            postconditions=list(icd.postconditions or []),
+            invariants=list(icd.invariants or []),
+            parameters_snapshot=icd.parameters_snapshot,
+            created_at=icd.modified_at,
+        )
 
 
 # ---------------------------------------------------------------------------
-# IcdParameter — structured, version-specific interface parameter
+# IcdParameter — structured interface parameter of an ICD's current contract
 # REQ-L2-ICD-002 (Design-by-Contract): extends the free-text pre/post/invariant
 # JSON lists with structured parameters carrying units, value ranges and
-# tolerances. Parameters are attached to a concrete IcdVersion (append-only),
-# so a parameter set is immutable together with the version it belongs to.
+# tolerances.
 # ---------------------------------------------------------------------------
 
 
 class IcdParameter(TenantScopedModel):
-    """A single structured parameter of an interface contract revision.
+    """A single structured parameter of an ICD's current interface contract.
 
-    Parameters are version-specific: each :class:`IcdVersion` owns its own set
-    of parameters, mirroring the append-only immutability of the version itself.
     Numeric bounds live in ``min_value``/``max_value``; symbolic or string
     defaults live in ``nominal_value``; ``tolerance`` stays free text (e.g.
     ``"±5%"`` or ``"0.1"``) as it varies by engineering domain.
+
+    Current-state-only (Datenmodell-Konsolidierung Task 28c-2): a parameter
+    belongs to the ICD, not to one of its revisions. Historical parameter sets
+    are preserved *by value* in each ``ArtifactVersion`` payload's
+    ``parameters_snapshot`` key (see :attr:`Icd.parameters_snapshot`) — the
+    same way every other artifact type's fields are captured. The previous
+    ``icd_version`` FK never actually delivered per-revision semantics:
+    parameter rows have always been mutable in place, and ``update_icd`` never
+    carried them forward to the new version.
 
     leaf_id: COMP-ICD-001
     req_id: REQ-L2-ICD-002
     IF: IF-L1-040 (output to PersistenceLayer)
     """
 
-    icd_version = models.ForeignKey(
-        IcdVersion,
-        on_delete=models.CASCADE,
-        related_name="parameters",
-        db_index=True,
-    )
-    # -- Owner after the IcdVersion retirement (Task 28c-1, Expand) ---------
-    # Nullable and unused during the Expand phase: migration 0011 backfills it
-    # from ``icd_version.icd_id`` for every existing row, Task 28c-2 repoints
-    # the readers/writers and then drops ``icd_version`` above.
-    #
-    # This flattens parameters from "the set belonging to revision N" to
-    # "the ICD's current parameter set", matching every other artifact type —
-    # a Requirement's fields are captured by value into each ArtifactVersion
-    # snapshot, they do not live in child rows that survive across revisions.
-    # ``Icd.parameters_snapshot`` provides the by-value capture that keeps
-    # historical parameter states reconstructable.
     icd = models.ForeignKey(
         Icd,
         on_delete=models.CASCADE,
         related_name="parameters",
-        null=True,
-        blank=True,
         db_index=True,
     )
     name = models.CharField(max_length=200)
@@ -432,13 +411,13 @@ class IcdParameter(TenantScopedModel):
         ordering = ["ordering", "name"]
         indexes = [
             models.Index(
-                fields=["icd_version", "ordering"],
-                name="idx_icd_param_version_order",
+                fields=["icd", "ordering"],
+                name="idx_icd_param_icd_order",
             ),
         ]
 
     def __str__(self) -> str:  # pragma: no cover
-        return f"IcdParameter({self.name}, v={self.icd_version_id})"
+        return f"IcdParameter({self.name}, icd={self.icd_id})"
 
 
 __all__ = [
@@ -447,6 +426,6 @@ __all__ = [
     "IcdParameter",
     "IcdParameterDataType",
     "IcdParameterDirection",
+    "IcdRevision",
     "IcdType",
-    "IcdVersion",
 ]

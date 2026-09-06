@@ -1612,12 +1612,14 @@ class ChangeRequestSerializer(
 class IcdParameterSerializer(serializers.Serializer):
     """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
 
-    Structured, version-specific interface parameter (unit, data type,
-    direction, numeric bounds, tolerance) attached to an IcdVersion.
+    Structured interface parameter (unit, data type, direction, numeric
+    bounds, tolerance) of an ICD's current contract. Task 28c-2 replaced
+    ``icd_version_id`` with ``icd_id``: parameters belong to the ICD, not to
+    one of its revisions.
     """
 
     id = serializers.UUIDField(read_only=True)
-    icd_version_id = serializers.UUIDField(read_only=True)
+    icd_id = serializers.UUIDField(read_only=True)
     name = SanitizedCharField(max_length=200)
     description = SanitizedCharField(
         allow_blank=True, default="", max_length=2000

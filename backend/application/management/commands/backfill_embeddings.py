@@ -1,4 +1,4 @@
-"""Backfill missing pgvector embeddings for Requirement and TraceLink (#794).
+"""Backfill missing pgvector embeddings for Requirement, TraceLink and Icd (#794).
 
 Embeddings are written opportunistically, on create/update only
 (``RequirementService._generate_and_store_embedding``,
@@ -11,16 +11,26 @@ for it. This command is that missing path.
 
 Usage::
 
-    python manage.py backfill_embeddings              # every tenant, both models
+    python manage.py backfill_embeddings              # every tenant, all models
     python manage.py backfill_embeddings --dry-run    # count only, no writes
     python manage.py backfill_embeddings --model requirement --tenant <uuid>
+    python manage.py backfill_embeddings --model icd
     python manage.py backfill_embeddings --force      # also re-embed existing
 
-``IcdVersion`` is deliberately NOT backfillable: those rows are immutable
-(enforced by the ``icd.0006_icd_version_delete_guard`` BEFORE UPDATE trigger)
-and the embedding is assigned before the initial INSERT, so it can only be
-populated by creating a new version. The command reports the count of
-un-embedded ICD versions so the gap is visible rather than implicit.
+ICDs became backfillable in Datenmodell-Konsolidierung Task 28c-2. Before it,
+the embedding lived on ``IcdVersion``, whose rows are immutable (enforced by a
+BEFORE UPDATE trigger), so a missing embedding could only ever be filled by
+creating a *new contract revision* — this command could do nothing but report
+the gap. The embedding now lives on the mutable ``Icd`` row, so the same
+``.update(embedding=...)`` write the other two models use works for it, and a
+generation that failed once is simply retried on the next run.
+
+Idempotency and locking are unchanged by that move: like the other two models,
+the write is a bare ``.update()`` of a single derived column, keyed on the row
+id, with no version bump and no read-modify-write of any other field. It
+therefore needs no row lock — a concurrent contract update racing this command
+can only overwrite the vector with one generated from newer text, which is the
+outcome you want either way.
 
 Tenancy: iterates tenants explicitly and arms both the app-layer
 ``TenantContext`` and the DB-level ``app.current_tenant`` RLS variable via
@@ -43,7 +53,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 logger = logging.getLogger(__name__)
 
-_MODEL_CHOICES = ("requirement", "tracelink", "all")
+_MODEL_CHOICES = ("requirement", "tracelink", "icd", "all")
 
 #: Rows fetched (and updated) per DB round-trip. Embedding generation is the
 #: dominant cost per row, so this only bounds memory, not runtime.
@@ -55,7 +65,7 @@ _PROBE_TEXT = "embedding dimension probe"
 
 
 class Command(BaseCommand):
-    help = "Generate missing Requirement/TraceLink embeddings for semantic search (#794)."
+    help = "Generate missing Requirement/TraceLink/Icd embeddings for semantic search (#794)."
 
     def add_arguments(self, parser) -> None:
         parser.add_argument(
@@ -102,7 +112,7 @@ class Command(BaseCommand):
         force = bool(options["force"])
         limit: Optional[int] = options["limit"]
         models = (
-            ("requirement", "tracelink")
+            ("requirement", "tracelink", "icd")
             if options["model"] == "all"
             else (options["model"],)
         )
@@ -121,7 +131,7 @@ class Command(BaseCommand):
             + (" [DRY RUN]" if dry_run else "")
         )
 
-        totals = {"embedded": 0, "skipped_empty": 0, "failed": 0, "icd_unembedded": 0}
+        totals = {"embedded": 0, "skipped_empty": 0, "failed": 0}
         for tenant in tenants:
             self._backfill_tenant(
                 tenant=tenant,
@@ -139,7 +149,6 @@ class Command(BaseCommand):
                 "failed={failed}".format(**totals)
             )
         )
-        self._report_icd_gap(totals["icd_unembedded"])
 
     def _verify_provider_dimensions(self, models: Iterable[str]) -> int:
         """Abort before touching any row when provider and columns disagree.
@@ -175,9 +184,14 @@ class Command(BaseCommand):
 
     @staticmethod
     def _resolve_model(name: str):
+        from icd.models import Icd
         from persistence.models import Requirement, TraceLink
 
-        return {"requirement": Requirement, "tracelink": TraceLink}[name]
+        return {
+            "requirement": Requirement,
+            "tracelink": TraceLink,
+            "icd": Icd,
+        }[name]
 
     # -- per-tenant work ----------------------------------------------------
 
@@ -206,7 +220,6 @@ class Command(BaseCommand):
                     dry_run=dry_run,
                     totals=totals,
                 )
-            totals["icd_unembedded"] += self._count_unembedded_icd_versions()
         finally:
             # Paired unconditionally: an unpaired set_request_tenant would
             # leave app.current_tenant armed on this connection for whatever
@@ -255,10 +268,14 @@ class Command(BaseCommand):
         from llm_adapter.embedding_service import (
             generate_embedding,
             get_embedding_text,
+            get_icd_embedding_text,
             get_tracelink_embedding_text,
         )
 
-        if name == "tracelink":
+        if name == "icd":
+            rows = model.objects.filter(id__in=ids).defer("embedding")
+            build_text = get_icd_embedding_text
+        elif name == "tracelink":
             rows = (
                 model.objects.filter(id__in=ids)
                 .select_related(
@@ -296,33 +313,3 @@ class Command(BaseCommand):
             # bump, no domain event, no updated_at churn for a derived value.
             model.objects.filter(id=row.id).update(embedding=vector)
             totals["embedded"] += 1
-
-    # -- reporting ----------------------------------------------------------
-
-    @staticmethod
-    def _count_unembedded_icd_versions() -> int:
-        """Count un-embeddable IcdVersion rows for the *currently armed* tenant.
-
-        Counted inside the per-tenant block on purpose: ``IcdVersion.unscoped``
-        drops the ORM's tenant filter but NOT Postgres RLS, so a single
-        unscoped count taken after ``clear_request_tenant()`` would report 0
-        under the least-privilege runtime role.
-        """
-        try:
-            from icd.models import IcdVersion
-
-            return IcdVersion.objects.filter(embedding__isnull=True).count()
-        except Exception as exc:  # noqa: BLE001 - reporting only
-            logger.debug("backfill_embeddings: ICD gap count skipped: %s", exc)
-            return 0
-
-    def _report_icd_gap(self, missing: int) -> None:
-        """Surface un-embeddable IcdVersion rows instead of ignoring them."""
-        if missing:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"{missing} IcdVersion row(s) still have no embedding. "
-                    "IcdVersion is immutable (DB trigger), so they can only be "
-                    "embedded by creating a new version."
-                )
-            )

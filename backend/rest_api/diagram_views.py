@@ -9,7 +9,7 @@ Endpoints:
   GET    /api/v1/diagrams/<pk>/      — retrieve diagram details
   PATCH  /api/v1/diagrams/<pk>/      — update diagram (creates new version)
   DELETE /api/v1/diagrams/<pk>/      — delete diagram
-  GET    /api/v1/diagrams/<pk>/versions/ — list DiagramVersions chronologically
+  GET    /api/v1/diagrams/<pk>/versions/ — list content revisions chronologically
   GET    /api/v1/diagrams/<pk>/diff/     — field-level diff between two versions
                                             (?from_version=&to_version=)
   GET/POST /api/v1/diagrams/<pk>/transitions/      — workflow transitions (REQ-173)
@@ -114,9 +114,11 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             "diagram_type": diagram.diagram_type,
             "description": diagram.description,
             "workspace_id": str(diagram.workspace_id) if diagram.workspace_id else None,
-            "current_version": str(diagram.current_version_id) if diagram.current_version_id else None,
+            # Task 28c-2: was the current DiagramVersion UUID; that row no
+            # longer exists, so this is the revision number instead.
+            "current_revision": diagram.current_revision,
             "created_at": diagram.created_at.isoformat() if diagram.created_at else None,
-            "version_count": diagram.versions.count() if diagram.id else 0,
+            "version_count": diagram.current_revision,
         }
 
     # -- workflow (REQ-173) --------------------------------------------------
@@ -351,7 +353,7 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/diagrams/<pk>/versions/ — list DiagramVersions chronologically.
+        """GET /api/v1/diagrams/<pk>/versions/ — list revisions chronologically.
 
         REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
         """
@@ -378,7 +380,7 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/<pk>/diff/?from_version=0&to_version=2
 
-        REQ-142: Structured field-level diff between two DiagramVersions.
+        REQ-142: Structured field-level diff between two content revisions.
         Delegates to ArtifactDiffService (COMP-AS-019); reuses the same
         diff computation as the requirement diff endpoint.
         """

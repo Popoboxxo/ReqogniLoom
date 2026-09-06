@@ -33,9 +33,10 @@ Amendment (issue #213):
     Now only the current lock version resolves to a snapshot. Other non-zero
     versions resolve to ``None``, which surfaces as the ``note`` (from-side) or
     a ``NotFoundError`` (to-side), and version lists mark each entry with
-    ``content_available``. Types backed by real version tables (Diagram,
-    GlossaryTerm, Icd, Goal, MainGoal, PromptTemplate) are unaffected — every
-    version they list has a stored snapshot. Cross-artifact point-in-time
+    ``content_available``. Types that record a real snapshot per revision
+    (Diagram, GlossaryTerm, Icd, Goal, MainGoal, PromptTemplate) are
+    unaffected — every version they list has stored content in
+    ``persistence.ArtifactVersion``. Cross-artifact point-in-time
     history remains the job of Baselines (:mod:`baseline`), and the append-only
     operation trail that of :mod:`audit`.
 
@@ -110,8 +111,8 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     "Risk": ["title", "description", "category", "probability", "impact"],
     "Issue": ["title", "description", "severity", "category"],
     "GlossaryTerm": ["term", "definition", "synonyms", "abbreviation"],
-    # REQ-142: Diagram has real per-version snapshots (DiagramVersion), unlike
-    # the single-row entities above — see diff_for_diagram()/list_versions_for_diagram().
+    # REQ-142: Diagram records a real snapshot per content revision, unlike the
+    # single-row entities above — see diff_for_diagram()/list_versions_for_diagram().
     "Diagram": ["payload_format", "payload", "canvas_json"],
     # REQ-L2-TE-020: Goal/MainGoal use an immutable-row-per-version pattern
     # (list_versions_for_goal/list_versions_for_main_goal go through
@@ -133,9 +134,25 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     # a silently empty snapshot. They have no `_ENTITY_MODELS` entry, so the
     # generic entity-diff dispatch is unaffected by their presence here.
     #
-    # Icd's fields span two rows (`name` on Icd, the contract fields on the
-    # current IcdVersion), so `icd_manager` assembles that payload itself
-    # rather than calling `snapshot_fields` on a single entity.
+    # `icd_manager._record_artifact_revision` assembles the Icd payload itself
+    # rather than calling `snapshot_fields` (Layer 1/Ext must not import
+    # Layer 2, ADR-01), so this list and that dict literal have to stay in
+    # lockstep — a field here that the writer never fills renders as
+    # "changed to empty" on every comparison.
+    #
+    # `parameters_snapshot` (Task 28c-2) is the by-value rendering of the
+    # structured IcdParameter child rows, which are current-state-only and
+    # would otherwise be the one part of an ICD with no recoverable history.
+    # The name deliberately differs from the `parameters` related manager:
+    # `snapshot_fields`' plain `getattr` on that name would hand the store an
+    # unserialisable manager object.
+    #
+    # One-time, expected consequence of adding it: `_compute_fields_diff`
+    # unions the field names of both snapshots, so a key present only in the
+    # newer one renders as `status: "added"`. The first diff after this
+    # cut-over therefore shows `parameters_snapshot` as *added* on every ICD
+    # that already had history. Inert — the older revision genuinely has no
+    # recorded parameter set, and "added" is the honest rendering of that.
     "Icd": [
         "name",
         "direction",
@@ -144,6 +161,7 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
         "preconditions",
         "postconditions",
         "invariants",
+        "parameters_snapshot",
     ],
     "ChangeRequest": ["title", "description", "impact_assessment"],
 }
@@ -636,11 +654,13 @@ class ArtifactDiffService(ServiceBase):
     # ------------------------------------------------------------------
     # Diagram version/diff helpers (REQ-142)
     #
-    # Unlike the single-row entities above, Diagram has a real immutable
-    # version table (DiagramVersion). Snapshots below are read directly
-    # from historical rows instead of the "current state only" fallback,
-    # and the field-level comparison reuses _compute_fields_diff — no new
-    # diff algorithm is introduced.
+    # Unlike the single-row entities above, Diagram records a real snapshot per
+    # content revision. Datenmodell-Konsolidierung Task 28c-2: the dedicated
+    # DiagramVersion table was dropped, so those snapshots are read through
+    # ArtifactVersionService (Task 27 records them on every write, Task 28a
+    # copied the legacy rows across) — exactly the shape Task 28b gave the
+    # glossary helpers below. The field-level comparison still reuses
+    # _compute_fields_diff; no new diff algorithm is introduced.
     # ------------------------------------------------------------------
 
     def list_versions_for_diagram(
@@ -648,27 +668,21 @@ class ArtifactDiffService(ServiceBase):
         diagram_id: UUID,
         ctx: AuthContext,
     ) -> List[Dict[str, Any]]:
-        """List all DiagramVersions for a diagram, chronologically (REQ-142)."""
+        """List all content revisions of a diagram, chronologically (REQ-142)."""
         self._set_tenant_context(ctx)
 
-        from diagram.models import Diagram, DiagramVersion
+        from diagram.models import Diagram
 
-        if not Diagram.objects.filter(id=diagram_id).exists():
+        diagram = Diagram.objects.filter(id=diagram_id).first()
+        if diagram is None:
             raise NotFoundError(f"Diagram {diagram_id} not found")
 
-        versions = DiagramVersion.objects.filter(diagram_id=diagram_id).order_by(
-            "version_number"
-        )
-        return [
-            {
-                "version": v.version_number,
-                "label": f"v{v.version_number}",
-                "modified_at": v.created_at.isoformat() if v.created_at else None,
-                # Real immutable snapshot rows — content is always retrievable.
-                "content_available": True,
-            }
-            for v in versions
-        ]
+        if diagram.artifact_id is None:
+            # Workspace-less legacy row: Artifact.workspace is not nullable, so
+            # it has no backing Artifact and therefore no recorded history.
+            return []
+
+        return ArtifactVersionService().list_revisions(diagram.artifact_id, ctx)
 
     def list_versions_for_goal(self, lineage_id: UUID, ctx: AuthContext) -> List[Dict[str, Any]]:
         """List all versions of a Goal lineage, chronologically (REQ-L2-TE-020, Task 6)."""
@@ -691,7 +705,7 @@ class ArtifactDiffService(ServiceBase):
         to_version: int,
         ctx: AuthContext,
     ) -> Dict[str, Any]:
-        """Compute structured diff between two DiagramVersions (REQ-142).
+        """Compute structured diff between two diagram revisions (REQ-142).
 
         Both versions must actually exist (version 0 is the empty creation
         baseline). Unlike diff()/diff_for_entity(), this does not degrade to
@@ -701,16 +715,17 @@ class ArtifactDiffService(ServiceBase):
 
         from diagram.models import Diagram
 
-        if not Diagram.objects.filter(id=diagram_id).exists():
+        diagram = Diagram.objects.filter(id=diagram_id).first()
+        if diagram is None:
             raise NotFoundError(f"Diagram {diagram_id} not found")
 
-        from_snapshot = self._resolve_diagram_snapshot(diagram_id, from_version)
+        from_snapshot = self._resolve_diagram_snapshot(diagram, from_version, ctx)
         if from_snapshot is None and from_version != 0:
             raise NotFoundError(
                 f"Version {from_version} not available for diagram {diagram_id}"
             )
 
-        to_snapshot = self._resolve_diagram_snapshot(diagram_id, to_version)
+        to_snapshot = self._resolve_diagram_snapshot(diagram, to_version, ctx)
         if to_snapshot is None:
             raise NotFoundError(
                 f"Version {to_version} not available for diagram {diagram_id}"
@@ -727,31 +742,22 @@ class ArtifactDiffService(ServiceBase):
 
     @staticmethod
     def _resolve_diagram_snapshot(
-        diagram_id: UUID, version_number: int
+        diagram: Any, version_number: int, ctx: AuthContext
     ) -> Optional[Dict[str, Any]]:
-        """Resolve field values for a specific DiagramVersion row.
+        """Resolve field values for a specific diagram content revision.
 
-        Version 0 → None (empty creation baseline).
+        Version 0 → None (empty creation baseline). Task 28c-2: reads through
+        ArtifactVersionService instead of the dropped DiagramVersion table; the
+        stored payload already carries ``payload_format``/``payload``/
+        ``canvas_json`` (see ``migrate_legacy_versions``'s ``_diagram_payload``
+        and ``diagram.manager._record_artifact_revision``).
         """
-        if version_number == 0:
+        if version_number == 0 or diagram.artifact_id is None:
             return None
 
-        from diagram.models import DiagramVersion
-
-        v = (
-            DiagramVersion.objects.filter(
-                diagram_id=diagram_id, version_number=version_number
-            )
-            .first()
+        return ArtifactVersionService().get_payload(
+            diagram.artifact_id, version_number, ctx
         )
-        if v is None:
-            return None
-
-        return {
-            "payload_format": v.payload_format,
-            "payload": v.payload,
-            "canvas_json": v.canvas_json,
-        }
 
     # ------------------------------------------------------------------
     # GlossaryTerm version/diff helpers (REQ-142)

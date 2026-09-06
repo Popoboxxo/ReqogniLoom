@@ -93,9 +93,9 @@ def _diagram_header_to_dict(diagram: Diagram) -> Dict[str, Any]:
         "diagram_type": diagram.diagram_type,
         "description": diagram.description,
         "workspace_id": str(diagram.workspace_id) if diagram.workspace_id else None,
-        "current_version": (
-            str(diagram.current_version_id) if diagram.current_version_id else None
-        ),
+        # Task 28c-2: was the current DiagramVersion UUID; that row no
+        # longer exists, so this is the revision number instead.
+        "current_revision": diagram.current_revision,
     }
 
 

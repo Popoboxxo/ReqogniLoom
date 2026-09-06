@@ -34,9 +34,14 @@ import uuid
 from typing import TYPE_CHECKING, Optional
 
 from diagram.canvas_editor import CanvasEditor, CanvasExportResult  # noqa: F401
-from diagram.manager import DiagramManager, DiagramResult, DiagramValidationError  # noqa: F401
+from diagram.manager import (  # noqa: F401
+    DiagramManager,
+    DiagramResult,
+    DiagramRevisionNotFoundError,
+    DiagramValidationError,
+)
 from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  # noqa: F401
-from diagram.models import Diagram, DiagramVersion  # noqa: F401
+from diagram.models import Diagram, DiagramRevision  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
 from diagram.traceability_connector import sync_node_links
 from diagram.validator import ValidationResult  # noqa: F401  (H1: re-exported)
@@ -72,7 +77,7 @@ def create_diagram(
     target_id: Optional[uuid.UUID] = None,
     workspace_id: Optional[uuid.UUID] = None,
 ) -> Diagram:
-    """Create a new Diagram and its initial DiagramVersion (v1).
+    """Create a new Diagram with its content at revision 1.
 
     IF-L1-032 entry point for ApplicationService.
 
@@ -115,8 +120,8 @@ def update_diagram(
     content: str,
     modified_by: Optional[object] = None,
     target_id: Optional[uuid.UUID] = None,
-) -> DiagramVersion:
-    """Update a Diagram by creating a new immutable DiagramVersion (N+1).
+) -> DiagramRevision:
+    """Update a Diagram, recording content revision N+1.
 
     IF-L1-032 entry point for ApplicationService.
 
@@ -128,7 +133,7 @@ def update_diagram(
         target_id:      Optional target Artifact UUID for additional TraceLink.
 
     Returns:
-        The newly created DiagramVersion ORM object.
+        The newly recorded DiagramRevision.
 
     Raises:
         Diagram.DoesNotExist:   If diagram_id not found (tenant-scoped).
@@ -276,8 +281,8 @@ def list_diagrams(
     return list(qs.order_by("-created_at"))
 
 
-def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
-    """Return all DiagramVersions for a Diagram, sorted by version_number.
+def list_versions(diagram_id: uuid.UUID) -> list[DiagramRevision]:
+    """Return all recorded content revisions of a Diagram, oldest-first.
 
     IF-L1-032 entry point for ApplicationService.
 
@@ -285,7 +290,7 @@ def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
         diagram_id: UUID of the parent Diagram.
 
     Returns:
-        List of DiagramVersion objects, version_number ascending.
+        List of DiagramRevision objects, version_number ascending.
 
     Raises:
         Diagram.DoesNotExist: If diagram_id not found.
@@ -308,6 +313,7 @@ def canvas_auto_save(
     name: str = "Canvas Drawing",
     user: Optional[object] = None,
     target_id: Optional[uuid.UUID] = None,
+    workspace_id: Optional[uuid.UUID] = None,
 ) -> Diagram:
     """Auto-Save canvas stroke data (IF-L1-058 entry point).
 
@@ -321,6 +327,9 @@ def canvas_auto_save(
         name:        Diagram name (used only on create).
         user:        Optional User ORM object for audit.
         target_id:   Optional target Artifact UUID for TraceLink creation.
+        workspace_id: Owning workspace UUID, used only on create — without it
+            the new Diagram gets no backing Artifact and no content history
+            (see CanvasEditor.handle_stroke_update).
 
     Returns:
         The created or updated Diagram ORM object.
@@ -337,6 +346,7 @@ def canvas_auto_save(
         user=user,
         name=name,
         target_id=target_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -395,7 +405,7 @@ def update_mermaid_source(
     source: str,
     tenant: object,
     user: Optional[object] = None,
-) -> "DiagramVersion":
+) -> "DiagramRevision":
     """Update Mermaid source code for an existing diagram.
 
     IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
@@ -409,8 +419,8 @@ def update_mermaid_source(
         user:       Optional User ORM object for audit.
 
     Returns:
-        The newly created DiagramVersion (NOT the Diagram header) — its ``id``
-        is a version id, so callers must not use it to look the diagram up.
+        The newly recorded DiagramRevision (NOT the Diagram row) — it
+        carries no diagram id usable for a lookup; use the caller's own.
 
     Raises:
         DiagramValidationError: If source validation fails.
@@ -545,9 +555,10 @@ __all__ = [
     # DTOs
     "CanvasExportResult",
     "DiagramResult",
+    "DiagramRevisionNotFoundError",
     "DiagramValidationError",
     "LivePreviewData",
     # ORM types
     "Diagram",
-    "DiagramVersion",
+    "DiagramRevision",
 ]

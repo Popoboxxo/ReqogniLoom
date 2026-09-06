@@ -459,12 +459,16 @@ def _capture_glossary_terms(
 def _capture_icd_versions(
     item_ids: list[str], tenant_id: uuid.UUID
 ) -> dict[str, dict[str, Any]]:
-    """Capture state for IcdVersion entries in one batched query.
+    """Capture state for ICD entries in one batched query.
 
-    ``item_id`` is expected to be an IcdVersion UUID. This handler is included
-    for completeness — the current ScopeResolver does not emit ``icd`` entries,
-    but keeping the capture logic here means the feature works the moment they
-    are added, without touching this module again.
+    ``item_id`` is expected to be an :class:`icd.models.Icd` UUID. This handler
+    is included for completeness — the current ScopeResolver does not emit
+    ``icd`` entries, but keeping the capture logic here means the feature works
+    the moment they are added, without touching this module again.
+
+    Datenmodell-Konsolidierung Task 28c-2: reads the contract off the ``Icd``
+    header, which is where it lives now that ``IcdVersion`` is retired. The
+    captured keys are unchanged, so any stored baseline state stays comparable.
     """
     uuids = _to_uuids(item_ids)
     if not uuids:
@@ -477,21 +481,21 @@ def _capture_icd_versions(
     # was never registered (icd app absent) comes back None.
     from persistence.domain_model_registry import get_model
 
-    IcdVersion = get_model("IcdVersion")
-    if IcdVersion is None:  # pragma: no cover - icd app optional
+    Icd = get_model("Icd")
+    if Icd is None:  # pragma: no cover - icd app optional
         return {}
 
     states: dict[str, dict[str, Any]] = {}
-    for iv in IcdVersion.unscoped.filter(id__in=uuids, tenant_id=tenant_id):
-        states[str(iv.id)] = {
+    for icd in Icd.unscoped.filter(id__in=uuids, tenant_id=tenant_id):
+        states[str(icd.id)] = {
             "artifact_type": "icd",
-            "version_number": iv.version_number,
-            "direction": iv.direction,
-            "interface_type": iv.interface_type,
-            "semantic_description": iv.semantic_description,
-            "preconditions": iv.preconditions,
-            "postconditions": iv.postconditions,
-            "invariants": iv.invariants,
+            "version_number": icd.current_revision,
+            "direction": icd.direction,
+            "interface_type": icd.interface_type,
+            "semantic_description": icd.semantic_description,
+            "preconditions": icd.preconditions,
+            "postconditions": icd.postconditions,
+            "invariants": icd.invariants,
         }
     return states
 

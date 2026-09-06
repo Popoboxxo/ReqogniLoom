@@ -11,10 +11,30 @@ Endpoints:
   DELETE /api/v1/icds/<pk>/                             — delete ICD
 
 Structured interface parameters (REQ-L2-ICD-002, COMP-ICD-001):
-  GET    /api/v1/icds/<pk>/parameters/?version=<n>      — list parameters (default: current version)
-  POST   /api/v1/icds/<pk>/parameters/                  — create a parameter (body: version=<n>, default: current)
+  GET    /api/v1/icds/<pk>/parameters/?version=<n>      — list parameters (default: current revision)
+  POST   /api/v1/icds/<pk>/parameters/                  — create a parameter (body: version=<n>, current revision only)
   PATCH  /api/v1/icds/<pk>/parameters/<parameter_id>/   — update a parameter
   DELETE /api/v1/icds/<pk>/parameters/<parameter_id>/   — delete a parameter
+
+Datenmodell-Konsolidierung Task 28c-2: ``IcdParameter`` rows belong to the ICD,
+not to one of its revisions (they always were mutable in place — the FK to
+``IcdVersion`` never actually froze them). ``?version=<n>`` therefore no longer
+selects a live row set. It is still honoured rather than ignored or rejected,
+because ignoring it would answer a question about revision N with revision
+"current"'s data:
+
+  * ``?version=`` absent, or equal to the ICD's current revision -> the live
+    ``IcdParameter`` rows, exactly as before.
+  * an older revision -> the by-value ``parameters_snapshot`` recorded in that
+    revision's ``ArtifactVersion`` payload, served read-only (``id`` is null,
+    there is no live row behind it).
+  * an older revision recorded *before* this cut-over, whose payload predates
+    ``parameters_snapshot`` -> 404 with an explicit message. Its parameter set
+    was genuinely never captured, and an empty list would be a lie.
+  * a revision that does not exist -> 404, as before.
+
+POST rejects a ``version`` other than the current revision with 400: a
+parameter can only be added to the contract that is live.
 """
 from __future__ import annotations
 
@@ -30,7 +50,7 @@ from rest_framework.response import Response
 from application.artifact_diff_service import creation_baseline_entry
 from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
-from icd.models import Icd, IcdDirection, IcdParameter, IcdVersion
+from icd.models import Icd, IcdDirection, IcdParameter, IcdRevision
 from icd.services import (
     create_icd,
     create_icd_parameter,
@@ -62,6 +82,17 @@ from rest_api.serializers import (
 from rest_api.views import BaseEntityViewSet
 
 logger = logging.getLogger(__name__)
+
+
+class IcdRevisionNotFoundError(LookupError):
+    """A requested ICD contract revision cannot be served.
+
+    Replaces the ``IcdVersion.DoesNotExist`` this module used to raise, now
+    that contract revisions are ``ArtifactVersion`` snapshots rather than rows
+    of a dedicated table (Task 28c-2). Its messages only ever echo the id or
+    revision number the caller itself supplied, which is why it is in
+    ``_CLIENT_SAFE_EXCEPTIONS`` below.
+    """
 
 
 def _internal_error(lang: str, context: str) -> Response:
@@ -110,7 +141,7 @@ def _internal_error(lang: str, context: str) -> Response:
 #:                                harmless ``UUID(pk)`` / ``int(version)`` parse
 #:                                errors that echo the caller's own input.
 #:   Icd.DoesNotExist,          — "<Model> <id> not found"
-#:   IcdVersion.DoesNotExist
+#:   IcdRevisionNotFoundError
 #:   IcdParameterNotFoundError
 #:
 #: Notably **absent**: ``IcdPgVectorUnavailableError``. Its messages name the
@@ -121,7 +152,7 @@ _CLIENT_SAFE_EXCEPTIONS: frozenset[type] = frozenset(
     {
         ValueError,
         Icd.DoesNotExist,
-        IcdVersion.DoesNotExist,
+        IcdRevisionNotFoundError,
         IcdParameterNotFoundError,
     }
 )
@@ -202,7 +233,9 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             "workspace_id": str(icd.workspace_id),
             "source_element_id": str(icd.source_element_id),
             "target_element_id": str(icd.target_element_id),
-            "current_version": str(icd.current_version_id) if icd.current_version_id else None,
+            # Task 28c-2: was the current IcdVersion's UUID; that row no longer
+            # exists, so this is the revision number instead.
+            "current_revision": icd.current_revision,
             "created_at": icd.created_at.isoformat() if icd.created_at else None,
         }
 
@@ -210,7 +243,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """Convert IcdParameter ORM object to serializer-compatible dict."""
         return {
             "id": str(param.id),
-            "icd_version_id": str(param.icd_version_id),
+            "icd_id": str(param.icd_id),
             "name": param.name,
             "description": param.description,
             "unit": param.unit,
@@ -225,26 +258,63 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             "updated_at": param.modified_at.isoformat() if param.modified_at else None,
         }
 
-    def _resolve_icd_version(self, icd: Icd, version_param: str | None) -> IcdVersion:
-        """Resolve a version_number query/body param to its IcdVersion.
+    @staticmethod
+    def _snapshot_parameter_to_dict(
+        icd: Icd, entry: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render one historical ``parameters_snapshot`` entry like a live row.
 
-        Defaults to the ICD's current version when *version_param* is None.
+        ``id``/``created_at``/``updated_at`` are ``None``: a snapshot entry is
+        a recorded value, not a row that can still be addressed or edited.
+        """
+        return {
+            "id": None,
+            "icd_id": str(icd.id),
+            "name": entry.get("name", ""),
+            "description": entry.get("description", ""),
+            "unit": entry.get("unit", ""),
+            "data_type": entry.get("data_type", ""),
+            "direction": entry.get("direction", ""),
+            "min_value": entry.get("min_value"),
+            "max_value": entry.get("max_value"),
+            "nominal_value": entry.get("nominal_value", ""),
+            "tolerance": entry.get("tolerance", ""),
+            "ordering": entry.get("ordering", 0),
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    def _resolve_revision(
+        self, icd: Icd, version_param: str | None
+    ) -> IcdRevision:
+        """Resolve a version_number query/body param to a contract revision.
+
+        Defaults to the ICD's current revision when *version_param* is None or
+        empty.
 
         Raises:
-            IcdVersion.DoesNotExist: No matching version found.
+            IcdRevisionNotFoundError: No such revision for this ICD.
+            ValueError: *version_param* is not an integer (mapped to 400 by
+                the callers' existing ValueError handling).
         """
         if version_param is None or version_param == "":
-            if icd.current_version_id is None:
-                raise IcdVersion.DoesNotExist(f"ICD {icd.id} has no current version")
-            return icd.current_version
+            if not icd.current_revision:
+                raise IcdRevisionNotFoundError(
+                    f"ICD {icd.id} has no recorded revision"
+                )
+            return IcdRevision.from_icd(icd)
+
         target_number = int(version_param)
+        if target_number == icd.current_revision:
+            return IcdRevision.from_icd(icd)
+
         version_list = get_icd_history(icd_id=icd.id, tenant_id=icd.tenant_id)
         match = next(
             (v for v in version_list if v.version_number == target_number), None
         )
         if match is None:
-            raise IcdVersion.DoesNotExist(
-                f"IcdVersion number {target_number} not found for ICD {icd.id}"
+            raise IcdRevisionNotFoundError(
+                f"Revision {target_number} not found for ICD {icd.id}"
             )
         return match
 
@@ -360,22 +430,21 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
-            # Get version info
-            versions = get_icd_history(icd_id=UUID(pk), tenant_id=ctx.tenant_id)
-            current_version = versions[-1] if versions else None
+            # Task 28c-2: the current contract is the header. This used to
+            # walk the whole IcdVersion history just to read its last row.
             return Response({
                 "id": str(icd.id),
                 "name": icd.name,
                 "workspace_id": str(icd.workspace_id),
                 "source_element_id": str(icd.source_element_id),
                 "target_element_id": str(icd.target_element_id),
-                "version": current_version.version_number if current_version else 1,
-                "direction": current_version.direction if current_version else None,
-                "interface_type": current_version.interface_type if current_version else None,
-                "semantic_description": current_version.semantic_description if current_version else None,
-                "preconditions": current_version.preconditions if current_version else [],
-                "postconditions": current_version.postconditions if current_version else [],
-                "invariants": current_version.invariants if current_version else [],
+                "version": icd.current_revision or 1,
+                "direction": icd.direction,
+                "interface_type": icd.interface_type,
+                "semantic_description": icd.semantic_description,
+                "preconditions": icd.preconditions or [],
+                "postconditions": icd.postconditions or [],
+                "invariants": icd.invariants or [],
                 "created_at": icd.created_at.isoformat() if icd.created_at else None,
             })
         except Icd.DoesNotExist:
@@ -433,10 +502,10 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     # -- destroy -----------------------------------------------------------
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/icds/<pk>/ — delete an ICD and all versions.
+        """DELETE /api/v1/icds/<pk>/ — delete an ICD and its parameters.
 
-        Note: IcdVersion records are immutable via DB trigger (ADR-ICD-01).
-        We temporarily disable the trigger to allow deletion.
+        Task 28c-2: a plain cascading delete. The immutability trigger this
+        used to work around went away with the ``icd_version`` table.
         """
         lang = detect_lang(request)
         try:
@@ -467,8 +536,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "version": v.version_number,
                     "label": f"v{v.version_number}",
                     "modified_at": v.created_at.isoformat() if v.created_at else None,
-                    # ICDs keep real immutable version rows (IcdVersion), so
-                    # every listed version has retrievable content (#213).
+                    # Every listed revision is a stored ArtifactVersion
+                    # snapshot, so its content is always retrievable (#213).
                     "content_available": True,
                 })
             return Response(result)
@@ -494,7 +563,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             icd = get_icd(UUID(pk), ctx.tenant_id)
 
             from_version = int(request.query_params.get("from_version", "0"))
-            current_ver = icd.current_version.version_number if icd.current_version else 1
+            current_ver = icd.current_revision or 1
             to_version = int(request.query_params.get("to_version", str(current_ver)))
 
             version_list = get_icd_history(icd_id=icd.id, tenant_id=ctx.tenant_id)
@@ -558,8 +627,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """GET /api/v1/icds/<pk>/similar/?limit=10 — semantic similarity search.
 
         REQ-L2-VS-004: Returns the top-N ICDs most similar to <pk> by cosine
-        distance over the current IcdVersion's pgvector embedding. Returns 400
-        when the ICD has no embedding, 503 when pgvector is unavailable.
+        distance over the Icd row's pgvector embedding. Returns 400 when the
+        ICD has no embedding, 503 when pgvector is unavailable.
         """
         lang = detect_lang(request)
         try:
@@ -604,7 +673,6 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             [
                 {
                     "icd_id": str(hit.icd_id),
-                    "version_id": str(hit.version_id),
                     "name": hit.name,
                     "interface_type": hit.interface_type,
                     "version_number": hit.version_number,
@@ -620,8 +688,10 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def parameters(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET/POST /api/v1/icds/<pk>/parameters/?version=<n>
 
-        GET  — list structured parameters for a version (default: current).
-        POST — create a structured parameter on a version (default: current).
+        GET  — list structured parameters (default: the current revision; an
+               older revision is served from its recorded snapshot — see the
+               module docstring for the full ``?version=`` contract).
+        POST — create a structured parameter on the current revision.
         """
         lang = detect_lang(request)
         try:
@@ -637,13 +707,28 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         if request.method == "GET":
             try:
-                version = self._resolve_icd_version(
+                revision = self._resolve_revision(
                     icd, request.query_params.get("version")
                 )
-                items = list_icd_parameters(
-                    icd_version_id=version.id, tenant_id=ctx.tenant_id
-                )
-            except IcdVersion.DoesNotExist as exc:
+                if revision.version_number == icd.current_revision:
+                    serialized = [
+                        self._parameter_to_dict(item)
+                        for item in list_icd_parameters(
+                            icd_id=icd.id, tenant_id=ctx.tenant_id
+                        )
+                    ]
+                elif not revision.parameters_captured:
+                    raise IcdRevisionNotFoundError(
+                        f"Revision {revision.version_number} of ICD {icd.id} "
+                        "predates parameter snapshots; its parameter set was "
+                        "not recorded."
+                    )
+                else:
+                    serialized = [
+                        self._snapshot_parameter_to_dict(icd, entry)
+                        for entry in revision.parameters_snapshot
+                    ]
+            except IcdRevisionNotFoundError as exc:
                 return Response(
                     build_error_response(
                         "NOT_FOUND",
@@ -652,9 +737,18 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            except ValueError as exc:
+                # Non-integer ?version= — echoes only the caller's own input.
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=_client_message(exc, "parameters_list"),
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             except Exception:
                 return _internal_error(lang, "parameters")
-            serialized = [self._parameter_to_dict(item) for item in items]
             return self._paginate(request, serialized)
 
         # POST — create
@@ -669,10 +763,31 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        requested_version = request.data.get("version")
+        if requested_version not in (None, ""):
+            # A parameter can only be attached to the live contract; writing to
+            # a historical revision would have to mutate a recorded snapshot.
+            # ``int()`` is inside the guard, not around it: a non-numeric
+            # ``version`` is a client error, not a 500.
+            try:
+                targets_current = int(requested_version) == icd.current_revision
+            except (TypeError, ValueError):
+                targets_current = False
+            if not targets_current:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=(
+                            "Parameters can only be added to the current "
+                            f"revision ({icd.current_revision})."
+                        ),
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         try:
-            version = self._resolve_icd_version(icd, request.data.get("version"))
             payload = IcdParameterCreateDTO(
-                icd_version_id=version.id,
+                icd_id=icd.id,
                 name=data["name"],
                 unit=data.get("unit", ""),
                 data_type=data.get("data_type", "other"),
@@ -685,7 +800,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ordering=data.get("ordering", 0),
             )
             item = create_icd_parameter(payload, tenant_id=ctx.tenant_id)
-        except IcdVersion.DoesNotExist as exc:
+        except Icd.DoesNotExist as exc:
             return Response(
                 build_error_response(
                     "NOT_FOUND",

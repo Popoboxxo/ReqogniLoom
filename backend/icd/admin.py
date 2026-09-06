@@ -3,15 +3,14 @@ Django admin registration for the icd app (COMP-ICD-001/002, REQ-L1-028).
 
 Registers:
 
-* :class:`Icd` — mutable logical identity of an Interface Control Document
-* :class:`IcdVersion` — append-only immutable contract revision
+* :class:`Icd` — an Interface Control Document and its current contract
 
-Read-only:
-    ``IcdVersion`` is immutable (mirroring the DB-level immutability triggers);
-    the admin is locked down to read-only to match.
+Datenmodell-Konsolidierung Task 28c-2 retired ``IcdVersion`` (and with it its
+read-only admin); contract history now lives in ``persistence.ArtifactVersion``
+alongside every other artifact type's.
 
 Tenant isolation:
-    Both models inherit ``TenantScopedModel`` (they re-declare ``objects`` and
+    ``Icd`` inherits ``TenantScopedModel`` (it re-declares ``objects`` and
     ``unscoped`` explicitly in icd.models). ``get_queryset`` uses
     ``unscoped()`` to bypass the tenant filter.
 """
@@ -19,7 +18,7 @@ from __future__ import annotations
 
 from django.contrib import admin
 
-from .models import Icd, IcdVersion
+from .models import Icd
 
 
 @admin.register(Icd)
@@ -32,7 +31,7 @@ class IcdAdmin(admin.ModelAdmin):
         "target_element_id",
         "workspace_id",
         "tenant",
-        "current_version",
+        "current_revision",
     )
     list_filter = ("tenant", "workspace_id")
     search_fields = ("name", "source_element_id", "target_element_id")
@@ -46,53 +45,3 @@ class IcdAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
         return Icd.unscoped.all()
-
-
-@admin.register(IcdVersion)
-class IcdVersionAdmin(admin.ModelAdmin):
-    """Admin view for the immutable IcdVersion (REQ-L2-ICD-001/002).
-
-    Read-only: each IcdVersion is an immutable contract revision. Updates
-    append a new version rather than modifying an existing row; the DB
-    trigger in migration 0001_initial enforces immutability at the database.
-    """
-
-    list_display = (
-        "icd",
-        "version_number",
-        "direction",
-        "interface_type",
-        "tenant",
-        "created_at",
-    )
-    list_filter = ("tenant", "direction", "interface_type")
-    search_fields = ("icd__name", "interface_type", "semantic_description")
-    ordering = ("icd", "-version_number")
-    readonly_fields = (
-        "icd",
-        "version_number",
-        "direction",
-        "interface_type",
-        "semantic_description",
-        "preconditions",
-        "postconditions",
-        "invariants",
-        "created_at",
-        "created_by",
-        "modified_at",
-        "modified_by",
-        "version",
-        "tenant",
-    )
-
-    def get_queryset(self, request):
-        return IcdVersion.unscoped.all()
-
-    def has_add_permission(self, request):
-        return False  # read-only
-
-    def has_change_permission(self, request, obj=None):
-        return False  # read-only
-
-    def has_delete_permission(self, request, obj=None):
-        return False  # read-only

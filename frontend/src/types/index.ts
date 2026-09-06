@@ -172,9 +172,13 @@ export interface SimilarRequirement {
 /** A single ICD similarity-search hit (REQ-L2-VS-004). */
 export interface SimilarIcd {
   icd_id: UUID;
-  version_id: UUID;
   name: string;
   interface_type: string;
+  /**
+   * The matched ICD's current contract revision. Backend Task 28c-2 dropped
+   * the companion `version_id`: the embedding moved onto the ICD row itself,
+   * so there is no version row left to identify.
+   */
   version_number: number;
   /** Cosine similarity in [~-1, 1]; higher means more similar. */
   similarity_score: number;

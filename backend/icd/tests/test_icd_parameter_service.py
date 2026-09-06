@@ -5,7 +5,7 @@ leaf_id: COMP-ICD-001
 req_id:  REQ-L2-ICD-002
 
 Coverage:
-  create_parameter: happy path, blank-name rejection, unknown IcdVersion
+  create_parameter: happy path, blank-name rejection, unknown Icd
   update_parameter: partial update, blank-name rejection, not-found
   delete_parameter: happy path, not-found
   list_parameters: ordering, tenant isolation
@@ -109,15 +109,15 @@ def _make_create_dto(tenant, workspace_id, src, tgt, **kwargs):
 
 
 @pytest.fixture
-def icd_version_id(tenant_a, workspace_id, src_id, tgt_id):
-    """Create an ICD (v1) for tenant_a and return the IcdVersion id."""
+def icd_id(tenant_a, workspace_id, src_id, tgt_id):
+    """Create an ICD (revision 1) for tenant_a and return its id."""
     from icd.services import create_icd
 
     with active_tenant(tenant_a):
         dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
         with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
             result = create_icd(dto)
-    return result.current_version.id
+    return result.icd.id
 
 
 # ===========================================================================
@@ -126,14 +126,14 @@ def icd_version_id(tenant_a, workspace_id, src_id, tgt_id):
 
 @pytest.mark.django_db
 class TestCreateParameter:
-    """REQ-L2-ICD-002: create structured parameter on an IcdVersion."""
+    """REQ-L2-ICD-002: create structured parameter on an Icd."""
 
-    def test_create_parameter_persists_all_fields(self, tenant_a, icd_version_id):
+    def test_create_parameter_persists_all_fields(self, tenant_a, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="Altitude",
             tenant_id=tenant_a.id,
             unit="m",
@@ -148,7 +148,7 @@ class TestCreateParameter:
         )
 
         assert param.id is not None
-        assert param.icd_version_id == icd_version_id
+        assert param.icd_id == icd_id
         assert param.name == "Altitude"
         assert param.unit == "m"
         assert param.data_type == "float"
@@ -160,12 +160,12 @@ class TestCreateParameter:
         assert param.tolerance == "±5%"
         assert param.ordering == 2
 
-    def test_create_parameter_defaults(self, tenant_a, icd_version_id):
+    def test_create_parameter_defaults(self, tenant_a, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="Flag",
             tenant_id=tenant_a.id,
         )
@@ -177,38 +177,38 @@ class TestCreateParameter:
         assert param.max_value is None
         assert param.ordering == 0
 
-    def test_blank_name_raises(self, tenant_a, icd_version_id):
+    def test_blank_name_raises(self, tenant_a, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         with pytest.raises(ValueError):
             svc.create_parameter(
-                icd_version_id=icd_version_id,
+                icd_id=icd_id,
                 name="   ",
                 tenant_id=tenant_a.id,
             )
 
-    def test_unknown_icd_version_raises(self, tenant_a):
-        from icd.models import IcdVersion
+    def test_unknown_icd_raises(self, tenant_a):
+        from icd.models import Icd
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
-        with pytest.raises(IcdVersion.DoesNotExist):
+        with pytest.raises(Icd.DoesNotExist):
             svc.create_parameter(
-                icd_version_id=uuid.uuid4(),
+                icd_id=uuid.uuid4(),
                 name="Ghost",
                 tenant_id=tenant_a.id,
             )
 
-    def test_wrong_tenant_cannot_create_on_others_version(self, tenant_a, tenant_b, icd_version_id):
+    def test_wrong_tenant_cannot_create_on_others_icd(self, tenant_a, tenant_b, icd_id):
         """A version created for tenant_a must not be reachable via tenant_b's id."""
-        from icd.models import IcdVersion
+        from icd.models import Icd
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
-        with pytest.raises(IcdVersion.DoesNotExist):
+        with pytest.raises(Icd.DoesNotExist):
             svc.create_parameter(
-                icd_version_id=icd_version_id,
+                icd_id=icd_id,
                 name="Trespasser",
                 tenant_id=tenant_b.id,
             )
@@ -222,12 +222,12 @@ class TestCreateParameter:
 class TestUpdateParameter:
     """REQ-L2-ICD-002: partial in-place update of an IcdParameter."""
 
-    def test_update_changes_only_given_fields(self, tenant_a, icd_version_id):
+    def test_update_changes_only_given_fields(self, tenant_a, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="Speed",
             tenant_id=tenant_a.id,
             unit="m/s",
@@ -244,12 +244,12 @@ class TestUpdateParameter:
         assert updated.name == "Speed"
         assert updated.data_type == "float"
 
-    def test_update_blank_name_raises(self, tenant_a, icd_version_id):
+    def test_update_blank_name_raises(self, tenant_a, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="Speed",
             tenant_id=tenant_a.id,
         )
@@ -264,12 +264,12 @@ class TestUpdateParameter:
         with pytest.raises(IcdParameterNotFoundError):
             svc.update_parameter(parameter_id=uuid.uuid4(), tenant_id=tenant_a.id, name="X")
 
-    def test_update_wrong_tenant_raises(self, tenant_a, tenant_b, icd_version_id):
+    def test_update_wrong_tenant_raises(self, tenant_a, tenant_b, icd_id):
         from icd.icd_parameter_service import get_parameter_service, IcdParameterNotFoundError
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="Speed",
             tenant_id=tenant_a.id,
         )
@@ -286,13 +286,13 @@ class TestUpdateParameter:
 class TestDeleteParameter:
     """REQ-L2-ICD-002: hard delete of an IcdParameter."""
 
-    def test_delete_removes_parameter(self, tenant_a, icd_version_id):
+    def test_delete_removes_parameter(self, tenant_a, icd_id):
         from icd.models import IcdParameter
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="ToDelete",
             tenant_id=tenant_a.id,
         )
@@ -308,12 +308,12 @@ class TestDeleteParameter:
         with pytest.raises(IcdParameterNotFoundError):
             svc.delete_parameter(parameter_id=uuid.uuid4(), tenant_id=tenant_a.id)
 
-    def test_delete_wrong_tenant_raises(self, tenant_a, tenant_b, icd_version_id):
+    def test_delete_wrong_tenant_raises(self, tenant_a, tenant_b, icd_id):
         from icd.icd_parameter_service import get_parameter_service, IcdParameterNotFoundError
 
         svc = get_parameter_service()
         param = svc.create_parameter(
-            icd_version_id=icd_version_id,
+            icd_id=icd_id,
             name="Protected",
             tenant_id=tenant_a.id,
         )
@@ -330,37 +330,37 @@ class TestDeleteParameter:
 class TestListParameters:
     """REQ-L2-ICD-002: list + ordering + tenant isolation."""
 
-    def test_list_orders_by_ordering_then_name(self, tenant_a, icd_version_id):
+    def test_list_orders_by_ordering_then_name(self, tenant_a, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         svc.create_parameter(
-            icd_version_id=icd_version_id, name="Zeta", tenant_id=tenant_a.id, ordering=1
+            icd_id=icd_id, name="Zeta", tenant_id=tenant_a.id, ordering=1
         )
         svc.create_parameter(
-            icd_version_id=icd_version_id, name="Alpha", tenant_id=tenant_a.id, ordering=1
+            icd_id=icd_id, name="Alpha", tenant_id=tenant_a.id, ordering=1
         )
         svc.create_parameter(
-            icd_version_id=icd_version_id, name="Beta", tenant_id=tenant_a.id, ordering=0
+            icd_id=icd_id, name="Beta", tenant_id=tenant_a.id, ordering=0
         )
 
         names = list(
-            svc.list_parameters(icd_version_id=icd_version_id, tenant_id=tenant_a.id).values_list(
+            svc.list_parameters(icd_id=icd_id, tenant_id=tenant_a.id).values_list(
                 "name", flat=True
             )
         )
 
         assert names == ["Beta", "Alpha", "Zeta"]
 
-    def test_list_is_tenant_scoped(self, tenant_a, tenant_b, icd_version_id):
+    def test_list_is_tenant_scoped(self, tenant_a, tenant_b, icd_id):
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
         svc.create_parameter(
-            icd_version_id=icd_version_id, name="OnlyTenantA", tenant_id=tenant_a.id
+            icd_id=icd_id, name="OnlyTenantA", tenant_id=tenant_a.id
         )
 
-        result = svc.list_parameters(icd_version_id=icd_version_id, tenant_id=tenant_b.id)
+        result = svc.list_parameters(icd_id=icd_id, tenant_id=tenant_b.id)
 
         assert list(result) == []
 
@@ -368,6 +368,6 @@ class TestListParameters:
         from icd.icd_parameter_service import get_parameter_service
 
         svc = get_parameter_service()
-        result = svc.list_parameters(icd_version_id=uuid.uuid4(), tenant_id=tenant_a.id)
+        result = svc.list_parameters(icd_id=uuid.uuid4(), tenant_id=tenant_a.id)
 
         assert list(result) == []

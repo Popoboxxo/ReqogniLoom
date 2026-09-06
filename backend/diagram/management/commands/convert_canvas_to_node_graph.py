@@ -13,7 +13,7 @@ Usage::
     python manage.py convert_canvas_to_node_graph --workspace <uuid> --apply
 
 Design (Task 7 brief):
-  * Reads ``DiagramVersion.canvas_json`` of the CURRENT version of each
+  * Reads ``Diagram.canvas_json`` of each
     targeted ``canvas_stroke`` diagram — never the lossy ``strokes`` array
     (see Task 2's F2 finding: ``strokes`` drops every non-freehand shape).
   * Conversion itself is a pure function
@@ -21,12 +21,12 @@ Design (Task 7 brief):
     reused as-is here; this command owns only target discovery, tenant
     context and persistence.
   * Append-only: every successful conversion is written as a NEW
-    ``DiagramVersion`` via :meth:`DiagramManager.update_diagram` — the same
+    revision via :meth:`DiagramManager.update_diagram` — the same
     service-layer write path Task 1 (canonicalization) and Task 4 (the
     per-node ``artifact_ref`` -> ``DIAGRAM_REF`` TraceLink reconciler) are
-    already wired into (never a hand-constructed ``DiagramVersion``). The
+    already wired into (never a hand-written content row). The
     source ``canvas_stroke`` version is never mutated or deleted —
-    ``DiagramVersion`` is append-only by construction (diagram/models.py).
+    the recorded revision trail is append-only by construction.
   * Refuses (does not partially convert) any diagram whose ``canvas_json``
     contains a genuine free-hand ``path`` object — reported, not converted.
   * Dry-run by default: prints a per-diagram report and writes nothing.
@@ -66,7 +66,7 @@ class _DiagramReport:
 class Command(BaseCommand):
     help = (
         "Convert canvas_stroke diagrams to the node_graph format (GH-353 Task 7). "
-        "Dry-run by default; pass --apply to persist as new DiagramVersion rows."
+        "Dry-run by default; pass --apply to persist as new revisions."
     )
 
     def add_arguments(self, parser) -> None:
@@ -87,7 +87,7 @@ class Command(BaseCommand):
             "--apply",
             action="store_true",
             help=(
-                "Persist conversions as new DiagramVersion rows. Without this "
+                "Persist conversions as new revisions. Without this "
                 "flag the command only prints a dry-run report and writes nothing."
             ),
         )
@@ -173,11 +173,9 @@ class Command(BaseCommand):
         pattern), unlike request-scoped code which always operates within a
         single already-active tenant.
         """
-        qs = (
-            Diagram.unscoped
-            .select_related("current_version")
-            .filter(current_version__payload_format=PayloadFormat.CANVAS_STROKE)
-        )
+        # Task 28c-2: a plain column filter on the Diagram row, now that
+        # the current payload lives there rather than on a DiagramVersion.
+        qs = Diagram.unscoped.filter(payload_format=PayloadFormat.CANVAS_STROKE)
         if diagram_id_raw is not None:
             try:
                 diagram_uuid = uuid.UUID(diagram_id_raw)
@@ -187,7 +185,7 @@ class Command(BaseCommand):
             if not qs.exists():
                 raise Diagram.DoesNotExist(
                     f"No canvas_stroke Diagram found with id={diagram_uuid} "
-                    "(wrong id, or its current version is not canvas_stroke)."
+                    "(wrong id, or its payload_format is not canvas_stroke)."
                 )
         else:
             try:
@@ -206,22 +204,21 @@ class Command(BaseCommand):
         self, manager: DiagramManager, diagram_id: uuid.UUID, apply_changes: bool
     ) -> _DiagramReport:
         """Convert one diagram; TenantContext is already set by the caller."""
-        diagram = Diagram.objects.select_related("current_version").get(id=diagram_id)
-        version = diagram.current_version
+        diagram = Diagram.objects.get(id=diagram_id)
 
-        if version is None or version.payload_format != PayloadFormat.CANVAS_STROKE:
+        if diagram.payload_format != PayloadFormat.CANVAS_STROKE:
             return _DiagramReport(
-                diagram_id, diagram.name, False, "current version is not canvas_stroke"
+                diagram_id, diagram.name, False, "payload_format is not canvas_stroke"
             )
 
-        canvas_json = version.canvas_json
+        canvas_json = diagram.canvas_json
         if not isinstance(canvas_json, dict) or not canvas_json.get("objects"):
             return _DiagramReport(
                 diagram_id,
                 diagram.name,
                 False,
-                "no canvas_json objects on the current version "
-                "(legacy stroke-only version, nothing to convert)",
+                "no canvas_json objects on the current content "
+                "(legacy stroke-only payload, nothing to convert)",
             )
 
         result = convert_canvas_json_to_node_graph(canvas_json)
@@ -280,7 +277,7 @@ class Command(BaseCommand):
             f"{convertible} convertible, {skipped} skipped."
         )
         if apply_changes:
-            summary += f" {applied} new node_graph DiagramVersion(s) written."
+            summary += f" {applied} new node_graph revision(s) written."
         else:
             summary += " Dry run - nothing written (pass --apply to persist)."
         self.stdout.write(self.style.SUCCESS(summary))

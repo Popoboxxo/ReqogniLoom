@@ -445,12 +445,13 @@ class MermaidSourceView(APIView):
             )
 
             # Return updated source data.
-            # NOTE: update_mermaid_source returns the newly created
-            # *DiagramVersion*, not the Diagram header, so its ``.id`` is a
-            # version id. Passing that to get_mermaid_preview() looked up a
-            # non-existent Diagram and silently produced fallback data (empty
-            # source, is_valid=false) with HTTP 200. Re-use the path parameter,
-            # which is the diagram id we already validated ownership for.
+            # NOTE: update_mermaid_source returns the newly recorded
+            # *DiagramRevision*, not the Diagram row. Its predecessor
+            # (DiagramVersion) had an ``.id`` that callers passed to
+            # get_mermaid_preview(), which then looked up a non-existent
+            # Diagram and silently produced fallback data (empty source,
+            # is_valid=false) with HTTP 200. Re-use the path parameter, which
+            # is the diagram id we already validated ownership for.
             preview_data = get_mermaid_preview(diagram_id=_as_uuid(pk))
             response_data = {
                 "diagram_id": str(preview_data.diagram_id),

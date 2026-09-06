@@ -374,9 +374,9 @@ class AuditableModel(models.Model):
        * Never present it as "this artifact has N revisions". Retrievable
          history comes from Baselines (:mod:`baseline`), from the append-only
          audit trail (:mod:`audit`), from the generic ``ArtifactVersion``
-         store (GlossaryTerm, since Task 28b), or — for the remaining types
-         that still have their own real version tables — from
-         ``DiagramVersion`` / ``PromptTemplate``.
+         store (every type with recorded content revisions — GlossaryTerm
+         since Task 28b, Diagram and Icd since Task 28c-2), or — for the one
+         remaining type with its own version table — from ``PromptTemplate``.
 
        :attr:`lock_version` is the unambiguous alias; prefer it in new code.
        The column is not renamed because ``version`` is part of the published
