@@ -12,8 +12,18 @@ row. That made the API claim things that are not true:
   - ``list_versions()`` advertised ``Current (v5)``, implying five retrievable
     revisions, while only the current row is actually stored.
 
-The fix keeps ``version`` as an internal concurrency-control counter and makes
+The fix kept ``version`` as an internal concurrency-control counter and made
 the user-facing surface honest about which versions have a stored snapshot.
+
+Datenmodell-Konsolidierung Task 29 (Milestone M5) superseded the mechanism
+for two of the four entry points this file covers: ``diff()``/
+``list_versions()`` now read exclusively from ``persistence.ArtifactVersion``
+(every version has real content — the single-row limitation is gone for
+these two), so the classes below testing those two are written against the
+new mechanism. ``diff_for_entity()``/``list_versions_for_entity()`` are
+unaffected — they still serve the single-row model this module's docstring
+describes, for the handful of call sites (Adr, Risk, Issue) that address an
+entity by ``entity_id`` rather than ``artifact_id``.
 """
 from __future__ import annotations
 
@@ -83,23 +93,29 @@ def _patched_model(req_mock):
 
 
 class TestDiffRejectsUnstoredVersions:
-    """Issue #213: intermediate lock-counter values have no stored snapshot."""
+    """Issue #213 (diff_for_entity); Task 29/M5 (diff).
 
-    def test_diff_between_two_historical_versions_raises_not_found(self):
-        """diff(1, 2) on an entity at v5 must not report "no changes"."""
+    ``diff()`` no longer resolves against a lock-counter "current row" at
+    all — every non-zero version is a lookup into
+    ``ArtifactVersionService.get_payload``, so a version with no recorded
+    snapshot simply returns ``None`` regardless of where the live row's lock
+    counter currently sits.
+    """
+
+    def test_diff_between_two_unrecorded_versions_raises_not_found(self):
+        """diff(1, 2) with no revision 2 recorded must not invent one."""
         svc = ArtifactDiffService()
         ctx = _make_ctx()
-        req_mock = _make_requirement_mock(version=5)
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = (
                     _make_artifact_mock()
                 )
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": _patched_model(req_mock)},
-                ):
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = None
                     with pytest.raises(NotFoundError):
                         svc.diff(
                             artifact_id=ARTIFACT_ID,
@@ -108,21 +124,30 @@ class TestDiffRejectsUnstoredVersions:
                             ctx=ctx,
                         )
 
-    def test_diff_from_unstored_version_to_current_carries_note(self):
+    def test_diff_from_unstored_version_to_recorded_one_carries_note(self):
         """from=1 has no snapshot → the response documents the limitation."""
         svc = ArtifactDiffService()
         ctx = _make_ctx()
-        req_mock = _make_requirement_mock(version=5)
+
+        payload = {
+            "title": "Current title",
+            "description": "Current description",
+            "category": "functional",
+        }
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = (
                     _make_artifact_mock()
                 )
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": _patched_model(req_mock)},
-                ):
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.side_effect = (
+                        lambda _artifact_id, revision, _ctx: (
+                            None if revision == 1 else payload
+                        )
+                    )
                     result = svc.diff(
                         artifact_id=ARTIFACT_ID,
                         from_version=1,
@@ -161,29 +186,35 @@ class TestDiffRejectsUnstoredVersions:
 
 
 class TestListVersionsContentAvailability:
-    """Issue #213: the version list must not imply N retrievable revisions."""
+    """Issue #213 (list_versions_for_entity); Task 29/M5 (list_versions).
+
+    Since Task 29, ``list_versions()`` lists real recorded revisions from
+    ``ArtifactVersionService`` — every one of them has stored content by
+    construction, so ``content_available`` is unconditionally ``True`` for
+    every non-baseline entry (the single-row "current lock version only"
+    caveat this module's docstring describes no longer applies here).
+    """
 
     def test_list_versions_flags_content_availability(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
-        req_mock = _make_requirement_mock(version=7)
+
+        recorded = [
+            {"version": 1, "label": "v1", "modified_at": None, "content_available": True},
+        ]
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
-                ArtMock.objects.filter.return_value.first.return_value = (
-                    _make_artifact_mock()
-                )
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": _patched_model(req_mock)},
-                ):
+                ArtMock.objects.filter.return_value.exists.return_value = True
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.list_revisions.return_value = recorded
                     versions = svc.list_versions(artifact_id=ARTIFACT_ID, ctx=ctx)
 
-        assert [v["version"] for v in versions] == [0, 7]
+        assert [v["version"] for v in versions] == [0, 1]
         assert versions[0]["content_available"] is False
         assert versions[1]["content_available"] is True
-        # The lock counter must not be rendered as a revision number.
-        assert "v7" not in versions[1]["label"]
 
     def test_list_versions_for_entity_flags_content_availability(self):
         svc = ArtifactDiffService()

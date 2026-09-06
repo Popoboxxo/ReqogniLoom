@@ -33,7 +33,10 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from application.artifact_diff_service import ArtifactDiffService
+from application.artifact_diff_service import (
+    ArtifactDiffService,
+    creation_baseline_entry,
+)
 from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
 from diagram.models import Diagram, DiagramType, PayloadFormat
@@ -355,13 +358,29 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/<pk>/versions/ — list revisions chronologically.
 
-        REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
+        REQ-142: delegates to ArtifactDiffService (COMP-AS-019). Task 29
+        (Milestone M5): routes through the generic ``list_versions`` — a
+        diagram with no backing Artifact (workspace-less legacy row) has no
+        recorded history, so the creation baseline is the only entry.
         """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            result = ArtifactDiffService().list_versions_for_diagram(UUID(pk), ctx)
+            diagram_result: DiagramResult = get_diagram(diagram_id=UUID(pk))
+
+            diff_svc = ArtifactDiffService()
+            if diagram_result.diagram.artifact_id is None:
+                result = [creation_baseline_entry()]
+            else:
+                result = diff_svc.list_versions(
+                    diagram_result.diagram.artifact_id, ctx
+                )
             return Response(result)
+        except Diagram.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except NotFoundError as exc:
             return Response(
                 build_error_response("NOT_FOUND", lang, message=str(exc)),
@@ -405,8 +424,15 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 request.query_params.get("to_version", str(default_to_version))
             )
 
-            result = ArtifactDiffService().diff_for_diagram(
-                diagram_id=diagram_id,
+            if result.diagram.artifact_id is None:
+                # Workspace-less legacy row: no backing Artifact, so no
+                # recorded history to diff against (Task 28c-2).
+                raise NotFoundError(
+                    f"Version {to_version} not available for diagram {diagram_id}"
+                )
+
+            result = ArtifactDiffService().diff(
+                artifact_id=result.diagram.artifact_id,
                 from_version=from_version,
                 to_version=to_version,
                 ctx=ctx,

@@ -520,3 +520,107 @@ class TestParametersVersionParam:
         assert response.status_code == 400
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
         create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Datenmodell-Konsolidierung Task 29 (Milestone M5): versions/diff unified
+# onto the generic ArtifactDiffService, replacing the hand-rolled dispatch
+# against icd.services.get_icd_history / a fixed six-field DBC comparison.
+# ---------------------------------------------------------------------------
+
+
+class TestIcdViewSetVersionsAndDiff:
+    def _icd(self, artifact_id=None, current_revision: int = 2):
+        from icd.models import Icd
+
+        icd = MagicMock(spec=Icd)
+        icd.id = FAKE_ICD_ID
+        icd.tenant_id = FAKE_TENANT_ID
+        icd.artifact_id = artifact_id or uuid.uuid4()
+        icd.current_revision = current_revision
+        return icd
+
+    def test_versions_delegates_to_the_generic_service(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/icds/%s/versions/" % FAKE_ICD_ID)
+        req.auth_context = _make_auth_context()
+
+        icd = self._icd()
+        expected = [{"version": 0, "label": "Creation baseline"}]
+
+        view = IcdViewSet.as_view({"get": "versions"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch("rest_api.icd_views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.list_versions.return_value = expected
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 200
+        assert response.data == expected
+        svc_cls.return_value.list_versions.assert_called_once_with(
+            icd.artifact_id, req.auth_context
+        )
+
+    def test_diff_delegates_to_the_generic_service(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.get(
+            "/api/v1/icds/%s/diff/?from_version=1&to_version=2" % FAKE_ICD_ID
+        )
+        req.query_params = {"from_version": "1", "to_version": "2"}
+        req.auth_context = _make_auth_context()
+
+        icd = self._icd()
+        diff_result = {
+            "from_version": 1,
+            "to_version": 2,
+            "entity_type": "Icd",
+            "fields": [
+                {"name": "name", "status": "unchanged", "from": "x", "to": "x"}
+            ],
+        }
+
+        view = IcdViewSet.as_view({"get": "diff"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch("rest_api.icd_views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.diff.return_value = diff_result
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 200
+        assert response.data == diff_result
+        svc_cls.return_value.diff.assert_called_once_with(
+            artifact_id=icd.artifact_id,
+            from_version=1,
+            to_version=2,
+            ctx=req.auth_context,
+        )
+
+    def test_diff_returns_404_when_service_raises_not_found(self) -> None:
+        from application.base import NotFoundError
+
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/icds/%s/diff/" % FAKE_ICD_ID)
+        req.query_params = {}
+        req.auth_context = _make_auth_context()
+
+        icd = self._icd()
+
+        view = IcdViewSet.as_view({"get": "diff"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_icd", return_value=icd):
+                with patch("rest_api.icd_views.ArtifactDiffService") as svc_cls:
+                    svc_cls.return_value.diff.side_effect = NotFoundError(
+                        "Version 99 not available"
+                    )
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 404

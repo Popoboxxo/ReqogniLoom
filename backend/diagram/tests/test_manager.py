@@ -591,8 +591,8 @@ class TestNodeGraphWritePath:
                 active_roles=("admin",),
                 auth_method=AuthMethod.BEARER_TOKEN,
             )
-            result = ArtifactDiffService().diff_for_diagram(
-                diagram_id=diagram.id,
+            result = ArtifactDiffService().diff(
+                artifact_id=diagram.artifact_id,
                 from_version=1,
                 to_version=2,
                 ctx=ctx,

@@ -502,9 +502,16 @@ def test_glossary_term_versions_and_diff(
     assert listed.status_code == 200, listed.content
     payload = listed.json()
     assert len(payload) >= 2, payload
-    assert all(entry["content_available"] is True for entry in payload)
+    # Task 29 (M5): /versions/ is now the same generic list for every type,
+    # so it always includes the synthetic v0 creation baseline
+    # (content_available: False) ahead of the real recorded revisions.
+    assert all(
+        entry["content_available"] for entry in payload if entry["version"] != 0
+    )
 
-    numbers = sorted(entry["version"] for entry in payload)
+    numbers = sorted(
+        entry["version"] for entry in payload if entry["content_available"]
+    )
     diffed = _diff(client, "glossary", pk, numbers[-2], numbers[-1])
     assert diffed.status_code == 200, diffed.content
     diff_payload = diffed.json()
@@ -543,9 +550,16 @@ def test_diagram_versions_and_diff(
     assert listed.status_code == 200, listed.content
     payload = listed.json()
     assert len(payload) >= 2, payload
-    assert all(entry["content_available"] is True for entry in payload)
+    # Task 29 (M5): /versions/ is now the same generic list for every type,
+    # so it always includes the synthetic v0 creation baseline
+    # (content_available: False) ahead of the real recorded revisions.
+    assert all(
+        entry["content_available"] for entry in payload if entry["version"] != 0
+    )
 
-    numbers = sorted(entry["version"] for entry in payload)
+    numbers = sorted(
+        entry["version"] for entry in payload if entry["content_available"]
+    )
     diffed = _diff(client, "diagrams", pk, numbers[-2], numbers[-1])
     assert diffed.status_code == 200, diffed.content
     diff_payload = diffed.json()

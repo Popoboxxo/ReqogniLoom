@@ -47,7 +47,10 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from application.artifact_diff_service import creation_baseline_entry
+from application.artifact_diff_service import (
+    ArtifactDiffService,
+    creation_baseline_entry,
+)
 from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
 from icd.models import Icd, IcdDirection, IcdParameter, IcdRevision
@@ -524,22 +527,22 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/icds/<pk>/versions/ — list available versions."""
+        """GET /api/v1/icds/<pk>/versions/ — list available versions.
+
+        Datenmodell-Konsolidierung Task 29 (Milestone M5): routes through the
+        generic ``ArtifactDiffService.list_versions`` — the same entry point
+        every other artifact type uses — rather than hand-rolling the entry
+        shape from :func:`icd.services.get_icd_history`. An ICD's
+        ``workspace_id`` is a required (non-nullable) column, so every ICD has
+        a backing Artifact and therefore a real revision list.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
-            version_list = get_icd_history(icd_id=icd.id, tenant_id=ctx.tenant_id)
-            result = [creation_baseline_entry()]
-            for v in version_list:
-                result.append({
-                    "version": v.version_number,
-                    "label": f"v{v.version_number}",
-                    "modified_at": v.created_at.isoformat() if v.created_at else None,
-                    # Every listed revision is a stored ArtifactVersion
-                    # snapshot, so its content is always retrievable (#213).
-                    "content_available": True,
-                })
+            if icd.artifact_id is None:
+                return Response([creation_baseline_entry()])
+            result = ArtifactDiffService().list_versions(icd.artifact_id, ctx)
             return Response(result)
         except Icd.DoesNotExist:
             return Response(
@@ -556,6 +559,14 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """GET /api/v1/icds/<pk>/diff/?from_version=1&to_version=2
 
         REQ-L1-090 / REQ-L1-091: Structured field-level diff for ICDs.
+
+        Datenmodell-Konsolidierung Task 29 (Milestone M5): routes through the
+        generic ``ArtifactDiffService.diff`` instead of hand-rolling the
+        Design-by-Contract field comparison. This closes a latent gap in the
+        hand-rolled version: it compared only six of the eight fields
+        registered in ``_ENTITY_FIELDS["Icd"]`` (``name`` and
+        ``parameters_snapshot`` were never diffed), so a name or parameter
+        change never showed up in a diff.
         """
         lang = detect_lang(request)
         try:
@@ -566,55 +577,29 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             current_ver = icd.current_revision or 1
             to_version = int(request.query_params.get("to_version", str(current_ver)))
 
-            version_list = get_icd_history(icd_id=icd.id, tenant_id=ctx.tenant_id)
-            from_v = next((v for v in version_list if v.version_number == from_version), None)
-            to_v = next((v for v in version_list if v.version_number == to_version), None)
-
-            if to_v is None:
+            if icd.artifact_id is None:
                 return Response(
-                    build_error_response("NOT_FOUND", lang, message=f"Version {to_version} not found"),
+                    build_error_response(
+                        "NOT_FOUND", lang, message=f"Version {to_version} not found"
+                    ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            fields = []
-            # Compare Design-by-Contract fields
-            dbc_fields = ["direction", "interface_type", "semantic_description", "preconditions", "postconditions", "invariants"]
-            for field_name in dbc_fields:
-                from_val = getattr(from_v, field_name, None) if from_v else None
-                to_val = getattr(to_v, field_name, None)
-                
-                if from_v is None:
-                    # Version 0 = creation baseline
-                    fields.append({
-                        "name": field_name,
-                        "status": "added",
-                        "to": to_val,
-                    })
-                elif from_val != to_val:
-                    fields.append({
-                        "name": field_name,
-                        "status": "modified",
-                        "from": from_val,
-                        "to": to_val,
-                    })
-                else:
-                    fields.append({
-                        "name": field_name,
-                        "status": "unchanged",
-                        "from": from_val,
-                        "to": to_val,
-                    })
-
-            result = {
-                "from_version": from_version,
-                "to_version": to_version,
-                "entity_type": "Icd",
-                "fields": fields,
-            }
+            result = ArtifactDiffService().diff(
+                artifact_id=icd.artifact_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
             return Response(result)
         except Icd.DoesNotExist:
             return Response(
                 build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=_client_message(exc, "diff")),
                 status=status.HTTP_404_NOT_FOUND,
             )
         except Exception:

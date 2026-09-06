@@ -1,24 +1,29 @@
 """
-Tests for ArtifactDiffService diagram/glossary version+diff helpers (REQ-142).
+Tests for ArtifactDiffService's generic list_versions/diff against types that
+record a real snapshot per content revision (REQ-142).
 
-req_id: REQ-142 — real per-revision diff/versions endpoints for Diagram and
+req_id: REQ-142 — real per-revision diff/versions for Diagram and
         GlossaryTerm, both backed by the generic ArtifactVersion store via
-        ArtifactVersionService (GlossaryTerm since Task 28b, Diagram since
-        Task 28c-2 retired DiagramVersion) rather than the single-row
-        "current state only" fallback used for
-        Requirement/ArchitectureElement/etc.
+        ArtifactVersionService.
+
+Datenmodell-Konsolidierung Task 29 (Milestone M5): the dedicated
+``list_versions_for_diagram``/``diff_for_diagram``/
+``list_versions_for_glossary_term``/``diff_for_glossary_term`` methods this
+file used to test were deleted — ``list_versions``/``diff`` are now the only
+two entry points for every artifact type, Diagram and GlossaryTerm included.
+This file proves they produce the same shape of output these per-type
+variants used to (chronological order, field-level diff, 404 handling).
 
 Covers:
-  - list_versions_for_diagram: chronological order, 404 for unknown diagram
-  - diff_for_diagram: field-level diff (payload changed -> modified w/ lines,
+  - list_versions: chronological order for a Diagram-typed artifact,
+    404 for unknown artifact
+  - diff: field-level diff (payload changed -> modified w/ lines,
     payload_format unchanged), from_version=0 -> all fields "added",
-    404 for unknown version / unknown diagram
-  - list_versions_for_glossary_term: chronological order, 404 for unknown term
-  - diff_for_glossary_term: field-level diff (definition changed),
-    404 for unknown version / unknown term
+    404 for unknown version
+  - list_versions / diff: same guarantees for a GlossaryTerm-typed artifact
 
-These tests mock the ORM managers directly (no live database) — consistent
-with rest_api/tests/test_diagram_canvas_views.py and
+These tests mock ``Artifact``/``ArtifactVersionService`` directly (no live
+database) — consistent with rest_api/tests/test_diagram_canvas_views.py and
 rest_api/tests/test_versioning.py, which avoid a django_db dependency.
 """
 from __future__ import annotations
@@ -44,15 +49,14 @@ def _make_ctx() -> MagicMock:
     return ctx
 
 
-DIAGRAM_ID = uuid.uuid4()
-TERM_ID = uuid.uuid4()
+ARTIFACT_ID = uuid.uuid4()
 
 
-def _make_diagram(artifact_id=None) -> MagicMock:
-    """A Diagram row stub carrying the backing Artifact id the helpers read."""
-    diagram = MagicMock()
-    diagram.artifact_id = artifact_id if artifact_id is not None else uuid.uuid4()
-    return diagram
+def _make_artifact(artifact_type: str) -> MagicMock:
+    artifact = MagicMock()
+    artifact.id = ARTIFACT_ID
+    artifact.artifact_type = artifact_type
+    return artifact
 
 
 def _diagram_payload(
@@ -68,74 +72,65 @@ def _diagram_payload(
     }
 
 
+def _glossary_payload(definition: str = "Old def") -> dict:
+    """One stored ArtifactVersion payload for a GlossaryTerm revision."""
+    return {
+        "term": "Requirement",
+        "definition": definition,
+        "synonyms": [],
+        "abbreviation": "REQ",
+    }
+
+
 # ---------------------------------------------------------------------------
-# list_versions_for_diagram
+# list_versions — Diagram-typed artifact
 # ---------------------------------------------------------------------------
 
 
-class TestListVersionsForDiagram:
-    """REQ-142/Task 28c-2: listing delegates to ArtifactVersionService.list_revisions."""
+class TestListVersionsForDiagramType:
+    """REQ-142/Task 29: listing delegates to ArtifactVersionService.list_revisions."""
 
     def test_returns_versions_chronologically(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        diagram = _make_diagram()
         expected = [
             {"version": 1, "label": "v1", "modified_at": None, "content_available": True},
             {"version": 2, "label": "v2", "modified_at": None, "content_available": True},
         ]
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = diagram
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.exists.return_value = True
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.list_revisions.return_value = expected
-                    result = svc.list_versions_for_diagram(DIAGRAM_ID, ctx)
+                    result = svc.list_versions(ARTIFACT_ID, ctx)
 
-        assert [r["version"] for r in result] == [1, 2]
-        assert result[0]["label"] == "v1"
+        assert [r["version"] for r in result] == [0, 1, 2]
+        assert result[0]["label"] == "Creation baseline"
         version_svc_cls.return_value.list_revisions.assert_called_once_with(
-            diagram.artifact_id, ctx
+            ARTIFACT_ID, ctx
         )
 
-    def test_workspaceless_diagram_has_no_recorded_history(self):
-        """Task 28c-2: no backing Artifact -> nothing to hang revisions off.
-
-        Artifact.workspace is not nullable, so a workspace-less legacy Diagram
-        can never have had an ArtifactVersion row (diagram.manager has skipped
-        those since Task 27). An empty list is the honest answer.
-        """
-        svc = ArtifactDiffService()
-        ctx = _make_ctx()
-
-        diagram = MagicMock()
-        diagram.artifact_id = None
-
-        with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = diagram
-                assert svc.list_versions_for_diagram(DIAGRAM_ID, ctx) == []
-
-    def test_unknown_diagram_raises_not_found(self):
+    def test_unknown_artifact_raises_not_found(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = None
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.exists.return_value = False
                 with pytest.raises(NotFoundError):
-                    svc.list_versions_for_diagram(DIAGRAM_ID, ctx)
+                    svc.list_versions(ARTIFACT_ID, ctx)
 
 
 # ---------------------------------------------------------------------------
-# diff_for_diagram
+# diff — Diagram-typed artifact
 # ---------------------------------------------------------------------------
 
 
-class TestDiffForDiagram:
+class TestDiffForDiagramType:
     """REQ-142: field-level diff between two recorded Diagram revisions."""
 
     def test_diff_detects_payload_change(self):
@@ -148,16 +143,18 @@ class TestDiffForDiagram:
         }
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = _make_diagram()
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = (
+                    _make_artifact("Diagram")
+                )
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.get_payload.side_effect = (
                         lambda _artifact_id, revision, _ctx: payloads.get(revision)
                     )
-                    result = svc.diff_for_diagram(
-                        DIAGRAM_ID, from_version=1, to_version=2, ctx=ctx
+                    result = svc.diff(
+                        ARTIFACT_ID, from_version=1, to_version=2, ctx=ctx
                     )
 
         assert result["entity_type"] == "Diagram"
@@ -174,16 +171,18 @@ class TestDiffForDiagram:
         ctx = _make_ctx()
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = _make_diagram()
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = (
+                    _make_artifact("Diagram")
+                )
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.get_payload.return_value = (
                         _diagram_payload()
                     )
-                    result = svc.diff_for_diagram(
-                        DIAGRAM_ID, from_version=0, to_version=1, ctx=ctx
+                    result = svc.diff(
+                        ARTIFACT_ID, from_version=0, to_version=1, ctx=ctx
                     )
 
         field_statuses = {f["name"]: f["status"] for f in result["fields"]}
@@ -195,124 +194,88 @@ class TestDiffForDiagram:
         ctx = _make_ctx()
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = _make_diagram()
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = (
+                    _make_artifact("Diagram")
+                )
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.get_payload.return_value = None
                     with pytest.raises(NotFoundError, match="99"):
-                        svc.diff_for_diagram(
-                            DIAGRAM_ID, from_version=0, to_version=99, ctx=ctx
+                        svc.diff(
+                            ARTIFACT_ID, from_version=0, to_version=99, ctx=ctx
                         )
 
-    def test_unknown_diagram_raises_not_found(self):
+    def test_unknown_artifact_raises_not_found(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch("diagram.models.Diagram.objects") as diagram_objects:
-                diagram_objects.filter.return_value.first.return_value = None
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = None
                 with pytest.raises(NotFoundError):
-                    svc.diff_for_diagram(
-                        DIAGRAM_ID, from_version=0, to_version=1, ctx=ctx
-                    )
+                    svc.diff(ARTIFACT_ID, from_version=0, to_version=1, ctx=ctx)
 
 
 # ---------------------------------------------------------------------------
-# list_versions_for_glossary_term
+# list_versions / diff — GlossaryTerm-typed artifact
 # ---------------------------------------------------------------------------
 
 
-class TestListVersionsForGlossaryTerm:
-    """REQ-142/Task 28b: listing delegates to ArtifactVersionService.list_revisions."""
+class TestListVersionsForGlossaryTermType:
+    """REQ-142/Task 29: listing delegates to ArtifactVersionService.list_revisions."""
 
     def test_returns_versions_chronologically(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        term_mock = MagicMock()
-        term_mock.artifact_id = uuid.uuid4()
         expected = [
             {"version": 1, "label": "v1", "modified_at": None, "content_available": True},
             {"version": 2, "label": "v2", "modified_at": None, "content_available": True},
         ]
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch(
-                "application.artifact_diff_service.GlossaryTerm.objects"
-            ) as term_objects:
-                term_objects.filter.return_value.first.return_value = term_mock
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.exists.return_value = True
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.list_revisions.return_value = expected
-                    result = svc.list_versions_for_glossary_term(TERM_ID, ctx)
+                    result = svc.list_versions(ARTIFACT_ID, ctx)
 
-        assert [r["version"] for r in result] == [1, 2]
+        assert [r["version"] for r in result] == [0, 1, 2]
         version_svc_cls.return_value.list_revisions.assert_called_once_with(
-            term_mock.artifact_id, ctx
+            ARTIFACT_ID, ctx
         )
 
-    def test_unknown_term_raises_not_found(self):
-        svc = ArtifactDiffService()
-        ctx = _make_ctx()
 
-        with patch.object(svc, "_set_tenant_context"):
-            with patch(
-                "application.artifact_diff_service.GlossaryTerm.objects"
-            ) as term_objects:
-                term_objects.filter.return_value.first.return_value = None
-                with pytest.raises(NotFoundError):
-                    svc.list_versions_for_glossary_term(TERM_ID, ctx)
-
-
-# ---------------------------------------------------------------------------
-# diff_for_glossary_term
-# ---------------------------------------------------------------------------
-
-
-class TestDiffForGlossaryTerm:
-    """REQ-142/Task 28b: field-level diff via ArtifactVersionService.get_payload."""
+class TestDiffForGlossaryTermType:
+    """REQ-142/Task 29: field-level diff via ArtifactVersionService.get_payload."""
 
     def test_diff_detects_definition_change(self):
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        term_mock = MagicMock()
-        term_mock.id = TERM_ID
-        term_mock.term = "Requirement"
-        term_mock.artifact_id = uuid.uuid4()
-
-        payload_v1 = {
-            "term": "Requirement",
-            "definition": "Old def",
-            "synonyms": [],
-            "abbreviation": "REQ",
-        }
-        payload_v2 = {
-            "term": "Requirement",
-            "definition": "New def",
-            "synonyms": [],
-            "abbreviation": "REQ",
-        }
+        payload_v1 = _glossary_payload("Old def")
+        payload_v2 = _glossary_payload("New def")
 
         def _get_payload_side_effect(artifact_id, revision, ctx):
             return payload_v1 if revision == 1 else payload_v2
 
         with patch.object(svc, "_set_tenant_context"):
-            with patch(
-                "application.artifact_diff_service.GlossaryTerm.objects"
-            ) as term_objects:
-                term_objects.filter.return_value.first.return_value = term_mock
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = (
+                    _make_artifact("GlossaryTerm")
+                )
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.get_payload.side_effect = (
                         _get_payload_side_effect
                     )
-                    result = svc.diff_for_glossary_term(
-                        TERM_ID, from_version=1, to_version=2, ctx=ctx
+                    result = svc.diff(
+                        ARTIFACT_ID, from_version=1, to_version=2, ctx=ctx
                     )
 
         assert result["entity_type"] == "GlossaryTerm"
@@ -325,35 +288,16 @@ class TestDiffForGlossaryTerm:
         svc = ArtifactDiffService()
         ctx = _make_ctx()
 
-        term_mock = MagicMock()
-        term_mock.id = TERM_ID
-        term_mock.term = "Requirement"
-        term_mock.artifact_id = uuid.uuid4()
-
         with patch.object(svc, "_set_tenant_context"):
-            with patch(
-                "application.artifact_diff_service.GlossaryTerm.objects"
-            ) as term_objects:
-                term_objects.filter.return_value.first.return_value = term_mock
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = (
+                    _make_artifact("GlossaryTerm")
+                )
                 with patch(
                     "application.artifact_diff_service.ArtifactVersionService"
                 ) as version_svc_cls:
                     version_svc_cls.return_value.get_payload.return_value = None
                     with pytest.raises(NotFoundError, match="99"):
-                        svc.diff_for_glossary_term(
-                            TERM_ID, from_version=0, to_version=99, ctx=ctx
+                        svc.diff(
+                            ARTIFACT_ID, from_version=0, to_version=99, ctx=ctx
                         )
-
-    def test_unknown_term_raises_not_found(self):
-        svc = ArtifactDiffService()
-        ctx = _make_ctx()
-
-        with patch.object(svc, "_set_tenant_context"):
-            with patch(
-                "application.artifact_diff_service.GlossaryTerm.objects"
-            ) as term_objects:
-                term_objects.filter.return_value.first.return_value = None
-                with pytest.raises(NotFoundError):
-                    svc.diff_for_glossary_term(
-                        TERM_ID, from_version=0, to_version=1, ctx=ctx
-                    )

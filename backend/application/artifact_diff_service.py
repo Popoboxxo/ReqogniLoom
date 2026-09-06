@@ -23,7 +23,31 @@ Architecture decision (ADR-AS-019):
     snapshot support later requires only implementing the snapshot resolver —
     the diff algorithm stays unchanged.
 
-Amendment (issue #213):
+Amendment (Datenmodell-Konsolidierung Phase 5, Task 29 — Milestone M5):
+    ``diff()`` and ``list_versions()`` are the **only** two entry points for
+    every artifact type now: both read exclusively from the shared revision
+    store, ``persistence.ArtifactVersion``
+    (see :mod:`application.artifact_version_service`). The ADR-AS-019
+    single-row limitation described by the issue #213 amendment below no
+    longer applies to these two methods — every entry ``list_versions``
+    returns has retrievable content, because every write records a real
+    snapshot (Task 27). The per-type variants that used to exist for Diagram
+    and GlossaryTerm (each reading the same store by hand) are gone; ICD's
+    REST ``versions``/``diff`` actions were unified onto this same pair too.
+
+    ``diff_for_entity``/``list_versions_for_entity`` are unaffected by this
+    amendment — they still serve the handful of call sites (Adr, Risk, Issue)
+    that address an entity by ``entity_id`` rather than ``artifact_id``, and
+    the issue #213 amendment below still describes their behaviour. Goal and
+    MainGoal keep their own lineage-anchored listing
+    (``list_versions_for_goal``/``list_versions_for_main_goal``) — a different
+    id space (lineage, not artifact).
+
+    Cross-artifact point-in-time history remains the job of Baselines
+    (:mod:`baseline`), and the append-only operation trail that of
+    :mod:`audit`.
+
+Amendment (issue #213 — applies to diff_for_entity/list_versions_for_entity only):
     The version number of a single-row type is ``AuditableModel.version``, an
     optimistic-lock counter — not a revision number. Originally *every*
     non-zero version resolved to the current row, so ``diff(1, 2)`` on an
@@ -33,12 +57,7 @@ Amendment (issue #213):
     Now only the current lock version resolves to a snapshot. Other non-zero
     versions resolve to ``None``, which surfaces as the ``note`` (from-side) or
     a ``NotFoundError`` (to-side), and version lists mark each entry with
-    ``content_available``. Types that record a real snapshot per revision
-    (Diagram, GlossaryTerm, Icd, Goal, MainGoal, PromptTemplate) are
-    unaffected — every version they list has stored content in
-    ``persistence.ArtifactVersion``. Cross-artifact point-in-time
-    history remains the job of Baselines (:mod:`baseline`), and the append-only
-    operation trail that of :mod:`audit`.
+    ``content_available``.
 
 Diff library: Python stdlib ``difflib`` (no external dependency).
 """
@@ -112,7 +131,8 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     "Issue": ["title", "description", "severity", "category"],
     "GlossaryTerm": ["term", "definition", "synonyms", "abbreviation"],
     # REQ-142: Diagram records a real snapshot per content revision, unlike the
-    # single-row entities above — see diff_for_diagram()/list_versions_for_diagram().
+    # single-row entities above — served through the generic diff()/list_versions()
+    # since Task 29 (Milestone M5).
     "Diagram": ["payload_format", "payload", "canvas_json"],
     # REQ-L2-TE-020: Goal/MainGoal use an immutable-row-per-version pattern
     # (list_versions_for_goal/list_versions_for_main_goal go through
@@ -219,7 +239,8 @@ def _entity_timestamp(entity: Any) -> Optional[str]:
 class ArtifactDiffService(ServiceBase):
     """COMP-AS-019 — Structured field-level diff for artifacts.
 
-    Supports Requirement, ArchitectureElement, and TestCase entities.
+    ``diff()``/``list_versions()`` serve every artifact type through the
+    shared ``persistence.ArtifactVersion`` store (Task 29 — Milestone M5).
     Uses Python stdlib ``difflib`` for line-level text comparison.
     """
 
@@ -230,7 +251,13 @@ class ArtifactDiffService(ServiceBase):
         to_version: int,
         ctx: AuthContext,
     ) -> Dict[str, Any]:
-        """Compute structured diff between two versions of an artifact.
+        """Compute structured field-level diff between two revisions.
+
+        Datenmodell-Konsolidierung Task 29 (Milestone M5): the **only**
+        diff entry point for every artifact type. Both sides are resolved
+        from the shared ``persistence.ArtifactVersion`` store via
+        ``ArtifactVersionService`` — version 0 is the synthetic empty
+        creation baseline, every other number must be a stored revision.
 
         Args:
             artifact_id: UUID of the Artifact (not the entity PK).
@@ -240,10 +267,11 @@ class ArtifactDiffService(ServiceBase):
 
         Returns:
             Structured diff dict with ``from_version``, ``to_version``,
-            ``fields`` list, and optional ``note``.
+            ``entity_type``, ``fields`` list, and optional ``note``.
 
         Raises:
-            NotFoundError: If the artifact or entity does not exist.
+            NotFoundError: The artifact does not exist, or ``to_version`` has
+                no stored revision.
         """
         self._set_tenant_context(ctx)
 
@@ -253,21 +281,19 @@ class ArtifactDiffService(ServiceBase):
 
         # #737: TestCase tags Artifact.artifact_type with a sub-type suffix
         # (e.g. "TestCase:Unit") for filtering elsewhere (TestService.list),
-        # but _ENTITY_FIELDS/_ENTITY_MODELS key on the plain type name — an
-        # un-normalised lookup silently fell through to "unsupported type"
-        # for every real TestCase, raising NotFoundError here.
+        # but _ENTITY_FIELDS keys on the plain type name.
         entity_type = normalize_artifact_type(artifact.artifact_type)
-        if entity_type not in _ENTITY_FIELDS:
-            raise NotFoundError(
-                f"Diff not supported for artifact type '{entity_type}'"
-            )
 
-        # Resolve snapshots
-        from_snapshot = self._resolve_entity_snapshot(
-            artifact_id, entity_type, from_version
+        versions = ArtifactVersionService()
+        from_snapshot = (
+            {}
+            if from_version == 0
+            else versions.get_payload(artifact_id, from_version, ctx)
         )
-        to_snapshot = self._resolve_entity_snapshot(
-            artifact_id, entity_type, to_version
+        to_snapshot = (
+            {}
+            if to_version == 0
+            else versions.get_payload(artifact_id, to_version, ctx)
         )
 
         if to_snapshot is None:
@@ -276,12 +302,13 @@ class ArtifactDiffService(ServiceBase):
                 f"artifact {artifact_id}"
             )
 
+        note = None
+        if from_snapshot is None:
+            from_snapshot = {}
+            note = f"Version {from_version} has no stored content."
+
         # Compute field-level diff
-        fields = self._compute_fields_diff(
-            from_snapshot or {},
-            to_snapshot,
-            entity_type,
-        )
+        fields = self._compute_fields_diff(from_snapshot, to_snapshot, entity_type)
 
         result: Dict[str, Any] = {
             "from_version": from_version,
@@ -289,51 +316,10 @@ class ArtifactDiffService(ServiceBase):
             "entity_type": entity_type,
             "fields": fields,
         }
-
-        # Document limitation when historical data is not available
-        if from_version > 0 and from_snapshot is None:
-            result["note"] = (
-                f"Historical version {from_version} is not available. "
-                "Only the current state is stored. "
-                "Use version 0 to compare against the creation baseline."
-            )
+        if note is not None:
+            result["note"] = note
 
         return result
-
-    # ------------------------------------------------------------------
-    # Snapshot resolution
-    # ------------------------------------------------------------------
-
-    def _resolve_entity_snapshot(
-        self,
-        artifact_id: UUID,
-        entity_type: str,
-        version: int,
-    ) -> Optional[Dict[str, Any]]:
-        """Resolve entity field values for a given version.
-
-        Version 0 → None (creation baseline, no data).
-        Current lock version → current entity state (single-row model).
-        Any other version → None (no snapshot stored — issue #213).
-
-        Returns None when the version cannot be resolved.
-        """
-        if version == 0:
-            return None
-
-        model_class = _ENTITY_MODELS.get(entity_type)
-        if model_class is None:
-            return None
-
-        entity = (
-            model_class.objects.select_related("artifact")
-            .filter(artifact_id=artifact_id)
-            .first()
-        )
-        if entity is None:
-            return None
-
-        return self._resolve_entity_snapshot_for_entity(entity, entity_type, version)
 
     @staticmethod
     def _entity_to_snapshot(
@@ -395,6 +381,23 @@ class ArtifactDiffService(ServiceBase):
                         "name": field_name,
                         "status": "removed",
                         "from": from_data[field_name],
+                    }
+                )
+                continue
+
+            if not has_old and not has_new:
+                # Task 29 (M5): reachable when both snapshots are the empty
+                # creation baseline ({}) — e.g. diff(0, 0) — for a field name
+                # that only comes from the static _ENTITY_FIELDS list, not
+                # from either actual snapshot. Nothing to compare; "unchanged"
+                # with empty values is the honest rendering (both sides
+                # genuinely have no content).
+                result.append(
+                    {
+                        "name": field_name,
+                        "status": "unchanged",
+                        "from": "",
+                        "to": "",
                     }
                 )
                 continue
@@ -470,37 +473,22 @@ class ArtifactDiffService(ServiceBase):
         artifact_id: UUID,
         ctx: AuthContext,
     ) -> List[Dict[str, Any]]:
-        """List retrievable versions for an artifact.
+        """List an artifact's retrievable content revisions, oldest first.
 
-        Single-row model: only the creation baseline (version 0, empty) and the
-        current state are retrievable. The version number is the optimistic-lock
-        counter and must not be read as a revision count (issue #213) — every
-        entry therefore carries ``content_available``.
+        Datenmodell-Konsolidierung Task 29 (Milestone M5): one implementation
+        for every artifact type. Every listed entry is a stored snapshot in
+        ``persistence.ArtifactVersion``, so ``content_available`` is always
+        ``True`` — the ADR-AS-019 single-row limitation (issue #213) is gone
+        for this entry point.
         """
         self._set_tenant_context(ctx)
 
-        artifact = Artifact.objects.filter(id=artifact_id).first()
-        if artifact is None:
+        if not Artifact.objects.filter(id=artifact_id).exists():
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
-        # #737: same sub-type-suffix normalisation as diff() above — without
-        # it, list_versions() silently degraded to "only the creation
-        # baseline exists" for every TestCase (model_class resolved to None).
-        entity_type = normalize_artifact_type(artifact.artifact_type)
-        model_class = _ENTITY_MODELS.get(entity_type)
-        if model_class is None:
-            return [creation_baseline_entry()]
-
-        entity = (
-            model_class.objects.select_related("artifact")
-            .filter(artifact_id=artifact_id)
-            .first()
+        return [creation_baseline_entry()] + ArtifactVersionService().list_revisions(
+            artifact_id, ctx
         )
-
-        versions = [creation_baseline_entry()]
-        if entity is not None:
-            versions.append(self._current_version_entry(entity))
-        return versions
 
     # ------------------------------------------------------------------
     # Entity-based version/diff helpers (no artifact FK required)
@@ -651,39 +639,6 @@ class ArtifactDiffService(ServiceBase):
         raw = getattr(entity, "version", None)
         return raw if isinstance(raw, int) else 1
 
-    # ------------------------------------------------------------------
-    # Diagram version/diff helpers (REQ-142)
-    #
-    # Unlike the single-row entities above, Diagram records a real snapshot per
-    # content revision. Datenmodell-Konsolidierung Task 28c-2: the dedicated
-    # DiagramVersion table was dropped, so those snapshots are read through
-    # ArtifactVersionService (Task 27 records them on every write, Task 28a
-    # copied the legacy rows across) — exactly the shape Task 28b gave the
-    # glossary helpers below. The field-level comparison still reuses
-    # _compute_fields_diff; no new diff algorithm is introduced.
-    # ------------------------------------------------------------------
-
-    def list_versions_for_diagram(
-        self,
-        diagram_id: UUID,
-        ctx: AuthContext,
-    ) -> List[Dict[str, Any]]:
-        """List all content revisions of a diagram, chronologically (REQ-142)."""
-        self._set_tenant_context(ctx)
-
-        from diagram.models import Diagram
-
-        diagram = Diagram.objects.filter(id=diagram_id).first()
-        if diagram is None:
-            raise NotFoundError(f"Diagram {diagram_id} not found")
-
-        if diagram.artifact_id is None:
-            # Workspace-less legacy row: Artifact.workspace is not nullable, so
-            # it has no backing Artifact and therefore no recorded history.
-            return []
-
-        return ArtifactVersionService().list_revisions(diagram.artifact_id, ctx)
-
     def list_versions_for_goal(self, lineage_id: UUID, ctx: AuthContext) -> List[Dict[str, Any]]:
         """List all versions of a Goal lineage, chronologically (REQ-L2-TE-020, Task 6)."""
         from application.goal_service import GoalService
@@ -697,150 +652,6 @@ class ArtifactDiffService(ServiceBase):
         from application.main_goal_service import MainGoalService
 
         return MainGoalService().list_versions(workspace_id, ctx)
-
-    def diff_for_diagram(
-        self,
-        diagram_id: UUID,
-        from_version: int,
-        to_version: int,
-        ctx: AuthContext,
-    ) -> Dict[str, Any]:
-        """Compute structured diff between two diagram revisions (REQ-142).
-
-        Both versions must actually exist (version 0 is the empty creation
-        baseline). Unlike diff()/diff_for_entity(), this does not degrade to
-        a "current state only" comparison — Diagram has real history.
-        """
-        self._set_tenant_context(ctx)
-
-        from diagram.models import Diagram
-
-        diagram = Diagram.objects.filter(id=diagram_id).first()
-        if diagram is None:
-            raise NotFoundError(f"Diagram {diagram_id} not found")
-
-        from_snapshot = self._resolve_diagram_snapshot(diagram, from_version, ctx)
-        if from_snapshot is None and from_version != 0:
-            raise NotFoundError(
-                f"Version {from_version} not available for diagram {diagram_id}"
-            )
-
-        to_snapshot = self._resolve_diagram_snapshot(diagram, to_version, ctx)
-        if to_snapshot is None:
-            raise NotFoundError(
-                f"Version {to_version} not available for diagram {diagram_id}"
-            )
-
-        fields = self._compute_fields_diff(from_snapshot or {}, to_snapshot, "Diagram")
-
-        return {
-            "from_version": from_version,
-            "to_version": to_version,
-            "entity_type": "Diagram",
-            "fields": fields,
-        }
-
-    @staticmethod
-    def _resolve_diagram_snapshot(
-        diagram: Any, version_number: int, ctx: AuthContext
-    ) -> Optional[Dict[str, Any]]:
-        """Resolve field values for a specific diagram content revision.
-
-        Version 0 → None (empty creation baseline). Task 28c-2: reads through
-        ArtifactVersionService instead of the dropped DiagramVersion table; the
-        stored payload already carries ``payload_format``/``payload``/
-        ``canvas_json`` (see ``migrate_legacy_versions``'s ``_diagram_payload``
-        and ``diagram.manager._record_artifact_revision``).
-        """
-        if version_number == 0 or diagram.artifact_id is None:
-            return None
-
-        return ArtifactVersionService().get_payload(
-            diagram.artifact_id, version_number, ctx
-        )
-
-    # ------------------------------------------------------------------
-    # GlossaryTerm version/diff helpers (REQ-142)
-    #
-    # Datenmodell-Konsolidierung Task 28b: the dedicated GlossaryTermVersion
-    # table was dropped. History now lives in the generic ArtifactVersion
-    # store (Task 27 records it on every create()/update(), Task 28a copied
-    # the legacy rows across) — routed through ArtifactVersionService, which
-    # already returns the same version/label/modified_at/content_available
-    # shape this method used to build by hand.
-    # ------------------------------------------------------------------
-
-    def list_versions_for_glossary_term(
-        self,
-        term_id: UUID,
-        ctx: AuthContext,
-    ) -> List[Dict[str, Any]]:
-        """List all revisions for a glossary term, chronologically (REQ-142)."""
-        self._set_tenant_context(ctx)
-
-        term = GlossaryTerm.objects.filter(id=term_id).first()
-        if term is None:
-            raise NotFoundError(f"GlossaryTerm {term_id} not found")
-
-        return ArtifactVersionService().list_revisions(term.artifact_id, ctx)
-
-    def diff_for_glossary_term(
-        self,
-        term_id: UUID,
-        from_version: int,
-        to_version: int,
-        ctx: AuthContext,
-    ) -> Dict[str, Any]:
-        """Compute structured diff between two glossary term revisions (REQ-142).
-
-        Both versions must actually exist (version 0 is the empty creation
-        baseline).
-        """
-        self._set_tenant_context(ctx)
-
-        term = GlossaryTerm.objects.filter(id=term_id).first()
-        if term is None:
-            raise NotFoundError(f"GlossaryTerm {term_id} not found")
-
-        from_snapshot = self._resolve_glossary_term_snapshot(term, from_version, ctx)
-        if from_snapshot is None and from_version != 0:
-            raise NotFoundError(
-                f"Version {from_version} not available for glossary term {term_id}"
-            )
-
-        to_snapshot = self._resolve_glossary_term_snapshot(term, to_version, ctx)
-        if to_snapshot is None:
-            raise NotFoundError(
-                f"Version {to_version} not available for glossary term {term_id}"
-            )
-
-        fields = self._compute_fields_diff(
-            from_snapshot or {}, to_snapshot, "GlossaryTerm"
-        )
-
-        return {
-            "from_version": from_version,
-            "to_version": to_version,
-            "entity_type": "GlossaryTerm",
-            "fields": fields,
-        }
-
-    @staticmethod
-    def _resolve_glossary_term_snapshot(
-        term: Any, version_number: int, ctx: AuthContext
-    ) -> Optional[Dict[str, Any]]:
-        """Resolve field values for a specific glossary term revision.
-
-        Version 0 → None (empty creation baseline). Task 28b: reads through
-        ArtifactVersionService instead of the dropped GlossaryTermVersion
-        table; the stored payload already carries ``term``/``definition``/
-        ``synonyms``/``abbreviation`` (see ``migrate_legacy_versions``'s
-        ``_glossary_payload`` and ``glossary_service.snapshot_fields``).
-        """
-        if version_number == 0:
-            return None
-
-        return ArtifactVersionService().get_payload(term.artifact_id, version_number, ctx)
 
 
 __all__ = [

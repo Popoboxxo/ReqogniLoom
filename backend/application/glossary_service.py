@@ -34,6 +34,11 @@ class GlossaryTermDTO:
     abbreviation: str
     version: int
     lifecycle_status: str = "active"  # REQ-006: soft-delete lifecycle
+    # Datenmodell-Konsolidierung Task 29 (Milestone M5): exposed so REST views
+    # can call ArtifactDiffService.list_versions/.diff(artifact_id, ...)
+    # without a direct GlossaryTerm ORM query (layering: views use
+    # Serializer + Service, not the model directly).
+    artifact_id: Optional[UUID] = None
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
@@ -53,6 +58,7 @@ class GlossaryTermDTO:
             abbreviation=term.abbreviation,
             version=term.version,
             lifecycle_status=lifecycle_status,
+            artifact_id=term.artifact_id,
         )
 
 

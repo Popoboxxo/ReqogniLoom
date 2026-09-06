@@ -7382,14 +7382,16 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/glossary/{pk}/versions/ — list revisions chronologically.
 
-        REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
+        REQ-142: delegates to ArtifactDiffService (COMP-AS-019). Task 29
+        (Milestone M5): routes through the generic ``list_versions``.
         """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            result = ArtifactDiffService().list_versions_for_glossary_term(
-                UUID(pk), ctx
-            )
+            term_id = UUID(pk)
+            term = self._svc().get(ctx, term_id)
+
+            result = ArtifactDiffService().list_versions(term.artifact_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -7402,7 +7404,8 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         REQ-142: Structured field-level diff between two glossary term revisions.
         Delegates to ArtifactDiffService (COMP-AS-019); reuses the same
-        diff computation as the requirement diff endpoint.
+        diff computation as the requirement diff endpoint. Task 29 (Milestone
+        M5): routes through the generic ``diff``.
         """
         lang = detect_lang(request)
         try:
@@ -7415,8 +7418,8 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 request.query_params.get("to_version", str(term.version))
             )
 
-            result = ArtifactDiffService().diff_for_glossary_term(
-                term_id=term_id,
+            result = ArtifactDiffService().diff(
+                artifact_id=term.artifact_id,
                 from_version=from_version,
                 to_version=to_version,
                 ctx=ctx,
