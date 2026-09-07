@@ -2045,6 +2045,16 @@
       "description": "Description",
       "context": "Context",
       "consequences": "Consequences"
-    }
+    },
+    "definitionUnavailable": "The field configuration could not be loaded.",
+    "deleteTitle": "Delete artifact",
+    "unsupportedWidget": "This field uses an unsupported widget ({{widget}}). Its individual fields are shown directly instead.",
+    "userDirectoryUnavailable": "User directory unavailable — only tenant administrators may read it."
+  },
+  "sections": {
+    "general": "General",
+    "classification": "Classification",
+    "change_control": "Change control",
+    "custom": "Custom fields"
   }
 }

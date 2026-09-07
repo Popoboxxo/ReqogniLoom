@@ -80,7 +80,7 @@ describe("ArtifactForm widget registry", () => {
 
   it("renders the risk matrix and updates the RPN live", () => {
     const onChange = vi.fn();
-    const Widget = WIDGET_REGISTRY.risk_matrix_rpz;
+    const Widget = WIDGET_REGISTRY.risk_matrix_rpz!;
     const attribute = widgetSpec({
       name: "risk_matrix",
       widget_key: "risk_matrix_rpz",
@@ -111,7 +111,7 @@ describe("ArtifactForm widget registry", () => {
 
   it("reports a risk-matrix edit under the bound field name", () => {
     const onChange = vi.fn();
-    const Widget = WIDGET_REGISTRY.risk_matrix_rpz;
+    const Widget = WIDGET_REGISTRY.risk_matrix_rpz!;
     render(
       <Widget
         attribute={widgetSpec({
@@ -132,7 +132,7 @@ describe("ArtifactForm widget registry", () => {
   });
 
   it("renders one markdown tab per bound field and switches between them", () => {
-    const Widget = WIDGET_REGISTRY.markdown_tab_group;
+    const Widget = WIDGET_REGISTRY.markdown_tab_group!;
     render(
       <Widget
         attribute={widgetSpec({
@@ -161,7 +161,7 @@ describe("ArtifactForm widget registry", () => {
 
   it("adds, edits and removes a test step", () => {
     const onChange = vi.fn();
-    const Widget = WIDGET_REGISTRY.steps_editor;
+    const Widget = WIDGET_REGISTRY.steps_editor!;
     render(
       <Widget
         attribute={widgetSpec({
@@ -191,7 +191,7 @@ describe("ArtifactForm widget registry", () => {
     // text "[object Object]" and writing back a `string[]` the backend
     // rejects with a 400 (DRF `ListField(child=DictField())`).
     const onChange = vi.fn();
-    const Widget = WIDGET_REGISTRY.steps_editor;
+    const Widget = WIDGET_REGISTRY.steps_editor!;
     render(
       <Widget
         attribute={widgetSpec({
@@ -226,7 +226,7 @@ describe("ArtifactForm widget registry", () => {
   });
 
   it("tolerates a non-array steps value", () => {
-    const Widget = WIDGET_REGISTRY.steps_editor;
+    const Widget = WIDGET_REGISTRY.steps_editor!;
     render(
       <Widget
         attribute={widgetSpec({
@@ -244,7 +244,7 @@ describe("ArtifactForm widget registry", () => {
   });
 
   it("degrades a legacy string[]/malformed entry to {step, expected_result: ''} instead of crashing", () => {
-    const Widget = WIDGET_REGISTRY.steps_editor;
+    const Widget = WIDGET_REGISTRY.steps_editor!;
     render(
       <Widget
         attribute={widgetSpec({

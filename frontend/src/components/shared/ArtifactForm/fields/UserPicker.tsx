@@ -15,6 +15,14 @@ import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
  * live file) exports `ManagedUser` (no `User` export exists) with
  * `username`/`email` — no `full_name` field. Uses `username` as the display
  * label, falling back to `email`, mirroring the brief's own fallback pattern.
+ *
+ * `GET /api/v1/users/` is tenant-admin-only; every other role gets a 403. The
+ * list therefore comes back empty for most users, and an empty `<select>` is
+ * indistinguishable from "this tenant has no users" — so a failed lookup is
+ * tracked separately and announced. The control stays ENABLED on failure: the
+ * currently assigned id is preserved as its own option (`isUnknown`), so the
+ * user can still leave it alone or deliberately unassign, and only the ability
+ * to pick a NEW person is actually missing.
  */
 export function UserPicker({
   attribute,
@@ -26,16 +34,21 @@ export function UserPicker({
 }: FieldProps<string | null>): JSX.Element {
   const { i18n, t } = useTranslation();
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [lookupFailed, setLookupFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     usersApi
       .list()
       .then((resolved) => {
-        if (!cancelled) setUsers(resolved);
+        if (cancelled) return;
+        setUsers(resolved);
+        setLookupFailed(false);
       })
       .catch(() => {
-        if (!cancelled) setUsers([]);
+        if (cancelled) return;
+        setUsers([]);
+        setLookupFailed(true);
       });
     return () => {
       cancelled = true;
@@ -73,6 +86,15 @@ export function UserPicker({
           </option>
         ))}
       </select>
+      {lookupFailed ? (
+        <span
+          className={styles.help}
+          role="status"
+          data-testid={`${testId}-directory-unavailable`}
+        >
+          {t("artifactForm.userDirectoryUnavailable")}
+        </span>
+      ) : null}
     </FieldShell>
   );
 }

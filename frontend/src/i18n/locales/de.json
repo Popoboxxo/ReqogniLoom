@@ -2045,6 +2045,16 @@
       "description": "Beschreibung",
       "context": "Kontext",
       "consequences": "Konsequenzen"
-    }
+    },
+    "definitionUnavailable": "Feldkonfiguration konnte nicht geladen werden.",
+    "deleteTitle": "Artefakt löschen",
+    "unsupportedWidget": "Dieses Feld verwendet ein nicht unterstütztes Widget ({{widget}}). Die einzelnen Felder werden stattdessen direkt angezeigt.",
+    "userDirectoryUnavailable": "Benutzerliste nicht verfügbar — nur Tenant-Administratoren dürfen sie lesen."
+  },
+  "sections": {
+    "general": "Allgemein",
+    "classification": "Klassifikation",
+    "change_control": "Änderungskontrolle",
+    "custom": "Eigene Felder"
   }
 }
