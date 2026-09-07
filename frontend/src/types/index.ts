@@ -440,6 +440,17 @@ export interface Risk {
   severity: RiskSeverity;
   category: RiskCategory;
   owner: string;
+  /**
+   * REQ-L1-029 (FMEA): structured User FK for risk assignment, mirrors
+   * RiskSerializer.owner_user_id (kept alongside the legacy free-text
+   * `owner` field). Task 19: the attribute-definition bootstrap serves this
+   * under the same name (see bootstrap_attribute_definitions.py's
+   * WIDGET_FIELD_ALIASES — the raw Django FK field is named `owner_user`,
+   * aliased to match this serializer field).
+   */
+  owner_user_id?: UUID | null;
+  /** Read-only display label for `owner_user_id` (RiskSerializer.owner_user_display). */
+  owner_user_display?: string | null;
   mitigation_strategy: string;
   status: RiskStatus;
   version: number;

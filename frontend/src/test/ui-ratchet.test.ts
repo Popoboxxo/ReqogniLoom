@@ -332,7 +332,7 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //      (`formLabelStyle`/`formInputStyle`/`formHintStyle`), so it adds none.
 // 1016 - 1 = 1015. Re-measured on the tree: 1015, matching exactly.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1015;
+const STYLE_BRACE_BASELINE = 994;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
