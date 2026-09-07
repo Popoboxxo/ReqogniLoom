@@ -302,3 +302,47 @@ def test_server_owned_columns_are_not_introspected_as_required() -> None:
     ):
         names = {a["name"] for a in introspect_core_attributes(item_type, "standard")}
         assert column not in names, f"{item_type}.{column}"
+
+
+# --- Task 19 fix round: no introspected attribute may be PATCH-protected ----
+# and simultaneously editable. C-1: `uid` was introspected as editable=True
+# for every item type while also being a `_PROTECTED_PATCH_FIELDS` entry
+# (rest_api/mixins/workflow_transitions.py) that the REST layer rejects
+# outright on PATCH — a 400 on every single save through any
+# ArtifactForm-driven item type. This is a structural, reusable check (not
+# just a Risk/uid special case) so a future bootstrapped column landing in
+# both sets fails the suite immediately instead of shipping silently, as this
+# one did.
+
+
+def _protected_patch_fields() -> frozenset[str]:
+    from rest_api.mixins.workflow_transitions import _PROTECTED_PATCH_FIELDS
+
+    return _PROTECTED_PATCH_FIELDS
+
+
+@pytest.mark.django_db
+def test_no_introspected_attribute_is_both_protected_and_editable() -> None:
+    protected = _protected_patch_fields()
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        for preset in PRESETS:
+            for attribute in introspect_core_attributes(item_type, preset):
+                if attribute["name"] in protected:
+                    assert attribute["editable"] is False, (
+                        f"{item_type}/{preset}: '{attribute['name']}' is "
+                        "PATCH-protected but introspected as editable "
+                        f"({attribute['editable']!r})"
+                    )
+
+
+@pytest.mark.django_db
+def test_uid_is_visible_but_not_editable_on_every_item_type() -> None:
+    """uid is a real, serializer-declared, read-only column everywhere it
+    exists — it must stay VISIBLE (unlike created_by_name, which is excluded
+    entirely because no serializer exposes it at all) but never editable."""
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        by_name = {a["name"]: a for a in introspect_core_attributes(item_type, "standard")}
+        if "uid" not in by_name:
+            continue
+        assert by_name["uid"]["visible"] is True, item_type
+        assert by_name["uid"]["editable"] is False, item_type

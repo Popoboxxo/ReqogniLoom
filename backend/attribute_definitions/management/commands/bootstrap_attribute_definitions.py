@@ -130,6 +130,19 @@ CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
 
 CHANGE_CONTROL_FIELDS: frozenset[str] = frozenset({"uid", "suspect", "baseline_id"})
 
+#: Model fields that are real, visible, serializer-declared columns (so they
+#: must NOT be excluded like ``created_by_name``) but are declared
+#: ``read_only=True`` on every serializer that exposes them (verified: all 8
+#: ``uid = serializers.CharField(read_only=True, ...)`` declarations across
+#: rest_api/serializers.py). ``uid`` is also listed in
+#: ``_PROTECTED_PATCH_FIELDS`` (rest_api/mixins/workflow_transitions.py),
+#: which rejects any PATCH containing it outright. Introspecting it as
+#: ``editable=True`` (the loop's default) therefore produced a definition
+#: that both the form renderer AND every ArtifactForm-driven save round-trip
+#: (GET -> edit -> PATCH) sent straight back — a 400 on every single save.
+#: Template bug: present in every bootstrapped item type, not just Risk.
+READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset({"uid"})
+
 #: Curated widget attributes (spec section 6.3). ``fields[]`` names the core
 #: attributes the widget renders; the form renderer skips those individually so
 #: they are not drawn twice.
@@ -332,7 +345,7 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
                     # rest_api/tests/test_bootstrapped_definition_allows_creates.py.
                     "required": not field.blank and not field.has_default(),
                     "visible": True,
-                    "editable": True,
+                    "editable": name not in READ_ONLY_MODEL_FIELDS,
                     "section": _section_for(name),
                     "order": order,
                     "label": {"de": name, "en": name},

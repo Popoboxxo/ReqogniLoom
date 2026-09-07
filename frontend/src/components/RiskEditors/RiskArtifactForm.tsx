@@ -43,6 +43,18 @@ const READ_ONLY_KEYS = new Set([
   "artifact",
   "artifact_id",
   "status",
+  // C-1 fix round: `uid` is a real, visible attribute (bootstrap now marks it
+  // editable=false, so ArtifactForm no longer renders an input for it) but
+  // was still spread into the PATCH body from `initialValues`, and `uid` is
+  // in `_PROTECTED_PATCH_FIELDS` (backend/rest_api/mixins/workflow_transitions.py)
+  // — the backend rejects any PATCH carrying it with a 400. This client-side
+  // exclude is defense-in-depth on top of the backend fix, since a future
+  // widening of the definition must not silently reopen this failure mode.
+  "uid",
+  // Declared read_only by RiskSerializer; DRF drops them silently, so this is
+  // low-priority defensive cleanup rather than a bug fix on its own.
+  "owner_user_display",
+  "rpn",
 ]);
 
 export function riskToFormValues(risk: Risk): ArtifactFormValues {
