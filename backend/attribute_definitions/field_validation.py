@@ -1,0 +1,190 @@
+"""Artifact field-value validation against a resolved attribute definition.
+
+Spec section 5. Deliberately DB-free and Django-free: the rules are a pure
+function of ``(attributes, changed_fields, existing)``, which keeps them
+testable without fixtures and reusable by the bulk-update endpoint.
+
+Payload contract
+----------------
+``changed_fields`` is flat for ``kind="core"`` attribute names; ``extended``
+values live in the nested ``changed_fields["custom_fields"]`` dict.
+
+``existing is None`` means **create**: every visible, required attribute must be
+present and non-empty. Otherwise (**update**) only the fields the request
+actually carries are checked — a save that does not touch a required field is
+never blocked, which is the grandfathering rule for legacy data.
+
+Unknown **extended** names are rejected (issue #851: "unknown fields silently
+discarded"). Unknown **top-level** names are ignored on purpose: they are the
+serializer's own control fields (``change_reason``, ``expected_version``, ...),
+and ``WorkflowTransitionsMixin._validate_patch_payload`` already guards those.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+#: Nested key under which ``kind="extended"`` values travel.
+EXTENDED_PAYLOAD_KEY = "custom_fields"
+
+_ENUM_TYPES = frozenset({"enum", "multi-enum"})
+
+
+class FieldValidationError(ValueError):
+    """Raised when a payload violates the resolved attribute definition.
+
+    ``errors`` maps attribute name -> list of human-readable messages, which is
+    the shape the DRF error envelope and the MCP error payload both expect.
+    """
+
+    def __init__(self, errors: dict[str, list[str]]) -> None:
+        self.errors = errors
+        super().__init__(
+            "; ".join(f"{name}: {', '.join(msgs)}" for name, msgs in errors.items())
+        )
+
+
+def _is_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, dict)):
+        return len(value) == 0
+    return False
+
+
+def _as_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _check_type(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
+    kind = attribute["type"]
+    if kind == "number":
+        if _as_number(value) is None:
+            out.append("must be a number")
+    elif kind == "boolean":
+        if not isinstance(value, bool):
+            out.append("must be a boolean")
+    elif kind == "enum":
+        allowed = {o["value"] for o in attribute["options"]}
+        if str(value) not in allowed:
+            out.append(f"must be one of {sorted(allowed)}")
+    elif kind == "multi-enum":
+        if not isinstance(value, list):
+            out.append("must be a list")
+            return
+        allowed = {o["value"] for o in attribute["options"]}
+        unknown = sorted({str(v) for v in value} - allowed)
+        if unknown:
+            out.append(f"contains unknown option(s): {', '.join(unknown)}")
+
+
+def _check_rules(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
+    rules = attribute["validation"]
+    if not rules:
+        return
+    if "regex" in rules:
+        pattern = str(rules["regex"])
+        try:
+            if re.fullmatch(pattern, str(value)) is None:
+                out.append(f"does not match {pattern!r}")
+        except re.error:
+            out.append(f"has a malformed 'regex' rule: {pattern!r}")
+    if "length" in rules and len(str(value)) > int(rules["length"]):
+        out.append(f"is longer than {rules['length']} characters")
+    number = _as_number(value)
+    if "min" in rules:
+        if number is None:
+            out.append("must be a number to satisfy the 'min' rule")
+        elif number < float(rules["min"]):
+            out.append(f"must be >= {rules['min']}")
+    if "max" in rules:
+        if number is None:
+            out.append("must be a number to satisfy the 'max' rule")
+        elif number > float(rules["max"]):
+            out.append(f"must be <= {rules['max']}")
+
+
+def validate_values(
+    attributes: list[dict[str, Any]],
+    changed_fields: dict[str, Any],
+    existing: dict[str, Any] | None,
+) -> None:
+    """Validate *changed_fields* against *attributes*.
+
+    Args:
+        attributes: the resolved ``definition_json["attributes"]`` list
+            (already normalized by ``attribute_definitions.schema``).
+        changed_fields: the fields the request sets or clears; extended values
+            nested under ``"custom_fields"``.
+        existing: the artifact's current values, or ``None`` for a create.
+
+    Raises:
+        FieldValidationError: one entry per offending attribute; all violations
+            are collected before raising.
+    """
+    by_name = {a["name"]: a for a in attributes}
+    # A widget bundles other attributes; its own name is never a payload field.
+    payload_names = {n for n, a in by_name.items() if a["type"] != "widget"}
+    extended_names = {
+        n for n in payload_names if by_name[n]["kind"] == "extended"
+    }
+
+    supplied_extended = changed_fields.get(EXTENDED_PAYLOAD_KEY) or {}
+    if not isinstance(supplied_extended, dict):
+        raise FieldValidationError(
+            {EXTENDED_PAYLOAD_KEY: ["must be an object of attribute name -> value"]}
+        )
+
+    errors: dict[str, list[str]] = {}
+
+    for name in sorted(set(supplied_extended) - extended_names):
+        errors.setdefault(name, []).append("is not a defined attribute")
+
+    # Flatten to one name -> value view of everything the request carries.
+    supplied: dict[str, Any] = {
+        name: value
+        for name, value in changed_fields.items()
+        if name != EXTENDED_PAYLOAD_KEY and name in payload_names
+    }
+    supplied.update(
+        {name: value for name, value in supplied_extended.items() if name in extended_names}
+    )
+
+    is_create = existing is None
+    for name in sorted(payload_names):
+        attribute = by_name[name]
+        present = name in supplied
+        if not present:
+            if is_create and attribute["required"] and attribute["visible"]:
+                errors.setdefault(name, []).append("is required")
+            continue
+
+        value = supplied[name]
+        if _is_empty(value):
+            if attribute["required"] and attribute["visible"]:
+                errors.setdefault(name, []).append("is required")
+            continue
+
+        messages: list[str] = []
+        _check_type(attribute, value, messages)
+        if not messages:
+            _check_rules(attribute, value, messages)
+        if messages:
+            errors.setdefault(name, []).extend(messages)
+
+    if errors:
+        raise FieldValidationError(errors)
+
+
+__all__ = ["EXTENDED_PAYLOAD_KEY", "FieldValidationError", "validate_values"]
