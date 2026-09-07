@@ -84,6 +84,18 @@ export type {
   ThresholdWarning,
 } from "./metrics";
 
+export { attributeDefinitionsApi } from "./attribute-definitions";
+export type {
+  AttributeSpec,
+  AttributeType,
+  AttributeEditable,
+  AttributeAudience,
+  AttributeOption,
+  GlobalAttributeDefinition,
+  ResolvedAttributeDefinition,
+  WidgetKey,
+} from "./attribute-definitions";
+
 // ---------------------------------------------------------------------------
 // Shared types — re-exported from the ArtifactInspector module so callers
 // can import the 10-kind union from the central API barrel (UI standards
