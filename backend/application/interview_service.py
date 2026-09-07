@@ -985,7 +985,7 @@ class InterviewService(ServiceBase):
                 description=(
                     session.collected_fields.get("description")
                     or session.collected_fields.get("rationale")
-                    or ""
+                    or None
                 ),
             )
             # Issue #736: resulting_artifact_ids must carry the Requirement's
