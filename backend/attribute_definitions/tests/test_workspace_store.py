@@ -140,3 +140,21 @@ def test_missing_attributes_for_preset_lists_names_the_target_lacks(tenant, stor
     assert ws_store.missing_attributes_for_preset(
         tenant.id, ws, "Risk", "extended"
     ) == []
+
+
+@pytest.mark.django_db
+def test_missing_attributes_for_preset_raises_for_an_unbootstrapped_target(
+    tenant, stores
+) -> None:
+    """Ledger binding (i), Task 5 review I-2: a target preset with no global
+
+    default yet must raise (same condition/exception as ``resolve()``), not
+    silently degrade to the empty set — which used to report every current
+    attribute as "will be lost", the maximally alarming wrong answer for
+    "nobody has configured the target preset yet"."""
+    g_store, ws_store = stores
+    g_store.initialize(tenant.id, "Risk", "extended", [TITLE, NOTE])
+    ws = uuid.uuid4()
+    ws_store.resolve(tenant.id, ws, "Risk", "extended")
+    with pytest.raises(AttributeDefinitionNotFound):
+        ws_store.missing_attributes_for_preset(tenant.id, ws, "Risk", "minimal")

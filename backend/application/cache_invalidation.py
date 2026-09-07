@@ -70,6 +70,15 @@ def workflow_def_cache_key(workspace_id: str) -> str:
     return f"{_KEY_PREFIX}:workflow-def:{workspace_id}"
 
 
+def attribute_def_cache_key(workspace_id: str) -> str:
+    """Return the shared-cache key for a workspace's resolved attribute definitions.
+
+    One key per workspace covers every item type: an admin edit to one type's
+    definition is rare and re-resolving the others costs one indexed query each.
+    """
+    return f"{_KEY_PREFIX}:attribute-def:{workspace_id}"
+
+
 def _workspace_keys(workspace_id: str) -> list[str]:
     """Return every shared-cache key derived from *workspace_id*."""
     return [
@@ -77,6 +86,7 @@ def _workspace_keys(workspace_id: str) -> list[str]:
         terminology_cache_key(workspace_id),
         features_cache_key(workspace_id),
         workflow_def_cache_key(workspace_id),
+        attribute_def_cache_key(workspace_id),
     ]
 
 
@@ -336,4 +346,5 @@ __all__ = [
     "terminology_cache_key",
     "features_cache_key",
     "workflow_def_cache_key",
+    "attribute_def_cache_key",
 ]

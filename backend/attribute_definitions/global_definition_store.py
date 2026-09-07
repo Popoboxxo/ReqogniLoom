@@ -162,5 +162,22 @@ class GlobalAttributeDefinitionStore:
             modified_at=timezone.now(),
         )
 
+    def list_derived_workspace_ids(
+        self, obj: GlobalAttributeDefinition
+    ) -> list[str]:
+        """Workspace ids whose definition mirrors *obj* — the cache-drop targets.
+
+        A bulk ``QuerySet.update()`` bypasses ``save()``/signals, so the shared
+        cache is not invalidated by the propagation itself; the service walks
+        this list explicitly (the same lesson as
+        ``GlobalWorkflowDefinitionStore._propagate``).
+        """
+        return [
+            str(ws_id)
+            for ws_id in WorkspaceAttributeDefinition.unscoped.filter(
+                source_global_id=obj.id, preset=obj.preset, is_customized=False
+            ).values_list("workspace_id", flat=True)
+        ]
+
 
 __all__ = ["AttributeDefinitionNotFound", "GlobalAttributeDefinitionStore"]

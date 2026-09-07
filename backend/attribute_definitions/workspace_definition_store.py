@@ -156,20 +156,43 @@ class WorkspaceAttributeDefinitionStore:
         Feeds the warning list of ``presets.services.validate_downgrade`` — the
         spec (section 9) explicitly reuses that check rather than inventing a
         second one. An empty list means the override survives the switch.
+
+        Raises:
+            AttributeDefinitionNotFound: *target_preset* has never been
+                bootstrapped for *item_type* — same condition, same exception
+                as ``resolve()``. Ledger binding (i), Task 5 review I-2: this
+                used to silently degrade to the empty set, which reported
+                every current attribute as "will be lost" — the maximally
+                alarming wrong answer for what is actually "nobody has
+                configured the target preset yet", a caller-fixable setup
+                gap rather than data loss.
         """
         obj = self.get(tenant_id, workspace_id, item_type)
         if obj is None:
             return []
         target = self._global_store.get(tenant_id, item_type, target_preset)
-        target_names = (
-            {a["name"] for a in (target.definition_json or {}).get("attributes", [])}
-            if target is not None
-            else set()
-        )
+        if target is None:
+            raise AttributeDefinitionNotFound(
+                f"No global attribute definition for '{item_type}/{target_preset}' — "
+                f"run 'manage.py bootstrap_attribute_definitions' first"
+            )
+        target_names = {
+            a["name"] for a in (target.definition_json or {}).get("attributes", [])
+        }
         current_names = {
             a["name"] for a in (obj.definition_json or {}).get("attributes", [])
         }
         return sorted(current_names - target_names)
+
+    def resolved_item_types(
+        self, tenant_id: UUID | str, workspace_id: UUID | str
+    ) -> list[str]:
+        """Item types this workspace has already materialized a definition for."""
+        return sorted(
+            WorkspaceAttributeDefinition.unscoped.filter(
+                tenant_id=tenant_id, workspace_id=workspace_id
+            ).values_list("item_type", flat=True)
+        )
 
 
 __all__ = ["WorkspaceAttributeDefinitionStore"]

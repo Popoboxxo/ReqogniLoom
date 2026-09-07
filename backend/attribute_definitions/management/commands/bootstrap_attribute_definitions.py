@@ -365,7 +365,7 @@ class Command(BaseCommand):
                                 store.initialize(tenant_id, item_type, preset, attributes)
                                 created += 1
                             elif options["sync_new_fields"]:
-                                if self._append_missing(existing, attributes):
+                                if self._append_missing(store, existing, attributes):
                                     updated += 1
                 finally:
                     clear_request_tenant()
@@ -389,9 +389,23 @@ class Command(BaseCommand):
 
     @staticmethod
     def _append_missing(
-        row: GlobalAttributeDefinition, introspected: list[dict[str, Any]]
+        store: GlobalAttributeDefinitionStore,
+        row: GlobalAttributeDefinition,
+        introspected: list[dict[str, Any]],
     ) -> bool:
-        """Append attributes the stored definition lacks. Returns True on change."""
+        """Append attributes the stored definition lacks. Returns True on change.
+
+        Writes via a bare ``row.save()`` rather than ``store.update()``:
+        ``update()`` runs ``validate_meta_only_change``, which correctly
+        rejects adding a new *core* attribute "through the API" — that
+        restriction targets admin edits, not this command's own
+        introspection-driven sync. But ``update()`` is also the only place
+        that calls ``_propagate()``, so bypassing it used to leave every
+        non-customized workspace row permanently out of sync with the global
+        default it mirrors (ledger binding (k), Task 6 review I-1). Calling
+        ``store._propagate(row)`` directly after the save keeps the schema
+        bypass (still needed) while closing the propagation gap.
+        """
         stored = list((row.definition_json or {}).get("attributes", []))
         known = {a["name"] for a in stored}
         additions = [copy.deepcopy(a) for a in introspected if a["name"] not in known]
@@ -408,4 +422,5 @@ class Command(BaseCommand):
         # load-bearing. Not fixed here on purpose.
         row.version = (row.version or 1) + 1
         row.save(update_fields=["definition_json", "version", "modified_at"])
+        store._propagate(row)
         return True

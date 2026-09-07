@@ -14,6 +14,9 @@ from attribute_definitions.management.commands.bootstrap_attribute_definitions i
     synthetic_status_attribute,
 )
 from attribute_definitions.models import GlobalAttributeDefinition
+from attribute_definitions.workspace_definition_store import (
+    WorkspaceAttributeDefinitionStore,
+)
 from persistence.models import Tenant
 
 
@@ -155,3 +158,50 @@ def test_sync_new_fields_appends_without_touching_existing_entries(tenant) -> No
     by_name = {a["name"]: a for a in row.definition_json["attributes"]}
     assert "detection" in by_name
     assert by_name["probability"]["audience"] == "expert"
+
+
+@pytest.mark.django_db
+def test_sync_new_fields_propagates_to_non_customized_workspace_rows(tenant) -> None:
+    """Ledger binding (k), Task 6 review I-1: ``_append_missing`` used to write
+
+    via a bare ``row.save()``, bypassing ``GlobalAttributeDefinitionStore
+    .update()``'s ``_propagate()`` step, leaving every non-customized
+    workspace row permanently out of sync with the global default."""
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Risk", preset="standard"
+    )
+    kept = [a for a in row.definition_json["attributes"] if a["name"] != "detection"]
+    row.definition_json = {"attributes": kept}
+    row.save(update_fields=["definition_json"])
+
+    ws_store = WorkspaceAttributeDefinitionStore()
+    ws_id = uuid.uuid4()
+    ws_row = ws_store.resolve(tenant.id, ws_id, "Risk", "standard")
+    assert "detection" not in {a["name"] for a in ws_row.definition_json["attributes"]}
+
+    call_command(
+        "bootstrap_attribute_definitions", "--tenant", str(tenant.id), "--sync-new-fields"
+    )
+    ws_row.refresh_from_db()
+    assert "detection" in {a["name"] for a in ws_row.definition_json["attributes"]}
+
+
+@pytest.mark.django_db
+def test_command_arms_and_clears_tenant_context(tenant, monkeypatch) -> None:
+    """Ledger binding (l), Task 6 review I-2: regression for the tenant-arming
+
+    fix — testable without an RLS-enabled DB role (unlike the RLS policy
+    itself) by spying on the two isolation calls the command must pair around
+    each tenant's work."""
+    calls: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        "persistence.middleware.set_request_tenant",
+        lambda tenant_id: calls.append(("set", tenant_id)),
+    )
+    monkeypatch.setattr(
+        "persistence.middleware.clear_request_tenant",
+        lambda: calls.append(("clear", None)),
+    )
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    assert calls == [("set", str(tenant.id)), ("clear", None)]
