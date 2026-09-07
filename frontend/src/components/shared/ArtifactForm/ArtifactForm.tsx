@@ -23,6 +23,7 @@ import type {
 } from "../../../api/attribute-definitions";
 import { extractErrorMessage } from "../../../api/client";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
+import { useEntityReset } from "../../../hooks/use-entity-reset";
 import { useFormDirty } from "../../../hooks/use-form-dirty";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { WorkflowStatusEditor } from "../../WorkflowStatusEditor";
@@ -146,15 +147,19 @@ export function ArtifactForm({
   const isReadOnly = mode === "read";
 
   // `initialValues` is an object prop and every realistic call site builds it
-  // inline from the fetched artifact, so its IDENTITY changes on every parent
-  // render. Re-anchoring on identity would discard whatever the user has typed
-  // whenever the parent re-renders for an unrelated reason; the serialized
-  // value is the only signal that the edited artifact actually changed.
-  const initialSignature = JSON.stringify(initialValues);
+  // inline from the fetched artifact, so both its IDENTITY and its key ORDER
+  // (e.g. a parent assembling it via a conditional spread) change on every
+  // parent render without the underlying artifact actually changing.
+  // `artifactId` is the one thing that stays stable across such a re-render
+  // and changes exactly when the user switches to editing a different
+  // artifact (the rollout waves reuse one mounted form across a list
+  // selection) — the same reset primitive RequirementForm/ArchitectureForm/
+  // TestCaseForm/NeedForm already share for this exact class of bug
+  // (`useEntityReset`, issue #700/#673).
   const initialRef = useRef(initialValues);
   initialRef.current = initialValues;
 
-  useEffect(() => {
+  useEntityReset(artifactId ?? "__none__", () => {
     setValues(initialRef.current);
     markClean(initialRef.current);
     // A rejected save's errors belong to the artifact that was open at the
@@ -163,7 +168,7 @@ export function ArtifactForm({
     // artifact the user clicks.
     setFieldErrors({});
     setFormError(null);
-  }, [artifactId, initialSignature, markClean]);
+  });
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -189,7 +194,14 @@ export function ArtifactForm({
     const owned = new Set<string>();
     for (const attribute of visible) {
       if (attribute.type === "widget" && resolveWidget(attribute)) {
-        attribute.fields.forEach((name) => owned.add(name));
+        // A widget's OWN name can legitimately appear in its own `fields`
+        // list (nothing stops an admin from doing that server-side). If it
+        // were added here too, the widget's own name would suppress itself
+        // from standalone rendering while nothing else draws it either —
+        // the field vanishes with no error, no warning.
+        attribute.fields.forEach((name) => {
+          if (name !== attribute.name) owned.add(name);
+        });
       }
     }
     return owned;

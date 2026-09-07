@@ -326,6 +326,58 @@ describe("ArtifactForm", () => {
     expect(screen.getByTestId("artifact-field-title")).toHaveValue("TX");
   });
 
+  it("keeps in-progress edits when initialValues has the same content in a different key order", async () => {
+    // I-2 fix round: a parent building initialValues via a conditional spread
+    // (e.g. `{...(isNew ? {} : {status}), ...artifact}`) can produce the same
+    // content in a different key order across renders. A content-signature
+    // comparison (`JSON.stringify`) is insertion-order sensitive and would
+    // treat this as "changed", silently wiping the user's typing.
+    mockDefinition([spec({ name: "title" }), spec({ name: "status", type: "text" })]);
+    const props = {
+      itemType: "Risk" as const,
+      artifactId: "r-1",
+      onSave: vi.fn().mockResolvedValue(undefined),
+    };
+    const { rerender } = render(
+      <ArtifactForm {...props} initialValues={{ title: "T", status: "open" }} />
+    );
+    await userEvent.type(await screen.findByTestId("artifact-field-title"), "X");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("TX");
+    // Same content, keys reordered.
+    rerender(
+      <ArtifactForm {...props} initialValues={{ status: "open", title: "T" }} />
+    );
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("TX");
+  });
+
+  it("resets form state when the parent switches to a genuinely different artifact", async () => {
+    // The "legitimate reset" case the original fix must not break: switching
+    // to a different artifact (the rollout waves reuse one mounted form
+    // across a list selection) must still discard the previous artifact's
+    // in-progress edits and load the new one's values.
+    mockDefinition([spec({ name: "title" })]);
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "First" }}
+        onSave={onSave}
+      />
+    );
+    await userEvent.type(await screen.findByTestId("artifact-field-title"), "X");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("FirstX");
+    rerender(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-2"
+        initialValues={{ title: "Second" }}
+        onSave={onSave}
+      />
+    );
+    expect(await screen.findByTestId("artifact-field-title")).toHaveValue("Second");
+  });
+
   it("attaches a server field error to its own field", async () => {
     mockDefinition([spec({ name: "title" })]);
     // The real client throws the parsed body; `extractErrorMessage` prefers
@@ -502,6 +554,35 @@ describe("ArtifactForm widget guard", () => {
     expect(screen.getByTestId("artifact-field-probability")).toBeInTheDocument();
     expect(screen.getByTestId("artifact-field-impact")).toBeInTheDocument();
     expect(screen.getByTestId("artifact-field-detection")).toHaveValue(3);
+  });
+
+  it("still renders a widget whose own name is included in its own fields list", async () => {
+    // I-1 fix round: a `markdown_tab_group` widget named "notes" with
+    // `fields: ["notes"]` used to add "notes" to `widgetOwned` (from the
+    // widget's OWN `fields` list) as well as excluding it from standalone
+    // rendering as the field it names, then also NOT rendering the widget
+    // itself because... — proven live: the widget rendered NEITHER as itself
+    // NOR as a standalone field. It just vanished, no error, no warning.
+    mockDefinition([
+      spec({ name: "title" }),
+      spec({
+        name: "notes",
+        type: "widget",
+        widget_key: "markdown_tab_group",
+        fields: ["notes"],
+        section: "general",
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T", notes: "some text" }}
+        onSave={vi.fn()}
+      />
+    );
+    expect(await screen.findByTestId("artifact-widget-notes")).toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-field-notes")).not.toBeInTheDocument();
   });
 
   it("renders the real bootstrapped risk_matrix definition as a widget", async () => {
