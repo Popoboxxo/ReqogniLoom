@@ -309,15 +309,17 @@ test.describe('[REQ-136] Attribute Visibility Config — empty state is informat
     token = await getAuthToken();
   });
 
-  test('[REQ-136] GET /api/v1/attribute-visibility-configs/ returns [] without 500', async ({ request }) => {
+  // TEMPORARY (attribute-definition Task 9): the backend endpoint was
+  // retired along with AttributeVisibilityConfig; the frontend still calls
+  // it until Task 27 removes the legacy config UI. Graceful 404 is the
+  // correct current behavior, not the 200-with-empty-array REQ-136 tested
+  // against the now-gone mechanism.
+  test('[REQ-136] GET /api/v1/attribute-visibility-configs/ 404s gracefully (endpoint retired)', async ({ request }) => {
     const response = await request.get(`${BACKEND_URL}/api/v1/attribute-visibility-configs/`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    // Must return 200 with empty array (not 500 or error)
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(Array.isArray(body)).toBe(true);
-    // May be empty — that is the valid state REQ-136 is about
+    // Must return a clean 404 (not 500) now that the endpoint is gone.
+    expect(response.status()).toBe(404);
   });
 
   test('[REQ-136] attribute-visibility-configs API call returns 200 (not error) on workspace-settings page', async ({ page }) => {
@@ -338,9 +340,10 @@ test.describe('[REQ-136] Attribute Visibility Config — empty state is informat
     await page.goto(`${FRONTEND_URL}/workspace-settings`);
     await page.waitForLoadState('networkidle');
 
-    // If the request was made, it must have returned 200 (not an error status)
+    // TEMPORARY (attribute-definition Task 9): the endpoint is retired and
+    // now correctly 404s; the frontend caller is removed in Task 27.
     if (attrVisibilityStatus !== null) {
-      expect(attrVisibilityStatus, 'attribute-visibility-configs must return 200').toBe(200);
+      expect(attrVisibilityStatus, 'attribute-visibility-configs must 404 (endpoint retired)').toBe(404);
     }
     // The workspace settings page must be fully rendered (no crash)
     await expect(page.locator('[data-testid="workspace-settings"]')).toBeVisible({ timeout: 10000 });

@@ -14,8 +14,26 @@ definition nor a name:
      and drop rows whose definition vanished entirely,
   3. drop rows orphaned by a name collision Task 8 skipped
      (``drop_collision_orphans`` — binding (m), see below),
-  4. make the column non-null, swap the unique constraint, drop the two legacy
+  4. fold every surviving value into ``Artifact.custom_fields``
+     (``fold_values_into_custom_fields`` — code-review finding C-1, see below),
+  5. make the column non-null, swap the unique constraint, drop the two legacy
      tables.
+
+C-1 (code review, this task's fix round): Task 8 migrated the *schema*
+(``CustomFieldDefinition`` -> extended attribute definitions) but nothing ever
+migrated the *data* a legacy ``CustomFieldValue`` row holds — the new system
+reads ``kind="extended"`` values from ``Artifact.custom_fields``
+(``persistence.custom_fields.validate_custom_fields``), not from this table,
+and nothing reads ``pl_custom_field_value`` any more after this migration.
+Dropping the table below without folding first would make every surviving
+value permanently unreadable. ``fold_values_into_custom_fields`` runs after
+``drop_collision_orphans`` (so a collision-orphaned row is never folded) and
+before the schema-drop operations, applying the same ceilings
+``validate_custom_fields`` enforces defensively (a legacy value predates that
+validator): oversized strings are truncated, dotted keys are renamed, and an
+artifact already at ``MAX_KEYS`` skips the overflow deterministically — never
+crashing the migration or silently keeping a value the API would reject on
+the next write.
 
 Binding (m) (Task 8 review, tracked in the SDD ledger): Task 8's data
 migration (``attribute_definitions/migrations/0003_migrate_legacy_field_config``)
@@ -169,6 +187,122 @@ def drop_collision_orphans(apps, schema_editor) -> None:
             TenantContext.clear_tenant()
 
 
+def fold_values_into_custom_fields(apps, schema_editor) -> None:
+    """Step 4 (code-review C-1): fold surviving ``CustomFieldValue`` rows into
+    ``Artifact.custom_fields`` before the legacy table is dropped below.
+
+    Runs after ``drop_collision_orphans`` (no collision-orphaned row is ever
+    seen here — proven by
+    ``TestFoldValuesIntoCustomFields.test_collision_orphan_is_gone_before_fold_runs``)
+    and before the ``RemoveField``/``DeleteModel`` operations that make the
+    data unreachable.
+
+    Ceilings mirror ``persistence.custom_fields.validate_custom_fields``
+    (duplicated, not imported — this frozen ``RunPython`` step must not break
+    if that module is refactored later), applied defensively since a legacy
+    value predates that validator and was never checked against it:
+      - a string value over ``MAX_VALUE_STRING_LENGTH`` is truncated, not
+        rejected — this migration must never abort or drop an artifact's
+        entire custom_fields over one oversized legacy value;
+      - a dotted key (disallowed — JSONB path traversal ambiguity) is
+        rewritten with dots replaced by underscores;
+      - once an artifact's ``custom_fields`` would exceed ``MAX_KEYS``, the
+        remaining values for that artifact are skipped, always in the same
+        order (sorted by ``attribute_name``) so a retry is reproducible.
+
+    Values are grouped by artifact and written with a single ``save()`` per
+    artifact (not once per value) to keep this bounded for an artifact that
+    accumulated many legacy custom fields.
+
+    Tenant-context arming: same idiom as ``drop_collision_orphans`` above —
+    required when this function is exercised directly against the LIVE app
+    registry (this module's own test does), a no-op under the real migration
+    executor's historical (plain-manager) models.
+    """
+    Tenant = apps.get_model("persistence", "Tenant")
+    CustomFieldValue = apps.get_model("persistence", "CustomFieldValue")
+    Artifact = apps.get_model("persistence", "Artifact")
+
+    # Mirrors persistence.custom_fields.{MAX_KEYS,MAX_VALUE_STRING_LENGTH} —
+    # duplicated on purpose, see docstring above.
+    MAX_KEYS = 50
+    MAX_VALUE_STRING_LENGTH = 2000
+
+    folded = 0
+    truncated = 0
+    key_renamed = 0
+    key_dropped_for_max = 0
+    # Always 0 in practice: drop_collision_orphans (the RunPython step
+    # immediately before this one) already removed every row this step would
+    # otherwise call an orphan. Counted and logged anyway so the summary line
+    # is an explicit proof of the ordering invariant, not a silent assumption.
+    orphan_skipped = 0
+
+    for tenant_id in Tenant.objects.values_list("id", flat=True):
+        TenantContext.set_tenant(tenant_id)
+        try:
+            by_artifact: dict = {}
+            for value in (
+                CustomFieldValue.objects.filter(tenant_id=tenant_id)
+                .order_by("attribute_name")
+                .iterator()
+            ):
+                by_artifact.setdefault(value.artifact_id, []).append(value)
+
+            for artifact_id, values in by_artifact.items():
+                artifact = Artifact.objects.get(id=artifact_id)
+                custom_fields = dict(artifact.custom_fields or {})
+                changed = False
+                for value in values:
+                    key = value.attribute_name
+                    val = value.value
+                    if "." in key:
+                        new_key = key.replace(".", "_")
+                        logger.warning(
+                            "[0080_retire_legacy_field_config] renaming dotted "
+                            "custom_fields key on fold: tenant_id=%s "
+                            "artifact_id=%s %r -> %r",
+                            tenant_id, artifact_id, key, new_key,
+                        )
+                        key = new_key
+                        key_renamed += 1
+                    if len(val) > MAX_VALUE_STRING_LENGTH:
+                        logger.warning(
+                            "[0080_retire_legacy_field_config] truncating "
+                            "oversized custom_fields value on fold: "
+                            "tenant_id=%s artifact_id=%s key=%r (%d -> %d "
+                            "chars)",
+                            tenant_id, artifact_id, key, len(val),
+                            MAX_VALUE_STRING_LENGTH,
+                        )
+                        val = val[:MAX_VALUE_STRING_LENGTH]
+                        truncated += 1
+                    if key not in custom_fields and len(custom_fields) >= MAX_KEYS:
+                        logger.warning(
+                            "[0080_retire_legacy_field_config] dropping "
+                            "custom_fields key on fold, artifact already at "
+                            "MAX_KEYS=%d: tenant_id=%s artifact_id=%s key=%r",
+                            MAX_KEYS, tenant_id, artifact_id, key,
+                        )
+                        key_dropped_for_max += 1
+                        continue
+                    custom_fields[key] = val
+                    changed = True
+                    folded += 1
+                if changed:
+                    artifact.custom_fields = custom_fields
+                    artifact.save(update_fields=["custom_fields"])
+        finally:
+            TenantContext.clear_tenant()
+
+    logger.info(
+        "[0080_retire_legacy_field_config] folded CustomFieldValue rows into "
+        "Artifact.custom_fields: folded=%d truncated=%d key_renamed=%d "
+        "key_dropped_for_max=%d orphan_skipped=%d",
+        folded, truncated, key_renamed, key_dropped_for_max, orphan_skipped,
+    )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -197,6 +331,9 @@ class Migration(migrations.Migration):
         # "walk past this migration node" possible without crashing.
         migrations.RunPython(backfill_attribute_names, migrations.RunPython.noop),
         migrations.RunPython(drop_collision_orphans, migrations.RunPython.noop),
+        migrations.RunPython(
+            fold_values_into_custom_fields, migrations.RunPython.noop
+        ),
         migrations.RemoveConstraint(
             model_name="customfieldvalue",
             name="uq_customfieldvalue_definition_artifact",

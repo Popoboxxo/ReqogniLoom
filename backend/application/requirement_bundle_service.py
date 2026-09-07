@@ -65,7 +65,8 @@ class BundleResult:
 # The Requirement model's own concrete columns, excluding tenant/embedding/
 # artifact/raw-FK columns and DTO-only fields not backed by a real column.
 # This is the "all" field set for filter_mode="all" and the schema advertised
-# by AttributeVisibilityConfigService.describe_schema.
+# by describe_attribute_schema() below (the legacy
+# AttributeVisibilityConfigService.describe_schema this replaced is gone).
 #
 # It is deliberately NOT identical to RequirementSerializer's field list, in
 # both directions:
@@ -189,11 +190,10 @@ class RequirementBundleQueryService(ServiceBase):
                 N = also walk N levels of ALLOCATED_TO Arch->Arch
                 sub-elements. None = unbounded, capped at MAX_DEPTH.
             filter_mode: "all" (every field in REQUIREMENT_ALL_FIELDS),
-                "visible" (only fields marked visible for Requirement in
-                AttributeVisibilityConfig for the active tenant — a field
-                with no config row is visible by default, see
-                _resolve_field_set), or "custom" (only the fields named in
-                *fields*).
+                "visible" (currently a synonym for "all" — the legacy
+                AttributeVisibilityConfig mechanism this used to resolve
+                against was retired, see _resolve_field_set), or "custom"
+                (only the fields named in *fields*).
             fields: Required (non-empty) when filter_mode="custom". Every
                 name must be a member of REQUIREMENT_ALL_FIELDS.
 
@@ -436,12 +436,12 @@ class RequirementBundleQueryService(ServiceBase):
     ) -> "set[str]":
         """Return the concrete Requirement field-name set for *filter_mode*.
 
-        "visible" mode degraded to "all" when the legacy
-        ``AttributeVisibilityConfig`` mechanism was retired (Task 9, spec
-        section 4): there is no longer a per-tenant hide toggle to resolve
-        against. Real per-attribute visibility (sourced from
-        ``WorkspaceAttributeDefinition.definition_json``) is future work —
-        tracked for the REST/MCP consumer wiring task, not reintroduced here.
+        "visible" mode degrades to "all" now that the legacy
+        ``AttributeVisibilityConfig`` mechanism was retired (spec section 4):
+        there is no longer a per-tenant hide toggle to resolve against. Real
+        per-attribute visibility (sourced from
+        ``WorkspaceAttributeDefinition.definition_json``) is not yet wired to
+        this bundle export path.
         """
         if filter_mode == "custom":
             return set(fields or [])

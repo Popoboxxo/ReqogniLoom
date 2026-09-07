@@ -401,9 +401,12 @@ test.describe('[REQ-136] Attribute Visibility Configs — UI Journey', () => {
 
     await screenshot(page, 'req136-01-workspace-settings-loaded');
 
-    // API call must return 200 if it was made
+    // TEMPORARY (attribute-definition Task 9): the backend endpoint was
+    // retired along with AttributeVisibilityConfig; the frontend still calls
+    // it until Task 27 removes the legacy config UI, so a clean 404 (not
+    // 200) is the expected response here now.
     if (attrVisStatus !== null) {
-      expect(attrVisStatus, '[REQ-136] attribute-visibility-configs must return 200').toBe(200);
+      expect(attrVisStatus, '[REQ-136] attribute-visibility-configs must 404 (endpoint retired)').toBe(404);
     }
 
     // Page must render the workspace-settings container
