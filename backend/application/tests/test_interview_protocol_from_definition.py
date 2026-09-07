@@ -1,6 +1,7 @@
 """Interview protocol derived from ai_elicit attributes (spec section 7)."""
 from __future__ import annotations
 
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -178,3 +179,84 @@ def test_get_protocol_falls_back_to_the_factory_default_without_a_definition(
         protocol = get_protocol(ctx, "Risk", workspace.id)
     names = [f.name for p in protocol.phases for f in p.required_fields]
     assert names == ["title", "rationale"]
+
+
+@pytest.mark.django_db
+def test_full_interview_cycle_against_a_bootstrapped_definition_preserves_description() -> None:
+    """C-1 / I-4 regression, non-mocked on purpose.
+
+    Every test above patches ``AttributeDefinitionService`` outright, so none
+    of them can observe the real shape of a definition-derived protocol --
+    exactly how C-1 slipped through review: ``bootstrap_attribute_definitions``
+    marks ``title``/``description`` ``ai_elicit`` (see
+    ``introspect_core_attributes``), never the old hardcoded ``rationale``,
+    but ``interview_service._formalize_single`` kept reading
+    ``collected_fields["rationale"]`` -- silently formalizing every
+    definition-derived interview with an empty description.
+
+    This drives a real bootstrap -> start -> answer -> formalize cycle and
+    asserts the user's typed description survives into the created
+    Requirement.
+    """
+    from django.core.management import call_command
+
+    from application.interview_service import InterviewService
+    from application.requirement_service import RequirementService
+    from auth_tenancy.context import AuthContext, AuthMethod
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.models import Tenant, User, Workspace
+
+    tenant = Tenant.objects.create(name="Full Interview Cycle Test", is_active=True)
+    set_request_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            tenant=tenant, name="ws", preset={"name": "standard"}
+        )
+        user = User.objects.create(
+            username="fullcycleuser", email="fullcycle@t.test", tenant=tenant
+        )
+    finally:
+        clear_request_tenant()
+
+    # bootstrap_attribute_definitions.Command.handle() arms and clears its
+    # own tenant context per tenant internally -- running it while the block
+    # above's context is still active would just get silently cleared by the
+    # command's own `finally`, so it runs fully outside that block.
+    call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+    # Re-armed for the rest of the test: get_protocol() is called directly
+    # below (not through a ServiceBase subclass, which arms its own tenant
+    # context), and it queries a tenant-scoped PromptTemplate manager --
+    # same idiom as protocol_from_definition_ctx above.
+    set_request_tenant(tenant.id)
+    try:
+        ctx = AuthContext(
+            user_id=user.id,
+            tenant_id=tenant.id,
+            active_roles=("editor",),
+            auth_method=AuthMethod.API_KEY,
+            api_key_id=None,
+        )
+
+        # Sanity check: prove this test actually exercises tier 2 (the
+        # definition-derived protocol), not the hardcoded factory default --
+        # otherwise this would be exactly as blind as the mocked tests above.
+        protocol = get_protocol(ctx, "Requirement", workspace.id)
+        elicited = {f.name for phase in protocol.phases for f in phase.required_fields}
+        assert elicited == {"title", "description"}
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "SSO login support")
+        InterviewService().answer(
+            ctx, session.id, "description", "Reduce password fatigue for support staff"
+        )
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        requirement = RequirementService().get_requirement(
+            uuid.UUID(result["resulting_artifact_ids"][0]), ctx
+        )
+        assert requirement.title == "SSO login support"
+        assert requirement.description == "Reduce password fatigue for support staff"
+    finally:
+        clear_request_tenant()

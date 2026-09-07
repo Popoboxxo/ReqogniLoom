@@ -17,10 +17,12 @@ from application.attribute_definition_service import (
     AttributeDefinitionNotFound,
     AttributeDefinitionService,
 )
+from application.base import NotFoundError
 from application.interview_multi_protocol import (
     _MULTI_PROTOCOL_FACTORY_DEFAULT,
     _MULTI_PROTOCOL_SLOT,
 )
+from application.prompt_resolver import _as_uuid
 from application.prompt_template_versioning import get_active_template
 
 # All artifact types Spec 1 puts in scope (spec §1) -- everything except
@@ -244,6 +246,30 @@ def protocol_from_definition(
     return ProtocolConfig(phases=phases)
 
 
+def _validate_protocol_config(config: ProtocolConfig) -> ProtocolConfig:
+    """Apply the same structural checks :func:`parse_protocol_yaml` gets for
+    free while parsing raw YAML, to a :class:`ProtocolConfig` built some other
+    way (I-3: tier 2's ``protocol_from_definition`` output used to skip this
+    entirely, unlike tiers 1/3). Not currently reachable -- ``normalize_attribute``
+    already rejects an enum with no options before a definition can be saved
+    -- but keeps tier 2 honest as the attribute vocabulary grows.
+    """
+    if not config.phases:
+        raise ProtocolValidationError("Protocol must have a non-empty 'phases' list.")
+    for phase in config.phases:
+        for protocol_field in phase.required_fields:
+            if protocol_field.type not in _VALID_FIELD_TYPES:
+                raise ProtocolValidationError(
+                    f"Unknown field type {protocol_field.type!r} for field "
+                    f"{protocol_field.name!r}."
+                )
+            if protocol_field.type == "enum" and not protocol_field.choices:
+                raise ProtocolValidationError(
+                    f"Field {protocol_field.name!r} has type 'enum' but no 'choices'."
+                )
+    return config
+
+
 def get_protocol(ctx, artifact_type: str, workspace_id) -> ProtocolConfig:
     """Resolve the effective protocol for *artifact_type* in *workspace_id*.
 
@@ -268,6 +294,19 @@ def get_protocol(ctx, artifact_type: str, workspace_id) -> ProtocolConfig:
     override" from "nothing configured, use the wider fallback chain".
     """
     name = f"interview.protocol.{artifact_type}"
+    # I-2: get_active_template() filters a UUIDField by workspace_id as-is;
+    # unlike tier 2 (guarded by _workspace_preset), a malformed id used to
+    # reach Django's ORM raw and crash with an unhandled ValidationError
+    # (500) instead of the 404 issue #271 established for every other
+    # "bad workspace id" case. Coerce with the same helper prompt_resolver.py
+    # itself uses for the identical filter, before either tier touches it.
+    try:
+        workspace_id = _as_uuid(workspace_id)
+    except (ValueError, AttributeError) as exc:
+        raise NotFoundError(
+            f"No workspace {workspace_id!r} in the active tenant"
+        ) from exc
+
     row = None
     if workspace_id is not None:
         row = get_active_template(tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id)
@@ -280,8 +319,31 @@ def get_protocol(ctx, artifact_type: str, workspace_id) -> ProtocolConfig:
         attributes = AttributeDefinitionService().elicit_attributes(
             ctx, artifact_type, workspace_id
         )
-        return protocol_from_definition(attributes, artifact_type)
-    except (AttributeDefinitionNotFound, ProtocolValidationError):
+        protocol = protocol_from_definition(attributes, artifact_type)
+        # I-3: tier 1 (parse_protocol_yaml) and tier 3 (below) both validate
+        # phase/field structure; tier 2 built a ProtocolConfig by hand and
+        # returned it unchecked. Run the same checks explicitly, inside this
+        # try so a validation failure here falls through to the tier-3
+        # default exactly like protocol_from_definition's own
+        # ProtocolValidationError already does, instead of propagating.
+        return _validate_protocol_config(protocol)
+    except AttributeDefinitionNotFound as exc:
+        # I-1: _workspace_preset (attribute_definition_service.py) raises
+        # this same exception for two cases it cannot otherwise tell apart:
+        # "no such workspace" and "workspace exists, nothing bootstrapped
+        # yet". Only its own raise site's message names the former ("No
+        # workspace '...' in the active tenant"); every other raise site
+        # (workspace_definition_store.py, global_definition_store.py) talks
+        # about a missing *definition*, never a missing *workspace*. A
+        # nonexistent workspace should 404 like every other artifact lookup
+        # instead of silently degrading to the factory-default protocol; a
+        # narrow message check here does that without widening
+        # _workspace_preset's already-hardened (Task 7/10/11) contract.
+        # No cleaner distinction exists without changing that contract, so
+        # this stays a targeted string check rather than a new exception type.
+        if str(exc).startswith("No workspace "):
+            raise NotFoundError(str(exc)) from exc
+    except ProtocolValidationError:
         pass
 
     default_content = INTERVIEW_PROTOCOL_DEFAULTS.get(name)

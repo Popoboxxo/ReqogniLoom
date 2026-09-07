@@ -6,6 +6,7 @@ import uuid
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from application.base import NotFoundError
 from application.interview_protocol import (
     INTERVIEW_PROTOCOL_DEFAULTS,
     ProtocolValidationError,
@@ -267,6 +268,29 @@ class TestGetProtocol:
 
         # Should use tenant-global, not workspace-scoped
         assert protocol.phases[0].name == "tenant_only_phase"
+
+    def test_malformed_workspace_id_raises_not_found_not_500(self, protocol_test_ctx):
+        """I-2: get_active_template()'s UUIDField filter used to see a
+        malformed id raw and crash with an unhandled Django ValidationError
+        (500) instead of the 404 issue #271 established for every other
+        "bad workspace id" case -- proven here against the real tier-1 path,
+        before tier 2 (_workspace_preset) ever gets a chance to run.
+        """
+        ctx, tenant, workspace = protocol_test_ctx
+
+        with pytest.raises(NotFoundError):
+            get_protocol(ctx, "Requirement", "not-a-uuid")
+
+    def test_nonexistent_workspace_id_raises_not_found(self, protocol_test_ctx):
+        """I-1: _workspace_preset raises AttributeDefinitionNotFound for a
+        nonexistent workspace too (not just 'not yet bootstrapped'); a
+        nonexistent workspace should 404 like every other artifact lookup
+        instead of silently degrading to the factory-default protocol.
+        """
+        ctx, tenant, workspace = protocol_test_ctx
+
+        with pytest.raises(NotFoundError):
+            get_protocol(ctx, "Requirement", uuid.uuid4())
 
 
 class TestParseProtocolYamlEdgeCases:
