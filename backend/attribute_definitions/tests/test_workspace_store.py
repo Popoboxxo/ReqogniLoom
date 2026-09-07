@@ -191,3 +191,20 @@ def test_missing_attributes_for_preset_raises_for_an_unbootstrapped_target(
     ws_store.resolve(tenant.id, ws, "Risk", "extended")
     with pytest.raises(AttributeDefinitionNotFound):
         ws_store.missing_attributes_for_preset(tenant.id, ws, "Risk", "minimal")
+
+
+# --- Ledger item (e), site 2: update() normalizes the STORED row ------------
+
+
+@pytest.mark.django_db
+def test_update_of_a_legacy_shaped_row_is_a_schema_error_not_a_key_error(
+    tenant, stores
+) -> None:
+    g_store, ws_store = stores
+    g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    ws = uuid.uuid4()
+    row = ws_store.resolve(tenant.id, ws, "Risk", "standard")
+    row.definition_json = {"attributes": [{"name": "title", "type": "text"}]}
+    row.save(update_fields=["definition_json"])
+    with pytest.raises(AttributeSchemaError):
+        ws_store.update(tenant.id, ws, "Risk", [TITLE, NOTE])

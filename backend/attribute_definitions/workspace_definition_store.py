@@ -25,7 +25,11 @@ from .global_definition_store import (
     GlobalAttributeDefinitionStore,
 )
 from .models import WorkspaceAttributeDefinition
-from .schema import validate_definition_json, validate_meta_only_change
+from .schema import (
+    stored_attributes,
+    validate_definition_json,
+    validate_meta_only_change,
+)
 
 
 class WorkspaceAttributeDefinitionStore:
@@ -103,7 +107,10 @@ class WorkspaceAttributeDefinitionStore:
                 f"workspace {workspace_id}"
             )
         payload = validate_definition_json({"attributes": attributes})
-        old = (obj.definition_json or {}).get("attributes", [])
+        # Ledger item (e): normalize the stored row before it is indexed as a
+        # dict of required keys — see global_definition_store.update() for the
+        # KeyError→500 this replaces with a 400.
+        old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
 
         obj.definition_json = payload
@@ -187,12 +194,11 @@ class WorkspaceAttributeDefinitionStore:
                 f"No global attribute definition for '{item_type}/{target_preset}' — "
                 f"run 'manage.py bootstrap_attribute_definitions' first"
             )
-        target_names = {
-            a["name"] for a in (target.definition_json or {}).get("attributes", [])
-        }
-        current_names = {
-            a["name"] for a in (obj.definition_json or {}).get("attributes", [])
-        }
+        # Ledger item (e), third site in this file: both rows are stored rows
+        # being indexed by a required key, so both go through the same
+        # normalization as update() above.
+        target_names = {a["name"] for a in stored_attributes(target.definition_json)}
+        current_names = {a["name"] for a in stored_attributes(obj.definition_json)}
         return sorted(current_names - target_names)
 
     def resolved_item_types(

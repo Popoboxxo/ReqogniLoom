@@ -9,9 +9,30 @@ service and the table view; every key below is part of it.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 ATTRIBUTE_KINDS: frozenset[str] = frozenset({"core", "extended"})
+
+#: The item types a definition may be keyed by, and the rigor tiers it may be
+#: keyed for. Both live here rather than in the bootstrap command so the store
+#: can reject a typo'd key (``initialize(tenant, "Risk", "standrad")`` used to
+#: create a permanent orphan row nothing would ever match) without importing a
+#: management command. The command re-exports them under its historical names.
+ITEM_TYPES: tuple[str, ...] = (
+    "Requirement",
+    "StakeholderNeed",
+    "ArchitectureElement",
+    "TestCase",
+    "Adr",
+    "Risk",
+    "Issue",
+    "Goal",
+    "Icd",
+    "GlossaryTerm",
+)
+
+PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
 
 ATTRIBUTE_TYPES: frozenset[str] = frozenset(
     {
@@ -82,6 +103,37 @@ class AttributeSchemaError(ValueError):
         super().__init__("; ".join(errors))
 
 
+class AttributeDefinitionConflictError(AttributeSchemaError):
+    """The definition row already exists — a 409, not a 400.
+
+    A subclass of :class:`AttributeSchemaError` on purpose: existing callers
+    that only catch the base class keep working, while a REST/MCP handler can
+    catch this one *first* and answer 409 without substring-matching an error
+    message ("... is already initialized"), which is what the shape of this
+    condition used to force.
+    """
+
+
+def validate_definition_key(item_type: str, preset: str) -> None:
+    """Reject a definition key no consumer will ever look up.
+
+    There is no ``CheckConstraint``/``choices`` on the two columns, so a typo
+    (``preset="standrad"``) silently creates a permanent orphan row: nothing
+    resolves it, nothing lists it under a real preset, and it can never be
+    reached again through the normal key.
+
+    Raises:
+        AttributeSchemaError: unknown *item_type* or *preset*.
+    """
+    errors: list[str] = []
+    if item_type not in ITEM_TYPES:
+        errors.append(f"unknown item_type '{item_type}'; expected one of {list(ITEM_TYPES)}")
+    if preset not in PRESETS:
+        errors.append(f"unknown preset '{preset}'; expected one of {list(PRESETS)}")
+    if errors:
+        raise AttributeSchemaError(errors)
+
+
 def _label_dict(value: Any, key: str, errors: list[str]) -> dict[str, str]:
     if not isinstance(value, dict):
         errors.append(f"'{key}' must be an object with 'de' and 'en' keys")
@@ -116,6 +168,64 @@ def _normalize_options(raw: Any, errors: list[str]) -> list[dict[str, str]]:
                 "label_en": str(entry["label_en"]),
             }
         )
+    return out
+
+
+def _normalize_validation(raw: Any, errors: list[str]) -> dict[str, Any]:
+    """Type-check the ``validation`` rule VALUES, not just the rule names.
+
+    A rule value is consumed by ``field_validation._check_rules`` on every
+    artifact save (``int(rules["length"])``, ``float(rules["min"])``,
+    ``re.fullmatch(rules["regex"], ...)``). A malformed value such as
+    ``{"length": "abc"}`` or ``{"length": [1]}`` therefore used to be accepted
+    at definition-save time and then raise ``ValueError``/``TypeError`` inside
+    every subsequent save of every artifact of that type — a 500 on a write
+    path far away from the admin action that caused it. Rejecting it here turns
+    that into a 400 on the PUT that introduced it.
+
+    ``regex`` is compiled rather than merely type-checked, mirroring the
+    ``try/except re.error`` ``_check_rules`` already carries, so an
+    uncompilable pattern is caught once instead of once per save. A non-string
+    pattern is rejected outright: ``str([1])`` happens to be the *valid* regex
+    ``"[1]"``, i.e. the old code silently validated against something the admin
+    never wrote.
+    """
+    if not isinstance(raw, dict):
+        errors.append("'validation' must be an object")
+        return {}
+    unknown = sorted(set(raw) - _VALIDATION_KEYS)
+    if unknown:
+        errors.append(f"'validation' has unknown rule(s): {', '.join(unknown)}")
+
+    out: dict[str, Any] = {}
+    for key in ("min", "max"):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            errors.append(f"'validation.{key}' must be a number")
+        else:
+            out[key] = value
+
+    if "length" in raw:
+        value = raw["length"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            errors.append("'validation.length' must be a non-negative integer")
+        else:
+            out["length"] = value
+
+    if "regex" in raw:
+        value = raw["regex"]
+        if not isinstance(value, str):
+            errors.append("'validation.regex' must be a string")
+        else:
+            try:
+                re.compile(value)
+            except re.error as exc:
+                errors.append(f"'validation.regex' is not a valid pattern: {exc}")
+            else:
+                out["regex"] = value
+
     return out
 
 
@@ -190,13 +300,7 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
         out["default"] = raw["default"]
 
     if "validation" in raw:
-        if not isinstance(raw["validation"], dict):
-            errors.append("'validation' must be an object")
-        else:
-            bad = sorted(set(raw["validation"]) - _VALIDATION_KEYS)
-            if bad:
-                errors.append(f"'validation' has unknown rule(s): {', '.join(bad)}")
-            out["validation"] = dict(raw["validation"])
+        out["validation"] = _normalize_validation(raw["validation"], errors)
 
     if "options" in raw:
         out["options"] = _normalize_options(raw["options"], errors)
@@ -280,6 +384,32 @@ def validate_definition_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {"attributes": normalized}
 
 
+def stored_attributes(definition_json: Any) -> list[dict[str, Any]]:
+    """Normalize a **stored** ``definition_json`` before anything indexes it.
+
+    Every reader of a persisted row treats the attribute entries as a dict of
+    required keys (``a["name"]``, ``a["kind"]``, ``a["visible"]``,
+    ``a["ai_elicit"]``, ...). A row written before a key existed, restored from
+    an older backup or edited straight in the database therefore raises a raw
+    ``KeyError`` deep inside a read path — a 500 with no usable message.
+
+    Running the stored list back through the same validator the write path uses
+    turns that into an ``AttributeSchemaError``, which every caller already maps
+    to a 400 naming the offending attribute. For a well-formed row this is a
+    no-op: the entries are already normalized and already stored in the sort
+    order ``validate_definition_json`` produces.
+
+    Raises:
+        AttributeSchemaError: the stored row is not a valid definition.
+    """
+    raw = (
+        definition_json.get("attributes", [])
+        if isinstance(definition_json, dict)
+        else []
+    )
+    return validate_definition_json({"attributes": raw})["attributes"]
+
+
 def _by_name(attributes: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {a["name"]: a for a in attributes}
 
@@ -293,7 +423,8 @@ def validate_meta_only_change(
 
     Raises:
         AttributeSchemaError: a core attribute was renamed, retyped, dropped or
-            newly introduced, or a ``locked`` attribute had one of
+            newly introduced, an attribute changed its ``kind``, ``locked`` was
+            newly set, or a ``locked`` attribute had one of
             ``visible``/``required``/``editable`` changed.
     """
     errors: list[str] = []
@@ -301,14 +432,26 @@ def validate_meta_only_change(
     new_map = _by_name(new_attributes)
 
     for name, old in old_map.items():
-        if old["kind"] != "core":
-            continue
         new = new_map.get(name)
         if new is None:
-            errors.append(f"{name}: a core attribute may not be removed or renamed")
+            if old["kind"] == "core":
+                errors.append(f"{name}: a core attribute may not be removed or renamed")
             continue
-        if new["kind"] != "core":
-            errors.append(f"{name}: a core attribute may not change its 'kind'")
+
+        # Privilege escalation (Task 2 finding): these two checks must run for
+        # EVERY surviving attribute, not only for the ones that are already
+        # core. The loop used to `continue` on `old["kind"] != "core"`, and the
+        # second loop below only inspects names that are NEW — so an existing
+        # `extended` attribute could be promoted to `kind="core"` +
+        # `locked=True` in a single meta-only PUT, after which the very rules
+        # this function enforces made the change permanent and irreversible.
+        if new["kind"] != old["kind"]:
+            errors.append(f"{name}: an attribute may not change its 'kind'")
+        if new["locked"] and not old["locked"]:
+            errors.append(f"{name}: 'locked' may only be set by the bootstrap script")
+
+        if old["kind"] != "core":
+            continue
         if new["type"] != old["type"]:
             errors.append(f"{name}: a core attribute may not change its 'type'")
         if old["locked"]:
@@ -337,12 +480,17 @@ __all__ = [
     "ATTRIBUTE_KINDS",
     "ATTRIBUTE_TYPES",
     "AUDIENCE_VALUES",
+    "AttributeDefinitionConflictError",
     "AttributeSchemaError",
     "CORE_EDITABLE_META_PROPERTIES",
     "EDITABLE_VALUES",
+    "ITEM_TYPES",
     "LOCKED_IMMUTABLE_PROPERTIES",
+    "PRESETS",
     "WIDGET_KEYS",
     "normalize_attribute",
+    "stored_attributes",
     "validate_definition_json",
+    "validate_definition_key",
     "validate_meta_only_change",
 ]

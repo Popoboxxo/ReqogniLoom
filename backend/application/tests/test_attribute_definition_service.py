@@ -277,3 +277,20 @@ def test_downgrade_warnings_reports_an_unbootstrapped_target_instead_of_crashing
         with patch("presets.services.validate_downgrade", return_value=[]):
             warnings = service.downgrade_warnings(admin_ctx, workspace.id, "minimal")
     assert any("Risk" in w and "not been initialized" in w for w in warnings)
+
+
+# --- A malformed workspace id is "no such workspace", not a 500 -------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", ["not-a-uuid", "", "42"])
+def test_resolve_maps_a_malformed_workspace_id_to_not_found(admin_ctx, bad) -> None:
+    """The lookup raises Django's ValidationError, which no handler maps.
+
+    Reachable since Task 11: the artifact ViewSets pass a workspace id taken
+    straight off the request body into ``validate_artifact_fields``.
+    """
+    from application.attribute_definition_service import AttributeDefinitionNotFound
+
+    with pytest.raises(AttributeDefinitionNotFound):
+        AttributeDefinitionService().resolve(admin_ctx, "Risk", bad)

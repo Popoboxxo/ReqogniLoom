@@ -6,6 +6,7 @@ import uuid
 import pytest
 
 from attribute_definitions.global_definition_store import (
+    AttributeDefinitionConflictError,
     AttributeDefinitionNotFound,
     GlobalAttributeDefinitionStore,
 )
@@ -250,3 +251,108 @@ def test_propagation_ignores_another_preset(tenant, store) -> None:
                             [dict(TITLE, required=True)])
     assert count == 0
     assert GlobalAttributeDefinition.unscoped.get(id=g_std.id).version == 2
+
+
+# --- Ledger item (g): "already initialized" is a conflict, not a schema error -
+
+
+@pytest.mark.django_db
+def test_initialize_twice_raises_the_dedicated_conflict_type(tenant, store) -> None:
+    """So a REST/MCP handler can answer 409 without substring-matching a message."""
+    store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    with pytest.raises(AttributeDefinitionConflictError):
+        store.initialize(tenant.id, "Risk", "standard", [TITLE])
+
+
+@pytest.mark.django_db
+def test_the_conflict_type_is_still_an_attribute_schema_error(tenant, store) -> None:
+    """Backwards compatible: existing `except AttributeSchemaError` still fires."""
+    store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    with pytest.raises(AttributeSchemaError):
+        store.initialize(tenant.id, "Risk", "standard", [TITLE])
+
+
+# --- Ledger item (h): the (item_type, preset) key is validated ---------------
+
+
+@pytest.mark.django_db
+def test_initialize_rejects_a_typo_d_preset(tenant, store) -> None:
+    """`standrad` used to create a permanent orphan row nothing ever matches."""
+    with pytest.raises(AttributeSchemaError) as exc:
+        store.initialize(tenant.id, "Risk", "standrad", [TITLE])
+    assert "standrad" in " ".join(exc.value.errors)
+    assert store.get(tenant.id, "Risk", "standrad") is None
+
+
+@pytest.mark.django_db
+def test_initialize_rejects_an_unknown_item_type(tenant, store) -> None:
+    with pytest.raises(AttributeSchemaError):
+        store.initialize(tenant.id, "Sprocket", "standard", [TITLE])
+
+
+# --- Ledger item (f): recovery from a bad initial payload -------------------
+
+
+@pytest.mark.django_db
+def test_update_cannot_repair_a_bad_core_locked_seed(tenant, store) -> None:
+    """The gap `reinitialize` exists for: `update()` makes the mistake permanent."""
+    bogus = {"name": "oops", "kind": "core", "type": "text", "locked": True}
+    store.initialize(tenant.id, "Risk", "standard", [TITLE, bogus])
+    with pytest.raises(AttributeSchemaError):
+        store.update(tenant.id, "Risk", "standard", [TITLE])
+
+
+@pytest.mark.django_db
+def test_reinitialize_replaces_a_bad_seed_wholesale(tenant, store) -> None:
+    bogus = {"name": "oops", "kind": "core", "type": "text", "locked": True}
+    store.initialize(tenant.id, "Risk", "standard", [TITLE, bogus])
+    row, _propagated = store.reinitialize(tenant.id, "Risk", "standard", [TITLE])
+    assert [a["name"] for a in row.definition_json["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_reinitialize_still_validates_the_replacement(tenant, store) -> None:
+    store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    with pytest.raises(AttributeSchemaError):
+        store.reinitialize(tenant.id, "Risk", "standard", [{"name": "x"}])
+
+
+@pytest.mark.django_db
+def test_reinitialize_on_a_missing_row_is_not_found(tenant, store) -> None:
+    with pytest.raises(AttributeDefinitionNotFound):
+        store.reinitialize(tenant.id, "Risk", "standard", [TITLE])
+
+
+@pytest.mark.django_db
+def test_reinitialize_propagates_to_non_customized_workspace_rows(tenant, store) -> None:
+    source = store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    workspace_id = uuid.uuid4()
+    WorkspaceAttributeDefinition.unscoped.create(
+        tenant_id=tenant.id, workspace_id=workspace_id, item_type="Risk",
+        preset="standard", definition_json=dict(source.definition_json),
+        source_global=source, is_customized=False,
+    )
+    _row, propagated = store.reinitialize(
+        tenant.id, "Risk", "standard", [TITLE, {"name": "extra", "kind": "extended", "type": "text"}]
+    )
+    assert propagated == 1
+    derived = WorkspaceAttributeDefinition.unscoped.get(workspace_id=workspace_id)
+    assert [a["name"] for a in derived.definition_json["attributes"]] == ["extra", "title"]
+
+
+# --- Ledger item (e), site 1: update() normalizes the STORED row ------------
+
+
+@pytest.mark.django_db
+def test_update_of_a_legacy_shaped_row_is_a_schema_error_not_a_key_error(
+    tenant, store
+) -> None:
+    """`validate_meta_only_change` indexes old["kind"]/old["locked"] directly."""
+    store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Risk", preset="standard"
+    )
+    row.definition_json = {"attributes": [{"name": "title", "type": "text"}]}
+    row.save(update_fields=["definition_json"])
+    with pytest.raises(AttributeSchemaError):
+        store.update(tenant.id, "Risk", "standard", [TITLE])

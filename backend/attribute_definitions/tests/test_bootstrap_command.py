@@ -6,10 +6,14 @@ import uuid
 import pytest
 from django.core.management import call_command
 
+from attribute_definitions.global_definition_store import (
+    GlobalAttributeDefinitionStore,
+)
 from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
     BOOTSTRAP_ITEM_TYPES,
     EXCLUDED_MODEL_FIELDS,
     PRESETS,
+    Command,
     introspect_core_attributes,
     synthetic_status_attribute,
 )
@@ -238,3 +242,63 @@ def test_command_arms_and_clears_tenant_context(tenant, monkeypatch) -> None:
     )
     call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
     assert calls == [("set", str(tenant.id)), ("clear", None)]
+
+
+# --- Ledger item (e), site 3: _append_missing normalizes the STORED row -----
+
+
+@pytest.mark.django_db
+def test_sync_new_fields_on_a_legacy_shaped_row_is_a_schema_error(tenant) -> None:
+    """`{a["name"] for a in stored}` used to take the command down with KeyError."""
+    from attribute_definitions.models import GlobalAttributeDefinition
+    from attribute_definitions.schema import AttributeSchemaError
+
+    store = GlobalAttributeDefinitionStore()
+    store.initialize(
+        tenant.id, "Risk", "standard", [{"name": "title", "kind": "core", "type": "text"}]
+    )
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Risk", preset="standard"
+    )
+    row.definition_json = {"attributes": [{"type": "text", "kind": "core"}]}
+    row.save(update_fields=["definition_json"])
+    with pytest.raises(AttributeSchemaError):
+        Command._append_missing(
+            store, row, [{"name": "title", "kind": "core", "type": "text"}]
+        )
+
+
+# --- Ledger item (f): --reset is the operator-facing recovery path ----------
+
+
+@pytest.mark.django_db
+def test_reset_rebuilds_a_definition_a_bad_seed_had_made_unrepairable(tenant) -> None:
+    from django.core.management import call_command
+
+    store = GlobalAttributeDefinitionStore()
+    store.initialize(
+        tenant.id, "Risk", "standard",
+        [{"name": "oops", "kind": "core", "type": "text", "locked": True}],
+    )
+    call_command("bootstrap_attribute_definitions", tenant=str(tenant.id), reset=True)
+    names = {
+        a["name"]
+        for a in store.get(tenant.id, "Risk", "standard").definition_json["attributes"]
+    }
+    assert "oops" not in names
+    assert "title" in names
+
+
+# --- Task 11: server-owned columns are not user-facing attributes -----------
+
+
+def test_server_owned_columns_are_not_introspected_as_required() -> None:
+    """They are blank=False, so they used to make their own type uncreatable."""
+    for item_type, column in (
+        ("Requirement", "suspect"),
+        ("Goal", "lineage_id"),
+        ("Goal", "sequence_number"),
+        ("Icd", "current_revision"),
+    ):
+        names = {a["name"] for a in introspect_core_attributes(item_type, "standard")}
+        assert column not in names, f"{item_type}.{column}"

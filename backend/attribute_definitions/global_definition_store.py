@@ -28,8 +28,10 @@ from django.utils import timezone
 
 from .models import GlobalAttributeDefinition, WorkspaceAttributeDefinition
 from .schema import (
-    AttributeSchemaError,
+    AttributeDefinitionConflictError,
+    stored_attributes,
     validate_definition_json,
+    validate_definition_key,
     validate_meta_only_change,
 )
 
@@ -77,12 +79,24 @@ class GlobalAttributeDefinitionStore:
     ) -> GlobalAttributeDefinition:
         """Create the global definition for ``(item_type, preset)``.
 
+        This is the **only** path that may write ``kind="core"`` /
+        ``locked=True`` entries: ``validate_meta_only_change`` (which forbids
+        both) guards updates, not creation. That is deliberate — the bootstrap
+        introspector has to be able to seed them — but it also means a bad
+        initial payload is not repairable through ``update()``, since the very
+        rules that protect core/locked attributes then make them permanent.
+        :meth:`reinitialize` is the recovery path for that case.
+
         Raises:
-            AttributeSchemaError: a row already exists, or *attributes* is
-                malformed. The view maps the "already initialized" case to 409.
+            AttributeDefinitionConflictError: a row already exists (409). A
+                dedicated subclass so a REST/MCP handler can map it without
+                substring-matching this message.
+            AttributeSchemaError: unknown *item_type*/*preset*, or *attributes*
+                is malformed.
         """
+        validate_definition_key(item_type, preset)
         if self.get(tenant_id, item_type, preset) is not None:
-            raise AttributeSchemaError(
+            raise AttributeDefinitionConflictError(
                 [
                     f"Global attribute definition for '{item_type}/{preset}' "
                     f"is already initialized"
@@ -95,6 +109,51 @@ class GlobalAttributeDefinitionStore:
             preset=preset,
             definition_json=payload,
         )
+
+    def reinitialize(
+        self,
+        tenant_id: UUID | str,
+        item_type: str,
+        preset: str,
+        attributes: list[dict[str, Any]],
+    ) -> tuple[GlobalAttributeDefinition, int]:
+        """Overwrite an existing global definition wholesale, then propagate.
+
+        The escape hatch for a row :meth:`initialize` got wrong. ``update()``
+        cannot repair such a row: dropping a bogus ``kind="core"`` attribute is
+        "a core attribute may not be removed", and relaxing a bogus
+        ``locked=True`` one is "not changeable on a locked attribute" — correct
+        rules that, applied to a bad seed, lock the mistake in forever with no
+        API path back.
+
+        Skips ``validate_meta_only_change`` on purpose (that is the whole
+        point) but still runs the full structural validation, so the
+        replacement itself cannot be malformed. Exposed to operators through
+        ``manage.py bootstrap_attribute_definitions --reset``, not through
+        REST/MCP: it is a recovery tool, not a normal edit.
+
+        Returns:
+            ``(row, propagated_workspace_count)``.
+
+        Raises:
+            AttributeDefinitionNotFound: no row for that key — use
+                :meth:`initialize`.
+            AttributeSchemaError: unknown key or malformed *attributes*.
+        """
+        validate_definition_key(item_type, preset)
+        obj = self.get(tenant_id, item_type, preset)
+        if obj is None:
+            raise AttributeDefinitionNotFound(
+                f"No global attribute definition for '{item_type}/{preset}'"
+            )
+        payload = validate_definition_json({"attributes": attributes})
+        with transaction.atomic():
+            obj.definition_json = payload
+            obj.version = F("version") + 1
+            obj.save(update_fields=["definition_json", "version", "modified_at"])
+            obj.refresh_from_db(fields=["version"])
+            propagated = self._propagate(obj)
+        return obj, propagated
 
     def update(
         self,
@@ -119,7 +178,12 @@ class GlobalAttributeDefinitionStore:
                 f"No global attribute definition for '{item_type}/{preset}'"
             )
         payload = validate_definition_json({"attributes": attributes})
-        old = (obj.definition_json or {}).get("attributes", [])
+        # Ledger item (e): the STORED row is normalized before it is used as a
+        # dict of required keys. ``validate_meta_only_change`` indexes
+        # ``old["kind"]``/``old["locked"]``/``old[prop]``, so a row predating a
+        # key (or restored from an older backup) raised a bare KeyError → 500
+        # on an admin PUT. Now it degrades to the 400 the view already renders.
+        old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
 
         with transaction.atomic():
@@ -204,4 +268,8 @@ class GlobalAttributeDefinitionStore:
         ]
 
 
-__all__ = ["AttributeDefinitionNotFound", "GlobalAttributeDefinitionStore"]
+__all__ = [
+    "AttributeDefinitionConflictError",
+    "AttributeDefinitionNotFound",
+    "GlobalAttributeDefinitionStore",
+]

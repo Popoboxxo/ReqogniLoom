@@ -116,6 +116,105 @@ class WorkflowTransitionsMixin:
 
     workflow_item_type: str = ""
 
+    #: Item type this ViewSet's rows are keyed by in the attribute definition
+    #: (e.g. ``"Requirement"``). ``None`` disables definition-driven field
+    #: validation for the ViewSet — used by the ViewSets that are not one of
+    #: the ten bootstrapped artifact types.
+    attribute_item_type: str | None = None
+
+    def _validate_attribute_definition(
+        self,
+        ctx: Any,
+        workspace_id: Any,
+        changed_fields: dict,
+        existing: dict | None,
+    ) -> Response | None:
+        """Validate a payload against the resolved AttributeDefinition.
+
+        Returns a 400 ``Response`` on violation and ``None`` when clean, so
+        callers stay a single ``if``.
+
+        Every "cannot decide" outcome degrades to ``None`` rather than to an
+        error, because this guard runs *before* the ViewSet's own service call
+        and must never pre-empt that call's authoritative answer:
+
+        * no ``attribute_item_type`` / no workspace id → not an artifact write;
+        * ``AttributeDefinitionNotFound`` → the bootstrap has not been run for
+          this workspace's preset (or the type is outside the bootstrapped
+          ten). An unconfigured deployment must stay usable, so validation is a
+          no-op rather than a wall in front of every write;
+        * ``CrossTenantWorkspaceError`` → the payload names another tenant's
+          workspace. The service below answers that with the established 403;
+          raising out of here instead would turn it into an uncaught 500.
+
+        ``AttributeSchemaError`` (the stored definition itself is malformed —
+        ledger item (e)) IS reported, as a 400 naming the offending attribute.
+        It is not in ``_EXC_TO_HTTP``, so letting it escape would produce a 500
+        with the generic "An internal error occurred." message, i.e. an
+        admin-fixable configuration problem rendered as a server fault.
+        """
+        from application.attribute_definition_service import (
+            AttributeDefinitionNotFound,
+            AttributeDefinitionService,
+            AttributeSchemaError,
+            FieldValidationError,
+        )
+        from presets.exceptions import CrossTenantWorkspaceError
+        from rest_api.serializers import build_error_response, detect_lang
+
+        if not self.attribute_item_type or workspace_id is None:
+            return None
+        details: list[dict[str, Any]]
+        try:
+            AttributeDefinitionService().validate_artifact_fields(
+                ctx, self.attribute_item_type, workspace_id, changed_fields, existing
+            )
+        except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
+            return None
+        except FieldValidationError as exc:
+            details = [
+                {"field": name, "errors": messages}
+                for name, messages in sorted(exc.errors.items())
+            ]
+            message = "; ".join(
+                f"{d['field']}: {', '.join(d['errors'])}" for d in details
+            )
+        except AttributeSchemaError as exc:
+            details = [{"field": "attribute_definition", "errors": list(exc.errors)}]
+            message = (
+                "The attribute definition for this workspace is malformed: "
+                + "; ".join(exc.errors)
+            )
+        else:
+            return None
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(self.request),
+                details=details,
+                message=message,
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def _resolve_workspace_id(self, pk: str | None, ctx: Any) -> UUID | None:
+        """Workspace of the row under edit, or ``None`` when it cannot be resolved.
+
+        Reuses the ViewSet's own ``_resolve_workflow_target`` getter so there is
+        no second lookup path to keep in sync. That getter returns the tuple
+        ``(item_id, workspace_id)`` and raises ``NotFoundError`` /
+        ``PermissionDeniedError`` / ``ValueError`` — all of which are swallowed
+        here on purpose: the handler that called us re-runs the same lookup
+        immediately afterwards and is the one that owns the 403/404 answer.
+        """
+        if pk is None:
+            return None
+        try:
+            _item_id, workspace_id = self._resolve_workflow_target(pk, ctx)
+        except Exception:  # noqa: BLE001 — the handler below reports the real error
+            return None
+        return workspace_id
+
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
         """Return ``(item_id, workspace_id)`` for the entity identified by *pk*.
 
@@ -382,6 +481,13 @@ class WorkflowTransitionsMixin:
             glossary, which uses ``term``) used to return 200 and bump
             ``version`` although nothing was written. Rejecting it keeps
             ``version`` an honest change counter.
+
+        A fourth rule runs only after those three pass: the payload is checked
+        against the workspace's resolved AttributeDefinition (spec section 5),
+        which is where ``required``, per-type and ``validation``-rule
+        violations are reported. It runs last so a structural problem is still
+        reported as one, and so the definition lookup is skipped for a request
+        that was going to be rejected anyway.
         """
         from rest_api.serializers import build_error_response  # see transitions()
 
@@ -453,7 +559,13 @@ class WorkflowTransitionsMixin:
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return None
+
+        # ``existing`` is a presence marker, not the row's values: it selects
+        # UPDATE semantics in ``validate_values`` (only the fields the request
+        # actually carries are checked), which is all that distinction needs.
+        return self._validate_attribute_definition(
+            ctx, self._resolve_workspace_id(pk, ctx), dict(data), {"__exists__": True}
+        )
 
     @staticmethod
     def _error(exc: Exception, lang: str) -> Response:

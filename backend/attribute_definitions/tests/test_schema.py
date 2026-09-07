@@ -4,9 +4,13 @@ from __future__ import annotations
 import pytest
 
 from attribute_definitions.schema import (
+    ITEM_TYPES,
+    PRESETS,
     AttributeSchemaError,
     normalize_attribute,
+    stored_attributes,
     validate_definition_json,
+    validate_definition_key,
     validate_meta_only_change,
 )
 
@@ -185,3 +189,110 @@ def test_meta_only_change_allows_cosmetics_on_a_locked_attribute() -> None:
     moved = _locked_status()
     moved.update(section="header", order=99, label={"de": "Zustand", "en": "State"})
     validate_meta_only_change(old, [normalize_attribute(moved)])
+
+
+# --- Ledger item (a): validation rule VALUES are type-checked -----------------
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        {"length": "abc"},
+        {"length": [1]},
+        {"length": -1},
+        {"length": True},
+        {"length": 1.5},
+        {"min": "x"},
+        {"max": None},
+        {"min": True},
+        {"regex": ["^a$"]},
+        {"regex": "["},
+    ],
+)
+def test_malformed_validation_rule_values_are_rejected(rules) -> None:
+    """A bad rule used to be stored and then crash EVERY later artifact save."""
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_attribute(_core("a", validation=rules))
+    assert "validation" in " ".join(exc.value.errors)
+
+
+def test_well_formed_validation_rules_survive_normalization() -> None:
+    out = normalize_attribute(
+        _core("a", validation={"length": 10, "min": 1, "max": 2.5, "regex": r"^\d+$"})
+    )
+    assert out["validation"] == {
+        "min": 1, "max": 2.5, "length": 10, "regex": r"^\d+$",
+    }
+
+
+# --- Ledger item (e): stored rows are normalized before being indexed --------
+
+
+def test_stored_attributes_normalizes_a_row_missing_optional_keys() -> None:
+    out = stored_attributes({"attributes": [{"name": "t", "kind": "core", "type": "text"}]})
+    assert out[0]["visible"] is True and out[0]["ai_elicit"] is False
+
+
+def test_stored_attributes_raises_a_schema_error_on_a_corrupt_row() -> None:
+    """The point of the helper: a schema error (→400), never a KeyError (→500)."""
+    with pytest.raises(AttributeSchemaError):
+        stored_attributes({"attributes": [{"name": "t", "type": "text"}]})
+
+
+def test_stored_attributes_tolerates_a_null_definition_json() -> None:
+    assert stored_attributes(None) == []
+
+
+# --- Ledger item (h): the (item_type, preset) key vocabulary -----------------
+
+
+def test_validate_definition_key_rejects_a_typo() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_definition_key("Risk", "standrad")
+    assert "standrad" in " ".join(exc.value.errors)
+
+
+def test_validate_definition_key_rejects_an_unknown_item_type() -> None:
+    with pytest.raises(AttributeSchemaError):
+        validate_definition_key("Sprocket", "standard")
+
+
+def test_validate_definition_key_accepts_every_bootstrapped_combination() -> None:
+    for item_type in ITEM_TYPES:
+        for preset in PRESETS:
+            validate_definition_key(item_type, preset)
+
+
+# --- Task 2 finding: privilege escalation through a meta-only PUT ------------
+
+
+def test_meta_only_change_rejects_promoting_an_extended_attribute_to_core() -> None:
+    """extended → core+locked in one PUT used to pass: loop 1 skipped non-core
+    old entries and loop 2 only inspected names that were NEW."""
+    old = [normalize_attribute(_core("sap_id", kind="extended"))]
+    promoted = [normalize_attribute(_core("sap_id", kind="core", locked=True))]
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_meta_only_change(old, promoted)
+    joined = " ".join(exc.value.errors)
+    assert "kind" in joined and "locked" in joined
+
+
+def test_meta_only_change_rejects_demoting_a_core_attribute_to_extended() -> None:
+    old = [normalize_attribute(_core("title"))]
+    demoted = [normalize_attribute(_core("title", kind="extended"))]
+    with pytest.raises(AttributeSchemaError):
+        validate_meta_only_change(old, demoted)
+
+
+def test_meta_only_change_rejects_locking_an_unlocked_core_attribute() -> None:
+    old = [normalize_attribute(_core("title"))]
+    locked = [normalize_attribute(_core("title", locked=True))]
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_meta_only_change(old, locked)
+    assert "locked" in " ".join(exc.value.errors)
+
+
+def test_meta_only_change_still_allows_an_ordinary_meta_edit() -> None:
+    old = [normalize_attribute(_core("title"))]
+    edited = [normalize_attribute(_core("title", required=True, order=5))]
+    validate_meta_only_change(old, edited)

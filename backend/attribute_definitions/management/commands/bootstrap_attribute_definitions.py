@@ -43,24 +43,19 @@ from django.db import models, transaction
 from application.cache_invalidation import invalidate_workspace_caches
 from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
 from attribute_definitions.models import GlobalAttributeDefinition
-from attribute_definitions.schema import normalize_attribute
+from attribute_definitions.schema import (
+    ITEM_TYPES,
+    PRESETS,
+    normalize_attribute,
+    stored_attributes,
+)
 from persistence.models import Tenant
 from presets.registry import PresetRegistry
 
-BOOTSTRAP_ITEM_TYPES: tuple[str, ...] = (
-    "Requirement",
-    "StakeholderNeed",
-    "ArchitectureElement",
-    "TestCase",
-    "Adr",
-    "Risk",
-    "Issue",
-    "Goal",
-    "Icd",
-    "GlossaryTerm",
-)
-
-PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
+#: Historical alias. The list itself moved to ``attribute_definitions.schema``
+#: so the store can reject a typo'd ``(item_type, preset)`` key without
+#: importing a management command (ledger item (h)).
+BOOTSTRAP_ITEM_TYPES: tuple[str, ...] = ITEM_TYPES
 
 #: Ordered ``(app_label, model_name)`` candidates per item type. The first that
 #: resolves wins, so a model that moves between apps does not break the command.
@@ -80,8 +75,21 @@ MODEL_LOCATIONS: dict[str, tuple[tuple[str, str], ...]] = {
 #: Columns that are never user-facing attributes. ``status`` and
 #: ``lifecycle_status`` are here because they are the two status axes the
 #: Datenmodell-Konsolidierung removes; ``status`` comes back synthetically.
+#:
+#: The trailing block is server-owned state that a client neither sends nor may
+#: set. It matters beyond cosmetics since Task 11: ``required`` is derived from
+#: ``blank=False``, and these columns are all ``blank=False``, so leaving them
+#: in made ``validate_artifact_fields`` demand them on every create — a payload
+#: no client can produce (``suspect`` is the SN-30 upstream-change flag,
+#: ``lineage_id``/``sequence_number`` are the Goal version-chain keys the
+#: service assigns, ``current_revision`` is the ICD revision counter), i.e. a
+#: definition that made its own item type uncreatable.
 EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
     {
+        "current_revision",
+        "lineage_id",
+        "sequence_number",
+        "suspect",
         "id",
         "tenant",
         "tenant_id",
@@ -285,7 +293,19 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
                     "kind": "core",
                     "type": attribute_type,
                     "options": _options_from_choices(field) if attribute_type == "enum" else [],
-                    "required": not field.blank,
+                    # A column with a model default is fillable without the
+                    # client naming it, so `blank=False` alone does not make it
+                    # a REQUIRED payload field — it only means "must not end up
+                    # empty in the DB", which the default already guarantees.
+                    # This matters since Task 11 turned the definition into an
+                    # enforced create gate: without `has_default()` the
+                    # bootstrapped definition demanded `Risk.probability`,
+                    # `Issue.category`, `Requirement.type` etc. in every create
+                    # payload — fields whose service defaults exist precisely
+                    # so a client can omit them — and 400'd every existing
+                    # client. Proven by
+                    # rest_api/tests/test_bootstrapped_definition_allows_creates.py.
+                    "required": not field.blank and not field.has_default(),
                     "visible": True,
                     "editable": True,
                     "section": _section_for(name),
@@ -337,6 +357,17 @@ class Command(BaseCommand):
                 "the stored definition. Never modifies an existing entry."
             ),
         )
+        parser.add_argument(
+            "--reset",
+            action="store_true",
+            dest="reset",
+            help=(
+                "RECOVERY: overwrite existing definitions with freshly "
+                "introspected defaults, discarding every admin customization of "
+                "the global rows. The only way back from a bad initial payload "
+                "— core/locked attributes cannot be repaired through the API."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
         # A management command has no request/middleware around it, so
@@ -353,7 +384,7 @@ class Command(BaseCommand):
             if options["tenant"]
             else list(Tenant.objects.values_list("id", flat=True))
         )
-        created = updated = 0
+        created = updated = reset = 0
         with transaction.atomic():
             for tenant_id in tenant_ids:
                 set_request_tenant(tenant_id)
@@ -365,6 +396,17 @@ class Command(BaseCommand):
                             if existing is None:
                                 store.initialize(tenant_id, item_type, preset, attributes)
                                 created += 1
+                            elif options["reset"]:
+                                # Ledger item (f): the recovery path out of a bad
+                                # initial payload. store.update() cannot do this —
+                                # its core/locked rules (correctly) make a bad seed
+                                # permanent, so the escape hatch has to bypass them.
+                                row, _propagated = store.reinitialize(
+                                    tenant_id, item_type, preset, attributes
+                                )
+                                for workspace_id in store.list_derived_workspace_ids(row):
+                                    invalidate_workspace_caches(workspace_id)
+                                reset += 1
                             elif options["sync_new_fields"]:
                                 if self._append_missing(store, existing, attributes):
                                     updated += 1
@@ -384,7 +426,8 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"bootstrap_attribute_definitions: {created} created, {updated} synced"
+                f"bootstrap_attribute_definitions: {created} created, "
+                f"{updated} synced, {reset} reset"
             )
         )
 
@@ -413,7 +456,12 @@ class Command(BaseCommand):
         warm worker keeps serving the pre-sync definition for every affected
         workspace until it restarts (Task 7 review I-2).
         """
-        stored = list((row.definition_json or {}).get("attributes", []))
+        # Ledger item (e): normalize the STORED row before indexing ``a["name"]``
+        # (and before re-sorting on ``a["section"]``/``a["order"]``). An older or
+        # hand-edited row otherwise takes down the whole command with a bare
+        # KeyError mid-transaction; now it raises AttributeSchemaError naming the
+        # offending attribute, which the operator can act on.
+        stored = stored_attributes(row.definition_json)
         known = {a["name"] for a in stored}
         additions = [copy.deepcopy(a) for a in introspected if a["name"] not in known]
         if not additions:

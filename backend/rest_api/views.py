@@ -432,6 +432,7 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     serializer_class = StakeholderNeedSerializer
     workflow_item_type = "StakeholderNeed"
+    attribute_item_type = "StakeholderNeed"
     # REQ-128 constrained the detail lookup to a UUID shape here so that
     # GET /api/v1/needs/derive-requirements/ (a custom-action path missing its
     # pk) 404ed at routing time instead of reaching retrieve() and 500ing on
@@ -542,9 +543,18 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         workspace_id = workspace_id or payload.pop("workspace_id", None)
         for f in ("workspace_id", "parent_id", "change_reason"):
             payload.pop(f, None)
+        ctx = get_auth_context(request)
+        definition_error = self._validate_attribute_definition(
+            ctx,
+            workspace_id,
+            dict(request.data) if isinstance(request.data, dict) else {},
+            None,
+        )
+        if definition_error is not None:
+            return definition_error
         try:
             item = self.service.create(
-                ctx=get_auth_context(request),
+                ctx=ctx,
                 workspace_id=workspace_id,
                 **payload,
             )
@@ -775,6 +785,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = RequirementSerializer
     preset_endpoint_key = ""  # Requirements are always visible
     workflow_item_type = "Requirement"
+    attribute_item_type = "Requirement"
 
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
         req = self._svc().get_requirement(UUID(pk), ctx)
@@ -873,6 +884,14 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_requirement(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -1531,6 +1550,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = ArchitectureElementSerializer
     preset_endpoint_key = ""
     workflow_item_type = "ArchitectureElement"
+    attribute_item_type = "ArchitectureElement"
 
     def _svc(self) -> ArchitectureService:
         return ArchitectureService()
@@ -1614,6 +1634,14 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_architecture_element(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -2137,6 +2165,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = TestCaseSerializer
     preset_endpoint_key = ""
     workflow_item_type = "TestCase"
+    attribute_item_type = "TestCase"
 
     def _svc(self) -> TestService:
         return TestService()
@@ -2205,6 +2234,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_test_case(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -4834,6 +4871,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = AdrSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Adr"
+    attribute_item_type = "Adr"
 
     def _svc(self) -> AdrService:
         return AdrService()
@@ -4914,6 +4952,14 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_adr(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -5119,6 +5165,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = RiskSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Risk"
+    attribute_item_type = "Risk"
 
     def _svc(self) -> RiskService:
         return RiskService()
@@ -5197,6 +5244,14 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_risk(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -5944,6 +5999,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = IssueSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Issue"
+    attribute_item_type = "Issue"
 
     def _svc(self) -> IssueService:
         return IssueService()
@@ -6022,6 +6078,14 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_issue(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -6191,6 +6255,9 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = ChangeRequestSerializer
     preset_endpoint_key = ""
     workflow_item_type = "ChangeRequest"
+    #: ChangeRequest is not one of the ten bootstrapped item types, so it
+    #: has no attribute definition to validate against. Explicit opt-out.
+    attribute_item_type = None
 
     def _svc(self) -> ChangeRequestService:
         return ChangeRequestService()
@@ -7223,6 +7290,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     serializer_class = GlossaryTermSerializer
     workflow_item_type = "GlossaryTerm"
+    attribute_item_type = "GlossaryTerm"
 
     def _svc(self) -> GlossaryService:
         return GlossaryService()
@@ -7290,6 +7358,14 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             data = ser.validated_data
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             term = self._svc().create(
                 ctx,
                 data["workspace_id"],

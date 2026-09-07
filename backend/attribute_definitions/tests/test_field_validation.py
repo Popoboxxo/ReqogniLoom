@@ -156,3 +156,58 @@ def test_all_errors_are_reported_together() -> None:
     with pytest.raises(FieldValidationError) as exc:
         validate_values(DEF, {"title": "", "uid": "bad", "effort": 99}, {"title": "t"})
     assert set(exc.value.errors) == {"title", "uid", "effort"}
+
+
+# --- Ledger item (b): server-side ``editable`` enforcement -------------------
+
+
+WORKFLOW_STATUS = {
+    "name": "status", "kind": "core", "type": "enum", "required": True,
+    "visible": True, "locked": True, "editable": "workflow",
+    "options": [{"value": "__workflow__", "label_de": "W", "label_en": "W"}],
+}
+
+
+def test_create_does_not_demand_a_workflow_owned_attribute() -> None:
+    """The bootstrapped ``status`` is required+visible but server-assigned.
+
+    Without the exclusion this raises "status: is required" on every create of
+    every artifact type — the client never sends a status.
+    """
+    validate_values(_attrs(WORKFLOW_STATUS), {}, None)
+
+
+def test_a_workflow_owned_attribute_is_not_type_checked_either() -> None:
+    """An echo of the real status must not be measured against ``__workflow__``.
+
+    The detail panels resend the whole form on every save (#263), so rejecting
+    the echo would re-break exactly what that fix restored.
+    """
+    validate_values(_attrs(WORKFLOW_STATUS), {"status": "in_review"}, {"__exists__": True})
+
+
+def test_update_rejects_a_value_for_a_non_editable_attribute() -> None:
+    attributes = _attrs(
+        {"name": "title", "kind": "core", "type": "text"},
+        {"name": "uid", "kind": "core", "type": "text", "editable": False},
+    )
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(attributes, {"uid": "REQ-9"}, {"__exists__": True})
+    assert "uid" in exc.value.errors
+
+
+def test_create_still_accepts_a_non_editable_attribute() -> None:
+    """A create is not an edit — otherwise required+editable=False is unfillable."""
+    attributes = _attrs(
+        {"name": "uid", "kind": "core", "type": "text", "editable": False,
+         "required": True},
+    )
+    validate_values(attributes, {"uid": "REQ-9"}, None)
+
+
+def test_update_does_not_block_a_non_editable_attribute_it_never_carries() -> None:
+    attributes = _attrs(
+        {"name": "title", "kind": "core", "type": "text"},
+        {"name": "uid", "kind": "core", "type": "text", "editable": False},
+    )
+    validate_values(attributes, {"title": "T"}, {"__exists__": True})

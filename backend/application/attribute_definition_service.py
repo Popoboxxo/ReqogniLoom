@@ -35,7 +35,11 @@ from attribute_definitions.global_definition_store import (
     AttributeDefinitionNotFound,
     GlobalAttributeDefinitionStore,
 )
-from attribute_definitions.schema import AttributeSchemaError
+from attribute_definitions.schema import (
+    AttributeDefinitionConflictError,
+    AttributeSchemaError,
+    stored_attributes,
+)
 from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
 )
@@ -72,28 +76,54 @@ class AttributeDefinitionService(ServiceBase):
 
         Raises:
             AttributeDefinitionNotFound: *workspace_id* names no workspace at
-                all. ``presets.gate._resolve_workspace_tenant`` deliberately
-                lets ``Workspace.DoesNotExist`` propagate as a documented,
+                all, or is not a well-formed workspace id.
+                ``presets.gate._resolve_workspace_tenant`` deliberately lets
+                ``Workspace.DoesNotExist`` propagate as a documented,
                 pre-existing contract ("callers must let this propagate") —
                 but ``resolve()`` below is reachable from a REST GET carrying
                 a raw, caller-supplied workspace id in the URL path (Task 10),
                 so this is the one call site that must translate it into the
                 error the view already maps to 404, instead of a 500. Same
                 trap as issue #398 (``BaselineViewSet`` / preset gate).
+
+                A *malformed* id is folded into the same answer on purpose: the
+                lookup raises Django's ``ValidationError`` rather than
+                ``DoesNotExist`` for it, which is in neither ``_EXC_TO_HTTP``
+                nor any handler's except-list, so it surfaced as a 500 for what
+                is simply "no such workspace" (issue #271's error-asymmetry
+                class). Every caller of ``resolve()`` — including the artifact
+                ViewSets since Task 11, whose workspace id comes straight off a
+                request body — is guarded by this one translation.
         """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
         from persistence.models import Workspace
         from presets.services import get_preset
 
         try:
             return get_preset(str(workspace_id)).preset
-        except Workspace.DoesNotExist as exc:
+        except (Workspace.DoesNotExist, DjangoValidationError, ValueError) as exc:
             raise AttributeDefinitionNotFound(
                 f"No workspace '{workspace_id}' in the active tenant"
             ) from exc
 
     @staticmethod
     def _attributes(row: Any) -> list[dict[str, Any]]:
-        return list((row.definition_json or {}).get("attributes", []))
+        """Normalized attribute list of a stored row.
+
+        Ledger item (e): this is the single seam BOTH facade read paths go
+        through — ``_workspace_payload`` (``resolve`` → ``elicit_attributes``
+        indexes ``a["ai_elicit"]``/``a["visible"]``, ``export_attributes``
+        indexes ``a["export"]``, ``validate_artifact_fields`` indexes
+        ``a["kind"]``/``a["required"]``/``a["options"]``/``a["validation"]``)
+        and ``_global_payload`` (the admin list/detail responses, and the
+        preset-downgrade comparison). A row missing any of those keys — written
+        before the key existed, restored from an older backup, hand-edited —
+        used to surface as a bare ``KeyError`` 500 far from its cause; it now
+        raises ``AttributeSchemaError``, which every caller maps to a 400
+        naming the offending attribute.
+        """
+        return stored_attributes(row.definition_json)
 
     def _workspace_payload(self, row: Any) -> dict[str, Any]:
         return {
@@ -353,6 +383,7 @@ class AttributeDefinitionService(ServiceBase):
 
 
 __all__ = [
+    "AttributeDefinitionConflictError",
     "AttributeDefinitionNotFound",
     "AttributeDefinitionService",
     "AttributeSchemaError",
