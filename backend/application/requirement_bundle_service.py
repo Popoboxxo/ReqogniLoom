@@ -236,6 +236,16 @@ class RequirementBundleQueryService(ServiceBase):
             BundleDepthExceededError: depth > MAX_DEPTH.
             ValidationError: filter_mode is invalid, or filter_mode="custom"
                 with a missing/empty or unknown field name.
+
+        Note on error precedence (deliberate, per code review): filter_mode/
+        field validation (``ValidationError`` via ``resolve_export_fields``)
+        runs *before* the root-element existence check (``NotFoundError``),
+        because it is resolved eagerly up front (see the call site below). A
+        request with both an unknown root_id AND an invalid/unknown custom
+        field name therefore returns 400, not 404. This is a deliberate
+        change from the field set previously being resolved lazily after the
+        existence check — validate-input-first is judged the correct
+        behaviour, not an accidental side effect of the reordering.
         """
         self._set_tenant_context(ctx)
 
@@ -493,6 +503,19 @@ class RequirementBundleQueryService(ServiceBase):
             attributes = AttributeDefinitionService().export_attributes(
                 ctx, "Requirement", workspace_id
             )
+        # (Task 14 fix round, I-2) `AttributeDefinitionNotFound` conflates THREE
+        # conditions here: "workspace not bootstrapped yet" (the intended case
+        # this fallback handles), "no such workspace", and "malformed workspace
+        # id" — `_workspace_preset` (attribute_definition_service.py) raises the
+        # same exception type for all three per its own docstring. This is safe
+        # in THIS caller only because `get_bundle` immediately does its own
+        # ArchitectureElement/workspace existence check right after calling
+        # `resolve_export_fields` (see above) and turns a nonexistent workspace
+        # into a 404 before this fallback's REQUIREMENT_ALL_FIELDS result could
+        # ever be used. Any future caller of `resolve_export_fields` directly,
+        # without that follow-up check, would silently get the full field list
+        # for a workspace that doesn't exist instead of an error — do not reuse
+        # this fallback without adding an equivalent existence check first.
         except AttributeDefinitionNotFound:
             # No GlobalAttributeDefinition bootstrapped yet for this tenant's
             # (item_type, preset) — REQUIREMENT_ALL_FIELDS is the pre-Task-14
@@ -501,12 +524,28 @@ class RequirementBundleQueryService(ServiceBase):
                 {"name": name, "visible": True} for name in REQUIREMENT_ALL_FIELDS
             ]
 
+        # (Task 14 fix round, C-1) `attributes` may include `kind="extended"`
+        # (admin-defined custom) attributes with export=true — those live in
+        # `Artifact.custom_fields` (JSONField), NOT as real Requirement model
+        # columns, and are never valid `.values(*query_fields)` projections.
+        # `_PROJECTABLE` is the hard ceiling of names that are ever real
+        # Django query fields for this bundle; intersecting narrows the
+        # admin-configured export set down to that ceiling instead of letting
+        # it widen `.values()` with a name that doesn't exist as a column,
+        # which raised `django.core.exceptions.FieldError` (uncaught -> 500)
+        # the moment any workspace had an extended attribute with export=true.
+        # This deliberately does NOT add extended-field export support (i.e.
+        # reading from `Artifact.custom_fields`) — that's a different feature;
+        # extended attributes are simply, silently excluded from every bundle
+        # export mode here.
+        _PROJECTABLE = set(REQUIREMENT_ALL_FIELDS)
+
         # _SYSTEM_EXPORT_FIELDS is unioned into every mode, not just "all":
         # these columns are structurally excluded from the attribute-definition
         # model (see its docstring above) and so can never be admin-marked
         # export/visible one way or the other — they keep behaving as they did
         # before this attribute-definition-driven resolution existed.
-        exportable = {a["name"] for a in attributes} | _SYSTEM_EXPORT_FIELDS
+        exportable = ({a["name"] for a in attributes} & _PROJECTABLE) | _SYSTEM_EXPORT_FIELDS
         if filter_mode == "custom":
             requested = set(fields or [])
             unknown = sorted(requested - exportable)
@@ -517,7 +556,7 @@ class RequirementBundleQueryService(ServiceBase):
                 )
             return requested
         if filter_mode == "visible":
-            visible = {a["name"] for a in attributes if a.get("visible", True)}
+            visible = {a["name"] for a in attributes if a.get("visible", True)} & _PROJECTABLE
             return visible | _SYSTEM_EXPORT_FIELDS
         return exportable
 
@@ -531,6 +570,23 @@ def describe_attribute_schema(entity_type: "str | None" = None) -> "List[Dict[st
     per-tenant hide toggle. Shared by the REST ``AttributeSchemaView`` and the
     MCP ``requirement_bundle.attribute_schema`` tool so the degraded
     "everything visible" behaviour lives in exactly one place.
+
+    .. warning:: **Known, still-open inconsistency (Task 14 fix round, I-1),
+       flagged for the controller to bind to a task rather than fixed here.**
+       This function always returns the static ``REQUIREMENT_ALL_FIELDS``
+       with ``is_visible=True``, regardless of any real, per-workspace
+       ``AttributeDefinition`` customization (e.g. an admin who set
+       ``export=False``/``visible=False`` on one of these fields, or added an
+       extended attribute). It does NOT go through
+       ``RequirementBundleQueryService.resolve_export_fields``, so a caller
+       that discovers a field name here and then uses it with
+       ``filter_mode="custom"`` can get ``ValidationError: Unknown field(s)``
+       for a name this endpoint just told them was valid. Wiring this through
+       ``resolve_export_fields`` properly requires a ``workspace_id`` this
+       function (and both its REST/MCP callers, neither of which currently
+       accepts one) does not have — a public-API-shape change bigger than
+       this fix round's scope. Left open deliberately; do not treat the
+       absence of an error here as evidence the two are actually consistent.
 
     Raises:
         NotFoundError: *entity_type* is not one of the known schemas.

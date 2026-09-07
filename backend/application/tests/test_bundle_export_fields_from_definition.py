@@ -186,6 +186,116 @@ def test_real_bootstrap_custom_mode_still_accepts_a_system_column() -> None:
     assert fields == {"created_at", "title"}
 
 
+def test_real_bootstrap_extended_export_attribute_is_excluded_not_crashing() -> None:
+    """Regression proof for C-1 (Task 14 fix round, code review, CRITICAL):
+    an admin-added ``kind="extended"`` attribute (backed by
+    ``Artifact.custom_fields``, not a real Requirement model column) with
+    ``export=True`` used to widen ``resolve_export_fields``'s result with a
+    name that is not a valid Django query field at all, crashing every
+    subsequent bundle export in the workspace with
+    ``django.core.exceptions.FieldError`` the moment ``.values(*query_fields)``
+    ran (get_bundle). The fix intersects the admin-configured export set with
+    ``REQUIREMENT_ALL_FIELDS`` (the only names that are ever real query
+    fields) — this must succeed and simply omit the extended field, not
+    raise, for both "all" and "visible" filter modes.
+    """
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    ctx, workspace = _bootstrap_tenant_workspace_ctx()
+    admin_ctx = ctx.__class__(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        active_roles=("admin",),
+        auth_method=ctx.auth_method,
+        api_key_id=None,
+    )
+    definition_service = AttributeDefinitionService()
+    resolved = definition_service.resolve(admin_ctx, "Requirement", workspace.id)
+    attributes = resolved["attributes"]
+    attributes.append(
+        {
+            "name": "sap_id",
+            "kind": "extended",
+            "type": "text",
+            "export": True,
+            "visible": True,
+        }
+    )
+    definition_service.update_workspace(admin_ctx, "Requirement", workspace.id, attributes)
+
+    svc = RequirementBundleQueryService()
+    all_fields = svc.resolve_export_fields(ctx, workspace.id, "all", None)
+    visible_fields = svc.resolve_export_fields(ctx, workspace.id, "visible", None)
+
+    assert "sap_id" not in all_fields
+    assert "sap_id" not in visible_fields
+    # every other export=true/visible=true core attribute still comes through
+    assert "title" in all_fields
+    assert "title" in visible_fields
+
+
+def test_real_bootstrap_get_bundle_survives_an_extended_export_attribute() -> None:
+    """Same regression as above, exercised end to end through ``get_bundle``
+    itself — the actual crash site the reviewer proved live is
+    ``.values(*query_fields)`` (get_bundle), not ``resolve_export_fields`` in
+    isolation. Without the ``& _PROJECTABLE`` fix this raises
+    ``django.core.exceptions.FieldError: Cannot resolve keyword 'sap_id'``.
+    """
+    from application.attribute_definition_service import AttributeDefinitionService
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.models import ArchitectureElement, Artifact, Requirement, TraceLink
+
+    ctx, workspace = _bootstrap_tenant_workspace_ctx()
+    admin_ctx = ctx.__class__(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        active_roles=("admin",),
+        auth_method=ctx.auth_method,
+        api_key_id=None,
+    )
+    definition_service = AttributeDefinitionService()
+    resolved = definition_service.resolve(admin_ctx, "Requirement", workspace.id)
+    attributes = resolved["attributes"]
+    attributes.append(
+        {
+            "name": "sap_id",
+            "kind": "extended",
+            "type": "text",
+            "export": True,
+            "visible": True,
+        }
+    )
+    definition_service.update_workspace(admin_ctx, "Requirement", workspace.id, attributes)
+
+    set_request_tenant(ctx.tenant_id)
+    try:
+        root_artifact = Artifact.objects.create(
+            tenant_id=ctx.tenant_id, workspace=workspace, artifact_type="ArchitectureElement"
+        )
+        root = ArchitectureElement.objects.create(
+            tenant_id=ctx.tenant_id, artifact=root_artifact, title="Root"
+        )
+        req_artifact = Artifact.objects.create(
+            tenant_id=ctx.tenant_id, workspace=workspace, artifact_type="Requirement"
+        )
+        Requirement.objects.create(tenant_id=ctx.tenant_id, artifact=req_artifact, title="R1")
+        TraceLink.objects.create(
+            tenant_id=ctx.tenant_id,
+            source=req_artifact,
+            target=root_artifact,
+            link_type="allocated-to",
+        )
+    finally:
+        clear_request_tenant()
+
+    result = RequirementBundleQueryService().get_bundle(
+        ctx, root_id=root.id, workspace_id=workspace.id, depth=0, filter_mode="all"
+    )
+    assert len(result.items) == 1
+    assert "sap_id" not in result.items[0].fields
+    assert result.items[0].fields["title"] == "R1"
+
+
 def test_real_bootstrap_visible_mode_reflects_an_admin_hidden_attribute() -> None:
     """Proves the definition-driven "visible" filtering is genuinely wired
     end to end (not just accepted by a mock): admin hides one real,
