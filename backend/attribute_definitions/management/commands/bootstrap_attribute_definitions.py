@@ -257,8 +257,11 @@ def _section_for(name: str) -> str:
 def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, Any]]:
     """Return the normalized core attribute list for ``(item_type, preset)``.
 
-    ``required`` comes from ``blank=False`` on the model, plus the preset's
-    ``mandatory_fields`` for names that actually exist as columns. Names in
+    ``required`` comes from ``blank=False``/``has_default()`` on the model.
+    For ``item_type == "Requirement"`` only, the preset's ``mandatory_fields``
+    additionally force ``required=True`` on matching names — that policy field
+    is documented (``presets/registry.py``) as "required when creating a
+    Requirement" and must not leak onto any other item type. Names in
     ``mandatory_fields`` with no matching column (``priority``,
     ``classification``, ``traceability_target``, ``change_reason``) are ignored
     here and reported by the command as a configuration finding.
@@ -320,10 +323,19 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     for entry in WIDGET_ATTRIBUTES.get(item_type, ()):
         attributes.append(normalize_attribute(dict(entry, export=False)))
 
-    mandatory = set(PresetRegistry().get_preset_config(preset).mandatory_fields)
-    for attribute in attributes:
-        if attribute["name"] in mandatory:
-            attribute["required"] = True
+    # `mandatory_fields` is documented (presets/registry.py) as "required when
+    # creating a Requirement" — it must not be applied to any other item type.
+    # Applying it unconditionally here used to make every bootstrapped type
+    # (Risk, Issue, StakeholderNeed, TestCase, ArchitectureElement, ...) demand
+    # Requirement-shaped fields like `description` on create, live-breaking
+    # `POST /api/v1/risks/` etc. the moment `validate_artifact_fields` (Task
+    # 11) started enforcing `required` at create time. Proven live: see
+    # rest_api/tests/test_bootstrapped_definition_allows_creates.py.
+    if item_type == "Requirement":
+        mandatory = set(PresetRegistry().get_preset_config(preset).mandatory_fields)
+        for attribute in attributes:
+            if attribute["name"] in mandatory:
+                attribute["required"] = True
 
     attributes.sort(key=lambda a: (a["section"], a["order"], a["name"]))
     return attributes

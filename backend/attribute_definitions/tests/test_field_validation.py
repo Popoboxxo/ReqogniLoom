@@ -211,3 +211,34 @@ def test_update_does_not_block_a_non_editable_attribute_it_never_carries() -> No
         {"name": "uid", "kind": "core", "type": "text", "editable": False},
     )
     validate_values(attributes, {"title": "T"}, {"__exists__": True})
+
+
+# --- I-7 fix round: `editable="workflow"` on an EXTENDED attribute must stay a
+# defined name for the unknown-name rejection, even though its value is never
+# required/type/rule-checked (that value is owned by the WorkflowEngine).
+# Before the fix, `extended_names` was derived FROM `payload_names` (which
+# already excludes workflow-owned names), so such a name fell out of BOTH the
+# unknown-name check AND the value checks - landing unvalidated straight into
+# `Artifact.custom_fields`.
+
+WORKFLOW_EXTENDED = {
+    "name": "sync_state", "kind": "extended", "type": "enum", "required": True,
+    "editable": "workflow",
+    "options": [{"value": "__workflow__", "label_de": "W", "label_en": "W"}],
+}
+
+
+def test_unknown_extended_name_is_still_rejected_even_with_a_workflow_owned_sibling() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(_attrs(WORKFLOW_EXTENDED), {"custom_fields": {"nope": "x"}}, None)
+    assert "nope" in exc.value.errors
+
+
+def test_a_defined_workflow_owned_extended_attribute_skips_all_value_checks() -> None:
+    """Known name (no "is not a defined attribute" error) but never required or
+    type-checked - an out-of-enum value and a missing value are both accepted.
+    """
+    validate_values(
+        _attrs(WORKFLOW_EXTENDED), {"custom_fields": {"sync_state": "garbage"}}, None
+    )
+    validate_values(_attrs(WORKFLOW_EXTENDED), {}, None)

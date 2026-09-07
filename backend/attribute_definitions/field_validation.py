@@ -194,14 +194,24 @@ def validate_values(
     """
     by_name = {a["name"]: a for a in attributes}
     # A widget bundles other attributes; its own name is never a payload field.
-    # A workflow-owned attribute is not a payload field either (see docstring).
+    # A workflow-owned attribute is not a payload field either (see docstring):
+    # it is excluded here so it is never required/type/rule-checked.
     payload_names = {
         n
         for n, a in by_name.items()
         if a["type"] != "widget" and a["editable"] != "workflow"
     }
+    # Deliberately derived from `by_name`, NOT from `payload_names`: an
+    # extended attribute marked `editable="workflow"` must still count as
+    # "defined" for the unknown-name rejection below (I-7 fix round). Deriving
+    # this from `payload_names` (which excludes workflow-owned names) used to
+    # silently drop such a name from BOTH the unknown-name check AND the
+    # required/type/rule checks - i.e. it landed in `Artifact.custom_fields`
+    # completely unvalidated. Skipping the value checks for it stays correct
+    # (still handled by `payload_names` above); only the "is this name known"
+    # membership must be wider.
     extended_names = {
-        n for n in payload_names if by_name[n]["kind"] == "extended"
+        n for n, a in by_name.items() if a["type"] != "widget" and a["kind"] == "extended"
     }
 
     supplied_extended = changed_fields.get(EXTENDED_PAYLOAD_KEY) or {}
