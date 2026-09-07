@@ -92,6 +92,11 @@ def custom_field_to_attribute(row: dict[str, Any], order: int) -> dict[str, Any]
         if field_type == "enum"
         else []
     )
+    if field_type == "enum" and not options:
+        # A legacy dropdown with no options is unrepresentable as `enum`
+        # (normalize_attribute rejects an empty options list) - fall back to
+        # a plain text field rather than aborting the whole migration.
+        field_type = "text"
     return normalize_attribute(
         {
             "name": row["name"],
@@ -170,16 +175,43 @@ def forwards(apps, schema_editor) -> None:
                 )
                 if not custom_rows:
                     continue
-                preset = (workspace.preset or {}).get("tier") or "standard"
+                # Workspace.preset is a free JSONField with 3 real shapes (see
+                # rest_api/serializers.py::normalize_preset_blob): {"tier": x},
+                # {"tier": x, "name": x}, and legacy/seeded {"name": x} with no
+                # "tier" key at all. Resolve the same way that precedent does
+                # (prefer "tier", fall back to "name") instead of only reading
+                # "tier" and silently mislabeling legacy rows as "standard".
+                blob = workspace.preset or {}
+                preset = blob.get("tier") or blob.get("name") or "standard"
+                if preset not in PRESETS:
+                    # An unknown tier value would KeyError into globals_by_key,
+                    # which is only populated for the 3 known PRESETS.
+                    preset = "standard"
                 extended = [
                     custom_field_to_attribute(row, index)
                     for index, row in enumerate(custom_rows)
                 ]
                 for item_type in BOOTSTRAP_ITEM_TYPES:
                     source = globals_by_key[(item_type, preset)]
-                    attributes = list(source.definition_json["attributes"]) + [
-                        dict(a) for a in extended
-                    ]
+                    # Core attributes always win a name collision (an admin
+                    # can legally create a CustomFieldDefinition named e.g.
+                    # "title"/"status"): build core first, then only add a
+                    # custom attribute whose name isn't already taken. This
+                    # also prevents duplicate names by construction, which a
+                    # duplicate would otherwise fail validate_definition_json
+                    # on every later PUT with no way to fix it.
+                    by_name = {a["name"]: a for a in source.definition_json["attributes"]}
+                    for attribute in extended:
+                        if attribute["name"] in by_name:
+                            print(
+                                f"[0003_migrate_legacy_field_config] skipping custom field "
+                                f"colliding with a core attribute: tenant_id={tenant_id} "
+                                f"workspace_id={workspace.id} item_type={item_type} "
+                                f"name={attribute['name']!r}"
+                            )
+                            continue
+                        by_name[attribute["name"]] = dict(attribute)
+                    attributes = list(by_name.values())
                     attributes.sort(key=lambda a: (a["section"], a["order"], a["name"]))
                     WorkspaceAttributeDefinition.objects.update_or_create(
                         tenant_id=tenant_id,
@@ -197,13 +229,30 @@ def forwards(apps, schema_editor) -> None:
 
 
 def backwards(apps, schema_editor) -> None:
-    """Drop everything this migration created.
+    """Delete ALL GlobalAttributeDefinition/WorkspaceAttributeDefinition rows.
 
-    Reversible on purpose: the legacy tables still exist at this point (they are
-    dropped one migration later), so a rollback loses no configuration.
+    Not just the rows this migration created - a data migration has no cheap
+    way to distinguish "rows this migration wrote" from "rows written since"
+    (e.g. by the Task 6 bootstrap command or an admin PUT) without extra
+    bookkeeping this migration doesn't do. Safe only if nothing else has
+    written to these tables yet; the legacy tables themselves still exist at
+    this point (they are dropped one migration later), so at least the
+    *source* configuration this migration read from is not lost.
+
+    Uses the `unscoped` manager deliberately: this operates across ALL
+    tenants at once via a single `.all()`, the same cross-tenant-admin shape
+    used elsewhere in this codebase (e.g. `admin_ops/theme_rest.py`,
+    `auth_tenancy/admin.py`) - not a per-tenant loop, so there is no tenant_id
+    to arm `TenantContext` with, and `.objects.all()` would raise
+    `TenantContextNotSetError` under the direct-live-model idiom this file's
+    own tests use for `forwards`.
     """
-    apps.get_model("attribute_definitions", "WorkspaceAttributeDefinition").objects.all().delete()
-    apps.get_model("attribute_definitions", "GlobalAttributeDefinition").objects.all().delete()
+    apps.get_model(
+        "attribute_definitions", "WorkspaceAttributeDefinition"
+    ).unscoped.all().delete()
+    apps.get_model(
+        "attribute_definitions", "GlobalAttributeDefinition"
+    ).unscoped.all().delete()
 
 
 class Migration(migrations.Migration):
