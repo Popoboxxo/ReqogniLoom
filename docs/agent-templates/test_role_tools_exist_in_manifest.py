@@ -21,7 +21,7 @@ EXPECTED_TOOLS_BY_ROLE = {
         "ai_derivation.suggest_architecture_for_requirement",
         "traceability.query", "traceability.suggest_links", "traceability.create_link",
         "artifact.search", "artifact.get_tree", "workspace.get_context", "glossary.read",
-        "prompt_template.get", "prompt_template.list", "custom_field.get", "custom_field.query",
+        "prompt_template.get", "prompt_template.list",
         "goal.read", "goal.query", "main_goal.read",
         "requirement_bundle.export", "requirement_bundle.attribute_schema",
         "requirement_bundle.compression_status",
@@ -31,14 +31,13 @@ EXPECTED_TOOLS_BY_ROLE = {
         "test.run_create", "test.run_get", "test.run_report_results",
         "test.derive_from_requirement", "requirement.get", "requirement.query",
         "traceability.query", "artifact.search", "workspace.get_context",
-        "custom_field.get", "custom_field.query",
     },
     "risk-analyst": {
         "risk.read", "risk.create", "risk.update", "risk.delete",
         "architecture.get", "architecture.query", "diagram.get", "diagram.query",
         "requirement.get", "requirement.query", "traceability.query",
         "traceability.create_link", "artifact.search", "workspace.get_context",
-        "ai_derivation.derive_risks_from_architecture", "custom_field.get", "custom_field.query",
+        "ai_derivation.derive_risks_from_architecture",
     },
     "change-manager": {
         "adr.read", "adr.create", "adr.update", "adr.delete", "adr.outdate", "adr.reactivate",
@@ -60,7 +59,7 @@ EXPECTED_TOOLS_BY_ROLE = {
         "artifact.search", "artifact.get_tree", "workspace.get_context", "glossary.read",
         "adr.read", "risk.read", "issue.read", "goal.read", "goal.query", "main_goal.read",
         "baseline.list", "baseline.get", "baseline.compare", "change_request.read",
-        "change_request.query", "review.list_pending", "custom_field.get", "custom_field.query",
+        "change_request.query", "review.list_pending",
     },
 }
 

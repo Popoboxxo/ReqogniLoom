@@ -19,8 +19,6 @@ tools:
 - traceability.query
 - artifact.search
 - workspace.get_context
-- custom_field.get
-- custom_field.query
 ---
 
 # Test Engineer

@@ -20,8 +20,6 @@ tools:
 - artifact.search
 - workspace.get_context
 - ai_derivation.derive_risks_from_architecture
-- custom_field.get
-- custom_field.query
 ---
 
 # Risk Analyst

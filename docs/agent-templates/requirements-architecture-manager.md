@@ -30,8 +30,6 @@ tools:
 - glossary.read
 - prompt_template.get
 - prompt_template.list
-- custom_field.get
-- custom_field.query
 - goal.read
 - goal.query
 - main_goal.read

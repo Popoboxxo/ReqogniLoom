@@ -234,8 +234,6 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "prompt_template.list",
         "prompt_variable.list",
         "prompt_variable.get",
-        "custom_field.get",
-        "custom_field.query",
         "diagram.get",
         "diagram.query",
         "admin.backup_list",
@@ -534,7 +532,6 @@ class ToolRegistry:
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
-        from mcp_server.tools.custom_field import CustomFieldToolGroup
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.baseline import BaselineToolGroup
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
@@ -581,7 +578,6 @@ class ToolRegistry:
             "prompt_variable": PromptVariableToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
-            "custom_field": CustomFieldToolGroup(),
             "review": ReviewToolGroup(),
             # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
             "baseline": BaselineToolGroup(),

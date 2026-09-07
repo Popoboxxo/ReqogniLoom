@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.8.0-beta.5",
-  "tool_count": 172,
+  "generated_from": "reqogniloom==unknown",
+  "tool_count": 170,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1276,42 +1276,6 @@
         },
         "required": [
           "requirement_id"
-        ]
-      }
-    },
-    {
-      "name": "custom_field.get",
-      "prefix": "custom_field",
-      "is_write": false,
-      "description": "Fetch a custom field definition by ID (read-only).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "UUID of the custom field definition."
-          }
-        },
-        "required": [
-          "id"
-        ]
-      }
-    },
-    {
-      "name": "custom_field.query",
-      "prefix": "custom_field",
-      "is_write": false,
-      "description": "List custom field definitions for a workspace (read-only).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "description": "UUID of the workspace."
-          }
-        },
-        "required": [
-          "workspace_id"
         ]
       }
     },

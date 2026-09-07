@@ -74,7 +74,6 @@ from application.services import (
     PgVectorUnavailableError,
     ChangeRequestService,
 )
-from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from application.requirement_bundle_formatters import (
@@ -85,6 +84,7 @@ from application.requirement_bundle_formatters import (
 from application.requirement_bundle_service import (
     BundleDepthExceededError,
     RequirementBundleQueryService,
+    describe_attribute_schema,
 )
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
@@ -103,9 +103,6 @@ from rest_api.serializers import (
     AdrSerializer,
     ArtifactSerializer,
     ArchitectureElementSerializer,
-    AttributeVisibilityConfigSerializer,
-    CustomFieldDefinitionSerializer,
-    CustomFieldValueSerializer,
     BaselineDiffSerializer,
     BaselineSerializer,
     GoalSerializer,
@@ -261,8 +258,8 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
     #: URL path kwargs that MUST parse as a UUID (issue #271). Every subclass
     #: resolves its detail routes by UUID today (``UUID(pk)`` in the handler, or
     #: ``UUID(str(...))`` one layer down in the service — verified for
-    #: BaselineViewSet and CustomFieldDefinitionViewSet, which pass ``pk``
-    #: through as a string). A subclass whose lookup is genuinely *not* a UUID
+    #: BaselineViewSet, which passes ``pk`` through as a string). A subclass
+    #: whose lookup is genuinely *not* a UUID
     #: must narrow this tuple, otherwise its detail route will start 400ing.
     uuid_url_kwargs: tuple[str, ...] = ("pk", "workspace_pk", "workspace_id")
 
@@ -7449,411 +7446,14 @@ class AttributeSchemaView(APIView):
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
+            get_auth_context(request)  # ensure authenticated
             entity_type = request.query_params.get("entity_type")
-            schema = AttributeVisibilityConfigService().describe_schema(
-                ctx, entity_type=entity_type
-            )
+            schema = describe_attribute_schema(entity_type)
         except NotFoundError as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(schema)
-
-
-class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
-    """ViewSet for AttributeVisibilityConfig (REQ-L1-058 AC2).
-
-    Admin CRUD for field visibility configuration per entity type and workspace.
-    Endpoint: /api/v1/attribute-visibility-config/
-
-    Permissions: tenant admins only, enforced by
-    AttributeVisibilityConfigService itself (ServiceBase._assert_permission,
-    "admin") on every method — NOT by BaseEntityViewSet, which provides no
-    role gate of its own (code review finding: this docstring's previous
-    claim was inaccurate, and every service method was in fact unguarded;
-    any authenticated user of any role could create/update/delete/bulk-
-    upsert tenant-wide visibility config).
-    """
-
-    serializer_class = AttributeVisibilityConfigSerializer
-
-    def _svc(self):
-        """Return the AttributeVisibilityConfigService (REQ-066)."""
-        from application.attribute_visibility_service import (
-            AttributeVisibilityConfigService,
-        )
-        return AttributeVisibilityConfigService()
-
-    def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/attribute-visibility-config/ — list all visibility configs."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            configs = self._svc().list_configs(ctx)
-            serializer = AttributeVisibilityConfigSerializer(configs, many=True)
-            return Response(serializer.data)
-        except PermissionDeniedError as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.list: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    @action(detail=False, methods=["post"])
-    def bulk_update(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/attribute-visibility-configs/bulk_update/ — upsert configs."""
-        lang = detect_lang(request)
-        if not isinstance(request.data, list):
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="Expected a list of configs"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            ctx = get_auth_context(request)
-
-            validated_items: list[dict[str, Any]] = []
-            for item in request.data:
-                item_data = dict(item)
-                item_data["tenant_id"] = str(ctx.tenant_id)
-                ser = AttributeVisibilityConfigSerializer(data=item_data)
-                if not ser.is_valid():
-                    return Response(
-                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                validated_items.append(dict(ser.validated_data))
-
-            results = self._svc().bulk_upsert(ctx, validated_items)
-            return Response(AttributeVisibilityConfigSerializer(results, many=True).data, status=status.HTTP_200_OK)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.bulk_update: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/attribute-visibility-config/ — create config. Returns 201."""
-        lang = detect_lang(request)
-        ser = AttributeVisibilityConfigSerializer(data=request.data)
-        if not ser.is_valid():
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        try:
-            ctx = get_auth_context(request)
-
-            config = self._svc().create_config(
-                ctx,
-                entity_type=data["entity_type"],
-                attribute_name=data["attribute_name"],
-                is_visible=data.get("is_visible", True),
-                is_required=data.get("is_required", False),
-            )
-            return Response(
-                AttributeVisibilityConfigSerializer(config).data,
-                status=status.HTTP_201_CREATED,
-            )
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.create: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """PATCH /api/v1/attribute-visibility-config/{pk}/ — update config. Returns 200."""
-        lang = detect_lang(request)
-        ser = AttributeVisibilityConfigSerializer(data=request.data, partial=True)
-        if not ser.is_valid():
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        try:
-            ctx = get_auth_context(request)
-            config = self._svc().update_config(
-                ctx,
-                UUID(pk),
-                is_visible=data.get("is_visible") if "is_visible" in data else None,
-                is_required=data.get("is_required") if "is_required" in data else None,
-            )
-            return Response(AttributeVisibilityConfigSerializer(config).data)
-        except NotFoundError as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.partial_update: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/attribute-visibility-config/{pk}/ — delete config. Returns 204."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            self._svc().delete_config(ctx, UUID(pk))
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except NotFoundError as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.destroy: unhandled exception")
-            return _service_error_response(exc, lang)
-
-
-# ---------------------------------------------------------------------------
-# REQ-016: Custom Fields (workspace-wide definitions + per-artifact values)
-# ---------------------------------------------------------------------------
-
-
-def _validate_custom_value(definition: Any, value: str, lang: str) -> Response | None:
-    """Validate a single custom-field ``value`` against its ``definition``.
-
-    Returns a 400 error Response when invalid, or ``None`` when the value is
-    acceptable. Empty values are allowed here; required-field enforcement is
-    handled by the caller so partial saves are not rejected outright.
-    """
-    if value == "":
-        return None
-    if definition.field_type == "number":
-        try:
-            float(value)
-        except (TypeError, ValueError):
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": "value", "errors": [f"'{value}' is not a valid number."]}],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-    elif definition.field_type == "dropdown":
-        if value not in (definition.options or []):
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": "value", "errors": [f"'{value}' is not a valid option."]}],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-    return None
-
-
-class CustomFieldDefinitionViewSet(BaseEntityViewSet):
-    """ViewSet for workspace-wide custom field definitions (REQ-016).
-
-    - ``list``   GET  /api/v1/workspaces/<workspace_pk>/custom-field-definitions/
-                 — any authenticated tenant member (needed to render forms).
-    - ``create`` POST same path — workspace admins only.
-    - ``partial_update`` PATCH /api/v1/custom-field-definitions/<pk>/ — admins only.
-    - ``destroy`` DELETE /api/v1/custom-field-definitions/<pk>/ — admins only.
-    """
-
-    serializer_class = CustomFieldDefinitionSerializer
-
-    def _svc(self):
-        """Return the CustomFieldService (REQ-066)."""
-        from application.custom_field_service import CustomFieldService
-        return CustomFieldService()
-
-    def _forbidden(self, lang: str) -> Response:
-        return Response(
-            build_error_response("PERMISSION_DENIED", lang, message="Admin role required."),
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET workspace custom field definitions, ordered by (order, name)."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)  # ensure authenticated
-            workspace_id = kwargs["workspace_pk"]
-            defs = self._svc().list_definitions(ctx, workspace_id)
-            return Response(CustomFieldDefinitionSerializer(defs, many=True).data)
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.list: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST a new definition to a workspace (admin only). Returns 201."""
-        from auth_tenancy.models import ROLE_ADMIN
-        lang = detect_lang(request)
-        ctx = get_auth_context(request)
-        if not ctx.has_role(ROLE_ADMIN):
-            return self._forbidden(lang)
-
-        ser = CustomFieldDefinitionSerializer(data=request.data)
-        if not ser.is_valid():
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        try:
-            workspace_id = kwargs["workspace_pk"]
-            definition = self._svc().create_definition(
-                ctx,
-                workspace_id,
-                name=data["name"],
-                field_type=data.get("field_type", "text"),
-                is_required=data.get("is_required", False),
-                options=data.get("options", []),
-                order=data.get("order", 0),
-            )
-            return Response(
-                CustomFieldDefinitionSerializer(definition).data,
-                status=status.HTTP_201_CREATED,
-            )
-        except (NotFoundError, ValidationError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.create: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """PATCH an existing definition (admin only). Returns 200."""
-        from auth_tenancy.models import ROLE_ADMIN
-        lang = detect_lang(request)
-        ctx = get_auth_context(request)
-        if not ctx.has_role(ROLE_ADMIN):
-            return self._forbidden(lang)
-
-        try:
-            definition = self._svc().get_definition(ctx, pk)
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        ser = CustomFieldDefinitionSerializer(data=request.data, partial=True)
-        if not ser.is_valid():
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        # Guard: a dropdown must always keep at least one option.
-        effective_type = data.get("field_type", definition.field_type)
-        effective_options = data.get("options", definition.options)
-        if effective_type == "dropdown" and not effective_options:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, details=[{"field": "options", "errors": ["Dropdown fields require at least one option."]}]),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            definition = self._svc().update_definition(ctx, pk, dict(data))
-            return Response(CustomFieldDefinitionSerializer(definition).data)
-        except (NotFoundError, ValidationError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.partial_update: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE a definition and its values (admin only). Returns 204."""
-        from auth_tenancy.models import ROLE_ADMIN
-        lang = detect_lang(request)
-        ctx = get_auth_context(request)
-        if not ctx.has_role(ROLE_ADMIN):
-            return self._forbidden(lang)
-        try:
-            self._svc().delete_definition(ctx, pk)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.destroy: unhandled exception")
-            return _service_error_response(exc, lang)
-
-
-class ArtifactCustomFieldValuesView(APIView):
-    """Read/write custom field values for a single artifact (REQ-016).
-
-    - GET  /api/v1/artifacts/<pk>/custom-field-values/
-           → the artifact's workspace definitions merged with current values.
-    - PUT  /api/v1/artifacts/<pk>/custom-field-values/
-           body: ``[{"definition_id": "...", "value": "..."}]`` — upserts values.
-
-    Any authenticated tenant member may read and write values (form filling).
-    """
-
-    def _svc(self):
-        """Return the CustomFieldService (REQ-066)."""
-        from application.custom_field_service import CustomFieldService
-        return CustomFieldService()
-
-    def get(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            svc = self._svc()
-            workspace_id = svc.get_artifact_workspace_id(ctx, pk)
-            return Response(svc.merged_rows(ctx, workspace_id, pk))
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message="Artifact not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as exc:
-            logger.exception("ArtifactCustomFieldValuesView.get: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def put(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        lang = detect_lang(request)
-        if not isinstance(request.data, list):
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="Expected a list of {definition_id, value}."),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            ctx = get_auth_context(request)
-            svc = self._svc()
-            workspace_id = svc.get_artifact_workspace_id(ctx, pk)
-            defs = svc.get_definitions_map(ctx, workspace_id)
-
-            # Phase 1: validate every item without touching the database. This is
-            # side-effect free, so validating up front is equivalent to the former
-            # interleaved-and-rollback flow while keeping HTTP concerns in the view.
-            operations: list[tuple[str, str]] = []
-            for item in request.data:
-                did = str(item.get("definition_id", ""))
-                raw = item.get("value")
-                value = "" if raw is None else str(raw)
-                definition = defs.get(did)
-                if definition is None:
-                    return Response(
-                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": "definition_id", "errors": [f"Unknown definition {did} for this workspace."]}]),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                if value == "" and definition.is_required:
-                    return Response(
-                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": definition.name, "errors": ["This field is required."]}]),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                err = _validate_custom_value(definition, value, lang)
-                if err is not None:
-                    return err
-                operations.append((did, value))
-
-            # Phase 2: persist all operations atomically.
-            svc.apply_values(ctx, pk, operations)
-            return Response(svc.merged_rows(ctx, workspace_id, pk))
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message="Artifact not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as exc:
-            logger.exception("ArtifactCustomFieldValuesView.put: unhandled exception")
-            return _service_error_response(exc, lang)
 
 
 __all__ = [
@@ -7870,9 +7470,6 @@ __all__ = [
     "AdrViewSet",
     "RiskViewSet",
     "IssueViewSet",
-    "AttributeVisibilityConfigViewSet",
-    "CustomFieldDefinitionViewSet",
-    "ArtifactCustomFieldValuesView",
     "SearchViewSet",
     "CsvImportView",
     "CsvExportView",

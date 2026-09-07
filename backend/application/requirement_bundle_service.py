@@ -436,32 +436,42 @@ class RequirementBundleQueryService(ServiceBase):
     ) -> "set[str]":
         """Return the concrete Requirement field-name set for *filter_mode*.
 
-        "visible" mode default-visibility convention: AttributeVisibilityConfig
-        rows are an explicit hide toggle, not an allow-list — the model field
-        itself defaults to ``is_visible=True`` (persistence/models.py) and no
-        codepath in this codebase treats a missing config row as hidden. A field
-        with no config row at all is therefore visible by default; only a row
-        with ``is_visible=False`` removes a field from the "visible" set.
-
-        Resolution goes through ``hidden_attribute_names``, the non-gated
-        consumption read — not ``list_configs``, which requires the ``admin``
-        role (#470) and would make filter_mode='visible' unusable for the
-        editors and viewers the config is meant to constrain.
+        "visible" mode degraded to "all" when the legacy
+        ``AttributeVisibilityConfig`` mechanism was retired (Task 9, spec
+        section 4): there is no longer a per-tenant hide toggle to resolve
+        against. Real per-attribute visibility (sourced from
+        ``WorkspaceAttributeDefinition.definition_json``) is future work —
+        tracked for the REST/MCP consumer wiring task, not reintroduced here.
         """
-        if filter_mode == "all":
-            return set(REQUIREMENT_ALL_FIELDS)
         if filter_mode == "custom":
             return set(fields or [])
+        # "all" and "visible" are currently identical; see docstring above.
+        return set(REQUIREMENT_ALL_FIELDS)
 
-        # "visible"
-        from application.attribute_visibility_service import (
-            AttributeVisibilityConfigService,
-        )
 
-        hidden_names = AttributeVisibilityConfigService().hidden_attribute_names(
-            ctx, "Requirement"
-        )
-        return set(REQUIREMENT_ALL_FIELDS) - hidden_names
+def describe_attribute_schema(entity_type: "str | None" = None) -> "List[Dict[str, Any]]":
+    """Return the available attributes for *entity_type* (or every known type).
+
+    Replaces ``AttributeVisibilityConfigService.describe_schema`` (retired in
+    Task 9 along with ``AttributeVisibilityConfig``): every attribute now
+    reports ``is_visible=True`` unconditionally rather than resolving a
+    per-tenant hide toggle. Shared by the REST ``AttributeSchemaView`` and the
+    MCP ``requirement_bundle.attribute_schema`` tool so the degraded
+    "everything visible" behaviour lives in exactly one place.
+
+    Raises:
+        NotFoundError: *entity_type* is not one of the known schemas.
+    """
+    schemas: Dict[str, tuple] = {"Requirement": REQUIREMENT_ALL_FIELDS}
+    if entity_type is not None:
+        if entity_type not in schemas:
+            raise NotFoundError(f"Unknown entity_type {entity_type!r}")
+        schemas = {entity_type: schemas[entity_type]}
+    return [
+        {"entity_type": et, "attribute_name": name, "is_visible": True}
+        for et, names in schemas.items()
+        for name in names
+    ]
 
 
 __all__ = [
@@ -471,4 +481,5 @@ __all__ = [
     "BundleDepthExceededError",
     "REQUIREMENT_ALL_FIELDS",
     "MAX_DEPTH",
+    "describe_attribute_schema",
 ]

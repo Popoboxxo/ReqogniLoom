@@ -25,7 +25,7 @@ Interface contracts implemented:
   IF-MC-INT-003     — inbound: execute_tool(tool_name, params, auth_context,
                        api_key) -> ToolResult
   IF-MC-EXT-OUT-003 — outbound: ApplicationService
-    (RequirementBundleQueryService, AttributeVisibilityConfigService,
+    (RequirementBundleQueryService, describe_attribute_schema,
     BundleCompressionService)
 
 All three tools are read-only from an RBAC standpoint (no domain-model
@@ -52,7 +52,6 @@ from typing import Any, Dict
 from auth_tenancy.context import AuthContext
 
 from application.ai_derivation_service import LlmResponseError
-from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.bundle_compression_service import (
     BundleCompressionService,
@@ -63,7 +62,10 @@ from application.requirement_bundle_formatters import (
     format_bundle_json,
     format_bundle_markdown,
 )
-from application.requirement_bundle_service import RequirementBundleQueryService
+from application.requirement_bundle_service import (
+    RequirementBundleQueryService,
+    describe_attribute_schema,
+)
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
@@ -377,9 +379,7 @@ class RequirementBundleToolGroup(BaseToolGroup):
         """requirement_bundle.attribute_schema — discover valid field names."""
         entity_type = params.get("entity_type")
         try:
-            schema = AttributeVisibilityConfigService().describe_schema(
-                auth_context, entity_type=entity_type
-            )
+            schema = describe_attribute_schema(entity_type)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok({"attributes": schema, "count": len(schema)})

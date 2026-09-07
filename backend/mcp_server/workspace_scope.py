@@ -120,7 +120,6 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     ),
     "context.query": (("artifact_id", "artifact"),),
     "context.test_coverage": (("requirement_id", "requirement"),),
-    "custom_field.get": (("id", "custom_field"),),
     "diagram.get": (("id", "diagram"),),
     "glossary.read": (("id", "glossary"),),
     "goal.list_versions": (("lineage_id", "goal_lineage"),),
