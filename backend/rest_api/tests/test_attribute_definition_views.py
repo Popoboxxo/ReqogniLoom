@@ -141,3 +141,45 @@ def test_unknown_workspace_uuid_is_404(admin_client, seeded) -> None:
         f"/api/v1/workspaces/{uuid.uuid4()}/attribute-definitions/Risk/"
     )
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Cross-tenant isolation (code review, Task 10). ``authed_client`` is an admin
+# of the *Bundle* tenant while ``workspace_fixture`` belongs to
+# ``tenant_fixture`` — i.e. two genuinely different tenants, no extra fixture
+# needed. A workspace that exists but is owned by someone else is 403, never a
+# 500 and never a 200.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_foreign_tenant_workspace_is_403_not_500(
+    authed_client, workspace_fixture, seeded
+) -> None:
+    response = authed_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/"
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_a_warm_cache_entry_is_not_served_across_tenants(
+    admin_client, authed_client, workspace_fixture, seeded
+) -> None:
+    """The owner's read warms ``attribute_def_cache_key`` (keyed by workspace
+    alone); a foreign tenant must still be rejected instead of getting a 200
+    off that entry. Same trap ``presets.gate.get_preset`` guards for its own
+    ``_tier_cache`` (SA-15)."""
+    warm = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/"
+    )
+    assert warm.status_code == 200
+
+    response = authed_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/"
+    )
+    assert response.status_code == 403, (
+        "cross-tenant read served from the shared cache: "
+        f"{response.content[:200]!r}"
+    )

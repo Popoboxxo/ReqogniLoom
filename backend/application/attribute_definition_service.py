@@ -133,12 +133,20 @@ class AttributeDefinitionService(ServiceBase):
                 preset — the bootstrap command has not been run.
         """
         self._set_tenant_context(ctx)
+        # SA-15: the workspace-ownership guard must run *before* the cache
+        # read. ``attribute_def_cache_key`` is keyed by workspace alone, so a
+        # warm entry would otherwise serve a cross-tenant caller a 200 with
+        # another tenant's definition, without ever touching a guarded path —
+        # the exact trap ``presets.gate.FeatureGateService.get_preset`` already
+        # documents and avoids for its own ``_tier_cache``. Costs nothing on a
+        # warm process: ``get_preset`` is itself in-process cached, and the
+        # ownership lookup is memoised in ``gate._workspace_tenant_cache``.
+        preset = self._workspace_preset(workspace_id)
         cache_key = attribute_def_cache_key(str(workspace_id))
         cached = cache.get(cache_key) or {}
         if item_type in cached:
             return cached[item_type]
 
-        preset = self._workspace_preset(workspace_id)
         row = self._workspace.resolve(ctx.tenant_id, workspace_id, item_type, preset)
         payload = self._workspace_payload(row)
         cached[item_type] = payload

@@ -25,6 +25,7 @@ from application.attribute_definition_service import (
     AttributeSchemaError,
 )
 from auth_tenancy.models import ROLE_ADMIN
+from presets.exceptions import CrossTenantWorkspaceError
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
@@ -52,6 +53,13 @@ def _not_found(lang: str, message: str) -> Response:
     return Response(
         build_error_response("NOT_FOUND", lang, message=message),
         status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def _forbidden(lang: str, message: str) -> Response:
+    return Response(
+        build_error_response("PERMISSION_DENIED", lang, message=message),
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
@@ -126,6 +134,13 @@ class WorkspaceAttributeDefinitionView(APIView):
             payload = AttributeDefinitionService().resolve(ctx, item_type, workspace_id)
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
+        except CrossTenantWorkspaceError as exc:
+            # The workspace exists but belongs to another tenant. Without this
+            # handler the gate's correctly-raised exception falls through to an
+            # uncaught 500 — the same trap as SYSTEMAUDIT-2026-08-27 AP-6 M-1.
+            # 403 matches the established mapping in ``rest_api/views.py``
+            # (``_EXC_TO_HTTP[CrossTenantWorkspaceError]``).
+            return _forbidden(lang, str(exc))
         return Response(payload, status=status.HTTP_200_OK)
 
     def put(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
