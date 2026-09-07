@@ -7,14 +7,24 @@ propagated workspace count so the UI can surface it.
 
 Uses ``unscoped`` on purpose: the tenant is passed explicitly by the caller
 (the service already asserted the admin role for that tenant), which mirrors
-``GlobalWorkflowDefinitionStore`` and keeps the store usable from management
-commands and data migrations where no thread-local tenant is armed.
+``GlobalWorkflowDefinitionStore``. ``unscoped`` only bypasses Django's
+``TenantManager`` filtering, not the Postgres RLS policies (see
+``migrations/0002_attribute_definition_rls_policies.py``, ENABLE + FORCE ROW
+LEVEL SECURITY). It works from data migrations because those run as the
+Postgres superuser, which RLS never restricts. It does NOT unlock all-tenant
+visibility from management commands: those run as the ``reqogniloom_app``
+role, which is subject to RLS, so with no thread-local tenant armed the
+policy predicate is false for every row and the query returns nothing.
 """
 from __future__ import annotations
 
 import copy
 from typing import Any
 from uuid import UUID
+
+from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
 
 from .models import GlobalAttributeDefinition, WorkspaceAttributeDefinition
 from .schema import (
@@ -112,15 +122,22 @@ class GlobalAttributeDefinitionStore:
         old = (obj.definition_json or {}).get("attributes", [])
         validate_meta_only_change(old, payload["attributes"])
 
-        obj.definition_json = payload
-        obj.version = (obj.version or 1) + 1
-        obj.save(update_fields=["definition_json", "version", "modified_at"])
-        return obj, self._propagate(obj)
+        with transaction.atomic():
+            obj.definition_json = payload
+            obj.version = (obj.version or 1) + 1
+            obj.save(update_fields=["definition_json", "version", "modified_at"])
+            propagated = self._propagate(obj)
+        return obj, propagated
 
     # ---------- Propagation ----------
 
     def _propagate(self, obj: GlobalAttributeDefinition) -> int:
         """Copy ``definition_json`` into every non-customized derived row.
+
+        ``tenant_id`` is filtered explicitly (not just implied by
+        ``source_global_id``): without it a workspace row belonging to a
+        different tenant than ``obj`` could be rewritten if it ever pointed
+        at this global row's id.
 
         ``preset`` is part of the derived row's identity, so the filter narrows
         on it too: a standard-preset edit must never rewrite a minimal-preset
@@ -129,12 +146,21 @@ class GlobalAttributeDefinitionStore:
         ``copy.deepcopy`` is load-bearing: without it every derived row would
         share one mutable dict with the global, so an in-place edit on one row
         would silently rewrite the tenant default and all of its siblings.
+
+        The bulk ``.update()`` also bumps ``version``/``modified_at`` itself
+        (it bypasses ``Model.save()``, so ``auto_now`` never fires and nothing
+        else would bump the optimistic-lock counter for these rows).
         """
         return WorkspaceAttributeDefinition.unscoped.filter(
+            tenant_id=obj.tenant_id,
             source_global_id=obj.id,
             preset=obj.preset,
             is_customized=False,
-        ).update(definition_json=copy.deepcopy(obj.definition_json))
+        ).update(
+            definition_json=copy.deepcopy(obj.definition_json),
+            version=F("version") + 1,
+            modified_at=timezone.now(),
+        )
 
 
 __all__ = ["AttributeDefinitionNotFound", "GlobalAttributeDefinitionStore"]

@@ -137,6 +137,39 @@ def test_propagation_writes_a_deep_copy(tenant, store) -> None:
 
 
 @pytest.mark.django_db
+def test_propagation_never_touches_a_different_tenants_row(tenant, store) -> None:
+    """Regression for I-2: a workspace row from another tenant must survive
+    untouched even if it points at this global row's id."""
+    other_tenant = Tenant.objects.create(name="other", slug=f"o-{uuid.uuid4().hex[:8]}")
+    g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    foreign = WorkspaceAttributeDefinition.unscoped.create(
+        tenant_id=other_tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        preset="standard", definition_json={"attributes": []},
+        source_global_id=g.id, is_customized=False,
+    )
+    store.update(tenant.id, "Risk", "standard", [dict(TITLE, required=True)])
+    foreign.refresh_from_db()
+    assert foreign.definition_json == {"attributes": []}
+
+
+@pytest.mark.django_db
+def test_propagation_bumps_version_and_modified_at(tenant, store) -> None:
+    """Regression for I-3: propagation must not silently leave the derived
+    row's optimistic-lock counter stale."""
+    g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    w = WorkspaceAttributeDefinition.unscoped.create(
+        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        preset="standard", definition_json={"attributes": []},
+        source_global=g, is_customized=False,
+    )
+    old_version, old_modified_at = w.version, w.modified_at
+    store.update(tenant.id, "Risk", "standard", [dict(TITLE, required=True)])
+    w.refresh_from_db()
+    assert w.version == old_version + 1
+    assert w.modified_at > old_modified_at
+
+
+@pytest.mark.django_db
 def test_propagation_ignores_another_preset(tenant, store) -> None:
     g_std = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     g_min = store.initialize(tenant.id, "Risk", "minimal", [TITLE])
