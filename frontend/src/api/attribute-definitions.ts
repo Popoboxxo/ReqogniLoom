@@ -12,6 +12,27 @@
 import { apiClient } from "./client";
 import type { UUID, WorkspacePreset } from "../types";
 
+/**
+ * The 10 bootstrapped item types (verified against
+ * `backend/attribute_definitions/schema.py::ITEM_TYPES`) — kept as its own
+ * union instead of a bare `string` because the frontend already has two other,
+ * incompatible item-type vocabularies (`WorkflowEntityType`,
+ * `ArtifactKind` in `components/shared/ArtifactInspector/types.ts`, the latter
+ * lowercase camelCase) that a caller could pass here by mistake and get a
+ * silent 404 instead of a compile error.
+ */
+export type AttributeItemType =
+  | "Requirement"
+  | "StakeholderNeed"
+  | "ArchitectureElement"
+  | "TestCase"
+  | "Adr"
+  | "Risk"
+  | "Issue"
+  | "Goal"
+  | "Icd"
+  | "GlossaryTerm";
+
 export type AttributeKind = "core" | "extended";
 
 export type AttributeType =
@@ -76,7 +97,7 @@ export interface AttributeSpec {
 }
 
 export interface ResolvedAttributeDefinition {
-  item_type: string;
+  item_type: AttributeItemType;
   preset: WorkspacePreset;
   is_customized: boolean;
   version: number;
@@ -84,7 +105,7 @@ export interface ResolvedAttributeDefinition {
 }
 
 export interface GlobalAttributeDefinition {
-  item_type: string;
+  item_type: AttributeItemType;
   preset: WorkspacePreset;
   initialized: boolean;
   version: number;
@@ -93,13 +114,13 @@ export interface GlobalAttributeDefinition {
   propagated_workspace_count?: number;
 }
 
-function globalPath(itemType: string, preset: WorkspacePreset): string {
+function globalPath(itemType: AttributeItemType, preset: WorkspacePreset): string {
   return `/attribute-defaults/${encodeURIComponent(itemType)}/${encodeURIComponent(
     preset
   )}/`;
 }
 
-function workspacePath(workspaceId: UUID, itemType: string): string {
+function workspacePath(workspaceId: UUID, itemType: AttributeItemType): string {
   return `/workspaces/${workspaceId}/attribute-definitions/${encodeURIComponent(
     itemType
   )}/`;
@@ -107,7 +128,7 @@ function workspacePath(workspaceId: UUID, itemType: string): string {
 
 export const attributeDefinitionsApi = {
   async listGlobal(filters?: {
-    itemType?: string;
+    itemType?: AttributeItemType;
     preset?: WorkspacePreset;
   }): Promise<GlobalAttributeDefinition[]> {
     const query = new URLSearchParams();
@@ -122,14 +143,14 @@ export const attributeDefinitionsApi = {
 
   /** Never 404s: an unseeded type returns `initialized: false` with no attributes. */
   getGlobal(
-    itemType: string,
+    itemType: AttributeItemType,
     preset: WorkspacePreset
   ): Promise<GlobalAttributeDefinition> {
     return apiClient.get<GlobalAttributeDefinition>(globalPath(itemType, preset));
   },
 
   putGlobal(
-    itemType: string,
+    itemType: AttributeItemType,
     preset: WorkspacePreset,
     attributes: AttributeSpec[]
   ): Promise<GlobalAttributeDefinition> {
@@ -140,7 +161,7 @@ export const attributeDefinitionsApi = {
 
   getWorkspace(
     workspaceId: UUID,
-    itemType: string
+    itemType: AttributeItemType
   ): Promise<ResolvedAttributeDefinition> {
     return apiClient.get<ResolvedAttributeDefinition>(
       workspacePath(workspaceId, itemType)
@@ -149,7 +170,7 @@ export const attributeDefinitionsApi = {
 
   putWorkspace(
     workspaceId: UUID,
-    itemType: string,
+    itemType: AttributeItemType,
     attributes: AttributeSpec[]
   ): Promise<ResolvedAttributeDefinition> {
     return apiClient.put<ResolvedAttributeDefinition>(
@@ -160,7 +181,7 @@ export const attributeDefinitionsApi = {
 
   resetWorkspace(
     workspaceId: UUID,
-    itemType: string
+    itemType: AttributeItemType
   ): Promise<ResolvedAttributeDefinition> {
     return apiClient.post<ResolvedAttributeDefinition>(
       `${workspacePath(workspaceId, itemType)}reset/`,

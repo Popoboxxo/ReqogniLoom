@@ -404,6 +404,9 @@
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-slate-900);
   --color-surface-raised: var(--palette-slate-800);
+  /* Disabled-control background (ArtifactForm fields) — reuses the same
+     raised shade already defined per theme rather than a new primitive. */
+  --color-surface-muted: var(--color-surface-raised);
   --color-border: var(--palette-slate-700);
   --color-border-hover: var(--palette-slate-600);
   --color-border-subtle: var(--palette-white-a08);
@@ -831,6 +834,7 @@
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-slate-50);
   --color-surface-raised: var(--palette-white);
+  --color-surface-muted: var(--color-surface-raised);
   --color-border: var(--palette-slate-300);
   --color-border-hover: var(--palette-slate-400);
   --color-border-subtle: var(--palette-slate-900-a08);
@@ -1012,6 +1016,7 @@
   --color-on-primary-rgb: var(--palette-bauhaus-navy-rgb);
   --color-surface: var(--palette-bauhaus-alabaster);
   --color-surface-raised: var(--palette-white);
+  --color-surface-muted: var(--color-surface-raised);
   --color-border: var(--palette-bauhaus-slate-300);
   --color-border-hover: var(--palette-bauhaus-slate-400);
   --color-border-subtle: var(--palette-bauhaus-slate-300);
@@ -1185,6 +1190,7 @@
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-nordic-night);
   --color-surface-raised: var(--palette-nordic-night-raised);
+  --color-surface-muted: var(--color-surface-raised);
   --color-border: var(--palette-nordic-polar-700);
   --color-border-hover: var(--palette-nordic-polar-600);
   --color-border-subtle: var(--palette-nordic-polar-700);
@@ -1345,6 +1351,7 @@
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-sepia-cream);
   --color-surface-raised: var(--palette-white);
+  --color-surface-muted: var(--color-surface-raised);
   --color-border: var(--palette-sepia-taupe-300);
   --color-border-hover: var(--palette-sepia-taupe-400);
   --color-border-subtle: var(--palette-sepia-taupe-300);

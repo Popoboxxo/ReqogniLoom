@@ -2019,5 +2019,17 @@
       "title": "Ausgangszustand",
       "body": "Diese Version hat keinen gespeicherten Vorgänger. Angezeigt werden die Werte bei der Erstellung — deshalb ist jedes Feld als hinzugefügt markiert."
     }
+  },
+  "artifactForm": {
+    "unknownValue": "Unbekannter Wert: {{value}}",
+    "expandSection": "Abschnitt {{section}} aufklappen",
+    "collapseSection": "Abschnitt {{section}} einklappen",
+    "lockedHint": "systemkritisch, nicht änderbar",
+    "unsavedChanges": "Ungespeicherte Änderungen gehen verloren. Fortfahren?",
+    "saveFailed": "Speichern fehlgeschlagen",
+    "deleteConfirm": "Dieses Artefakt wirklich löschen?",
+    "noneOption": "Keine Auswahl",
+    "unassignedOption": "Nicht zugewiesen",
+    "referenceIdPlaceholder": "Artefakt-ID eingeben"
   }
 }

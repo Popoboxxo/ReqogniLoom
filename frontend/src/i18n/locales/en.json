@@ -2019,5 +2019,17 @@
       "title": "Initial state",
       "body": "This version has no stored predecessor. What you see are the values it was created with — which is why every field is marked as added."
     }
+  },
+  "artifactForm": {
+    "unknownValue": "Unknown value: {{value}}",
+    "expandSection": "Expand section {{section}}",
+    "collapseSection": "Collapse section {{section}}",
+    "lockedHint": "system-critical, not changeable",
+    "unsavedChanges": "Unsaved changes will be lost. Continue?",
+    "saveFailed": "Save failed",
+    "deleteConfirm": "Really delete this artifact?",
+    "noneOption": "None",
+    "unassignedOption": "Unassigned",
+    "referenceIdPlaceholder": "Enter artifact id"
   }
 }
