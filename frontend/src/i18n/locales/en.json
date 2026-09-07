@@ -669,7 +669,14 @@
     "probability": "Probability",
     "impact": "Impact",
     "detection": "Detection (1-10)",
+    "matrix": "Risk matrix",
     "matrixTitle": "Risk Matrix (Probability × Impact)",
+    "rpn": "RPN: {{value}}",
+    "level": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
     "score": "Score",
     "computedScores": "Computed Scores",
     "riskScoreLabel": "Risk Score",
@@ -726,6 +733,9 @@
     "deleteTitle": "Delete test case",
     "newTestCase": "New Test Case",
     "titlePlaceholder": "e.g. Test case title...",
+    "step": "Step {{index}}",
+    "addStep": "Add step",
+    "removeStep": "Remove step {{index}}",
     "summary_one": "{{count}} test case",
     "summary_other": "{{count}} test cases",
     "emptyTitle": "No test cases yet",
@@ -2030,6 +2040,11 @@
     "deleteConfirm": "Really delete this artifact?",
     "noneOption": "None",
     "unassignedOption": "Unassigned",
-    "referenceIdPlaceholder": "Enter artifact id"
+    "referenceIdPlaceholder": "Enter artifact id",
+    "field": {
+      "description": "Description",
+      "context": "Context",
+      "consequences": "Consequences"
+    }
   }
 }

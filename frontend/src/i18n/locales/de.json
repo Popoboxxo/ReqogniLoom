@@ -669,7 +669,14 @@
     "probability": "Wahrscheinlichkeit",
     "impact": "Auswirkung",
     "detection": "Entdeckbarkeit (1-10)",
+    "matrix": "Risikomatrix",
     "matrixTitle": "Risikomatrix (Wahrscheinlichkeit × Auswirkung)",
+    "rpn": "RPZ: {{value}}",
+    "level": {
+      "low": "Niedrig",
+      "medium": "Mittel",
+      "high": "Hoch"
+    },
     "score": "Score",
     "computedScores": "Berechnete Kennzahlen",
     "riskScoreLabel": "Risiko-Score",
@@ -726,6 +733,9 @@
     "deleteTitle": "Testfall löschen",
     "newTestCase": "Neuer Testfall",
     "titlePlaceholder": "z.B. Testfalltitel...",
+    "step": "Schritt {{index}}",
+    "addStep": "Schritt hinzufügen",
+    "removeStep": "Schritt {{index}} entfernen",
     "summary_one": "{{count}} Testfall",
     "summary_other": "{{count}} Testfälle",
     "emptyTitle": "Noch keine Testfälle",
@@ -2030,6 +2040,11 @@
     "deleteConfirm": "Dieses Artefakt wirklich löschen?",
     "noneOption": "Keine Auswahl",
     "unassignedOption": "Nicht zugewiesen",
-    "referenceIdPlaceholder": "Artefakt-ID eingeben"
+    "referenceIdPlaceholder": "Artefakt-ID eingeben",
+    "field": {
+      "description": "Beschreibung",
+      "context": "Kontext",
+      "consequences": "Konsequenzen"
+    }
   }
 }
