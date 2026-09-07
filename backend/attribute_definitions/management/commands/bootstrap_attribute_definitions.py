@@ -109,6 +109,14 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
         "risk_score",
         "severity",
         "term_fk",
+        # Task 19 finding: an internal legacy actor-name column, never exposed
+        # by ANY REST serializer (verified: zero matches across
+        # rest_api/serializers.py). Present on Adr/Risk/Goal/MainGoal/Issue/
+        # ChangeRequest — introspecting it produced a visible, editable text
+        # attribute whose value is always empty on read (the REST response
+        # never carries it) and silently discarded on write (unknown
+        # top-level key, see field_validation.py's docstring).
+        "created_by_name",
     }
 )
 
@@ -164,11 +172,25 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
     ),
 }
 
-#: Model fields a widget consumes under a different attribute name, so the raw
-#: column does not collide with the widget entry (TestCase.steps <-> the
-#: ``steps`` widget). Maps ``item_type -> {model_field: attribute_name}``.
+#: Model fields whose introspected name would not match the actual wire
+#: contract, so the attribute is served under a different name than the
+#: Django column. Maps ``item_type -> {model_field: attribute_name}``.
+#: Two distinct reasons feed this map:
+#:   - a widget consumes the raw column under its own name (TestCase.steps
+#:     <-> the ``steps`` widget);
+#:   - the REST serializer names the field differently than the model column
+#:     (Task 19 finding: ``Risk.owner_user`` is a ``ForeignKey`` — Django names
+#:     it ``owner_user`` — but ``RiskSerializer`` only declares
+#:     ``owner_user_id``/``owner_user_display``, DRF's own convention for a
+#:     FK's raw id. An unaliased ``owner_user`` attribute rendered a working
+#:     User picker whose every assignment silently no-op'd on save (unknown
+#:     top-level key, dropped both by ``field_validation.py`` and by the
+#:     serializer) while always reading back empty. Proven live via
+#:     ``introspect_core_attributes("Risk", "standard")`` against the real
+#:     model/serializer pair.
 WIDGET_FIELD_ALIASES: dict[str, dict[str, str]] = {
     "TestCase": {"steps": "steps_data"},
+    "Risk": {"owner_user": "owner_user_id"},
 }
 
 
