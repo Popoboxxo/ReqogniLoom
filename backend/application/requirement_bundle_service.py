@@ -23,6 +23,10 @@ from django.db import connection
 from auth_tenancy.context import AuthContext
 from traceability.types import LinkType
 
+from application.attribute_definition_service import (
+    AttributeDefinitionNotFound,
+    AttributeDefinitionService,
+)
 from application.base import NotFoundError, ServiceBase, ValidationError
 
 MAX_DEPTH = 20  # mirrors ArtifactService.get_tree's recursive CTE cap
@@ -62,10 +66,12 @@ class BundleResult:
     truncated_at_depth: bool = False
 
 
-# The Requirement model's own concrete columns, excluding tenant/embedding/
-# artifact/raw-FK columns and DTO-only fields not backed by a real column.
-# This is the "all" field set for filter_mode="all" and the schema advertised
-# by describe_attribute_schema() below (the legacy
+# FALLBACK ONLY (spec section 7, Task 14): the authoritative export field list
+# for a bootstrapped workspace now comes from the resolved AttributeDefinition's
+# ``export=true`` attributes via ``resolve_export_fields`` below. This tuple is
+# what a workspace with no definition yet (bootstrap not run for its tenant)
+# still exports, and it is what the OpenAPI schema / describe_attribute_schema()
+# document as the baseline set (the legacy
 # AttributeVisibilityConfigService.describe_schema this replaced is gone).
 #
 # It is deliberately NOT identical to RequirementSerializer's field list, in
@@ -104,6 +110,33 @@ REQUIREMENT_ALL_FIELDS = (
     "version",
     "created_at",
     "modified_at",
+)
+
+# Live-verified (Task 14, against a real `bootstrap_attribute_definitions` run):
+# `bootstrap_attribute_definitions.EXCLUDED_MODEL_FIELDS` deliberately excludes
+# these 7 names from the attribute-definition model entirely -- id/workspace_id/
+# version/created_at/modified_at are server-owned columns, suspect/
+# lifecycle_status are the SN-30/Datenmodell-Konsolidierung server-state flags.
+# None of them can ever be marked ``export=true`` through admin configuration,
+# on any preset. Without unioning them back in, `resolve_export_fields` would
+# silently drop all 7 from every "all"/"visible" bundle export -- and reject
+# them outright (ValidationError) as "unknown" for filter_mode="custom" -- for
+# every already-bootstrapped workspace (which is every workspace, per the SDD
+# ledger's corrected-deployment-state finding), even though they exported fine
+# before this task. Confirmed exhaustively (0 unexpected extras/omissions) via
+# a real `AttributeDefinitionService().export_attributes(ctx, "Requirement",
+# workspace_id)` call against a freshly bootstrapped tenant: it returns exactly
+# `set(REQUIREMENT_ALL_FIELDS) - _SYSTEM_EXPORT_FIELDS`.
+_SYSTEM_EXPORT_FIELDS: frozenset = frozenset(
+    {
+        "id",
+        "workspace_id",
+        "version",
+        "created_at",
+        "modified_at",
+        "suspect",
+        "lifecycle_status",
+    }
 )
 
 # Shared recursive CTE walking ALLOCATED_TO ArchitectureElement->
@@ -189,13 +222,13 @@ class RequirementBundleQueryService(ServiceBase):
             depth: 0 = only requirements directly allocated to the root.
                 N = also walk N levels of ALLOCATED_TO Arch->Arch
                 sub-elements. None = unbounded, capped at MAX_DEPTH.
-            filter_mode: "all" (every field in REQUIREMENT_ALL_FIELDS),
-                "visible" (currently a synonym for "all" — the legacy
-                AttributeVisibilityConfig mechanism this used to resolve
-                against was retired, see _resolve_field_set), or "custom"
-                (only the fields named in *fields*).
-            fields: Required (non-empty) when filter_mode="custom". Every
-                name must be a member of REQUIREMENT_ALL_FIELDS.
+            filter_mode: "all" (every ``export=true`` attribute of the
+                resolved Requirement AttributeDefinition, plus the system
+                columns no definition can ever carry — see
+                resolve_export_fields), "visible" (additionally
+                ``visible=true``), or "custom" (only the fields named in
+                *fields*, each of which must be one of the above).
+            fields: Required (non-empty) when filter_mode="custom".
 
         Raises:
             NotFoundError: root_id does not resolve to an ArchitectureElement
@@ -210,16 +243,16 @@ class RequirementBundleQueryService(ServiceBase):
             raise ValidationError(
                 f"Invalid filter_mode {filter_mode!r}; expected 'all', 'visible', or 'custom'"
             )
-        if filter_mode == "custom":
-            if not fields:
-                raise ValidationError(
-                    "filter_mode='custom' requires a non-empty 'fields' list"
-                )
-            unknown = sorted(set(fields) - set(REQUIREMENT_ALL_FIELDS))
-            if unknown:
-                raise ValidationError(
-                    f"Unknown field(s) for filter_mode='custom': {', '.join(unknown)}"
-                )
+        if filter_mode == "custom" and not fields:
+            raise ValidationError(
+                "filter_mode='custom' requires a non-empty 'fields' list"
+            )
+        # Resolved eagerly, before the query runs: an invalid filter_mode='custom'
+        # field name must fail loudly even when the walk below finds zero
+        # requirements to return — deferring this to right before the (skipped
+        # on an empty walk) field-projection step used to silently swallow a
+        # typo'd field name whenever `root_id` had nothing allocated to it yet.
+        selected_fields = self.resolve_export_fields(ctx, workspace_id, filter_mode, fields)
 
         if depth is not None and depth > MAX_DEPTH:
             raise BundleDepthExceededError(
@@ -363,8 +396,6 @@ class RequirementBundleQueryService(ServiceBase):
             r[0]: (r[1], r[2]) for r in rows
         }
 
-        selected_fields = self._resolve_field_set(ctx, filter_mode, fields)
-
         from persistence.models import Requirement
 
         # Task 12: `status` is dropped from Requirement -- it can no longer
@@ -431,22 +462,64 @@ class RequirementBundleQueryService(ServiceBase):
 
         return BundleResult(items=items, truncated_at_depth=truncated)
 
-    def _resolve_field_set(
-        self, ctx: AuthContext, filter_mode: str, fields: "List[str] | None"
+    def resolve_export_fields(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        filter_mode: str,
+        fields: "List[str] | None",
     ) -> "set[str]":
-        """Return the concrete Requirement field-name set for *filter_mode*.
+        """Return the field names a bundle export must carry (spec section 7).
 
-        "visible" mode degrades to "all" now that the legacy
-        ``AttributeVisibilityConfig`` mechanism was retired (spec section 4):
-        there is no longer a per-tenant hide toggle to resolve against. Real
-        per-attribute visibility (sourced from
-        ``WorkspaceAttributeDefinition.definition_json``) is not yet wired to
-        this bundle export path.
+        Replaces the retired ``AttributeVisibilityConfigService`` /
+        ``_resolve_field_set``'s "visible degrades to all" placeholder with a
+        real read against the resolved Requirement AttributeDefinition:
+        ``export=true`` attributes drive "all", additionally ``visible=true``
+        drives "visible", and "custom" is rejected if it names anything
+        outside that set.
+
+        Args:
+            filter_mode: ``"all"`` (every ``export=true`` attribute),
+                ``"visible"`` (additionally ``visible=true``), or ``"custom"``
+                (the caller's ``fields``, each of which must be exportable).
+
+        Raises:
+            ValidationError: ``filter_mode="custom"`` names a field that is
+                neither an ``export=true`` attribute nor a system column.
+                Rejecting loudly is the point — the old code silently
+                dropped unknown names into an empty result instead.
         """
+        try:
+            attributes = AttributeDefinitionService().export_attributes(
+                ctx, "Requirement", workspace_id
+            )
+        except AttributeDefinitionNotFound:
+            # No GlobalAttributeDefinition bootstrapped yet for this tenant's
+            # (item_type, preset) — REQUIREMENT_ALL_FIELDS is the pre-Task-14
+            # behaviour, not a degraded stub: every name is treated as visible.
+            attributes = [
+                {"name": name, "visible": True} for name in REQUIREMENT_ALL_FIELDS
+            ]
+
+        # _SYSTEM_EXPORT_FIELDS is unioned into every mode, not just "all":
+        # these columns are structurally excluded from the attribute-definition
+        # model (see its docstring above) and so can never be admin-marked
+        # export/visible one way or the other — they keep behaving as they did
+        # before this attribute-definition-driven resolution existed.
+        exportable = {a["name"] for a in attributes} | _SYSTEM_EXPORT_FIELDS
         if filter_mode == "custom":
-            return set(fields or [])
-        # "all" and "visible" are currently identical; see docstring above.
-        return set(REQUIREMENT_ALL_FIELDS)
+            requested = set(fields or [])
+            unknown = sorted(requested - exportable)
+            if unknown:
+                raise ValidationError(
+                    f"Unknown field(s) for filter_mode='custom': {', '.join(unknown)}. "
+                    f"Available: {', '.join(sorted(exportable))}"
+                )
+            return requested
+        if filter_mode == "visible":
+            visible = {a["name"] for a in attributes if a.get("visible", True)}
+            return visible | _SYSTEM_EXPORT_FIELDS
+        return exportable
 
 
 def describe_attribute_schema(entity_type: "str | None" = None) -> "List[Dict[str, Any]]":
