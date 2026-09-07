@@ -13,10 +13,15 @@ from typing import Any
 
 import yaml
 
+from application.attribute_definition_service import (
+    AttributeDefinitionNotFound,
+    AttributeDefinitionService,
+)
 from application.interview_multi_protocol import (
     _MULTI_PROTOCOL_FACTORY_DEFAULT,
     _MULTI_PROTOCOL_SLOT,
 )
+from application.prompt_template_versioning import get_active_template
 
 # All artifact types Spec 1 puts in scope (spec §1) -- everything except
 # MainGoal, which stays read-only (matches the MCP surface: only
@@ -152,25 +157,136 @@ INTERVIEW_PROTOCOL_DEFAULTS: "dict[str, str]" = {
 }
 
 
+#: Attribute type -> protocol field type. The protocol validator accepts only
+#: text/textarea/enum/number, so the richer attribute vocabulary is narrowed:
+#: multi-enum keeps its choices as a single-select, and the reference-shaped
+#: types degrade to free text rather than being dropped (the interview asks for
+#: them in prose and formalize() resolves them).
+_ATTRIBUTE_TO_PROTOCOL_TYPE = {
+    "text": "text",
+    "textarea": "textarea",
+    "number": "number",
+    "enum": "enum",
+    "multi-enum": "enum",
+    "boolean": "text",
+    "date": "text",
+    "reference": "text",
+    "user": "text",
+}
+
+
+def protocol_from_definition(
+    attributes: list[dict], artifact_type: str
+) -> ProtocolConfig:
+    """Derive an interview protocol from a resolved attribute definition.
+
+    Spec section 7: elicitation phases ARE the definition's sections, in the
+    definition's order; a phase's required fields are that section's
+    ``ai_elicit=true`` attributes. ``approval`` and ``formalization`` are
+    appended unchanged so the engine's phase machine is untouched.
+
+    Resolves audit finding L2.2 as a side effect: the hardcoded default only
+    ever elicited title + rationale for every type.
+
+    Raises:
+        ProtocolValidationError: the definition marks no attribute as
+            ``ai_elicit`` — an interview with nothing to ask is not usable, and
+            silently returning an empty protocol would strand the session.
+    """
+    by_section: dict[str, list[dict]] = {}
+    for attribute in attributes:
+        if attribute["type"] == "widget" or not attribute.get("ai_elicit"):
+            continue
+        by_section.setdefault(attribute["section"], []).append(attribute)
+
+    if not by_section:
+        raise ProtocolValidationError(
+            f"No attribute of artifact_type={artifact_type!r} is marked "
+            f"ai_elicit; nothing to interview for."
+        )
+
+    phases: list[ProtocolPhase] = []
+    for section, section_attributes in by_section.items():
+        fields = []
+        for attribute in section_attributes:
+            field_type = _ATTRIBUTE_TO_PROTOCOL_TYPE.get(attribute["type"], "text")
+            choices = (
+                [o["value"] for o in attribute["options"]]
+                if field_type == "enum"
+                else None
+            )
+            fields.append(
+                ProtocolField(name=attribute["name"], type=field_type, choices=choices)
+            )
+        phases.append(
+            ProtocolPhase(
+                name=section,
+                required_fields=fields,
+                prompt_fragment=(
+                    f"Elicit the {artifact_type}'s {section} attributes: "
+                    f"{', '.join(f.name for f in fields)}."
+                ),
+            )
+        )
+
+    phases.append(
+        ProtocolPhase(
+            name="approval",
+            required_fields=[],
+            prompt_fragment=f"Present the drafted {artifact_type} for approval.",
+        )
+    )
+    phases.append(
+        ProtocolPhase(
+            name="formalization", required_fields=[], prompt_fragment="Confirm and formalize."
+        )
+    )
+    return ProtocolConfig(phases=phases)
+
+
 def get_protocol(ctx, artifact_type: str, workspace_id) -> ProtocolConfig:
     """Resolve the effective protocol for *artifact_type* in *workspace_id*.
 
-    Delegates the workspace -> tenant-global -> factory-default chain to
-    ``application.prompt_resolver.try_resolve_template_content`` (spec §3.3),
-    then parses and validates the resolved YAML. ``try_``-flavoured because a
-    missing protocol must surface as :class:`ProtocolValidationError` with an
-    artifact-type-specific message, not as a generic slot error.
+    Resolution order (spec section 7):
+      1. an explicit ``interview.protocol.<ArtifactType>`` PromptTemplate row
+         (workspace, then tenant-global) — an admin who wrote a protocol by
+         hand keeps it;
+      2. the attribute definition's ``ai_elicit`` attributes;
+      3. the hardcoded factory default (``INTERVIEW_PROTOCOL_DEFAULTS``), for
+         a workspace with no definition yet, or an artifact_type outside the
+         registry.
 
-    Imported lazily: ``prompt_resolver`` imports ``prompt_slots``, which reads
-    this module's ``INTERVIEW_PROTOCOL_DEFAULTS`` — a module-level import here
-    would close that cycle at import time.
+    Tier 1 is queried directly via :func:`get_active_template` rather than
+    ``application.prompt_resolver.try_resolve_template_content``: that
+    resolver's own last-resort fallback IS ``INTERVIEW_PROTOCOL_DEFAULTS``
+    (via ``prompt_slots.get_slot_default``), so for every one of the 8
+    in-scope artifact types it never actually returns ``None`` — it would
+    always resolve to the hardcoded factory default before tier 2 got a
+    chance to run, permanently hiding the attribute-definition-derived
+    protocol behind the very fallback it is meant to replace. Querying the
+    two ``PromptTemplate`` scopes directly distinguishes "an admin wrote an
+    override" from "nothing configured, use the wider fallback chain".
     """
-    from application.prompt_resolver import try_resolve_template_content
-
     name = f"interview.protocol.{artifact_type}"
-    content = try_resolve_template_content(name, ctx, workspace_id)
-    if content is None:
+    row = None
+    if workspace_id is not None:
+        row = get_active_template(tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id)
+    if row is None:
+        row = get_active_template(tenant_id=ctx.tenant_id, name=name, workspace_id=None)
+    if row is not None:
+        return parse_protocol_yaml(row.content)
+
+    try:
+        attributes = AttributeDefinitionService().elicit_attributes(
+            ctx, artifact_type, workspace_id
+        )
+        return protocol_from_definition(attributes, artifact_type)
+    except (AttributeDefinitionNotFound, ProtocolValidationError):
+        pass
+
+    default_content = INTERVIEW_PROTOCOL_DEFAULTS.get(name)
+    if default_content is None:
         raise ProtocolValidationError(
             f"No interview protocol configured or defaulted for artifact_type={artifact_type!r}."
         )
-    return parse_protocol_yaml(content)
+    return parse_protocol_yaml(default_content)
