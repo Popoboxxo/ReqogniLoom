@@ -40,6 +40,7 @@ def test_key_builders_are_namespaced_and_workspace_scoped():
     assert ci.terminology_cache_key(WS_ID) == f"reqogniloom:terminology:{WS_ID}"
     assert ci.features_cache_key(WS_ID) == f"reqogniloom:features:{WS_ID}"
     assert ci.workflow_def_cache_key(WS_ID) == f"reqogniloom:workflow-def:{WS_ID}"
+    assert ci.attribute_def_cache_key(WS_ID) == f"reqogniloom:attribute-def:{WS_ID}"
 
 
 # ---------------------------------------------------------------------------
@@ -56,12 +57,21 @@ def test_key_builders_are_namespaced_and_workspace_scoped():
     }
 )
 def test_invalidate_deletes_all_shared_workspace_keys():
-    keys = [
+    # Sourced from the real key list rather than a hand-maintained copy: a
+    # separately hardcoded list stayed green after ``attribute_def_cache_key``
+    # was added to ``_workspace_keys`` but not to this test (Task 7 review
+    # I-5). The explicit set-equality check below additionally catches the
+    # opposite drift — a key silently dropped from ``_workspace_keys`` itself
+    # (verified live: commenting out ``attribute_def_cache_key`` there fails
+    # this assertion).
+    keys = ci._workspace_keys(WS_ID)
+    assert set(keys) == {
         ci.preset_cache_key(WS_ID),
         ci.terminology_cache_key(WS_ID),
         ci.features_cache_key(WS_ID),
         ci.workflow_def_cache_key(WS_ID),
-    ]
+        ci.attribute_def_cache_key(WS_ID),
+    }
     for key in keys:
         cache.set(key, "stale", timeout=300)
     # An unrelated workspace key must survive.

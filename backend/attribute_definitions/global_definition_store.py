@@ -134,15 +134,6 @@ class GlobalAttributeDefinitionStore:
     def _propagate(self, obj: GlobalAttributeDefinition) -> int:
         """Copy ``definition_json`` into every non-customized derived row.
 
-        ``tenant_id`` is filtered explicitly (not just implied by
-        ``source_global_id``): without it a workspace row belonging to a
-        different tenant than ``obj`` could be rewritten if it ever pointed
-        at this global row's id.
-
-        ``preset`` is part of the derived row's identity, so the filter narrows
-        on it too: a standard-preset edit must never rewrite a minimal-preset
-        workspace that happens to point at a stale ``source_global``.
-
         ``copy.deepcopy`` is load-bearing: without it every derived row would
         share one mutable dict with the global, so an in-place edit on one row
         would silently rewrite the tenant default and all of its siblings.
@@ -150,16 +141,39 @@ class GlobalAttributeDefinitionStore:
         The bulk ``.update()`` also bumps ``version``/``modified_at`` itself
         (it bypasses ``Model.save()``, so ``auto_now`` never fires and nothing
         else would bump the optimistic-lock counter for these rows).
+
+        The row filter comes from :meth:`_derived_row_filter`, shared with
+        :meth:`list_derived_workspace_ids`: both must describe the exact same
+        row set (the cache-invalidation targets have to match what actually
+        got rewritten), so the predicate lives in one place instead of two
+        copies that can silently drift (code review Task 7 I-1/I-3).
         """
         return WorkspaceAttributeDefinition.unscoped.filter(
-            tenant_id=obj.tenant_id,
-            source_global_id=obj.id,
-            preset=obj.preset,
-            is_customized=False,
+            **self._derived_row_filter(obj)
         ).update(
             definition_json=copy.deepcopy(obj.definition_json),
             version=F("version") + 1,
             modified_at=timezone.now(),
+        )
+
+    @staticmethod
+    def _derived_row_filter(obj: GlobalAttributeDefinition) -> dict[str, Any]:
+        """Filter kwargs for every non-customized workspace row derived from *obj*.
+
+        ``tenant_id`` is filtered explicitly (not just implied by
+        ``source_global_id``): without it a workspace row belonging to a
+        different tenant than ``obj`` could be matched if it ever pointed at
+        this global row's id.
+
+        ``preset`` is part of the derived row's identity, so the filter narrows
+        on it too: a standard-preset edit must never match a minimal-preset
+        workspace that happens to point at a stale ``source_global``.
+        """
+        return dict(
+            tenant_id=obj.tenant_id,
+            source_global_id=obj.id,
+            preset=obj.preset,
+            is_customized=False,
         )
 
     def list_derived_workspace_ids(
@@ -168,14 +182,14 @@ class GlobalAttributeDefinitionStore:
         """Workspace ids whose definition mirrors *obj* — the cache-drop targets.
 
         A bulk ``QuerySet.update()`` bypasses ``save()``/signals, so the shared
-        cache is not invalidated by the propagation itself; the service walks
-        this list explicitly (the same lesson as
+        cache is not invalidated by the propagation itself; callers walk this
+        list explicitly (the same lesson as
         ``GlobalWorkflowDefinitionStore._propagate``).
         """
         return [
             str(ws_id)
             for ws_id in WorkspaceAttributeDefinition.unscoped.filter(
-                source_global_id=obj.id, preset=obj.preset, is_customized=False
+                **self._derived_row_filter(obj)
             ).values_list("workspace_id", flat=True)
         ]
 

@@ -153,6 +153,30 @@ def test_propagation_never_touches_a_different_tenants_row(tenant, store) -> Non
 
 
 @pytest.mark.django_db
+def test_list_derived_workspace_ids_never_leaks_another_tenants_row(tenant, store) -> None:
+    """Regression for Task 7 review I-1: ``list_derived_workspace_ids`` used to
+    filter without ``tenant_id``, so a foreign-tenant row pointing at this
+    global row's id (however unlikely) would be listed as a cache-drop
+    target — a cross-tenant leak that ``_propagate`` was already guarded
+    against."""
+    other_tenant = Tenant.objects.create(name="other2", slug=f"o2-{uuid.uuid4().hex[:8]}")
+    g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    own = WorkspaceAttributeDefinition.unscoped.create(
+        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        preset="standard", definition_json={"attributes": []},
+        source_global_id=g.id, is_customized=False,
+    )
+    foreign = WorkspaceAttributeDefinition.unscoped.create(
+        tenant_id=other_tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        preset="standard", definition_json={"attributes": []},
+        source_global_id=g.id, is_customized=False,
+    )
+    ids = store.list_derived_workspace_ids(g)
+    assert ids == [str(own.workspace_id)]
+    assert str(foreign.workspace_id) not in ids
+
+
+@pytest.mark.django_db
 def test_propagation_bumps_version_and_modified_at(tenant, store) -> None:
     """Regression for I-3: propagation must not silently leave the derived
     row's optimistic-lock counter stale."""

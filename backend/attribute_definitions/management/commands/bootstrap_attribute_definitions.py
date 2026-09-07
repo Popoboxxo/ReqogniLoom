@@ -40,6 +40,7 @@ from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 from django.db import models, transaction
 
+from application.cache_invalidation import invalidate_workspace_caches
 from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
 from attribute_definitions.models import GlobalAttributeDefinition
 from attribute_definitions.schema import normalize_attribute
@@ -405,6 +406,12 @@ class Command(BaseCommand):
         default it mirrors (ledger binding (k), Task 6 review I-1). Calling
         ``store._propagate(row)`` directly after the save keeps the schema
         bypass (still needed) while closing the propagation gap.
+
+        ``_propagate()`` itself bulk-``update()``s workspace rows, which
+        bypasses ``save()``/signals and therefore the shared cache too —
+        without the explicit ``invalidate_workspace_caches`` loop below, a
+        warm worker keeps serving the pre-sync definition for every affected
+        workspace until it restarts (Task 7 review I-2).
         """
         stored = list((row.definition_json or {}).get("attributes", []))
         known = {a["name"] for a in stored}
@@ -423,4 +430,6 @@ class Command(BaseCommand):
         row.version = (row.version or 1) + 1
         row.save(update_fields=["definition_json", "version", "modified_at"])
         store._propagate(row)
+        for workspace_id in store.list_derived_workspace_ids(row):
+            invalidate_workspace_caches(workspace_id)
         return True

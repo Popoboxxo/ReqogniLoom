@@ -188,6 +188,39 @@ def test_sync_new_fields_propagates_to_non_customized_workspace_rows(tenant) -> 
 
 
 @pytest.mark.django_db
+def test_sync_new_fields_invalidates_the_cache_for_propagated_workspaces(
+    tenant, monkeypatch
+) -> None:
+    """Task 7 review I-2: ``_append_missing`` calls ``store._propagate()``
+    directly, a bulk ``QuerySet.update()`` that bypasses save()/signals and
+    therefore the shared cache. Without an explicit invalidation, a warm
+    worker keeps serving the pre-sync definition for the propagated
+    workspace."""
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Risk", preset="standard"
+    )
+    kept = [a for a in row.definition_json["attributes"] if a["name"] != "detection"]
+    row.definition_json = {"attributes": kept}
+    row.save(update_fields=["definition_json"])
+
+    ws_store = WorkspaceAttributeDefinitionStore()
+    ws_id = uuid.uuid4()
+    ws_store.resolve(tenant.id, ws_id, "Risk", "standard")
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "attribute_definitions.management.commands.bootstrap_attribute_definitions."
+        "invalidate_workspace_caches",
+        lambda workspace_id: calls.append(workspace_id),
+    )
+    call_command(
+        "bootstrap_attribute_definitions", "--tenant", str(tenant.id), "--sync-new-fields"
+    )
+    assert str(ws_id) in calls
+
+
+@pytest.mark.django_db
 def test_command_arms_and_clears_tenant_context(tenant, monkeypatch) -> None:
     """Ledger binding (l), Task 6 review I-2: regression for the tenant-arming
 
