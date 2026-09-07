@@ -194,6 +194,50 @@ def test_propagation_bumps_version_and_modified_at(tenant, store) -> None:
 
 
 @pytest.mark.django_db
+def test_concurrent_updates_do_not_lose_a_version_increment(tenant, store, monkeypatch) -> None:
+    """Ledger binding (j): two admins PUTting the same global default at once
+    must not lose one of the two version bumps.
+
+    Reproduces the interleaving without threads, the same technique as
+    ``test_main_goal_sequence_race_sa16.py``: writer B's call to
+    ``store.update()`` is made to internally read the row exactly as it stood
+    *before* writer A's commit — i.e. the object writer B would actually hold
+    in memory if the two requests overlapped. With the old
+    ``obj.version = (obj.version or 1) + 1`` read-modify-write, both writers
+    compute "1 + 1 = 2" from that stale copy and B's save silently clobbers
+    A's increment (final version 2, not 3). ``F("version") + 1`` bumps the
+    *column* atomically regardless of which in-memory copy issued the
+    ``UPDATE``, so both increments land.
+    """
+    obj = store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    assert obj.version == 1
+
+    # A pre-fetched, independent copy of the same row — what a second writer
+    # would be holding if it had read the row before the first writer's PUT.
+    from attribute_definitions.models import GlobalAttributeDefinition
+
+    stale_copy = GlobalAttributeDefinition.unscoped.get(pk=obj.pk)
+
+    real_get = store.get
+    calls = {"n": 0}
+
+    def _second_call_sees_the_stale_copy(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return stale_copy
+        return real_get(*args, **kwargs)
+
+    monkeypatch.setattr(store, "get", _second_call_sees_the_stale_copy)
+
+    store.update(tenant.id, "Risk", "standard", [dict(TITLE, required=True)])
+    store.update(tenant.id, "Risk", "standard", [dict(TITLE, order=9)])
+
+    assert calls["n"] == 2, "the get() interception never fired for writer B"
+    final = GlobalAttributeDefinition.unscoped.get(pk=obj.pk)
+    assert final.version == 3, "both concurrent increments must land, not just one"
+
+
+@pytest.mark.django_db
 def test_propagation_ignores_another_preset(tenant, store) -> None:
     g_std = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     g_min = store.initialize(tenant.id, "Risk", "minimal", [TITLE])

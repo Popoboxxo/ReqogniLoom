@@ -68,10 +68,28 @@ class AttributeDefinitionService(ServiceBase):
 
     @staticmethod
     def _workspace_preset(workspace_id: UUID) -> str:
-        """Resolve the workspace's rigor tier through the preset gate."""
+        """Resolve the workspace's rigor tier through the preset gate.
+
+        Raises:
+            AttributeDefinitionNotFound: *workspace_id* names no workspace at
+                all. ``presets.gate._resolve_workspace_tenant`` deliberately
+                lets ``Workspace.DoesNotExist`` propagate as a documented,
+                pre-existing contract ("callers must let this propagate") —
+                but ``resolve()`` below is reachable from a REST GET carrying
+                a raw, caller-supplied workspace id in the URL path (Task 10),
+                so this is the one call site that must translate it into the
+                error the view already maps to 404, instead of a 500. Same
+                trap as issue #398 (``BaselineViewSet`` / preset gate).
+        """
+        from persistence.models import Workspace
         from presets.services import get_preset
 
-        return get_preset(str(workspace_id)).preset
+        try:
+            return get_preset(str(workspace_id)).preset
+        except Workspace.DoesNotExist as exc:
+            raise AttributeDefinitionNotFound(
+                f"No workspace '{workspace_id}' in the active tenant"
+            ) from exc
 
     @staticmethod
     def _attributes(row: Any) -> list[dict[str, Any]]:

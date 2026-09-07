@@ -421,13 +421,15 @@ class Command(BaseCommand):
         stored.extend(additions)
         stored.sort(key=lambda a: (a["section"], a["order"], a["name"]))
         row.definition_json = {"attributes": stored}
-        # ponytail: deferred read-modify-write on the optimistic-lock counter,
-        # deliberately consistent with the other 3 sites in this codebase
-        # (global_definition_store.py, workspace_definition_store.py x2) —
-        # see ledger binding item (j): converted to F("version") + 1 in one
-        # cross-cutting sweep at Task 10, when expected_version becomes
-        # load-bearing. Not fixed here on purpose.
-        row.version = (row.version or 1) + 1
+        # Ledger binding (j), closed at Task 10: F("version") + 1 instead of a
+        # read-modify-write, consistent with the other 3 sites in this
+        # codebase (global_definition_store.py, workspace_definition_store.py
+        # x2). No refresh_from_db here — unlike those 3 sites, nothing in this
+        # function (or its caller) reads ``row.version`` again afterwards;
+        # ``store._propagate(row)`` below only reads ``row.definition_json``
+        # and ``row.id``/``row.tenant_id``/``row.preset``, none of which are
+        # affected by the F() expression left on ``row.version`` in memory.
+        row.version = models.F("version") + 1
         row.save(update_fields=["definition_json", "version", "modified_at"])
         store._propagate(row)
         for workspace_id in store.list_derived_workspace_ids(row):

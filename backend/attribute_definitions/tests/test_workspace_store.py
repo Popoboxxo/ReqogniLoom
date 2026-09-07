@@ -104,6 +104,39 @@ def test_update_of_an_unresolved_workspace_raises_not_found(tenant, stores) -> N
 
 
 @pytest.mark.django_db
+def test_concurrent_updates_do_not_lose_a_version_increment(tenant, stores, monkeypatch) -> None:
+    """Ledger binding (j): same race as
+    ``test_global_store.py::test_concurrent_updates_do_not_lose_a_version_increment``,
+    for the workspace store's ``update()``. See that test's docstring for the
+    interleaving this reproduces."""
+    g_store, ws_store = stores
+    g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    ws = uuid.uuid4()
+    obj = ws_store.resolve(tenant.id, ws, "Risk", "standard")
+    assert obj.version == 1
+
+    stale_copy = WorkspaceAttributeDefinition.unscoped.get(pk=obj.pk)
+
+    real_get = ws_store.get
+    calls = {"n": 0}
+
+    def _second_call_sees_the_stale_copy(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return stale_copy
+        return real_get(*args, **kwargs)
+
+    monkeypatch.setattr(ws_store, "get", _second_call_sees_the_stale_copy)
+
+    ws_store.update(tenant.id, ws, "Risk", [dict(TITLE, required=True)])
+    ws_store.update(tenant.id, ws, "Risk", [TITLE, NOTE])
+
+    assert calls["n"] == 2, "the get() interception never fired for writer B"
+    final = WorkspaceAttributeDefinition.unscoped.get(pk=obj.pk)
+    assert final.version == 3, "both concurrent increments must land, not just one"
+
+
+@pytest.mark.django_db
 def test_reset_restores_the_global_and_clears_is_customized(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])

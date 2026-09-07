@@ -102,6 +102,12 @@ from rest_api.settings_views import (
     PromptTemplateView,
     ReviewPolicyView,
 )
+from rest_api.attribute_definition_views import (
+    AttributeDefaultsDetailView,
+    AttributeDefaultsListView,
+    WorkspaceAttributeDefinitionResetView,
+    WorkspaceAttributeDefinitionView,
+)
 from rest_api.global_default_views import (
     EnforcementFlipView,
     EnforcementStatusView,
@@ -485,6 +491,30 @@ urlpatterns = [
         "memory/me/",
         MemorySelfServiceView.as_view(),
         name="memory-self-service",
+    ),
+    # -- Attribute definitions (spec section 5) — tenant-wide global defaults
+    # plus per-workspace materialized overrides. The reset route precedes the
+    # detail route so the two stay visually adjacent (they do not actually
+    # compete: different path depth).
+    path(
+        "attribute-defaults/",
+        AttributeDefaultsListView.as_view(),
+        name="attribute-defaults-list",
+    ),
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/",
+        AttributeDefaultsDetailView.as_view(),
+        name="attribute-defaults-detail",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/reset/",
+        WorkspaceAttributeDefinitionResetView.as_view(),
+        name="workspace-attribute-definition-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/",
+        WorkspaceAttributeDefinitionView.as_view(),
+        name="workspace-attribute-definition",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.

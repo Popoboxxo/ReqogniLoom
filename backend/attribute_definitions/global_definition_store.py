@@ -124,8 +124,18 @@ class GlobalAttributeDefinitionStore:
 
         with transaction.atomic():
             obj.definition_json = payload
-            obj.version = (obj.version or 1) + 1
+            # Ledger binding (j): bump the optimistic-lock counter with an
+            # atomic F() expression, not a read-modify-write on the in-memory
+            # value — two concurrent PUTs (Task 10 wires the REST layer that
+            # makes this reachable from two clients at once) would otherwise
+            # both compute the same "old + 1" and one increment is lost.
+            # ``refresh_from_db`` is load-bearing: without it ``obj.version``
+            # stays the unresolved ``F()`` expression object, and every
+            # caller of ``update()`` reads ``row.version`` off the returned
+            # object (``_global_payload`` on the REST response).
+            obj.version = F("version") + 1
             obj.save(update_fields=["definition_json", "version", "modified_at"])
+            obj.refresh_from_db(fields=["version"])
             propagated = self._propagate(obj)
         return obj, propagated
 

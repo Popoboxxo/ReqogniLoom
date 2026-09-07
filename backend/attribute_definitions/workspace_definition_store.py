@@ -18,6 +18,8 @@ import copy
 from typing import Any
 from uuid import UUID
 
+from django.db.models import F
+
 from .global_definition_store import (
     AttributeDefinitionNotFound,
     GlobalAttributeDefinitionStore,
@@ -106,10 +108,16 @@ class WorkspaceAttributeDefinitionStore:
 
         obj.definition_json = payload
         obj.is_customized = True
-        obj.version = (obj.version or 1) + 1
+        # Ledger binding (j): F() expression, not a read-modify-write — see
+        # global_definition_store.update() for the concurrent-writer race this
+        # avoids. refresh_from_db is load-bearing: the caller (the REST PUT
+        # response, via AttributeDefinitionService._workspace_payload) reads
+        # obj.version right after this call.
+        obj.version = F("version") + 1
         obj.save(
             update_fields=["definition_json", "is_customized", "version", "modified_at"]
         )
+        obj.refresh_from_db(fields=["version"])
         return obj
 
     def reset(
@@ -136,10 +144,13 @@ class WorkspaceAttributeDefinitionStore:
             )
         obj.definition_json = copy.deepcopy(source.definition_json)
         obj.is_customized = False
-        obj.version = (obj.version or 1) + 1
+        # Ledger binding (j): see update() above for why this is F(), not
+        # read-modify-write, and why refresh_from_db follows it.
+        obj.version = F("version") + 1
         obj.save(
             update_fields=["definition_json", "is_customized", "version", "modified_at"]
         )
+        obj.refresh_from_db(fields=["version"])
         return obj
 
     # ---------- Preset downgrade probe ----------
