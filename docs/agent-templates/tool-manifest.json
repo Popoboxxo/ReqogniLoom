@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 170,
+  "tool_count": 174,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -779,6 +779,106 @@
         },
         "required": [
           "query"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.get",
+      "prefix": "attribute_definition",
+      "is_write": false,
+      "description": "Resolved attribute definition for a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.list",
+      "prefix": "attribute_definition",
+      "is_write": false,
+      "description": "List the tenant-wide global attribute defaults (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_definition.reset",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Reset a workspace definition to the global default (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.update",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Replace a workspace's attribute definition (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Full replacement attribute list."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id",
+          "attributes"
         ]
       }
     },

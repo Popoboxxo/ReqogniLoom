@@ -286,6 +286,9 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   workspaces the caller holds a role in: the handler now passes
 #:   ``scope="tenant"`` when no ``workspace_id`` is given, which routes through
 #:   ``AuthorizationService.accessible_workspace_ids()``.
+#: * ``attribute_definition.list`` — the tenant-wide global defaults are
+#:   per (item_type, preset), not per workspace; there is no workspace to
+#:   scope to. The handler is admin-gated in the service.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -301,6 +304,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "prompt_variable.get",
         "prompt_variable.list",
         "artifact.search",
+        "attribute_definition.list",
     }
 )
 

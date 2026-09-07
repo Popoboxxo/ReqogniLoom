@@ -330,8 +330,13 @@ class AttributeDefinitionService(ServiceBase):
     ) -> None:
         """Validate a create/update payload against the resolved definition.
 
-        Called by every artifact create/update serializer and by the bulk
-        endpoints. ``existing is None`` means create (all required attributes
+        Wired live into the 9 workflow-backed REST ViewSets via
+        ``WorkflowTransitionsMixin`` (Task 11). NOT yet called by the MCP
+        artifact-write tools or by the CSV bulk importer — those paths still
+        bypass this gate (tracked in the SDD ledger, tracker item I-2;
+        `attribute_definition.py`'s own MCP tool group only manages
+        definitions, it does not validate other artifacts' writes).
+        ``existing is None`` means create (all required attributes
         are demanded); otherwise only the fields the request carries are
         checked, so a save that never touches a required field is not blocked.
 
