@@ -169,22 +169,60 @@ describe("ArtifactForm widget registry", () => {
           widget_key: "steps_editor",
           fields: ["steps_data"],
         })}
-        values={{ steps_data: ["first"] }}
+        values={{ steps_data: [{ step: "first", expected_result: "ok" }] }}
         onChange={onChange}
         disabled={false}
         testId="artifact-widget-steps"
       />
     );
     fireEvent.click(screen.getByTestId("artifact-widget-steps-add"));
-    expect(onChange).toHaveBeenCalledWith("steps_data", ["first", ""]);
-
-    fireEvent.change(screen.getByTestId("artifact-widget-steps-step-0"), {
-      target: { value: "edited" },
-    });
-    expect(onChange).toHaveBeenCalledWith("steps_data", ["edited"]);
+    expect(onChange).toHaveBeenCalledWith("steps_data", [
+      { step: "first", expected_result: "ok" },
+      { step: "", expected_result: "" },
+    ]);
 
     fireEvent.click(screen.getByTestId("artifact-widget-steps-remove-0"));
     expect(onChange).toHaveBeenCalledWith("steps_data", []);
+  });
+
+  it("round-trips both step and expected_result independently (C-1 regression)", () => {
+    // Guards against the fixed CRITICAL bug: the widget used to treat the
+    // bound value as `string[]`, rendering every dict entry as the literal
+    // text "[object Object]" and writing back a `string[]` the backend
+    // rejects with a 400 (DRF `ListField(child=DictField())`).
+    const onChange = vi.fn();
+    const Widget = WIDGET_REGISTRY.steps_editor;
+    render(
+      <Widget
+        attribute={widgetSpec({
+          name: "steps",
+          widget_key: "steps_editor",
+          fields: ["steps_data"],
+        })}
+        values={{ steps_data: [{ step: "open the app", expected_result: "app loads" }] }}
+        onChange={onChange}
+        disabled={false}
+        testId="artifact-widget-steps"
+      />
+    );
+
+    // Renders as two real inputs, not "[object Object]".
+    expect(screen.getByTestId("artifact-widget-steps-step-0")).toHaveValue("open the app");
+    expect(screen.getByTestId("artifact-widget-steps-expected-0")).toHaveValue("app loads");
+
+    fireEvent.change(screen.getByTestId("artifact-widget-steps-step-0"), {
+      target: { value: "open the app v2" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith("steps_data", [
+      { step: "open the app v2", expected_result: "app loads" },
+    ]);
+
+    fireEvent.change(screen.getByTestId("artifact-widget-steps-expected-0"), {
+      target: { value: "app loads within 2s" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith("steps_data", [
+      { step: "open the app", expected_result: "app loads within 2s" },
+    ]);
   });
 
   it("tolerates a non-array steps value", () => {
@@ -203,5 +241,28 @@ describe("ArtifactForm widget registry", () => {
       />
     );
     expect(screen.queryAllByTestId(/artifact-widget-steps-step-/)).toHaveLength(0);
+  });
+
+  it("degrades a legacy string[]/malformed entry to {step, expected_result: ''} instead of crashing", () => {
+    const Widget = WIDGET_REGISTRY.steps_editor;
+    render(
+      <Widget
+        attribute={widgetSpec({
+          name: "steps",
+          widget_key: "steps_editor",
+          fields: ["steps_data"],
+        })}
+        values={{ steps_data: ["legacy plain string", 42, { step: "ok", expected_result: "fine" }] }}
+        onChange={vi.fn()}
+        disabled={false}
+        testId="artifact-widget-steps"
+      />
+    );
+    expect(screen.getByTestId("artifact-widget-steps-step-0")).toHaveValue("legacy plain string");
+    expect(screen.getByTestId("artifact-widget-steps-expected-0")).toHaveValue("");
+    expect(screen.getByTestId("artifact-widget-steps-step-1")).toHaveValue("42");
+    expect(screen.getByTestId("artifact-widget-steps-expected-1")).toHaveValue("");
+    expect(screen.getByTestId("artifact-widget-steps-step-2")).toHaveValue("ok");
+    expect(screen.getByTestId("artifact-widget-steps-expected-2")).toHaveValue("fine");
   });
 });
