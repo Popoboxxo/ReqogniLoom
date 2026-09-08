@@ -5,12 +5,22 @@
  * req_id:  REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
  *          REQ-L2-RF-034 (ArtifactInspector RightSidebar shell)
  *
- * Layout: SplitView (left = NeedList, right = NeedForm). When a detail
- * is selected, the right pane becomes a flex container that hosts both
- * the editor and the ArtifactInspector (Version / Diff / Trace). The
+ * Layout: SplitView (left = NeedList, right = NeedArtifactForm). When a
+ * detail is selected, the right pane becomes a flex container that hosts
+ * both the editor and the ArtifactInspector (Version / Diff / Trace). The
  * inspector is hidden when the user is browsing the list (no detail).
+ *
+ * Task 23 (rollout wave 2c): migrated the editor itself onto the
+ * definition-driven `NeedArtifactForm` (`ArtifactForm`, spec section 6.2).
+ * `DeriveRequirementsPanel`/`TraceLinkPanel`/the manual-derive form are not
+ * attributes and now live here as siblings of the form (scope boundary
+ * shared with the ADR/ArchitectureElement waves) — moved up verbatim from
+ * the deleted `NeedForm.tsx`, which owned them before. `attributeVisibility`
+ * (the legacy `AttributeVisibilityConfig` prop chain) is dropped entirely:
+ * `NeedForm` was its only consumer, and field visibility now comes from the
+ * resolved attribute definition like every other migrated type.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
@@ -18,16 +28,26 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { NeedList } from './NeedList';
-import { NeedForm } from './NeedForm';
+import { NeedArtifactForm } from './NeedArtifactForm';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
+import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { DeriveRequirementsPanel } from './DeriveRequirementsPanel';
+import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { useEntityReset } from '../../hooks/use-entity-reset';
+import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useNeedData } from './useNeedData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
-import { attributeVisibilityApi } from '../../api';
+import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
+import { requirementsApi } from '../../api/requirements';
+import { architectureApi } from '../../api/architecture';
+import { tracelinksApi } from '../../api/tracelinks';
+import type { ArchitectureElement, Requirement } from '../../types';
 
 export default function NeedsEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -46,36 +66,176 @@ export default function NeedsEditors(): JSX.Element {
   const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Systemaudit 2026-08-27 UI-06: does the currently-open NeedForm have
-  // unsaved local edits? Reported by the form itself via onDirtyChange.
+  // Systemaudit 2026-08-27 UI-06: does the currently-open form have unsaved
+  // local edits? Reported by NeedArtifactForm via onDirtyChange.
   // `pendingSelectId` holds a tree-node click that arrived while dirty, so
   // it can be confirmed or discarded instead of silently overwriting the
   // open edit — mirrors RequirementEditors' issue #672 handling.
-  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
 
-  const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
-    moscow_priority: true,
+  // R-1 (Task 23 fix round): custom_fields is a free-form JSON blob the
+  // definition-driven NeedArtifactForm cannot render (no `kind: "extended"`
+  // attribute exists for StakeholderNeed), so the CustomFieldsEditor lives
+  // here as a sibling — same scope boundary as DeriveRequirementsPanel/
+  // TraceLinkPanel below. Reset on need switch, not on every refetch of the
+  // same need (useEntityReset), matching changeReason's own reset in
+  // NeedArtifactForm.
+  const [customFieldsDraft, setCustomFieldsDraft] = useState<Record<string, unknown>>({});
+  // N-1 (Task 23 fix round 3): customFieldsDraft must feed the same dirty
+  // gate `formDirty` does, or editing only a custom field and switching to
+  // another need silently discards the edit with no unsaved-changes dialog
+  // — the CustomFieldsEditor is a sibling of NeedArtifactForm, not wired
+  // into its own useFormDirty/onDirtyChange at all. Value-diff against
+  // need.custom_fields (not a non-empty check), same primitive S-2 already
+  // uses inside NeedArtifactForm for changeReason.
+  const { isDirty: customFieldsDirty, markClean: markCustomFieldsClean } = useFormDirty(
+    customFieldsDraft,
+    need?.custom_fields ?? {},
+  );
+  const isFormDirty = formDirty || customFieldsDirty;
+  useEntityReset(need?.id ?? '__none__', () => {
+    const baseline = need?.custom_fields ?? {};
+    setCustomFieldsDraft(baseline);
+    markCustomFieldsClean(baseline);
   });
 
-  React.useEffect(() => {
-    let isMounted = true;
-    attributeVisibilityApi.list()
-      .then((data) => {
-        if (!isMounted) return;
-        const vMap: Record<string, boolean> = {};
-        data.filter(cfg => cfg.entity_type === 'stakeholder_need').forEach(cfg => {
-          vMap[cfg.attribute_name] = cfg.is_visible;
+  // Manual "Ableiten": create a Requirement derived from this need, with an
+  // optional architecture allocation (SE: Req --derives-from--> Need,
+  // Req --allocated-to--> ArchitectureElement). Moved up from the deleted
+  // NeedForm.tsx (Task 23) — not an attribute, stays a sibling of the form.
+  const [showDeriveForm, setShowDeriveForm] = useState(false);
+  const [deriveTitle, setDeriveTitle] = useState('');
+  const [deriveArchId, setDeriveArchId] = useState('');
+  const [isManualDeriving, setIsManualDeriving] = useState(false);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
+  const [archElements, setArchElements] = useState<ArchitectureElement[]>([]);
+
+  // AI-assisted derive (REQ-L2-AI-001/002) — draft/accept flow, also moved
+  // up from NeedForm.tsx.
+  const [isDeriving, setIsDeriving] = useState(false);
+  const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
+  const [derivationIsError, setDerivationIsError] = useState(false);
+  const [derivedDrafts, setDerivedDrafts] = useState<DerivedRequirementDraft[] | null>(null);
+
+  useEffect(() => {
+    if (!showDeriveForm || !need) return;
+    let cancelled = false;
+    architectureApi
+      .listAll(need.workspace_id)
+      .then((els) => { if (!cancelled) setArchElements(els); })
+      .catch(() => { if (!cancelled) setArchElements([]); });
+    return () => { cancelled = true; };
+  }, [showDeriveForm, need]);
+
+  const handleManualDerive = async () => {
+    if (!need) return;
+    if (!deriveTitle.trim()) {
+      setDeriveError(t('traceability.deriveTitleRequired'));
+      return;
+    }
+    setIsManualDeriving(true);
+    setDeriveError(null);
+    // UI-33 (Systemaudit 2026-08-27 AP-5): this is three independent REST
+    // calls (create Requirement, create 'derives-from' link, optionally
+    // create 'allocated-to' link), not one DB transaction — a failure on
+    // either link call used to leave `created` as an orphaned Requirement
+    // (persisted, but never linked back to the Need) while the user only
+    // saw a generic "derive failed" message with no indication anything had
+    // been written at all.
+    let created: Requirement | null = null;
+    try {
+      created = await requirementsApi.create({
+        workspace_id: need.workspace_id,
+        title: deriveTitle.trim(),
+      });
+      await tracelinksApi.create({
+        source_id: created.id,
+        target_id: need.artifact_id,
+        link_type: 'derives-from',
+      });
+      if (deriveArchId) {
+        await tracelinksApi.create({
+          source_id: created.id,
+          target_id: deriveArchId,
+          link_type: 'allocated-to',
         });
-        if (!('moscow_priority' in vMap)) vMap['moscow_priority'] = true;
-        setAttributeVisibility(vMap);
-      })
-      // An empty config set is a valid, expected state (no seed data by
-      // design); only genuine HTTP/network failures reach here — log them as a
-      // warning, not an error (REQ-136).
-      .catch(err => console.warn('Could not load attribute configs; using defaults', err));
-    return () => { isMounted = false; };
-  }, []);
+      }
+      setShowDeriveForm(false);
+      setDeriveTitle('');
+      setDeriveArchId('');
+      refresh();
+      navigate(`/requirements/${created.id}`);
+    } catch (err) {
+      console.error(err);
+      const apiErr = err as { error?: { message?: string } };
+      const baseMessage = apiErr?.error?.message ?? t('needs.deriveFailed');
+      if (created) {
+        // Best-effort compensating action: soft-delete the orphan instead
+        // of leaving it silently in the working set, and tell the user
+        // explicitly whether that cleanup succeeded — never just "derive
+        // failed" once something was actually persisted.
+        try {
+          await requirementsApi.delete(created.id);
+          setDeriveError(
+            t('needs.deriveRolledBack', {
+              message: baseMessage,
+              defaultValue: `${baseMessage} The already-created requirement was rolled back (archived).`,
+            }),
+          );
+        } catch (rollbackErr) {
+          console.error(rollbackErr);
+          setDeriveError(
+            t('needs.derivePartialFailure', {
+              message: baseMessage,
+              id: created.id,
+              defaultValue: `${baseMessage} Warning: a requirement was already created, but linking it to the need failed and the automatic rollback failed too. Please check manually (requirement id: ${created.id}).`,
+            }),
+          );
+        }
+      } else {
+        setDeriveError(baseMessage);
+      }
+    } finally {
+      setIsManualDeriving(false);
+    }
+  };
+
+  const handleDerive = async () => {
+    if (!need) return;
+    setIsDeriving(true);
+    setDerivationIsError(false);
+    setDerivationStatus(t('needs.deriveStarting'));
+    setDerivedDrafts(null);
+    try {
+      const res = await stakeholderNeedApi.deriveRequirements(need.id);
+      const drafts = res.drafts ?? [];
+      if (drafts.length === 0) {
+        setDerivationStatus(t('needs.deriveEmpty'));
+        return;
+      }
+      setDerivedDrafts(drafts);
+      setDerivationStatus(null);
+    } catch (err) {
+      console.error(err);
+      const apiErr = err as { error?: { message?: string } };
+      setDerivationIsError(true);
+      setDerivationStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
+    } finally {
+      setIsDeriving(false);
+    }
+  };
+
+  const handleDraftsAccepted = (count: number) => {
+    setDerivedDrafts(null);
+    setDerivationIsError(false);
+    setDerivationStatus(t('needs.deriveCreated', { count }));
+    // Task 23: NeedForm previously wired this to an `onNeedsChanged` prop
+    // that no call site ever passed a value for (dead — `refresh()` never
+    // actually ran after an accepted derive). Now that this handler lives
+    // directly in NeedsEditors, it can call the real local `refresh`.
+    refresh();
+  };
 
   const handleCreateNew = async () => {
     // Guard against firing a create with the placeholder DEFAULT_WORKSPACE id
@@ -130,6 +290,14 @@ export default function NeedsEditors(): JSX.Element {
   }, [needs, t]);
 
   const handleSaved = () => {
+    // F-2 (Task 23 fix round 4): a save that touched customFieldsDraft left
+    // customFieldsDirty stuck `true` forever — markCustomFieldsClean was only
+    // ever called from useEntityReset/confirmPendingSelect, never after a
+    // successful save, so the very next need-switch showed a false
+    // unsaved-changes dialog. Re-anchor the baseline to the just-saved
+    // draft, mirroring how NeedArtifactForm's own formDirty/changeReason
+    // halves already clear on save.
+    markCustomFieldsClean(customFieldsDraft);
     refresh();
   };
 
@@ -142,7 +310,7 @@ export default function NeedsEditors(): JSX.Element {
    * Systemaudit 2026-08-27 UI-06: mirrors RequirementEditors'
    * `selectRequirement` (issue #672) — a tree-row click used to call
    * `navigate()` directly, which swaps the URL (and therefore the `need`
-   * prop the open NeedForm is bound to) immediately, discarding any unsaved
+   * prop the open form is bound to) immediately, discarding any unsaved
    * edit with no warning. Unsaved edits now gate the navigation behind a
    * confirmation instead.
    */
@@ -161,9 +329,13 @@ export default function NeedsEditors(): JSX.Element {
     if (!pendingSelectId) return;
     const target = pendingSelectId;
     setPendingSelectId(null);
-    setIsFormDirty(false);
+    setFormDirty(false);
+    // Discarding: re-anchor the custom-fields baseline to whatever is
+    // currently drafted so isFormDirty drops immediately, not just once the
+    // target need's own useEntityReset callback fires after navigation.
+    markCustomFieldsClean(customFieldsDraft);
     navigate(`/needs/${target}`);
-  }, [pendingSelectId, navigate]);
+  }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
 
   // Trace spine (Task 3.3 — UI concept ch. 5).
   const derivationChain = useDerivationChain(
@@ -281,17 +453,92 @@ export default function NeedsEditors(): JSX.Element {
                 isOpenable={derivationChain.isOpenable}
               />
             )}
-            <NeedForm
-              need={need}
-              onSaved={handleSaved}
-              onDeleted={handleDeleted}
-              attributeVisibility={attributeVisibility}
-              onDirtyChange={setIsFormDirty}
-            />
+            {need ? (
+              <>
+                <NeedArtifactForm
+                  need={need}
+                  onSaved={handleSaved}
+                  onDeleted={handleDeleted}
+                  onDirtyChange={setFormDirty}
+                  customFields={customFieldsDraft}
+                />
+                {/* R-1: sibling of the definition-driven form, not inside it
+                    — see NeedArtifactForm's docstring for why. */}
+                <div style={{ marginTop: 'var(--space-4)' }}>
+                  <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+                    {t('customFields.section')}
+                  </h3>
+                  <CustomFieldsEditor
+                    key={need.id}
+                    value={need.custom_fields}
+                    onChange={setCustomFieldsDraft}
+                  />
+                </div>
+              </>
+            ) : (
+              <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                {t('needs.selectNeed')}
+              </p>
+            )}
+
+            {need && (
+              <TraceLinkPanel
+                workspaceId={need.workspace_id}
+                artifactId={need.artifact_id}
+                onDerive={handleDerive}
+                isDeriving={isDeriving}
+              />
+            )}
+            {derivationStatus && (
+              <div
+                role={derivationIsError ? 'alert' : 'status'}
+                data-testid="need-derive-status"
+                style={{
+                  marginTop: 'var(--space-2)',
+                  fontSize: 'var(--font-size-sm)',
+                  color: derivationIsError ? 'var(--color-danger)' : 'var(--color-text)',
+                }}
+              >
+                {derivationStatus}
+              </div>
+            )}
+            {need && derivedDrafts && (
+              <div style={{ marginTop: 'var(--space-3)' }}>
+                <DeriveRequirementsPanel
+                  workspaceId={need.workspace_id}
+                  needArtifactId={need.artifact_id}
+                  drafts={derivedDrafts}
+                  onAccepted={handleDraftsAccepted}
+                  onDiscard={() => setDerivedDrafts(null)}
+                />
+              </div>
+            )}
+
+            {/* Manual derive: Requirement from this need + optional
+                architecture allocation — same flow as in the requirements
+                mask. */}
+            {need && (
+              <div style={{ marginTop: 'var(--space-4)' }}>
+                <DeriveRequirementForm
+                  isOpen={showDeriveForm}
+                  onOpen={() => setShowDeriveForm(true)}
+                  onCancel={() => { setShowDeriveForm(false); setDeriveError(null); }}
+                  onSubmit={(e) => { e.preventDefault(); void handleManualDerive(); }}
+                  title={deriveTitle}
+                  onTitleChange={setDeriveTitle}
+                  architectureElements={archElements}
+                  architectureElementId={deriveArchId}
+                  onArchitectureElementChange={setDeriveArchId}
+                  isSubmitting={isManualDeriving}
+                  error={deriveError}
+                  testIdPrefix="need"
+                />
+              </div>
+            )}
           </div>
           {/* ArtifactInspector — REQ-L1-095, REQ-L2-RF-034 (detail only).
-              hideTraceLinks: the <TraceSpine> above now owns trace-link
-              display (Task 3.3). */}
+              hideTraceLinks: <TraceLinkPanel> above owns trace-link CRUD
+              (Task 3.3). */}
           {need && (() => {
             const needCurrentVersion: VersionRef = {
               version: need.version,
