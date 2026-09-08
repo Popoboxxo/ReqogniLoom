@@ -345,12 +345,12 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-004: Architecture-Detail öffnen → element_type-Select mit 5 Optionen', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture/${fix.architectureIds['WK-CTRL']}`);
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue(/Steuerungs-Platine/);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Steuerungs-Platine/);
 
     // REQ-006/D5: element_type ist ein Freitext-Input mit Autocomplete-
     // Vorschlägen, kein festes <select> mit 5 Optionen mehr.
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 6000 });
     await typeInput.fill('Module');
     await expect(typeInput).toHaveValue('Module');

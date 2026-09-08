@@ -112,21 +112,22 @@ export async function createArchitectureElementViaUI(
   if (!match) throw new Error(`expected /architecture/:id URL, got: ${url}`);
   const id = match[1];
 
-  await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
   if (parentId) {
     // "Add Child" creates the element with a default title — set the real one.
-    await page.locator('[data-testid="arch-title"]').fill(data.title);
+    await page.locator('[data-testid="artifact-field-title"]').fill(data.title);
   }
-  // REQ-006/D5: arch-element-type-select is a free-text autocomplete input,
-  // not a <select>, since backend element types are workspace-defined.
-  await page.locator('[data-testid="arch-element-type-select"]').fill(data.elementType);
+  // REQ-006/D5: artifact-field-element_type is a free-text input, not a
+  // <select>, since backend element types are workspace-defined (Task 24:
+  // no longer has autocomplete suggestions after the ArtifactForm migration).
+  await page.locator('[data-testid="artifact-field-element_type"]').fill(data.elementType);
   if (data.description) {
     const descArea = page.locator('textarea').first();
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
     }
   }
-  await page.locator('[data-testid="arch-save-btn"]').click();
+  await page.locator('[data-testid="artifact-form-save"]').click();
   await page.waitForLoadState('networkidle');
   return id;
 }
@@ -165,7 +166,7 @@ export async function createArchTraceLinkViaUI(
   linkType: string
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/architecture/${sourceArchId}`);
-  await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 12000 });
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
   const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   // The architecture side uses the unified CreateTraceLinkDialog (REQ-005),

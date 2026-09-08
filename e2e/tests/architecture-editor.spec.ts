@@ -5,13 +5,14 @@ import { loginAsAdmin, getAuthToken, setWorkspaceId, createIsolatedWorkspace } f
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form (title input + Create/Cancel,
-// Create disabled until a title is entered); the full editor (arch-title etc.)
-// only renders after Create navigates to the created element's detail route.
+// Create disabled until a title is entered); the full editor
+// (artifact-field-title etc., ArchitectureArtifactForm since Task 24) only
+// renders after Create navigates to the created element's detail route.
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 test.describe('[COMP-RF-004] ArchitectureEditors', () => {
@@ -28,21 +29,23 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    // REQ-006/D5: element type is now a free-text input with autocomplete
-    // suggestions (types can be extended freely), not a fixed <select>.
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    // REQ-006/D5: element type is a free-text input (types can be extended
+    // freely), not a fixed <select>. Task 24: the standalone autocomplete
+    // dropdown the old hand-written form had is gone — ArtifactForm's plain
+    // TextField renders it, still free text, no suggestion list.
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible();
     await typeInput.fill('Interface');
     await expect(typeInput).toHaveValue('Interface');
 
     // Delete button is visible
-    const deleteBtn = page.locator('[data-testid="arch-delete-btn"]');
+    const deleteBtn = page.locator('[data-testid="artifact-form-delete"]');
     await expect(deleteBtn).toBeVisible();
 
     // Clicking delete must show the confirmation dialog
     await deleteBtn.click();
     await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 4000 });
-    await expect(page.locator('[data-testid="confirm-delete-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="artifact-form-delete-confirm"]')).toBeVisible();
 
     // Cancel the dialog so we don't leave dangling state
     await page.locator('[role="dialog"] button', { hasText: /cancel|abbrechen/i }).click();

@@ -14,6 +14,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+// Task 24: ArchitectureArtifactForm's FieldShell reads `i18n.language`
+// directly (`helpText()`, FieldShell.tsx) — without the real i18next
+// singleton initialised, `language` is `undefined` and `.startsWith()`
+// throws. Same import ArchitectureEditors.test.tsx already relies on.
+import "../i18n/index";
 
 vi.mock("../api/client", async (importActual) => ({
   ...(await importActual<typeof import("../api/client")>()),
@@ -110,6 +115,29 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
+// Task 24: ArchitectureEditors now renders ArchitectureArtifactForm, which
+// resolves its field set from the attribute-definition API — see the
+// identical mock/rationale in ArchitectureEditors.test.tsx.
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: {
+    getWorkspace: vi.fn().mockResolvedValue({
+      item_type: "ArchitectureElement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        {
+          name: "title", kind: "core", type: "text", widget_key: null, fields: [],
+          options: [], required: true, visible: true, locked: false, editable: true,
+          section: "general", order: 1, label: { de: "", en: "" },
+          help_text: { de: "", en: "" }, default: null, validation: {},
+          ai_elicit: false, export: true, audience: "basic",
+        },
+      ],
+    }),
+  },
+}));
+
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { AuthProvider } from "../context/AuthContext";
@@ -162,11 +190,11 @@ describe("ArchitectureEditors — unsaved-changes confirmation before tree navig
     const user = userEvent.setup();
     renderEditor(ELEMENT_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element A"));
 
-    await user.clear(screen.getByTestId("arch-title"));
-    await user.type(screen.getByTestId("arch-title"), "Unsaved edit");
-    expect(screen.getByTestId("arch-title")).toHaveValue("Unsaved edit");
+    await user.clear(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
 
     await user.click(screen.getByTestId(`arch-tree-node-${ELEMENT_B.id}`));
 
@@ -175,24 +203,24 @@ describe("ArchitectureEditors — unsaved-changes confirmation before tree navig
 
     await user.click(screen.getByTestId("arch-unsaved-changes-dialog-cancel"));
     expect(screen.queryByTestId("arch-unsaved-changes-dialog")).not.toBeInTheDocument();
-    expect(screen.getByTestId("arch-title")).toHaveValue("Unsaved edit");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
   });
 
   it("navigates and discards the unsaved edit once the user confirms", async () => {
     const user = userEvent.setup();
     renderEditor(ELEMENT_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element A"));
 
-    await user.clear(screen.getByTestId("arch-title"));
-    await user.type(screen.getByTestId("arch-title"), "Unsaved edit");
+    await user.clear(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
 
     await user.click(screen.getByTestId(`arch-tree-node-${ELEMENT_B.id}`));
     await screen.findByTestId("arch-unsaved-changes-dialog");
 
     await user.click(screen.getByTestId("arch-unsaved-changes-dialog-confirm"));
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element B"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element B"));
     expect(screen.queryByTestId("arch-unsaved-changes-dialog")).not.toBeInTheDocument();
   });
 
@@ -200,11 +228,11 @@ describe("ArchitectureEditors — unsaved-changes confirmation before tree navig
     const user = userEvent.setup();
     renderEditor(ELEMENT_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element A"));
 
     await user.click(screen.getByTestId(`arch-tree-node-${ELEMENT_B.id}`));
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element B"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element B"));
     expect(screen.queryByTestId("arch-unsaved-changes-dialog")).not.toBeInTheDocument();
   });
 
@@ -221,23 +249,23 @@ describe("ArchitectureEditors — unsaved-changes confirmation before tree navig
     const user = userEvent.setup();
     renderEditor(ELEMENT_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element A"));
 
-    await user.clear(screen.getByTestId("arch-title"));
-    await user.type(screen.getByTestId("arch-title"), "Unsaved edit");
-    expect(screen.getByTestId("arch-title")).toHaveValue("Unsaved edit");
+    await user.clear(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
 
     // Delete navigates to `/architecture` (no id), unmounting the dirty
     // ArchitectureForm without ever going through the confirm dialog.
-    await user.click(screen.getByTestId("arch-delete-btn"));
-    await user.click(screen.getByTestId("confirm-delete-btn"));
-    await waitFor(() => expect(screen.queryByTestId("arch-title")).not.toBeInTheDocument());
+    await user.click(screen.getByTestId("artifact-form-delete"));
+    await user.click(screen.getByTestId("artifact-form-delete-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("artifact-field-title")).not.toBeInTheDocument());
 
     // A stale `isFormDirty=true` would now wrongly gate this click behind
     // the unsaved-changes dialog, even though no form is open anymore.
     await user.click(screen.getByTestId(`arch-tree-node-${ELEMENT_B.id}`));
 
-    await waitFor(() => expect(screen.getByTestId("arch-title")).toHaveValue("Element B"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Element B"));
     expect(screen.queryByTestId("arch-unsaved-changes-dialog")).not.toBeInTheDocument();
   });
 });

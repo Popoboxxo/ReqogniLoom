@@ -81,7 +81,7 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     await expect(page.locator('[data-testid="arch-new-title-input"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="arch-new-title-input"]').fill('SYS-ARCH-001: Core System Component');
     await page.locator('[data-testid="arch-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue('SYS-ARCH-001: Core System Component', { timeout: 8000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('SYS-ARCH-001: Core System Component', { timeout: 8000 });
 
     const archUrl = page.url();
     const l1ArchId = archUrl.split('/').pop();

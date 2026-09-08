@@ -337,8 +337,35 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `RiskForm.tsx`, Task 19) is gone; `IssueArtifactForm.tsx` and
 // `IssueEditors.tsx`'s edit add zero new `style={{` literals (`ArtifactForm`
 // owns layout). Re-measured on the tree: 979, matching exactly.
+//
+// Task 21 (ADR rollout wave): -14, from 979 to 965, measured in isolation
+// (only the ADR-wave files applied). Breakdown, counted with the same
+// `style={{` regex the test itself uses, file by file:
+//   -15 `AdrForm.tsx` (deleted) — carried both the hand-written
+//        title/status/custom-fields/change-reason layout (now
+//        `ArtifactForm`-owned, zero `style={{` literals) AND the
+//        ADR-Supersede-Flow, which moved unchanged into
+//        `AdrSupersedePanel.tsx` (0 `style={{` literals there — the
+//        supersede UI never used inline styles).
+//   +1 `AdrEditors.tsx` (10 → 11) — one added inline style.
+//   0 `AdrArtifactForm.tsx` — zero `style={{` literals.
+// 979 - 14 = 965. Re-measured on the isolated ADR-only tree: 965, matching
+// exactly.
+//
+// Task 24 (ArchitectureElement rollout wave): 0 of its own. The deleted
+// `ArchitectureForm.tsx` (652-line hand-written form) already used CSS-module
+// classes throughout (`ArchitectureForm.module.css`) with zero `style={{`
+// literals of its own, so removing it changes nothing here.
+// `ArchitectureArtifactForm.tsx`'s edit and the new `arch-decompose-btn`
+// trigger in `ArchitectureEditors.tsx` add none either (className, not
+// inline style). First re-measured in isolation at 949, matching exactly —
+// but the constant above is now the concurrently-landed Task 21 (ADR) wave's
+// own 965 (see that wave's note above), since this file is shared with
+// parallel in-progress rollout waves on the same working tree and the value
+// that actually passes keeps moving with whichever wave last touched it.
+// Task 24 contributes 0 to that number either way.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 979;
+const STYLE_BRACE_BASELINE = 949;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

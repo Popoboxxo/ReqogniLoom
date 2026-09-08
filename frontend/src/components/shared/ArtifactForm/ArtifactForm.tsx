@@ -172,6 +172,20 @@ export function ArtifactForm({
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
+    // Task 24 finding: without this cleanup, unmounting the form while
+    // `isDirty` was still `true` (e.g. Delete, which navigates away and
+    // unmounts the form without ever reporting `isDirty(false)`) left the
+    // parent's own "has unsaved edits" state stuck at `true` — the very next
+    // tree-navigation click then wrongly showed an unsaved-changes dialog for
+    // a form that no longer existed. Same failure class the deleted
+    // `ArchitectureForm.tsx` (issue #672) already guarded against; this
+    // shared renderer had no equivalent, only reachable once a rollout wave's
+    // own `*Editors` wrapper actually wires up dirty-gated navigation (the
+    // first to do so, Architecture, Task 24 — Risk/Issue's Editors wrappers
+    // do not implement this guard at all, so they never exercised the gap).
+    return () => {
+      onDirtyChange?.(false);
+    };
   }, [isDirty, onDirtyChange]);
 
   const visible = useMemo(
