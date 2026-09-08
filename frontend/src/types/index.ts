@@ -482,6 +482,16 @@ export interface Issue {
   category: IssueCategory;
   status: IssueStatus;
   tags: string[];
+  /**
+   * Task 20 finding: `IssueSerializer` never declared this field at all
+   * (mirrors Task 19's `owner_user_id` finding on Risk) even though
+   * `IssueService.create_issue`/`update_issue` both already accept and
+   * persist it — via REST, every save silently discarded it and every read
+   * came back empty (the MCP generic tool group was unaffected: it forwards
+   * arbitrary params straight to the service, bypassing this serializer).
+   * Fixed at the serializer/view layer alongside this migration.
+   */
+  due_date?: ISODateTime | null;
   version: number;
   uid?: string;
   created_at: ISODateTime;

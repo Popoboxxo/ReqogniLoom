@@ -1564,6 +1564,17 @@ class IssueSerializer(
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
     tags = serializers.JSONField(required=False, default=list)
+    # Task 20 finding: `Issue.due_date` (application/issue_service.py's
+    # create_issue/update_issue both already accept and persist it) was never
+    # declared on this serializer at all — same silent-discard class as Task
+    # 19's `owner_user_id` finding, but the model column had no REST field to
+    # even alias. This was REST-only: the MCP generic tool group forwards
+    # arbitrary params straight to the service and already round-tripped
+    # `due_date` (mcp_server/tests/test_generic_tool_group.py) before this fix.
+    # Writable/nullable like the rest of the optional Issue fields;
+    # `_issue_to_dict` and both view methods below now round-trip it via REST
+    # too.
+    due_date = serializers.DateTimeField(required=False, allow_null=True, default=None)
     # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
     # forwards it to IssueService.update_issue() but DRF dropped it.
     change_reason = SanitizedCharField(

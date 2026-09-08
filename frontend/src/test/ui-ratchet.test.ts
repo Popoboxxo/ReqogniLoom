@@ -331,8 +331,14 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //    0 `BaselinesView.tsx` — the new #48 name field uses named constants
 //      (`formLabelStyle`/`formInputStyle`/`formHintStyle`), so it adds none.
 // 1016 - 1 = 1015. Re-measured on the tree: 1015, matching exactly.
+//
+// Task 20 (Issue rollout wave): -15, from 994 to 979. The deleted
+// `IssueForm.tsx` (260-line hand-written form, same class as the deleted
+// `RiskForm.tsx`, Task 19) is gone; `IssueArtifactForm.tsx` and
+// `IssueEditors.tsx`'s edit add zero new `style={{` literals (`ArtifactForm`
+// owns layout). Re-measured on the tree: 979, matching exactly.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 994;
+const STYLE_BRACE_BASELINE = 979;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

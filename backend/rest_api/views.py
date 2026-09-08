@@ -4369,6 +4369,9 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         "uid": getattr(issue, "uid", None),
         "status": getattr(issue, "status", "Open"),
         "tags": issue.tags if isinstance(issue.tags, list) else [],
+        # Task 20 finding: see IssueSerializer.due_date — the GET side of the
+        # same silent-discard gap (the value was never even readable).
+        "due_date": getattr(issue, "due_date", None),
         # GH-737 follow-up audit: `version` was the one field IssueSerializer
         # declares (read-only, LOCK_VERSION_HELP_TEXT) that this dict never
         # supplied. DRF silently drops a missing read-only field instead of
@@ -6094,6 +6097,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 category=data.get("category", "defect"),
                 tags=data.get("tags"),
+                due_date=data.get("due_date"),
                 # Datenmodell-Konsolidierung Phase 1: a new Issue always starts at the
                 # workflow definition's initial_state. A client-supplied `status` is
                 # ignored, not rejected, consistent with ADR-status-single-source.
@@ -6127,6 +6131,16 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # Task 20 review finding F-2: `due_date` is nullable, so an absent key
+        # (leave unchanged) and an explicit `null` (clear it) must not
+        # collapse onto the same `data.get("due_date")` — same class of bug as
+        # Issue #409 above (see RequirementViewSet.partial_update). Forward it
+        # only when the client actually sent the key; update_issue()'s
+        # `_UNSET` sentinel default then means "leave unchanged" whenever it
+        # is omitted here.
+        extra_kwargs: dict[str, Any] = {}
+        if "due_date" in data:
+            extra_kwargs["due_date"] = data["due_date"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded.
@@ -6146,6 +6160,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
