@@ -187,6 +187,72 @@ def test_patch_without_custom_fields_leaves_them_untouched(cf_env):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_reparent_only_patch_preserves_asil_level_and_make_or_buy(cf_env):
+    """Code review R-1: a reparent-only PATCH must not NULL sibling fields.
+
+    ``asil_level``/``make_or_buy`` default to a sentinel in
+    ``ArchitectureService.update_architecture_element`` so an omitted key is a
+    no-op — mirroring the ``custom_fields``/``parent_id`` sentinel pattern
+    above. The view used to forward them via ``data.get(...)``, which returns
+    ``None`` for an omitted key instead of the sentinel, so the service read
+    that as "explicitly cleared". Every reparent-only PATCH (the real frontend
+    drag&drop call, ``architectureApi.reparent`` — body is just
+    ``{parent_id}``) silently wiped both fields to null.
+    """
+    client = _client(cf_env)
+    # I5 allows only one root per workspace, and I2 rejects re-parenting to a
+    # same-or-deeper-level parent (checked against the element's *current*
+    # level). So: root(0) -> branch(1) -> child(2), then reparent child
+    # straight onto root(0) — a level drop, satisfying I2, without touching I5.
+    root = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF root",
+            "element_type": "block",
+        },
+    )
+    branch = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF branch",
+            "element_type": "block",
+            "parent_id": root["id"],
+        },
+    )
+    child = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF child",
+            "element_type": "block",
+            "parent_id": branch["id"],
+            "asil_level": "B",
+            "make_or_buy": "Make",
+        },
+    )
+    assert child["asil_level"] == "B"
+    assert child["make_or_buy"] == "Make"
+
+    resp = client.patch(
+        f"/api/v1/architecture/{child['id']}/",
+        {"parent_id": root["id"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    fresh = client.get(f"/api/v1/architecture/{child['id']}/")
+    assert fresh.status_code == 200, fresh.content
+    assert fresh.json()["asil_level"] == "B"
+    assert fresh.json()["make_or_buy"] == "Make"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_custom_fields_can_be_cleared_explicitly(cf_env):
     """Sending an empty map clears — distinct from omitting the key."""
     client = _client(cf_env)

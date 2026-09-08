@@ -357,8 +357,22 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // rollout wave and not part of this one. This file's constant reflects only
 // the Task 21 (ADR) wave's isolated delta above (965); Task 24's own commit
 // carries its own re-measured 949 in its own copy of this shared file.
+//
+// Task 23 fix round (StakeholderNeed R-1/R-2/S-1/S-2, this shared working
+// tree): re-measured on the merged tree at the time of this fix round: 951 —
+// reflects whatever combination of the Task 21/23/24 waves' concurrent edits
+// to this shared file happened to be present at that moment, not an isolated
+// per-wave delta (moving target per this round's own task brief; not
+// re-derivable in isolation the way the entries above are).
+//
+// Task 24 fix round (R-1/R-2, this shared working tree, HEAD = 6a284f38 —
+// Task 21/ADR already landed on top of Task 24/Architecture): re-ran the
+// suite as-is and it was already green at 951, so no change was needed here.
+// Still a moving target across the concurrently-landing Task 21/23/24 waves —
+// needs one final re-measurement once all three are merged onto a settled
+// tree, same caveat as the Task 23 entry above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 965;
+const STYLE_BRACE_BASELINE = 951;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

@@ -1691,6 +1691,16 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # REQ-L2-AS-037: only forward custom_fields when explicitly provided.
             if "custom_fields" in data:
                 update_kwargs["custom_fields"] = data["custom_fields"]
+            # Bugfix (code review R-1): asil_level/make_or_buy default to a
+            # sentinel (_UNSET) in the service so an omitted key is a no-op.
+            # .get() returns None for an omitted key, which the service reads
+            # as "explicitly cleared" and NULLs the column — e.g. every
+            # reparent-only PATCH ({parent_id} only) was wiping both fields.
+            # Same presence-check pattern as parent_id/custom_fields above.
+            if "asil_level" in data:
+                update_kwargs["asil_level"] = data["asil_level"]
+            if "make_or_buy" in data:
+                update_kwargs["make_or_buy"] = data["make_or_buy"]
             item = self._svc().update_architecture_element(
                 arch_el_id=UUID(pk),
                 ctx=ctx,
@@ -1698,8 +1708,6 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 title=data.get("title"),
                 description=data.get("description"),
                 element_type=data.get("element_type"),
-                asil_level=data.get("asil_level"),
-                make_or_buy=data.get("make_or_buy"),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **update_kwargs,
