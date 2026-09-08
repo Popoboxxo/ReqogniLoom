@@ -236,6 +236,32 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "label": {"de": "Tags", "en": "Tags"},
         },
     ),
+    "ArchitectureElement": (
+        {
+            # Task 24 finding: the deleted hand-written `ArchitectureForm`
+            # edited `description` through `<MarkdownPreview>` (edit/preview
+            # toggle). A bare `description` attribute renders through the
+            # generic `textarea` field type, which has no such toggle — a
+            # parity regression under this migration's own documented policy
+            # ("the migration unifies upward... it never cuts one",
+            # ArtifactForm.tsx). `markdown_tab_group` already supports a
+            # single bound field (`WIDGET_FIELD_CONTRACTS`: any non-empty
+            # `fields` list renders, one tab per field), the same widget Adr's
+            # `decision_record` uses for three fields — reused here for one,
+            # no new widget component needed. `name` deliberately differs
+            # from `description` (the bound field) so the two entries do not
+            # collide under `stored_attributes`' duplicate-name check, same
+            # convention as Issue's `tag_list`/`tags` above.
+            "name": "description_editor",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "markdown_tab_group",
+            "fields": ["description"],
+            "section": "general",
+            "order": 2,
+            "label": {"de": "Beschreibung", "en": "Description"},
+        },
+    ),
 }
 
 #: Model fields whose introspected name would not match the actual wire
@@ -254,9 +280,18 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
 #:     serializer) while always reading back empty. Proven live via
 #:     ``introspect_core_attributes("Risk", "standard")`` against the real
 #:     model/serializer pair.
+#   - Task 24 finding: same class as `Risk.owner_user` above.
+#     `ArchitectureElement.parent` is a self-referential `ForeignKey` — Django
+#     names the field `parent`, but `ArchitectureElementSerializer` only
+#     declares `parent_id` (DRF's own convention for a FK's raw id, matching
+#     `_arch_to_dict`'s response shape and `architectureApi.update`'s payload
+#     shape). An unaliased `parent` attribute rendered a working reference
+#     picker whose every reparent silently no-op'd on save (unknown top-level
+#     key, dropped by both `field_validation.py` and the serializer).
 WIDGET_FIELD_ALIASES: dict[str, dict[str, str]] = {
     "TestCase": {"steps": "steps_data"},
     "Risk": {"owner_user": "owner_user_id"},
+    "ArchitectureElement": {"parent": "parent_id"},
 }
 
 

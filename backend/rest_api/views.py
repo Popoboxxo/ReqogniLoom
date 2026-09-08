@@ -4056,6 +4056,26 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
         "level": level,
         "role": role,
+        # Task 24 finding: these three columns were missing from this dict
+        # entirely. `ArchitectureElementSerializer.asil_level`/`make_or_buy`
+        # are `allow_null=True` with no attribute error path other than
+        # SkipField, and DRF's `Field.get_attribute` special-cases
+        # `allow_null` fields to serialize a missing attribute as `None`
+        # rather than skip them — so every GET/LIST/CREATE/PATCH response
+        # silently reported `null` regardless of the real stored value.
+        # `suspect` has `default=False` on the serializer, so a missing key
+        # always resolved to `False` the same way. Live-proven: a real
+        # `asil_level="B"`/`make_or_buy="Make"` create round-tripped back as
+        # `null`/`null` on the very next GET, while the DB row genuinely held
+        # "B"/"Make". Pre-existing since this dict was introduced — the old
+        # `ArchitectureForm.tsx` read the same broken response, so its ASIL/
+        # Make-or-Buy dropdowns always showed "not set" and every save from
+        # it silently cleared any previously-set value (same failure class as
+        # the Task 19 `uid`/Task 20 `severity` findings, just on the read side
+        # instead of the write side).
+        "asil_level": getattr(el, "asil_level", None),
+        "make_or_buy": getattr(el, "make_or_buy", None),
+        "suspect": getattr(el, "suspect", False),
         "custom_fields": _artifact_custom_fields(el),
         "version": el.version,
         "created_at": el.created_at,
