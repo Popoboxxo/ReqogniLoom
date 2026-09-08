@@ -10,6 +10,10 @@ import userEvent from "@testing-library/user-event";
  * definition_store.py::_adr_transitions), so a Draft/In-Review ADR let the
  * user fill in the whole supersede form only to hit a generic
  * "Transition not allowed" error from the backend at submit time.
+ *
+ * Moved verbatim from the deleted `AdrForm.test.tsx` (Task 21, ADR rollout
+ * wave) — the ADR-Supersede-Flow itself moved unchanged into its own
+ * component, `AdrSupersedePanel`, alongside `AdrArtifactForm`.
  */
 
 vi.mock("../../api/adrs", () => ({
@@ -34,40 +38,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string, d?: string) => d ?? k }),
 }));
 
-vi.mock("../WorkflowStatusEditor", () => ({
-  WorkflowStatusEditor: () => <div data-testid="workflow-status-editor-stub" />,
-}));
-
-vi.mock("../RequirementEditors/MarkdownPreview", () => ({
-  MarkdownPreview: ({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-  }) => (
-    <textarea
-      data-testid="adr-description-input"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  ),
-}));
-
-vi.mock("../shared/ArtifactCustomFields", () => ({
-  ArtifactCustomFields: () => <div data-testid="artifact-custom-fields" />,
-}));
-vi.mock("../shared/VersionBadge", () => ({
-  VersionBadge: () => <span data-testid="version-badge" />,
-}));
-vi.mock("../shared/StatusBadge", () => ({
-  StatusBadge: () => <span data-testid="status-badge" />,
-}));
-vi.mock("../shared/ArtifactId", () => ({
-  ArtifactId: () => <span data-testid="artifact-id" />,
-}));
-
-import { AdrForm } from "./AdrForm";
+import { AdrSupersedePanel } from "./AdrSupersedePanel";
 import type { Adr } from "../../types";
 
 const baseAdr: Adr = {
@@ -89,14 +60,13 @@ const otherAdr: Adr = {
   title: "Use Redis",
 };
 
-describe("AdrForm — supersede button workflow-status gating (systemaudit Bug 4)", () => {
+describe("AdrSupersedePanel — supersede button workflow-status gating (systemaudit Bug 4)", () => {
   it("enables the supersede button when the ADR is Approved and candidates exist", () => {
     render(
-      <AdrForm
+      <AdrSupersedePanel
         adr={{ ...baseAdr, status: "Approved" }}
         otherAdrs={[otherAdr]}
         onSaved={vi.fn()}
-        onDeleted={vi.fn()}
       />
     );
 
@@ -105,11 +75,10 @@ describe("AdrForm — supersede button workflow-status gating (systemaudit Bug 4
 
   it("disables the supersede button when the ADR is Draft, even with candidates", () => {
     render(
-      <AdrForm
+      <AdrSupersedePanel
         adr={{ ...baseAdr, status: "Draft" }}
         otherAdrs={[otherAdr]}
         onSaved={vi.fn()}
-        onDeleted={vi.fn()}
       />
     );
 
@@ -123,11 +92,10 @@ describe("AdrForm — supersede button workflow-status gating (systemaudit Bug 4
 
   it("disables the supersede button when the ADR is In Review", () => {
     render(
-      <AdrForm
+      <AdrSupersedePanel
         adr={{ ...baseAdr, status: "In Review" }}
         otherAdrs={[otherAdr]}
         onSaved={vi.fn()}
-        onDeleted={vi.fn()}
       />
     );
 
@@ -139,11 +107,11 @@ describe("AdrForm — supersede button workflow-status gating (systemaudit Bug 4
 // UI-LOW-3 (Systemaudit, LOW finding): the status badge stayed "Approved"
 // after a successful supersede until a full page reload. Root cause: the
 // caller only invalidated the query cache and waited on a background
-// refetch to reflect the new status; `onSaved()` now forwards the mutation's
+// refetch to reflect the new status; `onSaved` now forwards the mutation's
 // own response so the caller can update its state/cache synchronously
 // instead (see useAdrData.refresh's doc comment).
 // -----------------------------------------------------------------------
-describe("AdrForm — supersede forwards the fresh ADR to onSaved (UI-LOW-3)", () => {
+describe("AdrSupersedePanel — supersede forwards the fresh ADR to onSaved (UI-LOW-3)", () => {
   it("passes the API response through onSaved after a successful supersede", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
@@ -152,11 +120,10 @@ describe("AdrForm — supersede forwards the fresh ADR to onSaved (UI-LOW-3)", (
     vi.mocked(adrsApi.supersede).mockResolvedValueOnce(superseded as any);
 
     render(
-      <AdrForm
+      <AdrSupersedePanel
         adr={{ ...baseAdr, status: "Approved" }}
         otherAdrs={[otherAdr]}
         onSaved={onSaved}
-        onDeleted={vi.fn()}
       />
     );
 

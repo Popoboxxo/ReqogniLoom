@@ -352,20 +352,13 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // 979 - 14 = 965. Re-measured on the isolated ADR-only tree: 965, matching
 // exactly.
 //
-// Task 24 (ArchitectureElement rollout wave): 0 of its own. The deleted
-// `ArchitectureForm.tsx` (652-line hand-written form) already used CSS-module
-// classes throughout (`ArchitectureForm.module.css`) with zero `style={{`
-// literals of its own, so removing it changes nothing here.
-// `ArchitectureArtifactForm.tsx`'s edit and the new `arch-decompose-btn`
-// trigger in `ArchitectureEditors.tsx` add none either (className, not
-// inline style). First re-measured in isolation at 949, matching exactly —
-// but the constant above is now the concurrently-landed Task 21 (ADR) wave's
-// own 965 (see that wave's note above), since this file is shared with
-// parallel in-progress rollout waves on the same working tree and the value
-// that actually passes keeps moving with whichever wave last touched it.
-// Task 24 contributes 0 to that number either way.
+// Task 24 (ArchitectureElement rollout wave): 0 of its own, measured in
+// isolation on its own tree at 949 — but that commit is a separate, parallel
+// rollout wave and not part of this one. This file's constant reflects only
+// the Task 21 (ADR) wave's isolated delta above (965); Task 24's own commit
+// carries its own re-measured 949 in its own copy of this shared file.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 949;
+const STYLE_BRACE_BASELINE = 965;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

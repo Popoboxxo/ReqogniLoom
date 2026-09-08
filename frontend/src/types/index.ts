@@ -342,9 +342,13 @@ export interface Adr {
   // Task 2.1: the backing Artifact id (Adr.artifact, backend/application/models.py)
   // is not yet exposed by AdrSerializer — unlike Requirement/StakeholderNeed/
   // ArchitectureElement, which all serialize a separate `artifact_id`. Declared
-  // here (optional, currently always undefined) so <ArtifactCustomFields> in
-  // AdrForm is wired the same way as the other forms and starts working the
-  // moment the backend field ships, instead of needing another frontend change.
+  // here (optional, currently always undefined) for parity with the other
+  // artifact types. NOTE (Task 21 rollout wave): the ADR editor no longer has
+  // an <ArtifactCustomFields> renderer at all — it moved onto the generic
+  // ArtifactForm, which does not render a custom-fields section (tracked gap
+  // #7, plan-sanctioned, see AdrArtifactForm.tsx). This field stays declared
+  // for when that gap closes, but does not "start working automatically" by
+  // itself the way the old AdrForm-specific comment implied.
   artifact_id?: UUID;
   title: string;
   description: string;
