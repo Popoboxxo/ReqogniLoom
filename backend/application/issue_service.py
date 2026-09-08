@@ -48,6 +48,16 @@ logger = logging.getLogger(__name__)
 # Supported TraceLink types for Issues (REQ-L3-ISSUE-006)
 ISSUE_LINK_TYPES = frozenset({"related-to", "blocks", "blocked-by", "caused-by", "resolves"})
 
+#: Task 20 review finding F-2: ``update_issue``'s ``due_date`` default used to
+#: be plain ``None``, which cannot distinguish "the client omitted this
+#: field" (leave the stored value unchanged) from "the client explicitly
+#: cleared it" (``PATCH {"due_date": null}``) — both collapsed onto
+#: ``if due_date is not None`` never firing, so a due date could be set but
+#: never cleared. Same sentinel pattern already used for this exact class of
+#: bug in architecture_service.py/artifact_service.py/requirement_service.py/
+#: stakeholder_need_service.py (see also Issue #409 in rest_api/views.py).
+_UNSET = object()
+
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -280,7 +290,7 @@ class IssueService(ServiceBase):
         description: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
-        due_date=None,
+        due_date: object = _UNSET,
         tags: Optional[List[str]] = None,
         change_reason: Optional[str] = None,
         expected_version: Optional[int] = None,
@@ -296,7 +306,10 @@ class IssueService(ServiceBase):
             description: New description (optional).
             severity: New severity (optional).
             category: New category (optional).
-            due_date: New due date (optional).
+            due_date: New due date, or ``None`` to explicitly clear it.
+                Defaults to the ``_UNSET`` sentinel, meaning "not sent by the
+                caller, leave the stored value unchanged" — distinct from an
+                explicit ``None`` (F-2 fix, Task 20 review round).
             tags: New tags list (optional).
             change_reason: Optional change rationale for audit.
             expected_version: Caller's last-seen ``version``. When supplied and
@@ -338,7 +351,7 @@ class IssueService(ServiceBase):
             if category not in IssueValidator.VALID_CATEGORIES:
                 raise ValidationError(f"Invalid category '{category}'")
             issue.category = category
-        if due_date is not None:
+        if due_date is not _UNSET:
             issue.due_date = due_date
         if tags is not None:
             issue.tags = tags

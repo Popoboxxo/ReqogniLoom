@@ -53,7 +53,11 @@ export type AttributeEditable = boolean | "workflow";
 /** Display density only — never a visibility or security boundary. */
 export type AttributeAudience = "basic" | "expert";
 
-export type WidgetKey = "risk_matrix_rpz" | "markdown_tab_group" | "steps_editor";
+export type WidgetKey =
+  | "risk_matrix_rpz"
+  | "markdown_tab_group"
+  | "steps_editor"
+  | "tag_input";
 
 export interface AttributeOption {
   value: string;

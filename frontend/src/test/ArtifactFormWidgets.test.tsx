@@ -63,11 +63,12 @@ function widgetSpec(over: Partial<AttributeSpec>): AttributeSpec {
 }
 
 describe("ArtifactForm widget registry", () => {
-  it("registers exactly the three spec widget keys", () => {
+  it("registers exactly the four spec widget keys", () => {
     expect(Object.keys(WIDGET_REGISTRY).sort()).toEqual([
       "markdown_tab_group",
       "risk_matrix_rpz",
       "steps_editor",
+      "tag_input",
     ]);
   });
 
@@ -223,6 +224,54 @@ describe("ArtifactForm widget registry", () => {
     expect(onChange).toHaveBeenLastCalledWith("steps_data", [
       { step: "open the app", expected_result: "app loads within 2s" },
     ]);
+  });
+
+  // F-1 fix, Task 20 review round: `Issue.tags` was silently unrenderable
+  // (JSONField, no basic renderer, no widget registered) and never editable
+  // anywhere in the migrated ArtifactForm.
+  it("renders existing tags and reports an add/remove under the bound field name", () => {
+    const onChange = vi.fn();
+    const Widget = WIDGET_REGISTRY.tag_input!;
+    render(
+      <Widget
+        attribute={widgetSpec({
+          name: "tag_list",
+          widget_key: "tag_input",
+          fields: ["tags"],
+        })}
+        values={{ tags: ["urgent"] }}
+        onChange={onChange}
+        disabled={false}
+        testId="artifact-widget-tag_list"
+      />
+    );
+    expect(screen.getByText("urgent")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("artifact-widget-tag_list-tags-input"), {
+      target: { value: "regression" },
+    });
+    fireEvent.keyDown(screen.getByTestId("artifact-widget-tag_list-tags-input"), {
+      key: "Enter",
+    });
+    expect(onChange).toHaveBeenCalledWith("tags", ["urgent", "regression"]);
+  });
+
+  it("tolerates a non-array tags value", () => {
+    const Widget = WIDGET_REGISTRY.tag_input!;
+    render(
+      <Widget
+        attribute={widgetSpec({
+          name: "tag_list",
+          widget_key: "tag_input",
+          fields: ["tags"],
+        })}
+        values={{ tags: null }}
+        onChange={vi.fn()}
+        disabled={false}
+        testId="artifact-widget-tag_list"
+      />
+    );
+    expect(screen.queryAllByTestId("tag-pill")).toHaveLength(0);
   });
 
   it("tolerates a non-array steps value", () => {
