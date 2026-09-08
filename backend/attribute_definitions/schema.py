@@ -50,7 +50,7 @@ AUDIENCE_VALUES: frozenset[str] = frozenset({"basic", "expert"})
 #: point: a new special case adds a key here and a component in the frontend
 #: registry rather than weakening the renderer contract.
 WIDGET_KEYS: frozenset[str] = frozenset(
-    {"risk_matrix_rpz", "markdown_tab_group", "steps_editor"}
+    {"risk_matrix_rpz", "markdown_tab_group", "steps_editor", "tag_input"}
 )
 
 #: The only properties an admin may change on a ``kind="core"`` attribute.

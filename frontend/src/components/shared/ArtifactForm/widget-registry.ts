@@ -20,6 +20,7 @@ import type { AttributeSpec, WidgetKey } from "../../../api/attribute-definition
 import { MarkdownTabGroup } from "./widgets/MarkdownTabGroup";
 import { RiskMatrixRpz } from "./widgets/RiskMatrixRpz";
 import { StepsEditor } from "./widgets/StepsEditor";
+import { TagInputWidget } from "./widgets/TagInputWidget";
 
 export interface WidgetProps {
   attribute: AttributeSpec;
@@ -38,6 +39,7 @@ export const WIDGET_REGISTRY: Partial<Record<WidgetKey, WidgetComponent>> = {
   risk_matrix_rpz: RiskMatrixRpz,
   markdown_tab_group: MarkdownTabGroup,
   steps_editor: StepsEditor,
+  tag_input: TagInputWidget,
 };
 
 /** Field names `RiskMatrixRpz` hardcodes (it ignores `attribute.fields`). */
@@ -75,6 +77,8 @@ export const WIDGET_FIELD_CONTRACTS: Partial<
   markdown_tab_group: (fields) => fields.length > 0,
   // Reads `fields[0]` only; extra fields would be hidden AND uneditable.
   steps_editor: (fields) => fields.length === 1,
+  // Same as steps_editor: one JSONField array, `fields[0]` only.
+  tag_input: (fields) => fields.length === 1,
 };
 
 /**

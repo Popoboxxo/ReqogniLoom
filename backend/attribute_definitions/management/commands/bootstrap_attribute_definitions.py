@@ -107,7 +107,6 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
         "status",
         "lifecycle_status",
         "risk_score",
-        "severity",
         "term_fk",
         # Task 19 finding: an internal legacy actor-name column, never exposed
         # by ANY REST serializer (verified: zero matches across
@@ -117,8 +116,41 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
         # never carries it) and silently discarded on write (unknown
         # top-level key, see field_validation.py's docstring).
         "created_by_name",
+        # Task 20 finding: `Issue.assignee_id` changes are deliberately routed
+        # through the dedicated `IssueService.assign_issue()` method (REQ-L3-
+        # ISSUE-008, ADR-L3-ISSUE-02 — its own audit trail with old/new
+        # assignee), not through the generic update path — see
+        # `update_issue()`'s own docstring note ("Assignee changes are handled
+        # by assign_issue() for proper tracking"). No REST or MCP route calls
+        # `assign_issue()` at all (verified: zero matches for `assign_issue`
+        # outside application/issue_service.py), so introspecting `assignee_id`
+        # produced a visible, editable User-picker attribute — same
+        # silent-discard class as `owner_user`/`created_by_name` above, minus
+        # even a serializer field to alias onto. Wiring a real `/assign/`
+        # endpoint is a standalone feature, not part of this rollout wave —
+        # excluded here rather than shipped as a landmine.
+        "assignee_id",
+        # Task 20 finding: the audit timestamp `assign_issue()` itself sets on
+        # every (re)assignment — derived server state, same class as
+        # `created_at`/`updated_at` above, not a user-editable field.
+        "assignee_changed_date",
     }
 )
+
+#: Per-item-type exclusions layered on top of ``EXCLUDED_MODEL_FIELDS``, for a
+#: column name that is genuine derived server state on ONE model sharing that
+#: name but an ordinary user-editable field on another.
+#:
+#: Task 20 review finding F-1: ``severity`` used to sit in the global
+#: exclusion set above. That is correct for ``Risk.severity`` — a persisted
+#: value derived from ``risk_score`` (see the field's own comment in
+#: persistence/models.py) — but wrong for ``Issue.severity``: an ordinary
+#: 4-choice ``ChoiceField``, writable on ``IssueSerializer`` and documented as
+#: user-settable (L3_COMP-AS-015_IssueService_Requirements.md). The global
+#: exclusion hid it on both models; it belongs on Risk only.
+PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
+    "Risk": frozenset({"severity"}),
+}
 
 CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
     {
@@ -181,6 +213,27 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "section": "general",
             "order": 20,
             "label": {"de": "Testschritte", "en": "Test steps"},
+        },
+    ),
+    "Issue": (
+        {
+            # Task 20 review finding F-1: `Issue.tags` is a JSONField, so
+            # `_attribute_type` returns None for it (no basic renderer) and it
+            # was silently dropped from the introspected definition entirely —
+            # never editable in the migrated ArtifactForm. Registering it as a
+            # widget (same class fix as `steps`/`steps_editor` above) keeps the
+            # raw `tags` column in the definition (still validated/patchable)
+            # while binding an actual editor to it. `name` deliberately differs
+            # from `tags` (the bound field) so the two entries do not collide
+            # under `stored_attributes`' duplicate-name check.
+            "name": "tag_list",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "tag_input",
+            "fields": ["tags"],
+            "section": "general",
+            "order": 30,
+            "label": {"de": "Tags", "en": "Tags"},
         },
     ),
 }
@@ -315,6 +368,8 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
         if not isinstance(field, models.Field) or field.auto_created:
             continue
         if field.name in EXCLUDED_MODEL_FIELDS:
+            continue
+        if field.name in PER_ITEM_TYPE_EXCLUDED_FIELDS.get(item_type, frozenset()):
             continue
         attribute_type = _attribute_type(field)
         name = aliases.get(field.name, field.name)
