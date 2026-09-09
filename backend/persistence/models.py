@@ -2412,7 +2412,15 @@ class Adr(TenantScopedModel):
     )
     workspace_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=200)
-    description = models.TextField(max_length=10000)
+    # `blank=True` states what every shipped write path already does:
+    # ``AdrSerializer.description`` is ``allow_blank=True, default=""`` and the
+    # UI quick-create form posts a title only, so an ADR with an empty
+    # description is a normal, reachable state. Leaving the column
+    # ``blank=False`` made the bootstrapped attribute definition derive
+    # ``required=True`` (``introspect_core_attributes``: ``not field.blank and
+    # not field.has_default()``), which turned that same quick-create into a
+    # ``400 description: is required``.
+    description = models.TextField(max_length=10000, blank=True)
     context = models.TextField(max_length=5000, blank=True)
     # #373: standard ADR terminology (context/decision/consequences) has no
     # `decision` field — a client sending it as documented gets an

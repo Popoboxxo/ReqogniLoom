@@ -19,9 +19,18 @@ Fix-round note (C-1): the shared body used to hardcode ``"description": "d"``
 for every item type, which meant a field wrongly marked ``required`` (but not
 actually supplied) could never be noticed here — precisely C-1's failure mode
 (``presets.registry``'s Requirement-only ``mandatory_fields`` policy was being
-applied to all 10 bootstrapped item types). ``description`` is now only in the
-body for ``Adr``, the one item type where it is genuinely
-``blank=False``/no-default on the model.
+applied to all 10 bootstrapped item types). ``description`` used to remain in the
+body for ``Adr``, the one item type where the model still declared it
+``blank=False``/no-default.
+
+Third round (PR #888): that accommodation was itself the hiding pattern this
+docstring warns about. ``AdrSerializer.description`` is
+``allow_blank=True, default=""`` and the ADR quick-create form posts a title
+only, so the model declaration was simply out of sync with the shipped
+contract — the definition demanded a field no client sends and 400'd every
+quick-create the moment a database actually had bootstrapped definitions.
+``persistence.0081_adr_description_blank`` fixes the model and the body is
+uniform again.
 
 Second round (E2E regression): the body used to *also* carry
 ``description``/``acceptance_criteria`` for ``Requirement`` under
@@ -53,14 +62,15 @@ from persistence.models import Tenant, User, Workspace
 
 #: ``(url, extra body fields beyond workspace_id + title)``. Only the ViewSets
 #: that declare ``attribute_item_type`` — Icd has no WorkflowTransitionsMixin
-#: ViewSet to wire. ``description`` is listed only for ``Adr``, the one type
-#: where the model itself (not a preset policy) requires it.
+#: ViewSet to wire. The only entries with extra fields are the ones the shipped
+#: serializer itself demands (``glossary``); everything else must accept the
+#: same minimal body the UI quick-create forms post.
 CREATE_CASES = [
     ("/api/v1/requirements/", {}),
     ("/api/v1/needs/", {}),
     ("/api/v1/architecture/", {}),
     ("/api/v1/testcases/", {}),
-    ("/api/v1/adrs/", {"description": "d"}),
+    ("/api/v1/adrs/", {}),
     ("/api/v1/risks/", {}),
     ("/api/v1/issues/", {}),
     ("/api/v1/glossary/", {"term": "Term", "definition": "D"}),
