@@ -303,9 +303,25 @@ Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` lin
 
 **⚠ CRITICAL — Task 16 SWAPPED_LEGACY_KEYS risk (highlighted 2026-09-09):** 
 `satisfies` rows with a `StakeholderNeed` target **must** migrate to `derives-from` *unswapped* (endpoints reversed), **not** to `allocated-to` swapped. Otherwise 40 seeded rows get inverted semantics + Allocation-Coverage poisoning (coverage_relevant flag + wrong suspect-rule chain). Decision evidence and full rationale in the RESOLVED DECISION (Task 11) and Task 10 blocks above — read before starting the migration.
+**✓ VERIFIED AND FIXED 2026-09-10 (Commit 9f885ed6)** — three independent probes confirmed the SWAPPED_LEGACY_KEYS mis-orientation existed (`grandfathered.py:33`, `seed_toothbrush.py:227`, git-history `a1800903`). The migration correctly branches on *endpoint types*, not just keys: `satisfies` with `StakeholderNeed` target → `derives-from` unswapped; all other `satisfies` rows → `allocated-to` swapped as documented. Post-condition verification via new function `verify_migrated_links` (atomic migration with rollback check). **Risk resolved.**
 
-Task 16: Migrate every existing `TraceLink` row to the new type set — pending
+Task 16: Migrate every existing `TraceLink` row to the new type set — **done**
+
+**Status:** Commit 9f885ed6, 2026-09-10. Hard data migration complete. Migration: `backend/persistence/migrations/0081_migrate_trace_link_types.py`. Dependencies: persistence/0080 + link_types/0005 (not the placeholder versions in plan text).
+
+- Two review rounds: Runde 1 changes-requested (missing post-condition verification; illegal endpoint pairs could silently write), Runde 2 approved after new `verify_migrated_links(...)` function added (raises RuntimeError on violations, migration atomic=True, rollback verified).
+- The SWAPPED_LEGACY_KEYS risk above proved real and was fixed in-place: endpoint-type branching for the 40 Requirement→StakeholderNeed rows, unswapped to `derives-from`, all others swapped to `allocated-to` as documented.
+- Two optional findings from Runde 1 (logging precision: rewritten-vs-dropped distinction, dead code branch) addressed in Runde 2.
+- Migration run only in isolated test-DB context (not applied to dev DB — that is a separate deployment step outside this SDD session scope).
+- `makemigrations --check --dry-run` clean; no spurious migrations generated.
+
+**Two follow-ups for Task 17 (noted explicitly for grep-safety):**
+1. `link_types/grandfathered.py:33` — `GRANDFATHERED_PAIRS["allocated-to"]["StakeholderNeed"→"Requirement"]` is now dead code (migration handled the fork). Task 17 can clean it up (no behavioral impact).
+2. `backend/vcrm_report_generator.py:205` — still filters on retired literal keys `satisfies`/`implements` and returns silent null rows post-migration. Task 17 must change to `allocated-to` (one-literal fix, also repairs the column as plan text names).
+
 Task 17: Move every hardcoded link-type consumer with the migration — pending
+
+**Next step:** Start Task 17 once this ledger is recorded. Grep for remaining retired literals is the safety gate (repo-wide, incl. `ai_derivation.py` which is missing from the plan's Task-17 file list — add it).
 Task 18: Verify the SE-Auditor finding set before and after (OFFENE FRAGE 2) — pending
 
 ## Phase E — REST and MCP surface
@@ -346,15 +362,13 @@ A management command inventories the distinct `(link_type, source_artifact_type,
 
 ---
 
-## Branch status: IN PROGRESS — **Phase A complete (Tasks 1-8). Phase B complete: Tasks 9, 10 and 11 done. Phase C complete: Tasks 12, 13, 14 done.** Validation is always-on: `link_types.catalog.validate_link_pair` is the sole authority for every trace link in every workspace and terminology profile. `TraceLink` schema extended with three semantics fields + `Artifact.copied_from` self-FK. Suspect-propagation is rule-driven via link-type catalog.
+## Branch status: IN PROGRESS — **Phase A complete (Tasks 1-8). Phase B complete: Tasks 9-11 done. Phase C complete: Tasks 12-15 done. Phase D (hard data migration) in progress: Task 16 done, Tasks 17-18 pending.**
 
-Next: Task 15 (Write `Artifact.parent` in the same transaction as the `decomposes` link). **Read two things first:**
-1. the **RESOLVED DECISION (Task 11)** above — Option (c) Hybrid, applied 2026-09-09. Grandfathering stays legacy-only; Goal/MainGoal/Interview are regular built-ins (migration `0005`). The tenant asymmetry for the 4 grandfathered pairs is now *intended*, and `seed_toothbrush` still writes those shapes, so it cannot run in a fresh tenant until Task 16/17 re-types it.
-2. the **KNOWN-RED** list in the Task 11 entry — **8 tests remain red** on retired link-type literals in production code. Five file groups: `migrate_se_docs.py` (1), `mcp_server/tools/ai_derivation.py` (1), e2e param tables (2 tests), `test_tracelink_outdated_endpoints.py` (3), `test_tracelink_cascade_484.py` (1 — Issue catalog gap, added 2026-09-09). The 3 Goal tests are no longer among them.
+Validation is always-on: `link_types.catalog.validate_link_pair` is the sole authority for every trace link in every workspace and terminology profile. `TraceLink` schema extended with three semantics fields + `Artifact.copied_from` self-FK. Suspect-propagation is rule-driven via link-type catalog. Hard data migration complete (Task 16, commit 9f885ed6, 2026-09-10); SWAPPED_LEGACY_KEYS risk verified and fixed.
 
-**Carried forward to Task 16 (data migration) — do not lose:**
-- `SWAPPED_LEGACY_KEYS` is key-level and the migration is irreversible; `satisfies` rows whose target is a `StakeholderNeed` must become `derives-from` **unswapped**, not `allocated-to` swapped. Full evidence in the resolved-decision block above. 40 rows in the seeded scratch DB; `allocated-to` is coverage-relevant, so getting this wrong poisons Allocation-Coverage.
-- No built-in type puts an `Adr` or an `Issue` on the side those seeders use. Both need a type decision, not a rename.
+**Next: Task 17 (Move every hardcoded link-type consumer with the migration).**
 
-**Carried forward to Task 17 (consumer sweep) — file-list gap, no fix attempted:**
+Before starting Task 17, review the **two follow-ups noted in Task 16** (dead code cleanup in grandfathered.py, literal swap in vcrm_report_generator.py) and the **KNOWN-RED** list in the Task 11 entry — **8 tests remain red** on retired link-type literals in production code. Five file groups: `migrate_se_docs.py` (1), `mcp_server/tools/ai_derivation.py` (1), e2e param tables (2 tests), `test_tracelink_outdated_endpoints.py` (3), `test_tracelink_cascade_484.py` (1 — Issue catalog gap, added 2026-09-09). The 3 Goal tests are no longer among them.
+
+**File-list gap for Task 17 (no fix attempted in Task 16):**
 - `backend/mcp_server/tools/ai_derivation.py` is **missing from Task 17's file list** in the plan. It writes `LinkType.TRACES.value` for ArchitectureElement → Risk (line 638) and names `traces` in two docstrings/schema descriptions (lines 32, 339). Its catalog successor is `mitigates` with the endpoints reversed (Risk → ArchitectureElement) — a semantic call, not a literal swap. Add the file to the list when Task 17 starts; noted here because Task 17's Step-1 test is a repo-wide grep that would catch the literal but not the missing file entry.
