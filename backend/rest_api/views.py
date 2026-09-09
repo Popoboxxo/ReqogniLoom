@@ -2515,6 +2515,18 @@ class TraceLinkViewSet(BaseEntityViewSet):
                                 "link_type": tl.link_type,
                                 "version": tl.version,
                                 "created_at": tl.created_at,
+                                # Q1.6: same three keys as _tracelink_to_dict —
+                                # this branch builds its own dict for the
+                                # endpoint-echo contract above, so it has to
+                                # repeat them or ?artifact_id= would be the one
+                                # listing without a rationale.
+                                "rationale": getattr(tl, "rationale", "") or "",
+                                "suspect_flagged_at": getattr(
+                                    tl, "suspect_flagged_at", None
+                                ),
+                                "suspect_source_change": getattr(
+                                    tl, "suspect_source_change", None
+                                ),
                                 "source_title": "",
                                 "target_title": "",
                                 "source_type": "",
@@ -2581,6 +2593,9 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 target_id=UUID(str(data["target_id"])),
                 link_type=data["link_type"],
                 ctx=ctx,
+                # Q1.6: the serializer declares rationale as writable, so
+                # dropping it here would answer 201 while discarding it.
+                rationale=data.get("rationale", ""),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -4071,6 +4086,12 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
 
     REQ-002: When *titles* is provided the dict includes source_title,
     target_title, source_type, target_type for human-readable display.
+
+    Q1.6: ``rationale`` and the two suspect markers are declared on
+    TraceLinkSerializer, but every REST endpoint feeds that serializer from
+    *this* dict — a key missing here is a field the API never returns
+    (``required=False`` makes DRF skip it silently). The suspect markers stay
+    ``None`` until the propagation engine writes them.
     """
     source_id = str(tl.source_id)
     target_id = str(tl.target_id)
@@ -4081,6 +4102,9 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
         "link_type": tl.link_type,
         "version": tl.version,
         "created_at": tl.created_at,
+        "rationale": getattr(tl, "rationale", "") or "",
+        "suspect_flagged_at": getattr(tl, "suspect_flagged_at", None),
+        "suspect_source_change": getattr(tl, "suspect_source_change", None),
     }
     if titles is not None:
         src = titles.get(source_id, {})

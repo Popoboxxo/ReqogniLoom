@@ -296,6 +296,7 @@ class TraceLinkManager:
         target_id: uuid.UUID,
         link_type: str,
         created_by_id: Optional[uuid.UUID] = None,
+        rationale: str = "",
     ) -> TraceLink:
         """Create a single TraceLink with full validation.
 
@@ -305,6 +306,10 @@ class TraceLinkManager:
         3. Cross-tenant guard (REQ-L2-TE-011)
         4. Eager cycle detection via DFS (REQ-L2-TE-002)
         5. Persist (REQ-L2-TE-001, audit: REQ-L2-TE-010)
+
+        *rationale* (Q1.6) is optional free text explaining why these two
+        artifacts are linked; it is stored verbatim (sanitization happens at
+        the transport boundary) and defaults to "".
         """
         _validate_link_type(link_type)
 
@@ -356,6 +361,7 @@ class TraceLinkManager:
             target=target,
             link_type=link_type,
             tenant_id=tenant_id,
+            rationale=rationale or "",
         )
         if created_by_id is not None:
             link.created_by_id = created_by_id

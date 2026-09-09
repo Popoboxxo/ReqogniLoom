@@ -1014,6 +1014,18 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     source_id = serializers.UUIDField()
     target_id = serializers.UUIDField()
     link_type = serializers.CharField(max_length=64)
+    # Q1.6: why these two artifacts are connected. Free text on a trust
+    # boundary, so sanitized and capped like change_reason (B006/#104) — an
+    # unbounded TextField-backed field accepts unbounded payloads.
+    rationale = SanitizedCharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Why this link exists (optional, free text).",
+    )
+    # Written only by TraceLinkService.propagate_suspect_status.
+    suspect_flagged_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    suspect_source_change = serializers.UUIDField(read_only=True, allow_null=True)
     # REQ-002: human-readable labels for trace endpoints
     source_title = serializers.CharField(
         read_only=True,

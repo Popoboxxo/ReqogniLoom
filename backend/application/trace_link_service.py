@@ -341,6 +341,7 @@ class TraceLinkService(ServiceBase):
         target_id: UUID,
         link_type: str,
         ctx: AuthContext,
+        rationale: str = "",
     ):
         """Create a single TraceLink after validation.
 
@@ -354,6 +355,8 @@ class TraceLinkService(ServiceBase):
             target_id: UUID of the target artifact or derived entity.
             link_type: A key of this workspace's link-type catalog.
             ctx: Resolved AuthContext.
+            rationale: Q1.6 — why *these two* artifacts are linked. Optional
+                free text; empty string means "not stated".
 
         Returns:
             Created TraceLink ORM instance.
@@ -410,6 +413,7 @@ class TraceLinkService(ServiceBase):
                 target_id=resolved_target,
                 link_type=link_type,
                 created_by_id=ctx.user_id,
+                rationale=rationale,
             )
         except SourceNotFoundError as exc:
             raise NotFoundError("Source entity not found") from exc

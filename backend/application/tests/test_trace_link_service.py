@@ -149,6 +149,8 @@ class TestCreateTraceLink:
             target_id=TARGET_ID,
             link_type=link_type,
             created_by_id=ctx.user_id,
+            # Q1.6: forwarded on every call, empty when the caller omits it.
+            rationale="",
         )
         assert result is mock_result
 
@@ -852,6 +854,7 @@ class TestResolveArtifactId:
             target_id=target_artifact_id,
             link_type="verifies",
             created_by_id=ctx.user_id,
+            rationale="",
         )
 
 
