@@ -30,6 +30,7 @@ ITEM_TYPES: tuple[str, ...] = (
     "Goal",
     "Icd",
     "GlossaryTerm",
+    "ChangeRequest",
 )
 
 PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")

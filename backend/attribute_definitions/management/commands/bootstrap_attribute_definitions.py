@@ -70,6 +70,7 @@ MODEL_LOCATIONS: dict[str, tuple[tuple[str, str], ...]] = {
     "Risk": (("persistence", "Risk"), ("application", "Risk")),
     "Issue": (("persistence", "Issue"), ("application", "Issue")),
     "Goal": (("persistence", "Goal"), ("application", "Goal")),
+    "ChangeRequest": (("persistence", "ChangeRequest"),),
 }
 
 #: Columns that are never user-facing attributes. ``status`` and
@@ -134,6 +135,13 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
         # every (re)assignment — derived server state, same class as
         # `created_at`/`updated_at` above, not a user-editable field.
         "assignee_changed_date",
+        # Gap #4a finding (ChangeRequest bootstrap): `ChangeRequest.baseline`
+        # has no `ChangeRequestSerializer` field at all — introspecting it
+        # produced a visible, editable reference picker whose every write
+        # silently no-op'd (unknown top-level key, dropped by
+        # field_validation.py before the serializer ever sees it), same
+        # silent-discard class as `owner_user`/`assignee_id` above.
+        "baseline",
     }
 )
 
@@ -173,7 +181,12 @@ CHANGE_CONTROL_FIELDS: frozenset[str] = frozenset({"uid", "suspect", "baseline_i
 #: that both the form renderer AND every ArtifactForm-driven save round-trip
 #: (GET -> edit -> PATCH) sent straight back — a 400 on every single save.
 #: Template bug: present in every bootstrapped item type, not just Risk.
-READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset({"uid"})
+#:
+#: Gap #4a finding: `ChangeRequest.requestor_id` is real and serializer-
+#: declared, but `ChangeRequestSerializer.requestor_id` is
+#: `read_only=True` — same landmine class as `uid` above (introspected as
+#: `editable=True`, every PATCH round-trip 400s).
+READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset({"uid", "requestor_id"})
 
 #: Curated widget attributes (spec section 6.3). ``fields[]`` names the core
 #: attributes the widget renders; the form renderer skips those individually so

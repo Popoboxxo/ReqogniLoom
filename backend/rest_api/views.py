@@ -4319,6 +4319,7 @@ def _adr_to_dict(adr: Any) -> dict[str, Any]:
         "consequences": getattr(adr, "consequences", ""),
         "uid": getattr(adr, "uid", None),
         "status": getattr(adr, "status", "Draft"),
+        "custom_fields": _artifact_custom_fields(adr),
         "version": adr.version,
         "created_at": adr.created_at,
         "updated_at": adr.updated_at,
@@ -4346,6 +4347,7 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
         "mitigation_strategy": getattr(risk, "mitigation_strategy", ""),
         "uid": getattr(risk, "uid", None),
         "status": getattr(risk, "status", "Identified"),
+        "custom_fields": _artifact_custom_fields(risk),
         "version": risk.version,
         "created_at": risk.created_at,
         "updated_at": risk.updated_at,
@@ -4443,6 +4445,7 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         # Task 20 finding: see IssueSerializer.due_date — the GET side of the
         # same silent-discard gap (the value was never even readable).
         "due_date": getattr(issue, "due_date", None),
+        "custom_fields": _artifact_custom_fields(issue),
         # GH-737 follow-up audit: `version` was the one field IssueSerializer
         # declares (read-only, LOCK_VERSION_HELP_TEXT) that this dict never
         # supplied. DRF silently drops a missing read-only field instead of
@@ -5042,6 +5045,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 context=data.get("context", ""),
                 decision=data.get("decision", ""),
                 consequences=data.get("consequences", ""),
+                custom_fields=data.get("custom_fields"),
                 # Datenmodell-Konsolidierung Phase 1: a new ADR always starts
                 # at the workflow definition's initial_state. AdrSerializer.status
                 # is read-only (WorkflowStateSerializerMixin), so `data` (the
@@ -5079,6 +5083,12 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields
+        # (same pattern as RequirementViewSet.partial_update).
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_adr(
@@ -5093,6 +5103,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5345,6 +5356,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # ADR-status-single-source.
                 detection=data.get("detection", 5),
                 owner_user_id=data.get("owner_user_id"),
+                custom_fields=data.get("custom_fields"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5375,6 +5387,12 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields
+        # (same pattern as RequirementViewSet.partial_update).
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_risk(
@@ -5393,6 +5411,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6169,6 +6188,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category", "defect"),
                 tags=data.get("tags"),
                 due_date=data.get("due_date"),
+                custom_fields=data.get("custom_fields"),
                 # Datenmodell-Konsolidierung Phase 1: a new Issue always starts at the
                 # workflow definition's initial_state. A client-supplied `status` is
                 # ignored, not rejected, consistent with ADR-status-single-source.
@@ -6212,6 +6232,11 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         extra_kwargs: dict[str, Any] = {}
         if "due_date" in data:
             extra_kwargs["due_date"] = data["due_date"]
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields
+        # (same pattern as RequirementViewSet.partial_update).
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded.
@@ -6341,9 +6366,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = ChangeRequestSerializer
     preset_endpoint_key = ""
     workflow_item_type = "ChangeRequest"
-    #: ChangeRequest is not one of the ten bootstrapped item types, so it
-    #: has no attribute definition to validate against. Explicit opt-out.
-    attribute_item_type = None
+    attribute_item_type = "ChangeRequest"
 
     def _svc(self) -> ChangeRequestService:
         return ChangeRequestService()

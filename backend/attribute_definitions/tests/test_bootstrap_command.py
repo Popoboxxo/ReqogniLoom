@@ -29,10 +29,10 @@ def tenant(db) -> Tenant:
     return Tenant.objects.create(name="t", slug=f"t-{uuid.uuid4().hex[:8]}")
 
 
-def test_ten_item_types_are_covered() -> None:
+def test_eleven_item_types_are_covered() -> None:
     assert BOOTSTRAP_ITEM_TYPES == (
         "Requirement", "StakeholderNeed", "ArchitectureElement", "TestCase",
-        "Adr", "Risk", "Issue", "Goal", "Icd", "GlossaryTerm",
+        "Adr", "Risk", "Issue", "Goal", "Icd", "GlossaryTerm", "ChangeRequest",
     )
 
 
@@ -148,7 +148,7 @@ def test_preset_mandatory_fields_drive_required_on_requirement() -> None:
 
 
 @pytest.mark.django_db
-def test_command_seeds_thirty_rows_per_tenant(tenant) -> None:
+def test_command_seeds_one_row_per_item_type_and_preset(tenant) -> None:
     call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
     rows = GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant.id)
     assert rows.count() == len(BOOTSTRAP_ITEM_TYPES) * len(PRESETS)
@@ -171,7 +171,9 @@ def test_command_is_idempotent_and_preserves_curated_meta(tenant) -> None:
     row.refresh_from_db()
     by_name = {a["name"]: a for a in row.definition_json["attributes"]}
     assert by_name["title"]["section"] == "header"
-    assert GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant.id).count() == 30
+    assert GlobalAttributeDefinition.unscoped.filter(
+        tenant_id=tenant.id
+    ).count() == len(BOOTSTRAP_ITEM_TYPES) * len(PRESETS)
 
 
 @pytest.mark.django_db
@@ -414,6 +416,7 @@ def _serializer_for_item_type(item_type: str):
         "Issue": rest_serializers.IssueSerializer,
         "Goal": rest_serializers.GoalSerializer,
         "GlossaryTerm": rest_serializers.GlossaryTermSerializer,
+        "ChangeRequest": rest_serializers.ChangeRequestSerializer,
     }.get(item_type)
 
 
