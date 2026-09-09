@@ -313,8 +313,8 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-002: Requirement-Detail öffnen → Workflow-State + Title editierbar', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements/${fix.requirementIds['WK-001-FUNC']}`);
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[data-testid="req-title"]')).toHaveValue(/Wasser auf 100/);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Wasser auf 100/);
 
     // REQ-161: aktueller Status wird immer read-only über das
     // WorkflowStatusEditor-Badge angezeigt; ein "Change status"-Trigger
@@ -327,7 +327,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 5000 });
 
     // Category sichtbar
-    const category = page.locator('[data-testid="req-category"]');
+    const category = page.locator('[data-testid="artifact-field-category"]');
     await expect(category).toBeVisible({ timeout: 5000 });
   });
 

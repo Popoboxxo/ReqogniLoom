@@ -21,6 +21,12 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+// Task 25: RequirementEditors now renders RequirementArtifactForm, whose
+// FieldShell reads `i18n.language` directly (`helpText()`, FieldShell.tsx) —
+// without the real i18next singleton initialised, `language` is `undefined`
+// and `.startsWith()` throws. Same import ArchitectureEditors.test.tsx
+// already relies on (Task 24).
+import "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules
@@ -127,6 +133,17 @@ vi.mock("../api/testcases", () => ({
   },
 }));
 
+// Task 25: RequirementEditors now renders RequirementArtifactForm, which
+// resolves its field set from the attribute-definition API — see the
+// identical mock/rationale in ArchitectureEditors.test.tsx (Task 24).
+// `getWorkspace`'s resolved value is set once in the shared `beforeEach`
+// below via `REQ_DEFINITION`; `vi.clearAllMocks()` clears call history, not
+// the implementation, so this one setup covers every describe block in the
+// file.
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: { getWorkspace: vi.fn() },
+}));
+
 // Stub the shared ArtifactInspector so the RightSidebar shell is countable.
 // Preserves the rest of the barrel (VersionPanel, types, ...) via importActual
 // and only replaces RightSidebar with a marker. This lets the test assert that
@@ -147,7 +164,7 @@ import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
 import { testcasesApi } from "../api/testcases";
 import { workspacesApi } from "../api/workspaces";
-import { extractErrorMessage } from "../api/client";
+import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
@@ -188,6 +205,27 @@ const MOCK_REQUIREMENT = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
+// Task 25: minimal attribute definition — just enough for
+// RequirementArtifactForm to render the `title` field these tests assert on
+// (the load-signal / save-button / field-error interactions below only ever
+// touch `title`), same minimal-fixture convention ArchitectureEditors.test.tsx
+// uses (Task 24).
+function reqAttr(over: Record<string, unknown>) {
+  return {
+    kind: "core", widget_key: null, fields: [], options: [], required: false,
+    visible: true, locked: false, editable: true, section: "general", order: 1,
+    label: { de: "", en: "" }, help_text: { de: "", en: "" }, default: null,
+    validation: {}, ai_elicit: false, export: true, audience: "basic", ...over,
+  };
+}
+const REQ_DEFINITION = {
+  item_type: "Requirement",
+  preset: "standard",
+  is_customized: false,
+  version: 1,
+  attributes: [reqAttr({ name: "title", type: "text", required: true, order: 1 })],
+};
+
 // ---------------------------------------------------------------------------
 // Render helper
 // ---------------------------------------------------------------------------
@@ -225,8 +263,15 @@ function renderEditor(requirementId?: string): ReturnType<typeof render> {
 // R2/T1: file-wide default so every pre-existing describe block below (none
 // of which touch mockAuthRoles) keeps running as an editor/admin session —
 // only the role-gate block further down overrides it, per-test.
+//
+// Task 25: also the one place `attributeDefinitionsApi.getWorkspace`'s
+// resolved value is set — `vi.clearAllMocks()` (used by every nested
+// `beforeEach` below) clears call history, not the mock implementation, so
+// this single file-wide default covers every describe block without each one
+// needing its own copy.
 beforeEach(() => {
   mockAuthRoles = ["admin"];
+  vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue(REQ_DEFINITION as any);
 });
 
 describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
@@ -289,7 +334,7 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
 
     // AI-derive button must be present in the ReqTraceLinkPanel header
@@ -351,7 +396,7 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
 
     // Wait until the detail form has loaded the requirement (title field).
     await waitFor(() => {
-      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
 
     // Exactly one Inspector instance — not zero (missing), not two (duplicate).
@@ -363,29 +408,34 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // -------------------------------------------------------------------------
 
   it("shows field-specific error message on save failure instead of generic fallback (REQ-009)", async () => {
-    const fieldError = "Title: This field may not be blank.";
-    // Configure extractErrorMessage mock to return the specific field error.
-    vi.mocked(extractErrorMessage).mockReturnValueOnce(fieldError);
+    // Task 25: RequirementArtifactForm routes a rejected save through
+    // ArtifactForm's own `fieldErrorsFromException`, which prefers the
+    // structured `error.details` array over the flattened `message` — the
+    // per-field message therefore renders WITHOUT the "Title: " prefix, next
+    // to the field itself (`FieldShell`'s own `role="alert"` span), not as a
+    // page-level banner. `extractErrorMessage` is not exercised here since
+    // `details` alone already yields a non-empty field-error map.
+    const fieldErrorText = "This field may not be blank.";
     vi.mocked(requirementsApi.update).mockRejectedValueOnce({
       error: {
         code: "VALIDATION_ERROR",
         message: "Validation failed.",
-        details: [{ field: "title", errors: ["This field may not be blank."] }],
+        details: [{ field: "title", errors: [fieldErrorText] }],
       },
     });
 
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("save-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-save")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByTestId("save-btn"));
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
 
     await waitFor(() => {
       const alert = screen.getByRole("alert");
       expect(alert).toBeInTheDocument();
-      expect(alert).toHaveTextContent(fieldError);
+      expect(alert).toHaveTextContent(fieldErrorText);
     });
   });
 });
@@ -993,7 +1043,7 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("req-derive-testcase-btn")).not.toBeInTheDocument();
     expect(screen.queryByTestId("req-ai-derive-btn")).not.toBeInTheDocument();
@@ -1004,7 +1054,7 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
     expect(screen.getByTestId("req-derive-testcase-btn")).toBeInTheDocument();
     expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
@@ -1017,7 +1067,7 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("create-req-btn")).not.toBeInTheDocument();
   });

@@ -383,8 +383,21 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // entries above already recorded, confirming no other concurrent wave has
 // touched this shared file since. Baseline held at the re-measured value per
 // the ratchet rule above.
+// Task 25 (last rollout wave): deleting `RequirementForm.tsx` (the biggest
+// single style={{ contributor of any of the seven forms — full-page manual
+// inline layout, no CSS module) and retiring the dead `attributeVisibility`/
+// `EntityTypeProvider` wiring in `RequirementEditors.tsx` dropped the count
+// from 951 to 924, the largest single drop of the whole rollout (as the plan
+// predicted — Requirement carried the most style={{ literals of the seven).
+// The restored `CustomFieldsEditor`/`ArtifactCustomFields` siblings (parity
+// fix, see `RequirementArtifactForm.tsx`'s docstring) use CSS classes in
+// `RequirementEditors.module.css`, not inline `style={{ }}` — same
+// TestCaseEditors.module.css precedent (Task 22) — so the count holds at
+// 924. Re-measured fresh immediately before recording, per the Task 23
+// runbook note on this exact assertion flapping across concurrent
+// orchestrator instances.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 951;
+const STYLE_BRACE_BASELINE = 924;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

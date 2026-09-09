@@ -2049,7 +2049,9 @@
     "definitionUnavailable": "The field configuration could not be loaded.",
     "deleteTitle": "Delete artifact",
     "unsupportedWidget": "This field uses an unsupported widget ({{widget}}). Its individual fields are shown directly instead.",
-    "userDirectoryUnavailable": "User directory unavailable — only tenant administrators may read it."
+    "userDirectoryUnavailable": "User directory unavailable — only tenant administrators may read it.",
+    "changeReason": "Change reason",
+    "changeReasonRequired": "Please provide a change reason."
   },
   "sections": {
     "general": "General",

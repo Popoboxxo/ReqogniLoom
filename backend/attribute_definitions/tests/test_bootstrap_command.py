@@ -105,6 +105,18 @@ def test_curated_widgets_are_added_with_their_bound_fields() -> None:
     assert testcase["steps"]["widget_key"] == "steps_editor"
     assert testcase["steps"]["fields"] == ["steps_data"]
 
+    # Task 25: same single-field `markdown_tab_group` binding
+    # ArchitectureElement's `description_editor` uses (Task 24) — parity fix
+    # for the deleted `RequirementForm`'s `<MarkdownPreview>` edit/preview
+    # toggle, which the generic `textarea` field type has no equivalent for.
+    requirement = {a["name"]: a for a in introspect_core_attributes("Requirement", "standard")}
+    assert requirement["description_editor"]["widget_key"] == "markdown_tab_group"
+    assert requirement["description_editor"]["fields"] == ["description"]
+    # The raw `description` attribute still exists (still `required`-checkable
+    # by `test_preset_mandatory_fields_drive_required_on_requirement`); the
+    # widget only claims it client-side (`ArtifactForm.tsx`'s `widgetOwned`).
+    assert "description" in requirement
+
 
 @pytest.mark.django_db
 def test_widget_claimed_json_columns_are_not_duplicated_as_raw_textareas() -> None:

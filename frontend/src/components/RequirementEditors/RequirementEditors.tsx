@@ -19,11 +19,14 @@
  * Refactored to use:
  * - SplitView component for resizable list/detail layout
  * - RequirementList (left panel) — searchable list with filtering
- * - RequirementForm (right panel) — type-dependent form with Moscow/Fibonacci/Verification fields
- * - EntityTypeProvider for context-aware field rendering
+ * - RequirementArtifactForm (right panel, Task 25) — definition-driven
+ *   `ArtifactForm` renderer (spec section 6.2). Field visibility/order comes
+ *   from the resolved attribute definition; the legacy `EntityTypeProvider` /
+ *   `AttributeVisibilityConfig` prop chain is retired for this type, same as
+ *   every other migrated rollout wave.
  */
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
@@ -33,25 +36,26 @@ import { workspacesApi } from '../../api/workspaces';
 import { requirementsApi } from '../../api/requirements';
 import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { EntityTypeProvider } from '../../context/EntityTypeContext';
-import { attributeVisibilityApi } from '../../api';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { RequirementList } from './RequirementList';
-import { RequirementForm } from './RequirementForm';
+import { RequirementArtifactForm } from './RequirementArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
+import { useFormDirty } from '../../hooks/use-form-dirty';
+import { useEntityReset } from '../../hooks/use-entity-reset';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { REQ_CATEGORIES } from '../../types';
-import type { RequirementType } from '../../types';
 import styles from './RequirementEditors.module.css';
 // F-04 (code review, 2026-08-19): '.createLabelInline'/'.createInput' live in
 // the shared module (see its own header comment) so this create form
@@ -75,23 +79,42 @@ export default function RequirementEditors(): JSX.Element {
   const interviewCta = useInterviewStartCta('Requirement');
   // GH-443: opt-in to soft-deleted requirements (status="outdated").
   const [includeDeleted, setIncludeDeleted] = useState(false);
-  // Issue #672: does the currently-open RequirementForm have unsaved local
-  // edits? Reported by the form itself via onDirtyChange. `pendingId` holds
-  // a tree-node click that arrived while dirty, so it can be confirmed or
-  // discarded instead of silently overwriting the open edit.
-  const [isFormDirty, setIsFormDirty] = useState(false);
+  // Issue #672: does the currently-open RequirementArtifactForm have unsaved
+  // local edits? Reported by the form itself via onDirtyChange. `pendingId`
+  // holds a tree-node click that arrived while dirty, so it can be confirmed
+  // or discarded instead of silently overwriting the open edit.
+  const [formDirty, setFormDirty] = useState(false);
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
   const {
     requirements,
     requirement,
-    upstreamLinks,
-    downstreamLinks,
-    linkedTitles,
-    linkedRoutes,
     isLoading,
     error,
     refresh,
   } = useRequirementData(selectedId, { includeDeleted });
+
+  // Task 25: custom_fields is a free-form JSON blob the definition-driven
+  // RequirementArtifactForm cannot render (no `kind: "extended"` attribute
+  // exists for Requirement), so the CustomFieldsEditor lives here as a
+  // sibling — same scope boundary as TestCaseEditors'/NeedsEditors'
+  // customFieldsDraft (Tasks 22/23). Reset on requirement switch, not on
+  // every refetch of the same one.
+  const [customFieldsDraft, setCustomFieldsDraft] = useState<Record<string, unknown>>({});
+  // customFieldsDraft must feed the same dirty gate isFormDirty does, or
+  // editing only a custom field and switching to another requirement
+  // silently discards the edit with no unsaved-changes dialog — the
+  // CustomFieldsEditor is a sibling of RequirementArtifactForm, not wired
+  // into its own useFormDirty/onDirtyChange at all.
+  const { isDirty: customFieldsDirty, markClean: markCustomFieldsClean } = useFormDirty(
+    customFieldsDraft,
+    requirement?.custom_fields ?? {},
+  );
+  useEntityReset(requirement?.id ?? '__none__', () => {
+    const baseline = requirement?.custom_fields ?? {};
+    setCustomFieldsDraft(baseline);
+    markCustomFieldsClean(baseline);
+  });
+  const isFormDirty = formDirty || customFieldsDirty;
 
   const createRequirement = useCreateRequirement();
   const deleteRequirement = useDeleteRequirement();
@@ -124,38 +147,6 @@ export default function RequirementEditors(): JSX.Element {
 
   // SysEng 2.0 N5 (test.derive_from_requirement): AI TestCase-draft copilot
   const [showDeriveTestcasePanel, setShowDeriveTestcasePanel] = useState(false);
-
-  // Dynamic attribute configurations
-  const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
-    complexity_fibonacci: true,
-    verification_method: true,
-  });
-  const [requiredFields, setRequiredFields] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    let isMounted = true;
-    attributeVisibilityApi.list()
-      .then((data) => {
-        if (!isMounted) return;
-        const vMap: Record<string, boolean> = {};
-        const rMap: Record<string, boolean> = {};
-        data.filter(cfg => cfg.entity_type === 'requirement').forEach(cfg => {
-          vMap[cfg.attribute_name] = cfg.is_visible;
-          rMap[cfg.attribute_name] = cfg.is_required || false;
-        });
-        
-        if (!('complexity_fibonacci' in vMap)) vMap['complexity_fibonacci'] = true;
-        if (!('verification_method' in vMap)) vMap['verification_method'] = true;
-        
-        setAttributeVisibility(vMap);
-        setRequiredFields(rMap);
-      })
-      // An empty config set is a valid, expected state (no seed data by
-      // design); only genuine HTTP/network failures reach here — log them as a
-      // warning, not an error (REQ-136).
-      .catch(err => console.warn('Could not load attribute configs; using defaults', err));
-    return () => { isMounted = false; };
-  }, []);
 
   // Split-view state for localStorage persistence
   
@@ -255,9 +246,24 @@ export default function RequirementEditors(): JSX.Element {
     if (!pendingSelectId) return;
     const target = pendingSelectId;
     setPendingSelectId(null);
-    setIsFormDirty(false);
+    setFormDirty(false);
+    // Discarding: re-anchor the custom-fields baseline to whatever is
+    // currently drafted so isFormDirty drops immediately, not just once the
+    // target requirement's own useEntityReset callback fires after
+    // navigation (same fix TestCaseEditors/NeedsEditors already needed).
+    markCustomFieldsClean(customFieldsDraft);
     navigate(`/requirements/${target}`);
-  }, [pendingSelectId, navigate]);
+  }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
+
+  // F-2-class fix (Task 23 fix round 4 / Task 22): a save that touched
+  // customFieldsDraft would otherwise leave customFieldsDirty stuck `true`
+  // forever — markCustomFieldsClean was only ever called from
+  // useEntityReset/confirmPendingSelect, never after a successful save, so
+  // the very next requirement switch showed a false unsaved-changes dialog.
+  const handleSaved = useCallback((): void => {
+    markCustomFieldsClean(customFieldsDraft);
+    refresh();
+  }, [customFieldsDraft, markCustomFieldsClean, refresh]);
 
   /**
    * Handle delete requirement with confirmation.
@@ -645,29 +651,41 @@ export default function RequirementEditors(): JSX.Element {
         onOpenArtifact={handleOpenChainArtifact}
         isOpenable={derivationChain.isOpenable}
       />
-      <EntityTypeProvider
-        entityType="requirement"
-        entitySubType={(requirement.type || 'SyReq') as RequirementType}
-        visibleFields={attributeVisibility}
-        requiredFields={requiredFields}
-      >
-        <RequirementForm
-          requirement={requirement}
-          upstreamLinks={upstreamLinks}
-          downstreamLinks={downstreamLinks}
-          linkedTitles={linkedTitles}
-          linkedRoutes={linkedRoutes}
-          requirements={requirements}
-          workspaceId={activeWorkspace!.id}
-          onSaved={refresh}
-          onCancel={() => navigate('/requirements')}
-          onDirtyChange={setIsFormDirty}
+      <RequirementArtifactForm
+        key={requirement.id}
+        requirement={requirement}
+        onSaved={handleSaved}
+        onDeleted={() => {
+          refresh();
+          navigate('/requirements');
+        }}
+        onDirtyChange={setFormDirty}
+        customFields={customFieldsDraft}
+      />
+
+      {/* Sibling of the definition-driven form, not inside it — see
+          RequirementArtifactForm's docstring for why (REQ-L2-AS-037). */}
+      <div className={styles.customFieldsSection}>
+        <h3 className={styles.customFieldsSectionHeading}>
+          {t('customFields.section')}
+        </h3>
+        <CustomFieldsEditor
+          key={requirement.id}
+          value={requirement.custom_fields}
+          onChange={setCustomFieldsDraft}
         />
-      </EntityTypeProvider>
+      </div>
+
+      {/* Workspace-defined typed custom fields (REQ-016) — independent save
+          flow, own artifactId-keyed effect, unrelated to customFieldsDraft
+          above. Only shown for an existing requirement (needs an artifact id). */}
+      {requirement.artifact_id && (
+        <ArtifactCustomFields artifactId={requirement.artifact_id} />
+      )}
 
       {/* TraceLink management incl. "Ableiten" (REQ-L2-RF-006) — restored
           after the SplitView refactor dropped this panel. The read-only
-          trace view lives in the ArtifactInspector inside RequirementForm. */}
+          trace view lives in the ArtifactInspector inside RequirementArtifactForm. */}
       {activeWorkspace && (
         <ReqTraceLinkPanel
           workspaceId={activeWorkspace.id}

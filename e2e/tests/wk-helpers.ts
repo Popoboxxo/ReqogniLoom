@@ -47,7 +47,7 @@ export async function createRequirementViaUI(
 
   // Optional: Description/Category im Detail-Editor ergänzen
   if (data.description) {
-    await page.locator('[data-testid="req-title"]').waitFor({ timeout: 8000 });
+    await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
     const descArea = page.locator('textarea').first();
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
@@ -57,7 +57,7 @@ export async function createRequirementViaUI(
   if (data.category) {
     // REQ_CATEGORIES option values are lowercase (frontend/src/types/index.ts) —
     // normalize so callers can pass human-readable category names.
-    await page.locator('[data-testid="req-category"]').selectOption(data.category.toLowerCase());
+    await page.locator('[data-testid="artifact-field-category"]').selectOption(data.category.toLowerCase());
     await saveRequirementDetail(page, 'E2E: set category');
   }
   return id;
@@ -72,13 +72,22 @@ export async function createRequirementViaUI(
  * policy` ablehnt. Ohne diesen Schritt lief der Save ins Leere: der Request
  * schlug fehl, `waitForLoadState('networkidle')` merkte davon nichts, und die
  * gerade gesetzte Kategorie bzw. Beschreibung war still verworfen.
+ *
+ * Task 25: RequirementForm's own `change-reason-input`/`save-btn` are gone —
+ * the requirement editor now renders through the shared `ArtifactForm`
+ * (`artifact-form-change-reason`/`artifact-form-save`). NOTE this is NOT the
+ * same as `createArchitectureElementViaUI` above: that helper never opts into
+ * `requiresChangeReason` (`ArchitectureArtifactForm` does not pass the prop),
+ * so its own `arch-change-reason-input` id (`se-workflow.spec.ts`) matches
+ * nothing today and that check silently skips — a pre-existing Task 24 gap,
+ * unrelated to and not fixed by this Requirement-form migration.
  */
 async function saveRequirementDetail(page: Page, reason: string): Promise<void> {
-  const reasonInput = page.locator('[data-testid="change-reason-input"]');
+  const reasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
   if (await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)) {
     await reasonInput.fill(reason);
   }
-  await page.locator('[data-testid="save-btn"]').click();
+  await page.locator('[data-testid="artifact-form-save"]').click();
   await page.waitForLoadState('networkidle');
 }
 
@@ -142,7 +151,7 @@ export async function createTraceLinkViaUI(
   linkType: string
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/requirements/${sourceReqId}`);
-  await page.locator('[data-testid="req-title"]').waitFor({ timeout: 12000 });
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
   const panel = page.locator('[data-testid="req-tracelink-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   await page.locator('[data-testid="req-tracelink-create-btn"]').click();

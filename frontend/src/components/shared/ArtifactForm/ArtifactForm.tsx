@@ -55,12 +55,26 @@ export interface ArtifactFormProps {
   artifactId: string | null;
   initialValues: ArtifactFormValues;
   onSave: (values: ArtifactFormValues) => Promise<void>;
-  onDelete?: () => Promise<void>;
+  /**
+   * `changeReason` is the trimmed value of the shared change-reason field
+   * (F-1, Task 25 fix round 1) — passed only when `requiresChangeReason` is
+   * active and in edit mode, `undefined` otherwise. Callers that never opt
+   * into `requiresChangeReason` can ignore the argument.
+   */
+  onDelete?: (changeReason?: string) => Promise<void>;
   onDirtyChange?: (isDirty: boolean) => void;
   /** `"read"` disables every control (Rollenbasierte-Sichten spec). */
   mode?: "edit" | "read";
   /** Enables the workflow status editor for `editable: "workflow"` attributes. */
   workflowArtifactType?: WorkflowArtifactType;
+  /**
+   * Extended-preset rule (REQ-162): a save (and, per F-1, a delete) must
+   * carry a change reason. The capability lives here, opt-in via this prop,
+   * rather than in one adapter — so it is AVAILABLE to every type, not
+   * automatically active for every type; only Requirement passes it today.
+   * Ignored in create mode (`artifactId === null`): there is no change to explain.
+   */
+  requiresChangeReason?: boolean;
 }
 
 export interface FormSection {
@@ -133,6 +147,7 @@ export function ArtifactForm({
   onDirtyChange,
   mode = "edit",
   workflowArtifactType,
+  requiresChangeReason = false,
 }: ArtifactFormProps): JSX.Element {
   const { t } = useTranslation();
   const { definition, loading, error: loadError } = useArtifactDefinition(itemType);
@@ -142,9 +157,12 @@ export function ArtifactForm({
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [changeReason, setChangeReason] = useState<string>("");
 
   const { isDirty, markClean } = useFormDirty(values, initialValues);
   const isReadOnly = mode === "read";
+  const changeReasonNeeded = requiresChangeReason && artifactId !== null && !isReadOnly;
+  const changeReasonMissing = changeReasonNeeded && !changeReason.trim();
 
   // `initialValues` is an object prop and every realistic call site builds it
   // inline from the fetched artifact, so both its IDENTITY and its key ORDER
@@ -168,10 +186,25 @@ export function ArtifactForm({
     // artifact the user clicks.
     setFieldErrors({});
     setFormError(null);
+    // A change reason typed for the PREVIOUS artifact must not silently ride
+    // along on the next one's PATCH once the user switches selection (same
+    // reused-mounted-form bug class NeedArtifactForm's R-2 fix already
+    // addressed for its own bespoke change-reason field, Task 23).
+    setChangeReason("");
   });
 
+  // `changeReason` lives outside `values` (it is a save-time annotation, not
+  // part of the artifact's own state), so `useFormDirty`'s own comparison
+  // never sees it. Without folding it in here, a user who types only a
+  // change reason (no other field edit) would pass every unsaved-changes
+  // guard undetected — same gap `NeedArtifactForm`'s bespoke
+  // `hasPendingChangeReason` closed for its own pre-shared implementation
+  // (Task 23).
+  const hasPendingChangeReason = changeReasonNeeded && changeReason.trim().length > 0;
+  const combinedDirty = isDirty || hasPendingChangeReason;
+
   useEffect(() => {
-    onDirtyChange?.(isDirty);
+    onDirtyChange?.(combinedDirty);
     // Task 24 finding: without this cleanup, unmounting the form while
     // `isDirty` was still `true` (e.g. Delete, which navigates away and
     // unmounts the form without ever reporting `isDirty(false)`) left the
@@ -186,7 +219,7 @@ export function ArtifactForm({
     return () => {
       onDirtyChange?.(false);
     };
-  }, [isDirty, onDirtyChange]);
+  }, [combinedDirty, onDirtyChange]);
 
   const visible = useMemo(
     () => (definition?.attributes ?? []).filter((a) => a.visible),
@@ -250,12 +283,20 @@ export function ArtifactForm({
   }, []);
 
   const handleSave = useCallback(async (): Promise<void> => {
+    if (changeReasonMissing) {
+      setFormError(t("artifactForm.changeReasonRequired"));
+      return;
+    }
     setSaving(true);
     setFormError(null);
     setFieldErrors({});
+    const payload: ArtifactFormValues = changeReasonNeeded
+      ? { ...values, change_reason: changeReason.trim() }
+      : values;
     try {
-      await onSave(values);
+      await onSave(payload);
       markClean(values);
+      setChangeReason("");
     } catch (exc: unknown) {
       const message = extractErrorMessage(exc);
       const parsed = fieldErrorsFromException(exc, message);
@@ -264,18 +305,29 @@ export function ArtifactForm({
     } finally {
       setSaving(false);
     }
-  }, [markClean, onSave, values]);
+  }, [changeReason, changeReasonMissing, changeReasonNeeded, markClean, onSave, t, values]);
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!onDelete) return;
+    // F-1 (Task 25 fix round 1): the same change-reason guard `handleSave`
+    // applies before a PATCH also applies before a DELETE — the Extended
+    // preset's `is_change_reason_required` check gates both server-side
+    // (`RequirementService.delete_requirement`), so a delete with a missing
+    // reason must fail the same way a save does, not 400 after the confirm
+    // dialog already closed.
+    if (changeReasonMissing) {
+      setConfirmDelete(false);
+      setFormError(t("artifactForm.changeReasonRequired"));
+      return;
+    }
     try {
-      await onDelete();
+      await onDelete(changeReasonNeeded ? changeReason.trim() : undefined);
       setConfirmDelete(false);
     } catch (exc: unknown) {
       setConfirmDelete(false);
       setFormError(extractErrorMessage(exc));
     }
-  }, [onDelete]);
+  }, [changeReason, changeReasonMissing, changeReasonNeeded, onDelete, t]);
 
   if (loading) {
     return <div data-testid="artifact-form-loading" aria-busy="true" />;
@@ -351,6 +403,22 @@ export function ArtifactForm({
           </section>
         );
       })}
+
+      {changeReasonNeeded ? (
+        <label className={styles.field}>
+          <span className={`${styles.label} ${styles.required}`}>
+            {t("artifactForm.changeReason")}
+          </span>
+          <input
+            className={styles.control}
+            data-testid="artifact-form-change-reason"
+            type="text"
+            value={changeReason}
+            aria-required="true"
+            onChange={(event) => setChangeReason(event.target.value)}
+          />
+        </label>
+      ) : null}
 
       {!isReadOnly ? (
         <div className={styles.actions}>

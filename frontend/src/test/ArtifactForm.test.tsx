@@ -483,6 +483,102 @@ describe("ArtifactForm", () => {
   });
 });
 
+// F-4 (Task 25 fix round 1): `requiresChangeReason` had zero coverage in the
+// shared suite — every prior assertion lived only in `RequirementArtifactForm
+// .test.tsx`, which exercises the adapter, not the shared renderer's own
+// gating logic (create-mode suppression, read-mode suppression, the
+// cross-artifact reset, and the "reason-only edit is still dirty" fold-in).
+describe("ArtifactForm requiresChangeReason", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  it("does not render the change-reason field in create mode", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+        requiresChangeReason
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    expect(screen.queryByTestId("artifact-form-change-reason")).not.toBeInTheDocument();
+  });
+
+  it("does not render the change-reason field in read mode", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+        requiresChangeReason
+        mode="read"
+      />
+    );
+    expect(await screen.findByTestId("artifact-field-title")).toBeDisabled();
+    expect(screen.queryByTestId("artifact-form-change-reason")).not.toBeInTheDocument();
+  });
+
+  it("clears a typed change reason when the parent switches to a different artifact", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    const { rerender } = render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "First" }}
+        onSave={vi.fn()}
+        requiresChangeReason
+      />
+    );
+    await userEvent.type(
+      await screen.findByTestId("artifact-form-change-reason"),
+      "explaining the edit"
+    );
+    expect(screen.getByTestId("artifact-form-change-reason")).toHaveValue(
+      "explaining the edit"
+    );
+    rerender(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-2"
+        initialValues={{ title: "Second" }}
+        onSave={vi.fn()}
+        requiresChangeReason
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("artifact-form-change-reason")).toHaveValue("")
+    );
+  });
+
+  it("reports dirty when only the change reason was typed, no field edited", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    const onDirtyChange = vi.fn();
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+        requiresChangeReason
+        onDirtyChange={onDirtyChange}
+      />
+    );
+    await userEvent.type(
+      await screen.findByTestId("artifact-form-change-reason"),
+      "x"
+    );
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+  });
+});
+
 /**
  * The backend never checks that a widget attribute's `fields` match its
  * `widget_key` (`validate_meta_only_change` ignores

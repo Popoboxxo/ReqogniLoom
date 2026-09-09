@@ -337,7 +337,7 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     ids.requirementIds['L1-999-ENC'] = id;
 
     await page.goto(`${FRONTEND_URL}/requirements/${id}`);
-    const titleInput = page.locator('[data-testid="req-title"]');
+    const titleInput = page.locator('[data-testid="artifact-field-title"]');
     const value = await titleInput.inputValue();
     if (value !== tricky) {
       logBug(

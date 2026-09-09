@@ -262,6 +262,25 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "label": {"de": "Beschreibung", "en": "Description"},
         },
     ),
+    "Requirement": (
+        {
+            # Task 25 finding, same parity regression as ArchitectureElement's
+            # `description_editor` above (Task 24): the deleted hand-written
+            # `RequirementForm` edited `description` through
+            # `<MarkdownPreview>` (edit/preview toggle). A bare `description`
+            # attribute renders through the generic `textarea` field type,
+            # which has no such toggle. Reuses the same single-field
+            # `markdown_tab_group` binding, no new widget component needed.
+            "name": "description_editor",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "markdown_tab_group",
+            "fields": ["description"],
+            "section": "general",
+            "order": 2,
+            "label": {"de": "Beschreibung", "en": "Description"},
+        },
+    ),
 }
 
 #: Model fields whose introspected name would not match the actual wire

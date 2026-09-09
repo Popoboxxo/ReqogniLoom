@@ -321,13 +321,13 @@ test.describe('[REQ-L0-011] Audit trail', () => {
   test('[REQ-L0-011] change_reason field is visible in requirement editor (extended preset)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     // "+ New" only opens an inline quick-create form; the full editor (with
-    // req-title) only renders after Save navigates to the detail route.
+    // artifact-field-title) only renders after Save navigates to the detail route.
     await page.locator('[data-testid="create-req-btn"]').click();
     await page.locator('[data-testid="req-new-title-input"]').fill('E2E Audit Trail Requirement');
     await page.locator('[data-testid="req-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
-    const changeReasonInput = page.locator('[data-testid="change-reason-input"]');
+    const changeReasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
     const found = await changeReasonInput.count();
     if (found === 0) {
       test.skip(true, 'change_reason field not present — may require extended preset');

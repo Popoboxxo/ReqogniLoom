@@ -2049,7 +2049,9 @@
     "definitionUnavailable": "Feldkonfiguration konnte nicht geladen werden.",
     "deleteTitle": "Artefakt löschen",
     "unsupportedWidget": "Dieses Feld verwendet ein nicht unterstütztes Widget ({{widget}}). Die einzelnen Felder werden stattdessen direkt angezeigt.",
-    "userDirectoryUnavailable": "Benutzerliste nicht verfügbar — nur Tenant-Administratoren dürfen sie lesen."
+    "userDirectoryUnavailable": "Benutzerliste nicht verfügbar — nur Tenant-Administratoren dürfen sie lesen.",
+    "changeReason": "Änderungsgrund",
+    "changeReasonRequired": "Bitte einen Änderungsgrund angeben."
   },
   "sections": {
     "general": "Allgemein",
