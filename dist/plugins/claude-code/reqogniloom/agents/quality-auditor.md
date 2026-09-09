@@ -28,8 +28,6 @@ tools:
 - mcp__reqogniloom__change_request.read
 - mcp__reqogniloom__change_request.query
 - mcp__reqogniloom__review.list_pending
-- mcp__reqogniloom__custom_field.get
-- mcp__reqogniloom__custom_field.query
 ---
 
 # Quality Auditor
