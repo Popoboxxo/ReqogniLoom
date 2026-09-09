@@ -20,6 +20,7 @@ import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
 import { WorkflowEditorPage } from "../WorkflowEditor/WorkflowEditorPage";
+import { AttributeEditorPage } from "../AttributeEditor";
 import { WorkspaceAdminSection } from "./WorkspaceAdminSection";
 import { BannerSection } from "./BannerSection";
 import { ThemeManagementSection } from "./ThemeManagementSection";
@@ -30,11 +31,17 @@ import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 
-type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults" | "memory";
+type SystemTabId =
+  | "administration"
+  | "workflow-defaults"
+  | "attribute-defaults"
+  | "permission-defaults"
+  | "memory";
 
 const TAB_IDS: SystemTabId[] = [
   "administration",
   "workflow-defaults",
+  "attribute-defaults",
   "permission-defaults",
   "memory",
 ];
@@ -75,6 +82,7 @@ export default function SystemSettings(): JSX.Element {
   const TABS: { id: SystemTabId; label: string }[] = [
     { id: "administration", label: t("systemSettings.tabs.administration", "Administration") },
     { id: "workflow-defaults", label: t("systemSettings.tabs.workflowDefaults", "Workflow Defaults") },
+    { id: "attribute-defaults", label: t("systemSettings.tabs.attributeDefaults", "Attribute Defaults") },
     { id: "permission-defaults", label: t("systemSettings.tabs.permissionDefaults", "Permission Defaults") },
     { id: "memory", label: t("systemSettings.tabs.memory", "Memory") },
   ];
@@ -165,6 +173,11 @@ export default function SystemSettings(): JSX.Element {
             style={{ height: "calc(100vh - 220px)", position: "relative" }}
           >
             <WorkflowEditorPage scope="global" />
+          </div>
+        )}
+        {activeTab === "attribute-defaults" && (
+          <div data-testid="system-attribute-defaults">
+            <AttributeEditorPage scope="global" />
           </div>
         )}
         {activeTab === "permission-defaults" && <PermissionDefaultsTab />}

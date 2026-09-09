@@ -771,7 +771,8 @@
       "visibility": "Sichtbarkeit",
       "llm": "LLM & Prompts",
       "governanceReplacement": "Workflows & Berechtigungen",
-      "appearance": "Darstellung"
+      "appearance": "Darstellung",
+      "attributes": "Attribute"
     },
     "attributeVisibility": "Attribut-Sichtbarkeit",
     "llm": {
@@ -1896,6 +1897,7 @@
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow-Standards",
+      "attributeDefaults": "Attribut-Standards",
       "permissionDefaults": "Berechtigungs-Standards",
       "memory": "Memory"
     },
@@ -2058,5 +2060,39 @@
     "classification": "Klassifikation",
     "change_control": "Änderungskontrolle",
     "custom": "Eigene Felder"
+  },
+  "attributes": {
+    "entityType": "Elementtyp",
+    "entityTypes": {
+      "Requirement": "Requirement",
+      "StakeholderNeed": "Stakeholder Need",
+      "ArchitectureElement": "Architektur",
+      "TestCase": "Testfall",
+      "Adr": "ADR",
+      "Risk": "Risiko",
+      "Issue": "Issue",
+      "Goal": "Ziel",
+      "Icd": "ICD",
+      "GlossaryTerm": "Glossarbegriff"
+    },
+    "visible": "Sichtbar",
+    "required": "Pflicht",
+    "expertOnly": "Nur für Experten",
+    "section": "Sektion",
+    "labelDe": "Label (DE)",
+    "labelEn": "Label (EN)",
+    "aiElicit": "Im Interview abfragen",
+    "export": "Exportieren",
+    "lockedHint": "systemkritisch, nicht änderbar",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "addSection": "Sektion anlegen",
+    "renameSection": "Sektion umbenennen",
+    "deleteSection": "Sektion löschen",
+    "moveSectionUp": "Sektion nach oben",
+    "moveSectionDown": "Sektion nach unten",
+    "reset": "Auf Standard zurücksetzen",
+    "resetConfirm": "Workspace-Anpassungen verwerfen und den globalen Standard übernehmen?",
+    "propagated": "{{count}} Workspace(s) aktualisiert"
   }
 }

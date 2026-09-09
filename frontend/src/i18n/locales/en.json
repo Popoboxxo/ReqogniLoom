@@ -771,7 +771,8 @@
       "visibility": "Visibility",
       "llm": "LLM & Prompts",
       "governanceReplacement": "Workflows & Permissions",
-      "appearance": "Appearance"
+      "appearance": "Appearance",
+      "attributes": "Attributes"
     },
     "attributeVisibility": "Attribute Visibility",
     "llm": {
@@ -1896,6 +1897,7 @@
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow Defaults",
+      "attributeDefaults": "Attribute Defaults",
       "permissionDefaults": "Permission Defaults",
       "memory": "Memory"
     },
@@ -2058,5 +2060,39 @@
     "classification": "Classification",
     "change_control": "Change control",
     "custom": "Custom fields"
+  },
+  "attributes": {
+    "entityType": "Entity type",
+    "entityTypes": {
+      "Requirement": "Requirement",
+      "StakeholderNeed": "Stakeholder Need",
+      "ArchitectureElement": "Architecture",
+      "TestCase": "Test Case",
+      "Adr": "ADR",
+      "Risk": "Risk",
+      "Issue": "Issue",
+      "Goal": "Goal",
+      "Icd": "ICD",
+      "GlossaryTerm": "Glossary Term"
+    },
+    "visible": "Visible",
+    "required": "Required",
+    "expertOnly": "Expert only",
+    "section": "Section",
+    "labelDe": "Label (DE)",
+    "labelEn": "Label (EN)",
+    "aiElicit": "Elicit in interview",
+    "export": "Export",
+    "lockedHint": "system-critical, not changeable",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "addSection": "Add section",
+    "renameSection": "Rename section",
+    "deleteSection": "Delete section",
+    "moveSectionUp": "Move section up",
+    "moveSectionDown": "Move section down",
+    "reset": "Reset to default",
+    "resetConfirm": "Discard the workspace customisation and adopt the global default?",
+    "propagated": "{{count}} workspace(s) updated"
   }
 }
