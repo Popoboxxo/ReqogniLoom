@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
-from django.conf import settings
+from django.db.models import Q
 
 from auth_tenancy.context import AuthContext
 
@@ -1163,24 +1163,51 @@ class TraceLinkService(ServiceBase):
             for n in neighbors
         ]
 
-    def propagate_suspect_status(self, source_id: UUID, ctx: AuthContext) -> None:
-        """Propagate 'suspect' status to dependent artifacts (SN-30).
+    def propagate_suspect_status(
+        self,
+        source_id: UUID,
+        ctx: AuthContext,
+        *,
+        audit_entry_id: Optional[UUID] = None,
+    ) -> int:
+        """Flag the artifacts a change to *source_id* makes questionable (SN-30).
 
-        When the artifact ``source_id`` changes, every artifact that DEPENDS ON
-        it must be flagged as suspect. In the SE link convention the dependent
-        is the SOURCE of the link and the changed artifact is the TARGET
-        (e.g. ``TestCase --verifies--> Requirement`` or
-        ``ChildReq --derives-from--> ParentReq``). Dependents are therefore
-        reached by traversing INCOMING edges — the ``upstream`` direction, where
-        the QueryEngine returns the link sources for links whose target is
-        ``source_id``.
+        Dispatches on each link type's ``suspect_rule`` from the workspace
+        catalog rather than flooding a direction-agnostic transitive hull.
+        This is the mechanism behind P0 issue #849: the ``suspect`` column and
+        its serializer field already existed, but nothing ever consulted the
+        link type, so ``allocated-to`` (which propagates source -> target)
+        never fired at all and ``references`` fired when it should not have.
 
-        The transitive upstream closure is computed by the recursive CTE in the
-        QueryEngine, which has built-in cycle detection and no hard depth cap,
-        so no dependent is silently truncated (the previous BFS stopped at a
-        hard-coded depth of 5). An optional
-        ``settings.SUSPECT_PROPAGATION_MAX_DEPTH`` (int) bounds the traversal
-        explicitly when configured; the default (``None``) keeps the full hull.
+        Rule dispatch (direction convention: ``decomposes`` runs
+        parent -> child, ``derives-from`` runs child -> parent — see
+        ``traceability/audit/hierarchy.py``)::
+
+            target_change_flags_source     changed == link.target -> flag source
+            source_change_flags_target     changed == link.source -> flag target
+            parent_change_flags_children   changed == link.source (the parent)
+                                                            -> flag target (child)
+            none                           nothing
+
+        ``parent_change_flags_children`` shares the ``source_change_flags_target``
+        branch on purpose: for a hierarchy link the parent *is* the source, so
+        the two are the same traversal. It stays a distinct configurable value
+        because it documents intent for hierarchy types.
+
+        **One hop only.** The previous implementation walked the full recursive
+        CTE closure; the spec describes a single hop, and each flagged artifact
+        propagates further when *it* is edited. ``SUSPECT_PROPAGATION_MAX_DEPTH``
+        is consequently no longer read.
+
+        Args:
+            source_id: The artifact (or business entity) that changed.
+            ctx: Resolved AuthContext.
+            audit_entry_id: ``audit.AuditEntry.id`` of the triggering change,
+                recorded on every link that fired so a reviewer can see *which*
+                edit made the other end suspect.
+
+        Returns:
+            Number of artifacts newly flagged suspect.
         """
         if ctx is not None:
             self._set_tenant_context(ctx)
@@ -1188,59 +1215,86 @@ class TraceLinkService(ServiceBase):
         try:
             resolved_id = self._resolve_artifact_id(source_id)
         except NotFoundError:
-            return  # Source does not exist or isn't an artifact
+            return 0
 
-        from traceability.services import query
+        from django.utils import timezone
 
-        try:
-            # Dependents are UPSTREAM nodes: links where target == resolved_id.
-            # transitive=True returns the full (cycle-safe) closure.
-            results = query(
-                artifact_id=resolved_id,
-                direction="upstream",
-                transitive=True,
-            )
+        from link_types.catalog import resolve_catalog
+        from persistence.models import (
+            ArchitectureElement,
+            Artifact,
+            Requirement,
+            TestCase,
+            TraceLink,
+        )
 
-            max_depth = getattr(settings, "SUSPECT_PROPAGATION_MAX_DEPTH", None)
-            dependent_ids = {
-                r.entity_id
-                for r in results
-                if max_depth is None or getattr(r, "depth", 1) <= max_depth
-            }
-            dependent_ids.discard(resolved_id)  # never flag the source itself
-            if not dependent_ids:
-                return
+        artifact = Artifact.objects.filter(id=resolved_id).only("workspace_id").first()
+        if artifact is None:
+            return 0
+        catalog = resolve_catalog(artifact.workspace_id)
 
-            from persistence.models import (
-                ArchitectureElement,
-                Requirement,
-                TestCase,
-            )
+        # One query for both directions; the rule decides which side counts.
+        links = list(
+            TraceLink.objects.filter(
+                Q(source_id=resolved_id) | Q(target_id=resolved_id)
+            ).only("id", "source_id", "target_id", "link_type")
+        )
 
-            # Update every reachable dependent entity type.
-            Requirement.objects.filter(
-                artifact_id__in=dependent_ids
+        dependent_ids: set[UUID] = set()
+        fired_link_ids: list[UUID] = []
+
+        for link in links:
+            definition = catalog.get(link.link_type)
+            if definition is None:
+                continue  # unknown or deactivated type: no propagation
+            rule = definition.get("suspect_rule", "none")
+            if rule == "none":
+                continue
+
+            if rule == "target_change_flags_source":
+                if link.target_id != resolved_id:
+                    continue
+                other_id = link.source_id
+            elif rule in ("source_change_flags_target", "parent_change_flags_children"):
+                # Identical traversal: for a hierarchy link the parent is the
+                # source (see the direction table in the docstring).
+                if link.source_id != resolved_id:
+                    continue
+                other_id = link.target_id
+            else:
+                logger.warning(
+                    "Unknown suspect_rule '%s' on link type '%s'; skipping.",
+                    rule,
+                    link.link_type,
+                )
+                continue
+
+            if other_id == resolved_id:
+                continue  # self-link: never flag the changed artifact itself
+            dependent_ids.add(other_id)
+            fired_link_ids.append(link.id)
+
+        if not dependent_ids:
+            return 0
+
+        flagged = 0
+        for model in (Requirement, ArchitectureElement, TestCase):
+            flagged += model.objects.filter(
+                artifact_id__in=dependent_ids, suspect=False
             ).update(suspect=True)
-            ArchitectureElement.objects.filter(
-                artifact_id__in=dependent_ids
-            ).update(suspect=True)
-            TestCase.objects.filter(
-                artifact_id__in=dependent_ids
-            ).update(suspect=True)
 
-            logger.info(
-                "Propagated suspect status to %d artifacts from %s",
-                len(dependent_ids),
-                source_id,
-            )
-        except Exception:
-            # SN-30 must not silently swallow failures: surface the full stack
-            # trace and re-raise so callers (and the audit trail) see the error.
-            logger.exception(
-                "Error propagating suspect status for %s", source_id
-            )
-            raise
+        TraceLink.objects.filter(id__in=fired_link_ids).update(
+            suspect_flagged_at=timezone.now(),
+            suspect_source_change=audit_entry_id,
+        )
 
+        logger.info(
+            "Suspect propagation from %s: %d artifact(s) flagged via %d link(s).",
+            resolved_id,
+            flagged,
+            len(fired_link_ids),
+        )
+        return flagged
 
 
 __all__ = [
