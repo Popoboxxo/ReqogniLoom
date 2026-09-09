@@ -5595,6 +5595,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = GoalSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Goal"
+    attribute_item_type = "Goal"
     # Issue #460 finding 4: the DRF router's default pk pattern ([^/.]+) also
     # matched non-id segments, so GET /api/v1/goals/main/ resolved to
     # retrieve(pk="main") and answered 400 "'pk' must be a well-formed UUID"
@@ -5695,8 +5696,23 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        ctx = get_auth_context(request)
+        # ``existing=None`` (create semantics) applies to every version, not
+        # only the first: Goal is lineage-based (Variante A) — a new version
+        # is always a brand-new row (GoalService.create_version), never a
+        # PATCH onto an existing one (partial_update() below 405s), so there
+        # is no "update" call site for this ViewSet where an ``existing``
+        # marker would apply. Every write must satisfy the required
+        # attributes, matching the row it actually creates.
+        definition_error = self._validate_attribute_definition(
+            ctx,
+            data["workspace_id"],
+            dict(request.data) if isinstance(request.data, dict) else {},
+            None,
+        )
+        if definition_error is not None:
+            return definition_error
         try:
-            ctx = get_auth_context(request)
             result = self._svc().create_version(
                 workspace_id=data["workspace_id"],
                 title=data["title"],

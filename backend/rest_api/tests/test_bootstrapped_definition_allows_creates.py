@@ -52,10 +52,9 @@ from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
 #: ``(url, extra body fields beyond workspace_id + title)``. Only the ViewSets
-#: that declare ``attribute_item_type`` — ChangeRequest opts out, and Goal/Icd
-#: have no WorkflowTransitionsMixin ViewSet to wire. ``description`` is listed
-#: only for ``Adr``, the one type where the model itself (not a preset policy)
-#: requires it.
+#: that declare ``attribute_item_type`` — Icd has no WorkflowTransitionsMixin
+#: ViewSet to wire. ``description`` is listed only for ``Adr``, the one type
+#: where the model itself (not a preset policy) requires it.
 CREATE_CASES = [
     ("/api/v1/requirements/", {}),
     ("/api/v1/needs/", {}),
@@ -65,6 +64,7 @@ CREATE_CASES = [
     ("/api/v1/risks/", {}),
     ("/api/v1/issues/", {}),
     ("/api/v1/glossary/", {"term": "Term", "definition": "D"}),
+    ("/api/v1/goals/", {}),
 ]
 
 PRESETS = ("minimal", "standard", "extended")
@@ -80,7 +80,7 @@ def _bootstrapped_admin_client(preset: str) -> tuple[APIClient, Workspace]:
     set_request_tenant(tenant.id)
     try:
         workspace = Workspace.objects.create(
-            tenant=tenant, name="ws", preset={"name": preset}
+            tenant=tenant, name="ws", preset={"name": preset}, goals_enabled=True
         )
         user = User.objects.create(
             username=f"admin-{suffix}", email=f"admin-{suffix}@t.test", tenant=tenant
