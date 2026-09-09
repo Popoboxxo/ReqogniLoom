@@ -115,7 +115,7 @@ def test_create_without_configuration_fields_keeps_defaults() -> None:
     assert body["theme"] == "dark"
     assert body["goals_enabled"] is False
     assert body["goals_ai_enabled"] is False
-    assert body["decomposition_link_type"] == "parent-child"
+    assert body["decomposition_link_type"] == "decomposes"
     assert body["default_link_type"] == "derives-from"
 
 

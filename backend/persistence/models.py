@@ -719,8 +719,13 @@ class Workspace(TenantScopedModel):
     )
     decomposition_link_type = models.CharField(
         max_length=50,
-        default="parent-child",
-        help_text="Default link type used when decomposing requirements.",
+        default="decomposes",
+        help_text=(
+            "Default link type used when decomposing requirements. NOTE: "
+            "RequirementService.decompose hardcodes 'decomposes' and does not "
+            "read this field (UMSETZUNGSPLAN_SYSENG_2.0 section 1.4); the "
+            "default was 'parent-child', a link type that no longer exists."
+        ),
     )
     default_link_type = models.CharField(
         max_length=50,
@@ -833,6 +838,20 @@ class Artifact(TenantScopedModel):
             "RequirementService/StakeholderNeedService/AdrService/... leave "
             "this NULL and rely on TraceLinks. Kept for backward "
             "compatibility only — do not add new dependencies on it."
+        ),
+    )
+    copied_from = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="copies",
+        help_text=(
+            "Provenance of a duplicated artifact. Replaces the retired "
+            "'copy-of' TraceLink type: a copy has exactly one origin, so a "
+            "1:1 field states the invariant that an N:M link table could not. "
+            "SET_NULL — deleting the original must not delete its copies, "
+            "which are independent artifacts."
         ),
     )
     workspace = models.ForeignKey(
@@ -1406,6 +1425,40 @@ class TraceLink(TenantScopedModel):
             "over trace links, sized by persistence.embedding_dimensions."
             "EMBEDDING_VECTOR_DIMENSIONS (#794). Best-effort: NULL when no "
             "embedding provider is configured."
+        ),
+    )
+    rationale = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Q1.6: why this link exists. A link type alone does not say why "
+            "*these two* artifacts are connected; without it a reviewer has "
+            "to reconstruct the intent from the two titles."
+        ),
+    )
+    suspect_flagged_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Set by the suspect-propagation engine "
+            "(application.trace_link_service.TraceLinkService."
+            "propagate_suspect_status) when this link caused the other "
+            "endpoint to be flagged suspect. NULL means this link has not "
+            "triggered a flag since the last review."
+        ),
+    )
+    suspect_source_change = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "audit.AuditEntry.id of the change that triggered the flag above. "
+            "Deliberately a plain UUID rather than a ForeignKey: audit_entry "
+            "is append-only and slated for monthly RANGE partitioning "
+            "(audit/migrations/0001_initial.py), which a real FK would "
+            "permanently block because Postgres requires the partition key in "
+            "the referenced primary key. No cascade semantics are needed — an "
+            "audit entry is never deleted."
         ),
     )
 
