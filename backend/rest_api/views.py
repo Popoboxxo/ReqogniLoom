@@ -2240,6 +2240,28 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
+        # R-1 (Task 22 review round 2): `create_test_case()` has its own,
+        # unrelated legacy `test_type` parameter (Title-case values tagged
+        # onto `artifact.artifact_type`, see comment there) — it does not
+        # accept the real `TestCase.test_type` column this serializer field
+        # now exposes, and silently forwarding/dropping it would give a 201
+        # while quietly discarding what the client asked for. Reject loudly
+        # instead; the column is settable via PATCH right after create.
+        if "test_type" in data:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{
+                        "field": "test_type",
+                        "errors": [
+                            "test_type cannot be set on create; "
+                            "PATCH it after the TestCase is created."
+                        ],
+                    }],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
             definition_error = self._validate_attribute_definition(
@@ -2312,6 +2334,22 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         extra_kwargs: dict[str, Any] = {}
         if "custom_fields" in data:
             extra_kwargs["custom_fields"] = data["custom_fields"]
+        # Task 22 fix: `steps` is a real, writable `TestCaseSerializer` field
+        # (validated above) that `update_test_case()` has always accepted —
+        # this view simply never forwarded it, so every steps_editor widget
+        # PATCH silently no-op'd (200 OK, unchanged `steps` on the very next
+        # GET). Proven live via a real create -> GET -> PATCH -> GET
+        # round-trip against a real dev workspace. Same conditional-forward
+        # pattern as `custom_fields` above: only touch it when the partial
+        # payload actually carries it.
+        if "steps" in data:
+            extra_kwargs["steps"] = data["steps"]
+        # C-1 fix round: same conditional-forward pattern as `steps` above —
+        # `test_type` is now a real, writable `TestCaseSerializer` field
+        # (validated above); forward it so the introspected select widget's
+        # PATCH actually persists instead of only passing validation.
+        if "test_type" in data:
+            extra_kwargs["test_type"] = data["test_type"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
@@ -4101,6 +4139,11 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         "uid": getattr(tc, "uid", None),
         "status": getattr(tc, "status", "draft"),
         "steps": getattr(tc, "steps", []) or [],
+        # C-1 fix round: real, writable model column (see TestCaseSerializer.
+        # test_type docstring) — was missing from the read path entirely, so
+        # the ArtifactForm's initial value was always empty regardless of
+        # what had been saved.
+        "test_type": getattr(tc, "test_type", None),
         "custom_fields": _artifact_custom_fields(tc),
         "version": tc.version,
         "created_at": tc.created_at,

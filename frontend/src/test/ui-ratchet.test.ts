@@ -371,6 +371,18 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // Still a moving target across the concurrently-landing Task 21/23/24 waves —
 // needs one final re-measurement once all three are merged onto a settled
 // tree, same caveat as the Task 23 entry above.
+//
+// Task 22 review round 1, S-3: the TestCase rollout wave (Task 22) had added
+// 3 new inline literals to `TestCaseEditors.tsx` (the sibling
+// CustomFieldsEditor section wrapper/heading + the "select a test case"
+// placeholder — `TestCaseForm.module.css`, deleted in the same wave, used to
+// supply this chrome), pushing the count to 954 and turning this test red.
+// All 3 moved onto a new, minimal `TestCaseEditors.module.css`. Re-measured
+// (fresh, not trusting the reviewer's or the prior round's number, per this
+// fix round's instructions): 951 — back to the same value the Task 23/24
+// entries above already recorded, confirming no other concurrent wave has
+// touched this shared file since. Baseline held at the re-measured value per
+// the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
 const STYLE_BRACE_BASELINE = 951;
 

@@ -288,6 +288,20 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
 #     shape). An unaliased `parent` attribute rendered a working reference
 #     picker whose every reparent silently no-op'd on save (unknown top-level
 #     key, dropped by both `field_validation.py` and the serializer).
+#   - Task 22 finding: `TestCase.steps` is the odd one out in this map — it is
+#     a `JSONField`, so `_attribute_type` returns `None` for it regardless of
+#     aliasing, and `introspect_core_attributes` now unconditionally drops any
+#     column it cannot render (see the loop below). The `steps -> steps_data`
+#     entry therefore no longer changes what gets emitted for the *raw*
+#     column (nothing does, aliased or not) — it is kept purely as
+#     documentation of the internal-only key (`steps_data`) that the
+#     `steps_editor` widget's own `fields` entry, `StepsEditor.tsx` and
+#     `TestCaseArtifactForm.tsx`'s `STEPS_WIRE_FIELD`/`STEPS_FORM_FIELD`
+#     translation all agree on. `steps_data` is NOT a real column or
+#     serializer field on `TestCase` (`TestCaseSerializer` declares `steps`,
+#     matching the model) — do not "fix" this by making it one; the wire
+#     translation belongs in the frontend adapter, same as Risk's
+#     `owner_user_id` alias or Issue's `tag_list`/`tags` split.
 WIDGET_FIELD_ALIASES: dict[str, dict[str, str]] = {
     "TestCase": {"steps": "steps_data"},
     "Risk": {"owner_user": "owner_user_id"},
@@ -391,11 +405,6 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     """
     model = _resolve_model(item_type)
     aliases = WIDGET_FIELD_ALIASES.get(item_type, {})
-    widget_field_names = {
-        name
-        for entry in WIDGET_ATTRIBUTES.get(item_type, ())
-        for name in entry["fields"]
-    }
 
     attributes: list[dict[str, Any]] = [synthetic_status_attribute()]
     order = 0
@@ -409,10 +418,19 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
         attribute_type = _attribute_type(field)
         name = aliases.get(field.name, field.name)
         if attribute_type is None:
-            # Only keep an unrenderable column when a widget claims it.
-            if name not in widget_field_names:
-                continue
-            attribute_type = "textarea"
+            # Task 22 finding: a JSONField-backed column with no basic
+            # renderer used to be kept as a bare `textarea` fallback
+            # whenever a widget's `fields` list already claimed it (steps,
+            # tags) — that produced a SECOND, competing editor bound to the
+            # exact same key as the widget's own entry (added below). For
+            # `TestCase.steps` it was worse: the fallback surfaced under the
+            # alias name (`steps_data`), which is not a real column or
+            # serializer field on TestCase at all — nothing on the backend
+            # accepts a `steps_data` PATCH, so that phantom attribute was
+            # both a duplicate editor AND unpatchable. A column nothing
+            # renders is simply dropped; the widget attribute added below is
+            # the sole representation once something does claim it.
+            continue
         order += 1
         attributes.append(
             normalize_attribute(

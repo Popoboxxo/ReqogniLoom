@@ -38,7 +38,7 @@ from rest_framework.response import Response
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
-from persistence.models import ElementType
+from persistence.models import ElementType, TestCaseType
 
 # ---------------------------------------------------------------------------
 # Lock-counter semantics (issue #213)
@@ -951,6 +951,22 @@ class TestCaseSerializer(
     # persisted on the model but not exposed through the API.
     steps = serializers.ListField(
         child=serializers.DictField(), required=False, default=list
+    )
+    # C-1 (attribute-definitions Task 22 review round 1): `TestCase.test_type`
+    # (persistence/migrations/0041_add_testcase_test_type.py, B6a) is a real,
+    # writable model column with TestCaseType choices — the bootstrap
+    # introspects it as an editable enum attribute (bootstrap_attribute_
+    # definitions.py: CLASSIFICATION_FIELDS + _attribute_type's
+    # `choices` -> "enum" branch), so the definition-driven
+    # TestCaseArtifactForm renders it as a select and PATCHes it back. This
+    # serializer never declared it, so `validate()`'s unknown-key guard 400'd
+    # every save the moment a user touched the field. Unrelated to
+    # `TestService.create_test_case`'s `test_type` parameter, which is a
+    # separate legacy mechanism (Title-Case values tagged onto
+    # `artifact.artifact_type`, never touching this column) — deliberately
+    # left alone here; this field only wires the real column through PATCH.
+    test_type = serializers.ChoiceField(
+        choices=TestCaseType.choices, required=False, allow_null=True
     )
     # SysEng 2.0 N5: optional requirement to auto-link on create (write-only —
     # mirrors the MCP test.create `linked_req_id` convention, ADR-L3-MC005-01).

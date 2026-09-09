@@ -107,6 +107,25 @@ def test_curated_widgets_are_added_with_their_bound_fields() -> None:
 
 
 @pytest.mark.django_db
+def test_widget_claimed_json_columns_are_not_duplicated_as_raw_textareas() -> None:
+    """Task 22 finding: a JSONField a widget's ``fields`` list claims (TestCase
+    ``steps`` -> ``steps_data``, Issue ``tags``) used to ALSO survive as a bare
+    ``textarea`` core attribute bound to the same key — a second, competing
+    editor for one value. For TestCase this was worse: the fallback surfaced
+    under the alias name ``steps_data``, which the backend has never accepted
+    as a real field. Neither alias name should appear as its own attribute;
+    only the widget entry represents the column.
+    """
+    testcase = {a["name"]: a for a in introspect_core_attributes("TestCase", "standard")}
+    assert "steps_data" not in testcase
+    assert testcase["steps"]["type"] == "widget"
+
+    issue = {a["name"]: a for a in introspect_core_attributes("Issue", "standard")}
+    assert "tags" not in issue
+    assert issue["tag_list"]["type"] == "widget"
+
+
+@pytest.mark.django_db
 def test_preset_mandatory_fields_drive_required_on_requirement() -> None:
     minimal = {a["name"]: a for a in introspect_core_attributes("Requirement", "minimal")}
     standard = {a["name"]: a for a in introspect_core_attributes("Requirement", "standard")}
@@ -346,3 +365,74 @@ def test_uid_is_visible_but_not_editable_on_every_item_type() -> None:
             continue
         assert by_name["uid"]["visible"] is True, item_type
         assert by_name["uid"]["editable"] is False, item_type
+
+
+# --- Task 22 review round 1, C-1: editable core attribute must be a real, -----
+# writable serializer field. Broader than the uid-specific check above: this
+# would have caught C-1 (TestCase.test_type introspected as editable, but
+# TestCaseSerializer never declared it -> 400 on every PATCH that touched it)
+# AND, retroactively, Task 19's owner_user and Task 24's parent bug classes
+# (both fixed by aliasing the introspected attribute name onto the real FK-id
+# serializer field name, e.g. "owner_user" -> "owner_user_id").
+#
+# Scoped to real per-field attributes (`type != "widget"`) on purpose:
+# WIDGET_ATTRIBUTES entries (TestCase's `steps` widget bound to the
+# internal-only form key `steps_data`, ArchitectureElement's
+# `description_editor`, Issue's `tag_list`) are `kind == "core"` too but are
+# a deliberate, separate translation layer the owning ArtifactForm component
+# handles itself (see TestCaseArtifactForm's STEPS_WIRE_FIELD/STEPS_FORM_FIELD
+# docstring) — their `name` is intentionally not a serializer field (that is
+# the point of the alias/split), so this check would false-positive on every
+# one of them without the `type != "widget"` exclusion.
+
+
+def _serializer_for_item_type(item_type: str):
+    """Return the DRF serializer class backing *item_type*'s PATCH endpoint,
+    or None if the item type has no DRF serializer (Icd: its REST layer
+    parses `request.data` directly, see icd/contract_validator.py)."""
+    from rest_api import serializers as rest_serializers
+
+    return {
+        "Requirement": rest_serializers.RequirementSerializer,
+        "StakeholderNeed": rest_serializers.StakeholderNeedSerializer,
+        "ArchitectureElement": rest_serializers.ArchitectureElementSerializer,
+        "TestCase": rest_serializers.TestCaseSerializer,
+        "Adr": rest_serializers.AdrSerializer,
+        "Risk": rest_serializers.RiskSerializer,
+        "Issue": rest_serializers.IssueSerializer,
+        "Goal": rest_serializers.GoalSerializer,
+        "GlossaryTerm": rest_serializers.GlossaryTermSerializer,
+    }.get(item_type)
+
+
+@pytest.mark.django_db
+def test_no_introspected_attribute_is_both_editable_and_not_writable() -> None:
+    """Every editable=True, kind="core" attribute must correspond to a real,
+    non-read_only field on the item type's serializer — otherwise the
+    definition-driven ArtifactForm renders a control whose PATCH the
+    serializer either rejects outright (unknown-field 400, C-1's failure
+    mode) or silently drops (read_only field)."""
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        serializer_cls = _serializer_for_item_type(item_type)
+        if serializer_cls is None:
+            continue
+        fields = serializer_cls().fields
+        for preset in PRESETS:
+            for attribute in introspect_core_attributes(item_type, preset):
+                if (
+                    attribute["kind"] != "core"
+                    or attribute["type"] == "widget"
+                    or attribute["editable"] is not True
+                ):
+                    continue
+                name = attribute["name"]
+                assert name in fields, (
+                    f"{item_type}/{preset}: '{name}' is introspected as an "
+                    f"editable core attribute but {serializer_cls.__name__} "
+                    "declares no such field."
+                )
+                assert fields[name].read_only is False, (
+                    f"{item_type}/{preset}: '{name}' is introspected as "
+                    f"editable but {serializer_cls.__name__}.{name} is "
+                    "read_only."
+                )

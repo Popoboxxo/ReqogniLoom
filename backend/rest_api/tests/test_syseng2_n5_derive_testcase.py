@@ -168,6 +168,123 @@ def test_testcase_create_forwards_steps(auth_context, workspace):
     assert response.data["steps"] == steps
 
 
+# ---------------------------------------------------------------------------
+# TestCaseViewSet.partial_update — steps forwarding (Task 22)
+# ---------------------------------------------------------------------------
+
+
+def test_testcase_partial_update_forwards_steps(auth_context, workspace):
+    """Task 22: `partial_update` validated `steps` via `TestCaseSerializer`
+    but never forwarded it to `update_test_case()` — every PATCH from the new
+    `steps_editor` widget (TestCaseArtifactForm.tsx) silently no-op'd (200 OK,
+    unchanged `steps` on the very next GET). Proven live against a real dev
+    workspace before this fix; this is the regression test for that fix.
+    """
+    create_req = _request(
+        "post",
+        "/api/v1/testcases/",
+        auth_context,
+        data={"workspace_id": str(workspace.id), "title": "Login test"},
+    )
+    create_view = TestCaseViewSet.as_view({"post": "create"})
+    created = create_view(create_req)
+    assert created.status_code == 201
+    assert created.data["steps"] == []
+
+    steps = [{"step": "Open login page", "expected_result": "Page loads"}]
+    patch_req = _request(
+        "patch",
+        f"/api/v1/testcases/{created.data['id']}/",
+        auth_context,
+        data={"steps": steps},
+    )
+    patch_view = TestCaseViewSet.as_view({"patch": "partial_update"})
+    patched = patch_view(patch_req, pk=created.data["id"])
+
+    assert patched.status_code == 200
+    assert patched.data["steps"] == steps
+
+    get_req = _request("get", f"/api/v1/testcases/{created.data['id']}/", auth_context)
+    get_view = TestCaseViewSet.as_view({"get": "retrieve"})
+    refetched = get_view(get_req, pk=created.data["id"])
+    assert refetched.data["steps"] == steps
+
+
+def test_testcase_partial_update_test_type_set_then_clear(auth_context, workspace):
+    """N-1 (Task 22 review round 2): `update_test_case()` used to check
+    ``test_type is not None`` — indistinguishable from "field omitted" — so a
+    PATCH with an explicit ``test_type: null`` (the `EnumSelect` widget
+    cleared back to "none") returned 200 but silently left the DB column
+    unchanged. Regression test for the `_UNSET` sentinel fix (mirrors the
+    `custom_fields` pattern in the same function): set -> assert persisted ->
+    explicit null -> assert cleared in both the response and a re-GET.
+    """
+    create_req = _request(
+        "post",
+        "/api/v1/testcases/",
+        auth_context,
+        data={"workspace_id": str(workspace.id), "title": "Login test"},
+    )
+    create_view = TestCaseViewSet.as_view({"post": "create"})
+    created = create_view(create_req)
+    assert created.status_code == 201
+    assert created.data["test_type"] is None
+
+    set_req = _request(
+        "patch",
+        f"/api/v1/testcases/{created.data['id']}/",
+        auth_context,
+        data={"test_type": "system"},
+    )
+    patch_view = TestCaseViewSet.as_view({"patch": "partial_update"})
+    set_resp = patch_view(set_req, pk=created.data["id"])
+    assert set_resp.status_code == 200
+    assert set_resp.data["test_type"] == "system"
+
+    get_view = TestCaseViewSet.as_view({"get": "retrieve"})
+    get_req = _request("get", f"/api/v1/testcases/{created.data['id']}/", auth_context)
+    assert get_view(get_req, pk=created.data["id"]).data["test_type"] == "system"
+
+    clear_req = _request(
+        "patch",
+        f"/api/v1/testcases/{created.data['id']}/",
+        auth_context,
+        data={"test_type": None},
+    )
+    clear_resp = patch_view(clear_req, pk=created.data["id"])
+    assert clear_resp.status_code == 200
+    assert clear_resp.data["test_type"] is None
+
+    get_req2 = _request("get", f"/api/v1/testcases/{created.data['id']}/", auth_context)
+    refetched = get_view(get_req2, pk=created.data["id"])
+    assert refetched.data["test_type"] is None
+
+
+def test_testcase_create_rejects_test_type(auth_context, workspace):
+    """R-1 (Task 22 review round 2): `create_test_case()`'s own legacy
+    `test_type` parameter tags `artifact.artifact_type` (Title-case), not the
+    real model column this serializer field exposes — silently forwarding or
+    dropping a POST-supplied `test_type` would either collide with that
+    legacy mechanism or quietly discard what the client asked for. Reject
+    loudly instead: 400, not 201-with-null.
+    """
+    http_req = _request(
+        "post",
+        "/api/v1/testcases/",
+        auth_context,
+        data={
+            "workspace_id": str(workspace.id),
+            "title": "Login test",
+            "test_type": "system",
+        },
+    )
+    view = TestCaseViewSet.as_view({"post": "create"})
+    response = view(http_req)
+
+    assert response.status_code == 400
+    assert response.data["error"]["details"][0]["field"] == "test_type"
+
+
 def test_testcase_create_with_linked_requirement_id_creates_verifies_link(
     auth_context, workspace
 ):
