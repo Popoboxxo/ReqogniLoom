@@ -454,6 +454,16 @@ def validate_meta_only_change(
             continue
         if new["type"] != old["type"]:
             errors.append(f"{name}: a core attribute may not change its 'type'")
+        # CORE_EDITABLE_META_PROPERTIES (schema.py:58-63) is the exhaustive
+        # whitelist of what a meta-only PUT may touch on a core attribute; it
+        # used to be defined and exported but never checked here, so e.g.
+        # `fields`/`widget_key`/`validation` could be freely rewritten on a
+        # core widget attribute (SDD ledger gap #5).
+        for prop in sorted(set(_DEFAULTS) - CORE_EDITABLE_META_PROPERTIES - {"locked"}):
+            if new[prop] != old[prop]:
+                errors.append(
+                    f"{name}: '{prop}' is not changeable on a core attribute"
+                )
         if old["locked"]:
             if not new["locked"]:
                 errors.append(f"{name}: 'locked' may not be cleared")

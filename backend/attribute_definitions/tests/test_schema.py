@@ -296,3 +296,39 @@ def test_meta_only_change_still_allows_an_ordinary_meta_edit() -> None:
     old = [normalize_attribute(_core("title"))]
     edited = [normalize_attribute(_core("title", required=True, order=5))]
     validate_meta_only_change(old, edited)
+
+
+# --- Ledger gap #5: CORE_EDITABLE_META_PROPERTIES was never enforced ---------
+
+
+def test_meta_only_change_rejects_widget_key_and_fields_on_a_core_attribute() -> None:
+    """Live-proven gap: an admin could freely swap `widget_key`/`fields` on a
+    core widget attribute because `validate_meta_only_change` never checked
+    them against `CORE_EDITABLE_META_PROPERTIES`."""
+    old = [normalize_attribute(_core(
+        "risk_matrix", type="widget", widget_key="risk_matrix_rpz",
+        fields=["probability", "severity"],
+    ))]
+    swapped_widget = [normalize_attribute(_core(
+        "risk_matrix", type="widget", widget_key="tag_input",
+        fields=["probability", "severity"],
+    ))]
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_meta_only_change(old, swapped_widget)
+    assert "widget_key" in " ".join(exc.value.errors)
+
+    narrowed_fields = [normalize_attribute(_core(
+        "risk_matrix", type="widget", widget_key="risk_matrix_rpz",
+        fields=["probability"],
+    ))]
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_meta_only_change(old, narrowed_fields)
+    assert "fields" in " ".join(exc.value.errors)
+
+
+def test_meta_only_change_rejects_validation_rule_change_on_a_core_attribute() -> None:
+    old = [normalize_attribute(_core("code", validation={"regex": r"^\d+$"}))]
+    new = [normalize_attribute(_core("code", validation={"regex": r"^[a-z]+$"}))]
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_meta_only_change(old, new)
+    assert "validation" in " ".join(exc.value.errors)
