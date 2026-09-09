@@ -225,8 +225,24 @@ Whichever is chosen, the `Adr`-as-target gap from the known-red list above belon
 
 ## Phase C — `TraceLink` extension and the suspect engine
 
-Task 12: `TraceLink.rationale` / `suspect_flagged_at` / `suspect_source_change` and `Artifact.copied_from` — pending
-Task 13: Expose the new fields through the REST serializer — pending
+Task 12: `TraceLink.rationale` / `suspect_flagged_at` / `suspect_source_change` and `Artifact.copied_from` — **done**
+
+**Status:** Commit f4b6d3f2, 2026-09-09. All three `TraceLink` semantics fields + `Artifact.copied_from` self-FK implemented per plan spec. Migration 0080 generated and verified.
+
+- `TraceLink.rationale` (TextField, default=""), `TraceLink.suspect_flagged_at` (DateTimeField, null=True, db_index=True), `TraceLink.suspect_source_change` (UUIDField, null=True — deliberately no FK, audit_entry is append-only and slated for RANGE partitioning; Decision 1 in the plan).
+- `Artifact.copied_from` (Self-FK, related_name="copies", SET_NULL) — replaces the retired `copy-of` link-type as a 1:1 field, stating the "one origin" invariant.
+- `Workspace.decomposition_link_type` default changed `parent-child` → `decomposes` (per the plan's 8-core-type scope).
+
+**Code-review findings (optional, not blocking):**
+1. **Serializer/View `parent-child`-Fallback (Task 17, deliberate):** `rest_api/serializers.py:1311` + `rest_api/views.py:4162` still have explicit `"parent-child"` fallback logic in their defaults. Not touched here; Task 17 (consumer sweep) will eliminate both. No new regression — both are dead code paths now that the catalog rejects `parent-child` everywhere.
+2. **`copied_from` lacks tenant validation (Task 16 design question):** `Artifact.copied_from` is a self-FK with no `tenant` constraint, matching `Artifact.parent` (also unconstrained). Correct per analogy to existing patterns, but `Task 16`'s data migration will need to decide whether cross-tenant copies are audit events or a data-integrity error. Scope: this task only builds the schema; no existing `copy-of` rows exist to migrate (they are pure trace links, handled by Task 16).
+3. **Non-concurrent indices in migration 0080 (noted for scale):** `suspect_flagged_at` has a simple `db_index=True`. The plan (lines 4717–4725) notes "performance gains" but does not prescribe compound indices or covering indices. At current volume they are unnecessary; if workspace-scale queries on `(workspace_id, suspect_flagged_at)` become a bottleneck, `Task 16` or Task 14's suspect-propagation loop can add them. Recorded so a scale-up does not forget this field exists.
+
+**Tests:** `backend/persistence/tests/test_tracelink_semantics_fields.py` — 6 passed. Full regression (`persistence/ application/tests/test_trace_link_service.py`) — no new failures.
+
+**KNOWN-RED unchanged:** the 8 pre-existing failures from Task 11's KNOWN-RED list remain; Task 12 introduced no new regressions.
+
+Task 13: Expose the new fields through the REST serializer — **next**
 Task 14: Rule-driven suspect propagation (closes #849 structurally) — pending
 Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` link — pending
 
@@ -274,9 +290,9 @@ A management command inventories the distinct `(link_type, source_artifact_type,
 
 ---
 
-## Branch status: IN PROGRESS — **Phase A complete (Tasks 1-8). Phase B complete: Tasks 9, 10 and 11 done.** Validation is always-on: `link_types.catalog.validate_link_pair` is the sole authority for every trace link in every workspace and terminology profile.
+## Branch status: IN PROGRESS — **Phase A complete (Tasks 1-8). Phase B complete: Tasks 9, 10 and 11 done. Phase C, Task 12 done.** Validation is always-on: `link_types.catalog.validate_link_pair` is the sole authority for every trace link in every workspace and terminology profile. `TraceLink` schema extended with three semantics fields + `Artifact.copied_from` self-FK.
 
-Next: Task 12 (`TraceLink.rationale` / `suspect_*` fields). **Read two things first:**
+Next: Task 13 (REST serializer exposure of the new fields). **Read two things first:**
 1. the **RESOLVED DECISION (Task 11)** above — Option (c) Hybrid, applied 2026-09-09. Grandfathering stays legacy-only; Goal/MainGoal/Interview are regular built-ins (migration `0005`). The tenant asymmetry for the 4 grandfathered pairs is now *intended*, and `seed_toothbrush` still writes those shapes, so it cannot run in a fresh tenant until Task 16/17 re-types it.
 2. the **KNOWN-RED** list in the Task 11 entry — **8 tests remain red** on retired link-type literals in production code. Five file groups: `migrate_se_docs.py` (1), `mcp_server/tools/ai_derivation.py` (1), e2e param tables (2 tests), `test_tracelink_outdated_endpoints.py` (3), `test_tracelink_cascade_484.py` (1 — Issue catalog gap, added 2026-09-09). The 3 Goal tests are no longer among them.
 
