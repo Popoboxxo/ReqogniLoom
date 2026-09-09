@@ -561,46 +561,57 @@ class RequirementBundleQueryService(ServiceBase):
         return exportable
 
 
-def describe_attribute_schema(entity_type: "str | None" = None) -> "List[Dict[str, Any]]":
-    """Return the available attributes for *entity_type* (or every known type).
+def describe_attribute_schema(
+    ctx: AuthContext,
+    workspace_id: UUID,
+    entity_type: "str | None" = None,
+) -> "List[Dict[str, Any]]":
+    """Return the available attributes for *entity_type* (or every known type),
+    resolved against *workspace_id*'s real, currently-active AttributeDefinition.
 
-    Replaces ``AttributeVisibilityConfigService.describe_schema`` (retired in
-    Task 9 along with ``AttributeVisibilityConfig``): every attribute now
-    reports ``is_visible=True`` unconditionally rather than resolving a
-    per-tenant hide toggle. Shared by the REST ``AttributeSchemaView`` and the
-    MCP ``requirement_bundle.attribute_schema`` tool so the degraded
-    "everything visible" behaviour lives in exactly one place.
+    Shared by the REST ``AttributeSchemaView`` and the MCP
+    ``requirement_bundle.attribute_schema`` tool so the resolution behaviour
+    lives in exactly one place.
 
-    .. warning:: **Known, still-open inconsistency (Task 14 fix round, I-1),
-       flagged for the controller to bind to a task rather than fixed here.**
-       This function always returns the static ``REQUIREMENT_ALL_FIELDS``
-       with ``is_visible=True``, regardless of any real, per-workspace
-       ``AttributeDefinition`` customization (e.g. an admin who set
-       ``export=False``/``visible=False`` on one of these fields, or added an
-       extended attribute). It does NOT go through
-       ``RequirementBundleQueryService.resolve_export_fields``, so a caller
-       that discovers a field name here and then uses it with
-       ``filter_mode="custom"`` can get ``ValidationError: Unknown field(s)``
-       for a name this endpoint just told them was valid. Wiring this through
-       ``resolve_export_fields`` properly requires a ``workspace_id`` this
-       function (and both its REST/MCP callers, neither of which currently
-       accepts one) does not have — a public-API-shape change bigger than
-       this fix round's scope. Left open deliberately; do not treat the
-       absence of an error here as evidence the two are actually consistent.
+    Fixes GitHub #882 (SDD plan ``2026-09-03-attribute-definition``, urgent
+    gap #2): this used to always return the static ``REQUIREMENT_ALL_FIELDS``
+    with ``is_visible=True``, ignoring any real, per-workspace
+    ``AttributeDefinition`` customization (e.g. an admin who hid a field or
+    added an extended attribute) and never going through
+    ``AttributeDefinitionService`` — the same resolver
+    ``resolve_export_fields`` (above) and every attribute-definition
+    REST/MCP endpoint use. A workspace with no bootstrapped definition yet
+    falls back to ``REQUIREMENT_ALL_FIELDS`` with every name visible, exactly
+    as ``resolve_export_fields`` does for the same case.
 
     Raises:
         NotFoundError: *entity_type* is not one of the known schemas.
     """
-    schemas: Dict[str, tuple] = {"Requirement": REQUIREMENT_ALL_FIELDS}
+    known_types: tuple = ("Requirement",)
     if entity_type is not None:
-        if entity_type not in schemas:
+        if entity_type not in known_types:
             raise NotFoundError(f"Unknown entity_type {entity_type!r}")
-        schemas = {entity_type: schemas[entity_type]}
-    return [
-        {"entity_type": et, "attribute_name": name, "is_visible": True}
-        for et, names in schemas.items()
-        for name in names
-    ]
+        known_types = (entity_type,)
+
+    result: List[Dict[str, Any]] = []
+    for et in known_types:
+        try:
+            attributes = AttributeDefinitionService().resolve(
+                ctx, et, workspace_id
+            )["attributes"]
+        except AttributeDefinitionNotFound:
+            attributes = [
+                {"name": name, "visible": True} for name in REQUIREMENT_ALL_FIELDS
+            ]
+        for attribute in attributes:
+            result.append(
+                {
+                    "entity_type": et,
+                    "attribute_name": attribute["name"],
+                    "is_visible": attribute["visible"],
+                }
+            )
+    return result
 
 
 __all__ = [

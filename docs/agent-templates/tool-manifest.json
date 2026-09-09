@@ -3465,16 +3465,22 @@
       "name": "requirement_bundle.attribute_schema",
       "prefix": "requirement_bundle",
       "is_write": false,
-      "description": "List available attributes for an entity type, with current visibility. Response shape: {\"attributes\": [...], \"count\": N} - note this differs from the REST AttributeSchemaView endpoint, which returns the same attribute list as a bare top-level JSON array (no wrapping object); ToolResult requires a dict, so the MCP and REST payload shapes are not interchangeable. The names listed here are exactly the values accepted by requirement_bundle.export's 'fields' parameter and the keys returned in its items[].fields; the item-level 'found_under_element_id' is not among them - it is the element's backing Artifact id, not an ArchitectureElement id (see requirement_bundle.export).",
+      "description": "List available attributes for an entity type in 'workspace_id', with each attribute's real, currently-resolved visibility (reflects any per-workspace AttributeDefinition customization, e.g. a hidden/renamed field or an added extended attribute). Response shape: {\"attributes\": [...], \"count\": N} - note this differs from the REST AttributeSchemaView endpoint, which returns the same attribute list as a bare top-level JSON array (no wrapping object); ToolResult requires a dict, so the MCP and REST payload shapes are not interchangeable. The names listed here are exactly the values accepted by requirement_bundle.export's 'fields' parameter and the keys returned in its items[].fields; the item-level 'found_under_element_id' is not among them - it is the element's backing Artifact id, not an ArchitectureElement id (see requirement_bundle.export).",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
           "entity_type": {
             "type": "string",
             "description": "Optional entity type filter, e.g. 'Requirement'. Omit for all known types."
           }
         },
-        "required": []
+        "required": [
+          "workspace_id"
+        ]
       }
     },
     {

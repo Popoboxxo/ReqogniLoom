@@ -7635,21 +7635,38 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
 
 class AttributeSchemaView(APIView):
-    """GET /api/v1/attribute-schema/?entity_type=<optional>
+    """GET /api/v1/attribute-schema/?entity_type=<optional>&workspace_id=<uuid>
 
     Requirement Bundle Export, Plan 1 Task 5 / Task 4. Lists the known
     attribute names per entity type (currently Requirement only), with each
-    attribute's current tenant-level visibility, so callers can discover
-    valid field names before making a filter_mode='custom' bundle-export
-    request.
+    attribute's real, currently-resolved visibility for *workspace_id* (GitHub
+    #882), so callers can discover valid field names before making a
+    filter_mode='custom' bundle-export request.
     """
 
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
+        workspace_id_raw = request.query_params.get("workspace_id")
+        if not workspace_id_raw:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
-            get_auth_context(request)  # ensure authenticated
+            workspace_id = UUID(str(workspace_id_raw))
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
             entity_type = request.query_params.get("entity_type")
-            schema = describe_attribute_schema(entity_type)
+            schema = describe_attribute_schema(ctx, workspace_id, entity_type)
         except NotFoundError as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:

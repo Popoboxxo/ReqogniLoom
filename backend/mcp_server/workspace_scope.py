@@ -258,8 +258,6 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   would break the admin flows that assign a user their *first* role.
 #: * ``workspace.list`` — workspace discovery. This is how a caller learns
 #:   which workspaces exist for them; it cannot require a workspace up front.
-#: * ``requirement_bundle.attribute_schema`` — a static per-entity-type field
-#:   schema, no tenant data at all.
 #: * ``requirement_bundle.compression_status`` — polls a Celery task result
 #:   through a tenant-ownership cache mapping the tool checks itself; the task
 #:   id is not an artifact and has no workspace.
@@ -294,7 +292,6 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "admin.backup_list",
         "user.list",
         "workspace.list",
-        "requirement_bundle.attribute_schema",
         "requirement_bundle.compression_status",
         "audit.query",
         "requirement.query",
