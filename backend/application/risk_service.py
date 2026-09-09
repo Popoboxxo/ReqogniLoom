@@ -31,6 +31,7 @@ from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
+    _clean_custom_fields,
     has_field_changes,
     snapshot_versioned_fields,
 )
@@ -47,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 # Supported TraceLink types for Risks (REQ-L3-RISK-006)
 RISK_LINK_TYPES = frozenset({"threatens", "mitigated-by", "related-to"})
+
+# Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}"
+# (mirrors application.artifact_service._UNSET, same per-module pattern as
+# requirement_service/stakeholder_need_service/test_service).
+_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +190,7 @@ class RiskService(ServiceBase):
         uid: Optional[str] = None,
         detection: int = 5,
         owner_user_id: Optional[UUID] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
 
@@ -236,6 +243,7 @@ class RiskService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="Risk",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
@@ -310,6 +318,7 @@ class RiskService(ServiceBase):
         change_reason: Optional[str] = None,
         detection: Optional[int] = None,
         owner_user_id: Optional[UUID] = None,
+        custom_fields: object = _UNSET,
         expected_version: Optional[int] = None,
     ) -> Risk:
         """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
@@ -354,6 +363,7 @@ class RiskService(ServiceBase):
         # score/severity recomputation too, so a recompute that lands on the
         # same values is correctly treated as a no-op.
         _before = snapshot_versioned_fields(risk)
+        _custom_fields_changed = False
 
         if title is not None:
             risk.title = title
@@ -384,6 +394,23 @@ class RiskService(ServiceBase):
         if owner_user_id is not None:
             risk.owner_user_id = owner_user_id
 
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Risk snapshot and has to be compared separately. Legacy
+        # rows created before REQ-L2-TE-020 may have no backing Artifact yet
+        # (nullable FK) — reject rather than silently drop the write.
+        if custom_fields is not _UNSET:
+            if risk.artifact is None:
+                raise ValidationError(
+                    "Risk has no backing Artifact; custom_fields is unsupported "
+                    "for this legacy record"
+                )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (risk.artifact.custom_fields or {})
+            )
+            risk.artifact.custom_fields = cleaned_custom_fields
+            risk.artifact.save(update_fields=["custom_fields", "modified_at"])
+
         # Recompute score whenever probability or impact changed (ADR-L3-RISK-01)
         score = risk.compute_score()
         risk.risk_score = score
@@ -393,7 +420,7 @@ class RiskService(ServiceBase):
         # level — avoids the read-modify-write race condition of `version += 1`.
         # #269 finding 5: only a real value change is a new revision.
         risk.save()
-        if has_field_changes(risk, _before):
+        if has_field_changes(risk, _before) or _custom_fields_changed:
             Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
             risk.refresh_from_db(fields=["version"])
             # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under

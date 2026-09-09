@@ -31,6 +31,7 @@ from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
+    _clean_custom_fields,
     has_field_changes,
     snapshot_versioned_fields,
 )
@@ -183,6 +184,7 @@ class IssueService(ServiceBase):
         due_date=None,
         tags: Optional[List[str]] = None,
         uid: Optional[str] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Issue:
         """Create an Issue with initial workflow state (REQ-L3-ISSUE-001).
 
@@ -227,6 +229,7 @@ class IssueService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="Issue",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
@@ -293,6 +296,7 @@ class IssueService(ServiceBase):
         due_date: object = _UNSET,
         tags: Optional[List[str]] = None,
         change_reason: Optional[str] = None,
+        custom_fields: object = _UNSET,
         expected_version: Optional[int] = None,
     ) -> Issue:
         """Update an Issue, incrementing its version (REQ-L3-ISSUE-003, ADR-L3-ISSUE-01).
@@ -336,6 +340,7 @@ class IssueService(ServiceBase):
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
         # below can be gated on a real value change.
         _before = snapshot_versioned_fields(issue)
+        _custom_fields_changed = False
 
         if title is not None:
             if not title:
@@ -356,12 +361,29 @@ class IssueService(ServiceBase):
         if tags is not None:
             issue.tags = tags
 
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Issue snapshot and has to be compared separately. Legacy
+        # rows created before REQ-L2-TE-020 may have no backing Artifact yet
+        # (nullable FK) — reject rather than silently drop the write.
+        if custom_fields is not _UNSET:
+            if issue.artifact is None:
+                raise ValidationError(
+                    "Issue has no backing Artifact; custom_fields is unsupported "
+                    "for this legacy record"
+                )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (issue.artifact.custom_fields or {})
+            )
+            issue.artifact.custom_fields = cleaned_custom_fields
+            issue.artifact.save(update_fields=["custom_fields", "modified_at"])
+
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.
         # #269 finding 5: only a real value change is a new revision.
         issue.save()
-        if has_field_changes(issue, _before):
+        if has_field_changes(issue, _before) or _custom_fields_changed:
             Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
             issue.refresh_from_db(fields=["version"])
             # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under

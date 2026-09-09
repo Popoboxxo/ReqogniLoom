@@ -113,6 +113,10 @@
           "uid": {
             "type": "string",
             "description": "Optional. 'uid' as accepted by the adr service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the adr service."
           }
         },
         "required": [
@@ -256,6 +260,9 @@
           "change_reason": {
             "type": "string",
             "description": "Optional. 'change_reason' as accepted by the adr service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the adr service."
           },
           "expected_version": {
             "type": "integer",
@@ -2305,6 +2312,10 @@
           "uid": {
             "type": "string",
             "description": "Optional. 'uid' as accepted by the issue service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the issue service."
           }
         },
         "required": [
@@ -2462,6 +2473,9 @@
           "change_reason": {
             "type": "string",
             "description": "Optional. 'change_reason' as accepted by the issue service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the issue service."
           },
           "expected_version": {
             "type": "integer",
@@ -3723,6 +3737,10 @@
           "owner_user_id": {
             "type": "string",
             "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the risk service."
           }
         },
         "required": [
@@ -3899,6 +3917,9 @@
           "owner_user_id": {
             "type": "string",
             "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the risk service."
           },
           "expected_version": {
             "type": "integer",

@@ -1335,6 +1335,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
 class AdrSerializer(
     WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1377,6 +1378,7 @@ class AdrSerializer(
 
 class RiskSerializer(
     WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1552,6 +1554,7 @@ class NormalizedChoiceField(serializers.ChoiceField):
 
 class IssueSerializer(
     WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
