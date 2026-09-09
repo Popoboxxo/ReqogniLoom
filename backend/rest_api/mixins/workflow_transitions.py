@@ -119,7 +119,7 @@ class WorkflowTransitionsMixin:
     #: Item type this ViewSet's rows are keyed by in the attribute definition
     #: (e.g. ``"Requirement"``). ``None`` disables definition-driven field
     #: validation for the ViewSet — used by the ViewSets that are not one of
-    #: the ten bootstrapped artifact types.
+    #: the eleven bootstrapped artifact types.
     attribute_item_type: str | None = None
 
     def _validate_attribute_definition(

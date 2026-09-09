@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "scripts": {
     "test:e2e": "node node_modules/@playwright/test/cli.js test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:api": "playwright test tests/api/",
+    "test:e2e:ui": "node node_modules/@playwright/test/cli.js test --ui",
+    "test:e2e:debug": "node node_modules/@playwright/test/cli.js test --debug",
+    "test:e2e:api": "node node_modules/@playwright/test/cli.js test tests/api/",
     "test:e2e:ai": "playwright test --reporter=line",
     "test:e2e:ai-mass": "playwright test --reporter=dot",
     "mcp:playwright": "npx -y @playwright/mcp@latest"

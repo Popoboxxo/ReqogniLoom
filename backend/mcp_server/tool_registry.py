@@ -606,8 +606,9 @@ class ToolRegistry:
             # Attribute-Definition spec section 5, Task 12: manages
             # attribute_definitions rows themselves (list/get/update/reset) --
             # NOT to be confused with validate_artifact_fields, which is
-            # wired into the artifact ViewSets (Task 11) and stays unwired for
-            # MCP artifact writes / CSV bulk import (ledger tracker item I-2).
+            # wired into the artifact ViewSets (Task 11), MCP artifact writes
+            # (mcp_server/tools/base.py::validate_artifact_write), and the CSV
+            # bulk importer (ImportService._validate_attribute_definitions).
             "attribute_definition": AttributeDefinitionToolGroup(),
         })
 

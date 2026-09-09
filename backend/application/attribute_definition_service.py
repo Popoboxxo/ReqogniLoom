@@ -331,11 +331,11 @@ class AttributeDefinitionService(ServiceBase):
         """Validate a create/update payload against the resolved definition.
 
         Wired live into the 9 workflow-backed REST ViewSets via
-        ``WorkflowTransitionsMixin`` (Task 11). NOT yet called by the MCP
-        artifact-write tools or by the CSV bulk importer — those paths still
-        bypass this gate (tracked in the SDD ledger, tracker item I-2;
+        ``WorkflowTransitionsMixin`` (Task 11), as well as MCP artifact-write
+        tools (``mcp_server/tools/base.py::validate_artifact_write``) and the
+        CSV bulk importer (``ImportService._validate_attribute_definitions``).
         `attribute_definition.py`'s own MCP tool group only manages
-        definitions, it does not validate other artifacts' writes).
+        definitions, it does not validate other artifacts' writes.
         ``existing is None`` means create (all required attributes
         are demanded); otherwise only the fields the request carries are
         checked, so a save that never touches a required field is not blocked.
