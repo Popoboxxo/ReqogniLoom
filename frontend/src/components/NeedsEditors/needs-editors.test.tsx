@@ -43,10 +43,6 @@ vi.mock("./useNeedData", () => ({
   }),
 }));
 
-vi.mock("../../api", () => ({
-  attributeVisibilityApi: { list: vi.fn().mockResolvedValue([]) },
-}));
-
 vi.mock("../../api/stakeholder-need", () => ({
   stakeholderNeedApi: { create: vi.fn().mockResolvedValue({ id: "new-1" }) },
 }));

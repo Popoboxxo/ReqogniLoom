@@ -2,7 +2,7 @@
  * StakeholderNeed editor on the definition-driven renderer (spec section 6.2,
  * rollout wave 2c).
  *
- * NeedForm was the ONLY consumer of the old AttributeVisibilityConfig prop
+ * NeedForm was the ONLY consumer of the old attribute-visibility prop
  * chain; deleting it removes the last live reader of that mechanism. Field
  * visibility now comes from the resolved definition like every other type.
  *

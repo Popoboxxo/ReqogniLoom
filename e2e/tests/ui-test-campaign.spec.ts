@@ -367,17 +367,17 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Journey 4: [REQ-136] Attribute-Visibility-Configs — no console errors
+// Journey 4: workspace settings page — renders without console errors
 // ---------------------------------------------------------------------------
 
-test.describe('[REQ-136] Attribute Visibility Configs — UI Journey', () => {
+test.describe('Workspace Settings — UI Journey', () => {
   let token: string;
 
   test.beforeAll(async () => {
     token = await getToken();
   });
 
-  test('[REQ-136] workspace-settings opens without console errors', async ({ page }) => {
+  test('workspace-settings opens without console errors', async ({ page }) => {
     await injectWorkspace(page);
     await injectBearer(page, token);
 
@@ -388,44 +388,20 @@ test.describe('[REQ-136] Attribute Visibility Configs — UI Journey', () => {
     });
     page.on('pageerror', (err) => errors.push(`UNCAUGHT: ${err.message}`));
 
-    let attrVisStatus: number | null = null;
-    page.on('response', (resp) => {
-      if (resp.url().includes('attribute-visibility-config')) {
-        attrVisStatus = resp.status();
-      }
-    });
-
     await loginAsAdmin(page);
     await page.goto(`${FRONTEND_URL}/workspace-settings`);
     await page.waitForLoadState('networkidle');
 
-    await screenshot(page, 'req136-01-workspace-settings-loaded');
-
-    // TEMPORARY (attribute-definition Task 9): the backend endpoint was
-    // retired along with AttributeVisibilityConfig; the frontend still calls
-    // it until Task 27 removes the legacy config UI, so a clean 404 (not
-    // 200) is the expected response here now.
-    if (attrVisStatus !== null) {
-      expect(attrVisStatus, '[REQ-136] attribute-visibility-configs must 404 (endpoint retired)').toBe(404);
-    }
+    await screenshot(page, 'workspace-settings-01-loaded');
 
     // Page must render the workspace-settings container
     await expect(page.locator('[data-testid="workspace-settings"]')).toBeVisible({ timeout: 10000 });
 
-    await screenshot(page, 'req136-02-workspace-settings-rendered');
-
-    // No error banner for attribute visibility
-    const errorBanner = page.locator('[data-testid="attr-visibility-error"]');
-    const hasError = await errorBanner.isVisible().catch(() => false);
-    if (hasError) {
-      await screenshot(page, 'req136-FAIL-attr-visibility-error-banner');
-      const errorText = await errorBanner.textContent();
-      throw new Error(`[REQ-136] attr-visibility error banner shown: "${errorText}"`);
-    }
+    await screenshot(page, 'workspace-settings-02-rendered');
 
     // Filter out known pre-existing noise (favicon, hot-update, HMR)
     const realErrors = filterKnownNoise(errors);
-    expect(realErrors, `[REQ-136] Console errors on workspace-settings: ${JSON.stringify(realErrors)}`).toHaveLength(0);
+    expect(realErrors, `Console errors on workspace-settings: ${JSON.stringify(realErrors)}`).toHaveLength(0);
   });
 });
 

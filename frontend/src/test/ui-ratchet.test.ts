@@ -389,15 +389,24 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `EntityTypeProvider` wiring in `RequirementEditors.tsx` dropped the count
 // from 951 to 924, the largest single drop of the whole rollout (as the plan
 // predicted — Requirement carried the most style={{ literals of the seven).
-// The restored `CustomFieldsEditor`/`ArtifactCustomFields` siblings (parity
-// fix, see `RequirementArtifactForm.tsx`'s docstring) use CSS classes in
+// The restored `CustomFieldsEditor` sibling (parity fix, see
+// `RequirementArtifactForm.tsx`'s docstring) uses CSS classes in
 // `RequirementEditors.module.css`, not inline `style={{ }}` — same
 // TestCaseEditors.module.css precedent (Task 22) — so the count holds at
 // 924. Re-measured fresh immediately before recording, per the Task 23
 // runbook note on this exact assertion flapping across concurrent
 // orchestrator instances.
+//
+// Task 27 (remove the legacy field-configuration UI): -57, from 924 to 867.
+// Six deleted files carried the drop — the workspace-wide field-definition
+// admin section, the per-artifact value editor it fed, the read-only display
+// table nothing imported any more, and the attribute-visibility admin panel
+// (all four hand-styled with inline literals, all four calling REST endpoints
+// retired in Task 9) — plus the `visibility` settings tab and the two mount
+// sites in `GoalDetail.tsx` / `RequirementEditors.tsx`. Nothing was added.
+// Re-measured fresh on the tree: 867, matching exactly.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 924;
+const STYLE_BRACE_BASELINE = 867;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -545,7 +554,8 @@ const STYLE_BRACE_BASELINE = 924;
 // `-notrun`/`-default` — an earlier draft of this comment said ~7.4% here,
 // which was actually ErrorBoundary.tsx's distance below, copy-pasted by
 // mistake; corrected in post-commit review).
-// `AttributeVisibilityAdmin.tsx`'s 3 and `BaselinesView.tsx`'s 1 `#ffffff`
+// The legacy attribute-visibility admin panel's 3 (file since deleted in
+// Task 27) and `BaselinesView.tsx`'s 1 `#ffffff`
 // button/banner-text-on-colored-background spots reused the existing
 // `--color-on-primary` token (established convention from checkpoint 3).
 // `ErrorBoundary.tsx`'s crash-fallback message color (`#666`, the file uses

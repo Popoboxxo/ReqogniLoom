@@ -101,15 +101,6 @@ vi.mock("./LlmSettingsSection", () => ({
 vi.mock("./AiPromptsSection", () => ({
   AiPromptsSection: () => <div data-testid="stub-prompts" />,
 }));
-vi.mock("../AdminDialog/AttributeVisibilityAdmin", () => ({
-  AttributeVisibilityAdmin: () => <div data-testid="stub-visibility" />,
-}));
-
-// Stub CustomFieldsSection (REQ-016) to prevent api calls in unit tests.
-vi.mock("./CustomFieldsSection", () => ({
-  CustomFieldsSection: () => <div data-testid="stub-custom-fields" />,
-}));
-
 // Stub McpConnectionSection — it renders a router <Link>, which the stubbed
 // react-router-dom above does not provide. Covered by its own test file.
 vi.mock("./McpConnectionSection", () => ({
@@ -129,7 +120,6 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
       // M-03: language + theme split out of "general" into their own tab.
       "appearance",
       "traceability",
-      "visibility",
       "llm",
       "workflows-permissions",
     ]) {

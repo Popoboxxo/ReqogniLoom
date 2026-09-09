@@ -16,7 +16,7 @@
  * attributes and now live here as siblings of the form (scope boundary
  * shared with the ADR/ArchitectureElement waves) — moved up verbatim from
  * the deleted `NeedForm.tsx`, which owned them before. `attributeVisibility`
- * (the legacy `AttributeVisibilityConfig` prop chain) is dropped entirely:
+ * (the legacy attribute-visibility prop chain) is dropped entirely:
  * `NeedForm` was its only consumer, and field visibility now comes from the
  * resolved attribute definition like every other migrated type.
  */

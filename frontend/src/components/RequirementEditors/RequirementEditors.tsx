@@ -22,7 +22,7 @@
  * - RequirementArtifactForm (right panel, Task 25) — definition-driven
  *   `ArtifactForm` renderer (spec section 6.2). Field visibility/order comes
  *   from the resolved attribute definition; the legacy `EntityTypeProvider` /
- *   `AttributeVisibilityConfig` prop chain is retired for this type, same as
+ *   attribute-visibility prop chain is retired for this type, same as
  *   every other migrated rollout wave.
  */
 
@@ -47,7 +47,6 @@ import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
-import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { RightSidebar } from '../shared/ArtifactInspector';
@@ -675,13 +674,6 @@ export default function RequirementEditors(): JSX.Element {
           onChange={setCustomFieldsDraft}
         />
       </div>
-
-      {/* Workspace-defined typed custom fields (REQ-016) — independent save
-          flow, own artifactId-keyed effect, unrelated to customFieldsDraft
-          above. Only shown for an existing requirement (needs an artifact id). */}
-      {requirement.artifact_id && (
-        <ArtifactCustomFields artifactId={requirement.artifact_id} />
-      )}
 
       {/* TraceLink management incl. "Ableiten" (REQ-L2-RF-006) — restored
           after the SplitView refactor dropped this panel. The read-only

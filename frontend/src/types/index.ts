@@ -343,12 +343,10 @@ export interface Adr {
   // is not yet exposed by AdrSerializer — unlike Requirement/StakeholderNeed/
   // ArchitectureElement, which all serialize a separate `artifact_id`. Declared
   // here (optional, currently always undefined) for parity with the other
-  // artifact types. NOTE (Task 21 rollout wave): the ADR editor no longer has
-  // an <ArtifactCustomFields> renderer at all — it moved onto the generic
-  // ArtifactForm, which does not render a custom-fields section (tracked gap
-  // #7, plan-sanctioned, see AdrArtifactForm.tsx). This field stays declared
-  // for when that gap closes, but does not "start working automatically" by
-  // itself the way the old AdrForm-specific comment implied.
+  // artifact types. NOTE (Task 27): the workspace-defined custom-field
+  // renderer that used to consume this id is gone along with its backend
+  // (custom fields are attribute definitions now, tracked gap #7). The field
+  // stays declared for the next consumer of the backing Artifact id.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -423,8 +421,7 @@ export interface Risk {
   workspace_id: UUID;
   // Task 2.2: same as Adr.artifact_id above — the backing Artifact id is not
   // yet exposed by RiskSerializer. Declared here (optional, currently always
-  // undefined) so <ArtifactCustomFields> in RiskForm is wired the same way as
-  // the other forms and starts working the moment the backend field ships.
+  // undefined) for parity with the other artifact types.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -476,9 +473,8 @@ export interface Issue {
   workspace_id: UUID;
   // Task 2.3: same as Adr.artifact_id / Risk.artifact_id above — the backing
   // Artifact id is not yet exposed by IssueSerializer. Declared here
-  // (optional, currently always undefined) so <ArtifactCustomFields> in
-  // IssueForm is wired the same way as the other forms and starts working
-  // the moment the backend field ships.
+  // (optional, currently always undefined) for parity with the other
+  // artifact types.
   artifact_id?: UUID;
   title: string;
   description: string;
