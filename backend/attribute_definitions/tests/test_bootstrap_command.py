@@ -112,9 +112,8 @@ def test_curated_widgets_are_added_with_their_bound_fields() -> None:
     requirement = {a["name"]: a for a in introspect_core_attributes("Requirement", "standard")}
     assert requirement["description_editor"]["widget_key"] == "markdown_tab_group"
     assert requirement["description_editor"]["fields"] == ["description"]
-    # The raw `description` attribute still exists (still `required`-checkable
-    # by `test_preset_mandatory_fields_drive_required_on_requirement`); the
-    # widget only claims it client-side (`ArtifactForm.tsx`'s `widgetOwned`).
+    # The raw `description` attribute still exists; the widget only claims it
+    # client-side (`ArtifactForm.tsx`'s `widgetOwned`).
     assert "description" in requirement
 
 
@@ -138,13 +137,30 @@ def test_widget_claimed_json_columns_are_not_duplicated_as_raw_textareas() -> No
 
 
 @pytest.mark.django_db
-def test_preset_mandatory_fields_drive_required_on_requirement() -> None:
-    minimal = {a["name"]: a for a in introspect_core_attributes("Requirement", "minimal")}
-    standard = {a["name"]: a for a in introspect_core_attributes("Requirement", "standard")}
-    assert minimal["title"]["required"] is True
-    assert minimal["description"]["required"] is False
-    assert standard["description"]["required"] is True
-    assert standard["acceptance_criteria"]["required"] is True
+def test_preset_mandatory_fields_do_not_drive_create_required_on_requirement() -> None:
+    """``required`` is a create-payload contract, ``mandatory_fields`` is not.
+
+    The introspector used to force ``required=True`` on every Requirement
+    attribute named in the preset's ``mandatory_fields``. Since Task 11 makes
+    ``required`` an enforced **create** gate, that turned a policy about
+    *approval readiness* into a policy about *create payloads* and 400'd every
+    minimal Requirement create on standard/extended with
+    "acceptance_criteria: is required".
+
+    ``mandatory_fields`` keeps its one shipped consumer,
+    ``workflow.precondition_rules`` rule 5, which gates the approval
+    transition. Only the model can make a field required at create time, so
+    ``title`` (``blank=False``, no default) stays required on every preset
+    while ``description``/``acceptance_criteria`` (both ``blank=True``) do not.
+    """
+    by_preset = {
+        preset: {a["name"]: a for a in introspect_core_attributes("Requirement", preset)}
+        for preset in ("minimal", "standard", "extended")
+    }
+    for preset, attributes in by_preset.items():
+        assert attributes["title"]["required"] is True, preset
+        assert attributes["description"]["required"] is False, preset
+        assert attributes["acceptance_criteria"]["required"] is False, preset
 
 
 @pytest.mark.django_db

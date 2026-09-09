@@ -426,14 +426,35 @@ def _section_for(name: str) -> str:
 def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, Any]]:
     """Return the normalized core attribute list for ``(item_type, preset)``.
 
-    ``required`` comes from ``blank=False``/``has_default()`` on the model.
-    For ``item_type == "Requirement"`` only, the preset's ``mandatory_fields``
-    additionally force ``required=True`` on matching names — that policy field
-    is documented (``presets/registry.py``) as "required when creating a
-    Requirement" and must not leak onto any other item type. Names in
-    ``mandatory_fields`` with no matching column (``priority``,
-    ``classification``, ``traceability_target``, ``change_reason``) are ignored
-    here and reported by the command as a configuration finding.
+    ``required`` comes from ``blank=False``/``has_default()`` on the model, and
+    from nothing else: it is a **create-payload** contract ("the client must
+    send this, the server cannot fill it in"), enforced by
+    ``field_validation.validate_values`` at create time.
+
+    Preset ``mandatory_fields`` are deliberately NOT folded in here, even
+    though ``presets/registry.py``'s field docstring reads "required when
+    creating a Requirement". That docstring describes an intent that was never
+    implemented as a create gate: ``workflow/precondition_rules.py`` records
+    that ``mandatory_fields`` "had zero consumers" and then implements it as
+    **rule 5**, an *approval-transition* gate ("the moment an artifact is
+    declared baseline-ready ... rather than at create time"). That is the one
+    shipped meaning of the policy, and it is the right one — the whole stack
+    is draft-first about these columns: ``Requirement.acceptance_criteria`` is
+    ``blank=True, default=""`` on the model, ``allow_blank=True, default=""``
+    on the serializer, ``= ""`` on ``RequirementService.create_requirement``,
+    and ``params.get("acceptance_criteria", "")`` on the MCP create tool.
+
+    Folding the policy in here anyway (Task 11) turned an approval gate into a
+    create gate and 400'd every minimal Requirement create — the UI quick-create
+    dialog, the MCP tool and ~15 E2E specs — with "acceptance_criteria: is
+    required". Rule 5 still enforces the same policy at the moment SE practice
+    actually cares about, so nothing is lost by not duplicating it here.
+    Regression net: ``rest_api/tests/test_bootstrapped_definition_allows_creates``.
+
+    Consequence: the result is currently preset-invariant. That is consistent
+    with ADR-04 (three rigor presets, one data model) — rigor is enforced at
+    transitions, not at the payload contract. The ``(item_type, preset)`` key
+    is kept regardless, because an admin may customize each preset's row.
     """
     model = _resolve_model(item_type)
     aliases = WIDGET_FIELD_ALIASES.get(item_type, {})
@@ -498,26 +519,23 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     for entry in WIDGET_ATTRIBUTES.get(item_type, ()):
         attributes.append(normalize_attribute(dict(entry, export=False)))
 
-    # `mandatory_fields` is documented (presets/registry.py) as "required when
-    # creating a Requirement" — it must not be applied to any other item type.
-    # Applying it unconditionally here used to make every bootstrapped type
-    # (Risk, Issue, StakeholderNeed, TestCase, ArchitectureElement, ...) demand
-    # Requirement-shaped fields like `description` on create, live-breaking
-    # `POST /api/v1/risks/` etc. the moment `validate_artifact_fields` (Task
-    # 11) started enforcing `required` at create time. Proven live: see
-    # rest_api/tests/test_bootstrapped_definition_allows_creates.py.
-    if item_type == "Requirement":
-        mandatory = set(PresetRegistry().get_preset_config(preset).mandatory_fields)
-        for attribute in attributes:
-            if attribute["name"] in mandatory:
-                attribute["required"] = True
+    # NOTE: preset `mandatory_fields` are deliberately not applied here — see
+    # this function's docstring. They are an approval-transition contract
+    # (workflow.precondition_rules rule 5), not a create-payload contract.
 
     attributes.sort(key=lambda a: (a["section"], a["order"], a["name"]))
     return attributes
 
 
 def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
-    """Preset ``mandatory_fields`` entries that have no matching attribute."""
+    """Preset ``mandatory_fields`` entries that have no matching attribute.
+
+    Pure preset-config hygiene, reported as a command warning. It no longer
+    describes anything the definition consumes (the overlay is gone — see
+    :func:`introspect_core_attributes`), but a policy name that matches no
+    column anywhere is still a real finding: ``workflow.precondition_rules``
+    rule 5 has to resolve the very same names to check them at approval.
+    """
     names = {a["name"] for a in introspect_core_attributes(item_type, preset)}
     return sorted(set(PresetRegistry().get_preset_config(preset).mandatory_fields) - names)
 

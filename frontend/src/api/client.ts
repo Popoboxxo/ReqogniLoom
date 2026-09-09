@@ -439,7 +439,13 @@ export function extractApiErrorMessage(err: unknown): string | null {
   const apiErr = err as Partial<ApiError> | null;
   const detail = apiErr?.error?.details?.[0];
   const detailMsg = detail?.errors?.[0];
-  if (detailMsg) return detailMsg;
+  // Qualify with the field the server named. Field-level messages are written
+  // to be read next to their field ("is required", "does not match ..."), but
+  // every caller here renders them detached from the form — as a dialog-level
+  // alert — where a bare "is required" says nothing about *what* is required.
+  // The server already sends `details[0].field`; dropping it was the whole
+  // defect.
+  if (detailMsg) return detail?.field ? `${detail.field}: ${detailMsg}` : detailMsg;
   if (apiErr?.error?.message) return apiErr.error.message;
   if (err instanceof Error && err.message) return err.message;
   return null;

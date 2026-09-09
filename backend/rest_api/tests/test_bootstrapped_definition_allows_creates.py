@@ -20,11 +20,24 @@ for every item type, which meant a field wrongly marked ``required`` (but not
 actually supplied) could never be noticed here — precisely C-1's failure mode
 (``presets.registry``'s Requirement-only ``mandatory_fields`` policy was being
 applied to all 10 bootstrapped item types). ``description`` is now only in the
-body for ``Adr`` (the one item type where it is genuinely
-``blank=False``/no-default on the model) and for ``Requirement`` under the
-``standard``/``extended`` presets (where the *Requirement-scoped*
-``mandatory_fields`` policy correctly forces it). The test is parametrized
-across all 3 presets so a preset-specific regression is caught too.
+body for ``Adr``, the one item type where it is genuinely
+``blank=False``/no-default on the model.
+
+Second round (E2E regression): the body used to *also* carry
+``description``/``acceptance_criteria`` for ``Requirement`` under
+``standard``/``extended``, because the introspector still folded the preset's
+``mandatory_fields`` into ``required`` for that one item type. Accommodating
+the policy here hid it: ``POST /api/v1/requirements/`` with the same minimal
+payload every other type accepts returned
+``400 acceptance_criteria: is required``, which took out the UI quick-create
+dialog, the MCP create tool and ~15 E2E specs. ``mandatory_fields`` is an
+approval-transition contract (``workflow.precondition_rules`` rule 5), not a
+create-payload contract, so the overlay is gone and the body is uniform again.
+Keeping it uniform is the point: any future policy that re-enters the create
+gate through the definition fails here first.
+
+The test is parametrized across all 3 presets so a preset-specific regression
+is caught too.
 """
 from __future__ import annotations
 
@@ -105,12 +118,6 @@ def test_create_still_works_against_the_bootstrapped_definition(preset, url, ext
     client, workspace = _bootstrapped_admin_client(preset)
     body = {"workspace_id": str(workspace.id), "title": "Title"}
     body.update(extra)
-    if url == "/api/v1/requirements/" and preset != "minimal":
-        # Requirement-scoped `mandatory_fields` (see C-1 in
-        # bootstrap_attribute_definitions.py) forces these two under
-        # standard/extended, on top of the model's own `blank=False` fields.
-        body["description"] = "d"
-        body["acceptance_criteria"] = "ac"
     response = client.post(url, body, format="json")
     assert response.status_code == 201, (preset, url, response.status_code, response.json())
 

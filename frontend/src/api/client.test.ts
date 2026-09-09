@@ -377,8 +377,37 @@ describe("extractApiErrorMessage (#339/#340)", () => {
         },
       })
     ).toBe(
-      "contains disallowed content: HTML markup is not permitted in free-text fields."
+      "title: contains disallowed content: HTML markup is not permitted in free-text fields."
     );
+  });
+
+  it("names the offending field, because the caller renders this detached from it", () => {
+    // Regression: the attribute-definition create gate rejects a missing
+    // field with the bare message "is required". Every caller shows this as a
+    // dialog-level alert, so without the field name the user was told only
+    // that *something* was required. `details[0].field` was already on the
+    // wire and simply discarded.
+    expect(
+      extractApiErrorMessage({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "acceptance_criteria: is required",
+          details: [{ field: "acceptance_criteria", errors: ["is required"] }],
+        },
+      })
+    ).toBe("acceptance_criteria: is required");
+  });
+
+  it("still returns a bare detail message when the server names no field", () => {
+    expect(
+      extractApiErrorMessage({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Validation failed.",
+          details: [{ errors: ["is required"] }],
+        },
+      })
+    ).toBe("is required");
   });
 
   it("falls back to the top-level message when there are no field details", () => {
