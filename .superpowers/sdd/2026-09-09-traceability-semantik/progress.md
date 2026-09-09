@@ -242,8 +242,27 @@ Task 12: `TraceLink.rationale` / `suspect_flagged_at` / `suspect_source_change` 
 
 **KNOWN-RED unchanged:** the 8 pre-existing failures from Task 11's KNOWN-RED list remain; Task 12 introduced no new regressions.
 
-Task 13: Expose the new fields through the REST serializer — **next**
-Task 14: Rule-driven suspect propagation (closes #849 structurally) — pending
+Task 13: Expose the new fields through the REST serializer — **done**
+
+**Status:** Commit 861353c0, 2026-09-09. TraceLinkSerializer fields wired; rationale and suspect markers exposed on all REST read/write paths.
+
+- `rest_api/serializers.py:TraceLinkSerializer` added `rationale`, `suspect_flagged_at`, `suspect_source_change` fields; all three read-only on output, `rationale` writable on create/update.
+- `rest_api/views.py:TraceLinkViewSet`: `_tracelink_to_dict()` includes the three new fields; `?artifact_id=` branch synchronized; `create()` accepts and passes `rationale` to service layer.
+- `application/trace_link_service.py`: `create_trace_link` stores `rationale` in one call; `update_trace_link` handles rationale updates; query paths (`get_trace_link`, `get_trace_links_for_artifact`) return all three fields.
+- `traceability/services.py`: trace_link_manager layer propagates rationale through; no breakage on the Layer-1 / Layer-2 seam.
+- Tests: fixture-level + end-to-end REST round-trip coverage; 2 review rounds (Runde 1: fields were inert; Runde 2: approved after fix).
+
+**OPTIONAL Findings (not blocking, for later tasks):**
+
+1. **Defensive `getattr(tl, "rationale", "")`** at 2 places in views.py — guards against a shape that cannot occur today (all trace links are fetched via ORM or service, never hand-constructed). Relevant only if a `.only()`-projection is introduced later that excludes the field. Mark as technical debt, not a bug.
+
+2. **Dict-Baustelle DRY-Verstoß:** `_tracelink_to_dict()` and the `?artifact_id=` branch duplicate 6 keys (`link_type`, `source_artifact_id`, `target_artifact_id`, `rationale`, `suspect_flagged_at`, `suspect_source_change`). Consciously left as-is per #512 (endpoint echo contract) and now test-covered; consolidation would require refactoring the contract first.
+
+3. **Rationale bound at REST layer only:** `max_length=2000` gates the field at the serializer (`rest_api/`), but Layer-2 service callers (`application/`, `traceability/`) write unbounded. Relevant when Task 21 (MCP layer) exposes rationale — add a service-layer validation gate if MCP tools need the same 2000-char limit.
+
+**Tests:** `rest_api/tests/test_tracelink_rest_semantics.py` — 8 passed. Regression (`rest_api/ application/tests/test_trace_link_service.py traceability/`) — no new failures. KNOWN-RED list unchanged (8 tests from Task 11).
+
+Task 14: Rule-driven suspect propagation (closes #849 structurally) — **next**
 Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` link — pending
 
 ## Phase D — Hard data migration and consumer fixes
