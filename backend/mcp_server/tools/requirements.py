@@ -52,6 +52,7 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    validate_artifact_write,
     write_mcp_audit,
 )
 
@@ -406,6 +407,14 @@ class RequirementsToolGroup(BaseToolGroup):
         verification_method = params.get("verification_method")
         level = params.get("level")
 
+        # Ledger gap #1 / issue #881: same central gate as
+        # RequirementViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "Requirement", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
+
         try:
             # Codeberg #313: create_requirement's single internal _audit()
             # call (same entity_type+entity_id as below) is suppressed here;
@@ -467,7 +476,31 @@ class RequirementsToolGroup(BaseToolGroup):
                 return data.get(name)
             return params.get(name)
 
+        # Only fields the caller actually sent (via `data` or flat top-level,
+        # see `_field` above) go into the definition check — a field this
+        # request never touches must not be re-checked as if it were unset.
+        changed_fields = {
+            name: _field(name)
+            for name in ("title", "description", "category")
+            if name in data or name in params
+        }
+
         try:
+            # Ledger gap #1 / issue #881: same central gate as
+            # RequirementViewSet.partial_update. workspace_id is not part of
+            # this tool's params, so it is resolved via the same lookup
+            # requirement.outdate already uses.
+            existing_req = self._service.get_requirement(req_id, auth_context)
+            definition_error = validate_artifact_write(
+                auth_context,
+                "Requirement",
+                existing_req.workspace_id,
+                changed_fields,
+                {"__exists__": True},
+            )
+            if definition_error is not None:
+                return definition_error
+
             # Codeberg #313: suppress update_requirement's single internal
             # _audit() call for the same entity — write_mcp_audit below is
             # the sole entry.

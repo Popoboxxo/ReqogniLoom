@@ -74,6 +74,7 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    validate_artifact_write,
     write_mcp_audit,
 )
 from persistence.models import TestCase
@@ -448,6 +449,14 @@ class McpTestToolGroup(BaseToolGroup):
         description: str = params.get("description", "")
         linked_req_id = optional_uuid(params, "linked_req_id")
 
+        # Ledger gap #1 / issue #881: same central gate as
+        # TestCaseViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "TestCase", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
+
         try:
             # Codeberg #313: suppress create_test_case's single internal
             # _audit() call for the same entity — write_mcp_audit below is
@@ -566,6 +575,25 @@ class McpTestToolGroup(BaseToolGroup):
         else:
             # General field update
             try:
+                # Ledger gap #1 / issue #881: same central gate as
+                # TestCaseViewSet.partial_update. workspace_id is not part of
+                # this tool's params, so it is resolved via a lookup first.
+                existing_tc = self._service.get_test_case(tc_id, auth_context)
+                changed_fields = {
+                    name: data[name]
+                    for name in ("title", "description", "steps")
+                    if name in data
+                }
+                definition_error = validate_artifact_write(
+                    auth_context,
+                    "TestCase",
+                    getattr(getattr(existing_tc, "artifact", None), "workspace_id", None),
+                    changed_fields,
+                    {"__exists__": True},
+                )
+                if definition_error is not None:
+                    return definition_error
+
                 # Codeberg #313: suppress update_test_case's single internal
                 # _audit() call for the same entity — write_mcp_audit below
                 # is the sole entry.

@@ -211,6 +211,7 @@ class TestRequirementsToolGroup:
         assert result.success is True
         assert result.data["requirements"][0]["suspect"] is True
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.requirements.write_mcp_audit")
     def test_requirement_create_calls_service_and_audits(self, mock_audit):
         group, svc = self._group()
@@ -230,6 +231,7 @@ class TestRequirementsToolGroup:
         assert call_kwargs["tool_name"] == "requirement.create"
         assert call_kwargs["operation"] == "create"
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.requirements.write_mcp_audit")
     def test_requirement_update_calls_service_and_audits(self, mock_audit):
         group, svc = self._group()
@@ -245,6 +247,7 @@ class TestRequirementsToolGroup:
         assert result.success is True
         mock_audit.assert_called_once()
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.requirements.write_mcp_audit")
     def test_requirement_update_accepts_flat_top_level_change_reason(self, mock_audit):
         """Issue #601: requirement.update's documented contract nests fields
@@ -288,6 +291,7 @@ class TestRequirementsToolGroup:
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
 
+    @pytest.mark.django_db
     def test_requirement_create_permission_denied(self):
         group, svc = self._group()
         svc.create_requirement.side_effect = PermissionDeniedError("no write")
@@ -580,6 +584,7 @@ class TestArchitectureToolGroup:
         # It must be the Artifact id, not the ArchitectureElement id itself.
         assert result.data["architecture_element"]["artifact_id"] != str(el.id)
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_create_calls_service_and_audits(self, mock_audit):
         group, svc, _ = self._group()
@@ -598,6 +603,7 @@ class TestArchitectureToolGroup:
         # Backward compatibility: omitting parent_id forwards None (root).
         assert svc.create_architecture_element.call_args.kwargs["parent_id"] is None
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_create_forwards_parent_id_to_service(self, mock_audit):
         """#fix: architecture.create previously dropped 'parent_id' silently.
@@ -774,6 +780,7 @@ class TestTestToolGroup:
         assert result.success is True
         svc.get_test_case.assert_called_once_with(tc.id, EDITOR_CTX)
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_create_calls_service_and_audits(self, mock_audit):
         group, svc, trace_svc, _ = self._group()
@@ -790,6 +797,7 @@ class TestTestToolGroup:
         svc.create_test_case.assert_called_once()
         mock_audit.assert_called()
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_create_with_linked_req_creates_trace_link(self, mock_audit):
         group, svc, trace_svc, _ = self._group()

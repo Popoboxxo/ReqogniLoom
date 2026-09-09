@@ -169,6 +169,66 @@ def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str
 
 
 # ---------------------------------------------------------------------------
+# Attribute-definition enforcement (ledger gap #1 / issue #881)
+# ---------------------------------------------------------------------------
+
+
+def validate_artifact_write(
+    auth_context: AuthContext,
+    item_type: Optional[str],
+    workspace_id: Any,
+    changed_fields: Dict[str, Any],
+    existing: Optional[Dict[str, Any]],
+) -> Optional[ToolResult]:
+    """Validate an MCP create/update payload against the resolved AttributeDefinition.
+
+    Same central gate as ``rest_api.mixins.workflow_transitions.
+    WorkflowTransitionsMixin._validate_attribute_definition`` (Task 11) —
+    calls the identical ``AttributeDefinitionService.validate_artifact_fields``,
+    just translated to a ``ToolResult`` error instead of a DRF ``Response``.
+    Every MCP artifact-write tool group is expected to call this before
+    delegating to its wrapped service, closing the gap where MCP writes
+    bypassed the enforcement the REST ViewSets already had.
+
+    Returns a ``ToolResult.error(...)`` on violation, ``None`` when clean —
+    callers stay a single ``if``. Degrades to ``None`` (no-op) on the same
+    "cannot decide" outcomes as the REST guard: no ``item_type``/workspace id
+    (not an artifact write), no bootstrapped definition for this item type/
+    preset, or a cross-tenant workspace id (the wrapped service call below
+    answers that with its own error).
+    """
+    if not item_type or workspace_id is None:
+        return None
+    from application.attribute_definition_service import (
+        AttributeDefinitionNotFound,
+        AttributeDefinitionService,
+        AttributeSchemaError,
+        FieldValidationError,
+    )
+    from presets.exceptions import CrossTenantWorkspaceError
+
+    try:
+        AttributeDefinitionService().validate_artifact_fields(
+            auth_context, item_type, workspace_id, changed_fields, existing
+        )
+    except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
+        return None
+    except FieldValidationError as exc:
+        message = "; ".join(
+            f"{name}: {', '.join(messages)}"
+            for name, messages in sorted(exc.errors.items())
+        )
+        return ToolResult.error("VALIDATION_ERROR", message)
+    except AttributeSchemaError as exc:
+        return ToolResult.error(
+            "VALIDATION_ERROR",
+            "The attribute definition for this workspace is malformed: "
+            + "; ".join(exc.errors),
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # MCP Audit helper (REQ-L2-MC-012)
 # ---------------------------------------------------------------------------
 
@@ -324,6 +384,7 @@ __all__ = [
     "reject_unknown_params",
     "resolve_engine_status",
     "resolve_status_map",
+    "validate_artifact_write",
     "write_mcp_audit",
     "mcp_audit_handoff",
 ]

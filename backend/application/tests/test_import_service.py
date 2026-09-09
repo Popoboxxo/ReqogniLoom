@@ -22,6 +22,7 @@ from application.import_service import (
     _MAX_ROWS,
 )
 from application.test_service import TestService
+from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Requirement, Tenant, Workspace
 from workflow.models import WorkflowEngineDefinition, WorkflowItemState
@@ -489,3 +490,82 @@ class TestImportCsvTestCaseSubtype:
             assert {tc.title for tc in system_cases} == {"Case System One"}
         finally:
             clear_request_tenant()
+
+
+# ---------- Attribute-definition enforcement (ledger gap #1 / issue #881) ----------
+
+
+class TestImportCsvAttributeDefinitionEnforcement:
+    """CSV bulk import used to bypass ``validate_artifact_fields`` entirely —
+    the same central gate the REST ViewSets (``WorkflowTransitionsMixin.
+    _validate_attribute_definition``) and the MCP write tools
+    (``mcp_server.tools.base.validate_artifact_write``) already run through.
+    """
+
+    _TITLE = {"name": "title", "kind": "core", "type": "text", "required": True}
+    _SAP_ID = {"name": "sap_id", "kind": "extended", "type": "text", "required": True}
+    _STATUS = {
+        "name": "status", "kind": "core", "type": "enum", "required": True,
+        "locked": True, "editable": "workflow",
+        "options": [{"value": "__workflow__", "label_de": "W", "label_en": "W"}],
+    }
+
+    def _make_workspace(self):
+        tenant = Tenant.objects.create(
+            name="Import-AttrDef-T", slug=f"import-attrdef-t-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Import AttrDef WS", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        return tenant, workspace
+
+    def _ctx(self, tenant_id):
+        ctx = MagicMock()
+        ctx.tenant_id = tenant_id
+        ctx.user_id = uuid.uuid4()
+        ctx.active_roles = ("editor",)
+        return ctx
+
+    def test_import_rejects_every_row_missing_a_required_extended_attribute(self):
+        """A workspace whose resolved definition demands a required extended
+        attribute (never carried by any CSV column) must reject the whole
+        batch with a per-row error, not silently import rows missing it —
+        the exact bypass ledger gap #1 tracked."""
+        tenant, workspace = self._make_workspace()
+        GlobalAttributeDefinitionStore().initialize(
+            tenant.id, "Requirement", "standard", [self._TITLE, self._SAP_ID, self._STATUS]
+        )
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is False
+        assert result.status == "validation_error"
+        assert result.imported_count == 0
+        assert {e.row_number for e in result.errors} == {2, 3}
+        assert all(e.field == "sap_id" for e in result.errors)
+
+        set_request_tenant(tenant.id)
+        try:
+            assert Requirement.objects.filter(artifact__workspace=workspace).count() == 0
+        finally:
+            clear_request_tenant()
+
+    def test_import_without_a_bootstrapped_definition_still_succeeds(self):
+        """No global/workspace AttributeDefinition for this item type/preset
+        must degrade to a no-op (mirrors the REST/MCP guards), not block an
+        otherwise-valid import."""
+        tenant, workspace = self._make_workspace()
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is True
+        assert result.imported_count == 2

@@ -14,6 +14,7 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    validate_artifact_write,
 )
 from workflow.state_reader import STATUS_TRACKED_ITEM_TYPES
 
@@ -417,6 +418,13 @@ class GenericCrudToolGroup(BaseToolGroup):
     def _handle_create(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         kwargs = {k: v for k, v in params.items() if k != "workspace_id"}
+        # Ledger gap #1 / issue #881: the same central gate the REST ViewSets
+        # already run (mirrors AdrViewSet.create et al.).
+        definition_error = validate_artifact_write(
+            auth_context, self._item_type, workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
         try:
             obj = self._create_method(ctx=auth_context, workspace_id=workspace_id, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
@@ -460,6 +468,18 @@ class GenericCrudToolGroup(BaseToolGroup):
                 "state-machine-gated status change.",
             )
         try:
+            # Ledger gap #1 / issue #881: same central gate as REST's PATCH
+            # path (WorkflowTransitionsMixin._validate_patch_payload). The
+            # workspace id is resolved via the same lookup ``_handle_outdate``
+            # uses, so a failing lookup here surfaces through the existing
+            # bare ``except Exception`` below exactly as it did before this
+            # validation call was added.
+            workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+            definition_error = validate_artifact_write(
+                auth_context, self._item_type, workspace_id, dict(kwargs), {"__exists__": True}
+            )
+            if definition_error is not None:
+                return definition_error
             obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
         except OptimisticLockError as exc:
