@@ -25,15 +25,17 @@ def workspace_with_links(db):
     def artifact(kind: str) -> Artifact:
         return Artifact.objects.create(tenant=tenant, workspace=ws, artifact_type=kind)
 
-    req, arch, goal, tc = (
+    req, arch, goal, tc, issue = (
         artifact("Requirement"),
         artifact("ArchitectureElement"),
         artifact("Goal"),
         artifact("TestCase"),
+        artifact("Issue"),
     )
     TraceLink.objects.create(tenant=tenant, source=arch, target=req, link_type="satisfies")
     TraceLink.objects.create(tenant=tenant, source=tc, target=req, link_type="verifies")
     TraceLink.objects.create(tenant=tenant, source=req, target=goal, link_type="traces")
+    TraceLink.objects.create(tenant=tenant, source=issue, target=arch, link_type="traces")
     yield ws
     TenantContext.clear_tenant()
 
@@ -69,13 +71,22 @@ def test_covered_triples_are_not_reported_as_uncovered(workspace_with_links):
 
 
 @pytest.mark.django_db
-def test_a_goal_target_is_reported_as_uncovered(workspace_with_links):
-    """Requirement --references--> Goal matches no built-in pair (OFFENE FRAGE 1)."""
+def test_an_issue_source_is_reported_as_uncovered(workspace_with_links):
+    """``Issue --references--> ArchitectureElement`` matches no built-in pair.
+
+    Of the four triples OFFENE FRAGE 1 grandfathered, ``Issue`` is the only
+    one with no built-in successor at all — no type puts an ``Issue`` on
+    either side — so it is what this test uses to prove the detection works.
+    ``Goal`` used to serve that role and no longer can: it is a regular
+    built-in ``references`` endpoint now (fix #237), which the second
+    assertion pins from the inventory side.
+    """
     uncovered = uncovered_triples(collect_observed_triples())
     assert any(
-        t["link_type"] == "references" and t["target_type"] == "Goal"
+        t["link_type"] == "references" and t["source_type"] == "Issue"
         for t in uncovered
     )
+    assert not any(t["target_type"] == "Goal" for t in uncovered)
 
 
 @pytest.mark.django_db

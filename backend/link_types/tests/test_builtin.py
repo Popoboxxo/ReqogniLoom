@@ -85,13 +85,30 @@ def test_derives_from_gained_the_architecture_pair_from_refines():
 
 
 def test_references_targets_are_a_list_not_a_fixed_triple():
-    targets = [
-        p["target_type"] for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    pairs = BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    reference_entities = [
+        p["target_type"] for p in pairs if p["source_type"] == "*"
     ]
-    assert targets == ["GlossaryTerm", "Diagram", "Icd"]
-    assert all(
-        p["source_type"] == "*" for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
-    )
+    # The reference-entity half is append-only and keeps its original order:
+    # the GitHub/Jira spec adds {"*", "ExternalRef"} here with a one-row data
+    # migration and no validator change.
+    assert reference_entities[:3] == ["GlossaryTerm", "Diagram", "Icd"]
+
+
+def test_goal_main_goal_and_interview_are_reference_endpoints_in_both_directions():
+    """fix #237's Goal/MainGoal links are regular built-ins, not grandfathered.
+
+    They are user-authored through the generic trace-link surface, so both
+    directions must be creatable in every tenant — including a brand-new one,
+    which never sees link_types/grandfathered.py.
+    """
+    pairs = {
+        (p["source_type"], p["target_type"])
+        for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    }
+    for artifact_type in ("Goal", "MainGoal", "Interview"):
+        assert ("*", artifact_type) in pairs
+        assert (artifact_type, "*") in pairs
 
 
 def test_every_definition_carries_tri_labels_in_both_languages():

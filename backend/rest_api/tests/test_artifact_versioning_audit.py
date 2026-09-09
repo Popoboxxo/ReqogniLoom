@@ -51,7 +51,7 @@ from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.models import Artifact, Tenant, User
 from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
-from traceability.types import normalize_artifact_type
+from link_types.catalog import normalize_artifact_type
 
 pytestmark = pytest.mark.django_db
 

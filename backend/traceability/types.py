@@ -23,11 +23,16 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 class LinkType(str, Enum):
-    """Valid link types for TraceLink entities.
+    """Convenience symbols for link-type keys.
 
-    The persistence layer stores link_type as a plain CharField; validation
-    is enforced in the service layer (COMP-TE-001) against this enum to
-    support the 8-type contract without modifying persistence.models.
+    **NOT the validation authority.** Since the link-type catalog landed
+    (``link_types/``), which link types exist and which endpoint pairs they
+    accept is decided per workspace by
+    :func:`link_types.catalog.validate_link_pair` / ``resolve_catalog`` — a
+    tenant-extensible, database-backed catalog. This enum survives only so
+    code that wants a symbol instead of a string literal has one.
+
+    The persistence layer stores link_type as a plain CharField.
     """
 
     PARENT_CHILD = "parent-child"
@@ -48,6 +53,13 @@ class LinkType(str, Enum):
     USES_TERM = "uses-term"
     # REQ-L2-TE-020 ADR decision link (ADR -> ArchitectureElement):
     DECIDES = "decides"
+    # Link-type catalog (link_types/builtin.py) keys that have no legacy
+    # equivalent. Added so VALID_LINK_TYPES stays a *superset* of the catalog:
+    # traceability.trace_link_manager._validate_link_type is a coarse Layer-1
+    # fail-safe for direct engine callers and must never reject a key the
+    # per-workspace catalog just accepted.
+    MITIGATES = "mitigates"
+    REFERENCES = "references"
     # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: additive Requirement/Need hierarchy
     # link type — the hardcoded output of RequirementService.decompose() /
     # derive_requirement(), replacing the workspace-configurable link type
@@ -64,117 +76,28 @@ class LinkType(str, Enum):
         return frozenset(m.value for m in cls)
 
 
+#: Legacy convenience set over :class:`LinkType`. **No longer a validation
+#: authority** — ``link_types.catalog.validate_link_pair`` decides what a
+#: workspace accepts. Still referenced by the ReqIF importer's pre-filter and
+#: the MCP tool schemas until the consumer sweep retires them.
 VALID_LINK_TYPES: frozenset[str] = LinkType.values()
 
-#: Codeberg #353 final review (I1): every link type EXCEPT the
-#: reconciler-owned DIAGRAM_REF, which must never be created/updated through
-#: manual TraceLink CRUD (REST ``trace-links`` endpoints, MCP
-#: ``traceability.create_link`` / ``architecture.link``). Manual creation of a
-#: ``diagram-ref`` link would silently be deleted on the next node_graph save
-#: (``diagram.traceability_connector.sync_node_links``'s ``current - desired``
-#: reconciliation), which looks like unexplained data loss to the caller who
-#: just created it. Single source of truth for both the manual-CRUD rejection
-#: (application.trace_link_service.TraceLinkService.create_trace_link) and the
-#: MCP tool schemas' published ``link_type`` enum.
+#: Every link type EXCEPT the reconciler-owned DIAGRAM_REF (Codeberg #353 I1).
+#: **No longer the manual-CRUD gate** — that is now the catalog's
+#: ``manual_creatable``/``system_owned`` flags, enforced for every type in
+#: every workspace. Kept only as the published ``link_type`` enum of the MCP
+#: tool schemas until those move to the catalog.
 MANUAL_LINK_TYPES: frozenset[str] = VALID_LINK_TYPES - {LinkType.DIAGRAM_REF.value}
 
 # ---------------------------------------------------------------------------
-# SE endpoint semantics (SE-mode rigor, see docs/se/workspace_modes_er_model.md)
-#
-# In se_mode workspaces the link_type string alone is not enough: SE discipline
-# constrains WHICH artifact types a link may connect (e.g. "verifies" is only
-# valid from a TestCase towards a Requirement/ArchitectureElement).
-#
-# Matrix values:
-#   set of (source_type, target_type) pairs — "*" is a wildcard side.
-#   SAME_TYPE sentinel — both endpoints must share the same artifact type.
-#   Link types absent from the matrix are unrestricted (traces, realizes,
-#   uses-term — deliberately generic).
-#
-# Artifact types outside the core set (e.g. ICD or import artifacts) are NOT
-# constrained: enforcement is permissive by design so that existing data and
-# seeds keep working.
+# The SE endpoint matrix (SE_LINK_SEMANTICS, SE_CORE_ARTIFACT_TYPES,
+# SAME_TYPE, check_se_link_semantics) used to live here. It is gone: endpoint
+# semantics are per-workspace catalog data now, and both of its escape hatches
+# (the ``se_mode`` gate and the "non-core artifact types pass unchecked"
+# allow-list, audit finding U2) were removed with it. See link_types/catalog.py.
+# ``normalize_artifact_type`` moved to ``link_types.catalog`` so the catalog
+# owns the whole matching vocabulary.
 # ---------------------------------------------------------------------------
-
-_REQ = "Requirement"
-_ARCH = "ArchitectureElement"
-_TC = "TestCase"
-_SN = "StakeholderNeed"
-_DIAG = "Diagram"
-
-#: Core artifact types the SE matrix constrains. Anything else passes.
-SE_CORE_ARTIFACT_TYPES: frozenset[str] = frozenset(
-    {_REQ, _ARCH, _TC, _SN, _DIAG}
-)
-
-#: Sentinel: both endpoints must have the same artifact type.
-SAME_TYPE = "same-type"
-
-SE_LINK_SEMANTICS: dict[str, object] = {
-    LinkType.DERIVES_FROM.value: {(_REQ, _REQ), (_REQ, _SN), (_SN, _SN)},
-    LinkType.SATISFIES.value: {(_ARCH, _REQ), (_REQ, _SN)},
-    LinkType.VERIFIES.value: {(_TC, _REQ), (_TC, _ARCH)},
-    LinkType.IMPLEMENTS.value: {(_ARCH, _REQ)},
-    LinkType.REFINES.value: {(_REQ, _REQ), (_ARCH, _ARCH)},
-    LinkType.ALLOCATED_TO.value: {(_REQ, _ARCH), (_ARCH, _ARCH)},
-    LinkType.DOCUMENTS.value: {(_DIAG, "*")},
-    LinkType.PARENT_CHILD.value: SAME_TYPE,
-    LinkType.COPY_OF.value: SAME_TYPE,
-}
-
-
-def normalize_artifact_type(artifact_type: str | None) -> str:
-    """Strip sub-type tags: ``"TestCase:unit"`` → ``"TestCase"``."""
-    if not artifact_type:
-        return ""
-    return artifact_type.split(":", 1)[0]
-
-
-def check_se_link_semantics(
-    link_type: str, source_type: str | None, target_type: str | None
-) -> Optional[str]:
-    """Validate SE endpoint semantics for a link (se_mode rigor).
-
-    Args:
-        link_type: One of VALID_LINK_TYPES.
-        source_type: Artifact.artifact_type of the source endpoint.
-        target_type: Artifact.artifact_type of the target endpoint.
-
-    Returns:
-        None if the combination is SE-conform (or unconstrained),
-        otherwise a human-readable error message.
-    """
-    rule = SE_LINK_SEMANTICS.get(link_type)
-    if rule is None:
-        return None  # unrestricted link type
-
-    src = normalize_artifact_type(source_type)
-    tgt = normalize_artifact_type(target_type)
-
-    # Permissive default: non-core artifact types are never constrained.
-    if src not in SE_CORE_ARTIFACT_TYPES or tgt not in SE_CORE_ARTIFACT_TYPES:
-        return None
-
-    if rule == SAME_TYPE:
-        if src == tgt:
-            return None
-        return (
-            f"SE mode: '{link_type}' links require both endpoints to be the "
-            f"same artifact type (got {src} -> {tgt})."
-        )
-
-    pairs = rule  # set of (source, target) pairs, "*" = wildcard
-    for pair_src, pair_tgt in pairs:  # type: ignore[union-attr]
-        if pair_src in ("*", src) and pair_tgt in ("*", tgt):
-            return None
-
-    allowed = ", ".join(
-        sorted(f"{s}->{t}" for s, t in pairs)  # type: ignore[union-attr]
-    )
-    return (
-        f"SE mode: '{link_type}' is not valid from {src} to {tgt}. "
-        f"Allowed: {allowed}."
-    )
 
 # ---------------------------------------------------------------------------
 # Direction enum for queries
@@ -331,11 +254,6 @@ __all__ = [
     "LinkType",
     "VALID_LINK_TYPES",
     "MANUAL_LINK_TYPES",
-    "SE_LINK_SEMANTICS",
-    "SE_CORE_ARTIFACT_TYPES",
-    "SAME_TYPE",
-    "check_se_link_semantics",
-    "normalize_artifact_type",
     "Direction",
     "NeighborResult",
     "TransitiveResult",

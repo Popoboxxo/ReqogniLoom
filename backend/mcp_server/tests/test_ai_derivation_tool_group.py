@@ -23,6 +23,7 @@ from persistence.models import (
 from persistence.tenancy import TenantContext
 
 from mcp_server.tools.ai_derivation import AiDerivationToolGroup
+from link_types.workspace_store import provision_workspace_link_types
 
 _API_KEY = "reqlo_testkey_ai"
 
@@ -45,6 +46,9 @@ def ai_ctx(db):
     set_request_tenant(tenant.id)
     TenantContext.set_tenant(tenant.id)
     workspace = PersistenceWorkspace.objects.create(tenant=tenant, name="mcp-ai-ws")
+    # Link validation is always-on: an unprovisioned workspace has an empty
+    # link-type catalog and rejects every trace link.
+    provision_workspace_link_types(workspace_id=workspace.id, tenant_id=tenant.id)
     ctx = AuthContext(
         user_id=user.id,
         tenant_id=tenant.id,

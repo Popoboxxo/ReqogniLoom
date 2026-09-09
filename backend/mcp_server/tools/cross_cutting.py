@@ -1304,7 +1304,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
         from traceability.services import query as te_query
-        from traceability.types import normalize_artifact_type
+        from link_types.catalog import normalize_artifact_type
 
         raw_neighbors: List[Dict[str, Any]] = []
         for direction in ("upstream", "downstream"):

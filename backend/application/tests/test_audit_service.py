@@ -39,6 +39,7 @@ from persistence.tenancy import TenantContext
 from traceability.audit import AuditResult, Finding, Severity
 from traceability.audit.registry import TRACE_P1, TRACE_P2, TRACE_P4, TRACE_P5
 from traceability.types import LinkType
+from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -79,7 +80,7 @@ def user(tenant: Tenant) -> User:
 @pytest.fixture
 def workspace(tenant: Tenant) -> Workspace:
     with _active(tenant):
-        return Workspace.objects.create(tenant=tenant, name="Audit-WS")
+        return make_workspace(tenant, name="Audit-WS")
 
 
 @pytest.fixture
@@ -101,17 +102,17 @@ def _artifact(tenant: Tenant, workspace: Workspace, artifact_type: str) -> Artif
 
 
 def _requirement(tenant: Tenant, workspace: Workspace, title: str = "Req") -> Requirement:
-    art = _artifact(tenant, workspace, "requirement")
+    art = _artifact(tenant, workspace, "Requirement")
     return Requirement.objects.create(tenant=tenant, artifact=art, title=title)
 
 
 def _need(tenant: Tenant, workspace: Workspace, title: str = "Need") -> StakeholderNeed:
-    art = _artifact(tenant, workspace, "stakeholder-need")
+    art = _artifact(tenant, workspace, "StakeholderNeed")
     return StakeholderNeed.objects.create(tenant=tenant, artifact=art, title=title)
 
 
 def _arch(tenant: Tenant, workspace: Workspace, title: str = "AE") -> ArchitectureElement:
-    art = _artifact(tenant, workspace, "architecture-element")
+    art = _artifact(tenant, workspace, "ArchitectureElement")
     return ArchitectureElement.objects.create(tenant=tenant, artifact=art, title=title)
 
 

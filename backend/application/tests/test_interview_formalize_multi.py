@@ -46,6 +46,7 @@ from persistence.models import (
 )
 from persistence.tenancy import TenantContext
 from workflow import state_reader
+from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -79,7 +80,7 @@ def tenant() -> Tenant:
 @pytest.fixture
 def workspace(tenant: Tenant) -> Workspace:
     with _active(tenant):
-        return Workspace.objects.create(tenant=tenant, name="IV-Multi-WS")
+        return make_workspace(tenant, name="IV-Multi-WS")
 
 
 @pytest.fixture

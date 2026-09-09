@@ -235,10 +235,27 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         # and Icd only become reachable once the Datenmodell-Konsolidierung
         # spec has given them Artifact rows — until then the pair simply never
         # matches, which is inert, not an error.
+        #
+        # Goal / MainGoal / Interview are wildcards on *both* sides, unlike the
+        # reference entities above. They are shipped, user-authored endpoints:
+        # fix #237 exists solely so a Goal/MainGoal id resolves in
+        # TraceLinkService._resolve_artifact_id, and no production code writes
+        # these links — the user picks both endpoints through the generic
+        # trace-link REST/MCP surface, in either direction (see
+        # mcp_server/tests/test_traceability_link_issue264.py, which pins Goal
+        # as source *and* as target). They are regular built-ins, not
+        # grandfathered legacy: see link_types/grandfathered.py for the four
+        # pairs that are legacy-only on purpose.
         "allowed_pairs": _pairs(
             ("*", "GlossaryTerm"),
             ("*", "Diagram"),
             ("*", "Icd"),
+            ("*", "Goal"),
+            ("Goal", "*"),
+            ("*", "MainGoal"),
+            ("MainGoal", "*"),
+            ("*", "Interview"),
+            ("Interview", "*"),
         ),
         "coverage_relevant": False,
         "suspect_rule": "none",

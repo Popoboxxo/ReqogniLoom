@@ -71,11 +71,17 @@ def workspace(tenant: Tenant) -> Workspace:
     # The audit endpoint derives the rigor tier from the workspace preset (no
     # tier query param by design). Switch to Extended so the extended-only
     # TRACE-P5 rule is active and the endpoint behaviour is deterministic.
+    from link_types.workspace_store import provision_workspace_link_types
     from presets.services import switch_preset
 
     with _active(tenant):
         ws = Workspace.objects.create(tenant=tenant, name="Audit-API-WS")
         switch_preset(str(ws.id), "extended")
+        # This module shadows the conftest `workspace` fixture, so it needs
+        # its own provisioning: link validation is always-on and an
+        # unprovisioned workspace has an empty catalog that rejects every
+        # trace link — including the ones TRACE-P5 remediation writes.
+        provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
         return ws
 
 
@@ -91,8 +97,11 @@ def _ctx(user: User) -> AuthContext:
 def _p5_scenario(tenant, workspace):
     """Parent -decomposes-> child, no derives-from: raises exactly TRACE-P5."""
     def _req(title):
+        # PascalCase, as RequirementService writes it: the link-type catalog
+        # matches allowed_pairs on the exact artifact_type string, so a
+        # lowercase "requirement" makes the remediation link uncreatable.
         art = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type="requirement"
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
         )
         return Requirement.objects.create(tenant=tenant, artifact=art, title=title)
 

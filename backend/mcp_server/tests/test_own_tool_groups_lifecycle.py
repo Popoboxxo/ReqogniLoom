@@ -22,6 +22,7 @@ from mcp_server.tools.requirements import RequirementsToolGroup
 from mcp_server.tools.architecture import ArchitectureToolGroup
 from mcp_server.tools.tests import TestToolGroup
 from mcp_server.tools.needs import StakeholderNeedsToolGroup
+from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 
@@ -37,6 +38,11 @@ def _make_tenant_workspace_ctx(name: str):
     TenantContext.set_tenant(tenant.id)
     try:
         workspace = Workspace.objects.create(tenant=tenant, name=f"{name}-ws")
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link.
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=tenant.id
+        )
     finally:
         TenantContext.clear_tenant()
     ctx = AuthContext(

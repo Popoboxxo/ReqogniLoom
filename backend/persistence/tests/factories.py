@@ -98,13 +98,25 @@ def make_workspace(tenant: Tenant, **kwargs) -> Workspace:
 
     ``Workspace`` is a ``TenantScopedModel``; call this inside an active
     tenant context (e.g. ``with active_tenant() as tenant:``).
+
+    Link types are provisioned the same way ``WorkspaceService`` does it
+    (``application.workspace_provisioning``): since link validation is
+    always-on, a workspace with no ``lt_workspace_definition`` rows rejects
+    *every* trace link, which no production workspace ever does.
     """
     defaults = {
         "tenant": tenant,
         "name": f"WS-{uuid4().hex[:8]}",
     }
     defaults.update(kwargs)
-    return Workspace.objects.create(**defaults)
+    workspace = Workspace.objects.create(**defaults)
+
+    from link_types.workspace_store import provision_workspace_link_types
+
+    provision_workspace_link_types(
+        workspace_id=workspace.id, tenant_id=workspace.tenant_id
+    )
+    return workspace
 
 
 def assign_role(user: User, workspace: Workspace, role: str, *, suspended: bool = False) -> None:
@@ -235,8 +247,12 @@ def make_requirement(workspace: Workspace, **kwargs) -> Requirement:
     ``persistence/tests/test_tenant_isolation.py``.
     """
     tenant = workspace.tenant
+    # "Requirement", not "requirement": RequirementService writes the
+    # PascalCase form (requirement_service.py) and it is the only form in live
+    # data. The link-type catalog matches ``allowed_pairs`` on the exact
+    # string, so a lowercase fixture artifact silently cannot be linked at all.
     artifact = Artifact.objects.create(
-        tenant=tenant, workspace=workspace, artifact_type="requirement"
+        tenant=tenant, workspace=workspace, artifact_type="Requirement"
     )
     defaults = {
         "tenant": tenant,

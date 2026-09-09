@@ -31,6 +31,7 @@ from auth_tenancy.context import AuthContext
 from persistence.tenancy import TenantContext
 from traceability.types import LinkType
 from workflow.services import create_default_workflow
+from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 
@@ -58,6 +59,11 @@ def tenant_workspace_ctx():
     try:
         workspace = Workspace.objects.create(
             tenant=tenant, name=f"{name}-ws", goals_enabled=True
+        )
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link.
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=tenant.id
         )
     finally:
         TenantContext.clear_tenant()
@@ -178,26 +184,30 @@ def _stored_links(tenant_id):
 # ---------------------------------------------------------------------------
 
 
-def test_verifies_requirement_to_test_case_persists(
+def test_verifies_test_case_to_requirement_persists(
     tenant_workspace_ctx, requirement, test_case
 ):
-    """#264 Befund A: ``verifies`` Requirement -> TestCase must persist.
+    """#264 Befund A: a ``verifies`` link naming a TestCase by its own id.
 
     Previously NOT_FOUND, because TestCase was missing from the entity
-    resolution chain. Asserted against the table, not the response code.
+    resolution chain — that is what this test pins. The endpoints run
+    TestCase -> Requirement, the only direction the link-type catalog allows
+    (and the direction ``test.link``/``test.create`` have always written).
+    The original test had them reversed; it passed only because endpoint
+    validation used to be skipped outside se_mode workspaces.
     """
     tenant, _workspace, ctx = tenant_workspace_ctx
 
     result = _create_link(
-        requirement.id, test_case.id, LinkType.VERIFIES.value, ctx
+        test_case.id, requirement.id, LinkType.VERIFIES.value, ctx
     )
 
     assert result.success is True, result.message
     stored = _stored_links(tenant.id)
     assert len(stored) == 1
     link = stored[0]
-    assert str(link.source_id) == str(requirement.artifact_id)
-    assert str(link.target_id) == str(test_case.artifact_id)
+    assert str(link.source_id) == str(test_case.artifact_id)
+    assert str(link.target_id) == str(requirement.artifact_id)
     assert link.link_type == LinkType.VERIFIES.value
     # The response must name the row that actually exists.
     assert result.data["trace_link"]["id"] == str(link.id)
@@ -266,18 +276,18 @@ def test_created_link_is_found_by_traceability_query(
     _tenant, _workspace, ctx = tenant_workspace_ctx
 
     create = _create_link(
-        requirement.id, test_case.id, LinkType.VERIFIES.value, ctx
+        test_case.id, requirement.id, LinkType.VERIFIES.value, ctx
     )
     assert create.success is True, create.message
 
-    query = _query(requirement.id, "downstream", ctx)
+    query = _query(test_case.id, "downstream", ctx)
 
     assert query.success is True, query.message
     assert query.data["count"] == 1
     link = query.data["links"][0]
     assert link["id"] == create.data["trace_link"]["id"]
-    assert link["source_id"] == str(requirement.artifact_id)
-    assert link["target_id"] == str(test_case.artifact_id)
+    assert link["source_id"] == str(test_case.artifact_id)
+    assert link["target_id"] == str(requirement.artifact_id)
     assert link["link_type"] == LinkType.VERIFIES.value
 
 
@@ -291,9 +301,9 @@ def test_query_returns_populated_endpoints_not_none(
     silently ``None`` on every result.
     """
     _tenant, _workspace, ctx = tenant_workspace_ctx
-    _create_link(requirement.id, test_case.id, LinkType.VERIFIES.value, ctx)
+    _create_link(test_case.id, requirement.id, LinkType.VERIFIES.value, ctx)
 
-    query = _query(test_case.id, "upstream", ctx)
+    query = _query(requirement.id, "upstream", ctx)
 
     assert query.success is True, query.message
     assert query.data["count"] == 1
@@ -314,15 +324,19 @@ def test_query_unknown_artifact_id_returns_not_found(auth_ctx):
 def test_goal_as_source_link_is_persisted_and_readable(
     tenant_workspace_ctx, requirement
 ):
-    """#264 Befund B verbatim: ``traces`` Goal -> Requirement.
+    """#264 Befund B: a Goal -> Requirement link.
 
     Reported 200 with a trace_link.id while every read path said count 0.
     The link was in fact written; both read paths were broken.
+
+    The issue used ``traces``, which the link-type catalog retired into
+    ``references`` (``builtin.LEGACY_LINK_TYPE_MAPPING``); the Goal endpoint,
+    not the key, is what this test pins.
     """
     tenant, workspace, ctx = tenant_workspace_ctx
     goal = _make_goal(workspace, ctx, "Goal A")
 
-    result = _create_link(goal.id, requirement.id, LinkType.TRACES.value, ctx)
+    result = _create_link(goal.id, requirement.id, LinkType.REFERENCES.value, ctx)
     assert result.success is True, result.message
 
     stored = _stored_links(tenant.id)
@@ -347,14 +361,14 @@ def test_workspace_level_tracelink_listing_is_not_empty(
     from application.trace_link_service import TraceLinkService
 
     _tenant, workspace, ctx = tenant_workspace_ctx
-    _create_link(requirement.id, test_case.id, LinkType.VERIFIES.value, ctx)
+    _create_link(test_case.id, requirement.id, LinkType.VERIFIES.value, ctx)
 
     links = TraceLinkService().list_links_for_workspace(
         workspace_id=workspace.id, ctx=ctx
     )
 
     assert len(links) == 1
-    assert str(links[0].source_id) == str(requirement.artifact_id)
+    assert str(links[0].source_id) == str(test_case.artifact_id)
 
 
 # ---------------------------------------------------------------------------
@@ -367,18 +381,19 @@ def test_goal_as_target_after_reverse_link_returns_validation_error(
 ):
     """#264 Befund C: Goal as link TARGET must never yield an internal error.
 
-    The reporter created ``traces`` Goal -> Requirement first (Befund B), then
-    ``traces`` Requirement -> Goal. The second call closes a cycle in the
-    ``traces`` graph; CycleDetectedError was unmapped and became HTTP 500.
-    Expected per the issue: a clean 400 with a readable reason.
+    The reporter created Goal -> Requirement first (Befund B), then
+    Requirement -> Goal. The second call closes a cycle in the graph of that
+    one link type (cycle detection is per link_type); CycleDetectedError was
+    unmapped and became HTTP 500. Expected per the issue: a clean 400 with a
+    readable reason. ``traces`` in the issue text is ``references`` today.
     """
     _tenant, workspace, ctx = tenant_workspace_ctx
     goal = _make_goal(workspace, ctx, "Goal B")
 
-    forward = _create_link(goal.id, requirement.id, LinkType.TRACES.value, ctx)
+    forward = _create_link(goal.id, requirement.id, LinkType.REFERENCES.value, ctx)
     assert forward.success is True, forward.message
 
-    backward = _create_link(requirement.id, goal.id, LinkType.TRACES.value, ctx)
+    backward = _create_link(requirement.id, goal.id, LinkType.REFERENCES.value, ctx)
 
     assert backward.success is False
     assert backward.error_code == "VALIDATION_ERROR"
@@ -393,7 +408,7 @@ def test_goal_as_target_without_cycle_persists(tenant_workspace_ctx, requirement
     tenant, workspace, ctx = tenant_workspace_ctx
     goal = _make_goal(workspace, ctx, "Goal C")
 
-    result = _create_link(requirement.id, goal.id, LinkType.TRACES.value, ctx)
+    result = _create_link(requirement.id, goal.id, LinkType.REFERENCES.value, ctx)
 
     assert result.success is True, result.message
     stored = _stored_links(tenant.id)
@@ -408,12 +423,12 @@ def test_duplicate_link_returns_validation_error_not_500(
     _tenant, _workspace, ctx = tenant_workspace_ctx
 
     first = _create_link(
-        requirement.id, test_case.id, LinkType.VERIFIES.value, ctx
+        test_case.id, requirement.id, LinkType.VERIFIES.value, ctx
     )
     assert first.success is True, first.message
 
     second = _create_link(
-        requirement.id, test_case.id, LinkType.VERIFIES.value, ctx
+        test_case.id, requirement.id, LinkType.VERIFIES.value, ctx
     )
 
     assert second.success is False

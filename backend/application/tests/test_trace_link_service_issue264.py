@@ -165,11 +165,11 @@ class TestTraceLinkErrorMapping:
             # #625: create_trace_link resolves via _resolve_artifact (id +
             # already-loaded Artifact row) so the checks below can reuse the
             # row instead of re-SELECTing it. The stub returns no row; the
-            # only consumer, _check_se_semantics, is patched out anyway.
+            # only consumer, _check_link_pair, is patched out anyway.
             stack.enter_context(
                 patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None))
             )
-            stack.enter_context(patch.object(svc, "_check_se_semantics"))
+            stack.enter_context(patch.object(svc, "_check_link_pair"))
             stack.enter_context(
                 patch(
                     "traceability.services.create_trace_link",

@@ -19,6 +19,7 @@ from persistence.models import (
     Workspace,
 )
 from traceability.types import LinkType
+from link_types.workspace_store import provision_workspace_link_types
 
 
 @pytest.fixture(autouse=True)
@@ -61,9 +62,13 @@ def tenant(db) -> Tenant:
 def workspace(tenant: Tenant) -> Workspace:
     set_request_tenant(tenant.id)
     try:
-        return Workspace.objects.create(
+        ws = Workspace.objects.create(
             tenant=tenant, name="Bundle WS", preset={"name": "extended"}
         )
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link.
+        provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+        return ws
     finally:
         clear_request_tenant()
 

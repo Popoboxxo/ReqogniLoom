@@ -38,13 +38,19 @@ def user(tenant):
 @pytest.fixture
 def workspace(tenant):
     """Create test workspace."""
+    from link_types.workspace_store import provision_workspace_link_types
     from persistence.tenancy import TenantContext
+
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(
+        ws = PersistenceWorkspace.objects.create(
             tenant=tenant,
             name="test-workspace",
         )
+        # Same call WorkspaceService makes: link validation is always-on, so an
+        # unprovisioned workspace rejects every trace link.
+        provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+        return ws
     finally:
         TenantContext.clear_tenant()
 

@@ -27,6 +27,7 @@ from presets.services import switch_preset
 from traceability.types import LinkType
 
 from mcp_server.tools.architecture import ArchitectureToolGroup
+from link_types.workspace_store import provision_workspace_link_types
 
 _API_KEY = "reqlo_testkey_n1"
 
@@ -38,6 +39,9 @@ def n1_ctx(db):
     set_request_tenant(tenant.id)
     TenantContext.set_tenant(tenant.id)
     workspace = Workspace.objects.create(tenant=tenant, name="mcp-n1-ws")
+    # Link validation is always-on: an unprovisioned workspace has an empty
+    # link-type catalog and rejects every trace link.
+    provision_workspace_link_types(workspace_id=workspace.id, tenant_id=tenant.id)
     ctx = AuthContext(
         user_id=user.id,
         tenant_id=tenant.id,

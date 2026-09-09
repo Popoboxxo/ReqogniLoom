@@ -54,10 +54,16 @@ from traceability.types import VALID_LINK_TYPES
 # ---------------------------------------------------------------------------
 
 def _validate_link_type(link_type: str) -> None:
-    """Validate link_type against the 8-type enum (REQ-L2-TE-001).
+    """Coarse fail-safe against the ``LinkType`` enum (REQ-L2-TE-001).
 
-    The persistence CharField accepts any string; the service layer enforces
-    the 8-type contract here without modifying persistence.models.
+    **Not the authority.** Which link types a workspace accepts, and between
+    which endpoint types, is decided by
+    ``link_types.catalog.validate_link_pair`` before the call reaches here
+    (``application.trace_link_service.TraceLinkService._check_link_pair``).
+    ``VALID_LINK_TYPES`` is deliberately kept a superset of the catalog so
+    this check can never reject a key the catalog just accepted; it exists
+    only to stop an arbitrary string from a direct Layer-1 caller (the diagram
+    and ICD reconcilers) reaching the CharField, which accepts anything.
     """
     if link_type not in VALID_LINK_TYPES:
         raise InvalidLinkTypeError(link_type)

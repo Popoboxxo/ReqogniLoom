@@ -47,6 +47,7 @@ from persistence.models import (
 from persistence.tenancy import TenantContext
 from traceability.audit.types import Severity
 from traceability.types import LinkType
+from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -82,7 +83,7 @@ def user(tenant: Tenant) -> User:
 @pytest.fixture
 def workspace(tenant: Tenant) -> Workspace:
     with _active(tenant):
-        return Workspace.objects.create(tenant=tenant, name="Derive-WS-395")
+        return make_workspace(tenant, name="Derive-WS-395")
 
 
 @pytest.fixture

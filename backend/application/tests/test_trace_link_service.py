@@ -76,6 +76,11 @@ class TestValidLinkTypes:
         "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "decomposes",  # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4 — hardcoded decompose() output
         "diagram-ref",  # Codeberg #353 Task 3 — reconciler-owned only, see traceability/types.py
+        # Link-type catalog keys without a legacy equivalent. VALID_LINK_TYPES
+        # must stay a *superset* of link_types.builtin.BUILTIN_LINK_TYPES, or
+        # the Layer-1 fail-safe rejects a key the catalog just accepted.
+        "mitigates",
+        "references",
     }
 
     def test_all_ten_types_present(self):
@@ -96,45 +101,22 @@ class TestValidLinkTypes:
 class TestCreateTraceLink:
     """REQ-L2-AS-010."""
 
-    def test_invalid_link_type_raises_validation_error(self):
-        """ValidationError for unrecognised link_type."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-
-        with patch("application.trace_link_service.ServiceBase._set_tenant_context"):
-            with pytest.raises(ValidationError, match="Invalid link type"):
-                svc.create_trace_link(
-                    source_id=SOURCE_ID,
-                    target_id=TARGET_ID,
-                    link_type="made-up-type",
-                    ctx=ctx,
-                )
-
-    def test_diagram_ref_link_type_raises_validation_error(self):
-        """I1 (Codeberg #353 final review): 'diagram-ref' IS a member of
-        VALID_LINK_TYPES (the reconciler needs it there) but must never be
-        creatable through manual TraceLink CRUD — a hand-authored one would
-        be silently deleted on the diagram's next node_graph save. This is a
-        distinct rejection reason from an unrecognised link_type, so it is
-        checked before source/target resolution, same as the invalid-type
-        check above."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-
-        with patch("application.trace_link_service.ServiceBase._set_tenant_context"):
-            with pytest.raises(ValidationError, match="system-managed"):
-                svc.create_trace_link(
-                    source_id=SOURCE_ID,
-                    target_id=TARGET_ID,
-                    link_type="diagram-ref",
-                    ctx=ctx,
-                )
+    # Unrecognised link_type and the 'diagram-ref' manual-CRUD rejection are
+    # no longer decided here: both are catalog verdicts now, raised after
+    # endpoint resolution because they depend on the endpoints' workspace.
+    # Their coverage moved to test_trace_link_catalog_validation.py
+    # (test_a_retired_link_type_is_rejected /
+    # test_diagram_ref_is_still_rejected_on_the_manual_path), which uses real
+    # Artifact rows and a provisioned catalog instead of bare UUIDs.
 
     @pytest.mark.parametrize("link_type", sorted(MANUAL_LINK_TYPES))
     def test_all_valid_link_types_accepted(self, link_type):
-        """All manually-createable link types pass validation and delegate to
-        TE. Excludes 'diagram-ref' (I1) — covered separately above by
-        test_diagram_ref_link_type_raises_validation_error."""
+        """Every manually-createable link type reaches the TraceabilityEngine.
+
+        The catalog gate is stubbed out here on purpose: it needs real
+        Artifact rows and these stubs hand it bare UUIDs. Its own coverage is
+        test_trace_link_catalog_validation.py.
+        """
         svc = TraceLinkService()
         ctx = _make_ctx()
         mock_result = MagicMock()
@@ -143,6 +125,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
@@ -179,6 +162,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=SourceNotFoundError("not found"),
@@ -200,6 +184,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
         ):
             from traceability.services import TargetNotFoundError
 
@@ -223,6 +208,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=Exception("cross-workspace link not permitted"),
@@ -246,6 +232,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "traceability.services.create_trace_link", return_value=mock_result
             ),
@@ -273,6 +260,7 @@ class TestCreateTraceLink:
                 "application.trace_link_service.ServiceBase._set_tenant_context"
             ) as mock_stc,
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
         ):
             with pytest.raises(ValidationError):
                 svc.create_trace_link(
@@ -332,7 +320,9 @@ class TestEmbeddingDimensionGuard:
             link = TraceLinkService().create_trace_link(
                 source_id=source.id,
                 target_id=target.id,
-                link_type="traces",
+                # Requirement -> Requirement, a pair the built-in catalog
+                # allows; the retired "traces" type no longer exists.
+                link_type="derives-from",
                 ctx=ctx,
             )
             link.refresh_from_db()
@@ -349,7 +339,7 @@ class TestEmbeddingDimensionGuard:
         # (3) The rest of the save completed: the TraceLink itself IS
         #     persisted (refresh_from_db() would raise otherwise), with its
         #     real data intact.
-        assert link.link_type == "traces"
+        assert link.link_type == "derives-from"
 
     def test_matching_dimension_is_written(self, monkeypatch):
         """#794: a provider-shaped vector must actually land in the column."""
@@ -840,6 +830,7 @@ class TestResolveArtifactId:
             patch.object(
                 svc, "_resolve_artifact", side_effect=_resolve_side_effect
             ) as mock_resolve,
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
@@ -879,6 +870,7 @@ class TestAllocationInvariantHook:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch("application.trace_link_service.TraceLinkService._audit"),
             patch.object(svc, "_check_allocation_invariant") as mock_check,
             patch(

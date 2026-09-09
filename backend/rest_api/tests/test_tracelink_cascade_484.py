@@ -209,8 +209,11 @@ def test_trace_links_survive_a_risk_soft_delete_and_reactivate(
     req = _create_requirement(authed_client, workspace, "Linked to risk")
     risk = _create_risk(authed_client, workspace, "Link source Risk")
 
+    # `traces` until the link-type catalog retired it. The type is incidental
+    # to #484 (soft-delete must not cascade); `mitigates` is the one built-in
+    # type with a Risk -> Requirement pair.
     link = _create_link(
-        authed_client, workspace, risk["id"], req["id"], LinkType.TRACES.value
+        authed_client, workspace, risk["id"], req["id"], LinkType.MITIGATES.value
     )
 
     deleted = authed_client.delete(f"/api/v1/risks/{risk['id']}/")
