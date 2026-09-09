@@ -55,9 +55,14 @@ export async function createRequirementViaUI(
     }
   }
   if (data.category) {
-    // REQ_CATEGORIES option values are lowercase (frontend/src/types/index.ts) —
-    // normalize so callers can pass human-readable category names.
-    await page.locator('[data-testid="artifact-field-category"]').selectOption(data.category.toLowerCase());
+    // Task 25: `category` is a free-text input in the definition-driven form,
+    // not the old hardcoded REQ_CATEGORIES <select> — the bootstrapped
+    // definition derives `enum` from a model field's `choices`, and
+    // `Requirement.category` is a plain CharField without any. Same situation
+    // as `element_type` below; `fill` is the matching interaction, and an
+    // admin can still turn the attribute into an enum in the attribute editor.
+    // Values stay lowercase so they keep matching the list-filter options.
+    await page.locator('[data-testid="artifact-field-category"]').fill(data.category.toLowerCase());
     await saveRequirementDetail(page, 'E2E: set category');
   }
   return id;
