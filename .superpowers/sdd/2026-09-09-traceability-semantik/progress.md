@@ -262,7 +262,25 @@ Task 13: Expose the new fields through the REST serializer — **done**
 
 **Tests:** `rest_api/tests/test_tracelink_rest_semantics.py` — 8 passed. Regression (`rest_api/ application/tests/test_trace_link_service.py traceability/`) — no new failures. KNOWN-RED list unchanged (8 tests from Task 11).
 
-Task 14: Rule-driven suspect propagation (closes #849 structurally) — **next**
+Task 14: Rule-driven suspect propagation (closes #849 structurally) — **done**
+
+**Status:** Commit ae934685, 2026-09-09. Suspect-Propagation vollständig regel-basiert (One-Hop-Dispatch statt transitiver Hülle).
+
+- `application/trace_link_service.py`: `propagate_suspect_status` komplett neu — regel-basiertes Dispatch über den Link-Type-Katalog (`link_type.suspect_rule`), neuer optionaler Parameter `audit_entry_id`, One-Hop statt transitive Hülle. Keine globale `SUSPECT_PROPAGATION_MAX_DEPTH` mehr.
+- New `application/tests/test_suspect_propagation.py` — 12 tests für die neue Logik (One-Hop-Dispatch pro Link-Type-Regel, Edge-Cases).
+- Refactor in `test_trace_link_service.py` — 4 alte SN-30-Tests durch 1 ersetzt (Konsolidierung der redundanten alte-Transitiv-Tiefe-Tests).
+- Tests: regression (`application/tests/test_trace_link_service.py`, `test_suspect_propagation.py`) — 13 passed. Full suite trace_link_service + suspect — green.
+
+**OPTIONAL Findings (nicht blocking, für künftige Tasks):**
+
+1. **Silent-Skip-Fall hinterlässt falschen Audit-Marker** — wenn ein Modelltyp nicht flaggbar ist (z.B. `Adr` in einem Workspace ohne `Adr`-Support), werden `TraceLink.suspect_flagged_at`/`suspect_source_change` trotzdem gestempelt, obwohl `flagged == 0` zurückgegeben wird. Sollte zusammen mit der geplanten `Artifact.suspect`-Verschiebung adressiert werden (siehe unten).
+
+2. **Veraltete Doku-Referenz** — `docs/superpowers/plans/2026-08-08-reqmd-interop-and-inspiration-concept.md:773` referenziert das jetzt komplett ungenutzte `SUSPECT_PROPAGATION_MAX_DEPTH`. Bereinigung notiert für spätere Doku-Cleanup-Runde.
+
+**Merkposten für künftige Datenmodell-Konsolidierung (Task 16 / Phase D):**
+
+`suspect` gehört semantisch auf `Artifact` (nicht verteilt auf Requirement/ArchitectureElement/TestCase/StakeholderNeed einzeln). Das Drei-Modell-Tupel in Task 14 existiert nur, weil die Spalte noch nicht auf `Artifact` sitzt. `StakeholderNeed` hat ebenfalls ein `suspect`-Feld, fehlt aber im Propagations-Tupel — das ist bewusst deferred auf diese künftige Datenmodell-Konsolidierung, **KEINE Regression** (der alte Code hatte exakt dasselbe Drei-Modell-Tupel). Diese Verschiebung würde auch das Silent-Skip-Fall-Problem (Punkt 1 oben) beheben.
+
 Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` link — pending
 
 ## Phase D — Hard data migration and consumer fixes
@@ -309,9 +327,9 @@ A management command inventories the distinct `(link_type, source_artifact_type,
 
 ---
 
-## Branch status: IN PROGRESS — **Phase A complete (Tasks 1-8). Phase B complete: Tasks 9, 10 and 11 done. Phase C, Task 12 done.** Validation is always-on: `link_types.catalog.validate_link_pair` is the sole authority for every trace link in every workspace and terminology profile. `TraceLink` schema extended with three semantics fields + `Artifact.copied_from` self-FK.
+## Branch status: IN PROGRESS — **Phase A complete (Tasks 1-8). Phase B complete: Tasks 9, 10 and 11 done. Phase C complete: Tasks 12, 13, 14 done.** Validation is always-on: `link_types.catalog.validate_link_pair` is the sole authority for every trace link in every workspace and terminology profile. `TraceLink` schema extended with three semantics fields + `Artifact.copied_from` self-FK. Suspect-propagation is rule-driven via link-type catalog.
 
-Next: Task 13 (REST serializer exposure of the new fields). **Read two things first:**
+Next: Task 15 (Write `Artifact.parent` in the same transaction as the `decomposes` link). **Read two things first:**
 1. the **RESOLVED DECISION (Task 11)** above — Option (c) Hybrid, applied 2026-09-09. Grandfathering stays legacy-only; Goal/MainGoal/Interview are regular built-ins (migration `0005`). The tenant asymmetry for the 4 grandfathered pairs is now *intended*, and `seed_toothbrush` still writes those shapes, so it cannot run in a fresh tenant until Task 16/17 re-types it.
 2. the **KNOWN-RED** list in the Task 11 entry — **8 tests remain red** on retired link-type literals in production code. Five file groups: `migrate_se_docs.py` (1), `mcp_server/tools/ai_derivation.py` (1), e2e param tables (2 tests), `test_tracelink_outdated_endpoints.py` (3), `test_tracelink_cascade_484.py` (1 — Issue catalog gap, added 2026-09-09). The 3 Goal tests are no longer among them.
 
