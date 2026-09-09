@@ -120,7 +120,6 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     ),
     "context.query": (("artifact_id", "artifact"),),
     "context.test_coverage": (("requirement_id", "requirement"),),
-    "custom_field.get": (("id", "custom_field"),),
     "diagram.get": (("id", "diagram"),),
     "glossary.read": (("id", "glossary"),),
     "goal.list_versions": (("lineage_id", "goal_lineage"),),
@@ -259,8 +258,6 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   would break the admin flows that assign a user their *first* role.
 #: * ``workspace.list`` — workspace discovery. This is how a caller learns
 #:   which workspaces exist for them; it cannot require a workspace up front.
-#: * ``requirement_bundle.attribute_schema`` — a static per-entity-type field
-#:   schema, no tenant data at all.
 #: * ``requirement_bundle.compression_status`` — polls a Celery task result
 #:   through a tenant-ownership cache mapping the tool checks itself; the task
 #:   id is not an artifact and has no workspace.
@@ -287,12 +284,14 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   workspaces the caller holds a role in: the handler now passes
 #:   ``scope="tenant"`` when no ``workspace_id`` is given, which routes through
 #:   ``AuthorizationService.accessible_workspace_ids()``.
+#: * ``attribute_definition.list`` — the tenant-wide global defaults are
+#:   per (item_type, preset), not per workspace; there is no workspace to
+#:   scope to. The handler is admin-gated in the service.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
         "user.list",
         "workspace.list",
-        "requirement_bundle.attribute_schema",
         "requirement_bundle.compression_status",
         "audit.query",
         "requirement.query",
@@ -302,6 +301,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "prompt_variable.get",
         "prompt_variable.list",
         "artifact.search",
+        "attribute_definition.list",
     }
 )
 

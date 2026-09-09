@@ -80,7 +80,9 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
     ),
     "artifact": EntityWorkspaceSpec("persistence.models.Artifact"),
     "glossary": EntityWorkspaceSpec("persistence.models.GlossaryTerm"),
-    "custom_field": EntityWorkspaceSpec("persistence.models.CustomFieldDefinition"),
+    # "custom_field" retired with CustomFieldDefinition (Task 9, spec section
+    # 4): the legacy per-workspace definition table is gone, so there is no
+    # model left to resolve an owning workspace from.
     "test_run": EntityWorkspaceSpec("persistence.models.TestRun"),
     "interview": EntityWorkspaceSpec("persistence.models.InterviewSession"),
     "adr": EntityWorkspaceSpec("persistence.models.Adr"),

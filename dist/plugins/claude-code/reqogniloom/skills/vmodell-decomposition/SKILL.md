@@ -17,8 +17,7 @@ presets referenced below.
 2. Capture the raw stakeholder need with `needs.create`; refine it with `needs.update` as
    understanding sharpens. `needs.read` fetches a single need by ID once captured, and
    `needs.get_traces` shows which requirements have already been derived from it, so you can tell
-   an already-decomposed need from one still waiting. `custom_field.get`/`custom_field.query` show
-   workspace-specific fields to fill in beyond the core schema.
+   an already-decomposed need from one still waiting.
 3. Derive the first requirement level either by hand (`requirement.create` + an explicit
    `derives-from` link via `traceability.create_link`) or by asking the LLM adapter via
    `ai_derivation.derive_requirements_from_need` / `needs.derive_requirements` — both call the

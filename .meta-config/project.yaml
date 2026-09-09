@@ -89,6 +89,9 @@ gitignore:
   settings: true
 context_file:
   mode: full
+  max_lines: 250
+  oversize_acknowledged: false
+  auto_generate: true
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
@@ -141,13 +144,13 @@ variables:
     REST API unter /api/v1/ (DRF, 27 ViewSets + 67 APIViews, JWT-Auth mit vierstufiger
     RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
     MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 30 Tool-Gruppen
-    mit 171 Tools; API-Key `reqlo_*`). Fähigkeiten:
-    Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management,
-    15 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level),
-    History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import,
-    API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets (Minimal/Standard/Extended),
-    Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security.
-    LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).'
+    mit 171 Tools; API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture
+    Elements (MBSE-kompatibel), Test-Management, 15 Trace-Link-Typen, Baselines (3
+    Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint, PDF-Report-Export,
+    Test-Run-Protokollierung, CSV-Bulk-Import, API-Key-Management, Visual Artifact
+    Diff, 3 Rigor-Presets (Minimal/Standard/Extended), Terminology-Profile (dev_mode/se_mode),
+    Audit-Log, Multi-Tenancy via Row-Level-Security. LLM-Adapter: Anthropic, OpenAI,
+    Ollama, mock (Default: mock).'
   ARCHITECTURE: "backend/\n  manage.py                              # Django Entry-Point\n\
     \  reqogniloom/settings.py                    # Konfiguration (DRF, Auth, Apps,\
     \ Celery)\n  reqogniloom/urls.py                        # URL-Routing (/api/v1/,\
@@ -182,8 +185,8 @@ variables:
     \             # Playwright E2E-Tests (111 Tests, Chromium)\ndeploy/\n  docker-compose.yml\
     \                    # Full-Stack (postgres, postgres-backup, redis, backend,\
     \ migrate, celery, celery-beat, frontend + optional Honcho via profile)\n  docker-compose.minimal.yml\
-    \           # Schlanke Variante (kein Celery/Backup/Honcho)\n  README.md\
-    \                             # KI-Agenten-lesbare Deployment-Anleitung\ntesting/\n\
+    \           # Schlanke Variante (kein Celery/Backup/Honcho)\n  README.md     \
+    \                        # KI-Agenten-lesbare Deployment-Anleitung\ntesting/\n\
     \  docker-compose.test.yml               # CI-/lokaler Test-Overlay\n"
   PROJECT_STRUCTURE: 'backend/             # Django REST API (17 Apps) #   Layer 0:
     persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability,
@@ -201,7 +204,8 @@ variables:
     deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml,
     docker-compose.override.yml, README.md (KI-Agenten-lesbar)
 
-    testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
+    testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein
+    Deployment-File)
 
     .meta-config/        # agent-meta Konfiguration (project.yaml)
 
@@ -443,8 +447,8 @@ variables:
 
     Kein separates Build-Artifact — Deployment via Docker Compose (8 Services orchestriert).
 
-    Seed: `docker compose -f deploy/docker-compose.yml --project-directory . exec backend
-    python manage.py migrate && python manage.py seed_demo`.
+    Seed: `docker compose -f deploy/docker-compose.yml --project-directory . exec
+    backend python manage.py migrate && python manage.py seed_demo`.
 
     Demo-Credentials: admin / admin12345 (Tenant "demo", Workspace "Demo Workspace").
 
@@ -466,9 +470,9 @@ variables:
     6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker
     compose build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git
     rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args
-    an `docker compose -f deploy/docker-compose.yml --project-directory . build`. Ein
-    nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown"
-    — GET /api/v1/version/ liefert dann keine echten Werte.
+    an `docker compose -f deploy/docker-compose.yml --project-directory . build`.
+    Ein nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf
+    "unknown" — GET /api/v1/version/ liefert dann keine echten Werte.
 
     7. `docker compose -f deploy/docker-compose.yml --project-directory . push` (optional,
     Self-Hosted-First)
@@ -497,7 +501,8 @@ variables:
 
     - backend (Django 5.2+ / Python 3.12, Port 8000)
 
-    - migrate (gleiches Image wie backend, führt Django-Migrationen vor dem Start aus)
+    - migrate (gleiches Image wie backend, führt Django-Migrationen vor dem Start
+    aus)
 
     - celery (gleiches Image wie backend, Worker-Prozess)
 
@@ -517,17 +522,18 @@ variables:
     '
   APP_URL: http://localhost:5173
   STARTUP_CREDENTIALS: "\U0001F510 Default-Login (nach `docker compose -f deploy/docker-compose.yml\
-    \ --project-directory . exec backend python manage.py seed_demo`):\n   Username:   admin\n   Passwort:   seed_demo\
-    \ gibt das aktive Demo-Passwort am Laufzeit-Ende aus\n               (Override\
-    \ per Env-Var `DEMO_ADMIN_PASSWORD`; Default siehe README §5).\n   Tenant:   \
-    \  demo\n   Workspace:  Demo Workspace\nJWT-Token: `POST /api/v1/auth/login/`\
-    \ mit obigen Credentials.\n"
+    \ --project-directory . exec backend python manage.py seed_demo`):\n   Username:\
+    \   admin\n   Passwort:   seed_demo gibt das aktive Demo-Passwort am Laufzeit-Ende\
+    \ aus\n               (Override per Env-Var `DEMO_ADMIN_PASSWORD`; Default siehe\
+    \ README §5).\n   Tenant:     demo\n   Workspace:  Demo Workspace\nJWT-Token:\
+    \ `POST /api/v1/auth/login/` mit obigen Credentials.\n"
   EXTRA_STARTUP_INFO: "\U0001F4CB Nach `make up` (bzw. `docker compose -f deploy/docker-compose.yml\
-    \ --project-directory . up -d`) zwingend ausführen:\n \
-    \  1. migrate + Self-Init laufen bereits automatisch mit (siehe deploy/README.md)\n\
-    \   2. `docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py seed_demo`   (Demo-User +\
-    \ Tenant)\n   3. Browser öffnen → http://localhost:5173\nLLM-Provider steht per\
-    \ Default auf `mock` (kein API-Key nötig).\nHealth-Check (kein Auth): `GET http://localhost:8001/health/`\n"
+    \ --project-directory . up -d`) zwingend ausführen:\n   1. migrate + Self-Init\
+    \ laufen bereits automatisch mit (siehe deploy/README.md)\n   2. `docker compose\
+    \ -f deploy/docker-compose.yml --project-directory . exec backend python manage.py\
+    \ seed_demo`   (Demo-User + Tenant)\n   3. Browser öffnen → http://localhost:5173\n\
+    LLM-Provider steht per Default auf `mock` (kein API-Key nötig).\nHealth-Check\
+    \ (kein Auth): `GET http://localhost:8001/health/`\n"
   BINARY_NAME: ''
   BINARY_URL: ''
   BASE_IMAGE: python:3.12-slim
@@ -563,7 +569,7 @@ orchestrator:
     main-chat: true
     ask-user: true
     meta-feedback: false
-  mode: advisory
+  mode: strict
   provider-overrides:
     Claude:
       mode: main-chat
@@ -681,5 +687,4 @@ rules:
 max-parallel-agents: 2
 debug-mode: false
 allow-committed-secrets: false
-# The active naming/versioning conventions preset, matched against config/conventions-presets.yaml. Individual overrides via 'conventions' block. Precedence: conventions > conventions-preset > 'default'.
 conventions-preset: default

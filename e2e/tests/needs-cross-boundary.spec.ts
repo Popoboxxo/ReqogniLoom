@@ -58,7 +58,7 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
 
     // Click to verify details
     await page.click(`text=${apiTitle}`);
-    await expect(page.locator('input[type="text"]').first()).toHaveValue(apiTitle);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(apiTitle);
     await expect(page.locator('textarea')).toHaveValue('Created via REST API');
     // NOTE: NeedForm's MoSCoW-priority <select> has no data-testid/label
     // association (frontend/src/components/NeedsEditors/NeedForm.tsx), and

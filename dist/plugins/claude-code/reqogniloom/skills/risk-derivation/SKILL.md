@@ -12,7 +12,7 @@ below.
 
 1. `workspace.get_context` — learn the active rigor preset (it affects which fields a risk record
    must carry, e.g. `extended` typically requires a documented likelihood/impact/mitigation
-   triad); `custom_field.get`/`custom_field.query` for anything beyond that.
+   triad).
 2. Use `requirement.get`/`requirement.query` and `architecture.get`/`architecture.query` to
    understand the element you're assessing; `diagram.get`/`diagram.query` show its visual layout
    for additional context.

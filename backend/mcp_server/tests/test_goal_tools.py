@@ -170,6 +170,7 @@ GOAL_UUID = UUID("00000000-0000-0000-0000-000000000013")
 VALID_API_KEY = "reqlo_testkey1234"
 
 
+@pytest.mark.django_db
 @patch("mcp_server.tools.goals.GoalService")
 def test_goal_create_permission_denied(mock_service_cls):
     mock_service_cls.return_value.create_version.side_effect = PermissionDeniedError(
@@ -187,6 +188,7 @@ def test_goal_create_permission_denied(mock_service_cls):
     assert result.error_code == "PERMISSION_DENIED"
 
 
+@pytest.mark.django_db
 @patch("mcp_server.tools.goals.GoalService")
 def test_goal_create_version_permission_denied(mock_service_cls):
     mock_service_cls.return_value.create_version.side_effect = PermissionDeniedError(

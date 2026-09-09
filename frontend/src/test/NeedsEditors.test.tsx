@@ -46,12 +46,6 @@ vi.mock("../api/stakeholder-need", () => ({
   },
 }));
 
-vi.mock("../api", () => ({
-  attributeVisibilityApi: {
-    list: vi.fn().mockResolvedValue([]),
-  },
-}));
-
 vi.mock("../api/tracelinks", () => ({
   tracelinksApi: {
     impact: vi.fn().mockResolvedValue([]),

@@ -254,6 +254,14 @@ class ImportService(ServiceBase):
             errs = self._validate_row(row_num, row, entity_type)
             validation_errors.extend(errs)
 
+        # Ledger gap #1 / issue #881: same central gate the REST ViewSets
+        # (WorkflowTransitionsMixin._validate_attribute_definition) and the
+        # MCP artifact-write tools (mcp_server.tools.base.validate_artifact_write)
+        # go through -- CSV bulk import used to bypass it entirely.
+        validation_errors.extend(
+            self._validate_attribute_definitions(rows, entity_type, ws_uuid, ctx)
+        )
+
         if validation_errors:
             return ImportResult(
                 success=False,
@@ -399,6 +407,65 @@ class ImportService(ServiceBase):
                 )
             )
 
+        return errors
+
+    @staticmethod
+    def _validate_attribute_definitions(
+        rows: List[Tuple[int, Dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+        ctx: AuthContext,
+    ) -> List[ImportRowError]:
+        """Validate every row against the workspace's resolved AttributeDefinition.
+
+        Reuses ``AttributeDefinitionService.validate_artifact_fields`` -- the
+        same central gate ``WorkflowTransitionsMixin._validate_attribute_definition``
+        wires into the 9 REST ViewSets and
+        ``mcp_server.tools.base.validate_artifact_write`` wires into the MCP
+        artifact-write tools (ledger gap #1 / issue #881). Every row is a
+        create (``existing=None``): CSV import only ever inserts new rows.
+
+        A raw CSV row is a ``dict[str, str]``; ``validate_values`` only type-
+        checks ``number``/``boolean``/``multi-enum`` attributes, and none of
+        the bootstrapped core attributes for the supported entity types use
+        those kinds today (``EXCLUDED_MODEL_FIELDS`` drops the one real
+        ``BooleanField``, ``StakeholderNeed.suspect``) -- ``enum`` and
+        ``number`` both accept a plain string. A future core or admin-
+        customised attribute of one of those kinds would need the row cell
+        coerced to its real type first; not needed while that holds.
+        """
+        from application.attribute_definition_service import (
+            AttributeDefinitionNotFound,
+            AttributeDefinitionService,
+            AttributeSchemaError,
+            FieldValidationError,
+        )
+        from presets.exceptions import CrossTenantWorkspaceError
+
+        errors: List[ImportRowError] = []
+        service = AttributeDefinitionService()
+        for row_num, row in rows:
+            try:
+                service.validate_artifact_fields(ctx, entity_type, workspace_id, dict(row), None)
+            except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
+                # No bootstrapped definition for this item type/preset, or a
+                # cross-tenant workspace id -- every row would degrade
+                # identically, and _insert_rows' own Workspace lookup is the
+                # authoritative answer for the latter.
+                break
+            except FieldValidationError as exc:
+                errors.extend(
+                    ImportRowError(row_number=row_num, field=name, message=msg)
+                    for name, messages in sorted(exc.errors.items())
+                    for msg in messages
+                )
+            except AttributeSchemaError as exc:
+                errors.extend(
+                    ImportRowError(
+                        row_number=row_num, field="attribute_definition", message=msg
+                    )
+                    for msg in exc.errors
+                )
         return errors
 
     @staticmethod

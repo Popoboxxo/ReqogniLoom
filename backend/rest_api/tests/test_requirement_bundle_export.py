@@ -169,18 +169,60 @@ class TestRequirementBundleContentNegotiation:
 
 @pytest.mark.django_db
 class TestAttributeSchemaEndpoint:
-    def test_lists_requirement_schema(self, authed_client):
-        resp = authed_client.get("/api/v1/attribute-schema/?entity_type=Requirement")
+    def test_lists_requirement_schema(self, authed_client, workspace):
+        resp = authed_client.get(
+            f"/api/v1/attribute-schema/?entity_type=Requirement&workspace_id={workspace.id}"
+        )
         assert resp.status_code == 200
         names = {row["attribute_name"] for row in resp.json()}
         assert "title" in names
         assert "status" in names
 
-    def test_without_entity_type_returns_all(self, authed_client):
-        resp = authed_client.get("/api/v1/attribute-schema/")
+    def test_without_entity_type_returns_all(self, authed_client, workspace):
+        resp = authed_client.get(f"/api/v1/attribute-schema/?workspace_id={workspace.id}")
         assert resp.status_code == 200
         entity_types = {row["entity_type"] for row in resp.json()}
         assert "Requirement" in entity_types
+
+    def test_missing_workspace_id_returns_validation_error(self, authed_client):
+        resp = authed_client.get("/api/v1/attribute-schema/?entity_type=Requirement")
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_reflects_a_hidden_field_from_the_real_workspace_definition(
+        self, authed_client, tenant, workspace
+    ):
+        """GitHub #882 regression: describe_attribute_schema must reflect the
+        real, currently-active per-workspace AttributeDefinition rather than
+        the static hardcoded field list — an admin who hides 'status' must
+        see that reflected here, not 'is_visible: True' unconditionally."""
+        from django.core.management import call_command
+
+        from auth_tenancy.context import AuthContext, AuthMethod
+        from application.attribute_definition_service import AttributeDefinitionService
+
+        call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+        admin_ctx = AuthContext(
+            user_id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            active_roles=("admin",),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+        def_service = AttributeDefinitionService()
+        attributes = def_service.resolve(admin_ctx, "Requirement", workspace.id)["attributes"]
+        for attribute in attributes:
+            if attribute["name"] == "description":
+                attribute["visible"] = False
+        def_service.update_workspace(admin_ctx, "Requirement", workspace.id, attributes)
+
+        resp = authed_client.get(
+            f"/api/v1/attribute-schema/?entity_type=Requirement&workspace_id={workspace.id}"
+        )
+        assert resp.status_code == 200
+        rows = {row["attribute_name"]: row["is_visible"] for row in resp.json()}
+        assert rows["description"] is False
+        assert rows["title"] is True
 
 
 @pytest.mark.django_db

@@ -25,6 +25,8 @@ interface TagInputProps {
    * non-interactive pill container.
    */
   inputId?: string;
+  /** ArtifactForm's `mode="read"`/saving state (F-1 fix, Task 20 review round). */
+  disabled?: boolean;
 }
 
 export function TagInput({
@@ -33,6 +35,7 @@ export function TagInput({
   placeholder = 'tag1, tag2 ...',
   'data-testid': testId,
   inputId,
+  disabled = false,
 }: TagInputProps): JSX.Element {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
@@ -82,6 +85,7 @@ export function TagInput({
         boxSizing: 'border-box',
       }}
       onClick={() => {
+        if (disabled) return;
         // Forward click on container to inner input for usability
         const el = document.querySelector<HTMLInputElement>(
           testId ? `[data-testid="${testId}-input"]` : '[data-testid="tag-input-field"]'
@@ -109,6 +113,7 @@ export function TagInput({
           <button
             type="button"
             data-testid="tag-remove-btn"
+            disabled={disabled}
             onClick={(e) => {
               e.stopPropagation();
               removeTag(i);
@@ -117,7 +122,7 @@ export function TagInput({
               background: 'none',
               border: 'none',
               color: 'inherit',
-              cursor: 'pointer',
+              cursor: disabled ? 'default' : 'pointer',
               padding: 0,
               lineHeight: 1,
               fontSize: '1em',
@@ -135,6 +140,7 @@ export function TagInput({
         type="text"
         data-testid={testId ? `${testId}-input` : 'tag-input-field'}
         value={inputValue}
+        disabled={disabled}
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}

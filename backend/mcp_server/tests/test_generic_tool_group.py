@@ -13,6 +13,7 @@ tool_registry.py: adr, risk, issue, glossary.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -56,7 +57,13 @@ class _EntitySpecificService:
             lambda widget_id, ctx, **kw: {"id": ENTITY_ID}
         )
         self.delete_widget = _mock_with_signature(lambda widget_id, ctx: None)
-        self.get_widget = _mock_with_signature(lambda widget_id, ctx: {"id": ENTITY_ID})
+        # Ledger gap #1 / issue #881: _handle_update now resolves workspace_id
+        # via the read method before dispatching (validate_artifact_write) —
+        # unlike create/update/delete's own dict returns (never inspected
+        # beyond call args), this one must expose a real `.workspace_id`.
+        self.get_widget = _mock_with_signature(
+            lambda widget_id, ctx: SimpleNamespace(id=ENTITY_ID, workspace_id=WORKSPACE_ID)
+        )
 
 
 class _GenericNamedService:
@@ -72,7 +79,11 @@ class _GenericNamedService:
             lambda ctx, term_id, definition=None: {"id": ENTITY_ID}
         )
         self.delete = _mock_with_signature(lambda ctx, term_id: None)
-        self.get = _mock_with_signature(lambda ctx, term_id: {"id": ENTITY_ID})
+        # See _EntitySpecificService.get_widget above for why this needs a
+        # real `.workspace_id` now.
+        self.get = _mock_with_signature(
+            lambda ctx, term_id: SimpleNamespace(id=ENTITY_ID, workspace_id=WORKSPACE_ID)
+        )
 
 
 def _make_generic_named_service() -> "_GenericNamedService":
@@ -97,6 +108,7 @@ def _group_for(service_instance) -> GenericCrudToolGroup:
     return group
 
 
+@pytest.mark.django_db
 def test_entity_specific_service_create_dispatches_to_prefixed_method():
     service = _EntitySpecificService()
     group = _group_for(service)
@@ -113,6 +125,7 @@ def test_entity_specific_service_create_dispatches_to_prefixed_method():
     )
 
 
+@pytest.mark.django_db
 def test_entity_specific_service_update_dispatches_to_prefixed_method():
     service = _EntitySpecificService()
     group = _group_for(service)
@@ -147,6 +160,7 @@ def test_entity_specific_service_read_dispatches_to_prefixed_method():
     service.get_widget.assert_called_once_with(ctx=CTX, widget_id=ENTITY_ID)
 
 
+@pytest.mark.django_db
 def test_generic_named_service_update_uses_introspected_id_param():
     """GlossaryService-like service: update(ctx, term_id, ...) — the ID kwarg
     is neither <prefix>_id nor "id", so it must be resolved via introspection."""
@@ -171,6 +185,7 @@ def test_generic_named_service_delete_uses_introspected_id_param():
     service.delete.assert_called_once_with(ctx=CTX, term_id=ENTITY_ID)
 
 
+@pytest.mark.django_db
 def test_generic_named_service_create_uses_generic_method():
     service = _make_generic_named_service()
     group = _group_for(service)
@@ -536,6 +551,7 @@ def test_update_with_status_field_returns_clear_validation_error():
     service.update_widget.assert_not_called()
 
 
+@pytest.mark.django_db
 def test_update_with_unexpected_field_returns_validation_error_not_internal():
     """Any other TypeError-inducing kwarg (misnamed field) should also
     surface as an actionable VALIDATION_ERROR, not a bare INTERNAL_ERROR.
@@ -568,6 +584,7 @@ def test_update_with_unexpected_field_returns_validation_error_not_internal():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 def test_create_with_missing_required_field_returns_validation_error_not_internal():
     """Generic-named service (``create(ctx, workspace_id, term, definition=None)``)
     raises TypeError when the required `term` field is omitted. That must

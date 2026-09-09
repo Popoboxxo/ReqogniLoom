@@ -669,7 +669,14 @@
     "probability": "Probability",
     "impact": "Impact",
     "detection": "Detection (1-10)",
+    "matrix": "Risk matrix",
     "matrixTitle": "Risk Matrix (Probability × Impact)",
+    "rpn": "RPN: {{value}}",
+    "level": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
     "score": "Score",
     "computedScores": "Computed Scores",
     "riskScoreLabel": "Risk Score",
@@ -726,6 +733,9 @@
     "deleteTitle": "Delete test case",
     "newTestCase": "New Test Case",
     "titlePlaceholder": "e.g. Test case title...",
+    "step": "Step {{index}}",
+    "addStep": "Add step",
+    "removeStep": "Remove step {{index}}",
     "summary_one": "{{count}} test case",
     "summary_other": "{{count}} test cases",
     "emptyTitle": "No test cases yet",
@@ -761,7 +771,8 @@
       "visibility": "Visibility",
       "llm": "LLM & Prompts",
       "governanceReplacement": "Workflows & Permissions",
-      "appearance": "Appearance"
+      "appearance": "Appearance",
+      "attributes": "Attributes"
     },
     "attributeVisibility": "Attribute Visibility",
     "llm": {
@@ -1886,6 +1897,7 @@
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow Defaults",
+      "attributeDefaults": "Attribute Defaults",
       "permissionDefaults": "Permission Defaults",
       "memory": "Memory"
     },
@@ -2019,5 +2031,68 @@
       "title": "Initial state",
       "body": "This version has no stored predecessor. What you see are the values it was created with — which is why every field is marked as added."
     }
+  },
+  "artifactForm": {
+    "unknownValue": "Unknown value: {{value}}",
+    "expandSection": "Expand section {{section}}",
+    "collapseSection": "Collapse section {{section}}",
+    "lockedHint": "system-critical, not changeable",
+    "unsavedChanges": "Unsaved changes will be lost. Continue?",
+    "saveFailed": "Save failed",
+    "deleteConfirm": "Really delete this artifact?",
+    "noneOption": "None",
+    "unassignedOption": "Unassigned",
+    "referenceIdPlaceholder": "Enter artifact id",
+    "field": {
+      "description": "Description",
+      "context": "Context",
+      "consequences": "Consequences"
+    },
+    "definitionUnavailable": "The field configuration could not be loaded.",
+    "deleteTitle": "Delete artifact",
+    "unsupportedWidget": "This field uses an unsupported widget ({{widget}}). Its individual fields are shown directly instead.",
+    "userDirectoryUnavailable": "User directory unavailable — only tenant administrators may read it.",
+    "changeReason": "Change reason",
+    "changeReasonRequired": "Please provide a change reason."
+  },
+  "sections": {
+    "general": "General",
+    "classification": "Classification",
+    "change_control": "Change control",
+    "custom": "Custom fields"
+  },
+  "attributes": {
+    "entityType": "Entity type",
+    "entityTypes": {
+      "Requirement": "Requirement",
+      "StakeholderNeed": "Stakeholder Need",
+      "ArchitectureElement": "Architecture",
+      "TestCase": "Test Case",
+      "Adr": "ADR",
+      "Risk": "Risk",
+      "Issue": "Issue",
+      "Goal": "Goal",
+      "Icd": "ICD",
+      "GlossaryTerm": "Glossary Term"
+    },
+    "visible": "Visible",
+    "required": "Required",
+    "expertOnly": "Expert only",
+    "section": "Section",
+    "labelDe": "Label (DE)",
+    "labelEn": "Label (EN)",
+    "aiElicit": "Elicit in interview",
+    "export": "Export",
+    "lockedHint": "system-critical, not changeable",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "addSection": "Add section",
+    "renameSection": "Rename section",
+    "deleteSection": "Delete section",
+    "moveSectionUp": "Move section up",
+    "moveSectionDown": "Move section down",
+    "reset": "Reset to default",
+    "resetConfirm": "Discard the workspace customisation and adopt the global default?",
+    "propagated": "{{count}} workspace(s) updated"
   }
 }

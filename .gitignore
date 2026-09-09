@@ -2,6 +2,8 @@
 .opencode
 .claude/*
 !.claude/3-project/
+!.claude/rules/
+!.claude/skills/
 .bin
 frontend/node_modules/
 e2e/node_modules/

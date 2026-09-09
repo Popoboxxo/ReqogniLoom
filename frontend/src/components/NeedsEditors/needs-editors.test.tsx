@@ -43,10 +43,6 @@ vi.mock("./useNeedData", () => ({
   }),
 }));
 
-vi.mock("../../api", () => ({
-  attributeVisibilityApi: { list: vi.fn().mockResolvedValue([]) },
-}));
-
 vi.mock("../../api/stakeholder-need", () => ({
   stakeholderNeedApi: { create: vi.fn().mockResolvedValue({ id: "new-1" }) },
 }));
@@ -59,7 +55,7 @@ vi.mock("../shared/ArtifactInspector", () => ({
   RightSidebar: () => null,
 }));
 
-vi.mock("./NeedForm", () => ({ NeedForm: () => null }));
+vi.mock("./NeedArtifactForm", () => ({ NeedArtifactForm: () => null }));
 
 // NeedList is mocked to expose the `onCreateClick` plumbing (still forwarded
 // for the empty-state's own create action, #315) and the resulting

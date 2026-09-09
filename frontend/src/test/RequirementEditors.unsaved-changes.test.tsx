@@ -2,11 +2,12 @@
  * Issue #672 — "Silent data loss: no unsaved-changes warning".
  *
  * Clicking a different artifact in the left navigation tree while the open
- * RequirementForm has unsaved local edits used to call `navigate()`
+ * detail form has unsaved local edits used to call `navigate()`
  * straight away, swapping the URL (and therefore the `requirement` prop)
  * with no confirmation at all — the edit was silently discarded. These
- * tests exercise the full RequirementEditors + RequirementForm +
- * WorkspaceTree wiring to prove the confirmation now gates that navigation.
+ * tests exercise the full RequirementEditors + RequirementArtifactForm
+ * (Task 25) + WorkspaceTree wiring to prove the confirmation now gates that
+ * navigation.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -14,6 +15,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+// Task 25: RequirementEditors now renders RequirementArtifactForm, whose
+// FieldShell reads `i18n.language` directly (`helpText()`, FieldShell.tsx) —
+// without the real i18next singleton initialised, `language` is `undefined`
+// and `.startsWith()` throws. Same import ArchitectureEditors.unsaved-changes
+// .test.tsx already relies on (Task 24).
+import "../i18n/index";
 
 vi.mock("../api/client", async (importActual) => ({
   ...(await importActual<typeof import("../api/client")>()),
@@ -121,6 +128,30 @@ vi.mock("../api/testcases", () => ({
   testcasesApi: { list: vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }) },
 }));
 
+// Task 25: RequirementEditors now renders RequirementArtifactForm, which
+// resolves its field set from the attribute-definition API — see the
+// identical mock/rationale in ArchitectureEditors.unsaved-changes.test.tsx
+// (Task 24).
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: {
+    getWorkspace: vi.fn().mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        {
+          name: "title", kind: "core", type: "text", widget_key: null, fields: [],
+          options: [], required: true, visible: true, locked: false, editable: true,
+          section: "general", order: 1, label: { de: "", en: "" },
+          help_text: { de: "", en: "" }, default: null, validation: {},
+          ai_elicit: false, export: true, audience: "basic",
+        },
+      ],
+    }),
+  },
+}));
+
 vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   const actual = await importActual<typeof import("../components/shared/ArtifactInspector")>();
   return { ...actual, RightSidebar: () => <div data-testid="artifact-inspector" /> };
@@ -178,11 +209,11 @@ describe("RequirementEditors — unsaved-changes confirmation before tree naviga
     const user = userEvent.setup();
     renderEditor(REQ_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("req-title")).toHaveValue("Requirement A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement A"));
 
-    await user.clear(screen.getByTestId("req-title"));
-    await user.type(screen.getByTestId("req-title"), "Unsaved edit");
-    expect(screen.getByTestId("req-title")).toHaveValue("Unsaved edit");
+    await user.clear(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
 
     await user.click(screen.getByTestId(`req-list-tree-node-${REQ_B.id}`));
 
@@ -192,17 +223,17 @@ describe("RequirementEditors — unsaved-changes confirmation before tree naviga
     // Canceling must not navigate — the unsaved edit is still visible.
     await user.click(screen.getByTestId("req-unsaved-changes-dialog-cancel"));
     expect(screen.queryByTestId("req-unsaved-changes-dialog")).not.toBeInTheDocument();
-    expect(screen.getByTestId("req-title")).toHaveValue("Unsaved edit");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
   });
 
   it("navigates and discards the unsaved edit once the user confirms", async () => {
     const user = userEvent.setup();
     renderEditor(REQ_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("req-title")).toHaveValue("Requirement A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement A"));
 
-    await user.clear(screen.getByTestId("req-title"));
-    await user.type(screen.getByTestId("req-title"), "Unsaved edit");
+    await user.clear(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
 
     await user.click(screen.getByTestId(`req-list-tree-node-${REQ_B.id}`));
     await screen.findByTestId("req-unsaved-changes-dialog");
@@ -210,7 +241,7 @@ describe("RequirementEditors — unsaved-changes confirmation before tree naviga
     await user.click(screen.getByTestId("req-unsaved-changes-dialog-confirm"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("req-title")).toHaveValue("Requirement B")
+      expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement B")
     );
     expect(screen.queryByTestId("req-unsaved-changes-dialog")).not.toBeInTheDocument();
   });
@@ -219,46 +250,54 @@ describe("RequirementEditors — unsaved-changes confirmation before tree naviga
     const user = userEvent.setup();
     renderEditor(REQ_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("req-title")).toHaveValue("Requirement A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement A"));
 
     await user.click(screen.getByTestId(`req-list-tree-node-${REQ_B.id}`));
 
     await waitFor(() =>
-      expect(screen.getByTestId("req-title")).toHaveValue("Requirement B")
+      expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement B")
     );
     expect(screen.queryByTestId("req-unsaved-changes-dialog")).not.toBeInTheDocument();
   });
 
   /**
    * Regression test for a stale-dirty-flag bug found in code review: the
-   * `onDirtyChange` reporting effect had no cleanup, so unmounting
-   * `RequirementForm` while `isDirty` was still `true` (e.g. via Cancel,
-   * which navigates away and unmounts the form without ever reporting
-   * `isDirty(false)`) left the parent's `isFormDirty` state stuck at `true`.
-   * The very next tree click then wrongly showed the unsaved-changes dialog
-   * even though no form was open anymore.
+   * `onDirtyChange` reporting effect had no cleanup, so unmounting the form
+   * while `isDirty` was still `true` (e.g. via Delete, which navigates away
+   * and unmounts the form without ever reporting `isDirty(false)`) left the
+   * parent's `isFormDirty` state stuck at `true`. The very next tree click
+   * then wrongly showed the unsaved-changes dialog even though no form was
+   * open anymore.
+   *
+   * Task 25: `RequirementArtifactForm` (ArtifactForm-driven, like
+   * `ArchitectureArtifactForm`) has no standalone Cancel action — Delete is
+   * the one action that unmounts the form via navigation without going
+   * through the confirm dialog, same substitution
+   * `ArchitectureEditors.unsaved-changes.test.tsx` made for this exact test
+   * (Task 24).
    */
-  it("does not show the unsaved-changes dialog for a tree click after Cancel discarded the dirty form", async () => {
+  it("does not show the unsaved-changes dialog for a tree click after Delete discarded the dirty form", async () => {
     const user = userEvent.setup();
     renderEditor(REQ_A.id);
 
-    await waitFor(() => expect(screen.getByTestId("req-title")).toHaveValue("Requirement A"));
+    await waitFor(() => expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement A"));
 
-    await user.clear(screen.getByTestId("req-title"));
-    await user.type(screen.getByTestId("req-title"), "Unsaved edit");
-    expect(screen.getByTestId("req-title")).toHaveValue("Unsaved edit");
+    await user.clear(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
+    expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
 
-    // Cancel navigates to `/requirements` (no id), unmounting the dirty
-    // RequirementForm without ever going through the confirm dialog.
-    await user.click(screen.getByTestId("cancel-btn"));
-    await waitFor(() => expect(screen.queryByTestId("req-title")).not.toBeInTheDocument());
+    // Delete navigates to `/requirements` (no id), unmounting the dirty
+    // form without ever going through the unsaved-changes confirm dialog.
+    await user.click(screen.getByTestId("artifact-form-delete"));
+    await user.click(screen.getByTestId("artifact-form-delete-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("artifact-field-title")).not.toBeInTheDocument());
 
     // A stale `isFormDirty=true` would now wrongly gate this click behind
     // the unsaved-changes dialog, even though no form is open anymore.
     await user.click(screen.getByTestId(`req-list-tree-node-${REQ_B.id}`));
 
     await waitFor(() =>
-      expect(screen.getByTestId("req-title")).toHaveValue("Requirement B")
+      expect(screen.getByTestId("artifact-field-title")).toHaveValue("Requirement B")
     );
     expect(screen.queryByTestId("req-unsaved-changes-dialog")).not.toBeInTheDocument();
   });

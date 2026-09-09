@@ -14,8 +14,6 @@ audits; findings route to whichever role/skill owns the fix.
 1. `workspace.get_context` — learn the active rigor preset before judging what "complete
    traceability" means for this workspace; a `minimal`-preset workspace does not necessarily
    expect every requirement to carry a documented rationale, don't flag its absence as a gap there.
-   `custom_field.get`/`custom_field.query` show which workspace-specific fields exist beyond the
-   core schema — a missing custom field the preset doesn't actually require is not a gap either.
 2. Walk the tree with `requirement.query` / `architecture.query` / `test.query`, using
    `artifact.get_tree` for the hierarchical L0-L4 structure at a glance; once a query surfaces a
    specific element worth a closer look, `requirement.get`/`architecture.get`/`test.get` fetch it

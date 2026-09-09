@@ -81,13 +81,6 @@ vi.mock("../api/testcases", () => ({
   },
 }));
 
-vi.mock("../api/custom-fields", () => ({
-  customFieldsApi: {
-    getValues: vi.fn().mockResolvedValue([]),
-    putValues: vi.fn().mockResolvedValue([]),
-  },
-}));
-
 // Isolate from the ArtifactInspector sidebar (its own data fetching is out of
 // scope for this test).
 vi.mock("../components/shared/ArtifactInspector", () => ({

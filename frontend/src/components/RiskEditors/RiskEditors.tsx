@@ -6,7 +6,7 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { RiskList } from './RiskList';
-import { RiskForm } from './RiskForm';
+import { RiskArtifactForm } from './RiskArtifactForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
@@ -16,7 +16,7 @@ import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useRiskData } from './useRiskData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { risksApi } from '../../api/risks';
-import { CATEGORY_OPTIONS } from './RiskForm';
+import { CATEGORY_OPTIONS } from './RiskArtifactForm';
 // F-04 (code review, 2026-08-19): shared create-form field styles (see
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
@@ -166,7 +166,19 @@ export default function RiskEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
-                <RiskForm risk={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                {/* DEVIATION from the plan brief: the brief's RiskArtifactForm
+                    takes a non-nullable `risk: Risk` (unlike the deleted
+                    RiskForm, which accepted `risk: Risk | null` and rendered
+                    the "select a risk" placeholder itself). `item` here is
+                    `Risk | null` (no row selected yet), so that null-guard
+                    moves to this call site instead of being lost. */}
+                {item ? (
+                  <RiskArtifactForm risk={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                ) : (
+                  <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                    {t('risks.selectRisk')}
+                  </p>
+                )}
                 {/* Task 2.2: the "Neue Verknüpfung" button used to float under
                     the form as an inline-styled one-off. TraceLinkPanel
                     already owns a "new link" action in its own header (same

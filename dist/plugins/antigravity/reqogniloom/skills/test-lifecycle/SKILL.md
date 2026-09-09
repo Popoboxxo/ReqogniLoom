@@ -11,8 +11,7 @@ below.
 ## Workflow
 
 1. `workspace.get_context` — learn the active rigor preset (it changes which fields a test case
-   must carry before linking to a requirement); `custom_field.get`/`custom_field.query` show
-   workspace-specific test-case fields beyond that (e.g. a required environment/browser matrix).
+   must carry before linking to a requirement).
 2. Find the requirement you're testing with `requirement.get`/`requirement.query`, and check
    `traceability.query` to see whether a test case already covers it — don't create duplicates.
 3. Create the test case with `test.create`; refine with `test.update`. `test.get` fetches a single

@@ -16,26 +16,22 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
    *
    * The seeded workspace runs the "extended" preset, whose policy rejects a
    * PATCH without a change reason ("change_reason required by workspace preset
-   * policy", HTTP 400). Without filling change-reason-input the save never
-   * reaches the server successfully, no refetch is triggered, and the
+   * policy", HTTP 400). Without filling the change-reason input the save
+   * never reaches the server successfully, no refetch is triggered, and the
    * waitForResponse below hangs until the test times out.
    *
-   * Retries once on that exact symptom: RequirementForm.tsx's
-   * `useEffect(() => { ...; setChangeReason(requirement.change_reason || '');
-   * }, [requirement])` resyncs every local field from the freshly refetched
-   * requirement on every render of that effect — including the refetch this
-   * same helper's own PREVIOUS call just triggered. The GET response never
-   * echoes back `change_reason` (it is not a persisted field), so on an
-   * unlucky interleaving the effect fires and wipes the reason this call just
-   * typed before the click below submits, client-side validation blocks the
-   * PATCH ("change reason required"), and the response this function waits
-   * for never arrives. Confirmed via a CI failure snapshot showing the input
-   * `[invalid]` with that exact validation message at the moment of timeout.
-   * A second attempt observes the now-settled requirement object and does
-   * not race it again.
+   * Task 25: the requirement editor now renders through the shared
+   * `ArtifactForm` (`RequirementArtifactForm`), whose entity-switch reset
+   * (`useEntityReset`, keyed on `artifactId`) — unlike the deleted
+   * `RequirementForm.tsx`'s own `useEffect(() => {...}, [requirement])` —
+   * does NOT re-run on a same-artifact refetch, only on an actual artifact
+   * switch. The retry this helper still performs is defense-in-depth against
+   * that now-fixed bug class (kept rather than removed: a false-negative
+   * retry is free, a flaky E2E failure is not), not a currently-reachable
+   * race.
    */
   async function saveWithChangeReason(page: Page, reason: string, attempt = 1): Promise<void> {
-    const reasonInput = page.locator('[data-testid="change-reason-input"]');
+    const reasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
     await reasonInput.fill(reason);
     try {
       await Promise.all([
@@ -46,7 +42,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
             resp.status() === 200,
           { timeout: attempt === 1 ? 8000 : 30000 }
         ),
-        page.locator('[data-testid="save-btn"]').click(),
+        page.locator('[data-testid="artifact-form-save"]').click(),
       ]);
     } catch (err) {
       const stillHasReason = await reasonInput.inputValue();
@@ -56,7 +52,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
       }
       throw err;
     }
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText(/Save|Speichern/, { timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-form-save"]')).toContainText(/Save|Speichern/, { timeout: 10000 });
   }
 
   /**
@@ -99,10 +95,10 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await page.locator('[data-testid="create-req-btn"]').click();
     await page.locator('[data-testid="req-new-title-input"]').fill('Diff Test Requirement');
     await page.locator('[data-testid="req-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in initial data
-    const titleInput = page.locator('[data-testid="req-title"]');
+    const titleInput = page.locator('[data-testid="artifact-field-title"]');
     await titleInput.fill('Diff Test Requirement');
 
     // Save the requirement. The save handler PATCHes the requirement and
@@ -177,11 +173,11 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await page.locator('[data-testid="create-req-btn"]').click();
     await page.locator('[data-testid="req-new-title-input"]').fill('Baseline Diff Test');
     await page.locator('[data-testid="req-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in data and save. See the previous test for why we wait for the
     // detail-refetch GET rather than a fixed delay.
-    await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
+    await page.locator('[data-testid="artifact-field-title"]').fill('Baseline Diff Test');
     await saveWithChangeReason(page, 'initial content');
 
     // Diff view is rendered inline in the persistent ArtifactInspector

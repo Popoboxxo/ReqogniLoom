@@ -27,7 +27,7 @@ import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
-import { ArchitectureForm } from "./ArchitectureForm";
+import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -659,14 +659,36 @@ export default function ArchitectureEditors(): JSX.Element {
                 make_or_buy: true,
               }}
             >
-              <ArchitectureForm
+              {/* Task 24: the AI Decompose trigger used to live inside
+                  ArchitectureForm's own actions row. ArtifactForm has no
+                  `onDecompose` affordance (it is not an attribute), so the
+                  trigger moves next to the form — same panel, same
+                  `showDecomposePanel` state and `arch-decompose-btn` testid,
+                  functionally unchanged. */}
+              <button
+                type="button"
+                data-testid="arch-decompose-btn"
+                className="btn-secondary"
+                onClick={() => setShowDecomposePanel(true)}
+              >
+                {t("archDecompose.trigger")}
+              </button>
+              <ArchitectureArtifactForm
                 key={element.id}
                 element={element}
-                elements={elements}
                 onSaved={refresh}
-                onDelete={(id) => void handleDelete(id)}
-                isExtendedPreset={activeWorkspace?.preset === "extended"}
-                onDecompose={() => setShowDecomposePanel(true)}
+                // Task 24: ArchitectureArtifactForm deletes through
+                // `architectureApi.delete` itself (ArtifactForm's own confirm
+                // dialog) — routing through the shared `handleDelete(id)`
+                // here would call the delete endpoint a second time. Mirrors
+                // `RiskEditors`/`IssueEditors`' `onDeleted` convention: only
+                // the post-delete navigation/refresh side effects, not the
+                // delete call itself (that still lives in `handleDelete` for
+                // the list-context-menu delete flow below).
+                onDeleted={() => {
+                  refresh();
+                  navigate("/architecture");
+                }}
                 onDirtyChange={setIsFormDirty}
               />
             </EntityTypeProvider>

@@ -28,8 +28,6 @@ tools:
 - mcp__reqogniloom__glossary.read
 - mcp__reqogniloom__prompt_template.get
 - mcp__reqogniloom__prompt_template.list
-- mcp__reqogniloom__custom_field.get
-- mcp__reqogniloom__custom_field.query
 - mcp__reqogniloom__goal.read
 - mcp__reqogniloom__goal.query
 - mcp__reqogniloom__main_goal.read

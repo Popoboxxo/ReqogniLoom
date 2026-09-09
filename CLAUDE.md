@@ -18,6 +18,19 @@
 
 ## Eigene Notizen
 
+**Tool-Nutzung bei Agenten-Dispatches (Codebase-Exploration):** Für alle
+dispatchten Agenten (developer, senior-developer, code-reviewer, etc.), die
+in diesem Repo größere Recherche-/Implementierungsarbeit leisten, gilt:
+Codebase-Navigation zuerst über die verfügbaren Graph-/Index-Tools statt
+über rohes Grep/Read, um Tokens zu sparen:
+- **graphify** (`graphify query/path/explain`) — Architektur-/Datei-Fragen, Pflicht laut Hook wenn `graphify-out/graph.json` existiert.
+- **ProjectAtlas** (`mcp__projectatlas__*`, z.B. `atlas_context`, `atlas_search`, `atlas_overview`, `atlas_symbols`) — Datei-/Ordner-Overviews, Symbol-Suche, Purpose-Queue.
+- **tokensave** (`mcp__tokensave__*`, z.B. `tokensave_context`, `tokensave_search`) — Code-Graph-Kontext, Aufrufer/Aufgerufene, wenn Repowise nicht verbunden ist.
+- **Repowise** (`.claude/CLAUDE.md`, `get_answer`/`get_context`/`get_risk`/…) — bevorzugt, wenn MCP-Server verbunden ist (Session-Neustart nötig nach Aktivierung); fällt der Server aus, auf ProjectAtlas/tokensave/graphify ausweichen.
+Erst nach der Graph-/Index-Orientierung gezielt Read/Grep auf konkrete
+Dateien/Zeilen. Rohes Read/Grep bleibt richtig für erschöpfende Literal-
+Suchen (z.B. "jeden Call-Site umbenennen") und zum tatsächlichen Editieren.
+
 Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
 
 ---
@@ -27,7 +40,7 @@ Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
 **Plattform:** Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend)
-**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (30 Tool-Gruppen, 171 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (30 Tool-Gruppen, 174 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 ## Tech-Stack
 
@@ -59,7 +72,7 @@ backend/manage.py            — Django Management (migrate, seed_demo, runserve
 ```
 
 **Besondere Patterns:**
-- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 30 Tool-Gruppen und 171 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
+- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 30 Tool-Gruppen und 174 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
 
 ## Code-Konventionen
 
@@ -108,7 +121,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
+Generiert von agent-meta v0.101.0-beta.3 — `2026-09-06`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 

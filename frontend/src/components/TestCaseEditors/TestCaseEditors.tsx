@@ -7,7 +7,8 @@ import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { TestCaseList } from './TestCaseList';
-import { TestCaseForm } from './TestCaseForm';
+import { TestCaseArtifactForm } from './TestCaseArtifactForm';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
@@ -15,11 +16,14 @@ import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useEntityReset } from '../../hooks/use-entity-reset';
+import { useFormDirty } from '../../hooks/use-form-dirty';
 import { testcasesApi } from '../../api/testcases';
 // F-04 (code review, 2026-08-19): shared create-form field styles (see
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
 import fieldHints from '../shared/FieldHints.module.css';
+import styles from './TestCaseEditors.module.css';
 
 export default function TestCaseEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -44,8 +48,30 @@ export default function TestCaseEditors(): JSX.Element {
   // `pendingSelectId` holds a list-row click that arrived while dirty, so it
   // can be confirmed or discarded instead of silently overwriting the open
   // edit — mirrors RequirementEditors' issue #672 handling.
-  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+
+  // Task 22: custom_fields is a free-form JSON blob the definition-driven
+  // TestCaseArtifactForm cannot render (no `kind: "extended"` attribute
+  // exists for TestCase), so the CustomFieldsEditor lives here as a sibling
+  // — same scope boundary as NeedsEditors' customFieldsDraft (Task 23).
+  // Reset on test-case switch, not on every refetch of the same one.
+  const [customFieldsDraft, setCustomFieldsDraft] = useState<Record<string, unknown>>({});
+  // customFieldsDraft must feed the same dirty gate isFormDirty does, or
+  // editing only a custom field and switching to another test case silently
+  // discards the edit with no unsaved-changes dialog — the CustomFieldsEditor
+  // is a sibling of TestCaseArtifactForm, not wired into its own
+  // useFormDirty/onDirtyChange at all.
+  const { isDirty: customFieldsDirty, markClean: markCustomFieldsClean } = useFormDirty(
+    customFieldsDraft,
+    item?.custom_fields ?? {},
+  );
+  useEntityReset(item?.id ?? '__none__', () => {
+    const baseline = item?.custom_fields ?? {};
+    setCustomFieldsDraft(baseline);
+    markCustomFieldsClean(baseline);
+  });
+  const isFormDirty = formDirty || customFieldsDirty;
 
   // 12.1/14.2: named after the result ("New Test Case"), not the gesture
   // ("+ New"); also the dialog title, matching ch. 12.8 ("dialog title
@@ -96,7 +122,16 @@ export default function TestCaseEditors(): JSX.Element {
     }
   };
 
-  const handleSaved = () => { refresh(); };
+  // F-2 (Task 23 fix round 4, reintroduced here — see NeedsEditors'
+  // handleSaved for the original fix): a save that touched
+  // customFieldsDraft left customFieldsDirty stuck `true` forever without
+  // this — markCustomFieldsClean was only ever called from
+  // useEntityReset/confirmPendingSelect, never after a successful save, so
+  // the very next test-case switch showed a false unsaved-changes dialog.
+  const handleSaved = () => {
+    markCustomFieldsClean(customFieldsDraft);
+    refresh();
+  };
   const handleDeleted = () => { navigate('/testcases'); refresh(); };
 
   /**
@@ -122,9 +157,13 @@ export default function TestCaseEditors(): JSX.Element {
     if (!pendingSelectId) return;
     const target = pendingSelectId;
     setPendingSelectId(null);
-    setIsFormDirty(false);
+    setFormDirty(false);
+    // Discarding: re-anchor the custom-fields baseline to whatever is
+    // currently drafted so isFormDirty drops immediately, not just once the
+    // target test case's own useEntityReset callback fires after navigation.
+    markCustomFieldsClean(customFieldsDraft);
     navigate(`/testcases/${target}`);
-  }, [pendingSelectId, navigate]);
+  }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
 
   // Trace spine (Task 3.3 — UI concept ch. 5). Test cases are not their own
   // station type in the derivation-chain model (useDerivationChain docs) —
@@ -221,12 +260,41 @@ export default function TestCaseEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
-                <TestCaseForm
-                  testCase={item}
-                  onSaved={handleSaved}
-                  onDeleted={handleDeleted}
-                  onDirtyChange={setIsFormDirty}
-                />
+                {/* DEVIATION from the plan brief (same class as Risk/Issue/
+                    StakeholderNeed, Tasks 19/20/23): `TestCaseArtifactForm`
+                    takes a non-nullable `testCase: TestCase` (unlike the
+                    deleted `TestCaseForm`, which accepted `testCase:
+                    TestCase | null` and rendered the "select a test case"
+                    placeholder itself). `item` here is `TestCase | null` (no
+                    row selected yet), so that null-guard moves to this call
+                    site instead of being lost. */}
+                {item ? (
+                  <>
+                    <TestCaseArtifactForm
+                      testCase={item}
+                      onSaved={handleSaved}
+                      onDeleted={handleDeleted}
+                      onDirtyChange={setFormDirty}
+                      customFields={customFieldsDraft}
+                    />
+                    {/* Sibling of the definition-driven form, not inside it
+                        — see TestCaseArtifactForm's docstring for why. */}
+                    <div className={styles.customFieldsSection}>
+                      <h3 className={styles.customFieldsSectionHeading}>
+                        {t('customFields.section')}
+                      </h3>
+                      <CustomFieldsEditor
+                        key={item.id}
+                        value={item.custom_fields}
+                        onChange={setCustomFieldsDraft}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className={styles.selectPlaceholder}>
+                    {t('testcases.selectTestCase')}
+                  </p>
+                )}
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };

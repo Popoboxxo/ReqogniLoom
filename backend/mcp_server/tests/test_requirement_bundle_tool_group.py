@@ -346,12 +346,12 @@ class TestRequirementBundleExportTool:
 
 class TestAttributeSchemaTool:
     def test_attribute_schema_returns_requirement_fields(self, rb_ctx):
-        _tenant, ctx, _workspace = rb_ctx
+        _tenant, ctx, workspace = rb_ctx
 
         result = _exec(
             RequirementBundleToolGroup(),
             "requirement_bundle.attribute_schema",
-            {"entity_type": "Requirement"},
+            {"entity_type": "Requirement", "workspace_id": str(workspace.id)},
             ctx,
         )
 
@@ -361,12 +361,12 @@ class TestAttributeSchemaTool:
         assert all(row["entity_type"] == "Requirement" for row in result.data["attributes"])
 
     def test_attribute_schema_omitted_entity_type_returns_all_known_types(self, rb_ctx):
-        _tenant, ctx, _workspace = rb_ctx
+        _tenant, ctx, workspace = rb_ctx
 
         result = _exec(
             RequirementBundleToolGroup(),
             "requirement_bundle.attribute_schema",
-            {},
+            {"workspace_id": str(workspace.id)},
             ctx,
         )
 
@@ -375,17 +375,77 @@ class TestAttributeSchemaTool:
         assert result.data["count"] > 0
 
     def test_attribute_schema_unknown_entity_type_returns_not_found_error(self, rb_ctx):
-        _tenant, ctx, _workspace = rb_ctx
+        _tenant, ctx, workspace = rb_ctx
 
         result = _exec(
             RequirementBundleToolGroup(),
             "requirement_bundle.attribute_schema",
-            {"entity_type": "Bogus"},
+            {"entity_type": "Bogus", "workspace_id": str(workspace.id)},
             ctx,
         )
 
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
+
+    def test_attribute_schema_missing_workspace_id_returns_validation_error(self, rb_ctx):
+        _tenant, ctx, _workspace = rb_ctx
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.attribute_schema",
+            {"entity_type": "Requirement"},
+            ctx,
+        )
+
+        assert result.success is False
+
+    def test_attribute_schema_reflects_real_workspace_customization(self, rb_ctx):
+        """GitHub #882 regression: a hidden core field and an admin-added
+        extended attribute in the workspace's real AttributeDefinition must
+        both show up here — the old code always returned the static
+        REQUIREMENT_ALL_FIELDS list with is_visible=True unconditionally."""
+        from django.core.management import call_command
+
+        from application.attribute_definition_service import AttributeDefinitionService
+
+        tenant, ctx, workspace = rb_ctx
+        call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+        admin_ctx = ctx.__class__(
+            user_id=ctx.user_id,
+            tenant_id=ctx.tenant_id,
+            active_roles=("admin",),
+            auth_method=ctx.auth_method,
+            api_key_id=None,
+        )
+        def_service = AttributeDefinitionService()
+        attributes = def_service.resolve(admin_ctx, "Requirement", workspace.id)["attributes"]
+        for attribute in attributes:
+            if attribute["name"] == "description":
+                attribute["visible"] = False
+        attributes.append(
+            {
+                "name": "sap_id",
+                "kind": "extended",
+                "type": "text",
+                "export": True,
+                "visible": True,
+            }
+        )
+        def_service.update_workspace(admin_ctx, "Requirement", workspace.id, attributes)
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.attribute_schema",
+            {"entity_type": "Requirement", "workspace_id": str(workspace.id)},
+            ctx,
+        )
+
+        assert result.success is True
+        rows = {row["attribute_name"]: row["is_visible"] for row in result.data["attributes"]}
+        assert rows["description"] is False
+        assert rows["title"] is True
+        assert "sap_id" in rows
 
 
 class TestToolSchemas:

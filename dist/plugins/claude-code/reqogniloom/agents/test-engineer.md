@@ -17,8 +17,6 @@ tools:
 - mcp__reqogniloom__traceability.query
 - mcp__reqogniloom__artifact.search
 - mcp__reqogniloom__workspace.get_context
-- mcp__reqogniloom__custom_field.get
-- mcp__reqogniloom__custom_field.query
 ---
 
 # Test Engineer

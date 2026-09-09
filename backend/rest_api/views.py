@@ -74,7 +74,6 @@ from application.services import (
     PgVectorUnavailableError,
     ChangeRequestService,
 )
-from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from application.requirement_bundle_formatters import (
@@ -85,6 +84,7 @@ from application.requirement_bundle_formatters import (
 from application.requirement_bundle_service import (
     BundleDepthExceededError,
     RequirementBundleQueryService,
+    describe_attribute_schema,
 )
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
@@ -103,9 +103,6 @@ from rest_api.serializers import (
     AdrSerializer,
     ArtifactSerializer,
     ArchitectureElementSerializer,
-    AttributeVisibilityConfigSerializer,
-    CustomFieldDefinitionSerializer,
-    CustomFieldValueSerializer,
     BaselineDiffSerializer,
     BaselineSerializer,
     GoalSerializer,
@@ -261,8 +258,8 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
     #: URL path kwargs that MUST parse as a UUID (issue #271). Every subclass
     #: resolves its detail routes by UUID today (``UUID(pk)`` in the handler, or
     #: ``UUID(str(...))`` one layer down in the service — verified for
-    #: BaselineViewSet and CustomFieldDefinitionViewSet, which pass ``pk``
-    #: through as a string). A subclass whose lookup is genuinely *not* a UUID
+    #: BaselineViewSet, which passes ``pk`` through as a string). A subclass
+    #: whose lookup is genuinely *not* a UUID
     #: must narrow this tuple, otherwise its detail route will start 400ing.
     uuid_url_kwargs: tuple[str, ...] = ("pk", "workspace_pk", "workspace_id")
 
@@ -435,6 +432,7 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     serializer_class = StakeholderNeedSerializer
     workflow_item_type = "StakeholderNeed"
+    attribute_item_type = "StakeholderNeed"
     # REQ-128 constrained the detail lookup to a UUID shape here so that
     # GET /api/v1/needs/derive-requirements/ (a custom-action path missing its
     # pk) 404ed at routing time instead of reaching retrieve() and 500ing on
@@ -545,9 +543,18 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         workspace_id = workspace_id or payload.pop("workspace_id", None)
         for f in ("workspace_id", "parent_id", "change_reason"):
             payload.pop(f, None)
+        ctx = get_auth_context(request)
+        definition_error = self._validate_attribute_definition(
+            ctx,
+            workspace_id,
+            dict(request.data) if isinstance(request.data, dict) else {},
+            None,
+        )
+        if definition_error is not None:
+            return definition_error
         try:
             item = self.service.create(
-                ctx=get_auth_context(request),
+                ctx=ctx,
                 workspace_id=workspace_id,
                 **payload,
             )
@@ -778,6 +785,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = RequirementSerializer
     preset_endpoint_key = ""  # Requirements are always visible
     workflow_item_type = "Requirement"
+    attribute_item_type = "Requirement"
 
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
         req = self._svc().get_requirement(UUID(pk), ctx)
@@ -876,6 +884,14 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_requirement(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -1534,6 +1550,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = ArchitectureElementSerializer
     preset_endpoint_key = ""
     workflow_item_type = "ArchitectureElement"
+    attribute_item_type = "ArchitectureElement"
 
     def _svc(self) -> ArchitectureService:
         return ArchitectureService()
@@ -1617,6 +1634,14 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_architecture_element(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -1666,6 +1691,16 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # REQ-L2-AS-037: only forward custom_fields when explicitly provided.
             if "custom_fields" in data:
                 update_kwargs["custom_fields"] = data["custom_fields"]
+            # Bugfix (code review R-1): asil_level/make_or_buy default to a
+            # sentinel (_UNSET) in the service so an omitted key is a no-op.
+            # .get() returns None for an omitted key, which the service reads
+            # as "explicitly cleared" and NULLs the column — e.g. every
+            # reparent-only PATCH ({parent_id} only) was wiping both fields.
+            # Same presence-check pattern as parent_id/custom_fields above.
+            if "asil_level" in data:
+                update_kwargs["asil_level"] = data["asil_level"]
+            if "make_or_buy" in data:
+                update_kwargs["make_or_buy"] = data["make_or_buy"]
             item = self._svc().update_architecture_element(
                 arch_el_id=UUID(pk),
                 ctx=ctx,
@@ -1673,8 +1708,6 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 title=data.get("title"),
                 description=data.get("description"),
                 element_type=data.get("element_type"),
-                asil_level=data.get("asil_level"),
-                make_or_buy=data.get("make_or_buy"),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **update_kwargs,
@@ -2140,6 +2173,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = TestCaseSerializer
     preset_endpoint_key = ""
     workflow_item_type = "TestCase"
+    attribute_item_type = "TestCase"
 
     def _svc(self) -> TestService:
         return TestService()
@@ -2206,8 +2240,38 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
+        # R-1 (Task 22 review round 2): `create_test_case()` has its own,
+        # unrelated legacy `test_type` parameter (Title-case values tagged
+        # onto `artifact.artifact_type`, see comment there) — it does not
+        # accept the real `TestCase.test_type` column this serializer field
+        # now exposes, and silently forwarding/dropping it would give a 201
+        # while quietly discarding what the client asked for. Reject loudly
+        # instead; the column is settable via PATCH right after create.
+        if "test_type" in data:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{
+                        "field": "test_type",
+                        "errors": [
+                            "test_type cannot be set on create; "
+                            "PATCH it after the TestCase is created."
+                        ],
+                    }],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_test_case(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -2270,6 +2334,22 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         extra_kwargs: dict[str, Any] = {}
         if "custom_fields" in data:
             extra_kwargs["custom_fields"] = data["custom_fields"]
+        # Task 22 fix: `steps` is a real, writable `TestCaseSerializer` field
+        # (validated above) that `update_test_case()` has always accepted —
+        # this view simply never forwarded it, so every steps_editor widget
+        # PATCH silently no-op'd (200 OK, unchanged `steps` on the very next
+        # GET). Proven live via a real create -> GET -> PATCH -> GET
+        # round-trip against a real dev workspace. Same conditional-forward
+        # pattern as `custom_fields` above: only touch it when the partial
+        # payload actually carries it.
+        if "steps" in data:
+            extra_kwargs["steps"] = data["steps"]
+        # C-1 fix round: same conditional-forward pattern as `steps` above —
+        # `test_type` is now a real, writable `TestCaseSerializer` field
+        # (validated above); forward it so the introspected select widget's
+        # PATCH actually persists instead of only passing validation.
+        if "test_type" in data:
+            extra_kwargs["test_type"] = data["test_type"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
@@ -4022,6 +4102,26 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
         "level": level,
         "role": role,
+        # Task 24 finding: these three columns were missing from this dict
+        # entirely. `ArchitectureElementSerializer.asil_level`/`make_or_buy`
+        # are `allow_null=True` with no attribute error path other than
+        # SkipField, and DRF's `Field.get_attribute` special-cases
+        # `allow_null` fields to serialize a missing attribute as `None`
+        # rather than skip them — so every GET/LIST/CREATE/PATCH response
+        # silently reported `null` regardless of the real stored value.
+        # `suspect` has `default=False` on the serializer, so a missing key
+        # always resolved to `False` the same way. Live-proven: a real
+        # `asil_level="B"`/`make_or_buy="Make"` create round-tripped back as
+        # `null`/`null` on the very next GET, while the DB row genuinely held
+        # "B"/"Make". Pre-existing since this dict was introduced — the old
+        # `ArchitectureForm.tsx` read the same broken response, so its ASIL/
+        # Make-or-Buy dropdowns always showed "not set" and every save from
+        # it silently cleared any previously-set value (same failure class as
+        # the Task 19 `uid`/Task 20 `severity` findings, just on the read side
+        # instead of the write side).
+        "asil_level": getattr(el, "asil_level", None),
+        "make_or_buy": getattr(el, "make_or_buy", None),
+        "suspect": getattr(el, "suspect", False),
         "custom_fields": _artifact_custom_fields(el),
         "version": el.version,
         "created_at": el.created_at,
@@ -4039,6 +4139,11 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         "uid": getattr(tc, "uid", None),
         "status": getattr(tc, "status", "draft"),
         "steps": getattr(tc, "steps", []) or [],
+        # C-1 fix round: real, writable model column (see TestCaseSerializer.
+        # test_type docstring) — was missing from the read path entirely, so
+        # the ArtifactForm's initial value was always empty regardless of
+        # what had been saved.
+        "test_type": getattr(tc, "test_type", None),
         "custom_fields": _artifact_custom_fields(tc),
         "version": tc.version,
         "created_at": tc.created_at,
@@ -4214,6 +4319,7 @@ def _adr_to_dict(adr: Any) -> dict[str, Any]:
         "consequences": getattr(adr, "consequences", ""),
         "uid": getattr(adr, "uid", None),
         "status": getattr(adr, "status", "Draft"),
+        "custom_fields": _artifact_custom_fields(adr),
         "version": adr.version,
         "created_at": adr.created_at,
         "updated_at": adr.updated_at,
@@ -4241,6 +4347,7 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
         "mitigation_strategy": getattr(risk, "mitigation_strategy", ""),
         "uid": getattr(risk, "uid", None),
         "status": getattr(risk, "status", "Identified"),
+        "custom_fields": _artifact_custom_fields(risk),
         "version": risk.version,
         "created_at": risk.created_at,
         "updated_at": risk.updated_at,
@@ -4335,6 +4442,10 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         "uid": getattr(issue, "uid", None),
         "status": getattr(issue, "status", "Open"),
         "tags": issue.tags if isinstance(issue.tags, list) else [],
+        # Task 20 finding: see IssueSerializer.due_date — the GET side of the
+        # same silent-discard gap (the value was never even readable).
+        "due_date": getattr(issue, "due_date", None),
+        "custom_fields": _artifact_custom_fields(issue),
         # GH-737 follow-up audit: `version` was the one field IssueSerializer
         # declares (read-only, LOCK_VERSION_HELP_TEXT) that this dict never
         # supplied. DRF silently drops a missing read-only field instead of
@@ -4837,6 +4948,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = AdrSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Adr"
+    attribute_item_type = "Adr"
 
     def _svc(self) -> AdrService:
         return AdrService()
@@ -4917,6 +5029,14 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_adr(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -4925,6 +5045,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 context=data.get("context", ""),
                 decision=data.get("decision", ""),
                 consequences=data.get("consequences", ""),
+                custom_fields=data.get("custom_fields"),
                 # Datenmodell-Konsolidierung Phase 1: a new ADR always starts
                 # at the workflow definition's initial_state. AdrSerializer.status
                 # is read-only (WorkflowStateSerializerMixin), so `data` (the
@@ -4962,6 +5083,12 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields
+        # (same pattern as RequirementViewSet.partial_update).
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_adr(
@@ -4976,6 +5103,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5122,6 +5250,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = RiskSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Risk"
+    attribute_item_type = "Risk"
 
     def _svc(self) -> RiskService:
         return RiskService()
@@ -5200,6 +5329,14 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_risk(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -5219,6 +5356,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # ADR-status-single-source.
                 detection=data.get("detection", 5),
                 owner_user_id=data.get("owner_user_id"),
+                custom_fields=data.get("custom_fields"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5249,6 +5387,12 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields
+        # (same pattern as RequirementViewSet.partial_update).
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_risk(
@@ -5267,6 +5411,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5450,6 +5595,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = GoalSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Goal"
+    attribute_item_type = "Goal"
     # Issue #460 finding 4: the DRF router's default pk pattern ([^/.]+) also
     # matched non-id segments, so GET /api/v1/goals/main/ resolved to
     # retrieve(pk="main") and answered 400 "'pk' must be a well-formed UUID"
@@ -5550,8 +5696,23 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        ctx = get_auth_context(request)
+        # ``existing=None`` (create semantics) applies to every version, not
+        # only the first: Goal is lineage-based (Variante A) — a new version
+        # is always a brand-new row (GoalService.create_version), never a
+        # PATCH onto an existing one (partial_update() below 405s), so there
+        # is no "update" call site for this ViewSet where an ``existing``
+        # marker would apply. Every write must satisfy the required
+        # attributes, matching the row it actually creates.
+        definition_error = self._validate_attribute_definition(
+            ctx,
+            data["workspace_id"],
+            dict(request.data) if isinstance(request.data, dict) else {},
+            None,
+        )
+        if definition_error is not None:
+            return definition_error
         try:
-            ctx = get_auth_context(request)
             result = self._svc().create_version(
                 workspace_id=data["workspace_id"],
                 title=data["title"],
@@ -5947,6 +6108,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = IssueSerializer
     preset_endpoint_key = ""
     workflow_item_type = "Issue"
+    attribute_item_type = "Issue"
 
     def _svc(self) -> IssueService:
         return IssueService()
@@ -6025,6 +6187,14 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_issue(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -6033,6 +6203,8 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 category=data.get("category", "defect"),
                 tags=data.get("tags"),
+                due_date=data.get("due_date"),
+                custom_fields=data.get("custom_fields"),
                 # Datenmodell-Konsolidierung Phase 1: a new Issue always starts at the
                 # workflow definition's initial_state. A client-supplied `status` is
                 # ignored, not rejected, consistent with ADR-status-single-source.
@@ -6066,6 +6238,21 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # Task 20 review finding F-2: `due_date` is nullable, so an absent key
+        # (leave unchanged) and an explicit `null` (clear it) must not
+        # collapse onto the same `data.get("due_date")` — same class of bug as
+        # Issue #409 above (see RequirementViewSet.partial_update). Forward it
+        # only when the client actually sent the key; update_issue()'s
+        # `_UNSET` sentinel default then means "leave unchanged" whenever it
+        # is omitted here.
+        extra_kwargs: dict[str, Any] = {}
+        if "due_date" in data:
+            extra_kwargs["due_date"] = data["due_date"]
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields
+        # (same pattern as RequirementViewSet.partial_update).
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded.
@@ -6085,6 +6272,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6194,6 +6382,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     serializer_class = ChangeRequestSerializer
     preset_endpoint_key = ""
     workflow_item_type = "ChangeRequest"
+    attribute_item_type = "ChangeRequest"
 
     def _svc(self) -> ChangeRequestService:
         return ChangeRequestService()
@@ -7226,6 +7415,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     serializer_class = GlossaryTermSerializer
     workflow_item_type = "GlossaryTerm"
+    attribute_item_type = "GlossaryTerm"
 
     def _svc(self) -> GlossaryService:
         return GlossaryService()
@@ -7293,6 +7483,14 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             data = ser.validated_data
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             term = self._svc().create(
                 ctx,
                 data["workspace_id"],
@@ -7437,423 +7635,43 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
 
 class AttributeSchemaView(APIView):
-    """GET /api/v1/attribute-schema/?entity_type=<optional>
+    """GET /api/v1/attribute-schema/?entity_type=<optional>&workspace_id=<uuid>
 
     Requirement Bundle Export, Plan 1 Task 5 / Task 4. Lists the known
     attribute names per entity type (currently Requirement only), with each
-    attribute's current tenant-level visibility, so callers can discover
-    valid field names before making a filter_mode='custom' bundle-export
-    request.
+    attribute's real, currently-resolved visibility for *workspace_id* (GitHub
+    #882), so callers can discover valid field names before making a
+    filter_mode='custom' bundle-export request.
     """
 
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
+        workspace_id_raw = request.query_params.get("workspace_id")
+        if not workspace_id_raw:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            workspace_id = UUID(str(workspace_id_raw))
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
             entity_type = request.query_params.get("entity_type")
-            schema = AttributeVisibilityConfigService().describe_schema(
-                ctx, entity_type=entity_type
-            )
+            schema = describe_attribute_schema(ctx, workspace_id, entity_type)
         except NotFoundError as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(schema)
-
-
-class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
-    """ViewSet for AttributeVisibilityConfig (REQ-L1-058 AC2).
-
-    Admin CRUD for field visibility configuration per entity type and workspace.
-    Endpoint: /api/v1/attribute-visibility-config/
-
-    Permissions: tenant admins only, enforced by
-    AttributeVisibilityConfigService itself (ServiceBase._assert_permission,
-    "admin") on every method — NOT by BaseEntityViewSet, which provides no
-    role gate of its own (code review finding: this docstring's previous
-    claim was inaccurate, and every service method was in fact unguarded;
-    any authenticated user of any role could create/update/delete/bulk-
-    upsert tenant-wide visibility config).
-    """
-
-    serializer_class = AttributeVisibilityConfigSerializer
-
-    def _svc(self):
-        """Return the AttributeVisibilityConfigService (REQ-066)."""
-        from application.attribute_visibility_service import (
-            AttributeVisibilityConfigService,
-        )
-        return AttributeVisibilityConfigService()
-
-    def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/attribute-visibility-config/ — list all visibility configs."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            configs = self._svc().list_configs(ctx)
-            serializer = AttributeVisibilityConfigSerializer(configs, many=True)
-            return Response(serializer.data)
-        except PermissionDeniedError as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.list: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    @action(detail=False, methods=["post"])
-    def bulk_update(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/attribute-visibility-configs/bulk_update/ — upsert configs."""
-        lang = detect_lang(request)
-        if not isinstance(request.data, list):
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="Expected a list of configs"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            ctx = get_auth_context(request)
-
-            validated_items: list[dict[str, Any]] = []
-            for item in request.data:
-                item_data = dict(item)
-                item_data["tenant_id"] = str(ctx.tenant_id)
-                ser = AttributeVisibilityConfigSerializer(data=item_data)
-                if not ser.is_valid():
-                    return Response(
-                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                validated_items.append(dict(ser.validated_data))
-
-            results = self._svc().bulk_upsert(ctx, validated_items)
-            return Response(AttributeVisibilityConfigSerializer(results, many=True).data, status=status.HTTP_200_OK)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.bulk_update: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/attribute-visibility-config/ — create config. Returns 201."""
-        lang = detect_lang(request)
-        ser = AttributeVisibilityConfigSerializer(data=request.data)
-        if not ser.is_valid():
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        try:
-            ctx = get_auth_context(request)
-
-            config = self._svc().create_config(
-                ctx,
-                entity_type=data["entity_type"],
-                attribute_name=data["attribute_name"],
-                is_visible=data.get("is_visible", True),
-                is_required=data.get("is_required", False),
-            )
-            return Response(
-                AttributeVisibilityConfigSerializer(config).data,
-                status=status.HTTP_201_CREATED,
-            )
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.create: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """PATCH /api/v1/attribute-visibility-config/{pk}/ — update config. Returns 200."""
-        lang = detect_lang(request)
-        ser = AttributeVisibilityConfigSerializer(data=request.data, partial=True)
-        if not ser.is_valid():
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        try:
-            ctx = get_auth_context(request)
-            config = self._svc().update_config(
-                ctx,
-                UUID(pk),
-                is_visible=data.get("is_visible") if "is_visible" in data else None,
-                is_required=data.get("is_required") if "is_required" in data else None,
-            )
-            return Response(AttributeVisibilityConfigSerializer(config).data)
-        except NotFoundError as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.partial_update: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/attribute-visibility-config/{pk}/ — delete config. Returns 204."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            self._svc().delete_config(ctx, UUID(pk))
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except NotFoundError as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("AttributeVisibilityConfigViewSet.destroy: unhandled exception")
-            return _service_error_response(exc, lang)
-
-
-# ---------------------------------------------------------------------------
-# REQ-016: Custom Fields (workspace-wide definitions + per-artifact values)
-# ---------------------------------------------------------------------------
-
-
-def _validate_custom_value(definition: Any, value: str, lang: str) -> Response | None:
-    """Validate a single custom-field ``value`` against its ``definition``.
-
-    Returns a 400 error Response when invalid, or ``None`` when the value is
-    acceptable. Empty values are allowed here; required-field enforcement is
-    handled by the caller so partial saves are not rejected outright.
-    """
-    if value == "":
-        return None
-    if definition.field_type == "number":
-        try:
-            float(value)
-        except (TypeError, ValueError):
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": "value", "errors": [f"'{value}' is not a valid number."]}],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-    elif definition.field_type == "dropdown":
-        if value not in (definition.options or []):
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": "value", "errors": [f"'{value}' is not a valid option."]}],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-    return None
-
-
-class CustomFieldDefinitionViewSet(BaseEntityViewSet):
-    """ViewSet for workspace-wide custom field definitions (REQ-016).
-
-    - ``list``   GET  /api/v1/workspaces/<workspace_pk>/custom-field-definitions/
-                 — any authenticated tenant member (needed to render forms).
-    - ``create`` POST same path — workspace admins only.
-    - ``partial_update`` PATCH /api/v1/custom-field-definitions/<pk>/ — admins only.
-    - ``destroy`` DELETE /api/v1/custom-field-definitions/<pk>/ — admins only.
-    """
-
-    serializer_class = CustomFieldDefinitionSerializer
-
-    def _svc(self):
-        """Return the CustomFieldService (REQ-066)."""
-        from application.custom_field_service import CustomFieldService
-        return CustomFieldService()
-
-    def _forbidden(self, lang: str) -> Response:
-        return Response(
-            build_error_response("PERMISSION_DENIED", lang, message="Admin role required."),
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET workspace custom field definitions, ordered by (order, name)."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)  # ensure authenticated
-            workspace_id = kwargs["workspace_pk"]
-            defs = self._svc().list_definitions(ctx, workspace_id)
-            return Response(CustomFieldDefinitionSerializer(defs, many=True).data)
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.list: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST a new definition to a workspace (admin only). Returns 201."""
-        from auth_tenancy.models import ROLE_ADMIN
-        lang = detect_lang(request)
-        ctx = get_auth_context(request)
-        if not ctx.has_role(ROLE_ADMIN):
-            return self._forbidden(lang)
-
-        ser = CustomFieldDefinitionSerializer(data=request.data)
-        if not ser.is_valid():
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        try:
-            workspace_id = kwargs["workspace_pk"]
-            definition = self._svc().create_definition(
-                ctx,
-                workspace_id,
-                name=data["name"],
-                field_type=data.get("field_type", "text"),
-                is_required=data.get("is_required", False),
-                options=data.get("options", []),
-                order=data.get("order", 0),
-            )
-            return Response(
-                CustomFieldDefinitionSerializer(definition).data,
-                status=status.HTTP_201_CREATED,
-            )
-        except (NotFoundError, ValidationError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.create: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """PATCH an existing definition (admin only). Returns 200."""
-        from auth_tenancy.models import ROLE_ADMIN
-        lang = detect_lang(request)
-        ctx = get_auth_context(request)
-        if not ctx.has_role(ROLE_ADMIN):
-            return self._forbidden(lang)
-
-        try:
-            definition = self._svc().get_definition(ctx, pk)
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        ser = CustomFieldDefinitionSerializer(data=request.data, partial=True)
-        if not ser.is_valid():
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = ser.validated_data
-        # Guard: a dropdown must always keep at least one option.
-        effective_type = data.get("field_type", definition.field_type)
-        effective_options = data.get("options", definition.options)
-        if effective_type == "dropdown" and not effective_options:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, details=[{"field": "options", "errors": ["Dropdown fields require at least one option."]}]),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            definition = self._svc().update_definition(ctx, pk, dict(data))
-            return Response(CustomFieldDefinitionSerializer(definition).data)
-        except (NotFoundError, ValidationError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.partial_update: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE a definition and its values (admin only). Returns 204."""
-        from auth_tenancy.models import ROLE_ADMIN
-        lang = detect_lang(request)
-        ctx = get_auth_context(request)
-        if not ctx.has_role(ROLE_ADMIN):
-            return self._forbidden(lang)
-        try:
-            self._svc().delete_definition(ctx, pk)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as exc:
-            logger.exception("CustomFieldDefinitionViewSet.destroy: unhandled exception")
-            return _service_error_response(exc, lang)
-
-
-class ArtifactCustomFieldValuesView(APIView):
-    """Read/write custom field values for a single artifact (REQ-016).
-
-    - GET  /api/v1/artifacts/<pk>/custom-field-values/
-           → the artifact's workspace definitions merged with current values.
-    - PUT  /api/v1/artifacts/<pk>/custom-field-values/
-           body: ``[{"definition_id": "...", "value": "..."}]`` — upserts values.
-
-    Any authenticated tenant member may read and write values (form filling).
-    """
-
-    def _svc(self):
-        """Return the CustomFieldService (REQ-066)."""
-        from application.custom_field_service import CustomFieldService
-        return CustomFieldService()
-
-    def get(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            svc = self._svc()
-            workspace_id = svc.get_artifact_workspace_id(ctx, pk)
-            return Response(svc.merged_rows(ctx, workspace_id, pk))
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message="Artifact not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as exc:
-            logger.exception("ArtifactCustomFieldValuesView.get: unhandled exception")
-            return _service_error_response(exc, lang)
-
-    def put(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        lang = detect_lang(request)
-        if not isinstance(request.data, list):
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="Expected a list of {definition_id, value}."),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            ctx = get_auth_context(request)
-            svc = self._svc()
-            workspace_id = svc.get_artifact_workspace_id(ctx, pk)
-            defs = svc.get_definitions_map(ctx, workspace_id)
-
-            # Phase 1: validate every item without touching the database. This is
-            # side-effect free, so validating up front is equivalent to the former
-            # interleaved-and-rollback flow while keeping HTTP concerns in the view.
-            operations: list[tuple[str, str]] = []
-            for item in request.data:
-                did = str(item.get("definition_id", ""))
-                raw = item.get("value")
-                value = "" if raw is None else str(raw)
-                definition = defs.get(did)
-                if definition is None:
-                    return Response(
-                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": "definition_id", "errors": [f"Unknown definition {did} for this workspace."]}]),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                if value == "" and definition.is_required:
-                    return Response(
-                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": definition.name, "errors": ["This field is required."]}]),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                err = _validate_custom_value(definition, value, lang)
-                if err is not None:
-                    return err
-                operations.append((did, value))
-
-            # Phase 2: persist all operations atomically.
-            svc.apply_values(ctx, pk, operations)
-            return Response(svc.merged_rows(ctx, workspace_id, pk))
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message="Artifact not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as exc:
-            logger.exception("ArtifactCustomFieldValuesView.put: unhandled exception")
-            return _service_error_response(exc, lang)
 
 
 __all__ = [
@@ -7870,9 +7688,6 @@ __all__ = [
     "AdrViewSet",
     "RiskViewSet",
     "IssueViewSet",
-    "AttributeVisibilityConfigViewSet",
-    "CustomFieldDefinitionViewSet",
-    "ArtifactCustomFieldValuesView",
     "SearchViewSet",
     "CsvImportView",
     "CsvExportView",

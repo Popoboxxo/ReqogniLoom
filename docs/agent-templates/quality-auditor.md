@@ -30,8 +30,6 @@ tools:
 - change_request.read
 - change_request.query
 - review.list_pending
-- custom_field.get
-- custom_field.query
 ---
 
 # Quality Auditor

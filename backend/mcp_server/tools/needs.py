@@ -18,6 +18,7 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    validate_artifact_write,
     write_mcp_audit,
 )
 
@@ -236,6 +237,14 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         category = params.get("category", "")
         moscow_priority = params.get("moscow_priority")
 
+        # Ledger gap #1 / issue #881: same central gate as
+        # StakeholderNeedViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "StakeholderNeed", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
+
         try:
             need = self._service.create(
                 ctx=auth_context,
@@ -268,6 +277,20 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 kwargs[f] = params[f]
 
         try:
+            # Ledger gap #1 / issue #881: same central gate as
+            # StakeholderNeedViewSet.partial_update. workspace_id is not part
+            # of this tool's params, so it is resolved via a lookup first.
+            existing_need = self._service.get(ctx=auth_context, need_id=need_id)
+            definition_error = validate_artifact_write(
+                auth_context,
+                "StakeholderNeed",
+                existing_need.workspace_id,
+                dict(kwargs),
+                {"__exists__": True},
+            )
+            if definition_error is not None:
+                return definition_error
+
             need = self._service.update(
                 ctx=auth_context,
                 need_id=need_id,

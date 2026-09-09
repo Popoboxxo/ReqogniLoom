@@ -18,8 +18,6 @@ tools:
 - mcp__reqogniloom__artifact.search
 - mcp__reqogniloom__workspace.get_context
 - mcp__reqogniloom__ai_derivation.derive_risks_from_architecture
-- mcp__reqogniloom__custom_field.get
-- mcp__reqogniloom__custom_field.query
 ---
 
 # Risk Analyst

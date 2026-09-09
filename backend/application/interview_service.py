@@ -973,7 +973,20 @@ class InterviewService(ServiceBase):
                 target.id,
                 ctx,
                 title=title,
-                description=session.collected_fields.get("rationale"),
+                # C-1: the definition-derived protocol (interview_protocol.py
+                # ::protocol_from_definition) elicits whatever attribute the
+                # definition marks ai_elicit -- for the bootstrapped
+                # Requirement definition that is `description`, never the old
+                # hardcoded `rationale` field. Reading only `rationale` here
+                # silently formalized every such session with an empty
+                # description. `rationale` is kept as a fallback for a
+                # hand-written admin protocol override that still names the
+                # old field.
+                description=(
+                    session.collected_fields.get("description")
+                    or session.collected_fields.get("rationale")
+                    or None
+                ),
             )
             # Issue #736: resulting_artifact_ids must carry the Requirement's
             # own id (the "user-facing" id returned by
@@ -988,7 +1001,13 @@ class InterviewService(ServiceBase):
                 workspace_id=session.workspace_id,
                 title=title,
                 ctx=ctx,
-                description=session.collected_fields.get("rationale", ""),
+                # C-1: see the matching comment on the update_requirement()
+                # branch above -- same fallback, same reason.
+                description=(
+                    session.collected_fields.get("description")
+                    or session.collected_fields.get("rationale")
+                    or ""
+                ),
             )
             # Issue #736: see comment above -- return Requirement.id, not
             # Requirement.artifact_id.

@@ -25,7 +25,7 @@ Interface contracts implemented:
   IF-MC-INT-003     — inbound: execute_tool(tool_name, params, auth_context,
                        api_key) -> ToolResult
   IF-MC-EXT-OUT-003 — outbound: ApplicationService
-    (RequirementBundleQueryService, AttributeVisibilityConfigService,
+    (RequirementBundleQueryService, describe_attribute_schema,
     BundleCompressionService)
 
 All three tools are read-only from an RBAC standpoint (no domain-model
@@ -52,7 +52,6 @@ from typing import Any, Dict
 from auth_tenancy.context import AuthContext
 
 from application.ai_derivation_service import LlmResponseError
-from application.attribute_visibility_service import AttributeVisibilityConfigService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.bundle_compression_service import (
     BundleCompressionService,
@@ -63,7 +62,10 @@ from application.requirement_bundle_formatters import (
     format_bundle_json,
     format_bundle_markdown,
 )
-from application.requirement_bundle_service import RequirementBundleQueryService
+from application.requirement_bundle_service import (
+    RequirementBundleQueryService,
+    describe_attribute_schema,
+)
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
@@ -180,11 +182,14 @@ class RequirementBundleToolGroup(BaseToolGroup):
         {
             "name": "requirement_bundle.attribute_schema",
             "description": (
-                "List available attributes for an entity type, with current "
-                "visibility. Response shape: {\"attributes\": [...], "
-                "\"count\": N} - note this differs from the REST "
-                "AttributeSchemaView endpoint, which returns the same "
-                "attribute list as a bare top-level JSON array (no "
+                "List available attributes for an entity type in "
+                "'workspace_id', with each attribute's real, "
+                "currently-resolved visibility (reflects any per-workspace "
+                "AttributeDefinition customization, e.g. a hidden/renamed "
+                "field or an added extended attribute). Response shape: "
+                "{\"attributes\": [...], \"count\": N} - note this differs "
+                "from the REST AttributeSchemaView endpoint, which returns "
+                "the same attribute list as a bare top-level JSON array (no "
                 "wrapping object); ToolResult requires a dict, so the MCP "
                 "and REST payload shapes are not interchangeable. The names "
                 "listed here are exactly the values accepted by "
@@ -197,12 +202,13 @@ class RequirementBundleToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
                     "entity_type": {
                         "type": "string",
                         "description": "Optional entity type filter, e.g. 'Requirement'. Omit for all known types.",
                     },
                 },
-                "required": [],
+                "required": ["workspace_id"],
             },
         },
         {
@@ -375,11 +381,10 @@ class RequirementBundleToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement_bundle.attribute_schema — discover valid field names."""
+        workspace_id = require_uuid(params, "workspace_id")
         entity_type = params.get("entity_type")
         try:
-            schema = AttributeVisibilityConfigService().describe_schema(
-                auth_context, entity_type=entity_type
-            )
+            schema = describe_attribute_schema(auth_context, workspace_id, entity_type)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok({"attributes": schema, "count": len(schema)})

@@ -607,6 +607,57 @@ class TestFormalize:
         assert updated.title == "New title"
         assert result["status"] == "completed"
 
+    def test_formalize_update_with_no_description_or_rationale_leaves_description_unchanged(
+        self, ctx, workspace
+    ):
+        """Mirror-image bug of the C-1 fix above: the fallback that gives the
+        CREATE branch a non-null default description (`or ""`) must NOT be
+        applied to the UPDATE branch too. If neither `description` nor
+        `rationale` was collected (e.g. an admin-overridden protocol that
+        only elicits `title`), the update must pass ``None`` through so
+        RequirementService.update_requirement's `if description is not None`
+        gate leaves the existing Requirement's description untouched,
+        instead of blanking it to "".
+        """
+        from application.requirement_service import RequirementService
+        from persistence.models import PromptTemplate
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            PromptTemplate.objects.create(
+                tenant_id=ctx.tenant_id,
+                name="interview.protocol.Requirement",
+                content=(
+                    "phases:\n"
+                    "  - name: only_phase\n"
+                    "    required_fields:\n"
+                    "      - name: title\n"
+                    "        type: text\n"
+                    "    prompt_fragment: 'title only'\n"
+                ),
+                version=1,
+                is_active=True,
+                workspace_id=workspace.id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        existing = RequirementService().create_requirement(
+            workspace_id=workspace.id,
+            title="Old title",
+            ctx=ctx,
+            description="Original description, must survive",
+        )
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        InterviewService().set_target(ctx, session.id, existing.artifact_id)
+        InterviewService().answer(ctx, session.id, "title", "New title")
+
+        InterviewService().formalize(ctx, session.id)
+
+        updated = RequirementService().get_requirement(existing.id, ctx)
+        assert updated.title == "New title"
+        assert updated.description == "Original description, must survive"
+
     def test_formalize_reraises_if_target_artifact_deleted_mid_session(self, ctx, workspace):
         """spec §5 point 4 / §9: re-check existence at write time -- a stale
         grounded target must not silently fall back to creating a new

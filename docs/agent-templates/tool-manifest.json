@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.8.0-beta.5",
-  "tool_count": 172,
+  "generated_from": "reqogniloom==unknown",
+  "tool_count": 174,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -113,6 +113,10 @@
           "uid": {
             "type": "string",
             "description": "Optional. 'uid' as accepted by the adr service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the adr service."
           }
         },
         "required": [
@@ -256,6 +260,9 @@
           "change_reason": {
             "type": "string",
             "description": "Optional. 'change_reason' as accepted by the adr service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the adr service."
           },
           "expected_version": {
             "type": "integer",
@@ -783,6 +790,106 @@
       }
     },
     {
+      "name": "attribute_definition.get",
+      "prefix": "attribute_definition",
+      "is_write": false,
+      "description": "Resolved attribute definition for a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.list",
+      "prefix": "attribute_definition",
+      "is_write": false,
+      "description": "List the tenant-wide global attribute defaults (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_definition.reset",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Reset a workspace definition to the global default (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.update",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Replace a workspace's attribute definition (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Full replacement attribute list."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id",
+          "attributes"
+        ]
+      }
+    },
+    {
       "name": "audit.ai_review",
       "prefix": "audit",
       "is_write": false,
@@ -1276,42 +1383,6 @@
         },
         "required": [
           "requirement_id"
-        ]
-      }
-    },
-    {
-      "name": "custom_field.get",
-      "prefix": "custom_field",
-      "is_write": false,
-      "description": "Fetch a custom field definition by ID (read-only).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "UUID of the custom field definition."
-          }
-        },
-        "required": [
-          "id"
-        ]
-      }
-    },
-    {
-      "name": "custom_field.query",
-      "prefix": "custom_field",
-      "is_write": false,
-      "description": "List custom field definitions for a workspace (read-only).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "description": "UUID of the workspace."
-          }
-        },
-        "required": [
-          "workspace_id"
         ]
       }
     },
@@ -2241,6 +2312,10 @@
           "uid": {
             "type": "string",
             "description": "Optional. 'uid' as accepted by the issue service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the issue service."
           }
         },
         "required": [
@@ -2398,6 +2473,9 @@
           "change_reason": {
             "type": "string",
             "description": "Optional. 'change_reason' as accepted by the issue service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the issue service."
           },
           "expected_version": {
             "type": "integer",
@@ -3387,16 +3465,22 @@
       "name": "requirement_bundle.attribute_schema",
       "prefix": "requirement_bundle",
       "is_write": false,
-      "description": "List available attributes for an entity type, with current visibility. Response shape: {\"attributes\": [...], \"count\": N} - note this differs from the REST AttributeSchemaView endpoint, which returns the same attribute list as a bare top-level JSON array (no wrapping object); ToolResult requires a dict, so the MCP and REST payload shapes are not interchangeable. The names listed here are exactly the values accepted by requirement_bundle.export's 'fields' parameter and the keys returned in its items[].fields; the item-level 'found_under_element_id' is not among them - it is the element's backing Artifact id, not an ArchitectureElement id (see requirement_bundle.export).",
+      "description": "List available attributes for an entity type in 'workspace_id', with each attribute's real, currently-resolved visibility (reflects any per-workspace AttributeDefinition customization, e.g. a hidden/renamed field or an added extended attribute). Response shape: {\"attributes\": [...], \"count\": N} - note this differs from the REST AttributeSchemaView endpoint, which returns the same attribute list as a bare top-level JSON array (no wrapping object); ToolResult requires a dict, so the MCP and REST payload shapes are not interchangeable. The names listed here are exactly the values accepted by requirement_bundle.export's 'fields' parameter and the keys returned in its items[].fields; the item-level 'found_under_element_id' is not among them - it is the element's backing Artifact id, not an ArchitectureElement id (see requirement_bundle.export).",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          },
           "entity_type": {
             "type": "string",
             "description": "Optional entity type filter, e.g. 'Requirement'. Omit for all known types."
           }
         },
-        "required": []
+        "required": [
+          "workspace_id"
+        ]
       }
     },
     {
@@ -3659,6 +3743,10 @@
           "owner_user_id": {
             "type": "string",
             "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the risk service."
           }
         },
         "required": [
@@ -3835,6 +3923,9 @@
           "owner_user_id": {
             "type": "string",
             "description": "Optional. 'owner_user_id' as accepted by the risk service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the risk service."
           },
           "expected_version": {
             "type": "integer",

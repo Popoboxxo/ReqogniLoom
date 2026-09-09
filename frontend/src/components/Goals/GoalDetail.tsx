@@ -15,7 +15,6 @@
  *                      move is separated out and danger-styled (issue #238):
  *                      it takes the goal out of the list, so it must not look
  *                      like the approve/rework buttons beside it.
- *   4. workspace-defined attributes via <ArtifactCustomFields> (ch. 12.11)
  *
  * Version history is NOT rendered here any more (issue #219): it now lives in
  * the `<ArtifactInspector>` sidebar the page mounts next to this pane, whose
@@ -32,7 +31,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { goalsApi } from "../../api/goals";
-import { ArtifactCustomFields } from "../shared/ArtifactCustomFields";
 import { ArtifactId } from "../shared/ArtifactId";
 import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
@@ -235,14 +233,6 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
           </button>
         ))}
       </div>
-
-      {/* 4. Workspace-defined attributes — ch. 12.11. Renders nothing when
-             the workspace defines no fields. */}
-      {goal.artifact_id && (
-        <div data-testid="goal-custom-fields" style={{ marginBottom: "var(--space-5)" }}>
-          <ArtifactCustomFields artifactId={goal.artifact_id} />
-        </div>
-      )}
     </article>
   );
 }

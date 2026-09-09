@@ -92,6 +92,7 @@ vi.mock("../api/adrs", () => ({
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
     listAll: vi.fn().mockResolvedValue([ADR]),
+    supersede: vi.fn(),
   },
 }));
 
@@ -146,6 +147,39 @@ vi.mock("../api/testcases", () => ({
   },
 }));
 
+// F-2 regression (code review, Task 21 fix round): AdrArtifactForm renders
+// on the definition-driven ArtifactForm, which needs a resolved attribute
+// definition to render anything at all — including the `status` attribute's
+// WorkflowStatusEditor, which the F-2 regression test below asserts against.
+// Kept real (not mocked away like ArtifactForm.test.tsx does) so the actual
+// remount-on-status-change behaviour under test is exercised, not stubbed.
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: {
+    getWorkspace: vi.fn().mockResolvedValue({
+      item_type: "Adr",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        {
+          name: "title", kind: "core", type: "text", widget_key: null, fields: [],
+          options: [], required: true, visible: true, locked: false, editable: true,
+          section: "general", order: 1, label: { de: "Titel", en: "Title" },
+          help_text: { de: "", en: "" }, default: null, validation: {},
+          ai_elicit: false, export: true, audience: "basic",
+        },
+        {
+          name: "status", kind: "core", type: "enum", widget_key: null, fields: [],
+          options: [], required: false, visible: true, locked: true, editable: "workflow",
+          section: "general", order: 2, label: { de: "Status", en: "Status" },
+          help_text: { de: "", en: "" }, default: null, validation: {},
+          ai_elicit: false, export: true, audience: "basic",
+        },
+      ],
+    }),
+  },
+}));
+
 // Isolate from the ArtifactInspector sidebar (its own data fetching is out of
 // scope for this test).
 vi.mock("../components/shared/ArtifactInspector", () => ({
@@ -164,6 +198,7 @@ import { tracelinksApi } from "../api/tracelinks";
 import { architectureApi } from "../api/architecture";
 import { traceabilityApi } from "../api/traceability";
 import { adrsApi } from "../api/adrs";
+import type { Adr } from "../types";
 
 function renderEditor(initialPath = `/adrs/${ADR.id}`): ReturnType<typeof render> {
   const queryClient = new QueryClient({
@@ -444,5 +479,70 @@ describe("AdrEditors i18n — ADR title placeholder (#658)", () => {
     expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
 
     void i18n.changeLanguage(previousLanguage);
+  });
+});
+
+describe("AdrEditors Supersede leaves no stale status (F-2 regression, code review Task 21 fix round)", () => {
+  // `ArtifactForm`'s `useEntityReset` only fires on `entityId` change; a
+  // Supersede keeps the same ADR id and only flips `status`, so without the
+  // `key={\`${item.id}:${item.status}\`}` fix at the AdrEditors call site the
+  // form (and the WorkflowStatusEditor it renders) would keep showing the
+  // pre-Supersede status.
+  const APPROVED_ADR: Adr = { ...ADR, id: "adr-approved-1", status: "Approved" };
+  const SUCCESSOR_ADR: Adr = { ...ADR, id: "adr-successor-1", title: "Successor ADR", status: "Draft" };
+  const SUPERSEDED_ADR: Adr = { ...APPROVED_ADR, status: "Superseded", version: 2 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(adrsApi.listAll).mockResolvedValue([APPROVED_ADR, SUCCESSOR_ADR]);
+    vi.mocked(adrsApi.list).mockResolvedValue({
+      results: [APPROVED_ADR, SUCCESSOR_ADR],
+      count: 2,
+      next: null,
+      previous: null,
+    });
+    // `adrsApi.get` must track the "current server state" across the
+    // Supersede call, not just the initial fetch: `useAdrData.refresh` both
+    // writes the mutation's own response into the cache AND invalidates the
+    // detail query, which triggers a background refetch through this same
+    // mock. A static `mockResolvedValue(APPROVED_ADR)` would let that
+    // refetch silently revert the optimistic write back to "Approved" and
+    // make the regression test flaky instead of red on a real regression.
+    let currentAdr: Adr = APPROVED_ADR;
+    vi.mocked(adrsApi.get).mockImplementation(async () => currentAdr);
+    vi.mocked(adrsApi.supersede).mockImplementation(async () => {
+      currentAdr = SUPERSEDED_ADR;
+      return SUPERSEDED_ADR;
+    });
+  });
+
+  it("no longer shows the pre-Supersede status once the Supersede flow completes", async () => {
+    renderEditor(`/adrs/${APPROVED_ADR.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workflow-current-status")).toHaveTextContent("Approved");
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("adr-supersede-btn"));
+    await user.selectOptions(
+      screen.getByTestId("adr-supersede-target-select"),
+      SUCCESSOR_ADR.id
+    );
+    await user.click(screen.getByTestId("adr-supersede-confirm-btn"));
+
+    await waitFor(() => {
+      expect(adrsApi.supersede).toHaveBeenCalledWith(APPROVED_ADR.id, SUCCESSOR_ADR.id, "");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workflow-current-status")).not.toHaveTextContent("Approved");
+    });
   });
 });

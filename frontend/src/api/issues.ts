@@ -42,13 +42,15 @@ export const issuesApi = {
     return apiClient.post<Issue>("/issues/", data);
   },
 
-  update(
-    id: UUID,
-    data: Partial<Pick<Issue, "title" | "description" | "severity" | "category" | "status" | "tags">> & {
-      /** Extended preset: audit rationale forwarded to the backend audit log. */
-      change_reason?: string;
-    }
-  ): Promise<Issue> {
+  /**
+   * Task 20: the payload comes from `ArtifactForm` (IssueArtifactForm's
+   * `formValuesToIssuePatch`), a generic definition-driven value bag whose
+   * keys are whatever the resolved attribute definition currently lists —
+   * not a fixed compile-time-known set. Mirrors `risksApi.update` (Task 19)
+   * for the same reason: the backend's own per-field 400s remain the actual
+   * validation authority (see IssueViewSet.partial_update).
+   */
+  update(id: UUID, data: Record<string, unknown>): Promise<Issue> {
     return apiClient.patch<Issue>(`/issues/${id}/`, data);
   },
 

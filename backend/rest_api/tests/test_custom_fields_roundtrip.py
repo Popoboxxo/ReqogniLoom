@@ -105,13 +105,29 @@ def _entity_payloads(workspace_id: Any) -> dict[str, tuple[str, dict[str, Any]]]
             "/api/v1/testcases/",
             {"workspace_id": ws, "title": "CF testcase"},
         ),
+        # Gap #7: Adr/Risk/Issue never got CustomFieldsSerializerMixin at all
+        # (unlike the #290 metaclass bug above, which hit an already-declared
+        # field) — custom_fields was silently discarded on every write.
+        "adr": (
+            "/api/v1/adrs/",
+            {"workspace_id": ws, "title": "CF adr"},
+        ),
+        "risk": (
+            "/api/v1/risks/",
+            {"workspace_id": ws, "title": "CF risk"},
+        ),
+        "issue": (
+            "/api/v1/issues/",
+            {"workspace_id": ws, "title": "CF issue"},
+        ),
     }
 
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "entity", ["requirement", "need", "architecture", "testcase"]
+    "entity",
+    ["requirement", "need", "architecture", "testcase", "adr", "risk", "issue"],
 )
 def test_custom_fields_survive_create(cf_env, entity):
     """POST with custom_fields must persist them, not drop them silently."""
@@ -132,7 +148,8 @@ def test_custom_fields_survive_create(cf_env, entity):
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "entity", ["requirement", "need", "architecture", "testcase"]
+    "entity",
+    ["requirement", "need", "architecture", "testcase", "adr", "risk", "issue"],
 )
 def test_custom_fields_survive_patch(cf_env, entity):
     """The reported repro: editing a custom field in the UI and saving."""
@@ -183,6 +200,101 @@ def test_patch_without_custom_fields_leaves_them_untouched(cf_env):
     assert resp.status_code == 200, resp.content
     fresh = client.get(f"/api/v1/requirements/{created['id']}/")
     assert fresh.json()["custom_fields"] == {"owner": "alice"}
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+@pytest.mark.parametrize("entity", ["adr", "risk", "issue"])
+def test_patch_without_custom_fields_leaves_them_untouched_adr_risk_issue(
+    cf_env, entity
+):
+    """Gap #7 regression: same sentinel/presence-check guarantee as Requirement.
+
+    Also proves the write actually persists (not just echoed from the request)
+    by re-reading via GET after an unrelated PATCH.
+    """
+    client = _client(cf_env)
+    path, payload = _entity_payloads(cf_env["workspace"].id)[entity]
+    created = _create(
+        client, path, {**payload, "custom_fields": {"owner": "alice"}}
+    )
+    assert created["custom_fields"] == {"owner": "alice"}
+
+    resp = client.patch(
+        f"{path}{created['id']}/",
+        {"description": "unrelated edit"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    fresh = client.get(f"{path}{created['id']}/")
+    assert fresh.json()["custom_fields"] == {"owner": "alice"}
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reparent_only_patch_preserves_asil_level_and_make_or_buy(cf_env):
+    """Code review R-1: a reparent-only PATCH must not NULL sibling fields.
+
+    ``asil_level``/``make_or_buy`` default to a sentinel in
+    ``ArchitectureService.update_architecture_element`` so an omitted key is a
+    no-op — mirroring the ``custom_fields``/``parent_id`` sentinel pattern
+    above. The view used to forward them via ``data.get(...)``, which returns
+    ``None`` for an omitted key instead of the sentinel, so the service read
+    that as "explicitly cleared". Every reparent-only PATCH (the real frontend
+    drag&drop call, ``architectureApi.reparent`` — body is just
+    ``{parent_id}``) silently wiped both fields to null.
+    """
+    client = _client(cf_env)
+    # I5 allows only one root per workspace, and I2 rejects re-parenting to a
+    # same-or-deeper-level parent (checked against the element's *current*
+    # level). So: root(0) -> branch(1) -> child(2), then reparent child
+    # straight onto root(0) — a level drop, satisfying I2, without touching I5.
+    root = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF root",
+            "element_type": "block",
+        },
+    )
+    branch = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF branch",
+            "element_type": "block",
+            "parent_id": root["id"],
+        },
+    )
+    child = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF child",
+            "element_type": "block",
+            "parent_id": branch["id"],
+            "asil_level": "B",
+            "make_or_buy": "Make",
+        },
+    )
+    assert child["asil_level"] == "B"
+    assert child["make_or_buy"] == "Make"
+
+    resp = client.patch(
+        f"/api/v1/architecture/{child['id']}/",
+        {"parent_id": root["id"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    fresh = client.get(f"/api/v1/architecture/{child['id']}/")
+    assert fresh.status_code == 200, fresh.content
+    assert fresh.json()["asil_level"] == "B"
+    assert fresh.json()["make_or_buy"] == "Make"
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -380,6 +492,11 @@ def test_change_reason_is_declared_on_the_serializer(cf_env, entity):
         "StakeholderNeedSerializer",
         "ArchitectureElementSerializer",
         "TestCaseSerializer",
+        # Gap #7: Adr/Risk/Issue previously never mixed in
+        # CustomFieldsSerializerMixin at all.
+        "AdrSerializer",
+        "RiskSerializer",
+        "IssueSerializer",
     ],
 )
 def test_custom_fields_is_a_registered_drf_field(cf_env, serializer_name):
