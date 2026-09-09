@@ -102,6 +102,8 @@ def run_self_init() -> None:
         requirement_preset=requirement_preset,
     )
 
+    _bootstrap_attribute_definitions(result.tenant.id)
+
     if result.user_created:
         logger.info(
             "Self-init: provisioned admin '%s', base workspace and default "
@@ -113,6 +115,34 @@ def run_self_init() -> None:
             "Self-init: admin '%s' already present; ensured base workspace "
             "workflow/permission definitions (REQ-188).",
             username,
+        )
+
+
+def _bootstrap_attribute_definitions(tenant_id) -> None:
+    """Seed the tenant's GlobalAttributeDefinition rows (idempotent).
+
+    ``attribute_definitions.migrations.0003_migrate_legacy_field_config`` seeds
+    every tenant that exists *while migrations run*. On a fresh database there
+    are none yet — the tenant is created moments later by ``provision_admin``
+    above, in this same ``post_migrate`` pass — so without this call the tenant
+    ends up with zero global definitions and every artifact form renders
+    "No global attribute definition for '<type>/<preset>'" instead of its
+    fields. Existing databases are unaffected: the command only creates rows
+    that are missing.
+
+    Failures are logged, never raised: this runs inside ``post_migrate``, where
+    an exception would abort the whole ``migrate`` step.
+    """
+    from django.core.management import call_command
+
+    try:
+        call_command("bootstrap_attribute_definitions", tenant=str(tenant_id))
+    except Exception as exc:  # noqa: BLE001 — must not abort migrate
+        logger.error(
+            "Self-init: attribute-definition bootstrap failed for tenant %s: %s. "
+            "Run 'manage.py bootstrap_attribute_definitions' manually.",
+            tenant_id,
+            exc,
         )
 
 

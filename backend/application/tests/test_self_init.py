@@ -33,6 +33,8 @@ import pytest
 
 from application.self_init import run_self_init
 from application.workspace_provisioning import WORKFLOW_ENTITY_TYPES
+from attribute_definitions.models import GlobalAttributeDefinition
+from attribute_definitions.schema import ITEM_TYPES
 from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 from persistence.models import User, Workspace
 from persistence.tenancy import TenantContext
@@ -99,6 +101,42 @@ def test_run_self_init_on_empty_database_provisions_admin_and_workflows(monkeypa
     # _EXPECTED_WORKFLOW_ITEM_TYPES is derived from the same tuple; deriving
     # the count from it too means this can't go stale again the same way.
     assert len(item_types) == len(_EXPECTED_WORKFLOW_ITEM_TYPES)
+
+
+def test_run_self_init_bootstraps_attribute_definitions_for_the_new_tenant(
+    monkeypatch,
+):
+    """[#888] should seed global attribute definitions for the tenant it creates
+
+    Migration 0003 only seeds tenants that already exist when migrations run.
+    On a fresh database the tenant is created by self-init itself, moments
+    later in the same post_migrate pass — without this the tenant has zero
+    global definitions and every artifact form renders the
+    "No global attribute definition for '<type>/<preset>'" error instead of
+    its fields (root cause of the PR #888 e2e failures).
+    """
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3lf-init-pw-2026")
+    assert GlobalAttributeDefinition.unscoped.exists() is False
+
+    run_self_init()
+
+    tenant_id = _tenant_id_of(Workspace.unscoped.get(name="Demo Workspace").id)
+    seeded = set(
+        GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant_id).values_list(
+            "item_type", flat=True
+        )
+    )
+    assert seeded == set(ITEM_TYPES)
+    # Three rigor presets per item type, no duplicates.
+    assert GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant_id).count() == (
+        len(ITEM_TYPES) * 3
+    )
+
+    # Idempotent: a second pass must not duplicate or multiply the rows.
+    run_self_init()
+    assert GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant_id).count() == (
+        len(ITEM_TYPES) * 3
+    )
 
 
 def test_run_self_init_is_idempotent_on_repeated_runs(monkeypatch):
