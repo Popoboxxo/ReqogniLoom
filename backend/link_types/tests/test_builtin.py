@@ -1,0 +1,131 @@
+"""The eight built-in link types are the spec's Startbelegung, verbatim."""
+from __future__ import annotations
+
+from link_types.builtin import (
+    BUILTIN_LINK_TYPES,
+    LEGACY_LINK_TYPE_MAPPING,
+    SUSPECT_RULES,
+    SWAPPED_LEGACY_KEYS,
+    builtin_definition,
+)
+
+EXPECTED_KEYS = {
+    "derives-from",
+    "decomposes",
+    "allocated-to",
+    "verifies",
+    "decides",
+    "mitigates",
+    "references",
+    "diagram-ref",
+}
+
+
+def test_exactly_the_eight_core_types_are_seeded():
+    assert set(BUILTIN_LINK_TYPES) == EXPECTED_KEYS
+
+
+def test_suspect_rules_are_the_four_code_anchored_values():
+    assert SUSPECT_RULES == {
+        "none",
+        "target_change_flags_source",
+        "source_change_flags_target",
+        "parent_change_flags_children",
+    }
+
+
+def test_only_allocated_to_and_verifies_are_coverage_relevant():
+    coverage = {k for k, v in BUILTIN_LINK_TYPES.items() if v["coverage_relevant"]}
+    assert coverage == {"allocated-to", "verifies"}
+
+
+def test_impact_weights_match_the_spec_table():
+    weights = {k: v["impact_weight"] for k, v in BUILTIN_LINK_TYPES.items()}
+    assert weights == {
+        "derives-from": 1.0,
+        "decomposes": 1.0,
+        "allocated-to": 1.0,
+        "verifies": 1.0,
+        "decides": 0.3,
+        "mitigates": 0.5,
+        "references": 0.2,
+        "diagram-ref": 0.2,
+    }
+
+
+def test_suspect_rules_match_the_spec_table():
+    rules = {k: v["suspect_rule"] for k, v in BUILTIN_LINK_TYPES.items()}
+    assert rules == {
+        "derives-from": "target_change_flags_source",
+        "decomposes": "parent_change_flags_children",
+        "allocated-to": "source_change_flags_target",
+        "verifies": "target_change_flags_source",
+        "decides": "none",
+        "mitigates": "none",
+        "references": "none",
+        "diagram-ref": "none",
+    }
+
+
+def test_diagram_ref_is_the_only_system_owned_and_non_manual_type():
+    system_owned = {k for k, v in BUILTIN_LINK_TYPES.items() if v["system_owned"]}
+    non_manual = {k for k, v in BUILTIN_LINK_TYPES.items() if not v["manual_creatable"]}
+    assert system_owned == {"diagram-ref"}
+    assert non_manual == {"diagram-ref"}
+
+
+def test_allocated_to_is_requirement_to_architecture_only():
+    pairs = BUILTIN_LINK_TYPES["allocated-to"]["allowed_pairs"]
+    assert pairs == [{"source_type": "Requirement", "target_type": "ArchitectureElement"}]
+
+
+def test_derives_from_gained_the_architecture_pair_from_refines():
+    pairs = BUILTIN_LINK_TYPES["derives-from"]["allowed_pairs"]
+    assert {"source_type": "ArchitectureElement", "target_type": "ArchitectureElement"} in pairs
+
+
+def test_references_targets_are_a_list_not_a_fixed_triple():
+    targets = [
+        p["target_type"] for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    ]
+    assert targets == ["GlossaryTerm", "Diagram", "Icd"]
+    assert all(
+        p["source_type"] == "*" for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    )
+
+
+def test_every_definition_carries_tri_labels_in_both_languages():
+    for key, definition in BUILTIN_LINK_TYPES.items():
+        for lang in ("de", "en"):
+            assert set(definition["label"][lang]) == {
+                "downstream",
+                "upstream",
+                "neutral",
+            }, f"{key}/{lang} is missing a tri-label perspective"
+
+
+def test_every_definition_is_active_and_flagged_built_in():
+    assert all(v["active"] for v in BUILTIN_LINK_TYPES.values())
+    assert all(v["built_in"] for v in BUILTIN_LINK_TYPES.values())
+
+
+def test_legacy_mapping_covers_every_retired_key():
+    assert LEGACY_LINK_TYPE_MAPPING == {
+        "parent-child": None,
+        "satisfies": "allocated-to",
+        "implements": "allocated-to",
+        "refines": "derives-from",
+        "realizes": "decomposes",
+        "documents": "references",
+        "traces": "references",
+        "uses-term": "references",
+        "copy-of": None,
+    }
+    assert SWAPPED_LEGACY_KEYS == {"satisfies", "implements"}
+
+
+def test_builtin_definition_returns_an_isolated_copy():
+    first = builtin_definition("verifies")
+    first["impact_weight"] = 99.0
+    assert BUILTIN_LINK_TYPES["verifies"]["impact_weight"] == 1.0
+    assert builtin_definition("verifies")["impact_weight"] == 1.0
