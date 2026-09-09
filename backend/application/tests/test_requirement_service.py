@@ -907,12 +907,15 @@ class TestDecompose:
                 children=[{"title": "Child", "description": "desc"}],
             )
 
-    def test_decompose_survives_a_failed_decomposes_link(self):
-        """The 'decomposes' half stays best-effort and only warns.
+    def test_decompose_propagates_a_failed_decomposes_link(self):
+        """SDD Task 15 (spec 3.3): Artifact.parent and the 'decomposes' link
+        are written together or not at all.
 
-        Since #395 the auditor reads the hierarchy off the 'derives-from'
-        edge as well, so a missing 'decomposes' link degrades the graph
-        without breaking its classification.
+        Previously this half was best-effort (only warned) — a workspace
+        could end up with the parent FK set and 'derives-from' present but
+        no 'decomposes' link, invisible to the SE-Auditor. The failure must
+        now propagate so the surrounding atomic transaction rolls back both
+        writes; 'derives-from' must never even be attempted.
         """
         svc = RequirementService()
         ctx = _make_ctx()
@@ -948,22 +951,18 @@ class TestDecompose:
                 side_effect=_fail_on_decomposes,
             ) as mock_create_trace_link,
         ):
-            result = svc.decompose(
-                requirement_id=REQ_ID,
-                ctx=ctx,
-                children=[{"title": "Child", "description": "desc"}],
-            )
+            with pytest.raises(RuntimeError, match="boom"):
+                svc.decompose(
+                    requirement_id=REQ_ID,
+                    ctx=ctx,
+                    children=[{"title": "Child", "description": "desc"}],
+                )
 
-        assert len(result.children) == 1
-        # Both were attempted; only the back-link produced an id.
+        # 'derives-from' must never be attempted once 'decomposes' failed.
         link_types = [
             call.kwargs["link_type"] for call in mock_create_trace_link.call_args_list
         ]
-        assert link_types == [
-            LinkType.DECOMPOSES.value,
-            LinkType.DERIVES_FROM.value,
-        ]
-        assert len(result.trace_link_ids) == 1
+        assert link_types == [LinkType.DECOMPOSES.value]
 
     def test_decompose_ignores_workspace_decomposition_link_type(self):
         """decompose creates LinkType.DECOMPOSES even if the workspace is configured
