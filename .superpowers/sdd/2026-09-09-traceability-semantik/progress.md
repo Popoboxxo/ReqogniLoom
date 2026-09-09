@@ -281,9 +281,28 @@ Task 14: Rule-driven suspect propagation (closes #849 structurally) — **done**
 
 `suspect` gehört semantisch auf `Artifact` (nicht verteilt auf Requirement/ArchitectureElement/TestCase/StakeholderNeed einzeln). Das Drei-Modell-Tupel in Task 14 existiert nur, weil die Spalte noch nicht auf `Artifact` sitzt. `StakeholderNeed` hat ebenfalls ein `suspect`-Feld, fehlt aber im Propagations-Tupel — das ist bewusst deferred auf diese künftige Datenmodell-Konsolidierung, **KEINE Regression** (der alte Code hatte exakt dasselbe Drei-Modell-Tupel). Diese Verschiebung würde auch das Silent-Skip-Fall-Problem (Punkt 1 oben) beheben.
 
-Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` link — pending
+Task 15: Write `Artifact.parent` in the same transaction as the `decomposes` link — **done**
+
+**Status:** Commit f20287a9, 2026-09-09. Atomic write of `Artifact.parent` and `decomposes` link merged.
+
+- Try/except around `decomposes` link creation in `requirement_service.py` removed; errors now propagate, and the existing transaction rolls back both `Artifact.parent` and `TraceLink` together.
+- Review approved; no REQUIRED findings.
+
+**OPTIONAL Merkposten for Task 16/17 (not blocking, from review):**
+
+1. **MCP `_handle_decompose` (mcp_server/tools/requirements.py) does not explicitly catch `ValidationError`** (sibling `_handle_derive` does) — but lands safely in the outer `INTERNAL_ERROR` fallback, no crash. Same pattern existed *before* this task (not a regression). Severity: low, matches exception-handling convention elsewhere in mcp_server.
+2. **Git stash noted in review** — manual verification confirmed not byte-identical with current state (contains only changes to existing files, not the new test file). Deliberately not dropped; local stash is harmless, no action needed.
+
+**Tests:** Phase C (Tasks 12-15) complete, regression suite green. KNOWN-RED unchanged (8 pre-existing from Task 11).
+
+---
+
+**Phase C (Catalog foundation + semantics fields + suspect engine) is complete** — Tasks 12-15 all done.
 
 ## Phase D — Hard data migration and consumer fixes
+
+**⚠ CRITICAL — Task 16 SWAPPED_LEGACY_KEYS risk (highlighted 2026-09-09):** 
+`satisfies` rows with a `StakeholderNeed` target **must** migrate to `derives-from` *unswapped* (endpoints reversed), **not** to `allocated-to` swapped. Otherwise 40 seeded rows get inverted semantics + Allocation-Coverage poisoning (coverage_relevant flag + wrong suspect-rule chain). Decision evidence and full rationale in the RESOLVED DECISION (Task 11) and Task 10 blocks above — read before starting the migration.
 
 Task 16: Migrate every existing `TraceLink` row to the new type set — pending
 Task 17: Move every hardcoded link-type consumer with the migration — pending
