@@ -70,25 +70,7 @@ celery>=5.6.3,<6.0
 django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@6767df6f6f723a96ebd38269a073a11cde124850
 redis>=8.1.0,<9.0
 
-# Testing
-# pytest floor raised to 9.0.3 for CVE-2025-71176 / PYSEC-2026-1845 (CWE-379):
-# predictable /tmp/pytest-of-{user} basetemp directories on UNIX allow a local
-# user to cause a DoS or possibly escalate privileges. Fixed only in 9.0.3 —
-# there is no 8.x backport, so the CI pip-audit gate forces the major bump.
-pytest>=9.1.1,<10.0
-# pytest-django 4.12.0 is the first release whose own test matrix runs against
-# pytest>=9; earlier 4.x releases predate pytest 9 entirely. Its install
-# requirement is only `pytest>=7`, so the floor has to be pinned here.
-# The former <4.12.1 cap existed only because pytest-django 4.12.1+ drops
-# Django 4.2 support, and 4.13.0 against Django 4.2 blew up every
-# @pytest.mark.django_db test with `AttributeError: type object
-# 'PytestDjangoTestCase' has no attribute '_pre_setup_ran_eagerly'` — an
-# internal hook that only exists on pytest-django builds targeting
-# Django>=5.0. That cap was explicitly documented as a stopgap to be removed
-# in the same change that upgrades Django; the Django 5.2 bump above is that
-# change, so the cap is gone and the floor is raised to the first release that
-# declares Django 5.2 support.
-pytest-django>=4.14.0,<5.0
+# PDF manipulation (REQ-L2-AS-015)
 pypdf>=6.16.1,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
