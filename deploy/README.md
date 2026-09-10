@@ -26,6 +26,15 @@ curl http://localhost:8001/health/
 
 If `"csrf_cookie_secure_matches_auth"` is `"mismatch"` in the response, you must fix `.env` and restart the backend container.
 
+## Breaking Change: v1.8.0-beta.7+ Security Hardening & Frontend Permissions (#894)
+
+**If you upgraded from beta.6 and added a local override** (`docker-compose.override.yml` or custom `.env` / deployment script) with `user: root` or `tmpfs` entries for the frontend service: **remove those overrides now.**
+
+- **Beta.6** required `user: root` + tmpfs on `/var/cache/nginx` / `/var/run` because the image expected root-owned paths.
+- **Beta.7+** reversed this (SA-48): the frontend image now runs as non-root (uid 102), with `/var/cache/nginx` already app-owned in the image. The base compose files (`docker-compose.yml`, `docker-compose.minimal.yml`) were corrected to remove the tmpfs entry — but if you manually added a beta.6-era hotfix override, you must **delete or comment out** those lines, or the frontend will fail with `Permission denied` when nginx tries to write to the cache directory.
+
+Symptom: frontend container in `Restarting (1)` loop with `mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)` in logs. Fix: delete the `user:` and `tmpfs:` overrides from your `.env` or local compose files, then re-run `docker compose up -d`.
+
 ## Required flag: `--project-directory .`
 
 These compose files do **not** live in the repository root. Every direct `docker compose`

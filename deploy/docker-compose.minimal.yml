@@ -199,8 +199,7 @@ services:
       resources:
         limits:
           memory: 128M
-    tmpfs:
-      - /var/cache/nginx
+    # /var/cache/nginx is provided by the image as app-owned — no tmpfs mount needed.
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-5173}:8080"
