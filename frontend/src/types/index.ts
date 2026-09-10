@@ -264,23 +264,16 @@ export interface ArchitectureElement {
 // TraceLink (mirrors TraceLinkSerializer)
 // ---------------------------------------------------------------------------
 
-// Harmonized with backend/traceability/types.py::LinkType (14 types, incl.
-// `decomposes` — see docs/UMSETZUNGSPLAN_SYSENG_2.0.md §1.4)
-export type LinkType =
-  | "parent-child"
-  | "derives-from"
-  | "satisfies"
-  | "verifies"
-  | "implements"
-  | "refines"
-  | "documents"
-  | "realizes"
-  | "traces"
-  | "copy-of"
-  | "allocated-to"
-  | "uses-term"
-  | "decides"
-  | "decomposes";
+/**
+ * A trace-link type key.
+ *
+ * Deliberately a plain string, not a union: the catalog is tenant- and
+ * workspace-configurable, so no compile-time list can be complete. The
+ * previous 14-member union was a second, independently maintained source of
+ * truth that had already drifted from the backend (audit finding B4).
+ * Read the live values from `useLinkTypes()`.
+ */
+export type LinkType = string;
 
 export interface TraceLink {
   id: UUID;
@@ -307,6 +300,12 @@ export interface TraceLink {
   source_is_outdated?: boolean;
   /** UI-P3: the target artifact has been soft-deleted. See `source_is_outdated`. */
   target_is_outdated?: boolean;
+  /** Why this link exists (Q1.6). Empty string when never filled in. */
+  rationale?: string;
+  /** Set when this link caused the other endpoint to be flagged suspect. */
+  suspect_flagged_at?: ISODateTime | null;
+  /** `audit.AuditEntry.id` of the change that triggered the flag above. */
+  suspect_source_change?: UUID | null;
 }
 
 // ---------------------------------------------------------------------------
