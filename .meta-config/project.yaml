@@ -578,7 +578,9 @@ release-gates:
   docker-image-scan: true
   action-pin-validation: true
 auto_commit:
-  mode: suggest
+  mode: auto
+  triggers: [task-boundary, context-pressure, file-count-threshold]
+  file_count_threshold: 5
   secret_scan: true
 viz:
   enabled: false
