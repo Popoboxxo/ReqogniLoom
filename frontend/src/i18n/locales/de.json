@@ -670,7 +670,14 @@
     "probability": "Wahrscheinlichkeit",
     "impact": "Auswirkung",
     "detection": "Entdeckbarkeit (1-10)",
+    "matrix": "Risikomatrix",
     "matrixTitle": "Risikomatrix (Wahrscheinlichkeit × Auswirkung)",
+    "rpn": "RPZ: {{value}}",
+    "level": {
+      "low": "Niedrig",
+      "medium": "Mittel",
+      "high": "Hoch"
+    },
     "score": "Score",
     "computedScores": "Berechnete Kennzahlen",
     "riskScoreLabel": "Risiko-Score",
@@ -727,6 +734,9 @@
     "deleteTitle": "Testfall löschen",
     "newTestCase": "Neuer Testfall",
     "titlePlaceholder": "z.B. Testfalltitel...",
+    "step": "Schritt {{index}}",
+    "addStep": "Schritt hinzufügen",
+    "removeStep": "Schritt {{index}} entfernen",
     "summary_one": "{{count}} Testfall",
     "summary_other": "{{count}} Testfälle",
     "emptyTitle": "Noch keine Testfälle",
@@ -762,7 +772,8 @@
       "visibility": "Sichtbarkeit",
       "llm": "LLM & Prompts",
       "governanceReplacement": "Workflows & Berechtigungen",
-      "appearance": "Darstellung"
+      "appearance": "Darstellung",
+      "attributes": "Attribute"
     },
     "attributeVisibility": "Attribut-Sichtbarkeit",
     "llm": {
@@ -1887,6 +1898,7 @@
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow-Standards",
+      "attributeDefaults": "Attribut-Standards",
       "permissionDefaults": "Berechtigungs-Standards",
       "memory": "Memory"
     },
@@ -2040,5 +2052,68 @@
       "source_change_flags_target": "Quell-Änderung markiert Ziel",
       "parent_change_flags_children": "Eltern-Änderung markiert Kinder"
     }
+  },
+  "artifactForm": {
+    "unknownValue": "Unbekannter Wert: {{value}}",
+    "expandSection": "Abschnitt {{section}} aufklappen",
+    "collapseSection": "Abschnitt {{section}} einklappen",
+    "lockedHint": "systemkritisch, nicht änderbar",
+    "unsavedChanges": "Ungespeicherte Änderungen gehen verloren. Fortfahren?",
+    "saveFailed": "Speichern fehlgeschlagen",
+    "deleteConfirm": "Dieses Artefakt wirklich löschen?",
+    "noneOption": "Keine Auswahl",
+    "unassignedOption": "Nicht zugewiesen",
+    "referenceIdPlaceholder": "Artefakt-ID eingeben",
+    "field": {
+      "description": "Beschreibung",
+      "context": "Kontext",
+      "consequences": "Konsequenzen"
+    },
+    "definitionUnavailable": "Feldkonfiguration konnte nicht geladen werden.",
+    "deleteTitle": "Artefakt löschen",
+    "unsupportedWidget": "Dieses Feld verwendet ein nicht unterstütztes Widget ({{widget}}). Die einzelnen Felder werden stattdessen direkt angezeigt.",
+    "userDirectoryUnavailable": "Benutzerliste nicht verfügbar — nur Tenant-Administratoren dürfen sie lesen.",
+    "changeReason": "Änderungsgrund",
+    "changeReasonRequired": "Bitte einen Änderungsgrund angeben."
+  },
+  "sections": {
+    "general": "Allgemein",
+    "classification": "Klassifikation",
+    "change_control": "Änderungskontrolle",
+    "custom": "Eigene Felder"
+  },
+  "attributes": {
+    "entityType": "Elementtyp",
+    "entityTypes": {
+      "Requirement": "Requirement",
+      "StakeholderNeed": "Stakeholder Need",
+      "ArchitectureElement": "Architektur",
+      "TestCase": "Testfall",
+      "Adr": "ADR",
+      "Risk": "Risiko",
+      "Issue": "Issue",
+      "Goal": "Ziel",
+      "Icd": "ICD",
+      "GlossaryTerm": "Glossarbegriff"
+    },
+    "visible": "Sichtbar",
+    "required": "Pflicht",
+    "expertOnly": "Nur für Experten",
+    "section": "Sektion",
+    "labelDe": "Label (DE)",
+    "labelEn": "Label (EN)",
+    "aiElicit": "Im Interview abfragen",
+    "export": "Exportieren",
+    "lockedHint": "systemkritisch, nicht änderbar",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "addSection": "Sektion anlegen",
+    "renameSection": "Sektion umbenennen",
+    "deleteSection": "Sektion löschen",
+    "moveSectionUp": "Sektion nach oben",
+    "moveSectionDown": "Sektion nach unten",
+    "reset": "Auf Standard zurücksetzen",
+    "resetConfirm": "Workspace-Anpassungen verwerfen und den globalen Standard übernehmen?",
+    "propagated": "{{count}} Workspace(s) aktualisiert"
   }
 }

@@ -31,6 +31,7 @@ from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
+    _clean_custom_fields,
     has_field_changes,
     snapshot_versioned_fields,
 )
@@ -47,6 +48,16 @@ logger = logging.getLogger(__name__)
 
 # Supported TraceLink types for Issues (REQ-L3-ISSUE-006)
 ISSUE_LINK_TYPES = frozenset({"related-to", "blocks", "blocked-by", "caused-by", "resolves"})
+
+#: Task 20 review finding F-2: ``update_issue``'s ``due_date`` default used to
+#: be plain ``None``, which cannot distinguish "the client omitted this
+#: field" (leave the stored value unchanged) from "the client explicitly
+#: cleared it" (``PATCH {"due_date": null}``) — both collapsed onto
+#: ``if due_date is not None`` never firing, so a due date could be set but
+#: never cleared. Same sentinel pattern already used for this exact class of
+#: bug in architecture_service.py/artifact_service.py/requirement_service.py/
+#: stakeholder_need_service.py (see also Issue #409 in rest_api/views.py).
+_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +184,7 @@ class IssueService(ServiceBase):
         due_date=None,
         tags: Optional[List[str]] = None,
         uid: Optional[str] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Issue:
         """Create an Issue with initial workflow state (REQ-L3-ISSUE-001).
 
@@ -217,6 +229,7 @@ class IssueService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="Issue",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
@@ -280,9 +293,10 @@ class IssueService(ServiceBase):
         description: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
-        due_date=None,
+        due_date: object = _UNSET,
         tags: Optional[List[str]] = None,
         change_reason: Optional[str] = None,
+        custom_fields: object = _UNSET,
         expected_version: Optional[int] = None,
     ) -> Issue:
         """Update an Issue, incrementing its version (REQ-L3-ISSUE-003, ADR-L3-ISSUE-01).
@@ -296,7 +310,10 @@ class IssueService(ServiceBase):
             description: New description (optional).
             severity: New severity (optional).
             category: New category (optional).
-            due_date: New due date (optional).
+            due_date: New due date, or ``None`` to explicitly clear it.
+                Defaults to the ``_UNSET`` sentinel, meaning "not sent by the
+                caller, leave the stored value unchanged" — distinct from an
+                explicit ``None`` (F-2 fix, Task 20 review round).
             tags: New tags list (optional).
             change_reason: Optional change rationale for audit.
             expected_version: Caller's last-seen ``version``. When supplied and
@@ -323,6 +340,7 @@ class IssueService(ServiceBase):
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
         # below can be gated on a real value change.
         _before = snapshot_versioned_fields(issue)
+        _custom_fields_changed = False
 
         if title is not None:
             if not title:
@@ -338,17 +356,34 @@ class IssueService(ServiceBase):
             if category not in IssueValidator.VALID_CATEGORIES:
                 raise ValidationError(f"Invalid category '{category}'")
             issue.category = category
-        if due_date is not None:
+        if due_date is not _UNSET:
             issue.due_date = due_date
         if tags is not None:
             issue.tags = tags
+
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Issue snapshot and has to be compared separately. Legacy
+        # rows created before REQ-L2-TE-020 may have no backing Artifact yet
+        # (nullable FK) — reject rather than silently drop the write.
+        if custom_fields is not _UNSET:
+            if issue.artifact is None:
+                raise ValidationError(
+                    "Issue has no backing Artifact; custom_fields is unsupported "
+                    "for this legacy record"
+                )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (issue.artifact.custom_fields or {})
+            )
+            issue.artifact.custom_fields = cleaned_custom_fields
+            issue.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.
         # #269 finding 5: only a real value change is a new revision.
         issue.save()
-        if has_field_changes(issue, _before):
+        if has_field_changes(issue, _before) or _custom_fields_changed:
             Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
             issue.refresh_from_db(fields=["version"])
             # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under

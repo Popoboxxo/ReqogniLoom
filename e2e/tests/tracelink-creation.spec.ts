@@ -18,7 +18,7 @@ async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Eleme
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 // [I5] A workspace tree may have exactly one root ArchitectureElement, and
@@ -191,10 +191,10 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    // Bug A3: testid should be "arch-element-type-select" (not "arch-element-type").
+    // Bug A3: testid should be "artifact-field-element_type" (not "arch-element-type").
     // REQ-006/D5 later replaced the fixed 5-option <select> with a free-text
     // autocomplete input (types can be extended freely, no longer an enum).
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 6000 });
 
     await typeInput.fill('Layer');

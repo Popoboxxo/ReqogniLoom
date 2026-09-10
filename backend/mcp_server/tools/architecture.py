@@ -51,6 +51,7 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    validate_artifact_write,
     write_mcp_audit,
 )
 
@@ -355,6 +356,14 @@ class ArchitectureToolGroup(BaseToolGroup):
         element_type: str = params.get("element_type", "component")
         parent_id = optional_uuid(params, "parent_id")
 
+        # Ledger gap #1 / issue #881: same central gate as
+        # ArchitectureElementViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "ArchitectureElement", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
+
         try:
             # Codeberg #313: suppress create_architecture_element's single
             # internal _audit() call for the same entity — write_mcp_audit
@@ -423,6 +432,26 @@ class ArchitectureToolGroup(BaseToolGroup):
                     )
 
         try:
+            # Ledger gap #1 / issue #881: same central gate as
+            # ArchitectureElementViewSet.partial_update. workspace_id is not
+            # part of this tool's params, so it is resolved via a lookup
+            # first (mirrors architecture.outdate's own resolution).
+            existing_el = self._service.get_architecture_element(arch_id, auth_context)
+            changed_fields = {
+                name: data[name]
+                for name in ("title", "description", "element_type", "parent_id")
+                if name in data
+            }
+            definition_error = validate_artifact_write(
+                auth_context,
+                "ArchitectureElement",
+                getattr(getattr(existing_el, "artifact", None), "workspace_id", None),
+                changed_fields,
+                {"__exists__": True},
+            )
+            if definition_error is not None:
+                return definition_error
+
             # Codeberg #313: suppress update_architecture_element's single
             # internal _audit() call for the same entity — write_mcp_audit
             # below is the sole entry.

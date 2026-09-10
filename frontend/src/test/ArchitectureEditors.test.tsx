@@ -95,10 +95,10 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
-// Task 23: CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this
-// tree pulls in transitively) now reads the link-type catalog via
-// useLinkTypes() — needs a provider-free mock here, same as every other
-// non-dialog-focused test that renders it incidentally.
+// Task 23 (traceability-semantik): CreateTraceLinkDialog (mounted inside
+// TraceLinkPanel, which this tree pulls in transitively) now reads the
+// link-type catalog via useLinkTypes() — needs a provider-free mock here,
+// same as every other non-dialog-focused test that renders it incidentally.
 vi.mock("../context/LinkTypeContext", () => ({
   useLinkTypes: () => ({
     linkTypes: [],
@@ -112,11 +112,25 @@ vi.mock("../context/LinkTypeContext", () => ({
   }),
 }));
 
+// Task 24 (attribute-definition): ArchitectureEditors now renders
+// ArchitectureArtifactForm, which resolves its field set from the
+// attribute-definition API instead of hardcoding fields. Without this mock
+// the generic `apiClient.get` stub above resolves to `{}` (no `.attributes`),
+// so the form renders zero fields — every test below that looks for a form
+// field would fail for a reason unrelated to what it is testing. Shape
+// mirrors a real bootstrapped ArchitectureElement definition
+// (`introspect_core_attributes`, live-verified via the Task 24 implementer
+// report).
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: { getWorkspace: vi.fn() },
+}));
+
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { architectureApi } from "../api/architecture";
 import { tracelinksApi } from "../api/tracelinks";
 import { requirementsApi } from "../api/requirements";
+import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
@@ -152,6 +166,29 @@ const MOCK_ELEMENT = {
   version: 1,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+};
+
+// Task 24: minimal-but-realistic ArchitectureElement attribute definition
+// (subset of `introspect_core_attributes("ArchitectureElement", "standard")`,
+// live-verified) — just enough for ArchitectureArtifactForm to render the
+// fields these tests assert on.
+function archAttr(over: Record<string, unknown>) {
+  return {
+    kind: "core", widget_key: null, fields: [], options: [], required: false,
+    visible: true, locked: false, editable: true, section: "general", order: 1,
+    label: { de: "", en: "" }, help_text: { de: "", en: "" }, default: null,
+    validation: {}, ai_elicit: false, export: true, audience: "basic", ...over,
+  };
+}
+const ARCH_DEFINITION = {
+  item_type: "ArchitectureElement",
+  preset: "standard",
+  is_customized: false,
+  version: 1,
+  attributes: [
+    archAttr({ name: "title", type: "text", required: true, order: 1 }),
+    archAttr({ name: "element_type", type: "text", order: 2 }),
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -215,6 +252,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
 
     vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT);
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue(ARCH_DEFINITION as any);
 
     vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
       count: 0,
@@ -237,21 +275,21 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
 
     await waitFor(() => {
       // Title field
-      expect(screen.getByTestId("arch-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
       // Element-type autocomplete input (REQ-006 / D5: free text, not a fixed dropdown)
-      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
       // Save button
-      expect(screen.getByTestId("arch-save-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-save")).toBeInTheDocument();
       // Delete button
-      expect(screen.getByTestId("arch-delete-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-delete")).toBeInTheDocument();
     });
 
     // Title field should display mock element title
-    const titleInput = screen.getByTestId("arch-title") as HTMLInputElement;
+    const titleInput = screen.getByTestId("artifact-field-title") as HTMLInputElement;
     expect(titleInput.value).toBe("AuthService");
 
     // Element type should be set to "component"
-    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    const typeInput = screen.getByTestId("artifact-field-element_type") as HTMLInputElement;
     expect(typeInput.value).toBe("component");
   });
 
@@ -260,10 +298,10 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
     });
 
-    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    const typeInput = screen.getByTestId("artifact-field-element_type") as HTMLInputElement;
     await user.clear(typeInput);
     await user.type(typeInput, "subsystem");
     expect(typeInput.value).toBe("subsystem");
@@ -274,10 +312,10 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
     });
 
-    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    const typeInput = screen.getByTestId("artifact-field-element_type") as HTMLInputElement;
     await user.clear(typeInput);
     await user.type(typeInput, "Actor");
     expect(typeInput.value).toBe("Actor");
@@ -294,14 +332,14 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
 
-    const titleInput = screen.getByTestId("arch-title");
+    const titleInput = screen.getByTestId("artifact-field-title");
     await user.clear(titleInput);
     await user.type(titleInput, "AuthService Updated");
 
-    const saveBtn = screen.getByTestId("arch-save-btn");
+    const saveBtn = screen.getByTestId("artifact-form-save");
     await user.click(saveBtn);
 
     await waitFor(() => {
@@ -317,14 +355,14 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-delete-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-delete")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("arch-delete-btn"));
+    await user.click(screen.getByTestId("artifact-form-delete"));
 
     // Dialog should appear
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByTestId("confirm-delete-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-form-delete-confirm")).toBeInTheDocument();
   });
 
   it("renders split-pane divider for resizing (REQ-L3-RF-***: enable split-pane resizing)", async () => {

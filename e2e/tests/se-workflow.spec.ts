@@ -18,14 +18,14 @@ async function createRequirementViaQuickForm(page: Page, title = 'E2E Requiremen
   await page.locator('[data-testid="create-req-btn"]').click();
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 // [I5] A workspace tree may have exactly one root ArchitectureElement, and
@@ -56,10 +56,10 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    // Bug A3: correct testid is "arch-element-type-select". REQ-006/D5
+    // Bug A3: correct testid is "artifact-field-element_type". REQ-006/D5
     // later replaced the fixed 5-option <select> with a free-text
     // autocomplete input (types can be extended freely).
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 8000 });
 
     await typeInput.fill('Subsystem');
@@ -95,7 +95,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    const changeReasonInput = page.locator('[data-testid="change-reason-input"]');
+    const changeReasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
     const count = await changeReasonInput.count();
 
     if (count === 0) {
@@ -110,7 +110,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    const changeReason = page.locator('[data-testid="change-reason-input"]');
+    const changeReason = page.locator('[data-testid="artifact-form-change-reason"]');
     const count = await changeReason.count();
 
     if (count === 0) {
@@ -133,7 +133,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
 
     // REQ-006/D5: element type is now a free-text autocomplete input, not a
     // fixed <select> — verify it can be changed via typing.
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 8000 });
 
     await typeInput.fill('Interface');

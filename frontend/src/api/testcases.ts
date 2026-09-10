@@ -76,13 +76,18 @@ export const testcasesApi = {
     return apiClient.post<TestCase>("/testcases/", data);
   },
 
-  update(
-    id: UUID,
-    data: Partial<Pick<TestCase, "title" | "description" | "status" | "custom_fields">> & {
-      /** Extended preset: audit rationale forwarded to the backend audit log. */
-      change_reason?: string;
-    }
-  ): Promise<TestCase> {
+  /**
+   * Task 22: widened to `Record<string, unknown>` (same deviation as
+   * `risksApi.update`/`issuesApi.update`, Tasks 19/20) so the definition-
+   * driven `TestCaseArtifactForm` can PATCH whatever the resolved attribute
+   * definition exposes (e.g. `test_type`, `steps`) without this type lagging
+   * behind it. The former `change_reason` field is dropped: verified live
+   * that `TestCaseSerializer` never declared it and `TestCaseViewSet.
+   * partial_update` never reads it — the deleted `TestCaseForm.tsx` sent a
+   * value the backend silently discarded (see `TestCaseArtifactForm.tsx`'s
+   * docstring for the full trace).
+   */
+  update(id: UUID, data: Record<string, unknown>): Promise<TestCase> {
     return apiClient.patch<TestCase>(`/testcases/${id}/`, data);
   },
 

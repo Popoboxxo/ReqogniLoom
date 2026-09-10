@@ -234,8 +234,6 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "prompt_template.list",
         "prompt_variable.list",
         "prompt_variable.get",
-        "custom_field.get",
-        "custom_field.query",
         "diagram.get",
         "diagram.query",
         "admin.backup_list",
@@ -285,6 +283,13 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # LinkTypeFacade._require_admin).
         "link_type.list",
         "link_type.get",
+        # Attribute-Definition spec section 5, Task 12: attribute_definition.list
+        # (admin-gated in the service, tenant-wide) and attribute_definition.get
+        # (workspace_id required in its inputSchema, same class as
+        # requirement.get) are both plain reads over attribute_definitions rows
+        # -- attribute_definition.update/.reset stay fail-closed WRITE-gated.
+        "attribute_definition.list",
+        "attribute_definition.get",
     }
 )
 
@@ -540,7 +545,6 @@ class ToolRegistry:
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
-        from mcp_server.tools.custom_field import CustomFieldToolGroup
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.baseline import BaselineToolGroup
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
@@ -548,6 +552,7 @@ class ToolRegistry:
         from mcp_server.tools.interview import InterviewToolGroup
         from mcp_server.tools.memory import MemoryToolGroup
         from mcp_server.tools.link_type import LinkTypeToolGroup
+        from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -588,7 +593,6 @@ class ToolRegistry:
             "prompt_variable": PromptVariableToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
-            "custom_field": CustomFieldToolGroup(),
             "review": ReviewToolGroup(),
             # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
             "baseline": BaselineToolGroup(),
@@ -610,6 +614,13 @@ class ToolRegistry:
             # the per-tenant/per-workspace link-type catalog (Task 19's
             # LinkTypeFacade). link_type.list/get are read-exempt below.
             "link_type": LinkTypeToolGroup(),
+            # Attribute-Definition spec section 5, Task 12: manages
+            # attribute_definitions rows themselves (list/get/update/reset) --
+            # NOT to be confused with validate_artifact_fields, which is
+            # wired into the artifact ViewSets (Task 11), MCP artifact writes
+            # (mcp_server/tools/base.py::validate_artifact_write), and the CSV
+            # bulk importer (ImportService._validate_attribute_definitions).
+            "attribute_definition": AttributeDefinitionToolGroup(),
         })
 
     def list_tools(

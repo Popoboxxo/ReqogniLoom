@@ -6,7 +6,8 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { AdrList } from './AdrList';
-import { AdrForm } from './AdrForm';
+import { AdrArtifactForm } from './AdrArtifactForm';
+import { AdrSupersedePanel } from './AdrSupersedePanel';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
@@ -90,9 +91,9 @@ export default function AdrEditors(): JSX.Element {
   };
 
   // UI-LOW-3 (Systemaudit, LOW finding): `updated` is set only by the
-  // ADR-Supersede flow (AdrForm.handleSupersede) — see useAdrData.refresh's
-  // doc comment for why that path needs a synchronous cache write instead of
-  // only an invalidate-triggered refetch.
+  // ADR-Supersede flow (AdrSupersedePanel.handleSupersede) — see
+  // useAdrData.refresh's doc comment for why that path needs a synchronous
+  // cache write instead of only an invalidate-triggered refetch.
   const handleSaved = (updated?: Adr) => { refresh(updated); };
   const handleDeleted = () => { navigate('/adrs'); refresh(); };
 
@@ -183,7 +184,33 @@ export default function AdrEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
-                <AdrForm adr={item} otherAdrs={items} onSaved={handleSaved} onDeleted={handleDeleted} />
+                {/* DEVIATION from the plan brief: the brief's AdrArtifactForm
+                    takes a non-nullable `adr: Adr` (unlike the deleted
+                    AdrForm, which accepted `adr: Adr | null` and rendered the
+                    "select an ADR" placeholder itself). `item` here is
+                    `Adr | null` (no row selected yet), so that null-guard
+                    moves to this call site instead of being lost — same
+                    pattern as RiskEditors/IssueEditors (Tasks 19/20). The
+                    ADR-Supersede-Flow has no equivalent inside ArtifactForm,
+                    so it stays a standalone sibling (see AdrSupersedePanel's
+                    doc comment) rendered right below the form. */}
+                {item ? (
+                  // F-2 (code review, Task 21 fix round): `key` forces
+                  // ArtifactForm's internal `useEntityReset` to remount on
+                  // status change too, not just `entityId` change — without
+                  // it, a Supersede leaves the form showing the pre-Supersede
+                  // status (e.g. stale "Approved") because `initialValues`'s
+                  // object identity change alone isn't enough to trigger a
+                  // reset (regression of UI-LOW-3).
+                  <>
+                    <AdrArtifactForm key={`${item.id}:${item.status}`} adr={item} onSaved={() => handleSaved()} onDeleted={handleDeleted} />
+                    <AdrSupersedePanel adr={item} otherAdrs={items} onSaved={handleSaved} />
+                  </>
+                ) : (
+                  <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                    {t('adrs.selectAdr')}
+                  </p>
+                )}
                 {/* TraceLinkPanel stays: it is the create/delete CRUD surface
                     for trace links (Task 3.3 decision — the Spine above is a
                     read-only derivation-chain view, not a link editor). */}

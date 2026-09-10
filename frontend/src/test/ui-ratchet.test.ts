@@ -332,13 +332,97 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //      (`formLabelStyle`/`formInputStyle`/`formHintStyle`), so it adds none.
 // 1016 - 1 = 1015. Re-measured on the tree: 1015, matching exactly.
 //
-// Traceability-Semantik final review (2026-09-10):
-//   -21 `TraceabilityView/TraceLinksForm.tsx` — deleted. Exported but never
-//       imported outside its own test file, and it filtered trace links on
-//       retired link-type literals, so it could not have worked any more
-//       even if it had been mounted. 1015 - 21 = 994, re-measured: 994.
+// Task 20 (Issue rollout wave): -15, from 994 to 979. The deleted
+// `IssueForm.tsx` (260-line hand-written form, same class as the deleted
+// `RiskForm.tsx`, Task 19) is gone; `IssueArtifactForm.tsx` and
+// `IssueEditors.tsx`'s edit add zero new `style={{` literals (`ArtifactForm`
+// owns layout). Re-measured on the tree: 979, matching exactly.
+//
+// Task 21 (ADR rollout wave): -14, from 979 to 965, measured in isolation
+// (only the ADR-wave files applied). Breakdown, counted with the same
+// `style={{` regex the test itself uses, file by file:
+//   -15 `AdrForm.tsx` (deleted) — carried both the hand-written
+//        title/status/custom-fields/change-reason layout (now
+//        `ArtifactForm`-owned, zero `style={{` literals) AND the
+//        ADR-Supersede-Flow, which moved unchanged into
+//        `AdrSupersedePanel.tsx` (0 `style={{` literals there — the
+//        supersede UI never used inline styles).
+//   +1 `AdrEditors.tsx` (10 → 11) — one added inline style.
+//   0 `AdrArtifactForm.tsx` — zero `style={{` literals.
+// 979 - 14 = 965. Re-measured on the isolated ADR-only tree: 965, matching
+// exactly.
+//
+// Task 24 (ArchitectureElement rollout wave): 0 of its own, measured in
+// isolation on its own tree at 949 — but that commit is a separate, parallel
+// rollout wave and not part of this one. This file's constant reflects only
+// the Task 21 (ADR) wave's isolated delta above (965); Task 24's own commit
+// carries its own re-measured 949 in its own copy of this shared file.
+//
+// Task 23 fix round (StakeholderNeed R-1/R-2/S-1/S-2, this shared working
+// tree): re-measured on the merged tree at the time of this fix round: 951 —
+// reflects whatever combination of the Task 21/23/24 waves' concurrent edits
+// to this shared file happened to be present at that moment, not an isolated
+// per-wave delta (moving target per this round's own task brief; not
+// re-derivable in isolation the way the entries above are).
+//
+// Task 24 fix round (R-1/R-2, this shared working tree, HEAD = 6a284f38 —
+// Task 21/ADR already landed on top of Task 24/Architecture): re-ran the
+// suite as-is and it was already green at 951, so no change was needed here.
+// Still a moving target across the concurrently-landing Task 21/23/24 waves —
+// needs one final re-measurement once all three are merged onto a settled
+// tree, same caveat as the Task 23 entry above.
+//
+// Task 22 review round 1, S-3: the TestCase rollout wave (Task 22) had added
+// 3 new inline literals to `TestCaseEditors.tsx` (the sibling
+// CustomFieldsEditor section wrapper/heading + the "select a test case"
+// placeholder — `TestCaseForm.module.css`, deleted in the same wave, used to
+// supply this chrome), pushing the count to 954 and turning this test red.
+// All 3 moved onto a new, minimal `TestCaseEditors.module.css`. Re-measured
+// (fresh, not trusting the reviewer's or the prior round's number, per this
+// fix round's instructions): 951 — back to the same value the Task 23/24
+// entries above already recorded, confirming no other concurrent wave has
+// touched this shared file since. Baseline held at the re-measured value per
+// the ratchet rule above.
+// Task 25 (last rollout wave): deleting `RequirementForm.tsx` (the biggest
+// single style={{ contributor of any of the seven forms — full-page manual
+// inline layout, no CSS module) and retiring the dead `attributeVisibility`/
+// `EntityTypeProvider` wiring in `RequirementEditors.tsx` dropped the count
+// from 951 to 924, the largest single drop of the whole rollout (as the plan
+// predicted — Requirement carried the most style={{ literals of the seven).
+// The restored `CustomFieldsEditor` sibling (parity fix, see
+// `RequirementArtifactForm.tsx`'s docstring) uses CSS classes in
+// `RequirementEditors.module.css`, not inline `style={{ }}` — same
+// TestCaseEditors.module.css precedent (Task 22) — so the count holds at
+// 924. Re-measured fresh immediately before recording, per the Task 23
+// runbook note on this exact assertion flapping across concurrent
+// orchestrator instances.
+//
+// Task 27 (remove the legacy field-configuration UI): -57, from 924 to 867.
+// Six deleted files carried the drop — the workspace-wide field-definition
+// admin section, the per-artifact value editor it fed, the read-only display
+// table nothing imported any more, and the attribute-visibility admin panel
+// (all four hand-styled with inline literals, all four calling REST endpoints
+// retired in Task 9) — plus the `visibility` settings tab and the two mount
+// sites in `GoalDetail.tsx` / `RequirementEditors.tsx`. Nothing was added.
+// Re-measured fresh on the tree: 867, matching exactly. This was the
+// attribute-definition branch's own isolated number, independent of the
+// entries below (a different branch, sharing only the 1015 ancestor).
+//
+// Traceability-Semantik final review (2026-09-10), isolated on its own
+// branch, also independent of the attribute-definition entries above (same
+// 1015 ancestor, different deletion): -21 `TraceabilityView/TraceLinksForm.tsx`
+// — deleted. Exported but never imported outside its own test file, and it
+// filtered trace links on retired link-type literals, so it could not have
+// worked any more even if it had been mounted. 1015 - 21 = 994, re-measured
+// on that branch alone: 994.
+//
+// Merge of the two branches above (2026-09-10): both sets of deletions are
+// now in the same tree, so neither 867 nor 994 alone is correct — re-measured
+// fresh on the merged tree per this file's own stated rule (never compute
+// deltas across concurrently-landing branches): 846, which also equals
+// 867 - 21 since the two branches' deletions touched disjoint files.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 994;
+const STYLE_BRACE_BASELINE = 846;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -486,7 +570,8 @@ const STYLE_BRACE_BASELINE = 994;
 // `-notrun`/`-default` — an earlier draft of this comment said ~7.4% here,
 // which was actually ErrorBoundary.tsx's distance below, copy-pasted by
 // mistake; corrected in post-commit review).
-// `AttributeVisibilityAdmin.tsx`'s 3 and `BaselinesView.tsx`'s 1 `#ffffff`
+// The legacy attribute-visibility admin panel's 3 (file since deleted in
+// Task 27) and `BaselinesView.tsx`'s 1 `#ffffff`
 // button/banner-text-on-colored-background spots reused the existing
 // `--color-on-primary` token (established convention from checkpoint 3).
 // `ErrorBoundary.tsx`'s crash-fallback message color (`#666`, the file uses

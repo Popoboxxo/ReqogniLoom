@@ -31,13 +31,12 @@ import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
 import { WorkflowPermissionsSection } from "./WorkflowPermissionsSection";
+import { AttributeEditorPage } from "../AttributeEditor";
 import { PermissionsSection } from "./PermissionsSection";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { AiPromptsSection } from "./AiPromptsSection";
 import { PromptVariablesSection } from "./PromptVariablesSection";
-import { CustomFieldsSection } from "./CustomFieldsSection";
 import { McpConnectionSection } from "./McpConnectionSection";
 import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
@@ -78,18 +77,18 @@ type SettingsTabId =
   | "general"
   | "appearance"
   | "traceability"
-  | "visibility"
   | "llm"
-  | "workflows-permissions";
+  | "workflows-permissions"
+  | "attributes";
 
 /** Keyboard (arrow-key) traversal order — must mirror the rendered order. */
 const SETTINGS_TAB_IDS: SettingsTabId[] = [
   "general",
   "appearance",
   "traceability",
-  "visibility",
   "llm",
   "workflows-permissions",
+  "attributes",
 ];
 
 function isSettingsTabId(value: string | null): value is SettingsTabId {
@@ -323,9 +322,9 @@ export default function WorkspaceSettings(): JSX.Element {
     { id: "general", label: t("settings.tabs.general", "Allgemein") },
     { id: "appearance", label: t("settings.tabs.appearance", "Darstellung") },
     { id: "traceability", label: t("settings.tabs.traceability", "Traceability") },
-    { id: "visibility", label: t("settings.tabs.visibility", "Sichtbarkeit") },
     { id: "llm", label: t("settings.tabs.llm", "LLM & Prompts") },
     { id: "workflows-permissions", label: t("settings.tabs.governanceReplacement", "Workflows & Permissions") },
+    { id: "attributes", label: t("settings.tabs.attributes", "Attributes") },
   ];
 
   return (
@@ -553,9 +552,6 @@ export default function WorkspaceSettings(): JSX.Element {
               </label>
             </section>
 
-            {/* Custom Fields (REQ-016) — workspace-wide field definitions, admin-managed */}
-            {isAdmin && <CustomFieldsSection workspaceId={activeWorkspace.id} />}
-
             {/* Data Management — link to the CSV import page (REQ-L0-013) */}
             <section style={cardStyle}>
               <h3 style={headingStyle}>{t("settings.dataManagement", "Datenmanagement")}</h3>
@@ -722,17 +718,6 @@ export default function WorkspaceSettings(): JSX.Element {
           <ContextGraphSettingsSection workspaceId={activeWorkspace.id} />
         )}
 
-        {/* ---------------- Visibility ---------------- */}
-        {activeTab === "visibility" && (
-          <section style={cardStyle}>
-            <h3 style={headingStyle}>{t("settings.attributeVisibility", "Attribut-Sichtbarkeit")}</h3>
-            <p style={hintStyle}>
-              {t("settings.attributeVisibilityHint", "Konfiguriere, welche Attribute für die jeweiligen Elementtypen im Workspace sichtbar sind.")}
-            </p>
-            <AttributeVisibilityAdmin />
-          </section>
-        )}
-
         {/* ---------------- LLM & Prompts ---------------- */}
         {activeTab === "llm" && (
           <>
@@ -761,6 +746,9 @@ export default function WorkspaceSettings(): JSX.Element {
             <PermissionsSection workspaceId={activeWorkspace.id} />
           </>
         )}
+
+        {/* ---------------- Attributes (Task 26) ---------------- */}
+        {activeTab === "attributes" && <AttributeEditorPage />}
       </div>
 
       {/* Status (shared across tabs) */}

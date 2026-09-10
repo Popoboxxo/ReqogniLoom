@@ -26,7 +26,7 @@ test.describe('Requirements Management', () => {
     await page.locator('[data-testid="create-req-btn"]').click();
     await page.locator('[data-testid="req-new-title-input"]').fill('E2E New Requirement Form');
     await page.locator('[data-testid="req-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('[REQ-L1-002] create requirement via API', async ({ request }) => {
@@ -58,12 +58,12 @@ test.describe('Requirements Management', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
 
     // Wait for navigation to /requirements/:id and the title input to appear
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
-    await page.locator('[data-testid="req-title"]').fill('UI E2E Requirement');
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="artifact-field-title"]').fill('UI E2E Requirement');
 
     // Save
-    await page.locator('[data-testid="save-btn"]').click();
+    await page.locator('[data-testid="artifact-form-save"]').click();
     // After save, the form persists or navigates — title field should have the value
-    await expect(page.locator('[data-testid="req-title"]')).toHaveValue('UI E2E Requirement', { timeout: 8000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('UI E2E Requirement', { timeout: 8000 });
   });
 });

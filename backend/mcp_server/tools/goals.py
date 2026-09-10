@@ -28,6 +28,7 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    validate_artifact_write,
 )
 from workflow.definition_store import PRESET_SCHEMAS
 
@@ -344,6 +345,12 @@ class GoalToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
+        # Ledger gap #1 / issue #881: same central gate as GoalViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "Goal", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
         try:
             result = GoalService().create_version(
                 workspace_id=workspace_id,
@@ -365,6 +372,12 @@ class GoalToolGroup(BaseToolGroup):
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         lineage_id = require_uuid(params, "lineage_id")
+        # Ledger gap #1 / issue #881: same central gate as GoalViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "Goal", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
         try:
             result = GoalService().create_version(
                 workspace_id=workspace_id,
@@ -412,12 +425,36 @@ class GoalToolGroup(BaseToolGroup):
                 "goal.transition for a state-machine-gated status change, or "
                 "goal.delete / goal.reactivate for the archive lifecycle.",
             )
+        title = params.get("title")
+        description = params.get("description")
         try:
+            existing_goal = GoalService().get(goal_id, auth_context)
+            # Ledger gap #1 / issue #881: goal.update always appends a
+            # brand-new lineage version (GoalService.update ->
+            # create_version) rather than patching in place, so this
+            # validates like a create against the merged, final field
+            # values (existing=None), mirroring GoalViewSet.create rather
+            # than a partial-patch check.
+            definition_error = validate_artifact_write(
+                auth_context,
+                "Goal",
+                existing_goal.workspace_id,
+                {
+                    "title": existing_goal.title if title is None else title,
+                    "description": (
+                        existing_goal.description if description is None else description
+                    ),
+                },
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
+
             result = GoalService().update(
                 goal_id,
                 auth_context,
-                title=params.get("title"),
-                description=params.get("description"),
+                title=title,
+                description=description,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

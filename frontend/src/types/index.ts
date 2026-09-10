@@ -341,9 +341,11 @@ export interface Adr {
   // Task 2.1: the backing Artifact id (Adr.artifact, backend/application/models.py)
   // is not yet exposed by AdrSerializer — unlike Requirement/StakeholderNeed/
   // ArchitectureElement, which all serialize a separate `artifact_id`. Declared
-  // here (optional, currently always undefined) so <ArtifactCustomFields> in
-  // AdrForm is wired the same way as the other forms and starts working the
-  // moment the backend field ships, instead of needing another frontend change.
+  // here (optional, currently always undefined) for parity with the other
+  // artifact types. NOTE (Task 27): the workspace-defined custom-field
+  // renderer that used to consume this id is gone along with its backend
+  // (custom fields are attribute definitions now, tracked gap #7). The field
+  // stays declared for the next consumer of the backing Artifact id.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -418,8 +420,7 @@ export interface Risk {
   workspace_id: UUID;
   // Task 2.2: same as Adr.artifact_id above — the backing Artifact id is not
   // yet exposed by RiskSerializer. Declared here (optional, currently always
-  // undefined) so <ArtifactCustomFields> in RiskForm is wired the same way as
-  // the other forms and starts working the moment the backend field ships.
+  // undefined) for parity with the other artifact types.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -439,6 +440,17 @@ export interface Risk {
   severity: RiskSeverity;
   category: RiskCategory;
   owner: string;
+  /**
+   * REQ-L1-029 (FMEA): structured User FK for risk assignment, mirrors
+   * RiskSerializer.owner_user_id (kept alongside the legacy free-text
+   * `owner` field). Task 19: the attribute-definition bootstrap serves this
+   * under the same name (see bootstrap_attribute_definitions.py's
+   * WIDGET_FIELD_ALIASES — the raw Django FK field is named `owner_user`,
+   * aliased to match this serializer field).
+   */
+  owner_user_id?: UUID | null;
+  /** Read-only display label for `owner_user_id` (RiskSerializer.owner_user_display). */
+  owner_user_display?: string | null;
   mitigation_strategy: string;
   status: RiskStatus;
   version: number;
@@ -460,9 +472,8 @@ export interface Issue {
   workspace_id: UUID;
   // Task 2.3: same as Adr.artifact_id / Risk.artifact_id above — the backing
   // Artifact id is not yet exposed by IssueSerializer. Declared here
-  // (optional, currently always undefined) so <ArtifactCustomFields> in
-  // IssueForm is wired the same way as the other forms and starts working
-  // the moment the backend field ships.
+  // (optional, currently always undefined) for parity with the other
+  // artifact types.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -470,6 +481,16 @@ export interface Issue {
   category: IssueCategory;
   status: IssueStatus;
   tags: string[];
+  /**
+   * Task 20 finding: `IssueSerializer` never declared this field at all
+   * (mirrors Task 19's `owner_user_id` finding on Risk) even though
+   * `IssueService.create_issue`/`update_issue` both already accept and
+   * persist it — via REST, every save silently discarded it and every read
+   * came back empty (the MCP generic tool group was unaffected: it forwards
+   * arbitrary params straight to the service, bypassing this serializer).
+   * Fixed at the serializer/view layer alongside this migration.
+   */
+  due_date?: ISODateTime | null;
   version: number;
   uid?: string;
   created_at: ISODateTime;

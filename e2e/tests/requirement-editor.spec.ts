@@ -6,13 +6,13 @@ import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/au
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form (title input + Save/Cancel);
-// the full editor (req-title etc.) only renders after Save navigates to the
+// the full editor (artifact-field-title etc.) only renders after Save navigates to the
 // created requirement's detail route.
 async function createRequirementViaQuickForm(page: Page, title = 'E2E Requirement'): Promise<void> {
   await page.locator('[data-testid="create-req-btn"]').click();
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 test.describe('[COMP-RF-003] RequirementEditors', () => {
@@ -28,7 +28,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await createRequirementViaQuickForm(page);
 
     // Inline edit title
-    const title = page.locator('[data-testid="req-title"]');
+    const title = page.locator('[data-testid="artifact-field-title"]');
     await title.fill('Inline Edit Title REQ-L3-RF003-001');
     await expect(title).toHaveValue('Inline Edit Title REQ-L3-RF003-001');
 

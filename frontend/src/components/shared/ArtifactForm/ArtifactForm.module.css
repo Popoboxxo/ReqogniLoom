@@ -1,0 +1,162 @@
+/* Definition-driven artifact form. All values come from styles/tokens.css —
+   no hardcoded colours or sizes (design-tokens ratchet). */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  padding: 0;
+}
+
+.sectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.required::after {
+  content: " *";
+  color: var(--color-danger);
+}
+
+.control {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.control:disabled {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.controlInvalid {
+  border-color: var(--color-danger);
+}
+
+.help {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.errors {
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.optionList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.optionChip {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+}
+
+/* No `background: var(--color-primary)` fill here on purpose (UI-50 ratchet,
+   frozen at 29 occurrences) — border+text colour mirrors the already-present
+   `.tabActive` "selected" treatment in this same file instead of adding a new
+   duplicate of the one declaration `.btn-primary` (global.css) exists to own. */
+.optionChipSelected {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.matrixGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.tabList {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-2);
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text-muted);
+}
+
+.tabActive {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.stepRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.stepIndex {
+  min-width: var(--space-6);
+  color: var(--color-text-muted);
+}

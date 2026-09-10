@@ -38,7 +38,7 @@ from rest_framework.response import Response
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
-from persistence.models import ElementType
+from persistence.models import ElementType, TestCaseType
 
 # ---------------------------------------------------------------------------
 # Lock-counter semantics (issue #213)
@@ -952,6 +952,22 @@ class TestCaseSerializer(
     steps = serializers.ListField(
         child=serializers.DictField(), required=False, default=list
     )
+    # C-1 (attribute-definitions Task 22 review round 1): `TestCase.test_type`
+    # (persistence/migrations/0041_add_testcase_test_type.py, B6a) is a real,
+    # writable model column with TestCaseType choices — the bootstrap
+    # introspects it as an editable enum attribute (bootstrap_attribute_
+    # definitions.py: CLASSIFICATION_FIELDS + _attribute_type's
+    # `choices` -> "enum" branch), so the definition-driven
+    # TestCaseArtifactForm renders it as a select and PATCHes it back. This
+    # serializer never declared it, so `validate()`'s unknown-key guard 400'd
+    # every save the moment a user touched the field. Unrelated to
+    # `TestService.create_test_case`'s `test_type` parameter, which is a
+    # separate legacy mechanism (Title-Case values tagged onto
+    # `artifact.artifact_type`, never touching this column) — deliberately
+    # left alone here; this field only wires the real column through PATCH.
+    test_type = serializers.ChoiceField(
+        choices=TestCaseType.choices, required=False, allow_null=True
+    )
     # SysEng 2.0 N5: optional requirement to auto-link on create (write-only —
     # mirrors the MCP test.create `linked_req_id` convention, ADR-L3-MC005-01).
     linked_requirement_id = serializers.UUIDField(
@@ -1331,6 +1347,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
 class AdrSerializer(
     WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1373,6 +1390,7 @@ class AdrSerializer(
 
 class RiskSerializer(
     WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1548,6 +1566,7 @@ class NormalizedChoiceField(serializers.ChoiceField):
 
 class IssueSerializer(
     WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1576,6 +1595,17 @@ class IssueSerializer(
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
     tags = serializers.JSONField(required=False, default=list)
+    # Task 20 finding: `Issue.due_date` (application/issue_service.py's
+    # create_issue/update_issue both already accept and persist it) was never
+    # declared on this serializer at all — same silent-discard class as Task
+    # 19's `owner_user_id` finding, but the model column had no REST field to
+    # even alias. This was REST-only: the MCP generic tool group forwards
+    # arbitrary params straight to the service and already round-tripped
+    # `due_date` (mcp_server/tests/test_generic_tool_group.py) before this fix.
+    # Writable/nullable like the rest of the optional Issue fields;
+    # `_issue_to_dict` and both view methods below now round-trip it via REST
+    # too.
+    due_date = serializers.DateTimeField(required=False, allow_null=True, default=None)
     # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
     # forwards it to IssueService.update_issue() but DRF dropped it.
     change_reason = SanitizedCharField(
@@ -1658,136 +1688,6 @@ class IcdParameterSerializer(serializers.Serializer):
     ordering = serializers.IntegerField(default=0)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
-
-
-class AttributeVisibilityConfigSerializer(serializers.Serializer):
-    """Serializer for AttributeVisibilityConfig (REQ-L1-058 AC2).
-
-    Admin configuration for field visibility per entity type and workspace.
-    Allows controlling which type-dependent fields are visible in the UI
-    and whether they are required in forms.
-
-    Constraint: Unique on (tenant_id, entity_type, attribute_name).
-    Index: Composite BTree on (tenant_id, entity_type) for fast bulk lookups.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    tenant_id = serializers.UUIDField(required=True)
-    entity_type = serializers.CharField(
-        max_length=64,
-        help_text="Target entity type (e.g., 'Requirement', 'ArchitectureElement')",
-    )
-    attribute_name = serializers.CharField(
-        max_length=128,
-        help_text="Field name (e.g., 'moscow_priority', 'asil_level')",
-    )
-    is_visible = serializers.BooleanField(
-        default=True,
-        help_text="Show/hide toggle for frontend",
-    )
-    is_required = serializers.BooleanField(
-        default=False,
-        help_text="Mark as required in forms",
-    )
-    created_by = serializers.CharField(
-        source='created_by.username',
-        read_only=True,
-        required=False,
-        help_text="Audit: username who created this config",
-    )
-    modified_by = serializers.CharField(
-        source='modified_by.username',
-        read_only=True,
-        required=False,
-        allow_null=True,
-        help_text="Audit: username who last modified this config",
-    )
-    created_at = serializers.DateTimeField(read_only=True)
-    modified_at = serializers.DateTimeField(read_only=True)
-    version = serializers.IntegerField(
-        read_only=True,
-        help_text=LOCK_VERSION_HELP_TEXT,
-    )
-
-
-class CustomFieldDefinitionSerializer(serializers.Serializer):
-    """Serializer for CustomFieldDefinition (REQ-016).
-
-    Workspace-wide custom field definition. ``options`` is only meaningful for
-    ``field_type == "dropdown"`` and must then be a non-empty list of strings.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    workspace_id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(max_length=128)
-    field_type = serializers.ChoiceField(
-        choices=["text", "number", "dropdown"],
-        default="text",
-    )
-    is_required = serializers.BooleanField(default=False)
-    options = serializers.ListField(
-        child=serializers.CharField(max_length=255),
-        required=False,
-        default=list,
-    )
-    order = serializers.IntegerField(required=False, default=0)
-    created_at = serializers.DateTimeField(read_only=True)
-    modified_at = serializers.DateTimeField(read_only=True)
-
-    # Custom field names end up as object keys wherever the frontend indexes a
-    # value map by field name; these three are unsafe there (prototype
-    # pollution via `obj[name] = value` bracket assignment) even though they
-    # are inert as plain Django CharField values (QA-66).
-    _RESERVED_NAMES = frozenset({"__proto__", "constructor", "prototype"})
-
-    def validate_name(self, value: str) -> str:
-        if value.strip().lower() in self._RESERVED_NAMES:
-            raise serializers.ValidationError(
-                f"'{value}' is a reserved name and cannot be used as a custom field name."
-            )
-        return value
-
-    def validate(self, attrs: dict) -> dict:
-        """Enforce that dropdown fields carry at least one option.
-
-        On partial updates ``field_type``/``options`` may be absent; the check
-        only fires when a dropdown type is being set without any option.
-        """
-        field_type = attrs.get("field_type")
-        options = attrs.get("options")
-        if field_type == "dropdown" and not options:
-            raise serializers.ValidationError(
-                {"options": "Dropdown fields require at least one option."}
-            )
-        return attrs
-
-
-class CustomFieldValueSerializer(serializers.Serializer):
-    """Serializer for a persisted CustomFieldValue joined with its definition (REQ-016).
-
-    Read output merges the value with its definition metadata so the frontend can
-    render the input control without a second request. On write only
-    ``definition_id`` and ``value`` are consumed.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    definition_id = serializers.UUIDField()
-    artifact_id = serializers.UUIDField(read_only=True)
-    # #104: custom field values are user-authored free text (field_type=="text")
-    # and were unbounded before — cap to prevent oversized payloads (DoS risk).
-    value = serializers.CharField(
-        allow_blank=True, allow_null=True, required=False, default="", max_length=5000
-    )
-    # Definition metadata (read-only convenience fields).
-    name = serializers.CharField(source="definition.name", read_only=True)
-    field_type = serializers.CharField(
-        source="definition.field_type", read_only=True
-    )
-    is_required = serializers.BooleanField(
-        source="definition.is_required", read_only=True
-    )
-    options = serializers.JSONField(source="definition.options", read_only=True)
-    order = serializers.IntegerField(source="definition.order", read_only=True)
 
 
 # ---------------------------------------------------------------------------
@@ -2014,9 +1914,6 @@ __all__ = [
     "AdrSerializer",
     "RiskSerializer",
     "IssueSerializer",
-    "AttributeVisibilityConfigSerializer",
-    "CustomFieldDefinitionSerializer",
-    "CustomFieldValueSerializer",
     "TestRunSerializer",
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",

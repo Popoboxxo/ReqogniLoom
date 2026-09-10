@@ -151,9 +151,20 @@ export const requirementsApi = {
 
   // REQ-143: `status` is intentionally NOT part of the update contract — it is
   // a read-only WorkflowEngine mirror. Use `transition()` to change the state.
+  //
+  // Task 25 (rollout wave 3): widened from a fixed `Partial<Pick<Requirement,
+  // ...>>` to `Record<string, unknown>`, same deviation as `risksApi.update`/
+  // `issuesApi.update`/`stakeholderNeedApi.update` (Tasks 19/20/23). The
+  // payload now comes from `ArtifactForm` (`RequirementArtifactForm`'s
+  // `formValuesToRequirementPatch`), a generic definition-driven value bag
+  // whose keys are whatever the resolved attribute definition currently
+  // lists (e.g. `acceptance_criteria`, `level`, neither of which the old
+  // fixed Pick declared), not a fixed compile-time-known set — the backend's
+  // own per-field 400s remain the actual validation authority (see
+  // `RequirementViewSet.partial_update` / `_validate_patch_payload`).
   update(
     id: UUID,
-    data: Partial<Pick<Requirement, "title" | "description" | "category" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method" | "custom_fields">>
+    data: Record<string, unknown>
   ): Promise<Requirement> {
     return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
   },

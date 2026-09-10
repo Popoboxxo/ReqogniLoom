@@ -63,7 +63,7 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
     
     // Now wait for the detail view to load
-    await expect(page.locator('[data-testid="req-title"]')).toHaveValue('SYS-REQ-001: Main System Function', { timeout: 8000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('SYS-REQ-001: Main System Function', { timeout: 8000 });
     
     // Choose SyReq (System Requirement) in the detail view
     // The type is SyReq by default, so we don't need to change it.
@@ -81,7 +81,7 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     await expect(page.locator('[data-testid="arch-new-title-input"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="arch-new-title-input"]').fill('SYS-ARCH-001: Core System Component');
     await page.locator('[data-testid="arch-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue('SYS-ARCH-001: Core System Component', { timeout: 8000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('SYS-ARCH-001: Core System Component', { timeout: 8000 });
 
     const archUrl = page.url();
     const l1ArchId = archUrl.split('/').pop();
@@ -136,7 +136,7 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     await page.locator('[data-testid="req-derive-submit-btn"]').click();
 
     // Wait for the new child requirement to load
-    await expect(page.locator('[data-testid="req-title"]')).toHaveValue('SUB-REQ-001: Subsystem Function', { timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('SUB-REQ-001: Subsystem Function', { timeout: 10000 });
 
     // Check its traceability to confirm what link type the derive action
     // actually created.

@@ -91,7 +91,7 @@ context_file:
   mode: full
   max_lines: 250
   oversize_acknowledged: false
-  auto_generate: false
+  auto_generate: true
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler

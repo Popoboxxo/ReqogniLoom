@@ -1,7 +1,7 @@
 {
   "vmodell-decomposition": [
     "workspace.get_context", "goal.read", "goal.query", "main_goal.read",
-    "needs.create", "needs.update", "custom_field.get", "custom_field.query",
+    "needs.create", "needs.update",
     "requirement.create", "requirement.derive", "traceability.create_link",
     "ai_derivation.derive_requirements_from_need", "needs.derive_requirements",
     "requirement.decompose", "ai_derivation.decompose_requirement_next_level",
@@ -15,14 +15,14 @@
     "requirement_bundle.compression_status"
   ],
   "test-lifecycle": [
-    "workspace.get_context", "custom_field.get", "custom_field.query",
+    "workspace.get_context",
     "requirement.get", "requirement.query", "traceability.query",
     "test.create", "test.update", "test.link",
     "test.run_create", "test.run_report_results", "test.run_get",
     "test.derive_from_requirement", "artifact.search", "test.get", "test.query"
   ],
   "risk-derivation": [
-    "workspace.get_context", "custom_field.get", "custom_field.query",
+    "workspace.get_context",
     "requirement.get", "requirement.query", "architecture.get", "architecture.query",
     "diagram.get", "diagram.query", "artifact.search", "traceability.query",
     "ai_derivation.derive_risks_from_architecture",
@@ -40,7 +40,7 @@
     "change_request.read", "change_request.query", "diagram.create", "diagram.get", "diagram.query"
   ],
   "traceability-audit": [
-    "workspace.get_context", "custom_field.get", "custom_field.query",
+    "workspace.get_context",
     "requirement.query", "architecture.query", "test.query",
     "artifact.get_tree", "diagram.get", "diagram.query", "traceability.query",
     "adr.read", "risk.read", "issue.read", "goal.query", "main_goal.read",

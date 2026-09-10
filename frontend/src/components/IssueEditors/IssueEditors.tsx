@@ -6,7 +6,7 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
 import { IssueList } from './IssueList';
-import { IssueForm } from './IssueForm';
+import { IssueArtifactForm } from './IssueArtifactForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
@@ -16,7 +16,7 @@ import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useIssueData } from './useIssueData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { issuesApi } from '../../api/issues';
-import { CATEGORY_OPTIONS } from './IssueForm';
+import { CATEGORY_OPTIONS } from './IssueArtifactForm';
 // F-04 (code review, 2026-08-19): shared create-form field styles (see
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
@@ -166,7 +166,20 @@ export default function IssueEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
-                <IssueForm issue={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                {/* DEVIATION from the plan brief (same class as RiskEditors,
+                    Task 19): `IssueArtifactForm` takes a non-nullable
+                    `issue: Issue` (unlike the deleted `IssueForm`, which
+                    accepted `issue: Issue | null` and rendered the "select an
+                    issue" placeholder itself). `item` here is `Issue | null`
+                    (no row selected yet), so that null-guard moves to this
+                    call site instead of being lost. */}
+                {item ? (
+                  <IssueArtifactForm issue={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                ) : (
+                  <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                    {t('issues.selectIssue')}
+                  </p>
+                )}
                 {/* Task 2.3: the "Neue Verknüpfung" button used to float under
                     the form as an inline-styled one-off, wired to its own
                     CreateTraceLinkDialog instance. TraceLinkPanel already

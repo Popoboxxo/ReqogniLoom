@@ -54,7 +54,6 @@ export { versionApi } from "./version";
 export type { VersionInfo } from "./version";
 export { itemPermissionsApi } from "./item-permissions";
 export type { ItemPermission, ItemPermissionLevel } from "./item-permissions";
-export { attributeVisibilityApi } from "./attribute-visibility";
 export { workflowsApi } from "./workflows";
 export type { WorkflowDefinition, WorkflowTransitionResult } from "./workflows";
 export { auditApi } from "./audit";
@@ -83,6 +82,18 @@ export type {
   RiskSeverity,
   ThresholdWarning,
 } from "./metrics";
+
+export { attributeDefinitionsApi } from "./attribute-definitions";
+export type {
+  AttributeSpec,
+  AttributeType,
+  AttributeEditable,
+  AttributeAudience,
+  AttributeOption,
+  GlobalAttributeDefinition,
+  ResolvedAttributeDefinition,
+  WidgetKey,
+} from "./attribute-definitions";
 
 // ---------------------------------------------------------------------------
 // Shared types — re-exported from the ArtifactInspector module so callers

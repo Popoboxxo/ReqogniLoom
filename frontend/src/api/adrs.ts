@@ -69,7 +69,7 @@ export const adrsApi = {
    * `.../transitions/` uses), but no caller ever supplied one — a workspace
    * whose "Approved -> Superseded" move has `signature_gate: true` could not
    * complete a supersede at all. Optional and passed through unchanged; wiring
-   * a `SignatureDialog` prompt into `AdrForm.tsx`'s supersede panel (detecting
+   * a `SignatureDialog` prompt into `AdrSupersedePanel.tsx` (detecting
    * `signature_gate` via `.../transitions/` GET, same as the generic
    * WorkflowStatusEditor flow) is a separate, larger UI change and is not done
    * here — see the AP-5 review report's F5 note.

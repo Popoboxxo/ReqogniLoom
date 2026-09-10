@@ -117,6 +117,92 @@ def test_list_goal_requires_workspace_id():
     assert resp.status_code == 400
 
 
+def test_goal_create_and_next_version_enforce_attribute_definition():
+    """Gap #4b: GoalViewSet.attribute_item_type wiring (Task 11 follow-up).
+
+    Goal is lineage-versioned (Variante A) — every "update" is really a new
+    row via ``create_version`` (``partial_update`` 405s, see
+    ``GoalViewSet.partial_update``), so there is no ``existing`` row for
+    ``validate_artifact_fields`` to diff against. This proves that is
+    unproblematic rather than a silent gap: a required custom attribute must
+    be resupplied on *every* version — including the second one appended to
+    an already-valid lineage — not just the first, because each version is
+    validated with create semantics (``existing=None``).
+    """
+    from django.core.management import call_command
+
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    tenant, workspace = _new_tenant_and_workspace(
+        "T4", name="W4", goals_enabled=True
+    )
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+    def_service = AttributeDefinitionService()
+    resolved = def_service.resolve(ctx, "Goal", workspace.id)
+    attributes = list(resolved["attributes"]) + [
+        {
+            "name": "priority",
+            "kind": "extended",
+            "type": "text",
+            "required": True,
+            "visible": True,
+            "editable": True,
+            "section": "extra",
+        }
+    ]
+    def_service.update_workspace(ctx, "Goal", workspace.id, attributes)
+
+    factory = APIRequestFactory()
+
+    def _create(body):
+        req = factory.post("/api/v1/goals/", body, format="json")
+        req.auth_context = ctx
+        return GoalViewSet.as_view({"post": "create"})(req)
+
+    # Version 1 without the required custom attribute -> rejected.
+    resp = _create({"workspace_id": str(workspace.id), "title": "Grow revenue"})
+    assert resp.status_code == 400, resp.data
+    assert any(d["field"] == "priority" for d in resp.data["error"]["details"])
+
+    # Version 1 with the required custom attribute -> accepted.
+    resp = _create(
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Grow revenue",
+            "custom_fields": {"priority": "high"},
+        }
+    )
+    assert resp.status_code == 201, resp.data
+    lineage_id = resp.data["lineage_id"]
+
+    # Version 2 of the SAME lineage without the required attribute -> still
+    # rejected. This is the row-per-version regression check: nothing about
+    # having a prior, valid version relaxes the requirement.
+    resp = _create(
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Grow revenue faster",
+            "lineage_id": lineage_id,
+        }
+    )
+    assert resp.status_code == 400, resp.data
+    assert any(d["field"] == "priority" for d in resp.data["error"]["details"])
+
+    # Version 2 with the required attribute resupplied -> accepted.
+    resp = _create(
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Grow revenue faster",
+            "lineage_id": lineage_id,
+            "custom_fields": {"priority": "medium"},
+        }
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["sequence_number"] == 2
+
+
 def test_goal_versions_endpoint_lists_lineage():
     tenant, workspace = _new_tenant_and_workspace("T4", name="W4", goals_enabled=True)
     ctx = _make_auth_context(tenant_id=tenant.id)

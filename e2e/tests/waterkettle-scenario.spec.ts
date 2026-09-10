@@ -313,8 +313,8 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-002: Requirement-Detail öffnen → Workflow-State + Title editierbar', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements/${fix.requirementIds['WK-001-FUNC']}`);
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[data-testid="req-title"]')).toHaveValue(/Wasser auf 100/);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Wasser auf 100/);
 
     // REQ-161: aktueller Status wird immer read-only über das
     // WorkflowStatusEditor-Badge angezeigt; ein "Change status"-Trigger
@@ -327,7 +327,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 5000 });
 
     // Category sichtbar
-    const category = page.locator('[data-testid="req-category"]');
+    const category = page.locator('[data-testid="artifact-field-category"]');
     await expect(category).toBeVisible({ timeout: 5000 });
   });
 
@@ -345,12 +345,12 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-004: Architecture-Detail öffnen → element_type-Select mit 5 Optionen', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture/${fix.architectureIds['WK-CTRL']}`);
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue(/Steuerungs-Platine/);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Steuerungs-Platine/);
 
     // REQ-006/D5: element_type ist ein Freitext-Input mit Autocomplete-
     // Vorschlägen, kein festes <select> mit 5 Optionen mehr.
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 6000 });
     await typeInput.fill('Module');
     await expect(typeInput).toHaveValue('Module');

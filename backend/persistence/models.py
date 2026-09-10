@@ -333,20 +333,6 @@ class MakeOrBuy(models.TextChoices):
     REUSE = "Reuse", "Reuse"
 
 
-class CustomFieldType(models.TextChoices):
-    """Data type of a workspace-wide custom field (REQ-016).
-
-    ``TEXT``     — free-text single line, stored verbatim.
-    ``NUMBER``   — numeric value, stored as its string representation.
-    ``DROPDOWN`` — one of a predefined set of options (see
-                   :attr:`CustomFieldDefinition.options`).
-    """
-
-    TEXT = "text", "Text"
-    NUMBER = "number", "Number"
-    DROPDOWN = "dropdown", "Dropdown"
-
-
 # ---------------------------------------------------------------------------
 # Abstract base classes (COMP-PL-001, ADR-L3-PL-001)
 # ---------------------------------------------------------------------------
@@ -1728,137 +1714,6 @@ class TestRunResult(TenantScopedModel):
         return f"Result:{self.test_case_title}:{self.status}"
 
 
-class AttributeVisibilityConfig(TenantScopedModel):
-    """Admin configuration for field visibility per entity type (REQ-L1-058).
-
-    Allows tenant admins to control which type-dependent fields are visible
-    in the UI and whether they are required in forms.
-
-    Constraint: Unique on (tenant_id, entity_type, attribute_name).
-    Index: Composite BTree on (tenant_id, entity_type) for fast bulk lookups.
-
-    AC2: Used by RequirementSerializer and ArchitectureElementSerializer
-    to conditionally include/exclude type-dependent fields in responses.
-    """
-
-    entity_type = models.CharField(
-        max_length=64,
-        help_text="Target entity type (e.g., 'Requirement', 'ArchitectureElement')",
-    )
-    attribute_name = models.CharField(
-        max_length=128,
-        help_text="Field name (e.g., 'moscow_priority', 'asil_level')",
-    )
-    is_visible = models.BooleanField(
-        default=True,
-        help_text="Show/hide toggle for frontend",
-    )
-    is_required = models.BooleanField(
-        default=False,
-        help_text="Mark as required in forms",
-    )
-    created_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        help_text="Audit: who created this config",
-    )
-    modified_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        help_text="Audit: who last modified this config",
-    )
-    version = models.IntegerField(
-        default=1,
-        help_text="Audit: version counter",
-    )
-
-    class Meta:
-        db_table = "pl_attribute_visibility_config"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "entity_type", "attribute_name"],
-                name="uq_attrvisib_tenant_entity_attr",
-            ),
-        ]
-        indexes = [
-            models.Index(fields=["tenant", "entity_type"], name="idx_attrvisib_tenant_type"),
-        ]
-
-    def __str__(self) -> str:
-        visibility_status = "visible" if self.is_visible else "hidden"
-        required_status = "required" if self.is_required else "optional"
-        return f"{self.entity_type}.{self.attribute_name} ({visibility_status}, {required_status})"
-
-
-class CustomFieldDefinition(TenantScopedModel):
-    """Workspace-wide custom field definition (REQ-016).
-
-    Workspace administrators define custom fields (name, type, required flag and
-    — for dropdowns — a fixed option set) centrally per workspace. A definition
-    applies to *all* artifacts of the workspace (Requirements, ArchitectureElements,
-    TestCases, …) because every concrete artifact type shares the generic
-    :class:`Artifact` base. Entered values are stored per artifact instance in
-    :class:`CustomFieldValue`.
-
-    Constraint: unique on (workspace, name) — a field name is unique per workspace.
-    """
-
-    workspace = models.ForeignKey(
-        Workspace,
-        on_delete=models.CASCADE,
-        related_name="custom_field_definitions",
-    )
-    name = models.CharField(
-        max_length=128,
-        help_text="Human-readable field label, unique within the workspace.",
-    )
-    field_type = models.CharField(
-        max_length=16,
-        choices=CustomFieldType.choices,
-        default=CustomFieldType.TEXT,
-        help_text="Data type: text, number or dropdown.",
-    )
-    is_required = models.BooleanField(
-        default=False,
-        help_text="Whether a value must be provided on the artifact form.",
-    )
-    options = models.JSONField(
-        default=list,
-        blank=True,
-        help_text=(
-            "Dropdown options as a list of strings. Empty for text/number "
-            "fields; required (non-empty) for dropdown fields."
-        ),
-    )
-    order = models.IntegerField(
-        default=0,
-        help_text="Display order of the field in artifact forms (ascending).",
-    )
-
-    class Meta:
-        db_table = "pl_custom_field_definition"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["workspace", "name"],
-                name="uq_customfielddef_workspace_name",
-            ),
-        ]
-        indexes = [
-            models.Index(
-                fields=["workspace"], name="idx_customfielddef_workspace"
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.name} ({self.field_type})"
-
-
 class CustomFieldValue(TenantScopedModel):
     """Persisted value of a custom field for a single artifact instance (REQ-016).
 
@@ -1868,13 +1723,18 @@ class CustomFieldValue(TenantScopedModel):
     text; numeric and dropdown values are serialised to their string form and
     validated against the definition at the API boundary.
 
-    Constraint: unique on (definition, artifact) — one value per field per artifact.
+    ``attribute_name`` replaced the ``definition`` FK when the legacy
+    ``CustomFieldDefinition``/``AttributeVisibilityConfig`` mechanisms were
+    retired (spec section 4, Decision D3): the attribute's home is now
+    ``GlobalAttributeDefinition``/``WorkspaceAttributeDefinition.definition_json``,
+    not a row in this app, so the link is a name rather than an FK.
+
+    Constraint: unique on (artifact, attribute_name) — one value per field per artifact.
     """
 
-    definition = models.ForeignKey(
-        CustomFieldDefinition,
-        on_delete=models.CASCADE,
-        related_name="values",
+    attribute_name = models.CharField(
+        max_length=128,
+        help_text="Attribute name from the resolved AttributeDefinition.",
     )
     artifact = models.ForeignKey(
         Artifact,
@@ -1891,8 +1751,8 @@ class CustomFieldValue(TenantScopedModel):
         db_table = "pl_custom_field_value"
         constraints = [
             models.UniqueConstraint(
-                fields=["definition", "artifact"],
-                name="uq_customfieldvalue_definition_artifact",
+                fields=["artifact", "attribute_name"],
+                name="uq_customfieldvalue_artifact_attribute",
             ),
         ]
         indexes = [
@@ -1902,7 +1762,7 @@ class CustomFieldValue(TenantScopedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.definition_id}={self.value!r}"
+        return f"{self.attribute_name}={self.value!r}"
 
 
 class GlossaryTerm(TenantScopedModel):
@@ -2605,7 +2465,15 @@ class Adr(TenantScopedModel):
     )
     workspace_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=200)
-    description = models.TextField(max_length=10000)
+    # `blank=True` states what every shipped write path already does:
+    # ``AdrSerializer.description`` is ``allow_blank=True, default=""`` and the
+    # UI quick-create form posts a title only, so an ADR with an empty
+    # description is a normal, reachable state. Leaving the column
+    # ``blank=False`` made the bootstrapped attribute definition derive
+    # ``required=True`` (``introspect_core_attributes``: ``not field.blank and
+    # not field.has_default()``), which turned that same quick-create into a
+    # ``400 description: is required``.
+    description = models.TextField(max_length=10000, blank=True)
     context = models.TextField(max_length=5000, blank=True)
     # #373: standard ADR terminology (context/decision/consequences) has no
     # `decision` field — a client sending it as documented gets an
@@ -3232,7 +3100,6 @@ __all__ = [
     "ArchitectureElement",
     "ASILLevel",
     "MakeOrBuy",
-    "AttributeVisibilityConfig",
     "TraceLink",
     "TestCase",
     "TestCaseType",

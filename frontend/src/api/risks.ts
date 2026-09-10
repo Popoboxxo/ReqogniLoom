@@ -45,26 +45,17 @@ export const risksApi = {
     return apiClient.post<Risk>("/risks/", data);
   },
 
-  update(
-    id: UUID,
-    data: Partial<
-      Pick<
-        Risk,
-        | "title"
-        | "description"
-        | "probability"
-        | "impact"
-        | "category"
-        | "owner"
-        | "mitigation_strategy"
-        | "severity"
-        | "status"
-      >
-    > & {
-      /** Extended preset: audit rationale forwarded to the backend audit log. */
-      change_reason?: string;
-    }
-  ): Promise<Risk> {
+  /**
+   * Task 19: the payload comes from `ArtifactForm` (RiskArtifactForm's
+   * `formValuesToRiskPatch`), a generic definition-driven value bag whose
+   * keys are whatever the resolved attribute definition currently lists —
+   * not a fixed compile-time-known set. A `Partial<Pick<Risk, ...>>` shape
+   * (this parameter's type before Task 19) cannot describe that without
+   * fighting the caller on every admin-added attribute; the backend's own
+   * per-field 400s remain the actual validation authority (see
+   * RiskViewSet.partial_update / field_validation.py).
+   */
+  update(id: UUID, data: Record<string, unknown>): Promise<Risk> {
     return apiClient.patch<Risk>(`/risks/${id}/`, data);
   },
 

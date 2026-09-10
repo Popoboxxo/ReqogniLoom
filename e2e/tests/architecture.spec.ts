@@ -30,7 +30,7 @@ test.describe('Architecture Management', () => {
     await page.locator('[data-testid="create-arch-btn"]').click();
     await page.locator('[data-testid="arch-new-title-input"]').fill('E2E Arch Element');
     await page.locator('[data-testid="arch-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('[REQ-L1-004] create architecture element via API', async ({ request }) => {
@@ -61,10 +61,10 @@ test.describe('Architecture Management', () => {
     await page.locator('[data-testid="arch-new-save-btn"]').click();
 
     // Wait for navigation to /architecture/:id and the title input to appear
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
-    await page.locator('[data-testid="arch-title"]').fill('UI E2E Arch Element');
-    await page.locator('[data-testid="arch-save-btn"]').click();
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="artifact-field-title"]').fill('UI E2E Arch Element');
+    await page.locator('[data-testid="artifact-form-save"]').click();
 
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue('UI E2E Arch Element', { timeout: 8000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('UI E2E Arch Element', { timeout: 8000 });
   });
 });

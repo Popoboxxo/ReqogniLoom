@@ -55,10 +55,30 @@
 }
 
 /*
+ * Task 25: sibling `CustomFieldsEditor` section wrapper for
+ * `RequirementArtifactForm` (custom_fields has no `kind: "extended"`
+ * attribute, so the definition-driven renderer cannot draw it). Classes, not
+ * inline `style={{ }}`, for the same ui-ratchet reason as the rest of this
+ * file — mirrors `TestCaseEditors.module.css`'s
+ * `.customFieldsSection`/`.customFieldsSectionHeading` (Task 22).
+ */
+.customFieldsSection {
+  margin-bottom: var(--space-6);
+}
+
+.customFieldsSectionHeading {
+  font-size: var(--font-size-md);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+}
+
+/*
  * F-04 (code review, 2026-08-19): the BUG-08 field-error styles
  * (`.inputError`/`.fieldError`) and the BUG-11 create-form field styles
  * (`.createLabel`/`.createInput`) belong in the shared
  * `frontend/src/components/shared/FieldHints.module.css` instead — this
- * component and `RequirementForm.tsx` both import it as `fieldHints`,
- * keeping the declarations in one place rather than duplicating them here.
+ * component imports it as `fieldHints`, keeping the declarations in one
+ * place rather than duplicating them here. (Task 25: the deleted
+ * `RequirementForm.tsx` used to be the other importer.)
  */

@@ -100,6 +100,9 @@ const GlossaryView = lazy(() => import("../GlossaryView"));
 const WorkflowEditorPage = lazy(
   () => import("../WorkflowEditor/WorkflowEditorPage")
 );
+const AttributeEditorPage = lazy(() =>
+  import("../AttributeEditor").then((m) => ({ default: m.AttributeEditorPage }))
+);
 const GoalsPage = lazy(() => import("../Goals/GoalsPage"));
 const InterviewEditors = lazy(() => import("../InterviewEditors/InterviewEditors"));
 const LinkTypeEditorPage = lazy(() =>
@@ -198,6 +201,11 @@ function AppShell(): JSX.Element {
               <Route
                 path="/workflows/:entityType"
                 element={<WorkflowEditorPage />}
+              />
+              <Route path="/attributes" element={<AttributeEditorPage />} />
+              <Route
+                path="/attributes/:entityType"
+                element={<AttributeEditorPage />}
               />
               <Route path="/profile" element={<UserProfileSettings />} />
               {/* #609: /prompts has no dedicated page yet — route to the

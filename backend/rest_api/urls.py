@@ -102,6 +102,12 @@ from rest_api.settings_views import (
     PromptTemplateView,
     ReviewPolicyView,
 )
+from rest_api.attribute_definition_views import (
+    AttributeDefaultsDetailView,
+    AttributeDefaultsListView,
+    WorkspaceAttributeDefinitionResetView,
+    WorkspaceAttributeDefinitionView,
+)
 from rest_api.global_default_views import (
     EnforcementFlipView,
     EnforcementStatusView,
@@ -127,15 +133,12 @@ from rest_api.link_type_views import (
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
-    ArtifactCustomFieldValuesView,
     ArtifactViewSet,
     AttributeSchemaView,
-    AttributeVisibilityConfigViewSet,
     BaselineViewSet,
     BundleCompressionStatusView,
     ChangeRequestViewSet,
     ConsistencyStatusView,
-    CustomFieldDefinitionViewSet,
     CsvExportView,
     CsvImportView,
     GlossaryTermViewSet,
@@ -191,7 +194,6 @@ router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"diagrams", DiagramViewSet, basename="diagram")
 router.register(r"icds", IcdViewSet, basename="icd")
 router.register(r"metrics", MetricsViewSet, basename="metrics")
-router.register(r"attribute-visibility-configs", AttributeVisibilityConfigViewSet, basename="attribute-visibility-config")
 router.register(r"glossary", GlossaryTermViewSet, basename="glossary")
 router.register(r"interviews", InterviewViewSet, basename="interview")
 
@@ -265,26 +267,6 @@ urlpatterns = [
         "workspaces/<uuid:workspace_pk>/baselines/",
         BaselineViewSet.as_view({"get": "list", "post": "create"}),
         name="workspace-baselines",
-    ),
-    # Custom field definitions (REQ-016) — workspace-scoped list/create.
-    path(
-        "workspaces/<uuid:workspace_pk>/custom-field-definitions/",
-        CustomFieldDefinitionViewSet.as_view({"get": "list", "post": "create"}),
-        name="workspace-custom-field-definitions",
-    ),
-    # Custom field definition detail (REQ-016) — update/delete by id (admin-only).
-    path(
-        "custom-field-definitions/<uuid:pk>/",
-        CustomFieldDefinitionViewSet.as_view(
-            {"patch": "partial_update", "delete": "destroy"}
-        ),
-        name="custom-field-definition-detail",
-    ),
-    # Custom field values (REQ-016) — read/upsert values for one artifact.
-    path(
-        "artifacts/<uuid:pk>/custom-field-values/",
-        ArtifactCustomFieldValuesView.as_view(),
-        name="artifact-custom-field-values",
     ),
     # ItemPermission CRUD (REQ-L1-039, COMP-AT-005) — workspace-scoped, admin-only.
     path(
@@ -516,6 +498,30 @@ urlpatterns = [
         "memory/me/",
         MemorySelfServiceView.as_view(),
         name="memory-self-service",
+    ),
+    # -- Attribute definitions (spec section 5) — tenant-wide global defaults
+    # plus per-workspace materialized overrides. The reset route precedes the
+    # detail route so the two stay visually adjacent (they do not actually
+    # compete: different path depth).
+    path(
+        "attribute-defaults/",
+        AttributeDefaultsListView.as_view(),
+        name="attribute-defaults-list",
+    ),
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/",
+        AttributeDefaultsDetailView.as_view(),
+        name="attribute-defaults-detail",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/reset/",
+        WorkspaceAttributeDefinitionResetView.as_view(),
+        name="workspace-attribute-definition-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/",
+        WorkspaceAttributeDefinitionView.as_view(),
+        name="workspace-attribute-definition",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.

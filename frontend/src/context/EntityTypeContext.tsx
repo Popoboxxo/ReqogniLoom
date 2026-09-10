@@ -63,29 +63,6 @@ export type ArchitectureSubType =
 export type EntitySubType = RequirementSubType | ArchitectureSubType | string;
 
 /**
- * Attribute visibility configuration.
- * Persisted via API (GET/POST /api/v1/attribute-visibility-config/)
- *
- * Example:
- * {
- *   entity_type: 'requirement',
- *   entity_subtype: 'StReq',
- *   attribute: 'moscow_priority',
- *   is_visible: true
- * }
- */
-export interface AttributeVisibilityConfig {
-  id?: string;
-  entity_type: EntityType;
-  entity_subtype?: EntitySubType;
-  attribute_name: string;
-  is_visible: boolean;
-  is_required?: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
-
-/**
  * Visible fields map: attribute name → boolean
  * Example: { moscow_priority: true, complexity_fibonacci: false, ... }
  */
@@ -121,9 +98,6 @@ export interface EntityTypeContextValue {
 
   /** Get all visible field names */
   getVisibleFieldNames: () => string[];
-
-  /** Raw visibility config records (for admin UI) */
-  visibilityConfigs?: AttributeVisibilityConfig[];
 }
 
 /**
@@ -154,7 +128,6 @@ export interface EntityTypeProviderProps {
   entitySubType?: EntitySubType;
   visibleFields?: VisibleFieldsMap;
   requiredFields?: RequiredFieldsMap;
-  visibilityConfigs?: AttributeVisibilityConfig[];
 }
 
 /**
@@ -169,7 +142,6 @@ export const EntityTypeProvider: React.FC<EntityTypeProviderProps> = ({
   entitySubType,
   visibleFields = {},
   requiredFields = {},
-  visibilityConfigs = [],
 }) => {
   // Memoize computed context value
   const value = useMemo<EntityTypeContextValue>(() => {
@@ -178,7 +150,6 @@ export const EntityTypeProvider: React.FC<EntityTypeProviderProps> = ({
       entitySubType,
       visibleFields,
       requiredFields,
-      visibilityConfigs,
       isFieldVisible: (fieldName: string): boolean => {
         // If field explicitly configured, respect that
         if (fieldName in visibleFields) {
@@ -200,7 +171,7 @@ export const EntityTypeProvider: React.FC<EntityTypeProviderProps> = ({
           .map(([fieldName]) => fieldName);
       },
     };
-  }, [entityType, entitySubType, visibleFields, requiredFields, visibilityConfigs]);
+  }, [entityType, entitySubType, visibleFields, requiredFields]);
 
   return (
     <EntityTypeContext.Provider value={value}>

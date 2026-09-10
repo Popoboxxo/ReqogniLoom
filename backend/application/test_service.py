@@ -163,6 +163,7 @@ class TestService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         steps: Optional[list] = None,
+        test_type: object = _UNSET,
         custom_fields: object = _UNSET,
         expected_version: Optional[int] = None,
     ) -> TestCase:
@@ -196,6 +197,15 @@ class TestService(ServiceBase):
             test_case.description = description
         if steps is not None:
             test_case.steps = steps
+        # C-1 fix round: real model column (migration 0041, B6a) — distinct
+        # from create_test_case's `test_type` parameter above, which only
+        # ever tagged `artifact.artifact_type` and never touched this field.
+        # N-1 fix round 2: `_UNSET` sentinel (mirrors `custom_fields` below)
+        # distinguishes "field omitted" from an explicit `null` sent to clear
+        # the value — a plain `is not None` check swallowed the clear-to-null
+        # PATCH silently (200 OK, DB unchanged).
+        if test_type is not _UNSET:
+            test_case.test_type = test_type
 
         # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
         # outside the TestCase snapshot and has to be compared separately.
