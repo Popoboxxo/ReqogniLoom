@@ -55,9 +55,9 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
         "docs/agent-templates/package_skills.py",
     )
 
-    # Claude Code / Antigravity / OpenCode builders read from the tmp copy of
-    # agent-skills via --skills-src, making this a real pipeline test of the
-    # package_skills -> builders contract rather than three independent
+    # Claude Code / Antigravity / OpenCode / Codex builders read from the tmp
+    # copy of agent-skills via --skills-src, making this a real pipeline test of
+    # the package_skills -> builders contract rather than four independent
     # smoke checks against the already-committed dist/agent-skills/.
     claude_out = tmp_path / "claude-code"
     run(
@@ -109,4 +109,23 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
     ).read_text(), (
         "dist/opencode/opencode.json.snippet is stale — re-run "
         "dist/opencode/build_opencode_package.py and commit the result."
+    )
+
+    codex_out = tmp_path / "codex"
+    run(
+        [sys.executable, "dist/codex/build_codex_package.py",
+         "--out", str(codex_out), "--skills-src", str(skills_dir)],
+        cwd=REPO_ROOT,
+    )
+    assert (codex_out / "config.toml.snippet").exists()
+    assert_dirs_equal(
+        codex_out / "skills",
+        REPO_ROOT / "dist" / "codex" / "skills",
+        "dist/codex/build_codex_package.py",
+    )
+    assert (codex_out / "config.toml.snippet").read_text() == (
+        REPO_ROOT / "dist" / "codex" / "config.toml.snippet"
+    ).read_text(), (
+        "dist/codex/config.toml.snippet is stale — re-run "
+        "dist/codex/build_codex_package.py and commit the result."
     )

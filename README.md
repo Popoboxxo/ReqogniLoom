@@ -367,9 +367,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.ym
 
 All containers should show `Up (healthy)` or `Up`.
 
-### 9. Connect an MCP Client (Claude Desktop / Cursor)
+### 9. Connect an MCP Client (Claude Desktop / Cursor / OpenCode / Codex CLI)
 
-You can connect external AI assistants like Claude Desktop or Cursor to ReqogniLoom's MCP server.
+You can connect external AI assistants like Claude Desktop, Cursor, OpenCode or Codex CLI to ReqogniLoom's MCP server.
 ReqogniLoom exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
 
 **Important:** You need an active API key to authenticate (see Step 5 above).
@@ -403,6 +403,36 @@ In Cursor, go to **Settings > Features > MCP**:
 3. **Type**: `sse`
 4. **URL**: `http://localhost:8000/mcp/sse/`
 5. **Headers**: Add a header `X-API-Key` with your API Key value.
+
+#### Example: OpenCode
+
+ReqogniLoom ships a ready-made config snippet plus the six SE-domain agent skills:
+`dist/opencode/opencode.json.snippet` and `dist/opencode/skills/`.
+
+1. Merge the snippet into your `opencode.json` (it defines a remote MCP server
+   named `reqogniloom` pointing at `{env:REQOGNILOOM_MCP_URL}/mcp/sse/` with an
+   `X-API-Key: {env:REQOGNILOOM_API_KEY}` header).
+2. Export both env vars, e.g. `REQOGNILOOM_MCP_URL=http://localhost:8000` and
+   `REQOGNILOOM_API_KEY=reqlo_...`.
+3. Optionally copy `dist/opencode/skills/*` into your project's `.opencode/skills/`.
+
+Regenerate with `python dist/opencode/build_opencode_package.py`.
+
+#### Example: Codex CLI
+
+Codex CLI reads MCP servers from TOML, so it gets its own snippet:
+`dist/codex/config.toml.snippet` and `dist/codex/skills/`.
+
+1. Paste the snippet into `~/.codex/config.toml` (global) or `.codex/config.toml`
+   (project-scoped, trusted projects only) and replace the `url` host with your
+   deployment, e.g. `http://localhost:8000/mcp/`.
+2. Export `REQOGNILOOM_API_KEY=reqlo_...` — Codex reads that env var (via
+   `bearer_token_env_var`) and sends it as `Authorization: Bearer <key>`, which the
+   MCP server accepts just like `X-API-Key`.
+3. Optionally copy `dist/codex/skills/*` into your project's skills directory.
+
+Codex uses the Streamable HTTP endpoint `/mcp/` rather than the SSE stream.
+Regenerate with `python dist/codex/build_codex_package.py`.
 
 ## Manual MCP Test (curl)
 

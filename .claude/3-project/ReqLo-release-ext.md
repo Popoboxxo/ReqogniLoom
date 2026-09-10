@@ -44,6 +44,15 @@ pytest docs/agent-templates dist --verbose
 
 **Kontext:** Gefunden in v1.8.0-beta.1→beta.2 Zyklus. Der CI-Job "Agent Templates & Distribution" ist die Gate.
 
+**Nicht betroffen — bewusst:** `dist/opencode/build_opencode_package.py` und
+`dist/codex/build_codex_package.py` sind versionsagnostisch. Ihre Outputs
+(`opencode.json.snippet`, `config.toml.snippet`) sind reine MCP-Config-Snippets
+ohne Versionsfeld, sie lesen `VERSION` nie. Ein reiner `VERSION`-Bump kann sie
+nicht stale machen, deshalb gehören sie **nicht** in die Checkliste oben.
+`dist/test_full_regeneration.py` vergleicht sie trotzdem byte-für-byte gegen die
+committeten Artefakte — wer die Builder oder `docs/agent-templates/`-Skills
+ändert, muss also neu generieren; das fängt CI, nicht diese Checkliste.
+
 ---
 
 ### 1b. Docker-Base-Image Security Gate (Trivy)
