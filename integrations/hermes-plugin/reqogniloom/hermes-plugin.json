@@ -1,12 +1,14 @@
 {
   "id": "reqogniloom.reqogniloom",
   "name": "ReqogniLoom",
-  "version": "0.1.0",
+  "version": "1.8.0-beta.8",
   "description": "Connect Hermes IDE to your ReqogniLoom workspace",
   "author": "ReqogniLoom",
   "main": "dist/plugin.js",
   "activationEvents": [
-    { "type": "onStartup" }
+    {
+      "type": "onStartup"
+    }
   ],
   "contributes": {
     "commands": [
@@ -38,5 +40,8 @@
   "engines": {
     "hermes": ">=3.0.0"
   },
-  "permissions": ["network", "storage"]
+  "permissions": [
+    "network",
+    "storage"
+  ]
 }

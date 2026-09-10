@@ -25,24 +25,29 @@ Die Basis-Checkliste in `.claude/agents/release.md` ist ein Good Start. Zusätzl
 
 ### 1a. Generierte Artefakte mit VERSION-Embedding
 
-**Problem:** `dist/plugins/claude-code/build_claude_plugin.py` und `dist/plugins/antigravity/build_antigravity_plugin.py` lesen beide `VERSION` und betten sie in generierte `plugin.json`-Dateien ein. Ein reiner `VERSION`-Edit ohne Neu-Generierung lässt den CI-Job "Agent Templates & Distribution" rot laufen (Test: `dist/test_full_regeneration.py::test_full_pipeline_regenerates_cleanly`).
+**Problem:** `dist/plugins/claude-code/build_claude_plugin.py`, `dist/plugins/antigravity/build_antigravity_plugin.py`, und `dist/plugins/hermes/build_hermes_plugin.py` lesen alle `VERSION` und betten sie in generierte `plugin.json`- oder Manifest-Dateien ein. Ein reiner `VERSION`-Edit ohne Neu-Generierung lässt den CI-Job "Agent Templates & Distribution" rot laufen (Test: `dist/test_full_regeneration.py::test_full_pipeline_regenerates_cleanly`).
 
 **Checklisten-Punkt (VOR Commit/Tag):**
 ```bash
 # 1. VERSION-Datei erhöhen (z.B. von 1.8.0 zu 1.8.1)
 echo "1.8.1" > VERSION
 
-# 2. Beide Builder-Skripte laufen lassen
+# 2. Alle drei Builder-Skripte laufen lassen
 python dist/plugins/claude-code/build_claude_plugin.py
 python dist/plugins/antigravity/build_antigravity_plugin.py
+python dist/plugins/hermes/build_hermes_plugin.py
 
-# 3. Verify: Tests grün
+# 3. Verify: Hermes-Plugin Tests grün (Ci-Test für die anderen beiden läuft automatisch)
+cd integrations/hermes-plugin/reqogniloom && npm test
+cd ../../../
+
+# 4. Verify: Agent-Template-Tests grün
 pytest docs/agent-templates dist --verbose
 
-# 4. Commit/Tag nur NACH erfolgreichem Test
+# 5. Commit/Tag nur NACH erfolgreichem Test
 ```
 
-**Kontext:** Gefunden in v1.8.0-beta.1→beta.2 Zyklus. Der CI-Job "Agent Templates & Distribution" ist die Gate.
+**Kontext:** Gefunden in v1.8.0-beta.1→beta.2 Zyklus. Der CI-Job "Agent Templates & Distribution" ist die Gate. Hermes-Plugin-Version wird seit 2026-09-10 synchronisiert.
 
 ---
 
