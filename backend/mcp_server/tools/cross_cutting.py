@@ -1252,10 +1252,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
         of the given entity, plus (for an ArchitectureElement anchor) its
         direct decomposition children — that hierarchy is a plain FK tree
         (``ArchitectureElement.parent``/``children``), NOT expressed via
-        TraceLinks (``traceability.types.SE_LINK_SEMANTICS`` has no
-        ArchitectureElement/ArchitectureElement 'parent-child' pair, unlike
-        Requirement decomposition which uses the 'decomposes'/'derives-from'
-        TraceLink types and is therefore already covered by the trace walk).
+        TraceLinks — no code path writes the ArchitectureElement/
+        ArchitectureElement 'decomposes' link that the catalog would allow,
+        unlike Requirement decomposition which uses the 'decomposes'/
+        'derives-from' TraceLink types and is therefore already covered by
+        the trace walk. The synthesized neighbour below is labelled
+        'decomposes' so its link_type names a type that still exists.
         The LLM adapter (mock by default) then annotates each candidate with
         a rough affected/rationale verdict against ``change_description``;
         that step degrades gracefully (never raises) so an LLM outage still
@@ -1331,7 +1333,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 raw_neighbors.append({
                     "artifact_id": child.artifact_id,
                     "entity_type": "ArchitectureElement",
-                    "link_type": "parent-child",
+                    "link_type": "decomposes",
                     "relation": "child",
                 })
 

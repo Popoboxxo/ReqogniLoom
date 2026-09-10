@@ -407,7 +407,7 @@ def resolve_scope_item_ids(
     else:  # document
         # Descendant resolution walks two edge sources (issue #42):
         # pl_artifact.parent_id (legacy pointer, still populated for some
-        # artifact types) AND 'derives-from'/'refines' TraceLinks
+        # artifact types) AND 'derives-from' TraceLinks
         # (source=child -> target=parent), which is the hierarchy mechanism
         # used by RequirementService/StakeholderNeedService/AdrService/...
         # (see persistence/models.py Artifact.parent docstring). Without the
@@ -427,7 +427,7 @@ def resolve_scope_item_ids(
                 SELECT tl.source_id AS child_id, tl.target_id AS parent_id
                 FROM pl_tracelink tl
                 WHERE tl.tenant_id = %s
-                  AND tl.link_type IN ('derives-from', 'refines')
+                  AND tl.link_type = 'derives-from'
             ),
             descendants AS (
                 SELECT a.id

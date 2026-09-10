@@ -722,9 +722,9 @@ class Workspace(TenantScopedModel):
         default="decomposes",
         help_text=(
             "Default link type used when decomposing requirements. NOTE: "
-            "RequirementService.decompose hardcodes 'decomposes' and does not "
+            "RequirementService.decompose hardcodes `decomposes` and does not "
             "read this field (UMSETZUNGSPLAN_SYSENG_2.0 section 1.4); the "
-            "default was 'parent-child', a link type that no longer exists."
+            "default was the now-retired parent/child link key."
         ),
     )
     default_link_type = models.CharField(
@@ -848,7 +848,7 @@ class Artifact(TenantScopedModel):
         related_name="copies",
         help_text=(
             "Provenance of a duplicated artifact. Replaces the retired "
-            "'copy-of' TraceLink type: a copy has exactly one origin, so a "
+            "copy-of TraceLink type: a copy has exactly one origin, so a "
             "1:1 field states the invariant that an N:M link table could not. "
             "SET_NULL — deleting the original must not delete its copies, "
             "which are independent artifacts."

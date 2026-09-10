@@ -249,7 +249,7 @@ class TestConsP9AndP10AreDeferred:
             old_req, _ = make_requirement(tenant_a, workspace_a, title="Old")
             new_req, _ = make_requirement(tenant_a, workspace_a, title="New")
             make_trace_link(new_req, old_req, tenant_a, "supersedes")
-            make_trace_link(req_a, old_req, tenant_a, "satisfies")
+            make_trace_link(req_a, old_req, tenant_a, "allocated-to")
             make_trace_link(req_a, req_b, tenant_a, "conflicts-with")
 
             result = _run(tenant_a, workspace_a, tier=tier)

@@ -334,11 +334,11 @@ class TraceLinkManager:
 
         # Eager cycle detection: does target already reach source?
         # Scoped to this link_type only — the 8 relation types are semantically
-        # distinct directed graphs (e.g. "implements" ArchitectureElement->Requirement
-        # combined with "parent-child" and "allocated-to" edges produces coincidental
+        # distinct directed graphs (e.g. "allocated-to" Requirement->ArchitectureElement
+        # combined with "decomposes" and "derives-from" edges produces coincidental
         # paths that are not real domain cycles; mixing them made the textbook
         # decomposition pattern "derive a child requirement and allocate it to the
-        # same ArchitectureElement that already implements its parent" falsely
+        # same ArchitectureElement its parent is already allocated to" falsely
         # rejected as a cycle).
         #
         # Only the two FK id columns are read (_build_adjacency_from_edges ->

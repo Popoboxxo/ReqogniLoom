@@ -1301,7 +1301,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     # exist. Edit prompts via /api/v1/prompt-templates/ instead.
     ai_prompts = serializers.JSONField(read_only=True, default=dict)
     decomposition_link_type = serializers.CharField(
-        required=False, default="parent-child", max_length=50
+        required=False, default="decomposes", max_length=50
     )
     default_link_type = serializers.CharField(
         required=False, default="derives-from", max_length=50

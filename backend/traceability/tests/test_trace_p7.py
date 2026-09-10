@@ -45,7 +45,7 @@ class TestTraceP7:
             root = _artifact(tenant_a, workspace_a)
             child = _artifact(tenant_a, workspace_a, parent=root)
             sibling = _artifact(tenant_a, workspace_a)  # no parent → not in doc A
-            make_trace_link(child, sibling, tenant_a, "satisfies")
+            make_trace_link(child, sibling, tenant_a, "allocated-to")
 
             result = RuleEngine().run(
                 tier="extended",
@@ -70,7 +70,7 @@ class TestTraceP7:
             root = _artifact(tenant_a, workspace_a)
             child = _artifact(tenant_a, workspace_a, parent=root)
             sibling = _artifact(tenant_a, workspace_a)
-            make_trace_link(child, sibling, tenant_a, "satisfies")
+            make_trace_link(child, sibling, tenant_a, "allocated-to")
 
             result = RuleEngine().run(
                 tier="extended",
@@ -89,7 +89,7 @@ class TestTraceP7:
             root = _artifact(tenant_a, workspace_a)
             child_a = _artifact(tenant_a, workspace_a, parent=root)
             child_b = _artifact(tenant_a, workspace_a, parent=root)
-            make_trace_link(child_a, child_b, tenant_a, "satisfies")
+            make_trace_link(child_a, child_b, tenant_a, "allocated-to")
 
             result = RuleEngine().run(
                 tier="extended",
@@ -108,7 +108,7 @@ class TestTraceP7:
             root = _artifact(tenant_a, workspace_a)
             child = _artifact(tenant_a, workspace_a, parent=root)
             sibling = _artifact(tenant_a, workspace_a)
-            make_trace_link(child, sibling, tenant_a, "satisfies")
+            make_trace_link(child, sibling, tenant_a, "allocated-to")
 
             result = RuleEngine().run(
                 tier="minimal",
@@ -137,7 +137,7 @@ class TestTraceP7:
         with active_tenant(tenant_a):
             requirement = make_artifact(tenant_a, workspace_a, artifact_type="requirement")
             diagram_shadow = make_artifact(tenant_a, workspace_a, artifact_type="Diagram")
-            make_trace_link(diagram_shadow, requirement, tenant_a, "documents")
+            make_trace_link(diagram_shadow, requirement, tenant_a, "references")
 
             result = RuleEngine().run(
                 tier="extended",
@@ -154,7 +154,7 @@ class TestTraceP7:
             root = _artifact(tenant_a, workspace_a)
             child = _artifact(tenant_a, workspace_a, parent=root)
             sibling = _artifact(tenant_a, workspace_a)
-            make_trace_link(child, sibling, tenant_a, "satisfies")
+            make_trace_link(child, sibling, tenant_a, "allocated-to")
 
             result = RuleEngine().run(
                 tier="standard",

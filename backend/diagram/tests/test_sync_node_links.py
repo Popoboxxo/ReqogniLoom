@@ -12,7 +12,7 @@ reconciliation. Covers the brief's full acceptance list:
     whole save with DiagramValidationError, naming the node, and creates
     zero links.
   - THE single most important test in this task (see class docstring
-    below): a pre-existing 'documents' TraceLink survives an unrelated
+    below): a pre-existing 'references' TraceLink survives an unrelated
     node_graph save completely untouched, even when it shares the exact
     same (source, target) pair as a DIAGRAM_REF link being deleted.
 
@@ -268,13 +268,13 @@ class TestSyncNodeLinksUnresolvableRef:
 class TestSyncNodeLinksProtectsDocumentsLink:
     """Proves the DIAGRAM_REF filter actually protects hand-authored links.
 
-    A hand-authored 'documents' TraceLink and a reconciler-owned DIAGRAM_REF
+    A hand-authored 'references' TraceLink and a reconciler-owned DIAGRAM_REF
     TraceLink can legally coexist on the exact same (source, target) pair —
     they differ only by link_type (uq_tracelink_edge is on (source, target,
     link_type), so this is a valid, non-conflicting pair of rows). This test
     proves the reconciler's delete query — hard-filtered to
     link_type=LinkType.DIAGRAM_REF — never reads, creates or deletes the
-    'documents' link, even while it correctly deletes the DIAGRAM_REF link on
+    'references' link, even while it correctly deletes the DIAGRAM_REF link on
     that identical pair in response to an unrelated node_graph save (the
     node's artifact_ref being cleared).
     """
@@ -287,7 +287,7 @@ class TestSyncNodeLinksProtectsDocumentsLink:
 
             # Create the diagram with BOTH a node_graph artifact_ref to `req`
             # (-> DIAGRAM_REF diagram->req) AND an explicit target_id=req
-            # (-> hand-authored 'documents' diagram->req): same source, same
+            # (-> hand-authored 'references' diagram->req): same source, same
             # target, two different link_types on one pair.
             content_with_ref = _node_graph_content(
                 [_node("n-1", _ref("Requirement", req.id))]
@@ -303,7 +303,7 @@ class TestSyncNodeLinksProtectsDocumentsLink:
             )
 
             documents_link = TraceLink.objects.get(
-                link_type="documents",
+                link_type="references",
                 source_id=diagram.artifact_id,
                 target_id=req.artifact_id,
             )
@@ -317,7 +317,7 @@ class TestSyncNodeLinksProtectsDocumentsLink:
             # An "unrelated" node_graph save: the node no longer references
             # `req` at all (artifact_ref cleared) -> the DIAGRAM_REF link to
             # `req` must be deleted as no-longer-desired, but the
-            # 'documents' link on that exact same pair must survive
+            # 'references' link on that exact same pair must survive
             # completely untouched (same row, same id).
             content_cleared = _node_graph_content([_node("n-1", None)])
             manager.update_diagram(
@@ -333,17 +333,17 @@ class TestSyncNodeLinksProtectsDocumentsLink:
                 target_id=req.artifact_id,
             ).exists()
 
-            # 'documents' link is the exact same row, completely untouched.
+            # 'references' link is the exact same row, completely untouched.
             documents_link.refresh_from_db()
             still_there = TraceLink.objects.get(
-                link_type="documents",
+                link_type="references",
                 source_id=diagram.artifact_id,
                 target_id=req.artifact_id,
             )
             assert still_there.id == documents_link.id
             assert (
                 TraceLink.objects.filter(
-                    link_type="documents",
+                    link_type="references",
                     source_id=diagram.artifact_id,
                     target_id=req.artifact_id,
                 ).count()

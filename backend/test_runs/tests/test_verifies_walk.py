@@ -118,7 +118,7 @@ class TestGetVerifiedRequirements:
         with active_tenant(tenant):
             req_art, req = make_requirement(tenant, workspace, "REQ-V")
             tc_art, tc = make_test_case(tenant, workspace, "TC-V")
-            make_trace_link(tc_art, req_art, tenant, "satisfies")  # NOT verifies
+            make_trace_link(tc_art, req_art, tenant, "references")  # NOT verifies
 
             tr = make_test_run(tenant, workspace, "Run NonVerifies")
             make_test_run_result(tenant, tr, tc)

@@ -61,30 +61,18 @@ class TestValidLinkTypes:
     """REQ-L2-AS-010: 8 standard link types."""
 
     EXPECTED_TYPES = {
-        "parent-child",
         "derives-from",
-        "satisfies",
-        "verifies",
-        "implements",
-        "refines",
-        "documents",
-        "realizes",
-        "traces",
-        "copy-of",
-        "allocated-to",  # REQ-L1-042
-        "uses-term",
-        "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "decomposes",  # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4 — hardcoded decompose() output
-        "diagram-ref",  # Codeberg #353 Task 3 — reconciler-owned only, see traceability/types.py
-        # Link-type catalog keys without a legacy equivalent. VALID_LINK_TYPES
-        # must stay a *superset* of link_types.builtin.BUILTIN_LINK_TYPES, or
-        # the Layer-1 fail-safe rejects a key the catalog just accepted.
+        "allocated-to",  # REQ-L1-042 — absorbed the retired satisfies/implements
+        "verifies",
+        "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "mitigates",
-        "references",
+        "references",  # absorbed the retired documents/traces/uses-term
+        "diagram-ref",  # Codeberg #353 Task 3 — reconciler-owned only, see traceability/types.py
     }
 
     def test_all_ten_types_present(self):
-        """VALID_LINK_TYPES contains all harmonized link types (incl. REQ-L1-042)."""
+        """VALID_LINK_TYPES contains the eight built-in link types (link-type consolidation)."""
         assert self.EXPECTED_TYPES == VALID_LINK_TYPES
 
     def test_types_is_frozenset(self):
@@ -243,7 +231,10 @@ class TestCreateTraceLink:
             svc.create_trace_link(
                 source_id=SOURCE_ID,
                 target_id=TARGET_ID,
-                link_type="implements",
+                # Not 'allocated-to': that branch additionally calls
+                # _check_allocation_invariant (REQ-L1-044 I4), which does a
+                # real DB query this pure-mock unit test does not set up.
+                link_type="derives-from",
                 ctx=ctx,
             )
 
@@ -323,7 +314,7 @@ class TestEmbeddingDimensionGuard:
                 source_id=source.id,
                 target_id=target.id,
                 # Requirement -> Requirement, a pair the built-in catalog
-                # allows; the retired "traces" type no longer exists.
+                # allows; the retired traces type no longer exists.
                 link_type="derives-from",
                 ctx=ctx,
             )
@@ -521,8 +512,8 @@ class TestQueryTraceLinks:
 
         item_verifies = MagicMock()
         item_verifies.link_type = "verifies"
-        item_implements = MagicMock()
-        item_implements.link_type = "implements"
+        item_decomposes = MagicMock()
+        item_decomposes.link_type = "decomposes"
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
@@ -531,7 +522,7 @@ class TestQueryTraceLinks:
             ) as mock_resolve,
             patch(
                 "traceability.services.query",
-                return_value=[item_verifies, item_implements],
+                return_value=[item_verifies, item_decomposes],
             ) as mock_query,
         ):
             result = svc.query_trace_links(

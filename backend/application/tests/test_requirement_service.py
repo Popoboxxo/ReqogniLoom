@@ -996,7 +996,7 @@ class TestDecompose:
                 "application.requirement_service.Workspace.objects.filter",
                 return_value=MagicMock(
                     first=MagicMock(
-                        return_value=MagicMock(decomposition_link_type="satisfies")
+                        return_value=MagicMock(decomposition_link_type="allocated-to")
                     )
                 ),
             ),

@@ -17,55 +17,42 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# Link-Type Enum (10 types — harmonized union from COMP-TE-001 / COMP-AS-005)
-# REQ-L2-TE-001: 6 base types + 2 new (documents, realizes)
-# REQ-L1-030:    + traces, copy-of (harmonized with COMP-AS-005)
+# Link-Type Enum — the eight built-in keys of ``link_types/builtin.py``.
+# The ten legacy members (parent-child, satisfies, implements, refines,
+# realizes, documents, traces, uses-term, copy-of) were retired by the
+# link-type consolidation; ``link_types.builtin.LEGACY_LINK_TYPE_MAPPING``
+# records what each one became and the data migration moved the rows.
 # ---------------------------------------------------------------------------
 
 class LinkType(str, Enum):
-    """Convenience symbols for link-type keys.
+    """Convenience symbols for the eight built-in keys.
 
-    **NOT the validation authority.** Since the link-type catalog landed
-    (``link_types/``), which link types exist and which endpoint pairs they
-    accept is decided per workspace by
-    :func:`link_types.catalog.validate_link_pair` / ``resolve_catalog`` — a
-    tenant-extensible, database-backed catalog. This enum survives only so
-    code that wants a symbol instead of a string literal has one.
+    **NOT the validation authority** — that is
+    :func:`link_types.catalog.resolve_catalog` /
+    :func:`link_types.catalog.validate_link_pair`, which is per-workspace and
+    tenant-extensible. This enum survives only so code that wants a symbol
+    instead of a string literal has one, and it lists the built-ins only: a
+    tenant-defined key has no member here by design.
 
     The persistence layer stores link_type as a plain CharField.
     """
 
-    PARENT_CHILD = "parent-child"
     DERIVES_FROM = "derives-from"
-    SATISFIES = "satisfies"
-    VERIFIES = "verifies"
-    IMPLEMENTS = "implements"
-    REFINES = "refines"
-    # L1-Arch §3.4 extensions:
-    DOCUMENTS = "documents"
-    REALIZES = "realizes"
-    # REQ-L1-030 harmonization (from COMP-AS-005):
-    TRACES = "traces"
-    COPY_OF = "copy-of"
-    # REQ-L1-042 allocation tracking:
+    # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4 / link-type consolidation: the
+    # Requirement/ArchitectureElement decomposition edge. Absorbed the retired
+    # ``parent-child`` (same direction: source is the parent) and ``realizes``.
+    DECOMPOSES = "decomposes"
+    # REQ-L1-042 allocation tracking. Absorbed ``satisfies``/``implements``,
+    # which ran ArchitectureElement -> Requirement; ``allocated-to`` runs
+    # Requirement -> ArchitectureElement, so migrated rows had their endpoints
+    # swapped (``link_types.builtin.SWAPPED_LEGACY_KEYS``).
     ALLOCATED_TO = "allocated-to"
-    # REQ-L1-044 Semantic Glossary Link
-    USES_TERM = "uses-term"
+    VERIFIES = "verifies"
     # REQ-L2-TE-020 ADR decision link (ADR -> ArchitectureElement):
     DECIDES = "decides"
-    # Link-type catalog (link_types/builtin.py) keys that have no legacy
-    # equivalent. Added so VALID_LINK_TYPES stays a *superset* of the catalog:
-    # traceability.trace_link_manager._validate_link_type is a coarse Layer-1
-    # fail-safe for direct engine callers and must never reject a key the
-    # per-workspace catalog just accepted.
     MITIGATES = "mitigates"
+    # Absorbed ``documents``, ``traces`` and ``uses-term``.
     REFERENCES = "references"
-    # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: additive Requirement/Need hierarchy
-    # link type — the hardcoded output of RequirementService.decompose() /
-    # derive_requirement(), replacing the workspace-configurable link type
-    # (formerly read from Workspace.decomposition_link_type). Not a rename of
-    # PARENT_CHILD: existing parent-child TraceLinks/baselines are untouched.
-    DECOMPOSES = "decomposes"
     # Codeberg #353 Task 3: Reconciler-owned only (Codeberg #353) — never
     # hand-authored, never touched by manual trace-link CRUD.
     DIAGRAM_REF = "diagram-ref"
@@ -79,7 +66,7 @@ class LinkType(str, Enum):
 #: Legacy convenience set over :class:`LinkType`. **No longer a validation
 #: authority** — ``link_types.catalog.validate_link_pair`` decides what a
 #: workspace accepts. Still referenced by the ReqIF importer's pre-filter and
-#: the MCP tool schemas until the consumer sweep retires them.
+#: the MCP tool schemas until those move to the catalog (Task 21).
 VALID_LINK_TYPES: frozenset[str] = LinkType.values()
 
 #: Every link type EXCEPT the reconciler-owned DIAGRAM_REF (Codeberg #353 I1).

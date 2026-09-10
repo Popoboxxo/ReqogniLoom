@@ -669,7 +669,7 @@ class TestArchitectureToolGroup:
             params={
                 "arch_id": "00000000-0000-0000-0000-000000000030",
                 "target_id": "00000000-0000-0000-0000-000000000020",
-                "link_type": "implements",
+                "link_type": "allocated-to",
             },
             auth_context=EDITOR_CTX,
             api_key=VALID_API_KEY,

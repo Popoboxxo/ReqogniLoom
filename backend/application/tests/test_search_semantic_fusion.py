@@ -318,7 +318,7 @@ class TestSemanticQueryDirectTraceLinkAndIcd:
             link = TraceLink.objects.create(
                 source=source,
                 target=target,
-                link_type="traces",
+                link_type="references",
                 embedding=[0.3] * _DIM,
             )
 

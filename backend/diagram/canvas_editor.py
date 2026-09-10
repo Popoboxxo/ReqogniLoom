@@ -587,7 +587,7 @@ class CanvasEditor:
         target_id: uuid.UUID,
         created_by_id: Optional[uuid.UUID] = None,
     ) -> object:
-        """Create a 'documents' TraceLink between a canvas and a target artifact.
+        """Create a 'references' TraceLink between a canvas and a target artifact.
 
         IF-DS-INT-006 contract: link_canvas_to_artifact(diagram_id, target_id) -> TraceLink
 

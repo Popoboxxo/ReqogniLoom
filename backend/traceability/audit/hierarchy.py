@@ -1,8 +1,8 @@
 """
 Requirement-hierarchy classification shared by the SE-Auditor rules.
 
-Issue #395. Root/leaf classification used to look at ``decomposes`` /
-``parent-child`` links **only** (a private ``_DECOMPOSITION_LINK_TYPES``
+Issue #395. Root/leaf classification used to look at ``decomposes`` links
+**only** (a private ``_DECOMPOSITION_LINK_TYPES``
 constant duplicated in ``rules/trace_derivation_allocation.py`` and
 ``rules/coverage_consistency.py``). The Requirement hierarchy that real
 workspaces actually contain is expressed predominantly through
@@ -22,7 +22,6 @@ added to the old constant:
 link type            source                      target
 ===================  ==========================  ==========================
 ``decomposes``       parent (the decomposed)     child (the result)
-``parent-child``     parent                      child
 ``derives-from``     child (the derived)         parent (the origin)
 ===================  ==========================  ==========================
 
@@ -32,10 +31,11 @@ child as a parent — inverting the hierarchy instead of recognising it. This
 module therefore normalises both spellings into a single set of
 ``(parent_id, child_id)`` pairs, and root/leaf are derived from that.
 
-``refines`` is deliberately *not* treated as a hierarchy edge: it expresses
-"same requirement, more detail" on one level, not decomposition onto the next
-one, and ``SE_LINK_SEMANTICS`` allows it symmetrically between Requirements,
-so its direction carries no level semantics.
+``refines`` no longer exists as a link type: the migration folded it into
+``derives-from``. Because ``derives-from`` *is* a hierarchy edge, every
+formerly symmetric ``refines`` edge between two Requirements now carries
+level semantics it did not have before — see OFFENE FRAGE 2 in
+docs/superpowers/plans/2026-09-03-traceability-semantik.md.
 
 Only edges whose *both* endpoints are Requirements in the audited set count.
 A ``Requirement --derives-from--> StakeholderNeed`` link is legal and common,
@@ -78,8 +78,10 @@ from traceability.audit.types import AuditContext
 from traceability.types import LinkType
 
 #: Hierarchy links stored as parent -> child (source is the parent).
+#: ``parent-child`` is gone — the migration folded it into ``decomposes``,
+#: which carries the same direction (source = parent).
 PARENT_TO_CHILD_LINK_TYPES: FrozenSet[str] = frozenset(
-    {LinkType.DECOMPOSES.value, LinkType.PARENT_CHILD.value}
+    {LinkType.DECOMPOSES.value}
 )
 
 #: Hierarchy links stored as child -> parent (source is the child) — the

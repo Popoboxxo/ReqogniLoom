@@ -274,7 +274,7 @@ class DiagramManager:
           - Creates the Diagram entity and records revision 1 (IF-L1-035).
           - Returns the UUID of the created Diagram.
           - Writes audit log entry (IF-L1-036).
-          - Optionally creates a 'documents' TraceLink if target_id is given
+          - Optionally creates a 'references' TraceLink if target_id is given
             (IF-DS-INT-003 / REQ-L2-DS-004).
 
         Args:

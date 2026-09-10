@@ -16,8 +16,8 @@ import pytest
 from django.core.management import call_command
 
 from application.management.commands.migrate_se_docs import (
+    _LINK_ALLOCATED_TO,
     _LINK_DERIVES_FROM,
-    _LINK_IMPLEMENTS,
     _parse_requirements_table_file,
     _parse_trace_matrix,
     _resolve_architecture_parents,
@@ -113,8 +113,10 @@ def test_parse_trace_matrix_orientation_and_link_types():
     assert ("REQ-L1-008", "REQ-L0-001", _LINK_DERIVES_FROM) in triples
     assert ("REQ-L1-006", "REQ-L0-001", _LINK_DERIVES_FROM) in triples
     assert ("REQ-L2-AS-001", "REQ-L1-008", _LINK_DERIVES_FROM) in triples
-    assert ("COMP-AS-001", "REQ-L2-AS-001", _LINK_IMPLEMENTS) in triples
-    assert ("COMP-AS-002", "REQ-L2-AS-001", _LINK_IMPLEMENTS) in triples
+    # allocated-to runs Requirement -> ArchitectureElement (endpoints swapped
+    # vs. the retired Component -> Requirement implements key).
+    assert ("REQ-L2-AS-001", "COMP-AS-001", _LINK_ALLOCATED_TO) in triples
+    assert ("REQ-L2-AS-001", "COMP-AS-002", _LINK_ALLOCATED_TO) in triples
     # The Test-Case column is intentionally not linked.
     assert not any("TC-AS-001" in t for triple in triples for t in triple)
 
@@ -329,15 +331,17 @@ def test_migrate_sets_hierarchy_trace_links_and_is_idempotent(tmp_path):
             target_id=req_l1.artifact_id,
             link_type=_LINK_DERIVES_FROM,
         ).exists()
+        # allocated-to runs Requirement -> ArchitectureElement (endpoints
+        # swapped vs. the retired implements key).
         assert TraceLink.objects.filter(
-            source_id=arch["COMP-AS-001"].artifact_id,
-            target_id=req_l2.artifact_id,
-            link_type=_LINK_IMPLEMENTS,
+            source_id=req_l2.artifact_id,
+            target_id=arch["COMP-AS-001"].artifact_id,
+            link_type=_LINK_ALLOCATED_TO,
         ).exists()
 
         # The '—' row (REQ-L0-002) produced no link.
         assert TraceLink.objects.filter(link_type=_LINK_DERIVES_FROM).count() == 2
-        assert TraceLink.objects.filter(link_type=_LINK_IMPLEMENTS).count() == 1
+        assert TraceLink.objects.filter(link_type=_LINK_ALLOCATED_TO).count() == 1
 
         link_count_after_first = TraceLink.objects.count()
         version_after_first = {

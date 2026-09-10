@@ -406,9 +406,13 @@ def test_derive_risks_from_architecture_write_mode_persists_risks_and_traces(ai_
 
     for entry in written:
         assert entry["status"] == "draft"
-        assert Risk.objects.filter(id=entry["id"]).exists()
+        risk = Risk.objects.get(id=entry["id"])
         link = TraceLink.objects.get(id=entry["trace_link_id"])
-        assert link.link_type == "traces"
+        assert link.link_type == "mitigates"
+        # 'mitigates' runs Risk -> ArchitectureElement; the new Risk is the
+        # link source, the derivation-source architecture element the target.
+        assert link.source_id == risk.artifact_id
+        assert link.target_id == arch.artifact_id
 
 
 def test_decompose_next_level_write_mode_persists_child_requirements(ai_ctx):

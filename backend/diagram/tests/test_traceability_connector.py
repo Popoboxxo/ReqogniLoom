@@ -2,7 +2,7 @@
 COMP-DS-004 TraceabilityConnector — Unit and integration tests.
 
 Covers:
-  REQ-L2-DS-004 / REQ-L3-TC-001: 'documents' TraceLink creation
+  REQ-L2-DS-004 / REQ-L3-TC-001: 'references' TraceLink creation
   REQ-L3-TC-001: Errors from TraceabilityEngine propagated transparently
   REQ-L2-DS-004: TraceLink can bind a Diagram to a Requirement/Architecture
   Codeberg #353 Task 3 / #392: shadow-Artifact resolution (_resolve_artifact_id)
@@ -16,7 +16,7 @@ TestResolveArtifactId: DB-backed tests for the shadow-Artifact mechanism
     (idempotency, transaction participation).
 
 Note: the end-to-end #392 regression test (MCP diagram.create + target_id
-persisting a real 'documents' TraceLink, nothing mocked) lives in
+persisting a real 'references' TraceLink, nothing mocked) lives in
 mcp_server/tests/test_diagram_tool_group.py, next to the other MCP-level
 diagram.create tests — see TestDiagramCreateTargetIdTraceLink there.
 """
@@ -49,9 +49,9 @@ class TestCreateDocumentLink:
     and TestDiagramCreateTargetIdTraceLink (mcp_server tests).
     """
 
-    def test_link_type_is_documents(self, connector: TraceabilityConnector) -> None:
-        """The link_type is hard-coded to 'documents' (REQ-L3-TC-001)."""
-        assert connector.LINK_TYPE == "documents"
+    def test_link_type_is_references(self, connector: TraceabilityConnector) -> None:
+        """The link_type is hard-coded to 'references' (REQ-L3-TC-001)."""
+        assert connector.LINK_TYPE == "references"
 
     def test_delegates_to_create_trace_link(self, connector: TraceabilityConnector) -> None:
         diagram_id = uuid.uuid4()
@@ -80,7 +80,7 @@ class TestCreateDocumentLink:
         mock_create.assert_called_once_with(
             source_id=resolved_artifact_id,
             target_id=target_id,
-            link_type="documents",
+            link_type="references",
             created_by_id=None,
         )
         assert result is mock_link
@@ -131,12 +131,12 @@ class TestCreateDocumentLink:
 
 @pytest.mark.django_db
 class TestCreateDocumentLinkWithManagerIntegration:
-    """REQ-L2-DS-004: Documents TraceLink created when target_id provided."""
+    """REQ-L2-DS-004: References TraceLink created when target_id provided."""
 
     def test_create_diagram_with_trace_link(
         self, tenant_a, workspace_a
     ) -> None:
-        """Creating a diagram with target_id triggers documents TraceLink.
+        """Creating a diagram with target_id triggers a references TraceLink.
 
         workspace_id is now required for this scenario (#392 fix): the shadow
         Artifact that backs the TraceLink source needs a real workspace FK.
@@ -161,7 +161,7 @@ class TestCreateDocumentLinkWithManagerIntegration:
 
         mock_create.assert_called_once()
         call_kwargs = mock_create.call_args.kwargs
-        assert call_kwargs["link_type"] == "documents"
+        assert call_kwargs["link_type"] == "references"
         assert call_kwargs["target_id"] == target_id
 
 

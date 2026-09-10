@@ -285,7 +285,7 @@ class ScopeResolver:
                 SELECT tl.source_id AS child_id, tl.target_id AS parent_id
                 FROM pl_tracelink tl
                 WHERE tl.tenant_id = %s
-                  AND tl.link_type IN ('derives-from', 'refines')
+                  AND tl.link_type = 'derives-from'
             ),
             descendants AS (
                 SELECT a.id, a.version

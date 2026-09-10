@@ -273,7 +273,7 @@ class TestResolveWorkspaceIdForTraceLink:
             link = TraceLink(
                 source=source,
                 target=target,
-                link_type="traces",
+                link_type="references",
                 tenant_id=tenant.id,
             )
 
@@ -300,7 +300,7 @@ class TestResolveWorkspaceIdForTraceLink:
             saved = TraceLink.objects.create(
                 source=source,
                 target=target,
-                link_type="traces",
+                link_type="references",
                 tenant_id=tenant.id,
             )
             # Reload: no select_related, so the relation cache is empty —

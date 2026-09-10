@@ -77,7 +77,7 @@ def test_create_applies_every_advertised_configuration_field() -> None:
             "goals_enabled": True,
             "goals_ai_enabled": True,
             "decomposition_link_type": "derives-from",
-            "default_link_type": "satisfies",
+            "default_link_type": "allocated-to",
         },
         format="json",
     )
@@ -88,7 +88,7 @@ def test_create_applies_every_advertised_configuration_field() -> None:
     assert body["goals_enabled"] is True
     assert body["goals_ai_enabled"] is True
     assert body["decomposition_link_type"] == "derives-from"
-    assert body["default_link_type"] == "satisfies"
+    assert body["default_link_type"] == "allocated-to"
 
     # Persisted, not merely echoed by the serializer.
     fresh = client.get(f"/api/v1/workspaces/{body['id']}/")
@@ -97,7 +97,7 @@ def test_create_applies_every_advertised_configuration_field() -> None:
     assert fresh.json()["goals_enabled"] is True
     assert fresh.json()["goals_ai_enabled"] is True
     assert fresh.json()["decomposition_link_type"] == "derives-from"
-    assert fresh.json()["default_link_type"] == "satisfies"
+    assert fresh.json()["default_link_type"] == "allocated-to"
 
 
 def test_create_without_configuration_fields_keeps_defaults() -> None:

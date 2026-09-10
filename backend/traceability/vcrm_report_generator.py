@@ -94,7 +94,7 @@ class VCRMReportGenerator:
             return VCRMMatrix(rows=[])
 
         # Load component links for each requirement via QueryEngine (IF-TE-INT-005)
-        # We query downstream from each requirement artifact to find satisfies/implements links
+        # We query downstream from each requirement artifact for its allocations
         tenant_id = TenantContext.get_tenant()
 
         rows: list[VCRMRow] = []
@@ -174,7 +174,7 @@ class VCRMReportGenerator:
     # -----------------------------------------------------------------------
 
     def _get_component_ids_for_requirement(self, requirement_id: str) -> list[str]:
-        """Find ArchitectureElement IDs linked to a requirement via `satisfies`.
+        """Find the ArchitectureElement IDs a requirement is allocated to.
 
         Uses the ORM directly (IF-TE-EXT-OUT-001) to avoid cross-component
         coupling beyond the registered interfaces.
@@ -196,13 +196,17 @@ class VCRMReportGenerator:
 
         req_artifact_id = str(row[0])
 
-        # Find downstream artifacts linked with satisfies or implements
+        # Components a requirement is allocated to. Before the link-type
+        # consolidation this read the two retired ArchitectureElement ->
+        # Requirement satisfaction keys — so a Requirement was never the
+        # source and this column came back empty for SE-conform data.
+        # allocated-to genuinely runs Requirement -> ArchitectureElement.
         sql = """
             SELECT DISTINCT tl.target_id
             FROM pl_tracelink tl
             JOIN pl_artifact a ON a.id = tl.target_id
             WHERE tl.source_id = %s
-              AND tl.link_type IN ('satisfies', 'implements')
+              AND tl.link_type = 'allocated-to'
               AND tl.tenant_id = %s
         """
         with connection.cursor() as cur:

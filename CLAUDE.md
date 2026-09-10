@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
+> Generiert von agent-meta v1.0.0 — `2026-09-10`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -29,34 +29,11 @@ Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird
 **Plattform:** Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend)
 **Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (30 Tool-Gruppen, 171 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
-## Tech-Stack
+> Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.
 
-- **Runtime:** Python 3.x (im Container: Django 5.2+, DRF 3.15+, drf-spectacular, psycopg2-binary, celery, redis, reportlab) + Node.js >= 18 (nur für E2E mit Playwright; Vite-Dev-Server läuft im Container) + Vite 5.4+ Dev-Server
-- **Sprache:** Python 3.x + TypeScript 5.5+ (strict) + YAML + Bash
-- **Key-Dependencies:** - Docker >= 24
-- Docker Compose >= 2.x
-- Node.js >= 18 (nur für E2E-Tests mit Playwright)
-- Python 3.x (im Container)
+> Runtime & Abhängigkeiten: siehe Projekt-Manifest (`pyproject.toml` / `requirements.txt` / `package.json` / `manifest.json`).
 
-
-## Architektur
-
-```
-backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability, workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api, mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs #   reqogniloom/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
-frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
-e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
-docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
-deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml, docker-compose.override.yml, README.md (KI-Agenten-lesbar)
-testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
-.meta-config/        # agent-meta Konfiguration (project.yaml)
-.agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
-
-```
-
-**Entry-Point:**
-```
-backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) 
-```
+**Entry-Point:** `backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) `
 
 **Besondere Patterns:**
 - Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 30 Tool-Gruppen und 171 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
@@ -108,9 +85,9 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.101.0-beta.3 — `2026-09-01`
+Generiert von agent-meta v1.0.0 — `2026-09-10`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
-> **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
+> **Einstiegspunkt:** Starte mit dem `orchestrator`-Agenten für alle Entwicklungsaufgaben — Ausnahmen siehe Abschnitt »Orchestrator — Universal Router«.
 
 ## Knowledge Engine
 

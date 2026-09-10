@@ -297,7 +297,7 @@ class IcdManager:
           1. Validate syntax of incoming payload (ContractValidator).
           2. Persist the Icd row carrying the contract, atomically.
           3. Snapshot revision 1 into the shared ArtifactVersion store.
-          4. Call TraceabilityConnector to create 'realizes' TraceLink (IF-ICD-INT-002).
+          4. Call TraceabilityConnector to create 'decomposes' TraceLink (IF-ICD-INT-002).
 
         Args:
             payload: IcdCreateDTO with all required fields.

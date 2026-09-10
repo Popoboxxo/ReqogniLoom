@@ -1087,7 +1087,7 @@ def test_change_impact_includes_architecture_element_child_via_fk_tree(
     assert entry["id"] == str(child_id)
     assert entry["entity_type"] == "ArchitectureElement"
     assert entry["title"] == "Child Element"
-    assert entry["link_type"] == "parent-child"
+    assert entry["link_type"] == "decomposes"
     assert entry["relation"] == "child"
 
 

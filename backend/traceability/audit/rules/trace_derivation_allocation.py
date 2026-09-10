@@ -38,11 +38,11 @@ names as the alternative:
   this heuristic — they simply are not skipped.
 
 Endpoint-type legality (may ``Requirement`` link to ``StakeholderNeed`` via
-``derives-from``, may ``ArchitectureElement`` link to ``Requirement`` via
-``satisfies``/``implements``, ...) is NOT re-implemented here — that is
-``SE_LINK_SEMANTICS`` / ``check_se_link_semantics`` territory (§2.1),
-enforced synchronously at link-creation time. These rules only check
-*existence* of the required link, never re-validate its endpoint types.
+``derives-from``, may ``Requirement`` link to ``ArchitectureElement`` via
+``allocated-to``, ...) is NOT re-implemented here — that is
+``link_types.catalog.validate_link_pair`` territory, enforced synchronously
+at link-creation time. These rules only check *existence* of the required
+link, never re-validate its endpoint types.
 
 --------------------------------------------------------------------------
 BEHAVIOUR CHANGE — TRACE-P3 accepts an incoming ``allocated-to`` (issue #395)
@@ -53,10 +53,11 @@ classification migration — it is called out here so it is reviewed on its
 own merits rather than read as a side effect of the classification change.
 
 TRACE-P3 used to accept only an outgoing ``satisfies``/``implements`` link
-from the ArchitectureElement. It now also accepts an incoming
-``Requirement --allocated-to--> element`` link. Rationale, trade-off and the
-rejected alternative (auto-writing a reciprocal ``satisfies`` link on every
-allocation) are documented on
+from the ArchitectureElement. It now accepts an incoming
+``Requirement --allocated-to--> element`` link — and since the link-type
+consolidation folded the other two into ``allocated-to``, that is the only
+form left. Rationale, trade-off and the rejected alternative (auto-writing a
+reciprocal link on every allocation) are documented on
 :class:`ArchitectureElementSatisfiesRequirementRule` itself.
 
 Net effect on existing workspaces: TRACE-P3 fires strictly less often than
@@ -361,47 +362,40 @@ class RequirementAllocatedToArchitectureRule(Rule):
 
 
 # ---------------------------------------------------------------------------
-# TRACE-P3 — every ArchitectureElement satisfies/implements >= 1 Requirement.
+# TRACE-P3 — every ArchitectureElement carries >= 1 Requirement allocation.
 # ---------------------------------------------------------------------------
 
 
 @register_rule
 class ArchitectureElementSatisfiesRequirementRule(Rule):
-    """TRACE-P3: every ArchitectureElement satisfies/implements a Requirement.
+    """TRACE-P3: every ArchitectureElement is allocated a Requirement.
 
     BEHAVIOUR CHANGE (issue #395) — see the module docstring. An incoming
-    ``Requirement --allocated-to--> element`` link now counts as
-    justification too.
+    ``Requirement --allocated-to--> element`` link counts as justification.
 
-    Allocation and satisfaction are the two directions of one fact. In
-    ``SE_LINK_SEMANTICS`` the Requirement/ArchitectureElement pair of
-    ``allocated-to`` (``(Requirement, ArchitectureElement)``) is exactly the
-    reverse of the Requirement/ArchitectureElement pair of ``satisfies``
-    (``(ArchitectureElement, Requirement)``). Neither entry is limited to
-    that pair — ``satisfies`` also permits ``(Requirement,
-    StakeholderNeed)`` and ``allocated-to`` also permits
-    ``(ArchitectureElement, ArchitectureElement)`` — but those other pairs
-    cannot reach this rule, which only ever intersects against the active
-    Requirement set.
+    Allocation and satisfaction were the two directions of one fact, and the
+    link-type consolidation collapsed them: ``satisfies`` and ``implements``
+    ran ArchitectureElement -> Requirement and were both folded into
+    ``allocated-to``, which runs Requirement -> ArchitectureElement (endpoints
+    swapped by the migration). Only the incoming direction remains, so this
+    rule reads one lookup where it used to union two.
 
-    Allocation is also the *only* one of the two directions the product ever
-    writes (``TraceLinkService.allocate``, the guided "Ableiten" flow, the AI
-    decomposition commit); no code path produces a ``satisfies`` link. Without
-    this, an element carrying the whole requirement allocation of a system
-    level was still reported as architecture without justification — the
-    fault this rule exists to catch, inverted.
+    Allocation was already the *only* one of the two directions the product
+    ever wrote (``TraceLinkService.allocate``, the guided "Ableiten" flow, the
+    AI decomposition commit). Without counting it, an element carrying the
+    whole requirement allocation of a system level was still reported as
+    architecture without justification — the fault this rule exists to catch,
+    inverted.
 
-    Rejected alternative: auto-writing a reciprocal ``satisfies`` link on
-    every allocation. That doubles every allocation edge in coverage
-    aggregation, VCRM reports, diagrams and baselines, and
-    ``TraceLinkService.allocate`` deletes a Requirement's previous allocation
-    — so it would have to delete the paired ``satisfies`` too, which cannot
-    be told apart from a hand-authored one. It also asserts something the
-    user never stated.
+    Rejected alternative: auto-writing a reciprocal link on every allocation.
+    That doubles every allocation edge in coverage aggregation, VCRM reports,
+    diagrams and baselines, and ``TraceLinkService.allocate`` deletes a
+    Requirement's previous allocation — so it would have to delete the paired
+    link too, which cannot be told apart from a hand-authored one. It also
+    asserts something the user never stated.
 
-    The rule keeps its teeth: an element with neither an outgoing
-    satisfies/implements nor an incoming allocation is untraced architecture
-    and still blocks.
+    The rule keeps its teeth: an element with no incoming allocation is
+    untraced architecture and still blocks.
     """
 
     rule_id = TRACE_P3
@@ -412,20 +406,16 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
             return []
 
         requirement_ids = frozenset(_active_requirements(context))
-        satisfies_or_implements = _sources_by_link_type(
-            context,
-            frozenset({LinkType.SATISFIES.value, LinkType.IMPLEMENTS.value}),
-        )
+        # The two retired satisfaction keys were folded into allocated-to,
+        # which this rule already read from the target side — the two
+        # lookups collapsed into one.
         allocated_from = _targets_by_link_type(
             context, frozenset({LinkType.ALLOCATED_TO.value})
         )
 
         findings: List[Finding] = []
         for ae_id, title in sorted(elements.items()):
-            justifying = (
-                satisfies_or_implements.get(ae_id, set())
-                | allocated_from.get(ae_id, set())
-            )
+            justifying = allocated_from.get(ae_id, set())
             if justifying & requirement_ids:
                 continue
             findings.append(
@@ -434,8 +424,7 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
                     severity=Severity.BLOCKER,
                     message=(
                         f"[TRACE-P3] ArchitectureElement '{title}' ({ae_id}) "
-                        f"does not satisfy/implement any Requirement and has "
-                        f"no Requirement allocated to it."
+                        f"has no Requirement allocated to it."
                     ),
                     artifact_ids=(ae_id,),
                 )

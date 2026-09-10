@@ -444,7 +444,7 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "params": {
             "arch_id": "__UUID_2A__",
             "target_id": "__UUID_2B__",
-            "link_type": "satisfies",
+            "link_type": "decomposes",
             "workspace_id": "__WORKSPACE__",
         },
         "result_key": "trace_link",
@@ -957,7 +957,7 @@ _RBAC_DENIAL_CASES: List[Dict[str, Any]] = [
     # architecture.*
     {"tool": "architecture.create", "params": {"title": "X", "workspace_id": "__WORKSPACE__"}},
     {"tool": "architecture.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},
-    {"tool": "architecture.link", "params": {"arch_id": str(uuid4()), "target_id": str(uuid4()), "link_type": "refines", "workspace_id": "__WORKSPACE__"}},
+    {"tool": "architecture.link", "params": {"arch_id": str(uuid4()), "target_id": str(uuid4()), "link_type": "decomposes", "workspace_id": "__WORKSPACE__"}},
     # test.*
     {"tool": "test.create", "params": {"title": "X", "workspace_id": "__WORKSPACE__"}},
     {"tool": "test.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},

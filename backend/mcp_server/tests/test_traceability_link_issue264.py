@@ -252,7 +252,7 @@ def test_resolver_accepts_test_case_and_need_ids(
 def test_unknown_entity_id_still_reports_not_found(auth_ctx, requirement):
     """A genuinely unknown id must stay NOT_FOUND, not become a phantom link."""
     result = _create_link(
-        requirement.id, uuid.uuid4(), LinkType.TRACES.value, auth_ctx
+        requirement.id, uuid.uuid4(), LinkType.DERIVES_FROM.value, auth_ctx
     )
 
     assert result.success is False

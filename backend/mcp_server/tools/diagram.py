@@ -134,7 +134,7 @@ class DiagramToolGroup(BaseToolGroup):
                     "description": {"type": "string", "description": "Optional free-text description."},
                     "target_id": {
                         "type": "string",
-                        "description": "Optional target Artifact UUID for a 'documents' TraceLink.",
+                        "description": "Optional target Artifact UUID for a 'references' TraceLink.",
                     },
                 },
                 "required": ["name", "diagram_type", "payload_format", "content"],

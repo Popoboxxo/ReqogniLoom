@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='artifact',
             name='copied_from',
-            field=models.ForeignKey(blank=True, help_text="Provenance of a duplicated artifact. Replaces the retired 'copy-of' TraceLink type: a copy has exactly one origin, so a 1:1 field states the invariant that an N:M link table could not. SET_NULL — deleting the original must not delete its copies, which are independent artifacts.", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='copies', to='persistence.artifact'),
+            field=models.ForeignKey(blank=True, help_text="Provenance of a duplicated artifact. Replaces the retired copy-of TraceLink type: a copy has exactly one origin, so a 1:1 field states the invariant that an N:M link table could not. SET_NULL — deleting the original must not delete its copies, which are independent artifacts.", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='copies', to='persistence.artifact'),
         ),
         migrations.AddField(
             model_name='tracelink',
@@ -34,6 +34,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='workspace',
             name='decomposition_link_type',
-            field=models.CharField(default='decomposes', help_text="Default link type used when decomposing requirements. NOTE: RequirementService.decompose hardcodes 'decomposes' and does not read this field (UMSETZUNGSPLAN_SYSENG_2.0 section 1.4); the default was 'parent-child', a link type that no longer exists.", max_length=50),
+            field=models.CharField(default='decomposes', help_text="Default link type used when decomposing requirements. NOTE: RequirementService.decompose hardcodes `decomposes` and does not read this field (UMSETZUNGSPLAN_SYSENG_2.0 section 1.4); the default was the now-retired parent/child link key.", max_length=50),
         ),
     ]

@@ -538,12 +538,12 @@ class TestDiagramToolGroupExportSvg:
 
 # ---------------------------------------------------------------------------
 # Codeberg #353 Task 3 / #392 regression: diagram.create + target_id must
-# persist a real 'documents' TraceLink end-to-end (nothing mocked)
+# persist a real 'references' TraceLink end-to-end (nothing mocked)
 # ---------------------------------------------------------------------------
 
 
 class TestDiagramCreateTargetIdTraceLink:
-    def test_create_with_target_id_persists_documents_tracelink(self):
+    def test_create_with_target_id_persists_references_tracelink(self):
         """#392: diagram.create(target_id=...) always raised SourceNotFoundError
         deep inside TraceLinkManager.create, because a bare Diagram UUID is not
         a valid Artifact row (TraceLinkManager looks endpoints up via
@@ -588,7 +588,7 @@ class TestDiagramCreateTargetIdTraceLink:
             link = TraceLink.objects.get(
                 source_id=diagram.artifact_id,
                 target_id=target_artifact.id,
-                link_type="documents",
+                link_type="references",
             )
             assert link.source_id == diagram.artifact_id
             assert link.target_id == target_artifact.id

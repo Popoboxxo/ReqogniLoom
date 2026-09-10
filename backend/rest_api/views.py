@@ -4210,7 +4210,7 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "name": ws.name,
         "preset": ws.preset or {},
         "ai_prompts": getattr(ws, "ai_prompts", {}),
-        "decomposition_link_type": getattr(ws, "decomposition_link_type", "parent-child"),
+        "decomposition_link_type": getattr(ws, "decomposition_link_type", "decomposes"),
         "default_link_type": getattr(ws, "default_link_type", "derives-from"),
         "goals_enabled": getattr(ws, "goals_enabled", False),
         "goals_ai_enabled": getattr(ws, "goals_ai_enabled", False),

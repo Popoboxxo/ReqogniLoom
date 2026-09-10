@@ -69,7 +69,7 @@ def _make_tracelinks(tenant, workspace, count: int) -> None:
                 tenant=tenant,
                 source=src.artifact,
                 target=tgt.artifact,
-                link_type="satisfies",
+                link_type="derives-from",
             )
     finally:
         clear_request_tenant()

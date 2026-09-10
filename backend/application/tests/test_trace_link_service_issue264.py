@@ -153,7 +153,7 @@ class TestTraceLinkErrorMapping:
     error occurred`` — an HTTP 500 for what is a rejected input.
     """
 
-    def _create_with(self, side_effect, link_type="traces"):
+    def _create_with(self, side_effect, link_type="references"):
         """Run create_trace_link with the engine raising *side_effect*."""
         svc = TraceLinkService()
         ctx = _make_ctx()
@@ -186,14 +186,14 @@ class TestTraceLinkErrorMapping:
     def test_cycle_detected_maps_to_validation_error(self):
         """A cycle is a rejected input, not a server fault.
 
-        Reproduces the #264 Befund C sequence: once ``traces``
-        Goal -> Requirement exists, ``traces`` Requirement -> Goal closes the
-        cycle. That used to surface as HTTP 500.
+        Reproduces the #264 Befund C sequence: once a ``references``
+        Goal -> Requirement link exists, ``references`` Requirement -> Goal
+        closes the cycle. That used to surface as HTTP 500.
         """
         from traceability.exceptions import CycleDetectedError
 
         with pytest.raises(ValidationError, match="Cycle detected"):
-            self._create_with(CycleDetectedError("traces"))
+            self._create_with(CycleDetectedError("references"))
 
     def test_cross_tenant_error_maps_to_validation_error(self):
         from traceability.exceptions import CrossTenantLinkError

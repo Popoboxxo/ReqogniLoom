@@ -195,14 +195,17 @@ _ARCH_ROOT_UID = "ARCH-L1-000"  # docs/se/L1/Gesamtsystem root, has no parent.
 # (traceability.types.SE_LINK_SEMANTICS) and therefore stay valid in se_mode:
 #   §1 REQ-L0 -> REQ-L1 : (REQ-L1)   derives-from (REQ-L0)  Requirement->StakeholderNeed
 #   §2 REQ-L1 -> REQ-L2 : (REQ-L2)   derives-from (REQ-L1)  Requirement->Requirement
-#   §3 REQ-L2 -> Component: (Component) implements (REQ-L2)  ArchitectureElement->Requirement
+#   §3 REQ-L2 -> Component: (REQ-L2) allocated-to (Component)  Requirement->ArchitectureElement
 # The §3 "Test Case" column is intentionally NOT linked: TestCase artifacts are
 # not imported by this command (see module docstring), so such an endpoint would
 # never resolve. This is a documented, deliberate omission — not a parse gap.
 _TRACE_MATRIX_FILENAME = "traceability-matrix.md"
 
 _LINK_DERIVES_FROM = LinkType.DERIVES_FROM.value  # "derives-from"
-_LINK_IMPLEMENTS = LinkType.IMPLEMENTS.value  # "implements"
+# The retired ArchitectureElement -> Requirement key was folded into
+# allocated-to, which runs the other way (Requirement -> ArchitectureElement),
+# so callers must swap their endpoints.
+_LINK_ALLOCATED_TO = LinkType.ALLOCATED_TO.value  # "allocated-to"
 
 # uid token patterns used by the traceability-matrix parser. Each requires the
 # trailing numeric group so bare column headers ("REQ-L0", "REQ-L2") and
@@ -748,7 +751,9 @@ def _parse_trace_matrix(text: str) -> List[Tuple[str, str, str]]:
             source = _UID_L2_RE.search(line)
             if source:
                 for component in _UID_COMP_RE.findall(line):
-                    triples.append((component, source.group(0), _LINK_IMPLEMENTS))
+                    # Endpoints swapped vs. the retired Component -> Requirement
+                    # key: allocated-to runs Requirement -> ArchitectureElement.
+                    triples.append((source.group(0), component, _LINK_ALLOCATED_TO))
     return triples
 
 

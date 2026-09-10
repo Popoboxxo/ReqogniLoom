@@ -29,7 +29,10 @@ Tools:
       draft).
   ai_derivation.derive_risks_from_architecture(architecture_element_id, mode, policy)
       ArchitectureElement -> proposed risk drafts (write: creates one Risk +
-      "traces" TraceLink per draft). See the naming-decision note below.
+      "mitigates" TraceLink per draft, Risk -> ArchitectureElement — the
+      catalog's "mitigates" direction, a semantic successor of the retired
+      legacy key, not a rename: see
+      link_types.builtin.BUILTIN_LINK_TYPES["mitigates"]).
   ai_derivation.derive_glossary_from_workspace(workspace_id, mode, policy)
       Workspace -> proposed glossary term drafts (write: creates one
       GlossaryTerm per draft; creates NO TraceLink — a bare Workspace id is
@@ -336,7 +339,7 @@ class AiDerivationToolGroup(BaseToolGroup):
                 "Propose risk drafts for an architecture element. "
                 "mode='preview' (default) returns drafts only; mode='write' "
                 "persists each draft as a Risk and links it back to the "
-                "architecture element via a 'traces' trace link."
+                "architecture element via a 'mitigates' trace link."
             ),
             "inputSchema": {
                 "type": "object",
@@ -630,12 +633,15 @@ class AiDerivationToolGroup(BaseToolGroup):
                     ),
                     # _resolve_artifact_id resolves bare ArchitectureElement
                     # ids directly, so the element's own id (not its artifact
-                    # id) is used as the link source — mirrors how
-                    # decompose_requirement_next_level sources its link from
-                    # requirement_id above.
+                    # id) is used as source_entity_id (kept for audit/doc
+                    # purposes, see docstring). 'mitigates' runs Risk ->
+                    # ArchitectureElement (link_types.builtin), the opposite
+                    # of the derivation direction, so the new Risk must be
+                    # the link source.
                     source_entity_id=architecture_element_id,
                     source_item_type="ArchitectureElement",
-                    link_type=LinkType.TRACES.value,
+                    link_type=LinkType.MITIGATES.value,
+                    new_entity_is_link_source=True,
                     policy=policy,
                 )
             except (ValidationError, NotFoundError) as exc:

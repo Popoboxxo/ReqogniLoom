@@ -23,7 +23,7 @@ from link_types.migration_ops import find_copy_of_conflicts
 
 
 class Command(BaseCommand):
-    help = "List artifacts carrying more than one 'copy-of' TraceLink."
+    help = "List artifacts carrying more than one copy-of TraceLink."
 
     def handle(self, *args, **options):
         from persistence.models import Artifact, TraceLink

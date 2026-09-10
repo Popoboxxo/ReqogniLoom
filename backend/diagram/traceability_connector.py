@@ -8,12 +8,12 @@ Internal interface:
   IF-DS-INT-003: create_document_link(diagram_id, target_id, created_by_id) -> TraceLink
 
 External interface (outgoing):
-  IF-L1-034: creates a TraceLink of link_type='documents' via
+  IF-L1-034: creates a TraceLink of link_type='references' via
              traceability.services.create_trace_link
 
 Links a Diagram's shadow-Artifact to a target artifact (Requirement or
 ArchitectureElement) using the TraceabilityEngine (ARCH-L1-007) with
-link_type='documents' (LinkType.DOCUMENTS).
+link_type='references' (LinkType.REFERENCES).
 
 Shadow-Artifact pattern (Codeberg #353 Task 3, closes #392):
   Diagram entities do not inherit from persistence.models.Artifact — they
@@ -21,12 +21,12 @@ Shadow-Artifact pattern (Codeberg #353 Task 3, closes #392):
   context, unchanged by this fix). What changed: a Diagram's *raw* UUID is no
   longer used directly as a TraceLink source_id. TraceLinkManager.create looks
   up the source via ``Artifact.unscoped.get(pk=source_id)`` — a bare
-  ``diagram.id`` never resolves there, so every "documents" link creation
+  ``diagram.id`` never resolves there, so every "references" link creation
   raised SourceNotFoundError (#392). Diagram now owns an optional, lazily-
   created 1:1 ``Diagram.artifact`` side-channel FK (persistence/models.py via
   diagram/models.py, migration 0007) to a *real*, persisted Artifact row.
   ``_resolve_artifact_id`` is the single choke point that creates/looks up
-  that shadow Artifact; both this module's own "documents" link path and the
+  that shadow Artifact; both this module's own "references" link path and the
   Task 4 "diagram-ref" reconciler call it, so the fix lives in exactly one
   place.
 
@@ -38,7 +38,7 @@ Per-node artifact_ref reconciler (Codeberg #353 Task 4):
   Artifact — creating what's missing, deleting what's no longer referenced,
   and leaving the rest untouched. It is reconciler-owned and MUST NEVER read,
   create or delete a TraceLink of any other ``link_type`` (in particular the
-  hand-authored ``documents`` link created by ``create_document_link`` above)
+  hand-authored ``references`` link created by ``create_document_link`` above)
   on the same Diagram/artifact pair — every query and mutation below is
   therefore hard-filtered to ``link_type=LinkType.DIAGRAM_REF``.
 """
@@ -313,7 +313,7 @@ def sync_node_links(
 
     Global safety invariant (the entire point of this function): the
     "current" query below filters ``link_type=LinkType.DIAGRAM_REF`` and
-    NEVER omits that filter — a hand-authored ``documents`` link (or any
+    NEVER omits that filter — a hand-authored ``references`` link (or any
     other link_type) on the exact same Diagram/artifact pair is therefore
     never read, created or deleted by this reconciler, no matter what the
     node_graph payload contains.
@@ -417,7 +417,7 @@ def sync_node_links(
 # ---------------------------------------------------------------------------
 
 class TraceabilityConnector:
-    """COMP-DS-004: Creates 'documents' TraceLinks via the TraceabilityEngine.
+    """COMP-DS-004: Creates 'references' TraceLinks via the TraceabilityEngine.
 
     req_id: REQ-L2-DS-004, REQ-L3-TC-001
     leaf_id: COMP-DS-004_TraceabilityConnector
@@ -426,7 +426,16 @@ class TraceabilityConnector:
     Delegates to traceability.services.create_trace_link (IF-L1-034).
     """
 
-    LINK_TYPE: str = "documents"
+    # Spelled using the retired documents key until the link-type
+    # consolidation folded it into 'references'
+    # (link_types.builtin.LEGACY_LINK_TYPE_MAPPING). NOTE: the catalog's
+    # 'references' pairs cover ("*", "Diagram"), i.e. a Diagram as *target*;
+    # this connector sources from the diagram, so the pair is still
+    # uncovered and the write is rejected by
+    # link_types.catalog.validate_link_pair. That is pre-existing (the old
+    # documents key did not exist in the catalog at all either) and is a
+    # catalog question, not a rename question — see the Task 17 carry-forward.
+    LINK_TYPE: str = "references"
 
     def create_document_link(
         self,
@@ -434,7 +443,7 @@ class TraceabilityConnector:
         target_id: uuid.UUID,
         created_by_id: Optional[uuid.UUID] = None,
     ) -> object:
-        """Create a 'documents' TraceLink between a diagram and a target artifact.
+        """Create a 'references' TraceLink between a diagram and a target artifact.
 
         IF-DS-INT-003 contract: create_document_link(diagram_id, target_id)
 

@@ -417,7 +417,7 @@
       "name": "ai_derivation.derive_risks_from_architecture",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Propose risk drafts for an architecture element. mode='preview' (default) returns drafts only; mode='write' persists each draft as a Risk and links it back to the architecture element via a 'traces' trace link.",
+      "description": "Propose risk drafts for an architecture element. mode='preview' (default) returns drafts only; mode='write' persists each draft as a Risk and links it back to the architecture element via a 'mitigates' trace link.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -598,20 +598,11 @@
             "type": "string",
             "enum": [
               "allocated-to",
-              "copy-of",
               "decides",
               "decomposes",
               "derives-from",
-              "documents",
-              "implements",
               "mitigates",
-              "parent-child",
-              "realizes",
               "references",
-              "refines",
-              "satisfies",
-              "traces",
-              "uses-term",
               "verifies"
             ],
             "description": "TraceLink type. Must be one of the enum values (#33: previously undocumented in this schema)."
@@ -1365,7 +1356,7 @@
           },
           "target_id": {
             "type": "string",
-            "description": "Optional target Artifact UUID for a 'documents' TraceLink."
+            "description": "Optional target Artifact UUID for a 'references' TraceLink."
           }
         },
         "required": [
@@ -4185,20 +4176,11 @@
             "type": "string",
             "enum": [
               "allocated-to",
-              "copy-of",
               "decides",
               "decomposes",
               "derives-from",
-              "documents",
-              "implements",
               "mitigates",
-              "parent-child",
-              "realizes",
               "references",
-              "refines",
-              "satisfies",
-              "traces",
-              "uses-term",
               "verifies"
             ],
             "description": "TraceLink type."

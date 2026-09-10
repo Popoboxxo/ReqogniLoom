@@ -378,7 +378,7 @@ class TestAdminToolGroup:
         ws = _mock_workspace()
         ws.preset = {"type": "standard"}
         ws.ai_prompts = {"level_1": "prompt text"}
-        ws.decomposition_link_type = "parent-child"
+        ws.decomposition_link_type = "decomposes"
         ws.default_link_type = "derives-from"
         ws.language = "en"
         svc.get_workspace.return_value = ws
@@ -399,7 +399,7 @@ class TestAdminToolGroup:
         assert "ai_prompts" in data
         assert data["ai_prompts"] == {"level_1": "prompt text"}
         assert "decomposition_link_type" in data
-        assert data["decomposition_link_type"] == "parent-child"
+        assert data["decomposition_link_type"] == "decomposes"
         assert "default_link_type" in data
         assert data["default_link_type"] == "derives-from"
         assert "language" in data
