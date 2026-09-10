@@ -500,8 +500,7 @@ services:
     # SA-48: Run as non-root user (nginx-unprivileged or app-specific user).
     # The frontend image is built to run as non-root (UID 101 nginx user).
     # Removed the `user: root` override that bypassed security hardening.
-    tmpfs:
-      - /var/cache/nginx
+    # /var/cache/nginx is provided by the image as app-owned — no tmpfs mount needed.
     restart: unless-stopped
     # Production mapping: host 5173 → nginx 8080 inside the prod image.
     # Any overlay that republishes this service MUST use `ports: !override` —
