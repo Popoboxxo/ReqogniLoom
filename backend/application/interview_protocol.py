@@ -121,11 +121,38 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
     return ProtocolConfig(phases=phases)
 
 
+# Extra elicitation fields a type needs beyond title+rationale, because its
+# create_X() service method declares them without a default. Keyed by
+# artifact type; every type not listed keeps the two-field default. This is
+# tier-3 (get_protocol's hardcoded factory fallback) -- reached only when no
+# admin override (tier 1) and no attribute-definition ai_elicit coverage
+# (tier 2, protocol_from_definition) exists yet, e.g. a fresh
+# workspace/tenant before bootstrap_attribute_definitions has run.
+#
+# Risk: RiskService.create_risk(workspace_id, title, probability, impact, ctx)
+# -- probability/impact have no default, so a Risk interview that never asks
+# for them produces a session formalize() can only reject.
+# Adr needs `description`, which the rationale -> description alias in
+# interview_artifact_adapters.build_adapter_fields already supplies.
+_EXTRA_REQUIRED_FIELDS: "dict[str, str]" = {
+    "Risk": (
+        "      - name: probability\n"
+        "        type: enum\n"
+        "        choices: [low, medium, high]\n"
+        "      - name: impact\n"
+        "        type: enum\n"
+        "        choices: [low, medium, high]\n"
+    ),
+}
+
+
 def _default_protocol_yaml(artifact_type: str) -> str:
     """A minimal, valid factory default: one elicitation phase asking for
-    title + rationale, then approval and formalization with no extra
-    fields. Workspaces that need more override this via prompt_template.*
-    (same mechanism as the other 7 derivation prompt types)."""
+    title + rationale (+ any type-specific fields whose create_X() service
+    method has no default, see _EXTRA_REQUIRED_FIELDS), then approval and
+    formalization with no extra fields. Workspaces that need more override
+    this via prompt_template.* (same mechanism as the other 7 derivation
+    prompt types)."""
     return (
         "phases:\n"
         "  - name: elicitation\n"
@@ -134,6 +161,7 @@ def _default_protocol_yaml(artifact_type: str) -> str:
         "        type: text\n"
         "      - name: rationale\n"
         "        type: textarea\n"
+        f"{_EXTRA_REQUIRED_FIELDS.get(artifact_type, '')}"
         f"    prompt_fragment: \"Elicit the {artifact_type}'s title and rationale.\"\n"
         "  - name: approval\n"
         f"    prompt_fragment: \"Present the drafted {artifact_type} for approval.\"\n"
