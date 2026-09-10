@@ -158,6 +158,15 @@ Implemented (PR #750). `MemorySelfServiceView` (GET+DELETE `/api/v1/memory/me/`)
 ## [Archive/2026-08-27-memory-admin-phase5-visualization.md](Archive/2026-08-27-memory-admin-phase5-visualization.md)
 Implemented (PR #751). `frontend/src/components/SystemSettings/MemoryVisualizationSection.tsx` (List/Cluster/Scatter views); backend projection endpoints in `MemoryAdminService`.
 
+## [Archive/2026-09-03-datenmodell-konsolidierung.md](Archive/2026-09-03-datenmodell-konsolidierung.md)
+Implemented (PR #880, merged). 29 tasks (plus the 15b/28a/28b/28c-1/28c-2 Expand/Migrate/Contract split discovered mid-execution once `DiagramVersion`/`IcdVersion` turned out not to be pure history tables) across 6 phases; all 6 milestone gates (M0–M5) reached, including the `persistence.ArtifactVersion` substitution for Decision D-4. Full ledger: `.superpowers/sdd/2026-09-03-datenmodell-konsolidierung/progress.md`.
+
+## [Archive/2026-09-03-attribute-definition.md](Archive/2026-09-03-attribute-definition.md)
+Implemented (PR #888, merged). All 27 tasks, 7-form frontend rollout complete, code-reviewer verdict APPROVED_WITH_RECOMMENDATIONS (0 blockers). Full ledger: `.superpowers/sdd/2026-09-03-attribute-definition/progress.md`.
+
+## [Archive/2026-09-03-traceability-semantik.md](Archive/2026-09-03-traceability-semantik.md)
+Implemented (PR #891, open — CI green, mergeable, awaiting human merge). All 24 tasks plus a final whole-branch review (2 Critical + 5 Important cross-task findings that no single task review could have caught, all fixed) and its own scoped re-review, both clean. Full ledger: `.superpowers/sdd/2026-09-09-traceability-semantik/progress.md`.
+
 ---
 
 ## Open / deferred (not archived)
@@ -173,15 +182,6 @@ Implemented (PR #751). `frontend/src/components/SystemSettings/MemoryVisualizati
 
 ## [2026-08-13-hermes-ide-plugin-requirements-mvp.md](2026-08-13-hermes-ide-plugin-requirements-mvp.md)
 **Superseded, not implemented as written — kept out of Archive/ deliberately.** The direct REST-backed CRUD architecture (connect → list → detail → form) this plan describes was never built; the plan's own text states it was superseded by an interview-management approach, which was built instead (see the three `2026-08-14-interview-management-*.md` entries in `Archive/`). Nothing left to action here, but the plan's *own* scope was not implemented — kept at top level rather than archived so that distinction stays visible.
-
-## [2026-09-03-datenmodell-konsolidierung.md](2026-09-03-datenmodell-konsolidierung.md)
-**Not implemented — plan written (2026-09-04).** First of 11 implementation plans from the 2026-09-02 systemaudit's 11 specs (see `docs/superpowers/specs/index.md`). 29 tasks, 6 phases, 6 milestone gates (M0–M5); M1 (Task 13) is the gate the attribute-definition plan below depends on. Open decision needing user confirmation: the spec's literal "migrate to the existing audit-log versioning" instruction is not achievable as written (`VersionReconstructor` lives in `baseline/`, `AuditEntry` has no payload column, 8/10 types have no retrievable history) — the plan substitutes a new generic `persistence.ArtifactVersion` table with a row-count guard against history loss (Decision D-4), affecting only Phase 5 (Tasks 25–29).
-
-## [2026-09-03-attribute-definition.md](2026-09-03-attribute-definition.md)
-**Not implemented — plan written (2026-09-04).** Second of 11. 27 tasks across Backend Foundation / REST+MCP / Interview+Export consumers / Frontend (7-form rollout in spec order). No blocking questions. Two spec contradictions resolved with documented decisions: `CustomFieldValue.definition` FK cannot survive `CustomFieldDefinition`'s removal as the spec demands both — resolved by switching the FK to an `attribute_name` CharField (values fully preserved); bootstrap order handles the not-yet-implemented datenmodell-konsolidierung dependency gracefully (synthetic `status` attribute + exclusion list) instead of hard-blocking on it.
-
-## [2026-09-03-traceability-semantik.md](2026-09-03-traceability-semantik.md)
-**Not implemented — plan written (2026-09-04).** Third of 11. 24 tasks, 6 phases (A Catalog Foundation → B Validation Flip → C TraceLink/Suspect → D Hard Migration → E REST/MCP → F Frontend). **Two blocking questions need a user decision** (both have a plan default, both documented under `## OFFENE FRAGEN`): (1) always-on validation would make today's working Goal/MainGoal/Issue/Interview links uncreatable, since the spec's 8-type matrix never names them — default is grandfathering via an inventory command that measures before deciding; (2) merging `refines` into `derives-from` changes SE-Auditor semantics (`refines` is deliberately non-hierarchical/symmetric in `hierarchy.py`, `derives-from` is not) — default is migrating as specified while measuring the audit-rule delta.
 
 ## [2026-09-03-ki-vorschlag-als-zustand.md](2026-09-03-ki-vorschlag-als-zustand.md)
 **Not implemented — plan written (2026-09-03, regenerated 2026-09-04).** Fourth of 11. Original version lost to a cross-agent race condition on 2026-09-04 (never git-added, unrecoverable — see `2026-09-04-open-decisions.md`) and rewritten from the same brief; now **20 tasks**, 5 phases. Independently re-confirmed the same critical spec bug both times: `WorkflowDefinitionDTO.initial_state` is `states[0]`, and the spec's JSON put `"proposed"` at position 0 — every artifact, including human-authored ones, would have started as a proposal. Also found the spec's own "shared helper is missing" risk is moot — `workflow.services.initialize_workflow_states(..., ctx)` already accepts `ctx` and is the sole call site for all 13 `create_X()` services, so zero service files need touching. **One open question, not blocking:** confirming a link nulls `TraceLink.proposed_by`/`proposed_at` entirely (§5), destroying provenance — unlike artifacts, where the workflow history entry preserves who proposed it (still present in the regenerated version, verified). Intentional or a spec inconsistency? Not yet confirmed by the user.
