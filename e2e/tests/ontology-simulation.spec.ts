@@ -94,12 +94,12 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     await page.goto(`${FRONTEND_URL}/requirements/${l1ReqId}`);
 
     // ReqTraceLinkPanel always creates the link with the current requirement
-    // as source_id. SE-mode ontology semantics (backend/traceability/types.py
-    // SE_LINK_SEMANTICS) constrain "satisfies" to ArchitectureElement->Requirement
-    // (or Requirement->StakeholderNeed) — never Requirement->ArchitectureElement
-    // — so it can't be created from here. "allocated-to" permits
-    // Requirement->ArchitectureElement and expresses the same intent (this
-    // requirement is allocated to this architecture element).
+    // as source_id. The link-types catalog (backend/link_types/builtin.py)
+    // only allows "allocated-to" Requirement->ArchitectureElement — the
+    // retired "satisfies" type this comment used to reference ran the other
+    // direction (ArchitectureElement->Requirement) and could never have been
+    // created from here either. "allocated-to" expresses the same intent
+    // (this requirement is allocated to this architecture element).
     await page.locator('[data-testid="req-tracelink-create-btn"]').click();
     await page.locator('[data-testid="req-tracelink-target-select"]').selectOption(l1ArchId!);
     await page.locator('[data-testid="req-tracelink-type-select"]').selectOption('allocated-to');

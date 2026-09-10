@@ -33,7 +33,6 @@ import {
   createDiagramViaUI,
   createIcdViaUI,
   createTraceLinkViaUI,
-  createArchTraceLinkViaUI,
   createIssueViaUI,
   createRiskViaUI,
   createAdrViaUI,
@@ -420,19 +419,24 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     await expect(page.locator('[data-testid="req-tracelink-panel"]')).toBeVisible({ timeout: 8000 });
   });
 
-  test('Phase 2b: Architektur → Requirement satisfies Links über UI', async ({ page }) => {
+  test('Phase 2b: Requirement → Architektur allocated-to Links über UI', async ({ page }) => {
     const archId = ids.architectureIds['A-HEAT'];
     const reqId = ids.requirementIds['L1-PERF'];
     if (!archId || !reqId) {
       test.skip(true, 'IDs fehlen — Phase 1 fehlgeschlagen');
       return;
     }
-    await createArchTraceLinkViaUI(page, archId, reqId, 'satisfies');
+    // link-types catalog migration (2026-09): 'satisfies' (ArchitectureElement
+    // -> Requirement) was retired and folded into 'allocated-to', with the
+    // endpoints swapped (Requirement -> ArchitectureElement) — see Task 17 of
+    // docs/superpowers/plans/2026-09-03-traceability-semantik.md. Created from
+    // the requirement side now, not the architecture side.
+    await createTraceLinkViaUI(page, reqId, archId, 'allocated-to');
     await page.goto(`${FRONTEND_URL}/architecture/${archId}`);
     // Renamed to arch-linked-reqs-panel; link items carry a per-type badge
     // testid (trace-type-<linkType>), not a generic "-item" wrapper.
     await expect(page.locator('[data-testid="arch-linked-reqs-panel"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('[data-testid="trace-type-satisfies"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="trace-type-allocated-to"]')).toBeVisible({ timeout: 8000 });
   });
 
   // ===========================================================================
