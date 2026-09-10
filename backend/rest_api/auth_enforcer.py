@@ -89,6 +89,19 @@ class RbacPermission(permissions.BasePermission):
         if required_operation is not None:
             operation = required_operation
 
+        # E2.1: the API key's coarse scope is an independent, fail-closed gate
+        # ABOVE the RBAC matrix. It can only ever narrow: a read-scoped key is
+        # denied every non-READ operation regardless of how privileged its
+        # owner is. Placed before decide_access so no shadow-permission path
+        # can widen it back.
+        if auth_context.scope == "read" and operation is not Operation.READ:
+            raise exceptions.PermissionDenied(
+                detail=(
+                    "API key is read-only (scope='read'); "
+                    f"operation '{operation.value}' requires scope='write'."
+                )
+            )
+
         decision = self._authz.decide_access(auth_context.active_roles, operation)
 
         # REQ-186/187 shadow-verify seam: run the new permission_json model in
