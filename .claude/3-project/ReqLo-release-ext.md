@@ -127,6 +127,7 @@ gh pr list --base main --search "merged:>2026-08-29T14:32:05Z" --json number,tit
 | **GitHub Actions-Pins aktuell** | `.github/workflows/docker-publish.yml`: Keine bekannten kaputten Action-Pins (falls Fehler: upgrade zu neuester stabiler Version) |
 | CHANGELOG.md updated | All changes since last tag recorded (mit exaktem Zeitstempel-Cutoff, kein Kalender-Filter) |
 | Version bumped | SemVer convention (see `<context>`) |
+| **Tag-Schema-Konsistenz VOR Push** (Issue #895) | `git tag --sort=-creatordate \| head -5` — der neue Tag muss exakt `vX.Y.Z[-betaN]` folgen und lückenlos an die letzte Version anschließen (z.B. `v1.8.0-beta.7` → `v1.8.0-beta.8`, nie ein Sprung wie `v0.101.0-...` oder ein fremdes Schema). Deploy-Automatisierung matcht Tags per Schema — ein Fremdling zwischen zwei echten Releases bricht "neuester Tag"-Logik. Nach dem Push zusätzlich `git ls-remote --tags origin \| grep -v '\^{}'` gegen die erwartete Sequenz gegenlesen. |
 | Build created | `docker-compose build` |
 | README/CODEBASE_OVERVIEW | Current |
 | git commit + tag + push | `git` agent |
@@ -172,6 +173,7 @@ gh release list | head -1
 | VERSION-Embedding in generierten Dateien nicht neu gebaut | v1.8.0-beta.1 → beta.2 | 1 Patch-Tag | Beide Builder + `dist`-Tests VOR Commit laufen |
 | Docker CVE-Trivy-Gate blockiert | v1.8.0-beta.2 → beta.3 | 1 Patch-Tag | Lokales `docker build --no-cache` + `trivy` VOR Tag-Push (optional) |
 | GitHub Action Sub-Version gelöscht | v1.8.0-beta.3 | 1 Patch-Tag | Workflow-Pins regelmäßig auditen, Update-Path bereit halten |
+| Schema-fremde Tags (`v0.101.0-beta.6`, u.ä.) zwischen echten Releases | v1.8.0-beta.6 → beta.7 (Issue #895) | Housekeeping-Aufwand, Risiko für Deploy-Automatisierung | Tag-Schema-Konsistenz-Check VOR Push (siehe Step 1 oben) |
 | **Summe dieser Zyklen** | **3 Tage Verzögerung, 3 Beta-Patch-Tags** | **Verhindert mit dieser Checkliste** | **Oben dokumentiert** |
 
 ---
