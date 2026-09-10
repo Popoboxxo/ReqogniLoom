@@ -658,9 +658,10 @@ class ToolRegistry:
                 set_request_tenant(auth_ctx.tenant_id)
 
             roles = self._resolve_list_roles(auth_ctx, workspace_id)
-            can_write = self._authz_service.decide_access(
-                roles, Operation.WRITE
-            ).allow
+            can_write = (
+                auth_ctx.scope != "read"
+                and self._authz_service.decide_access(roles, Operation.WRITE).allow
+            )
 
             # Deduplicate by group object identity (REQ-129): several prefixes
             # intentionally share a single instance (e.g. "audit"/"events" →
@@ -874,6 +875,10 @@ class ToolRegistry:
             active_roles=(),  # resolved in step 2
             auth_method=AuthMethod.API_KEY,
             api_key_id=claims.api_key_id,
+            actor_type=claims.actor_type,
+            agent_label=claims.agent_label,
+            scope=claims.scope,
+            api_key_workspace_ids=claims.api_key_workspace_ids,
         )
         return ctx, None
 
@@ -899,6 +904,10 @@ class ToolRegistry:
                     active_roles=roles,
                     auth_method=ctx.auth_method,
                     api_key_id=ctx.api_key_id,
+                    actor_type=ctx.actor_type,
+                    agent_label=ctx.agent_label,
+                    scope=ctx.scope,
+                    api_key_workspace_ids=ctx.api_key_workspace_ids,
                 )
             return ctx
 
@@ -917,6 +926,10 @@ class ToolRegistry:
             active_roles=roles,
             auth_method=ctx.auth_method,
             api_key_id=ctx.api_key_id,
+            actor_type=ctx.actor_type,
+            agent_label=ctx.agent_label,
+            scope=ctx.scope,
+            api_key_workspace_ids=ctx.api_key_workspace_ids,
         )
 
     def _resolve_global_roles(self, ctx: AuthContext) -> Tuple[str, ...]:
@@ -1057,6 +1070,13 @@ class ToolRegistry:
 
         REQ-L2-MC-007: Viewer-only role must not write.
         """
+        if ctx.scope == "read":
+            # E2.1: read-only key. Independent of and above the RBAC matrix,
+            # same rule as rest_api.auth_enforcer.RbacPermission.
+            return (
+                "API key is read-only (scope='read'); this tool performs a "
+                "write. Issue a key with scope='write' to use it."
+            )
 
         decision = self._authz_service.decide_access(ctx.active_roles, Operation.WRITE)
         if not decision.allow:
