@@ -697,6 +697,12 @@ max-parallel-agents: 2
 debug-mode: false
 allow-committed-secrets: false
 conventions-preset: default
+conventions:
+  release:
+    github_release:
+      enabled: true
+      title_pattern: "{tag}"
+      pre_release_suffixes: [alpha, beta, rc]
 plugins:
   home-assistant:
     enabled: false

@@ -143,8 +143,9 @@ TAG="v1.8.0-beta.6"
 # (aus CHANGELOG.md, [HEAD]…Tag-Datum auszug)
 
 # GitHub Release erstellen mit CHANGELOG-Ausschnitt als Notes
+# WICHTIG: Title ist das bare Tag-Format, z.B. 'v1.8.0-beta.6' (KEINE "Release "-Präfixe)
 gh release create "$TAG" \
-  --title "Release $TAG" \
+  --title "$TAG" \
   --notes "$(cat CHANGELOG_SECTION.txt)" \
   --prerelease  # Falls Beta/RC; entfernen für Production
 
