@@ -73,6 +73,19 @@ class TenantContextService:
         Returns:
             A frozen :class:`AuthContext`. Mutation raises ``FrozenInstanceError``.
         """
+        # E2.1: a key restricted to specific workspaces must not carry roles
+        # anywhere else. Narrowing ``active_roles`` to () (rather than raising)
+        # keeps this a plain RBAC denial that every existing caller — REST
+        # RbacPermission, MCP _check_rbac/_check_read_rbac — already handles.
+        # A restricted key with NO workspace context is denied too: the
+        # workspace-less path resolves the tenant-wide role union, which would
+        # hand the key exactly the workspaces it was fenced out of.
+        allowed = claims.api_key_workspace_ids
+        if allowed and (
+            workspace_id is None or str(workspace_id) not in allowed
+        ):
+            active_roles = ()
+
         return AuthContext(
             user_id=claims.user_id,
             tenant_id=tenant_context.tenant_id,
