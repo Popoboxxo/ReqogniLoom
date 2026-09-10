@@ -2020,5 +2020,23 @@
       "title": "Ausgangszustand",
       "body": "Diese Version hat keinen gespeicherten Vorgänger. Angezeigt werden die Werte bei der Erstellung — deshalb ist jedes Feld als hinzugefügt markiert."
     }
+  },
+  "linkType": {
+    "title": "Link-Typen",
+    "key": "Schlüssel",
+    "impactWeight": "Impact-Gewicht",
+    "suspectRule": "Suspect-Regel",
+    "coverageRelevant": "Coverage-relevant",
+    "active": "Aktiv",
+    "allowedPairs": "Erlaubte Paare",
+    "newType": "Neuer Typ",
+    "reset": "Zurücksetzen",
+    "locked": "Gesperrt (systemeigen)",
+    "suspectRuleValues": {
+      "none": "Keine",
+      "target_change_flags_source": "Ziel-Änderung markiert Quelle",
+      "source_change_flags_target": "Quell-Änderung markiert Ziel",
+      "parent_change_flags_children": "Eltern-Änderung markiert Kinder"
+    }
   }
 }
