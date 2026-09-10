@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.5",
-  "tool_count": 172,
+  "tool_count": 177,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2404,6 +2404,120 @@
       }
     },
     {
+      "name": "link_type.create",
+      "prefix": "link_type",
+      "is_write": true,
+      "description": "Create a tenant-wide link type (write, audited, admin only). suspect_rule must be one of the four supported behaviours.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Link-type key, e.g. 'verifies' or a tenant-defined one."
+          },
+          "definition": {
+            "type": "object",
+            "description": "definition_json: label (de/en x downstream/upstream/neutral), allowed_pairs, coverage_relevant, suspect_rule (none | target_change_flags_source | source_change_flags_target | parent_change_flags_children), impact_weight, manual_creatable, system_owned, active, built_in."
+          }
+        },
+        "required": [
+          "key",
+          "definition"
+        ]
+      }
+    },
+    {
+      "name": "link_type.get",
+      "prefix": "link_type",
+      "is_write": false,
+      "description": "Fetch one link-type definition of a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose catalog is addressed."
+          },
+          "key": {
+            "type": "string",
+            "description": "Link-type key, e.g. 'verifies' or a tenant-defined one."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "link_type.list",
+      "prefix": "link_type",
+      "is_write": false,
+      "description": "List the trace-link types available in a workspace, with their allowed endpoint pairs (read-only). Call this before traceability.create_link to learn which link_type values and artifact-type combinations the workspace accepts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose catalog is addressed."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "link_type.reset",
+      "prefix": "link_type",
+      "is_write": true,
+      "description": "Reset a workspace override back to the tenant default (write, audited, admin only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose catalog is addressed."
+          },
+          "key": {
+            "type": "string",
+            "description": "Link-type key, e.g. 'verifies' or a tenant-defined one."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "link_type.update",
+      "prefix": "link_type",
+      "is_write": true,
+      "description": "Update a link type (write, audited, admin only). With workspace_id the change is a workspace override; without it the tenant-wide default is edited and propagated to every workspace still on the default.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose catalog is addressed."
+          },
+          "key": {
+            "type": "string",
+            "description": "Link-type key, e.g. 'verifies' or a tenant-defined one."
+          },
+          "definition": {
+            "type": "object",
+            "description": "definition_json: label (de/en x downstream/upstream/neutral), allowed_pairs, coverage_relevant, suspect_rule (none | target_change_flags_source | source_change_flags_target | parent_change_flags_children), impact_weight, manual_creatable, system_owned, active, built_in."
+          }
+        },
+        "required": [
+          "key",
+          "definition"
+        ]
+      }
+    },
+    {
       "name": "main_goal.approve",
       "prefix": "main_goal",
       "is_write": true,
@@ -4174,16 +4288,7 @@
           },
           "link_type": {
             "type": "string",
-            "enum": [
-              "allocated-to",
-              "decides",
-              "decomposes",
-              "derives-from",
-              "mitigates",
-              "references",
-              "verifies"
-            ],
-            "description": "TraceLink type."
+            "description": "TraceLink type key. Call link_type.list for the values this workspace accepts and their allowed source/target artifact types."
           }
         },
         "required": [
