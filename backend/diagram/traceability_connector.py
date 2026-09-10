@@ -430,11 +430,18 @@ class TraceabilityConnector:
     # consolidation folded it into 'references'
     # (link_types.builtin.LEGACY_LINK_TYPE_MAPPING). NOTE: the catalog's
     # 'references' pairs cover ("*", "Diagram"), i.e. a Diagram as *target*;
-    # this connector sources from the diagram, so the pair is still
-    # uncovered and the write is rejected by
-    # link_types.catalog.validate_link_pair. That is pre-existing (the old
-    # documents key did not exist in the catalog at all either) and is a
-    # catalog question, not a rename question — see the Task 17 carry-forward.
+    # this connector sources FROM the diagram, so that pair is still
+    # uncovered — link_types.builtin.BUILTIN_LINK_TYPES has no ("Diagram",
+    # "*") entry. That does NOT reject this write: create_document_link
+    # calls traceability.services.create_trace_link directly (Layer 3),
+    # which never calls link_types.catalog.validate_link_pair — that
+    # validation only runs from application/trace_link_service.py (Layer 2,
+    # e.g. the REST/MCP surface). So this exact write direction persists and
+    # reads back fine here (see mcp_server/tests/test_diagram_tool_group.py,
+    # diagram/tests/test_sync_node_links.py), but could not be recreated
+    # through the validated REST/MCP path. Pre-existing (the old documents
+    # key was never in the catalog either) and a catalog question, not a
+    # rename question — see the Task 17 carry-forward.
     LINK_TYPE: str = "references"
 
     def create_document_link(

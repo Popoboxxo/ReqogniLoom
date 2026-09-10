@@ -1252,12 +1252,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
         of the given entity, plus (for an ArchitectureElement anchor) its
         direct decomposition children — that hierarchy is a plain FK tree
         (``ArchitectureElement.parent``/``children``), NOT expressed via
-        TraceLinks — no code path writes the ArchitectureElement/
-        ArchitectureElement 'decomposes' link that the catalog would allow,
-        unlike Requirement decomposition which uses the 'decomposes'/
-        'derives-from' TraceLink types and is therefore already covered by
-        the trace walk. The synthesized neighbour below is labelled
-        'decomposes' so its link_type names a type that still exists.
+        TraceLinks. The synthesized neighbour below is labelled 'decomposes'
+        so its link_type names a type that still exists; this is a distinct
+        source from the real ArchitectureElement/ArchitectureElement
+        'decomposes' TraceLinks that DO exist now — ``icd.traceability_
+        connector.TraceabilityConnector.link_to_architecture`` writes one
+        per ICD (the migrated retired-realizes key,
+        link_types.builtin.LEGACY_LINK_TYPE_MAPPING), source
+        ArchitectureElement -> target ArchitectureElement, representing the
+        ICD contract between them. Those ICD links are real TraceLinks, so
+        the upstream+downstream trace walk above already picks them up
+        alongside true decomposition hierarchy — an accepted consequence of
+        the retired-realizes -> 'decomposes' mapping (Task 17), not
+        something this handler special-cases.
         The LLM adapter (mock by default) then annotates each candidate with
         a rough affected/rationale verdict against ``change_description``;
         that step degrades gracefully (never raises) so an LLM outage still
