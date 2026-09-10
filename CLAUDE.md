@@ -40,7 +40,7 @@ Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
 **Plattform:** Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend)
-**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (30 Tool-Gruppen, 174 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (31 Tool-Gruppen-Präfixe, 179 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 8 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 > Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.
 
@@ -49,7 +49,7 @@ Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird
 **Entry-Point:** `backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) `
 
 **Besondere Patterns:**
-- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 30 Tool-Gruppen und 174 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
+- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 31 Tool-Gruppen-Präfixen und 179 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 8 core/built-in Trace-Link-Typen (derives-from, decomposes, allocated-to, verifies, mitigates, decides, references, diagram-ref; tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
 
 ## Code-Konventionen
 
@@ -84,7 +84,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 - **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
 - **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
 - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
-- **Traceability** — 15 Link-Typen, Coverage-Aggregation, V-Modell L0-L4-Traceability
+- **Traceability** — 8 core/built-in Link-Typen (tenant-extensible), Coverage-Aggregation, V-Modell L0-L4-Traceability
 - **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
 - **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
 

@@ -63,7 +63,7 @@ Facts, not narrative:
 - **Requirements Management** — Create, organize, and manage requirements with workflow states and categorization
 - **Architecture Elements** — Model systems engineering structures (MBSE-compatible)
 - **Testcase Management** — Attach test cases to requirements and track coverage
-- **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (14 link types: parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes)
+- **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (8 core link types: derives-from, decomposes, allocated-to, verifies, mitigates, decides, references, diagram-ref; tenant-extensible catalog)
 - **Baselines & Snapshots** — Capture and compare system states across time
 - **Visual Artifact Diff** — Side-by-side and unified field-level change highlighting for requirements, architecture elements, and test cases
 - **History Endpoint** — Full audit trail per artifact (GET /api/v1/requirements/{id}/history/)
@@ -74,7 +74,7 @@ Facts, not narrative:
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — native Model Context Protocol server; 30 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, prompt_variable, ai_derivation, diagram, custom_field, review, baseline, goal, main_goal, context, interview, memory, requirement_bundle), 171 individual tools (`docs/agent-templates/tool-manifest.json`), for Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **MCP Server** — native Model Context Protocol server; 31 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, context, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, prompt_variable, ai_derivation, diagram, review, baseline, goal, main_goal, requirement_bundle, interview, memory, link_type, attribute_definition), 179 individual tools (`docs/agent-templates/tool-manifest.json`), for Claude Desktop, Cursor, and other MCP-capable LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
@@ -111,7 +111,7 @@ graph TD
 
     subgraph L3["Layer 3 — Integration (transport only)"]
         REST["REST API<br/>DRF, 20+ ViewSets/APIViews<br/>JWT Auth + OpenAPI"]
-        MCP["MCP Server<br/>JSON-RPC 2.0<br/>25 tool-group prefixes, 40+ tools"]
+        MCP["MCP Server<br/>JSON-RPC 2.0<br/>31 tool-group prefixes, 179 tools"]
     end
 
     subgraph L2["Layer 2 — Application (Single Entry Point, ADR-01)"]
@@ -517,7 +517,7 @@ python manage.py check && pytest -q
 > **Warning:** It is highly discouraged to run `pytest` against the actual development database, as tests will truncate tables and delete your data. `pytest` automatically creates a separate `test_reqogniloom` database. Use `--keepdb` to persist this test database between runs.
 > For End-to-End Tests (Playwright), the tests *do* run against the actual development environment.
 
-**Status:** 5,768 backend tests + 1,363 frontend tests passing; 274 E2E tests via Playwright (last verified 2026-08-27).
+**Status:** 7,100+ backend tests + 1,363 frontend tests passing; 274 E2E tests via Playwright (last verified 2026-09-10).
 
 ### Frontend Unit Tests (Vitest)
 
@@ -900,7 +900,7 @@ docker compose -f deploy/docker-compose.yml --project-directory . exec backend p
 
 ### Test Coverage & Known Gaps
 
-**Coverage:** 5,768 pytest unit and integration tests (auth, models, API, workflows, traceability) + 1,363 Vitest frontend tests + 274 Playwright E2E tests (UI flows, MCP tooling).
+**Coverage:** 7,100+ pytest unit and integration tests (auth, models, API, workflows, traceability) + 1,363 Vitest frontend tests + 274 Playwright E2E tests (UI flows, MCP tooling).
 
 **Known gaps (by design):**
 
