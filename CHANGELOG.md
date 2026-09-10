@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.7] — 2026-09-10
+
+### Added
+- **Tenant-Configurable Trace Link Types Catalog:** Replaced hardcoded 14/15 trace-link types with an open, extensible `link_types` catalog app, allowing tenants to define custom link-type names, symbols, and semantics within project policies (PR #891). **Breaking wire-contract change:** old 14-type names (`parent-child`, `derives-from`, etc.) are no longer directly embedded; migration provided for existing deployments
+- **Attribute Definition System & Definition-Driven Artifact Forms:** New `attribute_definitions` app enabling per-workspace definition of custom artifact fields with type, validation, and UI hints; artifact forms now render fields dynamically from attribute schemas instead of hardcoded layouts. Enables flexible schema extension without schema migration (PR #888)
+- **Data Model Consolidation — One Artifact, One Diff World:** Unified generic artifact persistence layer across all content types (Requirements, Tests, Architecture, etc.), eliminating parallel domain-specific models. Single `Artifact` entity with configurable rigor presets, unified diff engine, and consolidated trace-link handling. Baseline and version-control semantics simplified (PR #880)
+- **SystemAudit Follow-Up Specs:** 11 specification documents for post-beta features, including architecture views (Document, Role-based), table editing, MCP modernization, GitHub-Jira integration, interview engine improvements, and AI suggestion workflows (PRs #852–#863)
+
+### Fixed
+- **P0 Security & Robustness Hardening:** CSRF token enforcement across all state-changing endpoints; secure HttpOnly/SameSite cookie configuration; role-gated UI elements (Viewer/Editor permissions); traceability relationship cardinality guards; MCP tool audit declarations (stdio-only API-key parameter); AI decomposition robustness improvements; exception handling leaks in tool registration (PR #844)
+
+### Changed
+- **Release Infrastructure:** Added project-specific pre-release checklist to prevent recurring CI gate failures (VERSION-embedded artifact regeneration, Docker CVE scanning, GitHub Actions pin auditing); GitHub Release creation now mandatory (PR #819)
+
 ## [1.8.0-beta.6] — 2026-09-02
 
 ### Fixed
