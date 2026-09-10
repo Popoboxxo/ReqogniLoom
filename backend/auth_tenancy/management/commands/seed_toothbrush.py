@@ -359,7 +359,7 @@ def run():
         # REQ-L2-TE-020: RiskService.create_risk now creates the backing Artifact
         # via a proper OneToOne FK — use r.artifact_id instead of the former
         # UUID-identity hack (Artifact.objects.create(id=r.id, ...)).
-        link_svc.create_trace_link(source_id=r.artifact_id, target_id=reqs[req_key].artifact_id, link_type="references", ctx=ctx)
+        link_svc.create_trace_link(source_id=r.artifact_id, target_id=reqs[req_key].artifact_id, link_type="mitigates", ctx=ctx)
 
     # 6. Issues (50+)
     print("Creating Issues...")
@@ -392,7 +392,7 @@ def run():
         # REQ-L2-TE-020: AdrService.create_adr already creates the backing
         # Artifact via a proper OneToOne FK — use adr.artifact_id instead of the
         # former UUID-identity hack (which created a second, orphan Artifact).
-        link_svc.create_trace_link(source_id=adr.artifact_id, target_id=archs[arch_key].artifact_id, link_type="references", ctx=ctx)
+        link_svc.create_trace_link(source_id=adr.artifact_id, target_id=archs[arch_key].artifact_id, link_type="decides", ctx=ctx)
 
     print("Creating TestCases and TestRuns...")
     test_cases = []

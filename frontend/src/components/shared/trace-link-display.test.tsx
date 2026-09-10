@@ -50,7 +50,7 @@ function makeLink(overrides: Partial<TraceLink> = {}): TraceLink {
     id: LINK_ID,
     source_id: SOURCE_ID,
     target_id: TARGET_ID,
-    link_type: "satisfies",
+    link_type: "allocated-to",
     version: 1,
     created_at: "2026-01-01T00:00:00Z",
     source_title: "Source Requirement",
@@ -122,7 +122,7 @@ describe("TraceLinkDisplay (REQ-002)", () => {
       render(<TraceLinkDisplay link={link} currentArtifactId={SOURCE_ID} />);
 
       expect(screen.getByTestId("trace-link-display-badge")).toHaveTextContent(
-        "label:satisfies"
+        "label:allocated-to"
       );
     });
   });

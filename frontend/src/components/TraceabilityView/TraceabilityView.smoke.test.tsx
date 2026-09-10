@@ -95,7 +95,7 @@ const MOCK_LINKS = [
     workspace_id: "ws-trace-001",
     source_id: "req-001",
     target_id: "arch-001",
-    // Task 16 retired "implements" (merged into "allocated-to"); Task 23
+    // Task 16 retired `implements` (merged into `allocated-to`); Task 23
     // shrank the frontend label fallback to the eight built-in types that
     // replaced it, so this fixture uses the still-valid successor.
     link_type: "allocated-to",

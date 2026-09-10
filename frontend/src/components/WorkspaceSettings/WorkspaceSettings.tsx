@@ -110,7 +110,7 @@ export default function WorkspaceSettings(): JSX.Element {
   // A <select> silently falls back to option[0] for a value it does not
   // carry — render the stored value as an extra disabled option when it is
   // absent from the catalog, otherwise saving an untouched form downgrades
-  // a working configuration (e.g. the retired "parent-child" default).
+  // a working configuration (e.g. a retired pre-catalog default).
   const decompositionTypeIsKnown = creatableLinkTypes.some(
     (row) => row.key === activeWorkspace?.decomposition_link_type,
   );

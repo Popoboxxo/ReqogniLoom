@@ -331,8 +331,14 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //    0 `BaselinesView.tsx` — the new #48 name field uses named constants
 //      (`formLabelStyle`/`formInputStyle`/`formHintStyle`), so it adds none.
 // 1016 - 1 = 1015. Re-measured on the tree: 1015, matching exactly.
+//
+// Traceability-Semantik final review (2026-09-10):
+//   -21 `TraceabilityView/TraceLinksForm.tsx` — deleted. Exported but never
+//       imported outside its own test file, and it filtered trace links on
+//       retired link-type literals, so it could not have worked any more
+//       even if it had been mounted. 1015 - 21 = 994, re-measured: 994.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1015;
+const STYLE_BRACE_BASELINE = 994;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

@@ -111,6 +111,21 @@ def test_goal_main_goal_and_interview_are_reference_endpoints_in_both_directions
         assert (artifact_type, "*") in pairs
 
 
+def test_issue_is_a_reference_endpoint_in_both_directions():
+    """Issue is a regular built-in too, for the same reason Goal is.
+
+    It was the one grandfathered triple with no built-in successor, so a
+    freshly provisioned workspace could not link an Issue to anything —
+    including through ``seed_toothbrush``, the app's own seeder.
+    """
+    pairs = {
+        (p["source_type"], p["target_type"])
+        for p in BUILTIN_LINK_TYPES["references"]["allowed_pairs"]
+    }
+    assert ("*", "Issue") in pairs
+    assert ("Issue", "*") in pairs
+
+
 def test_every_definition_carries_tri_labels_in_both_languages():
     for key, definition in BUILTIN_LINK_TYPES.items():
         for lang in ("de", "en"):

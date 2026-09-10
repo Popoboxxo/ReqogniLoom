@@ -603,15 +603,6 @@ export interface DiagramDetail extends Diagram {
   status?: string;
 }
 
-export interface DiagramTraceLink {
-  id: UUID;
-  source_id: UUID;
-  target_id: UUID;
-  link_type: string;
-  target_type: string;
-  target_title: string;
-}
-
 // ---------------------------------------------------------------------------
 // Paginated response (mirrors StandardPagination format)
 // ---------------------------------------------------------------------------

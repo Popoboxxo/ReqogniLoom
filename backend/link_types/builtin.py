@@ -246,6 +246,14 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         # as source *and* as target). They are regular built-ins, not
         # grandfathered legacy: see link_types/grandfathered.py for the four
         # pairs that are legacy-only on purpose.
+        #
+        # Issue is a wildcard on both sides for the same reason, added for the
+        # same reason one step later: it was the one grandfathered triple with
+        # no built-in successor at all (55 rows of `Issue --traces-->
+        # ArchitectureElement` in the inventory), so a fresh tenant could not
+        # link an Issue to anything — including via `seed_toothbrush`, the
+        # app's own seeder. Issue links are user-authored through the generic
+        # trace-link surface in either direction, exactly like Goal's.
         "allowed_pairs": _pairs(
             ("*", "GlossaryTerm"),
             ("*", "Diagram"),
@@ -256,6 +264,8 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
             ("MainGoal", "*"),
             ("*", "Interview"),
             ("Interview", "*"),
+            ("*", "Issue"),
+            ("Issue", "*"),
         ),
         "coverage_relevant": False,
         "suspect_rule": "none",

@@ -147,9 +147,11 @@ describe("hierarchyRelation", () => {
     expect(result?.relation).toBe("parent");
   });
 
-  it("treats the target of `parent-child` as a child", () => {
-    const result = hierarchyRelation(link({ link_type: "parent-child" }), new Set([ART_L1]));
-    expect(result?.relation).toBe("child");
+  it("no longer honours the retired decomposition predecessor type", () => {
+    // Retired by the link-type catalog migration and folded into
+    // `decomposes`; no workspace catalog can produce it any more.
+    const retired = ["parent", "child"].join("-");
+    expect(hierarchyRelation(link({ link_type: retired }), new Set([ART_L1]))).toBeNull();
   });
 
   it("ignores non-hierarchy link types", () => {
