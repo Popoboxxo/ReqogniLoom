@@ -136,7 +136,12 @@ def _glossary_term(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtif
     dto = GlossaryService().create(
         ctx=ctx,
         workspace_id=workspace_id,
-        term=fields["term"],
+        # GlossaryService.create() calls this `term`, but every other
+        # in-scope type's interview protocol -- and _formalize_single's own
+        # title guard -- collects `title`. Accept either so a session
+        # answered through the shared title-based flow (factory default,
+        # no GlossaryTerm-specific protocol override) still resolves.
+        term=fields.get("term") or fields["title"],
         definition=fields.get("definition", ""),
         synonyms=fields.get("synonyms"),
         abbreviation=fields.get("abbreviation", ""),

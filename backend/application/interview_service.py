@@ -909,17 +909,17 @@ class InterviewService(ServiceBase):
     def _formalize_single(self, ctx, session) -> "dict[str, Any]":
         """Single-kind path: one typed artifact from collected_fields.
 
-        Body moved verbatim from the pre-multi-mode formalize() -- behavior
-        and return shape are unchanged (single-mode regression guard:
-        test_interview_formalize_multi.py::test_single_mode_formalize_unchanged).
-        """
-        if session.artifact_type != "Requirement":
-            raise ValidationError(
-                f"formalize() for artifact_type={session.artifact_type!r} is not "
-                "implemented yet -- only Requirement is wired in this plan; the "
-                "other 7 types follow the identical pattern in a later pass."
-            )
+        Dispatches through ARTIFACT_CREATION_ADAPTERS -- the same registry
+        the multi-kind path uses -- so all 8 in-scope artifact types work
+        through their production ``create_X()`` service method (workflow
+        state initialization included). This replaced a hardcoded
+        ``if session.artifact_type != "Requirement": raise`` (spec L2.1).
 
+        The *update* branch (``target_artifact_id`` set) stays
+        Requirement-only: generalizing it needs a second, update-flavoured
+        adapter registry, which the spec does not ask for -- see
+        ``set_target()``'s matching guard.
+        """
         # Reuse get_state()'s exact missing-fields computation: a non-empty
         # `missing` here means the interview is not actually complete yet
         # (see _current_phase_and_missing's docstring/semantics -- it
@@ -936,31 +936,41 @@ class InterviewService(ServiceBase):
             )
 
         # The completeness guard above only trusts the *protocol*: if a
-        # workspace's custom interview.protocol.Requirement override never
+        # workspace's custom interview.protocol.<Type> override never
         # declares a `title` field in required_fields, `missing` above is
-        # trivially empty (nothing named `title` was ever "missing") even
-        # though `title` resolves to "" here. A Requirement must not be
-        # created/updated with an empty title regardless of what the
-        # protocol says is required -- check independently.
-        # str(...) coercion is defense-in-depth (issue #542): answer() now
-        # rejects non-string title values up front, but a stray non-string
-        # could still reach here via old rows or a future caller that
-        # bypasses answer() -- degrade to "empty title, rejected cleanly"
-        # instead of AttributeError on .strip().
+        # trivially empty even though `title` resolves to "" here. No
+        # artifact type may be created/updated with an empty title
+        # regardless of what the protocol says. str(...) coercion is
+        # defense-in-depth (issue #542): answer() now rejects non-string
+        # title values up front, but a stray non-string could still reach
+        # here via old rows or a future caller that bypasses answer().
         title = str(session.collected_fields.get("title") or "").strip()
         if not title:
             raise ValidationError(
                 f"InterviewSession {session.id} has no non-empty 'title' in "
-                "collected_fields; cannot formalize a Requirement without a title."
+                f"collected_fields; cannot formalize a {session.artifact_type} "
+                "without a title."
             )
 
-        from application.requirement_service import RequirementService
-        from persistence.models import Requirement
+        from application.interview_artifact_adapters import (
+            ARTIFACT_CREATION_ADAPTERS,
+            build_adapter_fields,
+        )
 
-        svc = RequirementService()
         resulting_ids: "list[str]" = []
 
         if session.target_artifact_id is not None:
+            from application.requirement_service import RequirementService
+            from persistence.models import Requirement
+
+            if session.artifact_type != "Requirement":
+                raise ValidationError(
+                    f"formalize() cannot update an existing "
+                    f"{session.artifact_type!r}: the grounded-update branch is "
+                    "Requirement-only. Start a session without a target to "
+                    "create a new artifact instead."
+                )
+            svc = RequirementService()
             target = Requirement.objects.filter(
                 artifact_id=session.target_artifact_id
             ).first()
@@ -997,21 +1007,29 @@ class InterviewService(ServiceBase):
             # resolves this id too, via TraceLinkService._resolve_artifact.
             resulting_ids.append(str(updated.id))
         else:
-            created = svc.create_requirement(
-                workspace_id=session.workspace_id,
-                title=title,
-                ctx=ctx,
-                # C-1: see the matching comment on the update_requirement()
-                # branch above -- same fallback, same reason.
-                description=(
-                    session.collected_fields.get("description")
-                    or session.collected_fields.get("rationale")
-                    or ""
-                ),
-            )
-            # Issue #736: see comment above -- return Requirement.id, not
-            # Requirement.artifact_id.
-            resulting_ids.append(str(created.id))
+            adapter = ARTIFACT_CREATION_ADAPTERS.get(session.artifact_type)
+            if adapter is None:
+                raise ValidationError(
+                    f"No artifact creation adapter for "
+                    f"artifact_type={session.artifact_type!r}."
+                )
+            fields = build_adapter_fields(session.collected_fields)
+            fields["title"] = title  # the normalised/stripped value wins
+            try:
+                created_ref = adapter(fields, ctx, session.workspace_id)
+            except (KeyError, TypeError) as exc:
+                # Same contract as _formalize_multi: a missing required
+                # service field (KeyError) or a protocol field name the
+                # create_X() signature does not accept (TypeError) is
+                # caller/config input, not a server fault -- it must never
+                # escape as an unhandled 500.
+                raise ValidationError(
+                    f"cannot formalize {session.artifact_type!r} from the "
+                    f"collected answers: {exc}"
+                ) from exc
+            # Issue #736: report the user-facing subtype id, not the
+            # Artifact PK.
+            resulting_ids.append(str(created_ref.entity_id))
 
         session.resulting_artifact_ids = resulting_ids
         session.version = F("version") + 1
