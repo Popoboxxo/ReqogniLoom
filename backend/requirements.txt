@@ -98,7 +98,7 @@ reportlab>=4.0,<5.0
 # gunicorn runs the ASGI app via uvicorn workers so the async MCP SSE
 # transport streams without blocking a sync worker per client (REQ-044).
 # Removed <22.0 cap: 22.0+ includes CVE-2024-1135 (Request-Smuggling) fix
-gunicorn>=26.1.0
+gunicorn>=26.2.0
 uvicorn[standard]>=0.52.4,<1.0
 
 # Utilities
