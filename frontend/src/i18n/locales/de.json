@@ -1967,6 +1967,7 @@
     }
   },
   "interviews": {
+    "provenanceHint": "Interview öffnen, aus dem dieses Artefakt entstanden ist",
     "summary_one": "{{count}} Interview",
     "summary_other": "{{count}} Interviews",
     "newInterview": "Neues Interview",

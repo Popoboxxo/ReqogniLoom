@@ -1967,6 +1967,7 @@
     }
   },
   "interviews": {
+    "provenanceHint": "Open the interview this artifact came from",
     "summary_one": "{{count}} interview",
     "summary_other": "{{count}} interviews",
     "newInterview": "New Interview",
