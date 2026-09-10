@@ -72,6 +72,23 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => useWorkspaceMock(),
 }));
 
+// Task 23: CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this
+// tree pulls in transitively) now reads the link-type catalog via
+// useLinkTypes() — needs a provider-free mock here, same as every other
+// non-dialog-focused test that renders it incidentally.
+vi.mock("../../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 vi.mock("../../api/stakeholder-need", () => ({
   stakeholderNeedApi: {
     update: vi.fn().mockResolvedValue({}),

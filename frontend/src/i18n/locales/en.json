@@ -411,6 +411,7 @@
     "sameEndpoints": "Source and target must differ.",
     "seModeHint": "SE mode: link types are filtered by SE semantics (source → target).",
     "seNoValidType": "SE mode: no link type is valid between the selected artifact types.",
+    "noLinkTypeForPair": "No link type in this workspace connects these two artifact types.",
     "submit": "Create",
     "submitting": "Creating...",
     "cycleWarning": "Cycle(s) detected in the trace graph",

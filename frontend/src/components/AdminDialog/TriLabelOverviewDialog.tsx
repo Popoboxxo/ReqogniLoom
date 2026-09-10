@@ -3,12 +3,13 @@
  *
  * leaf_id: COMP-RF-001 (NavigationShell — SystemSettings administration tab)
  *
- * Read-only admin screen listing the complete Tri-Label table for all 14
- * `LinkType` values (DE + EN, downstream/upstream/neutral) — see
+ * Read-only admin screen listing the Tri-Label table for the eight built-in
+ * link types (DE + EN, downstream/upstream/neutral) — see
  * docs/UMSETZUNGSPLAN_SYSENG_2.0.md §1.3. The table is read directly from
- * the frontend constant (`constants/traceLinkLabels.ts`, the single source
- * of truth); no backend endpoint is involved since the Tri-Label data lives
- * purely in the frontend. Deliberately NOT editable in this phase.
+ * the frontend fallback constant (`constants/traceLinkLabels.ts`); it does
+ * not reflect per-workspace catalog customizations (Task 23 —
+ * `context/LinkTypeContext.tsx` is the catalog source of truth, this dialog
+ * stays a static built-in-types reference). Deliberately NOT editable.
  *
  * Modal chrome mirrors SystemHealthDialog's pattern (overlay/dialog/header/
  * body/footer + backdrop-click-to-close).
@@ -16,11 +17,10 @@
 
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ALL_LINK_TYPES,
-  LINK_TYPE_TRI_LABELS,
-} from "../../constants/traceLinkLabels";
+import { FALLBACK_TRI_LABELS } from "../../constants/traceLinkLabels";
 import { Dialog } from "../shared/Dialog";
+
+const BUILTIN_LINK_TYPES = Object.keys(FALLBACK_TRI_LABELS);
 
 export interface TriLabelOverviewDialogProps {
   /** Controls modal visibility. */
@@ -120,7 +120,7 @@ export function TriLabelOverviewDialog({
       <p style={hintStyle}>
         {t(
           "triLabelOverview.hint",
-          "Read-only overview of all 14 TraceLink types with their German/English downstream, upstream and neutral labels. Not editable in this phase."
+          "Read-only overview of the eight built-in TraceLink types with their German/English downstream, upstream and neutral labels. Per-workspace catalog customizations are not reflected here."
         )}
       </p>
 
@@ -140,8 +140,8 @@ export function TriLabelOverviewDialog({
             </tr>
           </thead>
           <tbody>
-            {ALL_LINK_TYPES.map((lt) => {
-              const entry = LINK_TYPE_TRI_LABELS[lt];
+            {BUILTIN_LINK_TYPES.map((lt) => {
+              const entry = FALLBACK_TRI_LABELS[lt];
               return (
                 <tr key={lt} data-testid={`tri-label-row-${lt}`}>
                   <td style={typeCellStyle} data-testid={`tri-label-row-${lt}-type`}>

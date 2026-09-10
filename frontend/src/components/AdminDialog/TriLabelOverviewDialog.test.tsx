@@ -3,7 +3,7 @@
  *
  * Verifies:
  *   - Renders nothing when isOpen is false
- *   - Renders all 14 LinkType rows when open
+ *   - Renders a row for each of the eight built-in link types when open
  *   - Renders DE/EN downstream/upstream/neutral cells for a sample type
  *   - Close button (header + footer) calls onClose
  *   - No editable form controls are rendered (read-only contract)
@@ -16,7 +16,9 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { TriLabelOverviewDialog } from "./TriLabelOverviewDialog";
-import { ALL_LINK_TYPES } from "../../constants/traceLinkLabels";
+import { FALLBACK_TRI_LABELS } from "../../constants/traceLinkLabels";
+
+const BUILTIN_LINK_TYPES = Object.keys(FALLBACK_TRI_LABELS);
 
 describe("TriLabelOverviewDialog", () => {
   it("renders nothing when isOpen is false", () => {
@@ -26,44 +28,44 @@ describe("TriLabelOverviewDialog", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders the dialog with all 14 LinkType rows when open", () => {
+  it("renders the dialog with a row for each of the eight built-in link types when open", () => {
     render(<TriLabelOverviewDialog isOpen onClose={vi.fn()} />);
 
     expect(screen.getByTestId("tri-label-overview-dialog")).toBeInTheDocument();
-    expect(ALL_LINK_TYPES).toHaveLength(14);
-    for (const lt of ALL_LINK_TYPES) {
+    expect(BUILTIN_LINK_TYPES).toHaveLength(8);
+    for (const lt of BUILTIN_LINK_TYPES) {
       expect(screen.getByTestId(`tri-label-row-${lt}`)).toBeInTheDocument();
     }
   });
 
-  it("renders DE/EN downstream/upstream/neutral cells for 'satisfies'", () => {
+  it("renders DE/EN downstream/upstream/neutral cells for 'verifies'", () => {
     render(<TriLabelOverviewDialog isOpen onClose={vi.fn()} />);
 
-    expect(screen.getByTestId("tri-label-row-satisfies-de-downstream")).toHaveTextContent(
-      "erfüllt"
+    expect(screen.getByTestId("tri-label-row-verifies-de-downstream")).toHaveTextContent(
+      "verifiziert"
     );
-    expect(screen.getByTestId("tri-label-row-satisfies-de-upstream")).toHaveTextContent(
-      "wird erfüllt von"
+    expect(screen.getByTestId("tri-label-row-verifies-de-upstream")).toHaveTextContent(
+      "wird verifiziert von"
     );
-    expect(screen.getByTestId("tri-label-row-satisfies-en-downstream")).toHaveTextContent(
-      "satisfies"
+    expect(screen.getByTestId("tri-label-row-verifies-en-downstream")).toHaveTextContent(
+      "verifies"
     );
-    expect(screen.getByTestId("tri-label-row-satisfies-en-upstream")).toHaveTextContent(
-      "is satisfied by"
+    expect(screen.getByTestId("tri-label-row-verifies-en-upstream")).toHaveTextContent(
+      "is verified by"
     );
-    expect(screen.getByTestId("tri-label-row-satisfies-neutral")).toHaveTextContent(
-      "Erfüllung / Satisfaction"
+    expect(screen.getByTestId("tri-label-row-verifies-neutral")).toHaveTextContent(
+      "Verifikation / Verification"
     );
   });
 
-  it("renders the newly added 'decomposes' type with its Tri-Label", () => {
+  it("renders the 'decomposes' type with its Tri-Label", () => {
     render(<TriLabelOverviewDialog isOpen onClose={vi.fn()} />);
 
     expect(screen.getByTestId("tri-label-row-decomposes-de-downstream")).toHaveTextContent(
       "zerlegt sich in"
     );
     expect(screen.getByTestId("tri-label-row-decomposes-en-upstream")).toHaveTextContent(
-      "is decomposition of"
+      "is part of"
     );
   });
 

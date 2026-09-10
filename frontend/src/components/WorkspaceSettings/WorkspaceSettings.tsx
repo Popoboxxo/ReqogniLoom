@@ -42,7 +42,7 @@ import { McpConnectionSection } from "./McpConnectionSection";
 import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
-import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 
@@ -97,13 +97,26 @@ function isSettingsTabId(value: string | null): value is SettingsTabId {
 }
 
 export default function WorkspaceSettings(): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n: i18nInstance } = useTranslation();
+  // Same DE/EN resolution convention as CreateTraceLinkDialog (triLabelLang).
+  const triLabelLang = i18nInstance?.language?.startsWith("de") ? "de" : "en";
   const navigate = useNavigate();
   const {
     activeWorkspace,
     reloadWorkspaces,
   } = useWorkspace();
   const { roles } = useAuth();
+  const { creatableLinkTypes, labelFor } = useLinkTypes();
+  // A <select> silently falls back to option[0] for a value it does not
+  // carry — render the stored value as an extra disabled option when it is
+  // absent from the catalog, otherwise saving an untouched form downgrades
+  // a working configuration (e.g. the retired "parent-child" default).
+  const decompositionTypeIsKnown = creatableLinkTypes.some(
+    (row) => row.key === activeWorkspace?.decomposition_link_type,
+  );
+  const defaultTypeIsKnown = creatableLinkTypes.some(
+    (row) => row.key === activeWorkspace?.default_link_type,
+  );
 
   const [name, setName] = useState(activeWorkspace?.name ?? "");
   // `activeWorkspace` often carries a stale/placeholder `name` on this
@@ -650,7 +663,7 @@ export default function WorkspaceSettings(): JSX.Element {
                 {t("settings.decompositionLinkType", "Decomposition Link Typ")}
               </label>
               <select
-                value={activeWorkspace.decomposition_link_type || "parent-child"}
+                value={activeWorkspace.decomposition_link_type || "decomposes"}
                 onChange={(e) => {
                   const val = e.target.value;
                   setSaveError(null);
@@ -663,8 +676,14 @@ export default function WorkspaceSettings(): JSX.Element {
                 style={selectStyle}
                 data-testid="decomposition-link-type-select"
               >
-                <option value="parent-child">parent-child (Strukturell)</option>
-                <option value="derives-from">derives-from (Ableitung)</option>
+                {creatableLinkTypes.map((row) => (
+                  <option key={row.key} value={row.key}>{labelFor(row.key, triLabelLang, "neutral")}</option>
+                ))}
+                {!decompositionTypeIsKnown && activeWorkspace.decomposition_link_type && (
+                  <option value={activeWorkspace.decomposition_link_type} disabled>
+                    {activeWorkspace.decomposition_link_type} (unavailable)
+                  </option>
+                )}
               </select>
             </div>
 
@@ -687,9 +706,14 @@ export default function WorkspaceSettings(): JSX.Element {
                 style={selectStyle}
                 data-testid="default-link-type-select"
               >
-                {ALL_LINK_TYPES.map((lt) => (
-                  <option key={lt} value={lt}>{getLinkTypeLabel(lt)}</option>
+                {creatableLinkTypes.map((row) => (
+                  <option key={row.key} value={row.key}>{labelFor(row.key, triLabelLang, "neutral")}</option>
                 ))}
+                {!defaultTypeIsKnown && activeWorkspace.default_link_type && (
+                  <option value={activeWorkspace.default_link_type} disabled>
+                    {activeWorkspace.default_link_type} (unavailable)
+                  </option>
+                )}
               </select>
             </div>
           </section>

@@ -95,6 +95,23 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
+// Task 23: CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this
+// tree pulls in transitively) now reads the link-type catalog via
+// useLinkTypes() — needs a provider-free mock here, same as every other
+// non-dialog-focused test that renders it incidentally.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { architectureApi } from "../api/architecture";

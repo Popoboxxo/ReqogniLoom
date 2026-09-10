@@ -49,6 +49,63 @@ vi.mock("../../context/AuthContext", () => ({
   useAuth: () => ({ roles: ["admin"] }),
 }));
 
+// Task 23: WorkspaceSettings now reads its link-type dropdowns from the
+// catalog. `activeWorkspace.decomposition_link_type` above is deliberately
+// still the retired "parent-child" (pre-Task-16 fixture data) — this is the
+// real-world scenario the "unavailable" disabled-option fallback exists for
+// (Finding 3): "parent-child" is not in the mocked catalog below.
+const MOCK_CREATABLE_LINK_TYPES = [
+  {
+    key: "decomposes",
+    definition: {
+      label: {
+        de: { downstream: "zerlegt sich in", upstream: "ist Teil von", neutral: "Zerlegung" },
+        en: { downstream: "decomposes into", upstream: "is part of", neutral: "Decomposition" },
+      },
+      allowed_pairs: [{ source_type: "Requirement", target_type: "Requirement" }],
+      coverage_relevant: false,
+      suspect_rule: "parent_change_flags_children",
+      impact_weight: 1,
+      manual_creatable: true,
+      system_owned: false,
+      active: true,
+      built_in: true,
+    },
+  },
+  {
+    key: "derives-from",
+    definition: {
+      label: {
+        de: { downstream: "leitet sich ab von", upstream: "ist Grundlage für", neutral: "Ableitung" },
+        en: { downstream: "derives from", upstream: "is basis for", neutral: "Derivation" },
+      },
+      allowed_pairs: [{ source_type: "Requirement", target_type: "Requirement" }],
+      coverage_relevant: false,
+      suspect_rule: "target_change_flags_source",
+      impact_weight: 1,
+      manual_creatable: true,
+      system_owned: false,
+      active: true,
+      built_in: true,
+    },
+  },
+];
+
+vi.mock("../../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: MOCK_CREATABLE_LINK_TYPES,
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: MOCK_CREATABLE_LINK_TYPES,
+    definitionFor: (key: string) =>
+      MOCK_CREATABLE_LINK_TYPES.find((row) => row.key === key)?.definition,
+    isAllowedPair: () => true,
+    labelFor: (key: string, lang: "de" | "en") =>
+      MOCK_CREATABLE_LINK_TYPES.find((row) => row.key === key)?.definition.label[lang]?.neutral ?? key,
+  }),
+}));
+
 const setPreferenceMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../context/ThemeContext", () => ({
@@ -217,6 +274,28 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("decomposition-link-type-select")).toBeInTheDocument();
     expect(screen.getByTestId("default-link-type-select")).toBeInTheDocument();
     expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
+  });
+
+  // Task 23 / Finding 3: both selects are now catalog-driven, and a stored
+  // value absent from the catalog (here the retired "parent-child" default,
+  // see the `activeWorkspace` fixture above) renders as an extra disabled
+  // option instead of silently falling back to option[0] on next save.
+  it("renders the catalog-driven options and a disabled fallback for the stale stored value (Task 23)", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-traceability"));
+
+    const decompositionSelect = screen.getByTestId("decomposition-link-type-select") as HTMLSelectElement;
+    const decompositionOptions = Array.from(decompositionSelect.querySelectorAll("option"));
+    expect(decompositionOptions.map((o) => o.value)).toEqual(
+      expect.arrayContaining(["decomposes", "derives-from", "parent-child"]),
+    );
+    const staleOption = decompositionOptions.find((o) => o.value === "parent-child");
+    expect(staleOption).toHaveTextContent("(unavailable)");
+    expect(staleOption).toBeDisabled();
+
+    const defaultSelect = screen.getByTestId("default-link-type-select") as HTMLSelectElement;
+    const defaultOptions = Array.from(defaultSelect.querySelectorAll("option")).map((o) => o.value);
+    expect(defaultOptions).toEqual(["decomposes", "derives-from"]);
   });
 
   it("renders the LLM and prompt sections together on the LLM tab", async () => {
