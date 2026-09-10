@@ -89,16 +89,16 @@ pytest>=9.1.1,<10.0
 # change, so the cap is gone and the floor is raised to the first release that
 # declares Django 5.2 support.
 pytest-django>=4.14.0,<5.0
-pypdf>=6.16.1,<7.0
+pypdf>=6.16.2,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
-reportlab>=4.0,<5.0
+reportlab>=5.0.1,<6.0
 
 # WSGI/ASGI HTTP Server (production deployment)
 # gunicorn runs the ASGI app via uvicorn workers so the async MCP SSE
 # transport streams without blocking a sync worker per client (REQ-044).
 # Removed <22.0 cap: 22.0+ includes CVE-2024-1135 (Request-Smuggling) fix
-gunicorn>=26.1.0
+gunicorn>=26.2.0
 uvicorn[standard]>=0.52.4,<1.0
 
 # Utilities
@@ -131,7 +131,7 @@ reqif>=0.1.0,<0.2
 # LLM_PROVIDER=anthropic|openai call crashed with a raw RuntimeError; only
 # `mock` was actually usable. Pinned consistent with the other deps above.
 anthropic>=0.122.0,<1.0
-openai>=1.40,<2.0
+openai>=3.6.0,<4.0
 # Embedding provider (REQ-L2-VS-004) — sentence-transformers is the new default
 # embedding provider (384 dims, in-process, no external service). Optional
 # providers: ollama (768 dims) and openai (1536 dims, already listed above).
@@ -144,7 +144,7 @@ openai>=1.40,<2.0
 # transformers>=5.0.0,<6.0.0. The only API this codebase uses
 # (SentenceTransformer(model_name).encode(text, normalize_embeddings=True))
 # is unchanged across this range (llm_adapter/embedding_service.py).
-sentence-transformers>=6.0.0,<7.0
+sentence-transformers>=6.0.1,<7.0
 
 # PCA + cosine-similarity clustering for the Memory Admin UI Phase 5
 # visualization endpoint (application/memory_admin_service.py::_pca_2d/
