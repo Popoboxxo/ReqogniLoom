@@ -977,31 +977,26 @@ class RequirementService(ServiceBase):
 
                 # IF-AS-INT-002: create TraceLink using configured type.
                 #
-                # Best-effort, historically: a missing 'decomposes' link no
-                # longer hides the hierarchy from the SE-Auditor since issue
-                # #395 made root/leaf classification read the reciprocal
-                # 'derives-from' edge too, so a failure here degrades the
-                # graph without breaking it. Logged at warning (not debug):
-                # it is still a defect worth seeing in production logs.
-                try:
-                    tl = self._trace_link_service.create_trace_link(
-                        source_id=UUID(str(parent_req.artifact_id)),
-                        target_id=UUID(str(child_req.artifact_id)),
-                        link_type=decomposition_link_type,
-                        ctx=ctx,
-                    )
-                    if hasattr(tl, "id"):
-                        result.trace_link_ids.append(tl.id)
-                except Exception:
-                    logger.warning(
-                        "RequirementService.decompose: '%s' TraceLink %s -> %s "
-                        "could not be created; the derivation hierarchy will "
-                        "rest on the 'derives-from' link alone.",
-                        decomposition_link_type,
-                        parent_req.artifact_id,
-                        child_req.artifact_id,
-                        exc_info=True,
-                    )
+                # SDD Task 15 (spec §3.3): create_requirement() already wrote
+                # child_req.artifact.parent = parent_req.artifact above, in
+                # this same TransactionContextManager block. The 'decomposes'
+                # link is the *other* half of that one relationship (see the
+                # Artifact.parent docstring: "Any service that writes one of
+                # them ... must write the other in the same transaction").
+                # A previous best-effort try/except swallowed failures here,
+                # so a workspace could end up with a parent FK and no link
+                # (invisible to the SE-Auditor) or vice versa. Letting the
+                # exception propagate lets the surrounding atomic block roll
+                # back both writes together instead of leaving a half-built
+                # hierarchy.
+                tl = self._trace_link_service.create_trace_link(
+                    source_id=UUID(str(parent_req.artifact_id)),
+                    target_id=UUID(str(child_req.artifact_id)),
+                    link_type=decomposition_link_type,
+                    ctx=ctx,
+                )
+                if hasattr(tl, "id"):
+                    result.trace_link_ids.append(tl.id)
 
                 # Issue #395: the reciprocal 'derives-from' link (child ->
                 # parent). TRACE-P5 explicitly requires the pair — "a

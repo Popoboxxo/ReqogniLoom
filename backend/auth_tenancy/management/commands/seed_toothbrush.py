@@ -224,7 +224,11 @@ def run():
         r = req_svc.create_requirement(workspace_id=ws_id, title=title, ctx=ctx, type=RequirementType.SYREQ)
         reqs[key] = r
         if parent_need:
-            link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_need.artifact_id, link_type="satisfies", ctx=ctx)
+            # The retired ArchitectureElement -> Requirement satisfaction key:
+            # a Requirement pointing at the Need it came from is a derivation,
+            # so the migration rewrote these rows to derives-from with their
+            # endpoints left alone (child -> parent).
+            link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_need.artifact_id, link_type="derives-from", ctx=ctx)
         if parent_req:
             link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_req.artifact_id, link_type="derives-from", ctx=ctx)
         if allocated_arch:
@@ -355,7 +359,7 @@ def run():
         # REQ-L2-TE-020: RiskService.create_risk now creates the backing Artifact
         # via a proper OneToOne FK — use r.artifact_id instead of the former
         # UUID-identity hack (Artifact.objects.create(id=r.id, ...)).
-        link_svc.create_trace_link(source_id=r.artifact_id, target_id=reqs[req_key].artifact_id, link_type="traces", ctx=ctx)
+        link_svc.create_trace_link(source_id=r.artifact_id, target_id=reqs[req_key].artifact_id, link_type="mitigates", ctx=ctx)
 
     # 6. Issues (50+)
     print("Creating Issues...")
@@ -372,7 +376,7 @@ def run():
         # REQ-L2-TE-020: IssueService.create_issue now creates the backing
         # Artifact via a proper OneToOne FK — use iss.artifact_id instead of the
         # former UUID-identity hack (Artifact.objects.create(id=iss.id, ...)).
-        link_svc.create_trace_link(source_id=iss.artifact_id, target_id=archs[arch_key].artifact_id, link_type="traces", ctx=ctx)
+        link_svc.create_trace_link(source_id=iss.artifact_id, target_id=archs[arch_key].artifact_id, link_type="references", ctx=ctx)
 
     # 7. ADRs (10+)
     print("Creating ADRs...")
@@ -388,7 +392,7 @@ def run():
         # REQ-L2-TE-020: AdrService.create_adr already creates the backing
         # Artifact via a proper OneToOne FK — use adr.artifact_id instead of the
         # former UUID-identity hack (which created a second, orphan Artifact).
-        link_svc.create_trace_link(source_id=adr.artifact_id, target_id=archs[arch_key].artifact_id, link_type="documents", ctx=ctx)
+        link_svc.create_trace_link(source_id=adr.artifact_id, target_id=archs[arch_key].artifact_id, link_type="decides", ctx=ctx)
 
     print("Creating TestCases and TestRuns...")
     test_cases = []

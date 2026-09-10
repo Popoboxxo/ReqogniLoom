@@ -12,7 +12,7 @@ the *same two* endpoint Artifact rows up to six times per link:
 
   1./2. ``_resolve_artifact_id(source)`` / ``(target)`` — probe "is this
         already an Artifact id?", then discard the row it just read;
-  3./4. ``_check_se_semantics`` — re-SELECT both rows for their
+  3./4. ``_check_link_pair`` — re-SELECT both rows for their
         ``artifact_type``/``workspace_id``;
   5./6. ``TraceLinkManager.create`` — ``Artifact.unscoped.get()`` on both for
         the cross-tenant guard;
@@ -70,9 +70,15 @@ def tenant() -> Tenant:
 
 @pytest.fixture
 def workspace(tenant: Tenant) -> Workspace:
+    from link_types.workspace_store import provision_workspace_link_types
+
     TenantContext.set_tenant(tenant.id)
     try:
-        yield Workspace.objects.create(tenant=tenant, name="WS-625")
+        workspace = Workspace.objects.create(tenant=tenant, name="WS-625")
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=tenant.id
+        )
+        yield workspace
     finally:
         TenantContext.clear_tenant()
 
@@ -87,21 +93,22 @@ def _ctx(tenant: Tenant) -> MagicMock:
 
 @pytest.fixture
 def se_workspace(tenant: Tenant) -> Workspace:
-    """Workspace configured for se_mode, i.e. with the SE endpoint gate live.
+    """Workspace configured for se_mode.
 
-    Review M1: no pre-existing test reaches ``check_se_link_semantics()``
-    through ``create_trace_link`` — they either patch ``_check_se_semantics``
-    out or run in workspaces with no ``WorkspacePresetConfig`` at all (the
-    gate then returns early as "dev_mode / unconfigured"). The artifact types
-    matter too: the matrix only constrains the exact strings in
-    ``SE_CORE_ARTIFACT_TYPES``, so the lowercase ``"requirement"`` used
-    elsewhere in this module is permissive by design.
+    Kept after the always-on flip purely as a control: the endpoint gate must
+    behave identically here and in the plain ``workspace`` fixture, which has
+    no ``WorkspacePresetConfig`` at all. That combination used to disable
+    enforcement outright.
     """
+    from link_types.workspace_store import provision_workspace_link_types
     from presets.models import WorkspacePresetConfig
 
     TenantContext.set_tenant(tenant.id)
     try:
         workspace = Workspace.objects.create(tenant=tenant, name="WS-625-SE")
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=tenant.id
+        )
         WorkspacePresetConfig.objects.create(
             tenant=tenant,
             workspace=workspace,
@@ -114,7 +121,7 @@ def se_workspace(tenant: Tenant) -> Workspace:
 
 
 def _artifact(
-    tenant: Tenant, workspace: Workspace, artifact_type: str = "requirement"
+    tenant: Tenant, workspace: Workspace, artifact_type: str = "Requirement"
 ) -> Artifact:
     return Artifact.objects.create(
         tenant=tenant, workspace=workspace, artifact_type=artifact_type
@@ -145,7 +152,7 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
                 svc.create_trace_link(
                     source_id=source.id,
                     target_id=target.id,
-                    link_type="traces",
+                    link_type="derives-from",
                     ctx=ctx,
                 )
         finally:
@@ -171,17 +178,25 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
         a late creation against an early one catches that without asserting a
         brittle absolute number.
         """
+        from link_types.catalog import resolve_catalog
+
         svc = TraceLinkService()
         ctx = _ctx(tenant)
         TenantContext.set_tenant(tenant.id)
         try:
+            # Warm the link-type catalog: its first read in a process costs one
+            # query, every later one is served from the generation-tagged cache.
+            # Without this the *first* link is the expensive one and the
+            # comparison below reads backwards.
+            resolve_catalog(workspace.id)
+
             first_source = _artifact(tenant, workspace)
             first_target = _artifact(tenant, workspace)
             with CaptureQueriesContext(connection) as cap_first:
                 svc.create_trace_link(
                     source_id=first_source.id,
                     target_id=first_target.id,
-                    link_type="traces",
+                    link_type="derives-from",
                     ctx=ctx,
                 )
 
@@ -190,7 +205,7 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
                 svc.create_trace_link(
                     source_id=_artifact(tenant, workspace).id,
                     target_id=_artifact(tenant, workspace).id,
-                    link_type="traces",
+                    link_type="derives-from",
                     ctx=ctx,
                 )
 
@@ -200,7 +215,7 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
                 svc.create_trace_link(
                     source_id=last_source.id,
                     target_id=last_target.id,
-                    link_type="traces",
+                    link_type="derives-from",
                     ctx=ctx,
                 )
         finally:
@@ -315,22 +330,23 @@ class TestResolveArtifactStillResolvesEveryEntityType:
             TenantContext.clear_tenant()
 
 
-class TestSeGateStillFiresOnTheReusePath:
-    """Review M1: the SE endpoint gate must still reject on the fast path.
+class TestCatalogGateStillFiresOnTheReusePath:
+    """Review M1: the endpoint gate must still reject on the fast path.
 
-    ``create_trace_link`` now hands ``_check_se_semantics`` the Artifact rows
-    it already read instead of letting it re-SELECT them. That is exactly the
+    ``create_trace_link`` hands ``_check_link_pair`` the Artifact rows it
+    already read instead of letting it re-SELECT them. That is exactly the
     branch a mistake would hide in: if the reused rows were wrong, missing, or
     silently dropped, the gate would wave everything through and no existing
-    test would notice — the whole repo's coverage of this gate goes through
-    the *fetch* branch or skips the gate entirely.
+    test would notice.
 
-    ``implements`` is constrained to ArchitectureElement -> Requirement
-    (traceability.types.SE_LINK_SEMANTICS), which gives one clean reject and
-    one clean accept over the same code path.
+    ``verifies`` is constrained to TestCase -> Requirement/ArchitectureElement
+    by the built-in catalog, which gives one clean reject and one clean accept
+    over the same code path. (Was ``implements`` + the SE matrix; both are
+    retired.) The workspace still runs se_mode only to prove the gate is *not*
+    what makes it fire — see ``test_the_gate_fires_in_dev_mode_too``.
     """
 
-    def test_implements_requirement_to_requirement_is_rejected(
+    def test_verifies_requirement_to_requirement_is_rejected(
         self, tenant, se_workspace
     ):
         svc = TraceLinkService()
@@ -341,11 +357,11 @@ class TestSeGateStillFiresOnTheReusePath:
             target = _artifact(tenant, se_workspace, "Requirement")
 
             with CaptureQueriesContext(connection) as cap:
-                with pytest.raises(ValidationError, match="SE mode"):
+                with pytest.raises(ValidationError, match="verifies"):
                     svc.create_trace_link(
                         source_id=source.id,
                         target_id=target.id,
-                        link_type="implements",
+                        link_type="verifies",
                         ctx=ctx,
                     )
         finally:
@@ -355,23 +371,23 @@ class TestSeGateStillFiresOnTheReusePath:
         # only the two _resolve_artifact probes may touch pl_artifact, since
         # the link never reaches TraceLinkManager's unscoped guard.
         assert len(_artifact_row_selects(cap.captured_queries)) == 2, (
-            "the SE gate re-read its endpoints instead of reusing them"
+            "the catalog gate re-read its endpoints instead of reusing them"
         )
 
-    def test_implements_architecture_to_requirement_is_accepted(
+    def test_verifies_testcase_to_requirement_is_accepted(
         self, tenant, se_workspace
     ):
         svc = TraceLinkService()
         ctx = _ctx(tenant)
         TenantContext.set_tenant(tenant.id)
         try:
-            source = _artifact(tenant, se_workspace, "ArchitectureElement")
+            source = _artifact(tenant, se_workspace, "TestCase")
             target = _artifact(tenant, se_workspace, "Requirement")
 
             link = svc.create_trace_link(
                 source_id=source.id,
                 target_id=target.id,
-                link_type="implements",
+                link_type="verifies",
                 ctx=ctx,
             )
         finally:
@@ -381,29 +397,53 @@ class TestSeGateStillFiresOnTheReusePath:
         assert str(link.source_id) == str(source.id)
         assert str(link.target_id) == str(target.id)
 
+    def test_the_gate_fires_in_dev_mode_too(self, tenant, workspace):
+        """The ``workspace`` fixture has no WorkspacePresetConfig at all.
+
+        That combination used to be the widest escape hatch in the old gate
+        ("dev_mode / unconfigured: no SE rigor"); it must now reject exactly
+        like the se_mode workspace above.
+        """
+        svc = TraceLinkService()
+        ctx = _ctx(tenant)
+        TenantContext.set_tenant(tenant.id)
+        try:
+            source = _artifact(tenant, workspace, "Requirement")
+            target = _artifact(tenant, workspace, "Requirement")
+
+            with pytest.raises(ValidationError, match="verifies"):
+                svc.create_trace_link(
+                    source_id=source.id,
+                    target_id=target.id,
+                    link_type="verifies",
+                    ctx=ctx,
+                )
+        finally:
+            TenantContext.clear_tenant()
+
     def test_mismatched_reused_artifact_is_ignored_not_trusted(
         self, tenant, se_workspace
     ):
         """Review M2: the id stays authoritative, the passed-in row does not.
 
         A caller handing over the wrong instance must not steer the gate. Here
-        the *ids* describe a legal ArchitectureElement -> Requirement link
-        while the *objects* describe an illegal Requirement -> Requirement
-        one; trusting the objects would raise, so a clean create proves the
-        mismatch was detected and the rows re-read from the ids.
+        the *ids* describe a legal TestCase -> Requirement link while the
+        *objects* describe an illegal Requirement -> Requirement one; trusting
+        the objects would raise, so a clean pass proves the mismatch was
+        detected and the rows re-read from the ids.
         """
         svc = TraceLinkService()
         ctx = _ctx(tenant)
         TenantContext.set_tenant(tenant.id)
         try:
-            source = _artifact(tenant, se_workspace, "ArchitectureElement")
+            source = _artifact(tenant, se_workspace, "TestCase")
             target = _artifact(tenant, se_workspace, "Requirement")
             impostor = _artifact(tenant, se_workspace, "Requirement")
 
-            svc._check_se_semantics(
+            svc._check_link_pair(
                 source.id,
                 target.id,
-                "implements",
+                "verifies",
                 source_artifact=impostor,
                 target_artifact=target,
             )

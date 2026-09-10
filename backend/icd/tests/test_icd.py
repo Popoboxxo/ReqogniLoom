@@ -9,7 +9,7 @@ Coverage (all acceptance criteria from REQ-L2-ICD-*):
                   immutable version (no in-place update via Python layer)
   REQ-L2-ICD-002: All DbC fields present (direction, type, desc, pre/post/inv)
   REQ-L2-ICD-003: Breaking-change detection — compatible and incompatible changes
-  REQ-L2-ICD-004: 'realizes' TraceLink created on ICD creation
+  REQ-L2-ICD-004: 'decomposes' TraceLink created on ICD creation
   REQ-L2-ICD-005: get_icd_versions returns correct workspace snapshot
   REQ-L2-ICD-006: AuditLog entry written on breaking change
   Tenant isolation: ICDs from other tenants not visible
@@ -686,7 +686,7 @@ class TestBreakingChangeDetection:
 
 @pytest.mark.django_db
 class TestTraceabilityConnector:
-    """REQ-L2-ICD-004: 'realizes' TraceLink is created on ICD creation."""
+    """REQ-L2-ICD-004: 'decomposes' TraceLink is created on ICD creation."""
 
     def test_create_icd_calls_link_to_architecture(
         self, tenant_a, workspace_id, src_id, tgt_id
@@ -722,8 +722,8 @@ class TestTraceabilityConnector:
         # Verify the method signature matches the contract
         m.assert_called_once()
 
-    def test_link_creates_realizes_link_type(self):
-        """TraceabilityConnector passes link_type='realizes' to the engine."""
+    def test_link_creates_decomposes_link_type(self):
+        """TraceabilityConnector passes link_type='decomposes' to the engine."""
         from icd.traceability_connector import TraceabilityConnector
 
         connector = TraceabilityConnector()
@@ -741,7 +741,7 @@ class TestTraceabilityConnector:
         mock_create.assert_called_once_with(
             source_id=src,
             target_id=tgt,
-            link_type="realizes",
+            link_type="decomposes",
             created_by_id=None,
         )
 

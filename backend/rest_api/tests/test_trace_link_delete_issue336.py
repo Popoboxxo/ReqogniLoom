@@ -26,6 +26,7 @@ from django.test import override_settings
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, TraceLink, User, Workspace
 
@@ -53,6 +54,9 @@ def tl_env(db):
         workspace = Workspace.objects.create(
             tenant=tenant, name="TL336 WS", preset={"name": "standard"}
         )
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link.
+        provision_workspace_link_types(workspace_id=workspace.id, tenant_id=tenant.id)
         UserRole.objects.create(
             tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
         )
@@ -80,7 +84,12 @@ def _create(client: APIClient, path: str, payload: dict[str, Any]) -> dict:
 
 
 def _create_trace_link(client: APIClient, ws_id: Any) -> dict:
-    """Two requirements + a 'traces' TraceLink between them."""
+    """Two requirements + a TraceLink between them.
+
+    The type is incidental to #336 (which is about *deleting* a link); it was
+    ``traces`` until the link-type catalog retired that key. ``derives-from``
+    is the Requirement -> Requirement type the catalog ships.
+    """
     ws = str(ws_id)
     source = _create(
         client, "/api/v1/requirements/", {"workspace_id": ws, "title": "TL336 source"}
@@ -91,7 +100,11 @@ def _create_trace_link(client: APIClient, ws_id: Any) -> dict:
     link = _create(
         client,
         "/api/v1/trace-links/",
-        {"source_id": source["id"], "target_id": target["id"], "link_type": "traces"},
+        {
+            "source_id": source["id"],
+            "target_id": target["id"],
+            "link_type": "derives-from",
+        },
     )
     return link
 

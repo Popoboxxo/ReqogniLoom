@@ -57,7 +57,6 @@ from application.services import (
     SearchService,
     TraceLinkService,
     ValidationError,
-    MANUAL_LINK_TYPES,
 )
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.traceability_suggest_service import (
@@ -285,11 +284,18 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                     "link_type": {
                         "type": "string",
-                        # I1 (Codeberg #353 final review): 'diagram-ref' is
-                        # reconciler-owned and excluded here — it can never be
-                        # created via this manual tool (see MANUAL_LINK_TYPES).
-                        "enum": sorted(MANUAL_LINK_TYPES),
-                        "description": "TraceLink type.",
+                        # Deliberately NOT an enum (spec section 4.1): the
+                        # catalog is tenant- and workspace-configurable, so a
+                        # published enum would make the tools/list manifest
+                        # tenant-specific and break the "manifest built once"
+                        # model. Validation happens server-side against the
+                        # resolved catalog and the error lists the valid
+                        # values; call link_type.list to discover them.
+                        "description": (
+                            "TraceLink type key. Call link_type.list for the "
+                            "values this workspace accepts and their allowed "
+                            "source/target artifact types."
+                        ),
                     },
                 },
                 "required": ["link_type"],
@@ -769,16 +775,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "Parameter 'target_id' (or 'artifact_id') is required.",
             )
 
-        # MANUAL_LINK_TYPES excludes 'diagram-ref' (I1, Codeberg #353 final
-        # review): that link type is reconciler-owned and rejected again
-        # downstream in TraceLinkService.create_trace_link, but checking it
-        # here too gives a clearer, immediate error instead of a round-trip.
-        if link_type not in MANUAL_LINK_TYPES:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                f"Invalid link_type '{link_type}'. Valid types: {sorted(MANUAL_LINK_TYPES)}",
-            )
-
+        # Task 21 (traceability-semantik): the fixed-set pre-check that used
+        # to live here (`link_type not in MANUAL_LINK_TYPES`) was removed —
+        # it silently rejected tenant-invented custom link types before they
+        # ever reached the real, workspace-aware validation below.
+        # create_trace_link's catalog check (unknown/inactive/not-manual/
+        # disallowed-pair) is the sole validation authority now; it already
+        # raises ValidationError, caught right here.
         try:
             # Codeberg #313: suppress create_trace_link's single internal
             # _audit() call for the same TraceLink — write_mcp_audit below
@@ -1252,10 +1255,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
         of the given entity, plus (for an ArchitectureElement anchor) its
         direct decomposition children — that hierarchy is a plain FK tree
         (``ArchitectureElement.parent``/``children``), NOT expressed via
-        TraceLinks (``traceability.types.SE_LINK_SEMANTICS`` has no
-        ArchitectureElement/ArchitectureElement 'parent-child' pair, unlike
-        Requirement decomposition which uses the 'decomposes'/'derives-from'
-        TraceLink types and is therefore already covered by the trace walk).
+        TraceLinks. The synthesized neighbour below is labelled 'decomposes'
+        so its link_type names a type that still exists; this is a distinct
+        source from the real ArchitectureElement/ArchitectureElement
+        'decomposes' TraceLinks that DO exist now — ``icd.traceability_
+        connector.TraceabilityConnector.link_to_architecture`` writes one
+        per ICD (the migrated retired-realizes key,
+        link_types.builtin.LEGACY_LINK_TYPE_MAPPING), source
+        ArchitectureElement -> target ArchitectureElement, representing the
+        ICD contract between them. Those ICD links are real TraceLinks, so
+        the upstream+downstream trace walk above already picks them up
+        alongside true decomposition hierarchy — an accepted consequence of
+        the retired-realizes -> 'decomposes' mapping (Task 17), not
+        something this handler special-cases.
         The LLM adapter (mock by default) then annotates each candidate with
         a rough affected/rationale verdict against ``change_description``;
         that step degrades gracefully (never raises) so an LLM outage still
@@ -1304,7 +1316,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
         from traceability.services import query as te_query
-        from traceability.types import normalize_artifact_type
+        from link_types.catalog import normalize_artifact_type
 
         raw_neighbors: List[Dict[str, Any]] = []
         for direction in ("upstream", "downstream"):
@@ -1331,7 +1343,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 raw_neighbors.append({
                     "artifact_id": child.artifact_id,
                     "entity_type": "ArchitectureElement",
-                    "link_type": "parent-child",
+                    "link_type": "decomposes",
                     "relation": "child",
                 })
 

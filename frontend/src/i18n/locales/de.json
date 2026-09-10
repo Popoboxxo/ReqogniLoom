@@ -411,6 +411,7 @@
     "sameEndpoints": "Quelle und Ziel müssen unterschiedlich sein.",
     "seModeHint": "SE-Modus: Link-Typen werden nach SE-Semantik gefiltert (Quelle → Ziel).",
     "seNoValidType": "SE-Modus: Zwischen den gewählten Artefakttypen ist kein Link-Typ zulässig.",
+    "noLinkTypeForPair": "Kein Link-Typ in diesem Workspace verbindet diese beiden Artefakttypen.",
     "submit": "Erstellen",
     "submitting": "Erstellt...",
     "cycleWarning": "Zyklus/Zyklen im Trace-Graph erkannt",
@@ -2030,6 +2031,26 @@
     "initialState": {
       "title": "Ausgangszustand",
       "body": "Diese Version hat keinen gespeicherten Vorgänger. Angezeigt werden die Werte bei der Erstellung — deshalb ist jedes Feld als hinzugefügt markiert."
+    }
+  },
+  "linkType": {
+    "title": "Link-Typen",
+    "key": "Schlüssel",
+    "impactWeight": "Impact-Gewicht",
+    "suspectRule": "Suspect-Regel",
+    "coverageRelevant": "Coverage-relevant",
+    "active": "Aktiv",
+    "allowedPairs": "Erlaubte Paare",
+    "newType": "Neuer Typ",
+    "newTypeLimitationHint": "Hinweis: Ein neu angelegter eigener Link-Typ kann derzeit nur bearbeitet und angezeigt, aber noch nicht zum Erstellen von Trace-Links verwendet werden.",
+    "inertFieldsHint": "Wird gespeichert, aber noch nicht ausgewertet: Coverage- und Impact-Analyse berücksichtigen diese Werte bislang nicht.",
+    "reset": "Zurücksetzen",
+    "locked": "Gesperrt (systemeigen)",
+    "suspectRuleValues": {
+      "none": "Keine",
+      "target_change_flags_source": "Ziel-Änderung markiert Quelle",
+      "source_change_flags_target": "Quell-Änderung markiert Ziel",
+      "parent_change_flags_children": "Eltern-Änderung markiert Kinder"
     }
   },
   "artifactForm": {

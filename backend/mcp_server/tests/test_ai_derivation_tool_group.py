@@ -23,6 +23,7 @@ from persistence.models import (
 from persistence.tenancy import TenantContext
 
 from mcp_server.tools.ai_derivation import AiDerivationToolGroup
+from link_types.workspace_store import provision_workspace_link_types
 
 _API_KEY = "reqlo_testkey_ai"
 
@@ -45,6 +46,9 @@ def ai_ctx(db):
     set_request_tenant(tenant.id)
     TenantContext.set_tenant(tenant.id)
     workspace = PersistenceWorkspace.objects.create(tenant=tenant, name="mcp-ai-ws")
+    # Link validation is always-on: an unprovisioned workspace has an empty
+    # link-type catalog and rejects every trace link.
+    provision_workspace_link_types(workspace_id=workspace.id, tenant_id=tenant.id)
     ctx = AuthContext(
         user_id=user.id,
         tenant_id=tenant.id,
@@ -402,9 +406,13 @@ def test_derive_risks_from_architecture_write_mode_persists_risks_and_traces(ai_
 
     for entry in written:
         assert entry["status"] == "draft"
-        assert Risk.objects.filter(id=entry["id"]).exists()
+        risk = Risk.objects.get(id=entry["id"])
         link = TraceLink.objects.get(id=entry["trace_link_id"])
-        assert link.link_type == "traces"
+        assert link.link_type == "mitigates"
+        # 'mitigates' runs Risk -> ArchitectureElement; the new Risk is the
+        # link source, the derivation-source architecture element the target.
+        assert link.source_id == risk.artifact_id
+        assert link.target_id == arch.artifact_id
 
 
 def test_decompose_next_level_write_mode_persists_child_requirements(ai_ctx):

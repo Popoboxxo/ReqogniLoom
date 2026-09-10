@@ -14,6 +14,7 @@ import pytest
 from auth_tenancy.context import AuthContext
 from persistence.tenancy import TenantContext
 from workflow.services import create_default_workflow
+from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 
@@ -29,6 +30,11 @@ def _make_tenant_workspace_ctx(name: str):
     TenantContext.set_tenant(tenant.id)
     try:
         workspace = Workspace.objects.create(tenant=tenant, name=f"{name}-ws")
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link.
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=tenant.id
+        )
     finally:
         TenantContext.clear_tenant()
     ctx = AuthContext(
@@ -1081,7 +1087,7 @@ def test_change_impact_includes_architecture_element_child_via_fk_tree(
     assert entry["id"] == str(child_id)
     assert entry["entity_type"] == "ArchitectureElement"
     assert entry["title"] == "Child Element"
-    assert entry["link_type"] == "parent-child"
+    assert entry["link_type"] == "decomposes"
     assert entry["relation"] == "child"
 
 
@@ -1355,10 +1361,14 @@ def test_workspace_list_is_read_only():
 # ---------------------------------------------------------------------------
 
 def test_traceability_create_link_schema_excludes_diagram_ref():
-    """The published link_type enum must not offer 'diagram-ref' as a
-    manually-createable value (discoverability half of I1)."""
+    """Task 21: the published schema no longer offers an enum at all -- the
+    discoverability half of I1 moved to ``link_type.list`` (spec section
+    4.1: a per-tenant enum would make the ``tools/list`` manifest
+    tenant-specific). 'diagram-ref' exclusion is now enforced purely
+    server-side via the catalog's ``manual_creatable`` flag -- see
+    ``test_traceability_create_link_rejects_diagram_ref`` below for the
+    enforcement half, which is unchanged."""
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
-    from traceability.types import LinkType, MANUAL_LINK_TYPES
 
     schema = next(
         s
@@ -1366,9 +1376,8 @@ def test_traceability_create_link_schema_excludes_diagram_ref():
         if s["name"] == "traceability.create_link"
     )
     link_type_prop = schema["inputSchema"]["properties"]["link_type"]
-    assert "enum" in link_type_prop
-    assert set(link_type_prop["enum"]) == set(MANUAL_LINK_TYPES)
-    assert LinkType.DIAGRAM_REF.value not in link_type_prop["enum"]
+    assert link_type_prop["type"] == "string"
+    assert "enum" not in link_type_prop
 
 
 @pytest.mark.django_db

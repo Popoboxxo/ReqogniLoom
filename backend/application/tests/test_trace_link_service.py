@@ -61,25 +61,18 @@ class TestValidLinkTypes:
     """REQ-L2-AS-010: 8 standard link types."""
 
     EXPECTED_TYPES = {
-        "parent-child",
         "derives-from",
-        "satisfies",
-        "verifies",
-        "implements",
-        "refines",
-        "documents",
-        "realizes",
-        "traces",
-        "copy-of",
-        "allocated-to",  # REQ-L1-042
-        "uses-term",
-        "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "decomposes",  # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4 — hardcoded decompose() output
+        "allocated-to",  # REQ-L1-042 — absorbed the retired satisfies/implements
+        "verifies",
+        "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
+        "mitigates",
+        "references",  # absorbed the retired documents/traces/uses-term
         "diagram-ref",  # Codeberg #353 Task 3 — reconciler-owned only, see traceability/types.py
     }
 
     def test_all_ten_types_present(self):
-        """VALID_LINK_TYPES contains all harmonized link types (incl. REQ-L1-042)."""
+        """VALID_LINK_TYPES contains the eight built-in link types (link-type consolidation)."""
         assert self.EXPECTED_TYPES == VALID_LINK_TYPES
 
     def test_types_is_frozenset(self):
@@ -96,45 +89,22 @@ class TestValidLinkTypes:
 class TestCreateTraceLink:
     """REQ-L2-AS-010."""
 
-    def test_invalid_link_type_raises_validation_error(self):
-        """ValidationError for unrecognised link_type."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-
-        with patch("application.trace_link_service.ServiceBase._set_tenant_context"):
-            with pytest.raises(ValidationError, match="Invalid link type"):
-                svc.create_trace_link(
-                    source_id=SOURCE_ID,
-                    target_id=TARGET_ID,
-                    link_type="made-up-type",
-                    ctx=ctx,
-                )
-
-    def test_diagram_ref_link_type_raises_validation_error(self):
-        """I1 (Codeberg #353 final review): 'diagram-ref' IS a member of
-        VALID_LINK_TYPES (the reconciler needs it there) but must never be
-        creatable through manual TraceLink CRUD — a hand-authored one would
-        be silently deleted on the diagram's next node_graph save. This is a
-        distinct rejection reason from an unrecognised link_type, so it is
-        checked before source/target resolution, same as the invalid-type
-        check above."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-
-        with patch("application.trace_link_service.ServiceBase._set_tenant_context"):
-            with pytest.raises(ValidationError, match="system-managed"):
-                svc.create_trace_link(
-                    source_id=SOURCE_ID,
-                    target_id=TARGET_ID,
-                    link_type="diagram-ref",
-                    ctx=ctx,
-                )
+    # Unrecognised link_type and the 'diagram-ref' manual-CRUD rejection are
+    # no longer decided here: both are catalog verdicts now, raised after
+    # endpoint resolution because they depend on the endpoints' workspace.
+    # Their coverage moved to test_trace_link_catalog_validation.py
+    # (test_a_retired_link_type_is_rejected /
+    # test_diagram_ref_is_still_rejected_on_the_manual_path), which uses real
+    # Artifact rows and a provisioned catalog instead of bare UUIDs.
 
     @pytest.mark.parametrize("link_type", sorted(MANUAL_LINK_TYPES))
     def test_all_valid_link_types_accepted(self, link_type):
-        """All manually-createable link types pass validation and delegate to
-        TE. Excludes 'diagram-ref' (I1) — covered separately above by
-        test_diagram_ref_link_type_raises_validation_error."""
+        """Every manually-createable link type reaches the TraceabilityEngine.
+
+        The catalog gate is stubbed out here on purpose: it needs real
+        Artifact rows and these stubs hand it bare UUIDs. Its own coverage is
+        test_trace_link_catalog_validation.py.
+        """
         svc = TraceLinkService()
         ctx = _make_ctx()
         mock_result = MagicMock()
@@ -143,6 +113,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
@@ -166,6 +137,8 @@ class TestCreateTraceLink:
             target_id=TARGET_ID,
             link_type=link_type,
             created_by_id=ctx.user_id,
+            # Q1.6: forwarded on every call, empty when the caller omits it.
+            rationale="",
         )
         assert result is mock_result
 
@@ -179,6 +152,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=SourceNotFoundError("not found"),
@@ -200,6 +174,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
         ):
             from traceability.services import TargetNotFoundError
 
@@ -223,6 +198,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=Exception("cross-workspace link not permitted"),
@@ -246,6 +222,7 @@ class TestCreateTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "traceability.services.create_trace_link", return_value=mock_result
             ),
@@ -254,7 +231,10 @@ class TestCreateTraceLink:
             svc.create_trace_link(
                 source_id=SOURCE_ID,
                 target_id=TARGET_ID,
-                link_type="implements",
+                # Not 'allocated-to': that branch additionally calls
+                # _check_allocation_invariant (REQ-L1-044 I4), which does a
+                # real DB query this pure-mock unit test does not set up.
+                link_type="derives-from",
                 ctx=ctx,
             )
 
@@ -273,6 +253,7 @@ class TestCreateTraceLink:
                 "application.trace_link_service.ServiceBase._set_tenant_context"
             ) as mock_stc,
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
         ):
             with pytest.raises(ValidationError):
                 svc.create_trace_link(
@@ -332,7 +313,9 @@ class TestEmbeddingDimensionGuard:
             link = TraceLinkService().create_trace_link(
                 source_id=source.id,
                 target_id=target.id,
-                link_type="traces",
+                # Requirement -> Requirement, a pair the built-in catalog
+                # allows; the retired traces type no longer exists.
+                link_type="derives-from",
                 ctx=ctx,
             )
             link.refresh_from_db()
@@ -349,7 +332,7 @@ class TestEmbeddingDimensionGuard:
         # (3) The rest of the save completed: the TraceLink itself IS
         #     persisted (refresh_from_db() would raise otherwise), with its
         #     real data intact.
-        assert link.link_type == "traces"
+        assert link.link_type == "derives-from"
 
     def test_matching_dimension_is_written(self, monkeypatch):
         """#794: a provider-shaped vector must actually land in the column."""
@@ -529,8 +512,8 @@ class TestQueryTraceLinks:
 
         item_verifies = MagicMock()
         item_verifies.link_type = "verifies"
-        item_implements = MagicMock()
-        item_implements.link_type = "implements"
+        item_decomposes = MagicMock()
+        item_decomposes.link_type = "decomposes"
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
@@ -539,7 +522,7 @@ class TestQueryTraceLinks:
             ) as mock_resolve,
             patch(
                 "traceability.services.query",
-                return_value=[item_verifies, item_implements],
+                return_value=[item_verifies, item_decomposes],
             ) as mock_query,
         ):
             result = svc.query_trace_links(
@@ -840,6 +823,7 @@ class TestResolveArtifactId:
             patch.object(
                 svc, "_resolve_artifact", side_effect=_resolve_side_effect
             ) as mock_resolve,
+            patch.object(svc, "_check_link_pair"),
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
@@ -861,6 +845,7 @@ class TestResolveArtifactId:
             target_id=target_artifact_id,
             link_type="verifies",
             created_by_id=ctx.user_id,
+            rationale="",
         )
 
 
@@ -879,6 +864,7 @@ class TestAllocationInvariantHook:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
             patch("application.trace_link_service.TraceLinkService._audit"),
             patch.object(svc, "_check_allocation_invariant") as mock_check,
             patch(
@@ -957,90 +943,14 @@ class TestAllocationInvariantHook:
 
 
 class TestPropagateSuspectStatus:
-    """SN-30: suspect status propagates to DEPENDENTS via INCOMING edges.
-
-    Dependents are the SOURCES of links whose TARGET is the changed artifact
-    (TC --verifies--> Req, ChildReq --derives-from--> ParentReq), i.e. the
-    ``upstream`` transitive closure.
+    """SN-30 edge case; the rule dispatch itself lives in
+    ``test_suspect_propagation.py`` (rewritten in Task 14: the engine is now
+    one-hop and dispatches on each link type's ``suspect_rule``, so the old
+    transitive-hull tests no longer described the contract).
     """
 
-    def test_traverses_incoming_edges_and_marks_dependents(self):
-        """query() is called upstream+transitive; dependents flagged suspect."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-        resolved = uuid.uuid4()
-        dep_1 = uuid.uuid4()
-        dep_2 = uuid.uuid4()
-
-        result_1 = MagicMock(entity_id=dep_1, depth=1)
-        result_2 = MagicMock(entity_id=dep_2, depth=2)
-
-        req_qs = MagicMock()
-        arch_qs = MagicMock()
-        tc_qs = MagicMock()
-
-        with (
-            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", return_value=resolved),
-            patch(
-                "traceability.services.query",
-                return_value=[result_1, result_2],
-            ) as mock_query,
-            patch("persistence.models.Requirement") as mock_req,
-            patch("persistence.models.ArchitectureElement") as mock_arch,
-            patch("persistence.models.TestCase") as mock_tc,
-        ):
-            mock_req.objects.filter.return_value = req_qs
-            mock_arch.objects.filter.return_value = arch_qs
-            mock_tc.objects.filter.return_value = tc_qs
-
-            svc.propagate_suspect_status(SOURCE_ID, ctx)
-
-        # INCOMING edges = upstream direction, full transitive closure.
-        mock_query.assert_called_once_with(
-            artifact_id=resolved, direction="upstream", transitive=True
-        )
-        flagged = mock_req.objects.filter.call_args.kwargs["artifact_id__in"]
-        assert dep_1 in flagged
-        assert dep_2 in flagged
-        assert resolved not in flagged  # source itself is never flagged
-        req_qs.update.assert_called_once_with(suspect=True)
-        arch_qs.update.assert_called_once_with(suspect=True)
-        tc_qs.update.assert_called_once_with(suspect=True)
-
-    def test_respects_configured_max_depth(self, settings):
-        """SUSPECT_PROPAGATION_MAX_DEPTH bounds the traversal when set."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-        settings.SUSPECT_PROPAGATION_MAX_DEPTH = 1
-
-        near = uuid.uuid4()
-        far = uuid.uuid4()
-        near_result = MagicMock(entity_id=near, depth=1)
-        far_result = MagicMock(entity_id=far, depth=2)
-
-        req_qs = MagicMock()
-
-        with (
-            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", return_value=uuid.uuid4()),
-            patch(
-                "traceability.services.query",
-                return_value=[near_result, far_result],
-            ),
-            patch("persistence.models.Requirement") as mock_req,
-            patch("persistence.models.ArchitectureElement"),
-            patch("persistence.models.TestCase"),
-        ):
-            mock_req.objects.filter.return_value = req_qs
-            svc.propagate_suspect_status(SOURCE_ID, ctx)
-
-        flagged = mock_req.objects.filter.call_args.kwargs["artifact_id__in"]
-        assert near in flagged
-        assert far not in flagged  # beyond configured depth
-
-    def test_missing_source_returns_without_query(self):
-        """A source that resolves to nothing is a no-op (no traversal)."""
+    def test_missing_source_is_a_no_op(self):
+        """A source that resolves to nothing flags nothing and returns 0."""
         svc = TraceLinkService()
         ctx = _make_ctx()
 
@@ -1049,27 +959,5 @@ class TestPropagateSuspectStatus:
             patch.object(
                 svc, "_resolve_artifact_id", side_effect=NotFoundError("x")
             ),
-            patch("traceability.services.query") as mock_query,
         ):
-            svc.propagate_suspect_status(SOURCE_ID, ctx)
-
-        mock_query.assert_not_called()
-
-    def test_reraises_and_logs_on_error(self):
-        """Traversal errors are logged with a stack trace and re-raised."""
-        svc = TraceLinkService()
-        ctx = _make_ctx()
-
-        with (
-            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
-            patch.object(svc, "_resolve_artifact_id", return_value=uuid.uuid4()),
-            patch(
-                "traceability.services.query",
-                side_effect=RuntimeError("boom"),
-            ),
-            patch("application.trace_link_service.logger") as mock_logger,
-        ):
-            with pytest.raises(RuntimeError, match="boom"):
-                svc.propagate_suspect_status(SOURCE_ID, ctx)
-
-        mock_logger.exception.assert_called_once()
+            assert svc.propagate_suspect_status(SOURCE_ID, ctx) == 0

@@ -5,132 +5,107 @@
  *
  * Single source of truth for human-readable LinkType labels across the
  * traceability UI (TracePanel, TraceabilityView, TraceLinkPanel,
- * ReqTraceLinkPanel, the Admin Tri-Label overview). Mirrors backend
- * `backend/traceability/types.py::LinkType` (14 values, incl. `decomposes`).
+ * ReqTraceLinkPanel, the Admin Tri-Label overview).
  *
- * Tri-Label system (see docs/UMSETZUNGSPLAN_SYSENG_2.0.md §1.3, Decision
- * 2026-07-19): every one of the 14 LinkType values has a DE and an EN label
- * for each of the three perspectives:
- *   - downstream — read "from source to target" (e.g. "satisfies")
- *   - upstream   — read "from target to source" (e.g. "is satisfied by")
- *   - neutral    — direction-agnostic short name for badges/dropdowns
- * This is the ONLY display scheme for TraceLink types — a pure lookup-table
- * access, no `if type in LABELED_SET ... else raw enum` fallback branch.
+ * Task 23: the per-workspace link-type catalog (`useLinkTypes()`,
+ * `context/LinkTypeContext.tsx`) is now the source of truth — a tenant can
+ * customize or add link types, so no static frontend table can cover every
+ * key any more. `FALLBACK_TRI_LABELS` below is only the pre-load fallback
+ * for the eight built-in keys (mirrors `backend/link_types/builtin.py`),
+ * used before the catalog has loaded or by callers that have no catalog
+ * label at hand. A key that is neither in the fallback table nor backed by
+ * a catalog label renders as its own raw string — see `getTriLabel`.
  */
-
-import type { LinkType } from "../types";
 
 export type SupportedLang = "de" | "en";
 export type LinkDirection = "downstream" | "upstream" | "neutral";
 
+/** One perspective triple (downstream/upstream/neutral) for one language. */
+export interface TriLabel {
+  downstream: string;
+  upstream: string;
+  neutral: string;
+}
+
 export interface TriLabelEntry {
-  de: { downstream: string; upstream: string; neutral: string };
-  en: { downstream: string; upstream: string; neutral: string };
+  de: TriLabel;
+  en: TriLabel;
 }
 
 /**
- * Full Tri-Label table — all 14 backend LinkType values, DE + EN,
- * downstream/upstream/neutral. Order mirrors the backend enum
- * (`backend/traceability/types.py::LinkType`), with `decomposes` appended
- * last (additive, see UMSETZUNGSPLAN §1.4).
+ * Pre-load fallback for the eight built-in link types — label text mirrors
+ * `backend/link_types/builtin.py::BUILTIN_LINK_TYPES` exactly, so there is
+ * no visible flash of different text once the real catalog label arrives.
+ * NOT exhaustive: a tenant-customized or tenant-invented type has no entry
+ * here and falls back further to its raw key (see `getTriLabel`).
  */
-export const LINK_TYPE_TRI_LABELS: Record<LinkType, TriLabelEntry> = {
-  "parent-child": {
-    de: {
-      downstream: "ist übergeordnet zu",
-      upstream: "ist untergeordnet zu",
-      neutral: "Eltern-Kind (legacy)",
-    },
-    en: {
-      downstream: "is parent of",
-      upstream: "is child of",
-      neutral: "Parent-Child (legacy)",
-    },
-  },
+export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
   "derives-from": {
     de: { downstream: "leitet sich ab von", upstream: "ist Grundlage für", neutral: "Ableitung" },
     en: { downstream: "derives from", upstream: "is basis for", neutral: "Derivation" },
   },
-  satisfies: {
-    de: { downstream: "erfüllt", upstream: "wird erfüllt von", neutral: "Erfüllung" },
-    en: { downstream: "satisfies", upstream: "is satisfied by", neutral: "Satisfaction" },
+  decomposes: {
+    de: { downstream: "zerlegt sich in", upstream: "ist Teil von", neutral: "Zerlegung" },
+    en: { downstream: "decomposes into", upstream: "is part of", neutral: "Decomposition" },
+  },
+  "allocated-to": {
+    de: { downstream: "ist zugewiesen an", upstream: "erfüllt", neutral: "Zuweisung" },
+    en: { downstream: "is allocated to", upstream: "fulfils", neutral: "Allocation" },
   },
   verifies: {
     de: { downstream: "verifiziert", upstream: "wird verifiziert von", neutral: "Verifikation" },
     en: { downstream: "verifies", upstream: "is verified by", neutral: "Verification" },
   },
-  implements: {
-    de: { downstream: "implementiert", upstream: "wird implementiert von", neutral: "Implementierung" },
-    en: { downstream: "implements", upstream: "is implemented by", neutral: "Implementation" },
-  },
-  refines: {
-    de: { downstream: "verfeinert", upstream: "wird verfeinert von", neutral: "Verfeinerung" },
-    en: { downstream: "refines", upstream: "is refined by", neutral: "Refinement" },
-  },
-  documents: {
-    de: { downstream: "dokumentiert", upstream: "wird dokumentiert von", neutral: "Dokumentation" },
-    en: { downstream: "documents", upstream: "is documented by", neutral: "Documentation" },
-  },
-  realizes: {
-    de: { downstream: "realisiert", upstream: "wird realisiert von", neutral: "Realisierung" },
-    en: { downstream: "realizes", upstream: "is realized by", neutral: "Realization" },
-  },
-  traces: {
-    de: { downstream: "verweist auf", upstream: "wird referenziert von", neutral: "Verweis" },
-    en: { downstream: "traces to", upstream: "is traced by", neutral: "Trace" },
-  },
-  "copy-of": {
-    de: { downstream: "ist Kopie von", upstream: "hat Kopie", neutral: "Kopie" },
-    en: { downstream: "is copy of", upstream: "has copy", neutral: "Copy" },
-  },
-  "allocated-to": {
-    de: { downstream: "allokiert zu", upstream: "erhält Allokation von", neutral: "Allokation" },
-    en: { downstream: "allocated to", upstream: "receives allocation from", neutral: "Allocation" },
-  },
-  "uses-term": {
-    de: { downstream: "verwendet Begriff", upstream: "wird verwendet in", neutral: "Begriffsverwendung" },
-    en: { downstream: "uses term", upstream: "is used in", neutral: "Term usage" },
-  },
   decides: {
     de: { downstream: "entscheidet über", upstream: "wird entschieden durch", neutral: "Entscheidung" },
-    en: { downstream: "decides on", upstream: "is decided by", neutral: "Decision" },
+    en: { downstream: "decides", upstream: "is decided by", neutral: "Decision" },
   },
-  decomposes: {
-    de: { downstream: "zerlegt sich in", upstream: "ist Zerlegung von", neutral: "Dekomposition" },
-    en: { downstream: "decomposes into", upstream: "is decomposition of", neutral: "Decomposition" },
+  mitigates: {
+    de: { downstream: "mindert", upstream: "wird gemindert durch", neutral: "Risikominderung" },
+    en: { downstream: "mitigates", upstream: "is mitigated by", neutral: "Mitigation" },
+  },
+  references: {
+    de: { downstream: "verweist auf", upstream: "wird referenziert von", neutral: "Verweis" },
+    en: { downstream: "references", upstream: "is referenced by", neutral: "Reference" },
+  },
+  "diagram-ref": {
+    de: { downstream: "stellt dar", upstream: "wird dargestellt in", neutral: "Diagrammbezug" },
+    en: { downstream: "depicts", upstream: "is depicted in", neutral: "Diagram reference" },
   },
 };
 
-/** Canonical list of all 14 link types (backend enum order, incl. `decomposes`). */
-export const ALL_LINK_TYPES: LinkType[] = Object.keys(
-  LINK_TYPE_TRI_LABELS
-) as LinkType[];
-
 /**
- * Pure lookup-table access to a single directional/neutral label.
- * All 14 LinkType values are covered — no fallback path.
+ * Resolve a link-type label.
+ *
+ * The catalog label wins. The static table above is only the pre-load
+ * fallback for the eight built-in keys — a tenant-invented type has no
+ * static entry and renders as its raw key until the catalog arrives.
  */
 export function getTriLabel(
-  linkType: LinkType,
+  key: string,
   lang: SupportedLang,
-  direction: LinkDirection
+  direction: LinkDirection,
+  catalogLabel?: TriLabel,
 ): string {
-  return LINK_TYPE_TRI_LABELS[linkType][lang][direction];
+  if (catalogLabel) return catalogLabel[direction];
+  return FALLBACK_TRI_LABELS[key]?.[lang]?.[direction] ?? key;
 }
 
 /**
  * Backward-compatible flat label map (EN neutral form) — consumed by
- * badge/dropdown UI that is not yet direction-aware (TraceLinkPanel,
- * TracePanel, TraceabilityView, CreateTraceLinkDialog, WorkspaceSettings).
- * Derived from the Tri-Label table so both stay in sync automatically.
+ * badge/dropdown UI that is not yet catalog-aware (ImpactView,
+ * ReqTraceLinkPanel, TracePanel, TraceLinkPanel, trace-link-display,
+ * TraceabilityView, plus the create-link dialog and workspace settings
+ * before Task 23). Derived from `FALLBACK_TRI_LABELS`, so it only covers the
+ * eight built-in keys — a tenant-invented type falls back to its raw key,
+ * same as `getTriLabel`.
  */
 export const LINK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  ALL_LINK_TYPES.map((lt) => [lt, LINK_TYPE_TRI_LABELS[lt].en.neutral])
+  Object.keys(FALLBACK_TRI_LABELS).map((lt) => [lt, FALLBACK_TRI_LABELS[lt].en.neutral])
 );
 
 /**
- * Returns the human-readable (EN neutral) label for a link type.
- * Pure lookup-table access — all 14 backend LinkType values are covered,
- * so no fallback to the raw enum value is needed anymore.
+ * Returns the human-readable (EN neutral) label for a link type, falling
+ * back to the raw key for anything outside the eight built-in types.
  */
-export const getLinkTypeLabel = (lt: string): string => LINK_TYPE_LABELS[lt];
+export const getLinkTypeLabel = (lt: string): string => LINK_TYPE_LABELS[lt] ?? lt;

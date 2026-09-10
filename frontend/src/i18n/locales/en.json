@@ -411,6 +411,7 @@
     "sameEndpoints": "Source and target must differ.",
     "seModeHint": "SE mode: link types are filtered by SE semantics (source → target).",
     "seNoValidType": "SE mode: no link type is valid between the selected artifact types.",
+    "noLinkTypeForPair": "No link type in this workspace connects these two artifact types.",
     "submit": "Create",
     "submitting": "Creating...",
     "cycleWarning": "Cycle(s) detected in the trace graph",
@@ -2030,6 +2031,26 @@
     "initialState": {
       "title": "Initial state",
       "body": "This version has no stored predecessor. What you see are the values it was created with — which is why every field is marked as added."
+    }
+  },
+  "linkType": {
+    "title": "Link Types",
+    "key": "Key",
+    "impactWeight": "Impact Weight",
+    "suspectRule": "Suspect Rule",
+    "coverageRelevant": "Coverage Relevant",
+    "active": "Active",
+    "allowedPairs": "Allowed Pairs",
+    "newType": "New Type",
+    "newTypeLimitationHint": "Note: a newly created custom link type can currently only be edited and viewed — it cannot be used to create trace links yet.",
+    "inertFieldsHint": "Stored but not consumed yet: the coverage and impact-analysis engines do not read these values so far.",
+    "reset": "Reset",
+    "locked": "Locked (system-owned)",
+    "suspectRuleValues": {
+      "none": "None",
+      "target_change_flags_source": "Target change flags source",
+      "source_change_flags_target": "Source change flags target",
+      "parent_change_flags_children": "Parent change flags children"
     }
   },
   "artifactForm": {

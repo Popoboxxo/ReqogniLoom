@@ -131,7 +131,7 @@ def make_trace_link(
     source: Artifact,
     target: Artifact,
     tenant: Tenant,
-    link_type: str = "satisfies",
+    link_type: str = "allocated-to",
 ) -> TraceLink:
     """Create a TraceLink directly (bypasses cycle check — for test setup only)."""
     return TraceLink.objects.create(

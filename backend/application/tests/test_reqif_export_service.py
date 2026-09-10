@@ -153,7 +153,7 @@ def reqif_workspace():
         )
 
         satisfies_link = TraceLink.objects.create(
-            tenant=tenant, source=req1_art, target=need1_art, link_type="satisfies"
+            tenant=tenant, source=req1_art, target=need1_art, link_type="derives-from"
         )
         verifies_link = TraceLink.objects.create(
             tenant=tenant, source=req2_art, target=req1_art, link_type="verifies"
@@ -201,14 +201,14 @@ class TestReqifExportMapping:
 
         assert len(content.spec_relations) == 2
         relation_type_refs = {r.relation_type_ref for r in content.spec_relations}
-        assert relation_type_refs == {"SRT-satisfies", "SRT-verifies"}
+        assert relation_type_refs == {"SRT-derives-from", "SRT-verifies"}
 
         req1 = reqif_workspace["req1"]
         need1 = reqif_workspace["need1"]
         req2 = reqif_workspace["req2"]
         by_type = {r.relation_type_ref: r for r in content.spec_relations}
-        assert by_type["SRT-satisfies"].source == _so_id(req1.artifact_id)
-        assert by_type["SRT-satisfies"].target == _so_id(need1.artifact_id)
+        assert by_type["SRT-derives-from"].source == _so_id(req1.artifact_id)
+        assert by_type["SRT-derives-from"].target == _so_id(need1.artifact_id)
         assert by_type["SRT-verifies"].source == _so_id(req2.artifact_id)
         assert by_type["SRT-verifies"].target == _so_id(req1.artifact_id)
 

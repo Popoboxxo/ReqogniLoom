@@ -39,6 +39,7 @@ from persistence.models import (
 from persistence.tenancy import TenantContext
 from presets.services import switch_preset
 from traceability.types import LinkType
+from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -79,7 +80,7 @@ def user(tenant: Tenant) -> User:
 @pytest.fixture
 def workspace(tenant: Tenant) -> Workspace:
     with _active(tenant):
-        return Workspace.objects.create(tenant=tenant, name="N1-WS")
+        return make_workspace(tenant, name="N1-WS")
 
 
 @pytest.fixture
@@ -263,9 +264,7 @@ class TestGenerateDraft:
         from unittest.mock import MagicMock
 
         with _active(tenant):
-            de_workspace = Workspace.objects.create(
-                tenant=tenant, name="N1-WS-DE", language="de"
-            )
+            de_workspace = make_workspace(tenant, name="N1-WS-DE", language="de")
             switch_preset(str(de_workspace.id), "extended")
             root, _ = _seed_anchored_element(tenant, de_workspace)
 

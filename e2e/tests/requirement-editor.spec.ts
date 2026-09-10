@@ -116,15 +116,17 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await expect(page.locator('[data-testid="req-tracelink-type-select"]')).toBeVisible({ timeout: 4000 });
     await expect(page.locator('[data-testid="req-tracelink-submit-btn"]')).toBeVisible({ timeout: 4000 });
 
-    // All 6 link types must be available. Options render getLinkTypeLabel()
-    // as display text (e.g. "Parent / Child") but keep the raw LinkType as
-    // the underlying `value` — assert against values, not visible text.
+    // All 8 core link types must be available (link-types catalog migration,
+    // 2026-09). Options render getLinkTypeLabel() as display text but keep
+    // the raw catalog key as the underlying `value` — assert against values,
+    // not visible text. The pre-migration types this used to assert
+    // ('parent-child', 'satisfies', 'implements', 'refines') no longer exist.
     const typeValues = await page.locator('[data-testid="req-tracelink-type-select"]').locator('option').evaluateAll(
       (opts) => opts.map((o) => (o as HTMLOptionElement).value)
     );
     const realTypes = typeValues.filter((o) => o.trim());
-    expect(realTypes).toEqual(expect.arrayContaining(['parent-child', 'derives-from', 'satisfies', 'verifies', 'implements', 'refines']));
-    expect(realTypes.length).toBeGreaterThanOrEqual(6);
+    expect(realTypes).toEqual(expect.arrayContaining(['derives-from', 'decomposes', 'allocated-to', 'verifies', 'decides', 'mitigates', 'references', 'diagram-ref']));
+    expect(realTypes.length).toBeGreaterThanOrEqual(8);
   });
 
   // -------------------------------------------------------------------------

@@ -46,21 +46,21 @@ class TestFacadeCRUD:
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
 
-            link = svc.create_trace_link(src.id, tgt.id, "satisfies")
+            link = svc.create_trace_link(src.id, tgt.id, "allocated-to")
             retrieved = svc.get_trace_link(link.id)
 
         assert retrieved.id == link.id
-        assert retrieved.link_type == "satisfies"
+        assert retrieved.link_type == "allocated-to"
 
     def test_update_via_facade(self, tenant_a, workspace_a):
         """update_trace_link changes link_type."""
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = svc.create_trace_link(src.id, tgt.id, "satisfies")
-            updated = svc.update_trace_link(link.id, link_type="implements")
+            link = svc.create_trace_link(src.id, tgt.id, "allocated-to")
+            updated = svc.update_trace_link(link.id, link_type="decomposes")
 
-        assert updated.link_type == "implements"
+        assert updated.link_type == "decomposes"
 
     def test_delete_via_facade(self, tenant_a, workspace_a):
         """delete_trace_link removes the link."""
@@ -68,7 +68,7 @@ class TestFacadeCRUD:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = svc.create_trace_link(src.id, tgt.id, "satisfies")
+            link = svc.create_trace_link(src.id, tgt.id, "allocated-to")
             svc.delete_trace_link(link.id)
 
             with pytest.raises(TraceLink.DoesNotExist):
@@ -79,7 +79,7 @@ class TestFacadeCRUD:
         with active_tenant(tenant_a):
             arts = [make_artifact(tenant_a, workspace_a, "requirement") for _ in range(4)]
             items = [
-                {"source_id": arts[i].id, "target_id": arts[i + 1].id, "link_type": "satisfies"}
+                {"source_id": arts[i].id, "target_id": arts[i + 1].id, "link_type": "allocated-to"}
                 for i in range(3)
             ]
             created = svc.batch_create_trace_links(items)
@@ -108,7 +108,7 @@ class TestFacadeQuery:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            make_trace_link(src, tgt, tenant_a, "satisfies")
+            make_trace_link(src, tgt, tenant_a, "allocated-to")
 
             results = svc.query(src.id, "downstream")
 
@@ -119,7 +119,7 @@ class TestFacadeQuery:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            make_trace_link(src, tgt, tenant_a, "satisfies")
+            make_trace_link(src, tgt, tenant_a, "allocated-to")
 
             results = svc.query(tgt.id, "upstream")
 

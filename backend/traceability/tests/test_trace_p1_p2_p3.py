@@ -268,20 +268,22 @@ class TestTraceP2:
 
 class TestTraceP3:
     def test_element_satisfying_requirement_is_clean(self, tenant_a, workspace_a):
+        """satisfies/implements were folded into allocated-to (Requirement -> element)."""
         with active_tenant(tenant_a):
             req_art, _ = _requirement(tenant_a, workspace_a)
             ae_art, _ = _arch_element(tenant_a, workspace_a)
-            make_trace_link(ae_art, req_art, tenant_a, "satisfies")
+            make_trace_link(req_art, ae_art, tenant_a, "allocated-to")
 
             result = _run("extended", workspace_a, tenant_a)
 
         assert _findings(result, TRACE_P3) == []
 
     def test_element_implementing_requirement_is_clean(self, tenant_a, workspace_a):
+        """Same fact as above, kept as a separate regression for the second retired key."""
         with active_tenant(tenant_a):
             req_art, _ = _requirement(tenant_a, workspace_a)
             ae_art, _ = _arch_element(tenant_a, workspace_a)
-            make_trace_link(ae_art, req_art, tenant_a, "implements")
+            make_trace_link(req_art, ae_art, tenant_a, "allocated-to")
 
             result = _run("extended", workspace_a, tenant_a)
 

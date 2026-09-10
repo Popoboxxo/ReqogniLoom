@@ -13,7 +13,9 @@ The chain used throughout: ``need <- r1 <- r2 <- r3`` written with
 correct classification is r1 = root, r3 = leaf, r2 = neither.
 
 Also covers TRACE-P3: an incoming ``allocated-to`` justifies an
-ArchitectureElement just like an outgoing ``satisfies``/``implements``.
+ArchitectureElement — the only direction left after the link-type
+consolidation folded the retired outgoing ``satisfies``/``implements`` keys
+into ``allocated-to``.
 """
 from __future__ import annotations
 
@@ -219,8 +221,8 @@ class TestArchitectureElementJustification:
         assert _ids(result, TRACE_P3) == set()
 
     def test_unlinked_element_still_blocks(self, tenant_a, workspace_a):
-        """An element with neither satisfies/implements nor an allocation is
-        still untraced architecture and must block."""
+        """An element with no incoming allocation is still untraced
+        architecture and must block."""
         with active_tenant(tenant_a):
             _requirement(tenant_a, workspace_a)
             ae = _arch_element(tenant_a, workspace_a)
@@ -228,12 +230,8 @@ class TestArchitectureElementJustification:
 
         assert _ids(result, TRACE_P3) == {str(ae.id)}
 
-    def test_satisfies_link_still_satisfies_the_rule(self, tenant_a, workspace_a):
-        """The original, outgoing direction keeps working unchanged."""
-        with active_tenant(tenant_a):
-            req = _requirement(tenant_a, workspace_a)
-            ae = _arch_element(tenant_a, workspace_a)
-            make_trace_link(ae, req, tenant_a, link_type=LinkType.SATISFIES.value)
-            result = _run("extended", workspace_a, tenant_a)
-
-        assert _ids(result, TRACE_P3) == set()
+    # The former "outgoing satisfies/implements still works" case is gone:
+    # both keys were retired by the link-type consolidation and folded into
+    # allocated-to, which only ever runs Requirement -> ArchitectureElement
+    # (see test_incoming_allocation_satisfies_the_rule above). There is no
+    # longer an outgoing direction to test.

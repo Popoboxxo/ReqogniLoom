@@ -115,9 +115,27 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
-// Task 24: ArchitectureEditors now renders ArchitectureArtifactForm, which
-// resolves its field set from the attribute-definition API — see the
-// identical mock/rationale in ArchitectureEditors.test.tsx.
+// Task 23 (traceability-semantik): CreateTraceLinkDialog (mounted inside
+// TraceLinkPanel, which this tree pulls in transitively) now reads the
+// link-type catalog via useLinkTypes() — needs a provider-free mock here,
+// same as every other non-dialog-focused test that renders it incidentally.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
+// Task 24 (attribute-definition): ArchitectureEditors now renders
+// ArchitectureArtifactForm, which resolves its field set from the
+// attribute-definition API — see the identical mock/rationale in
+// ArchitectureEditors.test.tsx.
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: {
     getWorkspace: vi.fn().mockResolvedValue({

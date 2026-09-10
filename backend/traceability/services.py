@@ -200,10 +200,15 @@ def create_trace_link(
     target_id: uuid.UUID,
     link_type: str,
     created_by_id: Optional[uuid.UUID] = None,
+    rationale: str = "",
 ):
     """Create a single TraceLink.
 
     IF-TE-EXT-IN-003. REQ-L2-TE-001 / REQ-L2-TE-002 / REQ-L2-TE-010 / REQ-L2-TE-011.
+
+    Args:
+        rationale: Q1.6 — optional free text stating why these two artifacts
+            are linked. Defaults to "" so existing callers are unaffected.
 
     Raises:
         InvalidLinkTypeError: link_type not in 8 valid types.
@@ -216,6 +221,7 @@ def create_trace_link(
         target_id=target_id,
         link_type=link_type,
         created_by_id=created_by_id,
+        rationale=rationale,
     )
 
 

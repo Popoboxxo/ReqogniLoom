@@ -8,13 +8,19 @@
  *                          link-type filtering)
  *
  * Renders inbound + outbound trace links for the inspected artifact
- * with 8 link-type filter chips.
+ * with one link-type filter chip per catalog type.
  *
  * Data source (per UI standards §5.3 / `frontend/src/api/tracelinks.ts`):
  *   GET /api/v1/tracelinks/?workspace_id=<ws>&artifact_id=<id>
  *
- * The 8 link types surfaced as filter chips are the public frontend
- * subset of the 12-value backend enum (UI standards §5.1).
+ * The chip list comes from the per-workspace link-type catalog
+ * (`useLinkTypes()`), not from a static frontend table. This panel used to
+ * carry its own hardcoded 8-value `ALL_LINK_TYPES` list and *drop* every
+ * link whose type was not in it — a second source of truth that survived
+ * the catalog migration and silently hid five of the eight real types.
+ * Nothing is dropped any more: a link whose type the catalog does not know
+ * still renders, under a chip labelled with its raw key (the same
+ * fallback-to-raw-key convention `getTriLabel` uses).
  *
  * Data fetching (REQ-141): uses tracelinksApi.listForArtifact() to
  *   fetch links from the backend. Handles loading/error/empty states
@@ -25,17 +31,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { tracelinksApi } from "../../../api/tracelinks";
+import { useLinkTypes } from "../../../context/LinkTypeContext";
 import { useWorkspace } from "../../../context/WorkspaceContext";
 import type { TraceLink } from "../../../types";
 import { getLinkTypeLabel } from "../../../constants/traceLinkLabels";
 import { getArtifactRoute } from "../../../utils/artifactRoutes";
-import {
-  ALL_LINK_TYPES,
-  type ArtifactKind,
-  type LinkType,
-  type TraceLinkRow,
-} from "./types";
+import { type ArtifactKind, type LinkType, type TraceLinkRow } from "./types";
 import styles from "./TracePanel.module.css";
+
+/** How many chips the skeleton draws before the catalog has loaded. */
+const SKELETON_CHIP_COUNT = 8;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -47,12 +52,18 @@ export interface TracePanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// Link type mapping — backend enum -> frontend subset
+// Link type mapping
 // ---------------------------------------------------------------------------
 
-function normalizeLinkType(raw: string): LinkType | null {
-  const normalized = raw.replace(/_/g, "-") as LinkType;
-  return ALL_LINK_TYPES.includes(normalized) ? normalized : null;
+/**
+ * Normalize a backend link-type key for display/filtering.
+ *
+ * Underscores only: this is a spelling fix (`derives_from` -> `derives-from`),
+ * never a membership test. Filtering an unknown key out here is exactly the
+ * bug this panel used to have.
+ */
+function normalizeLinkType(raw: string): LinkType {
+  return raw.replace(/_/g, "-");
 }
 
 /**
@@ -84,7 +95,6 @@ function mapTraceLink(
   if (!isSource && !isTarget) return null;
 
   const linkType = normalizeLinkType(link.link_type);
-  if (!linkType) return null;
 
   const otherId = isSource ? link.target_id : link.source_id;
 
@@ -120,11 +130,17 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  const { linkTypes, labelFor } = useLinkTypes();
   const [state, setState] = useState<LoadState>("idle");
   const [links, setLinks] = useState<TraceLinkRow[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [activeFilters, setActiveFilters] = useState<Set<LinkType>>(
-    () => new Set<LinkType>(ALL_LINK_TYPES)
+  // Tracked as the *de*selected set, not the selected one: the chip list is
+  // async (catalog) plus data-driven (types actually present on this
+  // artifact), so a "selected" set would have to be re-seeded every time it
+  // grows — and any chip missed by that re-seed would hide links. Everything
+  // is visible until the user switches something off.
+  const [deselected, setDeselected] = useState<Set<LinkType>>(
+    () => new Set<LinkType>()
   );
   const chipRowRef = useRef<HTMLDivElement | null>(null);
 
@@ -169,9 +185,36 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   // Filtering
   // -------------------------------------------------------------------------
 
+  /**
+   * Chips: the workspace catalog first (stable order, includes types this
+   * artifact has no link of yet), then any type actually present on the
+   * artifact that the catalog does not list — a retired, tenant-invented or
+   * not-yet-loaded key. The second half is what keeps a link visible instead
+   * of silently dropping it.
+   */
+  const chipTypes = useMemo<LinkType[]>(() => {
+    const fromCatalog = linkTypes.map((row) => row.key);
+    const known = new Set(fromCatalog);
+    const extras = [...new Set(links.map((l) => l.linkType))].filter(
+      (key) => !known.has(key)
+    );
+    return [...fromCatalog, ...extras];
+  }, [linkTypes, links]);
+
+  const chipLabel = useCallback(
+    (key: LinkType): string => {
+      const fromCatalog = labelFor(key, "en", "neutral");
+      // labelFor already falls back to the raw key; prefer the static
+      // built-in table over a bare key so a pre-catalog render still reads
+      // like a label.
+      return fromCatalog === key ? getLinkTypeLabel(key) : fromCatalog;
+    },
+    [labelFor]
+  );
+
   const filteredLinks = useMemo<TraceLinkRow[]>(
-    () => links.filter((l) => activeFilters.has(l.linkType)),
-    [links, activeFilters]
+    () => links.filter((l) => !deselected.has(l.linkType)),
+    [links, deselected]
   );
 
   const inbound = useMemo<TraceLinkRow[]>(
@@ -185,7 +228,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   );
 
   function toggleFilter(linkType: LinkType): void {
-    setActiveFilters((prev) => {
+    setDeselected((prev) => {
       const next = new Set(prev);
       if (next.has(linkType)) {
         next.delete(linkType);
@@ -197,11 +240,11 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   }
 
   function clearFilters(): void {
-    setActiveFilters(new Set());
+    setDeselected(new Set(chipTypes));
   }
 
   function selectAllFilters(): void {
-    setActiveFilters(new Set(ALL_LINK_TYPES));
+    setDeselected(new Set());
   }
 
   // -------------------------------------------------------------------------
@@ -244,7 +287,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   }
 
   function renderFilterRow(): JSX.Element {
-    const allSelected = activeFilters.size === ALL_LINK_TYPES.length;
+    const allSelected = chipTypes.every((lt) => !deselected.has(lt));
     return (
       <div
         className={styles.filterRow}
@@ -252,8 +295,8 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
         role="group"
         aria-label={t("sidebar.trace.filter.label", "Filter by type")}
       >
-        {ALL_LINK_TYPES.map((lt, idx) => {
-          const active = activeFilters.has(lt);
+        {chipTypes.map((lt, idx) => {
+          const active = !deselected.has(lt);
           return (
             <button
               key={lt}
@@ -267,7 +310,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
               onClick={(): void => toggleFilter(lt)}
               onKeyDown={(e): void => onChipKeyDown(e, idx)}
             >
-              {getLinkTypeLabel(lt)}
+              {chipLabel(lt)}
             </button>
           );
         })}
@@ -297,7 +340,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
           // annotation here no longer type-checks against that.
           onClick={() => { void navigate(link.otherArtifact.route); }}
         >
-          <span className={styles.linkType}>{getLinkTypeLabel(link.linkType)}</span>
+          <span className={styles.linkType}>{chipLabel(link.linkType)}</span>
           <span className={styles.artifactTitle}>{link.otherArtifact.title}</span>
         </button>
       </li>
@@ -325,8 +368,8 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
     return (
       <div aria-busy="true" aria-label={t("loading", "Loading...")}>
         <div className={styles.skeletonChips} aria-hidden="true">
-          {ALL_LINK_TYPES.map((lt) => (
-            <span key={lt} className={styles.skeletonChip} />
+          {Array.from({ length: SKELETON_CHIP_COUNT }, (_, i) => (
+            <span key={i} className={styles.skeletonChip} />
           ))}
         </div>
         <div className={styles.skeletonRows} aria-hidden="true">

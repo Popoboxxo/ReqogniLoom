@@ -154,6 +154,26 @@ vi.mock("../api/artifactRefs", () => ({
   resolveArtifactRefs: vi.fn().mockResolvedValue({}),
 }));
 
+// Merge fix (traceability-semantik x attribute-definition, 2026-09-10):
+// CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this tree
+// pulls in transitively) now reads the link-type catalog via useLinkTypes()
+// — needs a provider-free mock here, same pattern as every other
+// non-dialog-focused test that renders it incidentally (see
+// NeedsEditors.test.tsx). This file was created after that pattern was
+// established elsewhere, so it never picked it up.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 // Must import AFTER vi.mock
 import NeedsEditors from "../components/NeedsEditors/NeedsEditors";
 import { stakeholderNeedApi } from "../api/stakeholder-need";

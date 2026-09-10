@@ -591,7 +591,7 @@ def _build_audit_params(
         return {
             "arch_id": str(a1.artifact_id),
             "target_id": str(a2.artifact_id),
-            "link_type": "satisfies",
+            "link_type": "decomposes",
             "workspace_id": str(workspace.id),
         }
     if tool_name == "test.create":

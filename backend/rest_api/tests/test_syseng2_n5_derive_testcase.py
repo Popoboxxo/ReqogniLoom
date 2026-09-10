@@ -22,6 +22,7 @@ from rest_framework.test import APIRequestFactory
 
 from application.requirement_service import RequirementService
 from auth_tenancy.context import AuthContext
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.models import Tenant, TraceLink, User
 from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
@@ -62,7 +63,12 @@ def auth_context(user):
 def workspace(tenant):
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(tenant=tenant, name="n5-rest-ws")
+        ws = PersistenceWorkspace.objects.create(tenant=tenant, name="n5-rest-ws")
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link, including the
+        # `verifies` link TestCaseViewSet writes for linked_requirement_id.
+        provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+        return ws
     finally:
         TenantContext.clear_tenant()
 

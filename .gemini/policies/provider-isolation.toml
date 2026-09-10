@@ -18,7 +18,7 @@ toolName = ["read_file", "write_file", "replace", "list_directory"]
 argsPattern = '"(?:file_path|path)":"[^"]*CLAUDE\.md'
 decision = "deny"
 priority = 901
-denyMessage = "Provider isolation: CLAUDE.md is managed by another provider only."
+denyMessage = "Provider isolation: CLAUDE.md is managed by Claude Code only."
 
 [[rule]]
 toolName = ["read_file", "write_file", "replace", "list_directory"]

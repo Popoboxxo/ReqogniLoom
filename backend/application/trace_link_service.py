@@ -21,8 +21,10 @@ itself is unchanged and still used by ArtifactService.delete_artifact()
 
 Interfaces consumed:
   IF-AS-EXT-OUT-003  TraceabilityEngine:
-      create_trace_link, delete_trace_link, batch_delete_trace_links,
-      query, VALID_LINK_TYPES
+      create_trace_link, delete_trace_link, batch_delete_trace_links, query
+  link_types.catalog.validate_link_pair:
+      always-on, per-workspace endpoint validation for every link type
+      (replaces traceability.types.check_se_link_semantics and its se_mode gate)
 
 Architecture:
   docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/
@@ -40,13 +42,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
-from django.conf import settings
+from django.db.models import Q
 
 from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from persistence.transactions import atomic_transaction
-from traceability.types import (  # REQ-L1-030: single source of truth
+# VALID_LINK_TYPES/MANUAL_LINK_TYPES are re-exported for backwards
+# compatibility only (application.services re-exports them again, and the MCP
+# tool schemas still publish MANUAL_LINK_TYPES as their enum). Neither is a
+# validation authority any more: link_types.catalog.validate_link_pair is,
+# per workspace. See _check_link_pair.
+from traceability.types import (  # noqa: F401 — re-exported via __all__
     VALID_LINK_TYPES,
     MANUAL_LINK_TYPES,
     LinkType,
@@ -255,82 +262,77 @@ class TraceLinkService(ServiceBase):
             self._set_tenant_context(ctx)
         return self._resolve_artifact_id(entity_id)
 
-    def _check_se_semantics(
+    def _check_link_pair(
         self,
         source_artifact_id: UUID,
         target_artifact_id: UUID,
         link_type: str,
+        *,
         source_artifact: Optional["Artifact"] = None,
         target_artifact: Optional["Artifact"] = None,
+        manual: bool = True,
     ) -> None:
-        """Enforce SE endpoint semantics in se_mode workspaces (finding F1).
+        """Validate a link against the workspace's link-type catalog.
 
-        Resolution failures (missing artifact/preset config, unit-test
-        contexts) skip enforcement — same permissive fallback pattern as
-        ArchitectureElementInvariantValidator.for_workspace().
+        Replaces the former ``_check_se_semantics``. Three escape hatches are
+        gone on purpose (spec section 3.2, "gilt immer"):
+
+        * the ``se_mode`` probe — a dev_mode or unconfigured workspace used to
+          skip enforcement entirely;
+        * the ``SE_CORE_ARTIFACT_TYPES`` allow-list — a Risk endpoint used to
+          pass unchecked, which is audit finding U2 exactly;
+        * the blanket ``except Exception: return`` — a resolution failure used
+          to wave the link through instead of failing.
+
+        The ids stay authoritative: a passed-in row is an optimisation, never
+        a substitute. A mismatch drops the row and re-reads the real one —
+        this is a validation gate, and checking the wrong endpoints silently
+        is worse than one extra SELECT.
 
         Args:
             source_artifact_id: Resolved source Artifact id.
             target_artifact_id: Resolved target Artifact id.
-            link_type: The link type under validation.
-            source_artifact: Already-loaded source Artifact, if the caller has
-                one (:meth:`_resolve_artifact` returns it). Passing it skips a
-                redundant SELECT of a row the caller just read. Ignored (and
-                re-read) if it does not match *source_artifact_id* — see below.
+            link_type: The catalog key under validation.
+            source_artifact: Already-loaded source row, if the caller has one.
             target_artifact: Same for the target endpoint.
+            manual: False only for system writers (the diagram reconciler),
+                which may write ``system_owned`` types.
 
         Raises:
-            ValidationError: If the workspace runs in se_mode and the
-                link violates the SE endpoint matrix.
+            ValidationError: Unknown/inactive type, a system-owned type on the
+                manual path, or a disallowed endpoint pair.
+            NotFoundError: Either endpoint does not exist.
         """
-        from traceability.types import check_se_link_semantics
+        from link_types.catalog import validate_link_pair
+        from persistence.models import Artifact
 
-        try:
-            from persistence.models import Artifact
-            from presets.models import WorkspacePresetConfig
+        source = source_artifact
+        if source is not None and str(source.id) != str(source_artifact_id):
+            source = None
+        if source is None:
+            source = Artifact.objects.filter(id=source_artifact_id).first()
 
-            # The id stays authoritative. A passed-in row is an optimisation,
-            # never a substitute for it: this is a validation gate, and a
-            # future caller handing over the wrong instance would silently
-            # check the wrong endpoints instead of failing. Mismatch -> drop
-            # the row and read the real one.
-            source = source_artifact
-            if source is not None and str(source.id) != str(source_artifact_id):
-                source = None
-            if source is None:
-                source = Artifact.objects.filter(id=source_artifact_id).first()
+        target = target_artifact
+        if target is not None and str(target.id) != str(target_artifact_id):
+            target = None
+        if target is None:
+            target = Artifact.objects.filter(id=target_artifact_id).first()
 
-            target = target_artifact
-            if target is not None and str(target.id) != str(target_artifact_id):
-                target = None
-            if target is None:
-                target = Artifact.objects.filter(id=target_artifact_id).first()
+        # Unlike the old permissive fallback, a missing endpoint is no longer
+        # a reason to skip the gate: it is a hard error raised here rather
+        # than an opaque IntegrityError further down.
+        if source is None:
+            raise NotFoundError("Source entity not found")
+        if target is None:
+            raise NotFoundError("Target entity not found")
 
-            if source is None or target is None:
-                return  # existence errors are raised downstream
-
-            config = WorkspacePresetConfig.objects.filter(
-                workspace_id=source.workspace_id
-            ).first()
-            if config is None or config.terminology_profile != "se_mode":
-                return  # dev_mode / unconfigured: no SE rigor
-
-            error = check_se_link_semantics(
-                link_type, source.artifact_type, target.artifact_type
-            )
-        except ValidationError:
-            raise
-        except Exception:
-            logger.debug(
-                "SE semantics check skipped for %s -> %s",
-                source_artifact_id,
-                target_artifact_id,
-                exc_info=True,
-            )
-            return
-
-        if error is not None:
-            raise ValidationError(error)
+        validate_link_pair(
+            source.workspace_id,
+            link_type,
+            source.artifact_type,
+            target.artifact_type,
+            manual=manual,
+        )
 
     @atomic_transaction
     def create_trace_link(
@@ -339,6 +341,7 @@ class TraceLinkService(ServiceBase):
         target_id: UUID,
         link_type: str,
         ctx: AuthContext,
+        rationale: str = "",
     ):
         """Create a single TraceLink after validation.
 
@@ -350,39 +353,21 @@ class TraceLinkService(ServiceBase):
         Args:
             source_id: UUID of the source artifact or derived entity.
             target_id: UUID of the target artifact or derived entity.
-            link_type: One of VALID_LINK_TYPES.
+            link_type: A key of this workspace's link-type catalog.
             ctx: Resolved AuthContext.
+            rationale: Q1.6 — why *these two* artifacts are linked. Optional
+                free text; empty string means "not stated".
 
         Returns:
             Created TraceLink ORM instance.
 
         Raises:
-            ValidationError: Invalid link_type, a manually-authored
-                'diagram-ref' link, or cross-workspace link.
+            ValidationError: Unknown/inactive link_type, a system-managed type
+                ('diagram-ref') on the manual path, an endpoint pair the type
+                does not allow, or a cross-workspace link.
             NotFoundError:   Source or target entity does not exist.
         """
         self._set_tenant_context(ctx)
-
-        if link_type not in VALID_LINK_TYPES:
-            raise ValidationError(
-                f"Invalid link type '{link_type}'. "
-                f"Valid types: {sorted(VALID_LINK_TYPES)}"
-            )
-
-        # Codeberg #353 final review (I1): 'diagram-ref' is reconciler-owned
-        # (diagram.traceability_connector.sync_node_links) — a hand-authored
-        # one would be silently deleted on the diagram's next node_graph save
-        # (the reconciler's current-minus-desired cleanup), which looks like
-        # unexplained data loss to whoever just created it manually. This is
-        # the single choke point for manual TraceLink creation (REST
-        # trace-links endpoints and every MCP trace-link tool funnel through
-        # here), so blocking it here covers both transports.
-        if link_type == LinkType.DIAGRAM_REF:
-            raise ValidationError(
-                "'diagram-ref' is a system-managed link type maintained "
-                "automatically from a Diagram's node_graph content and "
-                "cannot be created or updated manually."
-            )
 
         # Resolve Requirement/ArchitectureElement IDs to Artifact IDs. The
         # Artifact rows come back with the ids so the checks below can reuse
@@ -392,14 +377,19 @@ class TraceLinkService(ServiceBase):
         resolved_source, source_artifact = self._resolve_artifact(source_id)
         resolved_target, target_artifact = self._resolve_artifact(target_id)
 
-        # SE endpoint semantics (se_mode workspaces only, permissive for
-        # non-core artifact types — see docs/se/workspace_modes_er_model.md F1).
-        self._check_se_semantics(
+        # Catalog validation: link type must exist, be active, be manually
+        # creatable, and allow this endpoint pair. Applies to every workspace
+        # and every artifact type — the se_mode gate and the "non-core types
+        # pass unchecked" escape are gone (spec section 3.2). This is also
+        # what rejects a hand-authored 'diagram-ref' (system_owned, see
+        # link_types/builtin.py), which used to be a hardcoded branch here.
+        self._check_link_pair(
             resolved_source,
             resolved_target,
             link_type,
             source_artifact=source_artifact,
             target_artifact=target_artifact,
+            manual=True,
         )
 
         # REQ-L1-044 I4: allocated-to must not target an ancestor of the
@@ -423,6 +413,7 @@ class TraceLinkService(ServiceBase):
                 target_id=resolved_target,
                 link_type=link_type,
                 created_by_id=ctx.user_id,
+                rationale=rationale,
             )
         except SourceNotFoundError as exc:
             raise NotFoundError("Source entity not found") from exc
@@ -1172,24 +1163,53 @@ class TraceLinkService(ServiceBase):
             for n in neighbors
         ]
 
-    def propagate_suspect_status(self, source_id: UUID, ctx: AuthContext) -> None:
-        """Propagate 'suspect' status to dependent artifacts (SN-30).
+    def propagate_suspect_status(
+        self,
+        source_id: UUID,
+        ctx: AuthContext,
+        *,
+        audit_entry_id: Optional[UUID] = None,
+    ) -> int:
+        """Flag the artifacts a change to *source_id* makes questionable (SN-30).
 
-        When the artifact ``source_id`` changes, every artifact that DEPENDS ON
-        it must be flagged as suspect. In the SE link convention the dependent
-        is the SOURCE of the link and the changed artifact is the TARGET
-        (e.g. ``TestCase --verifies--> Requirement`` or
-        ``ChildReq --derives-from--> ParentReq``). Dependents are therefore
-        reached by traversing INCOMING edges — the ``upstream`` direction, where
-        the QueryEngine returns the link sources for links whose target is
-        ``source_id``.
+        Dispatches on each link type's ``suspect_rule`` from the workspace
+        catalog rather than flooding a direction-agnostic transitive hull.
+        This is the mechanism behind P0 issue #849: the ``suspect`` column and
+        its serializer field already existed, but nothing ever consulted the
+        link type, so ``allocated-to`` (which propagates source -> target)
+        never fired at all and ``references`` fired when it should not have.
 
-        The transitive upstream closure is computed by the recursive CTE in the
-        QueryEngine, which has built-in cycle detection and no hard depth cap,
-        so no dependent is silently truncated (the previous BFS stopped at a
-        hard-coded depth of 5). An optional
-        ``settings.SUSPECT_PROPAGATION_MAX_DEPTH`` (int) bounds the traversal
-        explicitly when configured; the default (``None``) keeps the full hull.
+        Rule dispatch (direction convention: ``decomposes`` runs
+        parent -> child, ``derives-from`` runs child -> parent — see
+        ``traceability/audit/hierarchy.py``)::
+
+            target_change_flags_source     changed == link.target -> flag source
+            source_change_flags_target     changed == link.source -> flag target
+            parent_change_flags_children   changed == link.source (the parent)
+                                                            -> flag target (child)
+            none                           nothing
+
+        ``parent_change_flags_children`` shares the ``source_change_flags_target``
+        branch on purpose: for a hierarchy link the parent *is* the source, so
+        the two are the same traversal. It stays a distinct configurable value
+        because it documents intent for hierarchy types.
+
+        **One hop only.** The previous implementation walked the full recursive
+        CTE closure; the spec describes a single hop, and each flagged artifact
+        propagates further when *it* is edited. ``SUSPECT_PROPAGATION_MAX_DEPTH``
+        is consequently no longer read.
+
+        Args:
+            source_id: The artifact (or business entity) that changed.
+            ctx: Resolved AuthContext.
+            audit_entry_id: ``audit.AuditEntry.id`` of the triggering change,
+                recorded on every link that actually *caused a flag* — not on
+                every link whose rule matched. A link whose far end is a type
+                with no ``suspect`` column, or is already suspect, fires no
+                flag and is therefore left unstamped.
+
+        Returns:
+            Number of artifacts newly flagged suspect.
         """
         if ctx is not None:
             self._set_tenant_context(ctx)
@@ -1197,59 +1217,115 @@ class TraceLinkService(ServiceBase):
         try:
             resolved_id = self._resolve_artifact_id(source_id)
         except NotFoundError:
-            return  # Source does not exist or isn't an artifact
+            return 0
 
-        from traceability.services import query
+        from django.utils import timezone
 
-        try:
-            # Dependents are UPSTREAM nodes: links where target == resolved_id.
-            # transitive=True returns the full (cycle-safe) closure.
-            results = query(
-                artifact_id=resolved_id,
-                direction="upstream",
-                transitive=True,
+        from link_types.catalog import resolve_catalog
+        from persistence.models import (
+            ArchitectureElement,
+            Artifact,
+            Requirement,
+            TestCase,
+            TraceLink,
+        )
+
+        artifact = Artifact.objects.filter(id=resolved_id).only("workspace_id").first()
+        if artifact is None:
+            return 0
+        catalog = resolve_catalog(artifact.workspace_id)
+
+        # One query for both directions; the rule decides which side counts.
+        links = list(
+            TraceLink.objects.filter(
+                Q(source_id=resolved_id) | Q(target_id=resolved_id)
+            ).only("id", "source_id", "target_id", "link_type")
+        )
+
+        dependent_ids: set[UUID] = set()
+        # (link id, the artifact id at the *other* end). The second element is
+        # what decides whether the link may carry the provenance stamp below.
+        fired: list[tuple[UUID, UUID]] = []
+
+        for link in links:
+            definition = catalog.get(link.link_type)
+            if definition is None:
+                continue  # unknown or deactivated type: no propagation
+            rule = definition.get("suspect_rule", "none")
+            if rule == "none":
+                continue
+
+            if rule == "target_change_flags_source":
+                if link.target_id != resolved_id:
+                    continue
+                other_id = link.source_id
+            elif rule in ("source_change_flags_target", "parent_change_flags_children"):
+                # Identical traversal: for a hierarchy link the parent is the
+                # source (see the direction table in the docstring).
+                if link.source_id != resolved_id:
+                    continue
+                other_id = link.target_id
+            else:
+                logger.warning(
+                    "Unknown suspect_rule '%s' on link type '%s'; skipping.",
+                    rule,
+                    link.link_type,
+                )
+                continue
+
+            if other_id == resolved_id:
+                continue  # self-link: never flag the changed artifact itself
+            dependent_ids.add(other_id)
+            fired.append((link.id, other_id))
+
+        if not dependent_ids:
+            return 0
+
+        # Only these three models carry a `suspect` column today (see the
+        # Merkposten in the Task 14 ledger entry: it belongs on `Artifact`).
+        # An `Adr`/`Risk`/`StakeholderNeed`/`Goal`/`Issue` at the far end is
+        # silently skipped — and so is an artifact that was already suspect.
+        flagged = 0
+        newly_flagged_ids: set[UUID] = set()
+        for model in (Requirement, ArchitectureElement, TestCase):
+            candidate_ids = set(
+                model.objects.filter(
+                    artifact_id__in=dependent_ids, suspect=False
+                ).values_list("artifact_id", flat=True)
             )
-
-            max_depth = getattr(settings, "SUSPECT_PROPAGATION_MAX_DEPTH", None)
-            dependent_ids = {
-                r.entity_id
-                for r in results
-                if max_depth is None or getattr(r, "depth", 1) <= max_depth
-            }
-            dependent_ids.discard(resolved_id)  # never flag the source itself
-            if not dependent_ids:
-                return
-
-            from persistence.models import (
-                ArchitectureElement,
-                Requirement,
-                TestCase,
-            )
-
-            # Update every reachable dependent entity type.
-            Requirement.objects.filter(
-                artifact_id__in=dependent_ids
+            if not candidate_ids:
+                continue
+            written = model.objects.filter(
+                artifact_id__in=candidate_ids, suspect=False
             ).update(suspect=True)
-            ArchitectureElement.objects.filter(
-                artifact_id__in=dependent_ids
-            ).update(suspect=True)
-            TestCase.objects.filter(
-                artifact_id__in=dependent_ids
-            ).update(suspect=True)
+            if written:
+                flagged += written
+                newly_flagged_ids |= candidate_ids
 
-            logger.info(
-                "Propagated suspect status to %d artifacts from %s",
-                len(dependent_ids),
-                source_id,
+        # `suspect_flagged_at`'s own help_text says it is set "when this link
+        # caused the other endpoint to be flagged suspect", so only links that
+        # actually did may be stamped. Stamping every link whose *rule* matched
+        # wrote that provenance marker for links whose far end was a
+        # non-flaggable type, or was already suspect — a false audit trail
+        # pointing at a flag that never happened.
+        stamped_link_ids = [
+            link_id for link_id, other_id in fired if other_id in newly_flagged_ids
+        ]
+        if stamped_link_ids:
+            TraceLink.objects.filter(id__in=stamped_link_ids).update(
+                suspect_flagged_at=timezone.now(),
+                suspect_source_change=audit_entry_id,
             )
-        except Exception:
-            # SN-30 must not silently swallow failures: surface the full stack
-            # trace and re-raise so callers (and the audit trail) see the error.
-            logger.exception(
-                "Error propagating suspect status for %s", source_id
-            )
-            raise
 
+        logger.info(
+            "Suspect propagation from %s: %d artifact(s) flagged; "
+            "%d of %d matching link(s) stamped.",
+            resolved_id,
+            flagged,
+            len(stamped_link_ids),
+            len(fired),
+        )
+        return flagged
 
 
 __all__ = [

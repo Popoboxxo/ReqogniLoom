@@ -50,7 +50,7 @@ def _create_adr(client, workspace_id, title: str) -> dict:
     return resp.json()
 
 
-def _link(client, source_id, target_id, link_type="documents") -> dict:
+def _link(client, source_id, target_id, link_type="decides") -> dict:
     resp = client.post(
         "/api/v1/tracelinks/",
         {
@@ -88,8 +88,11 @@ def req_and_adr_linked(authed_client, tenant, workspace):
     live_adr = _create_adr(authed_client, workspace.id, "Live ADR")
     dead_adr = _create_adr(authed_client, workspace.id, "Dead ADR")
 
-    live_link = _link(authed_client, requirement["id"], live_adr["id"])
-    dead_link = _link(authed_client, requirement["id"], dead_adr["id"])
+    # "decides" requires an Adr source (link_types.builtin.BUILTIN_LINK_TYPES),
+    # so the ADR — the endpoint this fixture soft-deletes — is the source here,
+    # not the target.
+    live_link = _link(authed_client, live_adr["id"], requirement["id"])
+    dead_link = _link(authed_client, dead_adr["id"], requirement["id"])
 
     resp = authed_client.delete(f"/api/v1/adrs/{dead_adr['id']}/")
     assert resp.status_code in (204, 200), resp.content
@@ -119,13 +122,13 @@ def test_workspace_list_marks_the_soft_deleted_endpoint(
     dead = by_id[req_and_adr_linked["dead_link_id"]]
     live = by_id[req_and_adr_linked["live_link_id"]]
 
-    assert dead["target_is_outdated"] is True
-    assert live["target_is_outdated"] is False
-    # The requirement on the source side is untouched by the ADR's deletion.
-    assert dead["source_is_outdated"] is False
+    assert dead["source_is_outdated"] is True
+    assert live["source_is_outdated"] is False
+    # The requirement on the target side is untouched by the ADR's deletion.
+    assert dead["target_is_outdated"] is False
     # …and the title is still resolved, so the client can render a readable
     # "deleted" row instead of a bare UUID.
-    assert dead["target_title"] == "Dead ADR"
+    assert dead["source_title"] == "Dead ADR"
 
 
 def test_artifact_scoped_list_marks_the_soft_deleted_endpoint(
@@ -142,8 +145,8 @@ def test_artifact_scoped_list_marks_the_soft_deleted_endpoint(
     by_id = {row["id"]: row for row in rows}
 
     assert req_and_adr_linked["dead_link_id"] in by_id, rows
-    assert by_id[req_and_adr_linked["dead_link_id"]]["target_is_outdated"] is True
-    assert by_id[req_and_adr_linked["live_link_id"]]["target_is_outdated"] is False
+    assert by_id[req_and_adr_linked["dead_link_id"]]["source_is_outdated"] is True
+    assert by_id[req_and_adr_linked["live_link_id"]]["source_is_outdated"] is False
 
 
 def test_flags_are_present_on_every_row(authed_client, workspace, req_and_adr_linked) -> None:

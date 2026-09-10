@@ -105,6 +105,9 @@ const AttributeEditorPage = lazy(() =>
 );
 const GoalsPage = lazy(() => import("../Goals/GoalsPage"));
 const InterviewEditors = lazy(() => import("../InterviewEditors/InterviewEditors"));
+const LinkTypeEditorPage = lazy(() =>
+  import("../LinkTypeEditor/LinkTypeEditorPage").then((m) => ({ default: m.LinkTypeEditorPage }))
+);
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -161,7 +164,9 @@ function AppShell(): JSX.Element {
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/audit" element={<AuditDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/settings/link-types" element={<LinkTypeEditorPage scope="workspace" />} />
               <Route path="/system-settings" element={<SystemSettings />} />
+              <Route path="/system-settings/link-types" element={<LinkTypeEditorPage scope="global" />} />
               <Route path="/user-management" element={<UserManagement />} />
               <Route
                 path="/workspace-settings"

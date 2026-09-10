@@ -95,14 +95,32 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
-// Task 24: ArchitectureEditors now renders ArchitectureArtifactForm, which
-// resolves its field set from the attribute-definition API instead of
-// hardcoding fields. Without this mock the generic `apiClient.get` stub
-// above resolves to `{}` (no `.attributes`), so the form renders zero
-// fields — every test below that looks for a form field would fail for a
-// reason unrelated to what it is testing. Shape mirrors a real bootstrapped
-// ArchitectureElement definition (`introspect_core_attributes`, live-verified
-// via the Task 24 implementer report).
+// Task 23 (traceability-semantik): CreateTraceLinkDialog (mounted inside
+// TraceLinkPanel, which this tree pulls in transitively) now reads the
+// link-type catalog via useLinkTypes() — needs a provider-free mock here,
+// same as every other non-dialog-focused test that renders it incidentally.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
+// Task 24 (attribute-definition): ArchitectureEditors now renders
+// ArchitectureArtifactForm, which resolves its field set from the
+// attribute-definition API instead of hardcoding fields. Without this mock
+// the generic `apiClient.get` stub above resolves to `{}` (no `.attributes`),
+// so the form renders zero fields — every test below that looks for a form
+// field would fail for a reason unrelated to what it is testing. Shape
+// mirrors a real bootstrapped ArchitectureElement definition
+// (`introspect_core_attributes`, live-verified via the Task 24 implementer
+// report).
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
 }));

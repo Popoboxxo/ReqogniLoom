@@ -1142,15 +1142,16 @@ class TestBaselineBuiltinWithExtendedPreset:
 
 # ---------------------------------------------------------------------------
 # REQ-L2-BL-001: document-scope descendant resolution via TraceLinks
-# (issue #42 — Requirements/ADRs/StakeholderNeeds use 'derives-from'/'refines'
-# TraceLinks for hierarchy, not pl_artifact.parent_id).
+# (issue #42 — Requirements/ADRs/StakeholderNeeds use derives-from
+# TraceLinks for hierarchy, not pl_artifact.parent_id; the retired refines
+# type was folded into derives-from by the link-type consolidation).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
 class TestDocumentScopeTraceLinkDescendants:
     """resolve_scope_item_ids(scope='document') must also follow
-    derives-from/refines TraceLinks, not only pl_artifact.parent_id."""
+    derives-from TraceLinks, not only pl_artifact.parent_id."""
 
     def _make_tenant_and_workspace(self):
         from persistence.models import Tenant, Workspace
@@ -1203,8 +1204,10 @@ class TestDocumentScopeTraceLinkDescendants:
         finally:
             TenantContext.clear_tenant()
 
-    def test_document_scope_includes_child_linked_via_refines(self):
-        """'refines' TraceLinks are also followed for descendant resolution."""
+    def test_document_scope_includes_child_linked_via_derives_from_between_adrs(self):
+        """derives-from TraceLinks between ADRs are also followed (the retired
+        refines type used to carry this pair before the link-type
+        consolidation folded it into derives-from)."""
         from persistence.models import Artifact, TraceLink
         from persistence.tenancy import TenantContext
         from baseline.services import resolve_scope_item_ids
@@ -1224,7 +1227,7 @@ class TestDocumentScopeTraceLinkDescendants:
             TraceLink.objects.create(
                 source=child,
                 target=root,
-                link_type="refines",
+                link_type="derives-from",
                 tenant=tenant,
             )
 
@@ -1241,7 +1244,7 @@ class TestDocumentScopeTraceLinkDescendants:
             TenantContext.clear_tenant()
 
     def test_document_scope_excludes_unrelated_link_types(self):
-        """Non-hierarchy link types (e.g. 'satisfies') must NOT pull in the
+        """Non-hierarchy link types (e.g. allocated-to) must NOT pull in the
         source artifact as a descendant."""
         from persistence.models import Artifact, TraceLink
         from persistence.tenancy import TenantContext
@@ -1262,7 +1265,7 @@ class TestDocumentScopeTraceLinkDescendants:
             TraceLink.objects.create(
                 source=unrelated,
                 target=root,
-                link_type="satisfies",
+                link_type="allocated-to",
                 tenant=tenant,
             )
 

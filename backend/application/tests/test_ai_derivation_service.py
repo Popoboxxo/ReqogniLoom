@@ -28,6 +28,7 @@ from persistence.models import (
     Workspace as PersistenceWorkspace,
 )
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -74,7 +75,7 @@ def auth_context(user):
 def workspace(tenant):
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(tenant=tenant, name="ai-ws")
+        return make_workspace(tenant, name="ai-ws")
     finally:
         TenantContext.clear_tenant()
 
@@ -84,9 +85,7 @@ def de_workspace(tenant):
     """Same as ``workspace`` but with ``language="de"`` (issue #795)."""
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(
-            tenant=tenant, name="ai-ws-de", language="de"
-        )
+        return make_workspace(tenant, name="ai-ws-de", language="de")
     finally:
         TenantContext.clear_tenant()
 
@@ -102,8 +101,8 @@ def extended_workspace(tenant):
     """
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(
-            tenant=tenant, name="ai-ws-extended", preset={"name": "extended"}
+        return make_workspace(
+            tenant, name="ai-ws-extended", preset={"name": "extended"}
         )
     finally:
         TenantContext.clear_tenant()
@@ -978,6 +977,12 @@ def test_write_derived_entity_creates_entity_and_trace_link(
         source_entity_id=need_id,
         source_item_type="StakeholderNeed",
         link_type="derives-from",
+        # issue #341: 'derives-from' points child -> parent, so the new
+        # Requirement is the link source. Every production caller
+        # (mcp_server/tools/ai_derivation.py) passes this; the tests did not,
+        # and the inverted edge only became visible once endpoint validation
+        # stopped being se_mode-only.
+        new_entity_is_link_source=True,
         policy="manual",
     )
 
@@ -1049,6 +1054,12 @@ def test_write_derived_entity_policy_auto_advances_state(
         source_entity_id=need_id,
         source_item_type="StakeholderNeed",
         link_type="derives-from",
+        # issue #341: 'derives-from' points child -> parent, so the new
+        # Requirement is the link source. Every production caller
+        # (mcp_server/tools/ai_derivation.py) passes this; the tests did not,
+        # and the inverted edge only became visible once endpoint validation
+        # stopped being se_mode-only.
+        new_entity_is_link_source=True,
         policy="auto",
     )
 
@@ -1073,6 +1084,12 @@ def test_write_derived_entity_policy_manual_stays_draft(
         source_entity_id=need_id,
         source_item_type="StakeholderNeed",
         link_type="derives-from",
+        # issue #341: 'derives-from' points child -> parent, so the new
+        # Requirement is the link source. Every production caller
+        # (mcp_server/tools/ai_derivation.py) passes this; the tests did not,
+        # and the inverted edge only became visible once endpoint validation
+        # stopped being se_mode-only.
+        new_entity_is_link_source=True,
         policy="manual",
     )
 

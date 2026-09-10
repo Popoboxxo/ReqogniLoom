@@ -95,7 +95,10 @@ const MOCK_LINKS = [
     workspace_id: "ws-trace-001",
     source_id: "req-001",
     target_id: "arch-001",
-    link_type: "implements",
+    // Task 16 retired `implements` (merged into `allocated-to`); Task 23
+    // shrank the frontend label fallback to the eight built-in types that
+    // replaced it, so this fixture uses the still-valid successor.
+    link_type: "allocated-to",
     created_at: "2026-01-15T08:00:00Z",
   },
   {
@@ -196,7 +199,7 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
     // Both link types should appear as section headings (data-testid="tracelink-type")
     const linkTypeBadges = screen.getAllByTestId("tracelink-type");
     const linkTypeTexts = linkTypeBadges.map((el) => el.textContent ?? "");
-    expect(linkTypeTexts.some((t) => /implementation/i.test(t))).toBe(true);
+    expect(linkTypeTexts.some((t) => /allocation/i.test(t))).toBe(true);
     expect(linkTypeTexts.some((t) => /verification/i.test(t))).toBe(true);
   });
 
@@ -293,13 +296,18 @@ describe("TraceabilityView — readable endpoints and coverage (#413)", () => {
       expect(screen.getAllByTestId("tracelink-item").length).toBe(2);
     });
 
+    // Section order groups by link_type (Task 23: the shared label map now
+    // only orders the eight built-in types, not all legacy ones) — locate
+    // the "verifies" link's endpoints by content rather than assuming a
+    // fixed array index, so this stays correct regardless of that order.
     const sources = screen.getAllByTestId("tracelink-source");
     const targets = screen.getAllByTestId("tracelink-target");
-    expect(sources[0]).toHaveTextContent("TC-1 Login smoke test");
-    expect(targets[0]).toHaveTextContent("Login must be possible");
+    const verifiesIndex = sources.findIndex((el) => el.textContent?.includes("TC-1 Login smoke test"));
+    expect(verifiesIndex).toBeGreaterThanOrEqual(0);
+    expect(targets[verifiesIndex]).toHaveTextContent("Login must be possible");
     // Artifact type badge accompanies each endpoint
-    expect(screen.getAllByTestId("tracelink-source-type")[0]).toHaveTextContent("TestCase");
-    expect(screen.getAllByTestId("tracelink-target-type")[0]).toHaveTextContent("Requirement");
+    expect(screen.getAllByTestId("tracelink-source-type")[verifiesIndex]).toHaveTextContent("TestCase");
+    expect(screen.getAllByTestId("tracelink-target-type")[verifiesIndex]).toHaveTextContent("Requirement");
   });
 
   it("[#425] endpoint entries are keyboard-operable buttons that open the right entity route", async () => {
@@ -310,11 +318,15 @@ describe("TraceabilityView — readable endpoints and coverage (#413)", () => {
       expect(screen.getAllByTestId("tracelink-item").length).toBe(2);
     });
 
-    const target = screen.getAllByTestId("tracelink-target")[0];
+    // Locate the "verifies" link's target by content (see comment above) —
+    // link_type section order is not what this test is about.
+    const targets = screen.getAllByTestId("tracelink-target");
+    const target = targets.find((el) => el.textContent?.includes("Login must be possible"));
+    expect(target).toBeDefined();
     // A real <button>, not inert text — reachable via Tab, operable via Enter/click.
-    expect(target.tagName).toBe("BUTTON");
+    expect(target!.tagName).toBe("BUTTON");
 
-    await user.click(target);
+    await user.click(target!);
 
     // target_id "art-req-001" (Artifact.id) resolves via COVERAGE_REQUIREMENTS
     // to Requirement.id "req-001" (#414's artifact-id vs entity-id gap) — the

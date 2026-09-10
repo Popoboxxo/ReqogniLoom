@@ -24,10 +24,10 @@
  *   them from separately fetched entity lists is both redundant and, because
  *   of the identity mismatch above, wrong.
  * - **Hierarchy.** `derived-by` is not a backend link type — filtering on it
- *   dropped every real hierarchy link (`decomposes`, `parent-child`).
+ *   dropped every real hierarchy link (`decomposes` and its predecessor).
  *
- * Mirrors `backend/traceability/types.py::LinkType` and the SE endpoint
- * semantics in `frontend/src/utils/seLinkSemantics.ts`.
+ * Mirrors `backend/link_types/builtin.py::BUILTIN_LINK_TYPES`, the tenant
+ * catalog's own starting set.
  */
 
 import type { LinkType, TraceLink, UUID } from "../types";
@@ -72,7 +72,6 @@ export type HierarchyRelation = "parent" | "child";
 export const HIERARCHY_LINK_TYPES: readonly LinkType[] = [
   "derives-from",
   "decomposes",
-  "parent-child",
 ];
 
 /** Link types that constitute verification coverage (TestCase -> artifact). */

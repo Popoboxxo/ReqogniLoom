@@ -54,10 +54,16 @@ from traceability.types import VALID_LINK_TYPES
 # ---------------------------------------------------------------------------
 
 def _validate_link_type(link_type: str) -> None:
-    """Validate link_type against the 8-type enum (REQ-L2-TE-001).
+    """Coarse fail-safe against the ``LinkType`` enum (REQ-L2-TE-001).
 
-    The persistence CharField accepts any string; the service layer enforces
-    the 8-type contract here without modifying persistence.models.
+    **Not the authority.** Which link types a workspace accepts, and between
+    which endpoint types, is decided by
+    ``link_types.catalog.validate_link_pair`` before the call reaches here
+    (``application.trace_link_service.TraceLinkService._check_link_pair``).
+    ``VALID_LINK_TYPES`` is deliberately kept a superset of the catalog so
+    this check can never reject a key the catalog just accepted; it exists
+    only to stop an arbitrary string from a direct Layer-1 caller (the diagram
+    and ICD reconcilers) reaching the CharField, which accepts anything.
     """
     if link_type not in VALID_LINK_TYPES:
         raise InvalidLinkTypeError(link_type)
@@ -290,6 +296,7 @@ class TraceLinkManager:
         target_id: uuid.UUID,
         link_type: str,
         created_by_id: Optional[uuid.UUID] = None,
+        rationale: str = "",
     ) -> TraceLink:
         """Create a single TraceLink with full validation.
 
@@ -299,6 +306,10 @@ class TraceLinkManager:
         3. Cross-tenant guard (REQ-L2-TE-011)
         4. Eager cycle detection via DFS (REQ-L2-TE-002)
         5. Persist (REQ-L2-TE-001, audit: REQ-L2-TE-010)
+
+        *rationale* (Q1.6) is optional free text explaining why these two
+        artifacts are linked; it is stored verbatim (sanitization happens at
+        the transport boundary) and defaults to "".
         """
         _validate_link_type(link_type)
 
@@ -323,11 +334,11 @@ class TraceLinkManager:
 
         # Eager cycle detection: does target already reach source?
         # Scoped to this link_type only — the 8 relation types are semantically
-        # distinct directed graphs (e.g. "implements" ArchitectureElement->Requirement
-        # combined with "parent-child" and "allocated-to" edges produces coincidental
+        # distinct directed graphs (e.g. "allocated-to" Requirement->ArchitectureElement
+        # combined with "decomposes" and "derives-from" edges produces coincidental
         # paths that are not real domain cycles; mixing them made the textbook
         # decomposition pattern "derive a child requirement and allocate it to the
-        # same ArchitectureElement that already implements its parent" falsely
+        # same ArchitectureElement its parent is already allocated to" falsely
         # rejected as a cycle).
         #
         # Only the two FK id columns are read (_build_adjacency_from_edges ->
@@ -350,6 +361,7 @@ class TraceLinkManager:
             target=target,
             link_type=link_type,
             tenant_id=tenant_id,
+            rationale=rationale or "",
         )
         if created_by_id is not None:
             link.created_by_id = created_by_id

@@ -13,6 +13,7 @@ from context_graph.tests.conftest import (
     seed_requirement,
     seed_workspace,
 )
+from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -160,15 +161,14 @@ class TestGetRelated:
         assert hit.edge_kind == "shares-term"
 
 
-def _link(tenant, source_artifact, target_artifact):
+def _link(tenant, source_artifact, target_artifact, link_type):
     from persistence.models import TraceLink
-    from traceability.types import LinkType
 
     TraceLink.objects.create(
         tenant=tenant,
         source=source_artifact,
         target=target_artifact,
-        link_type=LinkType.TRACES,
+        link_type=link_type,
     )
 
 
@@ -241,7 +241,8 @@ class TestOpenRisksAndIssuesReadTheEngine:
         tenant, workspace, ctx = seed_workspace("cg-risk-engine")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-1")
         risk_artifact, risk = _seed_risk(tenant, workspace, title="Stale risk")
-        _link(tenant, req.artifact, risk_artifact)
+        # 'mitigates' runs Risk -> Requirement (link_types.builtin).
+        _link(tenant, risk_artifact, req.artifact, LinkType.MITIGATES.value)
 
         try:
             # Task 12: the `status` column is dropped entirely -- only
@@ -259,7 +260,8 @@ class TestOpenRisksAndIssuesReadTheEngine:
         tenant, workspace, ctx = seed_workspace("cg-risk-open")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-2")
         risk_artifact, risk = _seed_risk(tenant, workspace, title="Open risk")
-        _link(tenant, req.artifact, risk_artifact)
+        # 'mitigates' runs Risk -> Requirement (link_types.builtin).
+        _link(tenant, risk_artifact, req.artifact, LinkType.MITIGATES.value)
 
         try:
             _close_via_engine(
@@ -285,7 +287,8 @@ class TestOpenRisksAndIssuesReadTheEngine:
         tenant, workspace, ctx = seed_workspace("cg-risk-untracked")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-RISK-3")
         risk_artifact, risk = _seed_risk(tenant, workspace, title="Untracked risk")
-        _link(tenant, req.artifact, risk_artifact)
+        # 'mitigates' runs Risk -> Requirement (link_types.builtin).
+        _link(tenant, risk_artifact, req.artifact, LinkType.MITIGATES.value)
 
         try:
             result = _open_risks_for_artifact(req.artifact_id)
@@ -301,7 +304,12 @@ class TestOpenRisksAndIssuesReadTheEngine:
         tenant, workspace, ctx = seed_workspace("cg-issue-engine")
         req = seed_requirement(tenant, workspace, title="Req", uid="REQ-ISSUE-1")
         issue_artifact, issue = _seed_issue(tenant, workspace, title="Stale issue")
-        _link(tenant, req.artifact, issue_artifact)
+        # No built-in link type has Issue on either side of a Requirement
+        # pair (genuine catalog gap, see link_types/grandfathered.py); the
+        # lookup below is direction- and type-agnostic, so 'references' is
+        # only a placeholder to satisfy the LinkType enum, not a claim about
+        # catalog-conformant direction.
+        _link(tenant, req.artifact, issue_artifact, LinkType.REFERENCES.value)
 
         try:
             _close_via_engine(

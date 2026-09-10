@@ -522,7 +522,7 @@ class TestTraceLinkSerializer:
             "id": str(uuid.uuid4()),
             "source_id": source_id,
             "target_id": target_id,
-            "link_type": "satisfies",
+            "link_type": "allocated-to",
             "source_title": "My Requirement",
             "target_title": "My Architecture Element",
             "source_type": "Requirement",

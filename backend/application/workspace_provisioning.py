@@ -126,6 +126,15 @@ def provision_workspace_defaults(
         tenant_id=tenant_id, workspace_id=workspace_id
     )
 
+    # LinkTypeCatalog: a workspace without link-type rows resolves to an empty
+    # catalog, and every TraceLink creation would then be rejected as "unknown
+    # link type". Idempotent, so a re-run is safe.
+    from link_types.workspace_store import provision_workspace_link_types
+
+    provision_workspace_link_types(
+        workspace_id=workspace_id, tenant_id=tenant_id
+    )
+
 
 def provision_workspace_defaults_scoped(
     *,

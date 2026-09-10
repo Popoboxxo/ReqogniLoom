@@ -49,7 +49,7 @@ import { icdsApi } from "../../api/icds";
 import { workspacesApi } from "../../api/workspaces";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import {
-  ALL_LINK_TYPES,
+  LINK_TYPE_LABELS,
   getLinkTypeLabel,
 } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog";
@@ -114,8 +114,10 @@ const INITIAL_STATE: TraceabilityState = {
 const REQUIREMENT_ARTIFACT_TYPE = "Requirement";
 
 // Canonical link_type order (REQ-L2-RF-006 — predictable section order).
-// Sourced from the shared label map so all 12 backend link types are covered.
-const LINK_TYPE_ORDER: string[] = ALL_LINK_TYPES;
+// Sourced from the shared label map, which now only covers the eight
+// built-in link types (Task 23) — the per-workspace catalog is the source
+// of truth for anything beyond that.
+const LINK_TYPE_ORDER: string[] = Object.keys(LINK_TYPE_LABELS);
 
 
 const MAX_TITLE_LENGTH = 60;

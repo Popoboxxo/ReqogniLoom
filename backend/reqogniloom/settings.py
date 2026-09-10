@@ -210,6 +210,7 @@ REQFLOW_APPS = [
     "llm_adapter",         # ARCH-L1-009 LlmAdapter (ADR-02 Provider Abstraction)
     "traceability",        # ARCH-L1-007 TraceabilityEngine
     "workflow",            # ARCH-L1-005 WorkflowEngine (ADR-06 Configurable Lifecycle)
+    "link_types",          # LinkTypeCatalog — configurable trace-link semantics
     "attribute_definitions",  # AttributeDefinition system object (Layer 1)
     "baseline",            # ARCH-L1-006 BaselineService (ADR-07 Multi-scope Baselines)
     "application",         # ARCH-L1-004 ApplicationService (domain facade)

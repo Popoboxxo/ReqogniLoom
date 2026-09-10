@@ -404,9 +404,25 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // (all four hand-styled with inline literals, all four calling REST endpoints
 // retired in Task 9) — plus the `visibility` settings tab and the two mount
 // sites in `GoalDetail.tsx` / `RequirementEditors.tsx`. Nothing was added.
-// Re-measured fresh on the tree: 867, matching exactly.
+// Re-measured fresh on the tree: 867, matching exactly. This was the
+// attribute-definition branch's own isolated number, independent of the
+// entries below (a different branch, sharing only the 1015 ancestor).
+//
+// Traceability-Semantik final review (2026-09-10), isolated on its own
+// branch, also independent of the attribute-definition entries above (same
+// 1015 ancestor, different deletion): -21 `TraceabilityView/TraceLinksForm.tsx`
+// — deleted. Exported but never imported outside its own test file, and it
+// filtered trace links on retired link-type literals, so it could not have
+// worked any more even if it had been mounted. 1015 - 21 = 994, re-measured
+// on that branch alone: 994.
+//
+// Merge of the two branches above (2026-09-10): both sets of deletions are
+// now in the same tree, so neither 867 nor 994 alone is correct — re-measured
+// fresh on the merged tree per this file's own stated rule (never compute
+// deltas across concurrently-landing branches): 846, which also equals
+// 867 - 21 since the two branches' deletions touched disjoint files.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 867;
+const STYLE_BRACE_BASELINE = 846;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

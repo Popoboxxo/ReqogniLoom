@@ -8,7 +8,7 @@ Covers:
   REQ-L2-DS-006 AC1: Canvas diagram persisted as JSON stroke data (primary format).
   REQ-L2-DS-006 AC2: SVG export generated from stroke data.
   REQ-L2-DS-006 AC3: Auto-Save with max 5s interval (persistence path tested).
-  REQ-L2-DS-006 AC5: TraceLink (type 'documents') creation.
+  REQ-L2-DS-006 AC5: TraceLink (type 'references') creation.
   REQ-L2-DS-006 AC6: MCP artifact.get returns canvas payload.
 
   IF-DS-INT-004: validate_canvas_strokes(stroke_data) -> ValidationResult
@@ -886,7 +886,7 @@ class TestCanvasJsonAttributeInjection:
 # ---------------------------------------------------------------------------
 
 class TestCanvasTraceLink:
-    """REQ-L2-DS-006 AC5: TraceLink (type 'documents') creation."""
+    """REQ-L2-DS-006 AC5: TraceLink (type 'references') creation."""
 
     def test_link_canvas_to_artifact(self, canvas_editor, tenant_a, workspace_a):
         with active_tenant(tenant_a):

@@ -1,8 +1,8 @@
 """
 Requirement-hierarchy classification shared by the SE-Auditor rules.
 
-Issue #395. Root/leaf classification used to look at ``decomposes`` /
-``parent-child`` links **only** (a private ``_DECOMPOSITION_LINK_TYPES``
+Issue #395. Root/leaf classification used to look at ``decomposes`` links
+**only** (a private ``_DECOMPOSITION_LINK_TYPES``
 constant duplicated in ``rules/trace_derivation_allocation.py`` and
 ``rules/coverage_consistency.py``). The Requirement hierarchy that real
 workspaces actually contain is expressed predominantly through
@@ -22,7 +22,6 @@ added to the old constant:
 link type            source                      target
 ===================  ==========================  ==========================
 ``decomposes``       parent (the decomposed)     child (the result)
-``parent-child``     parent                      child
 ``derives-from``     child (the derived)         parent (the origin)
 ===================  ==========================  ==========================
 
@@ -32,10 +31,11 @@ child as a parent — inverting the hierarchy instead of recognising it. This
 module therefore normalises both spellings into a single set of
 ``(parent_id, child_id)`` pairs, and root/leaf are derived from that.
 
-``refines`` is deliberately *not* treated as a hierarchy edge: it expresses
-"same requirement, more detail" on one level, not decomposition onto the next
-one, and ``SE_LINK_SEMANTICS`` allows it symmetrically between Requirements,
-so its direction carries no level semantics.
+``refines`` no longer exists as a link type: the migration folded it into
+``derives-from``. Because ``derives-from`` *is* a hierarchy edge, every
+formerly symmetric ``refines`` edge between two Requirements now carries
+level semantics it did not have before — see OFFENE FRAGE 2 in
+docs/superpowers/plans/2026-09-03-traceability-semantik.md.
 
 Only edges whose *both* endpoints are Requirements in the audited set count.
 A ``Requirement --derives-from--> StakeholderNeed`` link is legal and common,
@@ -72,14 +72,17 @@ classifier.
 """
 from __future__ import annotations
 
-from typing import FrozenSet, Set, Tuple
+from typing import Dict, FrozenSet, Set, Tuple
+from uuid import UUID
 
 from traceability.audit.types import AuditContext
 from traceability.types import LinkType
 
 #: Hierarchy links stored as parent -> child (source is the parent).
+#: ``parent-child`` is gone — the migration folded it into ``decomposes``,
+#: which carries the same direction (source = parent).
 PARENT_TO_CHILD_LINK_TYPES: FrozenSet[str] = frozenset(
-    {LinkType.DECOMPOSES.value, LinkType.PARENT_CHILD.value}
+    {LinkType.DECOMPOSES.value}
 )
 
 #: Hierarchy links stored as child -> parent (source is the child) — the
@@ -156,10 +159,45 @@ def leaf_requirement_ids(
     return requirement_ids - frozenset(parent_ids)
 
 
+def classify_requirements(workspace_id: str | UUID) -> Dict[str, Set[str]]:
+    """Return ``{"roots": {...}, "leaves": {...}}`` for a workspace's Requirements.
+
+    Convenience wrapper for callers that only have a bare ``workspace_id``
+    (e.g. ``diff_auditor_findings`` and its tests) and would otherwise have to
+    duplicate the ``AuditContext`` + Requirement-id-set construction that
+    :func:`_active_requirements` in ``rules/trace_derivation_allocation.py``
+    and ``rules/coverage_consistency.py`` each do for their own, rule-specific
+    (active/non-L4) needs. This wrapper deliberately does NOT replicate that
+    filtering — it classifies every Requirement artifact in the workspace,
+    active or not, L4 or not — so it stays a thin, general-purpose entry point
+    over :func:`root_requirement_ids` / :func:`leaf_requirement_ids` rather
+    than a third copy of rule-specific business logic.
+    """
+    from persistence.models import Requirement, Workspace
+
+    workspace_id = str(workspace_id)
+    tenant_id = str(Workspace.unscoped.values_list("tenant_id", flat=True).get(id=workspace_id))
+    requirement_ids = frozenset(
+        str(artifact_id)
+        for artifact_id in Requirement.unscoped.filter(
+            tenant_id=tenant_id, artifact__workspace_id=workspace_id
+        ).values_list("artifact_id", flat=True)
+    )
+    # tier is irrelevant here: root/leaf classification only reads trace
+    # links (AuditContext.iter_trace_links), never scope_item_ids, so no
+    # rigor-preset resolution is needed for this read-only wrapper.
+    context = AuditContext(tier="standard", workspace_id=workspace_id, tenant_id=tenant_id)
+    return {
+        "roots": set(root_requirement_ids(context, requirement_ids)),
+        "leaves": set(leaf_requirement_ids(context, requirement_ids)),
+    }
+
+
 __all__ = [
     "CHILD_TO_PARENT_LINK_TYPES",
     "HIERARCHY_LINK_TYPES",
     "PARENT_TO_CHILD_LINK_TYPES",
+    "classify_requirements",
     "leaf_requirement_ids",
     "requirement_hierarchy_edges",
     "root_requirement_ids",

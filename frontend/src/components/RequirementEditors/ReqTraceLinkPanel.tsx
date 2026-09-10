@@ -44,7 +44,7 @@ import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';
 import { useHasRole } from '../../hooks/useHasRole';
-import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
+import { LINK_TYPE_LABELS, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
   TraceLink,
@@ -621,7 +621,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             disabled={isSubmitting}
             style={inputStyle}
           >
-            {ALL_LINK_TYPES.map((lt) => (
+            {Object.keys(LINK_TYPE_LABELS).map((lt) => (
               <option key={lt} value={lt}>
                 {getLinkTypeLabel(lt)}
               </option>

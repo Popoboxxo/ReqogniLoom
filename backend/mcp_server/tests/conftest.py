@@ -51,6 +51,7 @@ from auth_tenancy.services.authentication import (
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from presets.models import WorkspacePresetConfig
+from link_types.workspace_store import provision_workspace_link_types
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +218,11 @@ def e2e_workspace(
             name="E2E Test Workspace",
             is_active=True,
             preset=e2e_preset,
+        )
+        # Link validation is always-on: an unprovisioned workspace has an
+        # empty link-type catalog and rejects every trace link.
+        provision_workspace_link_types(
+            workspace_id=ws.id, tenant_id=e2e_tenant.id
         )
     finally:
         clear_request_tenant()

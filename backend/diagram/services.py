@@ -89,7 +89,7 @@ def create_diagram(
         tenant:         Active Tenant ORM object.
         description:    Optional description.
         created_by:     Optional User ORM object for audit.
-        target_id:      Optional target Artifact UUID for a 'documents' TraceLink.
+        target_id:      Optional target Artifact UUID for a 'references' TraceLink.
         workspace_id:   Optional owning workspace UUID (REQ-173).
 
     Returns:

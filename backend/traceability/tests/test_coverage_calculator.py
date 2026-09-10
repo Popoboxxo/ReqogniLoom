@@ -181,18 +181,19 @@ class TestFilteredCoverage:
                 calc.coverage(workspace_a.id, artifact_type="invalid-type")
 
     def test_custom_link_type_filter(self, calc, tenant_a, workspace_a):
-        """REQ-L2-TE-007: Filtering by link_type='satisfies' only counts those links."""
+        """REQ-L2-TE-007: Filtering by link_type='references' only counts those links."""
         with active_tenant(tenant_a):
             art_req, _ = make_requirement(tenant_a, workspace_a, "R-A")
             art_arch = make_artifact(tenant_a, workspace_a, "architecture_element")
-            # SE convention: ArchitectureElement satisfies Requirement
-            # (arch is source, requirement is target).
-            make_trace_link(art_arch, art_req, tenant_a, "satisfies")
+            # _get_covered_artifact_ids matches on target_id regardless of the
+            # link type's real allowed_pairs (raw SQL, no catalog check) — the
+            # requirement artifact must be the link TARGET to count as covered.
+            make_trace_link(art_arch, art_req, tenant_a, "references")
 
             # No verifies links → standard coverage is 0
             standard = calc.coverage(workspace_a.id)
-            # With satisfies filter → covered = 1
-            filtered = calc.coverage(workspace_a.id, link_type="satisfies")
+            # With references filter → covered = 1
+            filtered = calc.coverage(workspace_a.id, link_type="references")
 
         assert standard.covered == 0
         assert filtered.covered == 1

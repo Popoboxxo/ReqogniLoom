@@ -53,6 +53,15 @@ All planned features are implemented (2026-08-23). Matches 1:1 the already-verif
 ## [Archive/2026-08-23-system-workspace-banners-design.md](Archive/2026-08-23-system-workspace-banners-design.md)
 All planned features are implemented (2026-08-23, PR #713). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-23-system-workspace-banners.md`). One deliberate deviation: the spec's Data Model section describes a new standalone `banners` Django app, but the model was actually placed in the existing `admin_ops` app (`backend/admin_ops/models.py`) — a documented, architecturally-justified filing decision in the plan itself ("Layer 0, alongside `admin_ops`/`audit`"), not a scope gap.
 
+## [Archive/2026-09-03-attribute-definition-design.md](Archive/2026-09-03-attribute-definition-design.md)
+All planned features are implemented (PR #888, merged). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-09-03-attribute-definition.md`).
+
+## [Archive/2026-09-03-datenmodell-konsolidierung-design.md](Archive/2026-09-03-datenmodell-konsolidierung-design.md)
+All planned features are implemented (PR #880, merged). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-09-03-datenmodell-konsolidierung.md`).
+
+## [Archive/2026-09-03-traceability-semantik-design.md](Archive/2026-09-03-traceability-semantik-design.md)
+All planned features are implemented (PR #891, open — CI green, mergeable, awaiting human merge). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-09-03-traceability-semantik.md`).
+
 ---
 
 ## Open / deferred (not archived)
@@ -73,15 +82,6 @@ All planned features are implemented (2026-08-23, PR #713). Matches the already-
 
 ## [2026-08-20-multi-palette-theming-design.md](2026-08-20-multi-palette-theming-design.md)
 **Literal scope fully implemented, structural gap remains — kept out of Archive/ (2026-08-23).** All 3 phases this spec describes are fully built (verified in `docs/superpowers/plans/index.md`'s three `2026-08-2[01]-multi-palette-theming-phase*.md` entries) — the spec's own §5 already records all three as done with exact test counts. Not archived because open issue **#707** ("Theme palette and light/dark mode cannot be combined — flat list instead of two axes") is a structural gap this spec never addressed: palette and light/dark mode share one flat `THEMES` registry instead of being two independent, combinable axes. Tracked in `docs/UMSETZUNGSPLAN_POST-1.7.0-BACKLOG.md` Group K (P3, needs its own architectural redesign spec).
-
-## [2026-09-03-attribute-definition-design.md](2026-09-03-attribute-definition-design.md)
-**Not implemented — new spec (2026-09-03, amended same day).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. N/Q1.2. First of several independent follow-up specs from that audit (see the audit's own decomposition into ~11 architectural themes); implementation plan not yet written. Has a real ordering dependency on the second spec below — see its Section 7. Amended while writing the rollenbasierte-sichten spec: `audience: basic | expert` (Sections 3.1 and 6.1) is now natively specified here — a real toggle in the same `AttributeEditorPage` editor, not just a placeholder deferred to the other spec.
-
-## [2026-09-03-datenmodell-konsolidierung-design.md](2026-09-03-datenmodell-konsolidierung-design.md)
-**Not implemented — new spec (2026-09-03, amended same day).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. B1/B2/B6/Q2.3. Second of several independent follow-up specs from the same audit. Its Section 7 documents an ordering dependency: this spec's status-consolidation phase must land before the attribute-definition spec's bootstrap migration. Amended while writing the interview-engine-fix spec: the audit's B2 text wrongly listed `GlossaryTerm` as already Artifact-backed — it isn't (verified against `persistence/models.py` and `interview_artifact_adapters.py`'s explicit rejection) — so Section 4 now covers Diagram/Icd/GlossaryTerm together, not just the first two. Implementation plan not yet written.
-
-## [2026-09-03-traceability-semantik-design.md](2026-09-03-traceability-semantik-design.md)
-**Not implemented — new spec (2026-09-03, amended same day).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. B4/U1-U3/Q1.6/Q2.4. Third of several independent follow-up specs from the same audit. Reduces 15 trace-link types to 8, makes the link-type catalog a configurable Global/Workspace system object (same inheritance pattern as workflow-defaults and attribute-definition), and implements the suspect-propagation mechanism that already-filed GitHub issue #849 needs. Has a cross-spec note (Section 5) for the datenmodell-konsolidierung spec (`suspect` should eventually move to `Artifact`, not implemented there yet) and (Section 5) for the ki-vorschlag-als-zustand spec (`proposed_by`/`proposed_at` fields on TraceLink, not implemented there yet). Amended while writing the github-jira-integration spec: `references`' allowed targets now include `ExternalRef`. Implementation plan not yet written.
 
 ## [2026-09-03-interview-engine-fix-design.md](2026-09-03-interview-engine-fix-design.md)
 **Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. L, R6. Fourth of several independent follow-up specs from the same audit. Smaller than the first three: reuses the already-productive `ARTIFACT_CREATION_ADAPTERS` registry (from the archived multi-artifact-interview spec) to fix the single-kind `formalize()` path instead of building new infrastructure. Depends on the datenmodell-konsolidierung spec's amended Section 4 for GlossaryTerm interview support. Deliberately deviates from the audit's S19 UI recommendation (keeps `/interviews` as the primary surface, reduces the widget instead) per explicit user direction. Implementation plan not yet written.

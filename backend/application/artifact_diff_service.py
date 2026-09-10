@@ -78,7 +78,7 @@ from persistence.models import (
     StakeholderNeed,
     TestCase,
 )
-from traceability.types import normalize_artifact_type
+from link_types.catalog import normalize_artifact_type
 
 from application.models import Adr, Goal, Issue, MainGoal, Risk
 

@@ -22,9 +22,11 @@ graphify-out/
 
 
 # --- agent-meta managed (do not edit) ---
+.agents/hooks/
 .claude/agent-memory-local/
 .claude/agents/
 .claude/pending-tasks.md
+.claude/progress/
 .claude/settings.json
 .claude/settings.local.json
 .gemini/agents/
@@ -44,7 +46,6 @@ graphify-out/
 .opencode/mcp.local.json
 .opencode/pending-tasks.md
 .opencode/settings.local.json
-AGENTS.md
 AGENTS.personal.md
 CLAUDE.personal.md
 opencode.json
@@ -96,3 +97,8 @@ docs/test-reports/design-audit-populated/
 docs/test-reports/design-audit-screenshots/
 docs/test-reports/e2e/
 .worktrees/
+.claude/rules/se-cascade-review-lifecycle.md
+.claude/rules/se-cascade-adr-standard.md
+.claude/rules/threat-model-4-questions.md
+.claude/rules/security-paved-roads.md
+.claude/rules/se-cascade-artifact-taxonomy.md

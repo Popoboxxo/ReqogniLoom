@@ -59,7 +59,7 @@ const MOCK_TRACE_LINK = {
   workspace_id: "ws-arch-001",
   source_id: "req-nav-001",
   target_id: "arch-001",
-  link_type: "implements",
+  link_type: "allocated-to",
   created_at: "2026-02-10T10:00:00Z",
 };
 
@@ -122,7 +122,7 @@ describe("useArchitectureData (REQ-049)", () => {
     await waitFor(() => expect(result.current.element).not.toBeNull());
     expect(result.current.element?.id).toBe("arch-001");
     expect(result.current.linkedTraceLinks).toHaveLength(1);
-    expect(result.current.linkedTraceLinks[0].link_type).toBe("implements");
+    expect(result.current.linkedTraceLinks[0].link_type).toBe("allocated-to");
   });
 
   it("[REQ-049] surfaces detail error via error property when detail query fails", async () => {

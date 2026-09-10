@@ -15,10 +15,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { TracePanel } from "./TracePanel";
 import * as tracelinksModule from "../../../api/tracelinks";
 import * as workspaceModule from "../../../context/WorkspaceContext";
+import * as linkTypeModule from "../../../context/LinkTypeContext";
 
 // Mock API modules
 vi.mock("../../../api/tracelinks");
 vi.mock("../../../context/WorkspaceContext");
+vi.mock("../../../context/LinkTypeContext");
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -37,7 +39,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       id: "link-1",
       source_id: "artifact-001",
       target_id: "req-1",
-      link_type: "satisfies",
+      link_type: "allocated-to",
       source_title: "Test Artifact",
       source_type: "Requirement",
       target_title: "Requirement A",
@@ -48,7 +50,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       id: "link-2",
       source_id: "arch-1",
       target_id: "artifact-001",
-      link_type: "implements",
+      link_type: "verifies",
       source_title: "Architecture B",
       source_type: "ArchitectureElement",
       target_title: "Test Artifact",
@@ -57,6 +59,23 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
     },
   ];
 
+  /** A minimal workspace catalog — two of the eight built-in keys. */
+  function mockCatalog(keys: string[]): void {
+    vi.mocked(linkTypeModule.useLinkTypes).mockReturnValue({
+      linkTypes: keys.map((key) => ({
+        key,
+        definition: { label: {}, allowed_pairs: [] },
+      })),
+      isLoading: false,
+      error: null,
+      reload: vi.fn(),
+      creatableLinkTypes: [],
+      definitionFor: () => undefined,
+      isAllowedPair: () => true,
+      labelFor: (key: string) => key,
+    } as any);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -64,6 +83,8 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
     vi.mocked(workspaceModule.useWorkspace).mockReturnValue({
       activeWorkspace: mockWorkspace,
     } as any);
+
+    mockCatalog(["allocated-to", "verifies"]);
 
     vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
       results: mockTraceLinksData,
@@ -173,6 +194,51 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
     await waitFor(() => {
       expect(screen.getByText(/sidebar.trace.empty/i)).toBeInTheDocument();
     });
+  });
+
+  it("renders a chip per catalog link type, not a hardcoded list", async () => {
+    mockCatalog(["allocated-to", "verifies", "decides", "mitigates"]);
+
+    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trace-filter-chip-decides")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("trace-filter-chip-mitigates")).toBeInTheDocument();
+    // The retired types this panel used to hardcode are gone from the chips.
+    expect(screen.queryByTestId("trace-filter-chip-satisfies")).toBeNull();
+  });
+
+  it("still renders a link whose type the catalog does not know", async () => {
+    // The regression this test exists for: the panel used to filter every
+    // link through a static 8-value list and *drop* the rest with no error,
+    // no empty state and no visible sign. An unknown key must stay visible
+    // and get its own chip, labelled with the raw key.
+    mockCatalog(["verifies"]);
+    vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
+      results: [
+        {
+          id: "link-x",
+          source_id: mockArtifactId,
+          target_id: "arch-9",
+          link_type: "conflicts-with",
+          source_title: "Test Artifact",
+          source_type: "Requirement",
+          target_title: "Tenant Invented Target",
+          target_type: "ArchitectureElement",
+          created_at: "2026-01-17T08:00:00Z",
+        },
+      ],
+    } as any);
+
+    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Tenant Invented Target")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId("trace-filter-chip-conflicts-with")
+    ).toBeInTheDocument();
   });
 
   it("should reload links when artifact ID changes", async () => {

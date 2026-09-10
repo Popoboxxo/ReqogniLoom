@@ -444,7 +444,7 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "params": {
             "arch_id": "__UUID_2A__",
             "target_id": "__UUID_2B__",
-            "link_type": "satisfies",
+            "link_type": "decomposes",
             "workspace_id": "__WORKSPACE__",
         },
         "result_key": "trace_link",
@@ -957,7 +957,7 @@ _RBAC_DENIAL_CASES: List[Dict[str, Any]] = [
     # architecture.*
     {"tool": "architecture.create", "params": {"title": "X", "workspace_id": "__WORKSPACE__"}},
     {"tool": "architecture.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},
-    {"tool": "architecture.link", "params": {"arch_id": str(uuid4()), "target_id": str(uuid4()), "link_type": "refines", "workspace_id": "__WORKSPACE__"}},
+    {"tool": "architecture.link", "params": {"arch_id": str(uuid4()), "target_id": str(uuid4()), "link_type": "decomposes", "workspace_id": "__WORKSPACE__"}},
     # test.*
     {"tool": "test.create", "params": {"title": "X", "workspace_id": "__WORKSPACE__"}},
     {"tool": "test.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},
@@ -2146,13 +2146,23 @@ def test_e2e_user_assign_role_invalid_role_returns_validation_error(
 def test_e2e_architecture_link_invalid_link_type_returns_validation_error(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """Unknown link_type -> VALIDATION_ERROR."""
+    """Unknown link_type -> VALIDATION_ERROR, decided by the workspace catalog.
+
+    Real endpoints, not random UUIDs: the hardcoded ``MANUAL_LINK_TYPES``
+    pre-check that used to reject the key before anything was resolved is
+    gone (same treatment Task 21 gave ``traceability.create_link``), so the
+    verdict now comes from the resolved catalog *after* endpoint resolution —
+    which means unresolvable endpoints would produce NOT_FOUND instead and
+    this test would no longer be testing link-type validation at all.
+    """
+    arch = _seed_architecture_element(e2e_workspace)
+    target = _seed_requirement(e2e_workspace)
     response = post_mcp(
         admin_client,
         "architecture.link",
         {
-            "arch_id": str(uuid4()),
-            "target_id": str(uuid4()),
+            "arch_id": str(arch.artifact_id),
+            "target_id": str(target.artifact_id),
             "link_type": "made-up",
             "workspace_id": str(e2e_workspace.id),
         },

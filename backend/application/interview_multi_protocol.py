@@ -21,6 +21,7 @@ import re
 from typing import Any, Optional
 
 from application.prompt_resolver import resolve_and_render
+from link_types.catalog import resolve_catalog
 
 _MULTI_PROTOCOL_SLOT = "interview.protocol.multi"
 
@@ -40,16 +41,36 @@ information, propose a list of artifacts as a fenced ```json code block, \
 each item shaped as:
 {"type": "<ArtifactType>", "title": "<short title>", "fields": {<fields for that type's create call>}, "links": [{"from": <index>, "to": <index>, "type": "<trace-link-type>"}]}
 
-Use trace-link types from: parent-child, derives-from, satisfies, verifies, \
-implements, refines, documents, realizes, traces, copy-of, allocated-to, \
-uses-term, decides, decomposes. Never propose "diagram-ref" -- it is \
-system-managed only.
+Use trace-link types from the workspace's link-type catalog, which is supplied \
+in the prompt context as `available_link_types`. Never propose a type that is \
+not in that list.
+
+available_link_types: {available_link_types}
 
 Conversation so far:
 {transcript}
 
 User: {user_message}
 """
+
+
+def _available_link_types(workspace_id) -> str:
+    """Comma-separated, manually creatable link-type keys of *workspace_id*.
+
+    Read from the per-workspace catalog rather than hardcoded: the catalog is
+    tenant-extensible, so any literal list in the prompt goes stale the moment
+    a workspace adds or deactivates a type. ``system_owned`` keys (such as the
+    reconciler-owned ``diagram-ref``) are filtered out — the LLM must never
+    propose one.
+    """
+    catalog = resolve_catalog(workspace_id)
+    keys = sorted(
+        key
+        for key, definition in catalog.items()
+        if definition.get("manual_creatable", True)
+        and not definition.get("system_owned", False)
+    )
+    return ", ".join(keys)
 
 
 def get_multi_protocol_prompt(ctx: Any, workspace_id, user_message: str, transcript: list) -> str:
@@ -65,6 +86,7 @@ def get_multi_protocol_prompt(ctx: Any, workspace_id, user_message: str, transcr
         workspace_id,
         user_message=user_message,
         transcript=transcript_text,
+        available_link_types=_available_link_types(workspace_id),
     )
 
 

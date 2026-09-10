@@ -50,7 +50,7 @@ class TestDirectNeighborQueries:
             art_b = make_artifact(tenant_a, workspace_a, "architecture_element")
             art_c = make_artifact(tenant_a, workspace_a, "testcase")
 
-            make_trace_link(art_a, art_b, tenant_a, "satisfies")
+            make_trace_link(art_a, art_b, tenant_a, "allocated-to")
             make_trace_link(art_a, art_c, tenant_a, "verifies")
 
             results = engine.query_downstream(art_a.id)
@@ -94,7 +94,7 @@ class TestDirectNeighborQueries:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            make_trace_link(src, tgt, tenant_a, "satisfies")
+            make_trace_link(src, tgt, tenant_a, "allocated-to")
 
             down = engine.query(src.id, "downstream")
             up = engine.query(tgt.id, "upstream")
@@ -128,7 +128,7 @@ class TestTransitiveQueries:
             art_c = make_artifact(tenant_a, workspace_a, "testcase")
 
             make_trace_link(art_a, art_b, tenant_a, "derives-from")
-            make_trace_link(art_b, art_c, tenant_a, "implements")
+            make_trace_link(art_b, art_c, tenant_a, "decomposes")
 
             results = engine.query_transitive(art_a.id, "downstream")
 
@@ -148,7 +148,7 @@ class TestTransitiveQueries:
             art_c = make_artifact(tenant_a, workspace_a, "testcase")
 
             make_trace_link(art_a, art_b, tenant_a, "derives-from")
-            make_trace_link(art_b, art_c, tenant_a, "implements")
+            make_trace_link(art_b, art_c, tenant_a, "decomposes")
 
             results = engine.query_transitive(art_c.id, "upstream")
 
@@ -163,7 +163,7 @@ class TestTransitiveQueries:
             mid = make_artifact(tenant_a, workspace_a, "architecture_element")
             end = make_artifact(tenant_a, workspace_a, "testcase")
 
-            make_trace_link(src, mid, tenant_a, "satisfies")
+            make_trace_link(src, mid, tenant_a, "allocated-to")
             make_trace_link(mid, end, tenant_a, "verifies")
 
             results = engine.query(src.id, "downstream", transitive=True)

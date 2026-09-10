@@ -35,6 +35,7 @@ import { queryClient } from "./queries/queryClient";
 import { readCookie } from "./api/client";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { LinkTypeProvider } from "./context/LinkTypeContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
 
@@ -101,7 +102,9 @@ function AppInner(): JSX.Element {
       <CsrfCookieWarning />
       <ThemeProvider>
         <WorkspaceProvider>
-          <NavigationShell />
+          <LinkTypeProvider>
+            <NavigationShell />
+          </LinkTypeProvider>
         </WorkspaceProvider>
       </ThemeProvider>
     </AuthProvider>

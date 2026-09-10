@@ -38,7 +38,7 @@ class TestCreateDoesNotFetchUnusedEmbeddingColumn:
         self, manager, tenant_a, workspace_a
     ):
         with active_tenant(tenant_a):
-            # A pre-existing 'satisfies' link so the cycle-detection SELECT
+            # A pre-existing allocated-to link so the cycle-detection SELECT
             # inside create() actually returns a row — proving the deferred
             # column isn't fetched even when there is data to fetch it for,
             # not just on an empty table.
@@ -47,7 +47,7 @@ class TestCreateDoesNotFetchUnusedEmbeddingColumn:
                 tenant_a, workspace_a, "architecture_element"
             )
             make_trace_link(
-                existing_src, existing_tgt, tenant_a, link_type="satisfies"
+                existing_src, existing_tgt, tenant_a, link_type="allocated-to"
             )
 
             new_src = make_artifact(tenant_a, workspace_a, "requirement")
@@ -57,7 +57,7 @@ class TestCreateDoesNotFetchUnusedEmbeddingColumn:
                 link = manager.create(
                     source_id=new_src.id,
                     target_id=new_tgt.id,
-                    link_type="satisfies",
+                    link_type="allocated-to",
                 )
 
         assert link.id is not None

@@ -133,7 +133,7 @@ def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 
 
 def create_icd(payload: IcdCreateDTO) -> IcdResult:
-    """Create a new ICD at revision 1 with a 'realizes' TraceLink.
+    """Create a new ICD at revision 1 with a 'decomposes' TraceLink.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 

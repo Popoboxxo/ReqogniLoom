@@ -121,6 +121,16 @@ def _create_risk(client: APIClient, workspace: Workspace, title: str) -> dict:
     return response.json()
 
 
+def _create_architecture(client: APIClient, workspace: Workspace, title: str) -> dict:
+    response = client.post(
+        "/api/v1/architecture/",
+        {"workspace_id": str(workspace.id), "title": title},
+        format="json",
+    )
+    assert response.status_code == 201, response.content
+    return response.json()
+
+
 def _create_link(
     client: APIClient,
     workspace: Workspace,
@@ -183,12 +193,38 @@ def test_trace_links_survive_a_testcase_soft_delete_and_reactivate(
 def test_trace_links_survive_an_issue_soft_delete_and_reactivate(
     authed_client, workspace, tenant
 ):
-    req = _create_requirement(authed_client, workspace, "Linked to issue")
+    arch = _create_architecture(authed_client, workspace, "Linked from issue")
     issue = _create_issue(authed_client, workspace, "Link source Issue")
 
-    link = _create_link(
-        authed_client, workspace, issue["id"], req["id"], LinkType.TRACES.value
-    )
+    # `traces` until the link-type catalog retired it. The type is incidental
+    # to #484 (soft-delete must not cascade); `references` Issue ->
+    # ArchitectureElement is the pair recorded in
+    # link_types/grandfathered.py, but that pair is only backfilled onto
+    # catalog rows that already had legacy `traces` data when migration
+    # 0004 ran -- a workspace provisioned fresh (like this test's) never
+    # gets it, so POST /api/v1/tracelinks/ (which validates via
+    # link_types.catalog.validate_link_pair) rejects it with 400. No built-in
+    # type covers Issue on either side at all (link_types/builtin.py), so
+    # there is no pair this fixture could use through the validated REST
+    # path. Bypass it the same way diagram.traceability_connector does
+    # (Layer 3, traceability.services.create_trace_link) -- the type/pair is
+    # still incidental to what #484 actually tests (soft-delete must not
+    # cascade), only *how the row gets created* differs.
+    from persistence.models import Issue
+
+    from traceability.services import create_trace_link as _te_create_trace_link
+
+    set_request_tenant(tenant.id)
+    try:
+        issue_artifact_id = Issue.objects.get(id=issue["id"]).artifact_id
+        created = _te_create_trace_link(
+            source_id=issue_artifact_id,
+            target_id=arch["artifact_id"],
+            link_type=LinkType.REFERENCES.value,
+        )
+    finally:
+        clear_request_tenant()
+    link = {"id": str(created.id)}
 
     deleted = authed_client.delete(f"/api/v1/issues/{issue['id']}/")
     assert deleted.status_code == 204, deleted.content
@@ -209,8 +245,11 @@ def test_trace_links_survive_a_risk_soft_delete_and_reactivate(
     req = _create_requirement(authed_client, workspace, "Linked to risk")
     risk = _create_risk(authed_client, workspace, "Link source Risk")
 
+    # `traces` until the link-type catalog retired it. The type is incidental
+    # to #484 (soft-delete must not cascade); `mitigates` is the one built-in
+    # type with a Risk -> Requirement pair.
     link = _create_link(
-        authed_client, workspace, risk["id"], req["id"], LinkType.TRACES.value
+        authed_client, workspace, risk["id"], req["id"], LinkType.MITIGATES.value
     )
 
     deleted = authed_client.delete(f"/api/v1/risks/{risk['id']}/")

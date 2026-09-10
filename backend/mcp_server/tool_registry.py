@@ -277,6 +277,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # WRITE-gated via _WRITE_TOOL_PREFIXES above.
         "memory.query",
         "memory.list",
+        # Task 21 of the traceability-semantik plan: link_type.list/get are
+        # plain catalog reads -- link_type.create/update/reset stay
+        # fail-closed WRITE-gated (admin-only, enforced again inside
+        # LinkTypeFacade._require_admin).
+        "link_type.list",
+        "link_type.get",
         # Attribute-Definition spec section 5, Task 12: attribute_definition.list
         # (admin-gated in the service, tenant-wide) and attribute_definition.get
         # (workspace_id required in its inputSchema, same class as
@@ -545,6 +551,7 @@ class ToolRegistry:
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
         from mcp_server.tools.interview import InterviewToolGroup
         from mcp_server.tools.memory import MemoryToolGroup
+        from mcp_server.tools.link_type import LinkTypeToolGroup
         from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
@@ -603,6 +610,10 @@ class ToolRegistry:
             # over the Task 3 MemoryBackend abstraction. Standalone prefix (no
             # sharing, unlike e.g. "traceability"/"artifact"/"context").
             "memory": MemoryToolGroup(),
+            # Task 21 of the traceability-semantik plan: read/write access to
+            # the per-tenant/per-workspace link-type catalog (Task 19's
+            # LinkTypeFacade). link_type.list/get are read-exempt below.
+            "link_type": LinkTypeToolGroup(),
             # Attribute-Definition spec section 5, Task 12: manages
             # attribute_definitions rows themselves (list/get/update/reset) --
             # NOT to be confused with validate_artifact_fields, which is

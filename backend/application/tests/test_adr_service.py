@@ -747,12 +747,14 @@ def te020_user(te020_tenant):
 
 @pytest.fixture
 def te020_workspace(te020_tenant):
-    from persistence.models import Workspace
     from persistence.tenancy import TenantContext
+    from persistence.tests.factories import make_workspace
 
     TenantContext.set_tenant(te020_tenant.id)
     try:
-        return Workspace.objects.create(tenant=te020_tenant, name="te020-workspace")
+        # make_workspace, not Workspace.objects.create: it also provisions the
+        # link-type catalog, without which every trace link is rejected.
+        return make_workspace(te020_tenant, name="te020-workspace")
     finally:
         TenantContext.clear_tenant()
 

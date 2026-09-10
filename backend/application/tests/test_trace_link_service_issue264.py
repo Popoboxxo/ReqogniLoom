@@ -153,7 +153,7 @@ class TestTraceLinkErrorMapping:
     error occurred`` — an HTTP 500 for what is a rejected input.
     """
 
-    def _create_with(self, side_effect, link_type="traces"):
+    def _create_with(self, side_effect, link_type="references"):
         """Run create_trace_link with the engine raising *side_effect*."""
         svc = TraceLinkService()
         ctx = _make_ctx()
@@ -165,11 +165,11 @@ class TestTraceLinkErrorMapping:
             # #625: create_trace_link resolves via _resolve_artifact (id +
             # already-loaded Artifact row) so the checks below can reuse the
             # row instead of re-SELECTing it. The stub returns no row; the
-            # only consumer, _check_se_semantics, is patched out anyway.
+            # only consumer, _check_link_pair, is patched out anyway.
             stack.enter_context(
                 patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None))
             )
-            stack.enter_context(patch.object(svc, "_check_se_semantics"))
+            stack.enter_context(patch.object(svc, "_check_link_pair"))
             stack.enter_context(
                 patch(
                     "traceability.services.create_trace_link",
@@ -186,14 +186,14 @@ class TestTraceLinkErrorMapping:
     def test_cycle_detected_maps_to_validation_error(self):
         """A cycle is a rejected input, not a server fault.
 
-        Reproduces the #264 Befund C sequence: once ``traces``
-        Goal -> Requirement exists, ``traces`` Requirement -> Goal closes the
-        cycle. That used to surface as HTTP 500.
+        Reproduces the #264 Befund C sequence: once a ``references``
+        Goal -> Requirement link exists, ``references`` Requirement -> Goal
+        closes the cycle. That used to surface as HTTP 500.
         """
         from traceability.exceptions import CycleDetectedError
 
         with pytest.raises(ValidationError, match="Cycle detected"):
-            self._create_with(CycleDetectedError("traces"))
+            self._create_with(CycleDetectedError("references"))
 
     def test_cross_tenant_error_maps_to_validation_error(self):
         from traceability.exceptions import CrossTenantLinkError

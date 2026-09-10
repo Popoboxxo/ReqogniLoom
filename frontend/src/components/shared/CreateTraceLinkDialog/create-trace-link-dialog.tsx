@@ -29,7 +29,7 @@ import { adrsApi } from '../../../api/adrs';
 import { risksApi } from '../../../api/risks';
 import { issuesApi } from '../../../api/issues';
 import { tracelinksApi } from '../../../api/tracelinks';
-import { ALL_LINK_TYPES, getTriLabel } from '../../../constants/traceLinkLabels';
+import { useLinkTypes } from '../../../context/LinkTypeContext';
 import { Dialog } from '../Dialog';
 import type { LinkType } from '../../../types';
 
@@ -38,6 +38,22 @@ import type { LinkType } from '../../../types';
 // ---------------------------------------------------------------------------
 
 export type ArtifactTypeKey = 'all' | 'requirement' | 'architecture' | 'testcase' | 'adr' | 'risk' | 'issue';
+
+/**
+ * `ArtifactTypeKey` -> the backend's PascalCase `artifact_type` spelling
+ * (see `backend/link_types/builtin.py::_pairs`, `backend/application/issue_service.py`).
+ * Needed to call `LinkTypeContext.isAllowedPair(key, sourceType, targetType)`,
+ * which expects the backend spelling, not this component's internal short keys.
+ * `'all'` is a filter-tab-only value, never an actual element's artifactType.
+ */
+const ARTIFACT_TYPE_KEY_TO_BACKEND: Record<Exclude<ArtifactTypeKey, 'all'>, string> = {
+  requirement: 'Requirement',
+  architecture: 'ArchitectureElement',
+  testcase: 'TestCase',
+  adr: 'Adr',
+  risk: 'Risk',
+  issue: 'Issue',
+};
 
 interface TargetElement {
   id: string;
@@ -99,6 +115,15 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
   marginBottom: 'var(--space-1)',
   color: 'var(--color-text)',
+  fontSize: 'var(--font-size-sm)',
+};
+
+// A named const, not an inline object literal, on purpose: the frozen
+// ratchet baseline in src/test/ui-ratchet.test.ts caps new inline-style
+// object literals used directly in a `style=` prop.
+const noTypesHintStyle: React.CSSProperties = {
+  margin: 'var(--space-1) 0 0',
+  color: 'var(--color-text-muted)',
   fontSize: 'var(--font-size-sm)',
 };
 
@@ -352,6 +377,8 @@ export function CreateTraceLinkDialog({
   // convention used elsewhere (e.g. SidebarNavigation.tsx).
   const triLabelLang = i18n?.language?.startsWith('de') ? 'de' : 'en';
 
+  const { creatableLinkTypes, isAllowedPair, labelFor } = useLinkTypes();
+
   // Keep the latest `t` in a ref so data-loading callbacks can read it without
   // taking a dependency on it. react-i18next normally returns a referentially
   // stable `t`, but a language switch (or an unstable test/wrapper) yields a
@@ -375,6 +402,48 @@ export function CreateTraceLinkDialog({
 
   // The actual source to use in the API call
   const effectiveSourceId = sourceId ?? selectedSourceId;
+
+  // Resolve the backend artifact_type of an endpoint by looking it up in the
+  // loaded element list — the dialog only ever knows ids, never types, until
+  // the corresponding element has been fetched.
+  const effectiveSourceType = useMemo(() => {
+    const el = allElements.find((e) => e.id === effectiveSourceId);
+    return el ? ARTIFACT_TYPE_KEY_TO_BACKEND[el.artifactType as Exclude<ArtifactTypeKey, 'all'>] : undefined;
+  }, [allElements, effectiveSourceId]);
+
+  const selectedTargetType = useMemo(() => {
+    const el = allElements.find((e) => e.id === selectedTargetId);
+    return el ? ARTIFACT_TYPE_KEY_TO_BACKEND[el.artifactType as Exclude<ArtifactTypeKey, 'all'>] : undefined;
+  }, [allElements, selectedTargetId]);
+
+  // Only the types whose allowed_pairs actually fit the chosen endpoints
+  // (spec section 4.1): offering a type the backend will reject turns a
+  // preventable mistake into a 400 after the user hits Save.
+  //
+  // Both sides fall back to the wildcard when they cannot be resolved, for
+  // the same "not yet known" reason. The source used to fall back to `''`,
+  // which matches no real pair — and the dialog is opened with a `sourceId`
+  // for StakeholderNeed (NeedsEditors/TraceLinkPanel) and GlossaryTerm
+  // (GlossaryView), neither of which this dialog's element loader ever
+  // fetches. For those the source stayed unresolved forever, every type got
+  // filtered out, and the user saw "no link type connects these artifacts"
+  // with Create permanently disabled. An offer the backend may still reject
+  // is strictly better than an empty list that cannot be recovered from.
+  const availableLinkTypes = useMemo(
+    () =>
+      creatableLinkTypes.filter((row) =>
+        isAllowedPair(row.key, effectiveSourceType ?? '*', selectedTargetType ?? '*'),
+      ),
+    [creatableLinkTypes, isAllowedPair, effectiveSourceType, selectedTargetType],
+  );
+
+  // Keep the selection valid when the endpoints change under it.
+  useEffect(() => {
+    if (availableLinkTypes.length === 0) return;
+    if (!availableLinkTypes.some((row) => row.key === linkType)) {
+      setLinkType(availableLinkTypes[0].key);
+    }
+  }, [availableLinkTypes, linkType]);
 
   // Load all elements when dialog opens
   const loadElements = useCallback(async (): Promise<void> => {
@@ -523,7 +592,12 @@ export function CreateTraceLinkDialog({
             form={formId}
             data-testid="create-trace-link-submit"
             className="btn-primary"
-            disabled={isSubmitting || !selectedTargetId || (isGlobalMode && !selectedSourceId)}
+            disabled={
+              isSubmitting ||
+              !selectedTargetId ||
+              (isGlobalMode && !selectedSourceId) ||
+              availableLinkTypes.length === 0
+            }
             title={submitDisabledReason}
           >
             {isSubmitting
@@ -588,12 +662,20 @@ export function CreateTraceLinkDialog({
             disabled={isSubmitting}
             style={inputStyle}
           >
-            {ALL_LINK_TYPES.map((lt) => (
-              <option key={lt} value={lt}>
-                {getTriLabel(lt, triLabelLang, 'neutral')}
+            {availableLinkTypes.map((row) => (
+              <option key={row.key} value={row.key}>
+                {labelFor(row.key, triLabelLang, 'neutral')}
               </option>
             ))}
           </select>
+          {availableLinkTypes.length === 0 && (
+            <p data-testid="create-trace-link-no-types" style={noTypesHintStyle}>
+              {t(
+                'traceability.noLinkTypeForPair',
+                'No link type in this workspace connects these two artifact types.',
+              )}
+            </p>
+          )}
         </div>
 
         {/* Error message */}

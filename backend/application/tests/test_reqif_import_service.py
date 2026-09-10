@@ -75,7 +75,7 @@ def source_workspace():
     Tree:  need1 -> req1 -> req2   (3 levels deep)
            need2                    (top-level)
            req3                     (top-level)
-    TraceLinks: req1 --satisfies--> need1, req2 --verifies--> req1
+    TraceLinks: req1 --derives-from--> need1, req2 --verifies--> req1
     """
     tenant = Tenant.objects.create(
         name="Reqif-Import-Src-T", slug="reqif-import-src-t", is_active=True
@@ -153,7 +153,7 @@ def source_workspace():
         )
 
         satisfies_link = TraceLink.objects.create(
-            tenant=tenant, source=req1_art, target=need1_art, link_type="satisfies"
+            tenant=tenant, source=req1_art, target=need1_art, link_type="derives-from"
         )
         verifies_link = TraceLink.objects.create(
             tenant=tenant, source=req2_art, target=req1_art, link_type="verifies"
@@ -280,7 +280,7 @@ class TestReqifImportRoundTrip:
         )
 
         assert TraceLink.objects.filter(
-            source=req1_copy.artifact, target=need1_copy.artifact, link_type="satisfies"
+            source=req1_copy.artifact, target=need1_copy.artifact, link_type="derives-from"
         ).exists()
         assert TraceLink.objects.filter(
             source=req2_copy.artifact, target=req1_copy.artifact, link_type="verifies"
@@ -409,7 +409,7 @@ class TestReqifImportErrorCases:
     ):
         tenant = source_workspace["tenant"]
         reqif_text = _export(source_workspace["workspace"].id, tenant.id)
-        # Remove need1's SPEC-OBJECT entirely so the "satisfies" relation that
+        # Remove need1's SPEC-OBJECT entirely so the derives-from relation that
         # targets it becomes unresolvable.
         import re
 

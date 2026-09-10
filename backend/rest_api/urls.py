@@ -123,6 +123,13 @@ from rest_api.global_default_views import (
     WorkspacePermissionDefinitionView,
     WorkspacePermissionResetView,
 )
+from rest_api.link_type_views import (
+    LinkTypeDefaultsDetailView,
+    LinkTypeDefaultsListView,
+    WorkspaceLinkTypeDetailView,
+    WorkspaceLinkTypeListView,
+    WorkspaceLinkTypeResetView,
+)
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
@@ -586,6 +593,35 @@ urlpatterns = [
         "permission-mismatches/",
         PermissionMismatchListView.as_view(),
         name="permission-mismatches",
+    ),
+    # -- Link-type catalog (Task 19/20) — tenant-wide defaults + workspace
+    # overrides. reset/ precedes <str:key>/ so it is not shadowed.
+    path(
+        "link-type-defaults/",
+        LinkTypeDefaultsListView.as_view(),
+        name="link-type-defaults-list",
+    ),
+    path(
+        "link-type-defaults/<str:key>/",
+        LinkTypeDefaultsDetailView.as_view(),
+        name="link-type-defaults-detail",
+    ),
+    # <uuid:> deliberately, not <str:>: the lenient converter lets a non-UUID
+    # reach the view and 500 in the service instead of 404-ing at the router.
+    path(
+        "workspaces/<uuid:workspace_id>/link-type-definitions/",
+        WorkspaceLinkTypeListView.as_view(),
+        name="workspace-link-types-list",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/link-type-definitions/<str:key>/reset/",
+        WorkspaceLinkTypeResetView.as_view(),
+        name="workspace-link-types-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/link-type-definitions/<str:key>/",
+        WorkspaceLinkTypeDetailView.as_view(),
+        name="workspace-link-types-detail",
     ),
     # SE-Auditor (SysEng 2.0 Phase 3) — workspace-scoped audit dashboard.
     # remediate/ and ai-review/ must precede the audit/ run route so neither

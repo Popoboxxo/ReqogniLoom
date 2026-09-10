@@ -38,6 +38,23 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", default_link_type: "derives-from" } }),
 }));
 
+// Task 23: CreateTraceLinkDialog (rendered by TraceLinkPanel itself) now
+// reads the link-type catalog via useLinkTypes() — needs a provider-free
+// mock here, same as every other non-dialog-focused test that renders it
+// incidentally.
+vi.mock("../../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>(
