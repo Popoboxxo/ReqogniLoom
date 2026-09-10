@@ -7,7 +7,10 @@ from io import StringIO
 import pytest
 from django.core.management import call_command
 
+from django.core.management.base import CommandError
+
 from link_types.management.commands.inventory_link_types import (
+    blocking_triples,
     collect_observed_triples,
     uncovered_triples,
 )
@@ -103,3 +106,77 @@ def test_command_writes_json(workspace_with_links, tmp_path):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert "observed" in payload and "uncovered" in payload
     assert any(t["link_type"] == "allocated-to" for t in payload["observed"])
+
+
+# ---------- the pre-flight (issue #893) ----------
+
+
+@pytest.mark.django_db
+def test_a_grandfathered_triple_is_uncovered_but_not_blocking(workspace_with_links):
+    """The two lists answer different questions.
+
+    ``references`` Risk -> Requirement is not a built-in pair — so it stays in
+    ``uncovered``, which is what decides the contents of
+    ``GRANDFATHERED_PAIRS``. It *is* grandfathered, so the migration accepts
+    it and it must not show up as blocking.
+    """
+    observed = collect_observed_triples()
+    assert any(
+        t["link_type"] == "references" and t["source_type"] == "Risk"
+        for t in uncovered_triples(observed)
+    )
+    assert blocking_triples(observed) == []
+
+
+@pytest.mark.django_db
+def test_the_issue_893_rows_are_predicted_as_non_blocking(workspace_with_links):
+    """Both QA triples, seen from the pre-flight side, before any upgrade."""
+    from persistence.models import Artifact, TraceLink
+
+    ws = workspace_with_links
+
+    def artifact(kind: str) -> Artifact:
+        return Artifact.objects.create(tenant=ws.tenant, workspace=ws, artifact_type=kind)
+
+    req_a, req_b = artifact("Requirement"), artifact("Requirement")
+    risk, req_c = artifact("Risk"), artifact("Requirement")
+    TraceLink.objects.create(
+        tenant=ws.tenant, source=req_a, target=req_b, link_type="traces"
+    )
+    TraceLink.objects.create(
+        tenant=ws.tenant, source=risk, target=req_c, link_type="verifies"
+    )
+
+    observed = collect_observed_triples()
+    # `verifies` from a Risk is predicted under the type the migration retypes
+    # it to, not under the one the row still carries.
+    assert ("mitigates", "Risk", "Requirement") in {
+        (t["link_type"], t["source_type"], t["target_type"]) for t in observed
+    }
+    assert blocking_triples(observed) == []
+
+
+@pytest.mark.django_db
+def test_the_command_exits_non_zero_on_a_blocking_triple(workspace_with_links, tmp_path):
+    """A deploy script gates on this: fail before ``migrate``, not inside it."""
+    from persistence.models import Artifact, TraceLink
+
+    ws = workspace_with_links
+    source = Artifact.objects.create(
+        tenant=ws.tenant, workspace=ws, artifact_type="Requirement"
+    )
+    target = Artifact.objects.create(
+        tenant=ws.tenant, workspace=ws, artifact_type="Requirement"
+    )
+    # -> `allocated-to` Requirement -> Requirement, which nothing allows.
+    TraceLink.objects.create(
+        tenant=ws.tenant, source=source, target=target, link_type="satisfies"
+    )
+
+    out = tmp_path / "inventory.json"
+    with pytest.raises(CommandError, match="blocking triple"):
+        call_command("inventory_link_types", "--json", str(out), stdout=StringIO())
+
+    # The report is still written — the verdict comes last on purpose.
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert any(t["link_type"] == "allocated-to" for t in payload["blocking"])

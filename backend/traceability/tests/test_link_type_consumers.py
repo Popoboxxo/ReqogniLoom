@@ -31,6 +31,7 @@ ALLOWED = {
     "application/tests/test_trace_link_catalog_validation.py",  # asserts 'satisfies' is rejected as unknown
     "link_types/tests/test_catalog.py",   # asserts 'satisfies' is rejected as unknown
     "link_types/tests/test_inventory_command.py",  # writes legacy 'traces' rows on purpose to test legacy-mapping detection
+    "persistence/tests/test_migrate_trace_link_types.py",  # writes the legacy rows migration 0081 has to swallow (issue #893)
 }
 
 

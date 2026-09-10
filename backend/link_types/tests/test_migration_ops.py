@@ -8,9 +8,11 @@ import pytest
 
 from link_types.migration_ops import (
     find_copy_of_conflicts,
+    is_creatable,
     migrate_copy_of_links,
     migrate_parent_child_links,
     migrate_renamed_links,
+    predict_migrated_triple,
     verify_migrated_links,
 )
 from persistence.tenancy import TenantContext
@@ -128,11 +130,11 @@ def test_a_rename_that_would_duplicate_an_existing_edge_deletes_the_loser(env):
 
 @pytest.mark.django_db
 def test_the_eight_surviving_types_are_untouched(env):
-    a, b = env["artifact"](title="a"), env["artifact"](title="b")
-    env["link"](a, b, "verifies")
+    case, req = env["artifact"]("TestCase"), env["artifact"]("Requirement")
+    env["link"](case, req, "verifies")
     counts = migrate_renamed_links(env["TraceLink"])
     assert "verifies" not in counts
-    assert env["TraceLink"].objects.get(link_type="verifies").source_id == a.id
+    assert env["TraceLink"].objects.get(link_type="verifies").source_id == case.id
 
 
 # ---------- satisfies is two relations under one key ----------
@@ -159,6 +161,50 @@ def test_satisfies_to_stakeholder_need_becomes_derives_from_unswapped(env, need_
     assert "satisfies" not in counts
     assert row.source_id == req.id  # NOT swapped
     assert row.target_id == need.id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("risk_type", ["Risk", "Risk:technical"])
+def test_verifies_from_a_risk_becomes_mitigates_unswapped(env, risk_type):
+    """Issue #893: a Risk does not verify, it mitigates.
+
+    ``verifies`` is not a legacy key, so the rename loop never sees it and such
+    a row survives into a catalog whose ``verifies`` starts at a TestCase —
+    which is what made the first real beta.6 -> beta.7 upgrade roll back.
+    """
+    risk, req = env["artifact"](risk_type), env["artifact"]("Requirement")
+    env["link"](risk, req, "verifies")
+
+    counts = migrate_renamed_links(env["TraceLink"])
+
+    row = env["TraceLink"].objects.get(link_type="mitigates")
+    assert counts["verifies:Risk"] == 1
+    assert (row.source_id, row.target_id) == (risk.id, req.id)  # NOT swapped
+    assert verify_migrated_links(env["TraceLink"]) == 1
+
+
+@pytest.mark.django_db
+def test_a_verifies_from_a_risk_that_duplicates_a_mitigates_is_dropped(env):
+    risk, req = env["artifact"]("Risk"), env["artifact"]("Requirement")
+    env["link"](risk, req, "mitigates")
+    env["link"](risk, req, "verifies")
+
+    counts = migrate_renamed_links(env["TraceLink"])
+
+    assert counts["verifies:Risk:dropped"] == 1
+    assert env["TraceLink"].objects.filter(link_type="mitigates").count() == 1
+
+
+@pytest.mark.django_db
+def test_a_verifies_from_a_test_case_is_left_alone(env):
+    """The exception keys on the source type, not on the link type."""
+    case, req = env["artifact"]("TestCase"), env["artifact"]("Requirement")
+    env["link"](case, req, "verifies")
+
+    counts = migrate_renamed_links(env["TraceLink"])
+
+    assert "verifies:Risk" not in counts
+    assert env["TraceLink"].objects.filter(link_type="verifies").count() == 1
 
 
 @pytest.mark.django_db
@@ -372,6 +418,86 @@ def test_sub_typed_artifact_types_are_normalized_before_matching(env):
     env["link"](case, req, "verifies")
 
     assert verify_migrated_links(env["TraceLink"]) == 1
+
+
+@pytest.mark.django_db
+def test_the_two_real_world_triples_of_issue_893_pass_the_post_condition(env):
+    """Both rows the first beta.6 -> beta.7 QA upgrade tripped over.
+
+    ``traces`` Requirement -> Requirement renames into ``references``
+    Requirement -> Requirement, which no built-in pair allows and which
+    ``GRANDFATHERED_PAIRS`` now covers; ``verifies`` Risk -> Requirement is
+    retyped to ``mitigates`` instead of being grandfathered, because that is
+    the built-in pair for the relation.
+    """
+    req_a, req_b = env["artifact"]("Requirement"), env["artifact"]("Requirement")
+    risk, req_c = env["artifact"]("Risk"), env["artifact"]("Requirement")
+    env["link"](req_a, req_b, "traces")
+    env["link"](risk, req_c, "verifies")
+
+    migrate_copy_of_links(env["Artifact"], env["TraceLink"])
+    migrate_parent_child_links(env["TraceLink"])
+    migrate_renamed_links(env["TraceLink"])
+
+    assert verify_migrated_links(env["TraceLink"]) == 2
+    reference = env["TraceLink"].objects.get(link_type="references")
+    mitigation = env["TraceLink"].objects.get(link_type="mitigates")
+    assert (reference.source_id, reference.target_id) == (req_a.id, req_b.id)
+    assert (mitigation.source_id, mitigation.target_id) == (risk.id, req_c.id)
+
+
+# ---------- the pre-flight predictor ----------
+
+
+@pytest.mark.django_db
+def test_the_predictor_agrees_with_what_the_migration_actually_writes(env):
+    """``inventory_link_types`` is only a pre-flight while these two agree.
+
+    The predictor is a second, read-only copy of the rewrite rules — the exact
+    kind of duplication that let ``inventory_link_types`` drift out of step
+    with the migration in the first place (issue #893). One row per rule, run
+    through both.
+    """
+    rows = [
+        ("satisfies", "ArchitectureElement", "Requirement"),
+        ("satisfies", "Requirement", "StakeholderNeed"),
+        ("implements", "ArchitectureElement", "Requirement"),
+        ("refines", "Requirement", "Requirement"),
+        ("realizes", "ArchitectureElement", "ArchitectureElement"),
+        ("documents", "Adr", "ArchitectureElement"),
+        ("traces", "Requirement", "Requirement"),
+        ("uses-term", "Requirement", "GlossaryTerm"),
+        ("parent-child", "Requirement", "Requirement"),
+        ("verifies", "Risk", "Requirement"),
+        ("verifies", "TestCase", "Requirement"),
+        ("mitigates", "Risk", "Requirement"),
+    ]
+    predicted = set()
+    for link_type, source_type, target_type in rows:
+        source = env["artifact"](source_type)
+        target = env["artifact"](target_type)
+        env["link"](source, target, link_type)
+        predicted.add(predict_migrated_triple(link_type, source_type, target_type))
+    predicted.discard(None)
+
+    migrate_copy_of_links(env["Artifact"], env["TraceLink"])
+    migrate_parent_child_links(env["TraceLink"])
+    migrate_renamed_links(env["TraceLink"])
+
+    written = {
+        (link_type, source, target)
+        for link_type, source, target in env["TraceLink"].objects.values_list(
+            "link_type", "source__artifact_type", "target__artifact_type"
+        )
+    }
+    assert written == predicted
+    # Every row above is also a row the migration would accept, which is what
+    # the pre-flight's `blocking` list reports on.
+    assert all(is_creatable(*triple) for triple in written)
+
+
+def test_the_predictor_reports_copy_of_as_not_surviving():
+    assert predict_migrated_triple("copy-of", "Requirement", "Requirement") is None
 
 
 @pytest.mark.django_db
