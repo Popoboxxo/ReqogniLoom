@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.9] — 2026-09-11
+
+### Added
+- **Native Codex CLI Package:** New distribution artifact at `dist/codex/` enabling command-line access to ReqogniLoom capabilities via the Codex protocol. OpenCode integration now surfaced and documented in release checklist (PR #900)
+
+### Fixed
+- **Link-Types Migration 0081 Legacy Data Handling:** Migration now correctly grandfathers existing real-world trace links that predate the eight-type catalog system, preventing deployment failures on existing databases with legacy link data (PR #896)
+- **Frontend Container Restart Loop on Non-Root Execution:** Removed tmpfs mount that shadowed the nginx cache directory in non-root deployments, fixing persistent restart loops during production deploys (PR #897)
+
+### Changed
+- **Release Automation:** Hermes IDE plugin version now automatically synchronized to repo VERSION during release process; tag-schema-consistency validation added to pre-release checklist to prevent deploy-automation breakage from malformed version tags (PR #899, PR #898)
+
+### Dependencies
+- Dependency updates: dompurify, @tanstack/react-virtual, @xyflow/react, react-router-dom, openai, gunicorn, reportlab, pypdf, sentence-transformers, github/codeql-action, and transitive pins (PRs #833–#843)
+
 ## [1.8.0-beta.8] — 2026-09-10
 
 ### Fixed

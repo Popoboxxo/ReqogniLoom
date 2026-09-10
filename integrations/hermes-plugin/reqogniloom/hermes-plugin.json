@@ -1,7 +1,7 @@
 {
   "id": "reqogniloom.reqogniloom",
   "name": "ReqogniLoom",
-  "version": "1.8.0-beta.8",
+  "version": "1.8.0-beta.9",
   "description": "Connect Hermes IDE to your ReqogniLoom workspace",
   "author": "ReqogniLoom",
   "main": "dist/plugin.js",
