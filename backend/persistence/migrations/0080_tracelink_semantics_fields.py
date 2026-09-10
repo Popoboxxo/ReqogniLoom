@@ -15,11 +15,18 @@
 # `atomic = False` is mandatory for that: PostgreSQL refuses
 # `CREATE INDEX CONCURRENTLY` inside a transaction block, and Django only runs
 # the operation outside one when the migration says so. The trade-off is that a
-# failure part-way through leaves this migration partially applied — acceptable
-# here because every operation is an additive `AddField`/`AlterField` and
-# re-running after a fix is safe. The index name is pinned to the value Django
-# generated for the original `db_index=True` version so a database migrated
-# before this change and one migrated after it carry the identical index.
+# failure part-way through leaves no row for this migration in
+# `django_migrations` at all, so Django replays from the first operation on
+# any re-run — a plain re-run then hits `ProgrammingError: column already
+# exists` on the `AddField`/`AlterField` steps that already succeeded, and (if
+# the index build itself failed) an invalid index left behind under the
+# pinned name that blocks a naive retry with `relation already exists`.
+# Recovering therefore needs manual cleanup first: check which columns and
+# the index already exist, `DROP INDEX CONCURRENTLY` the invalid index if the
+# build step failed, then `migrate --fake` the already-applied operations
+# before re-running. The index name is pinned to the value Django generated
+# for the original `db_index=True` version so a database migrated before this
+# change and one migrated after it carry the identical index.
 
 import django.db.models.deletion
 from django.contrib.postgres.operations import AddIndexConcurrently

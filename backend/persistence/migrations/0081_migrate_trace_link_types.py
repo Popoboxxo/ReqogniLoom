@@ -39,11 +39,24 @@ Measured on this branch, against a ``seed_demo`` + ``seed_toothbrush`` database
 * the ``verify_migrated_links`` post-condition pass over all 1974 surviving
   rows took **0.007 s** — it is a bulk read and is not the bottleneck.
 
+Only the two pure-rename keys above (``refines``, ``documents`` — a straight
+literal swap, no endpoint check) were timed. The endpoint-swap path
+(``satisfies``/``implements`` -> ``allocated-to``, which checks endpoint
+direction per row) and the ``copy-of``/``parent-child`` restructuring paths do
+strictly more work per row and were not measured, so their real throughput is
+lower than the number above. The measurement also ran against a small
+(~2000-row) local test database, so treat 40 000 rows/minute as an optimistic
+upper bound for a much larger production table — index maintenance, WAL, and
+buffer pressure do not scale linearly from that size.
+
 At a few thousand rows this completes in well under a minute. For a
-production ``TraceLink`` table in the six-figure-row range, budget on the
-order of a minute per 40 000 rows that actually need rewriting, run it in a
-maintenance window, and get the expected duration first by counting the
-affected rows:
+production ``TraceLink`` table in the six-figure-row range, do not take the
+40 000 rows/minute figure literally: get the expected duration by counting
+the affected rows per key with the query below (a ``--dry-run``-style
+pre-check), apply the cited throughput only to the ``refines``/``documents``
+rows, budget noticeably more per row for the ``satisfies``/``implements``/
+``copy-of``/``parent-child`` rows, add a conservative safety margin on top,
+and run it in a maintenance window:
 
 .. code-block:: sql
 
