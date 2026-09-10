@@ -28,15 +28,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements and install Python dependencies to a custom prefix
 COPY requirements.txt .
-# CPU-only torch first: sentence-transformers pulls in `torch`, whose default
-# PyPI wheel bundles the full NVIDIA CUDA runtime as separate `nvidia-*`
-# packages (several GB) even though this deployment (ADR-08, self-hosted,
-# no GPU) never uses CUDA. Installing the CPU-only build from PyTorch's own
-# index FIRST means the subsequent requirements.txt install finds torch
-# already satisfied and never pulls the CUDA variant. Without this, the
-# runtime stage below can exceed several GB of otherwise-dead weight.
-RUN pip install --no-cache-dir --prefix=/install torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# CPU-only torch: sentence-transformers pulls in `torch`, whose default PyPI
+# wheel bundles the full NVIDIA CUDA runtime as separate `nvidia-*` packages
+# (several GB) even though this deployment (ADR-08, self-hosted, no GPU) never
+# uses CUDA. The prior bug (two separate `pip install --prefix=/install`
+# invocations on lines 38-39) meant each pip resolver process had no visibility
+# into the other's installed packages under /install: the first `--index-url`
+# command installed CPU torch, but the second `pip install -r requirements.txt`
+# had no way to see it was "already satisfied" — /install was not on the
+# running Python's sys.path — so pip re-resolved torch from plain PyPI (no
+# index override on that invocation), pulling the default CUDA wheel, resulting
+# in both copies coexisting (1.3GB torch/CUDA + 2.7GB nvidia/* bloat).
+#
+# Fixed by collapsing to ONE pip resolution pass with `--extra-index-url`
+# (which adds to PyPI without replacing it, so all other deps still resolve
+# from PyPI) instead of `--index-url` (which would replace PyPI entirely and
+# break non-torch dependencies). Unified resolver sees both indexes in one
+# dependency graph, picks CPU torch for sentence-transformers' transitive
+# dependency, no duplicate install possible.
+RUN pip install --no-cache-dir --prefix=/install \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
 # NOTE: the sentence-transformers model pre-download (REQ-L2-VS-004) does NOT
 # happen in this stage. `--prefix=/install` above installs packages under
