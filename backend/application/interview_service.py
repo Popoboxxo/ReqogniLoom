@@ -1033,6 +1033,17 @@ class InterviewService(ServiceBase):
             # Issue #736: report the user-facing subtype id, not the
             # Artifact PK.
             resulting_ids.append(str(created_ref.entity_id))
+            # L2.3: the same provenance join row _formalize_multi writes, so
+            # provenance_session_id()/the InterviewProvenanceBadge work for
+            # single-kind sessions too -- previously only multi-kind
+            # artifacts could ever show "created via interview".
+            # artifact_id (the Artifact PK), never entity_id: this is an
+            # Artifact FK.
+            InterviewSessionArtifact.objects.create(
+                session=session,
+                artifact_id=created_ref.artifact_id,
+                artifact_type=created_ref.artifact_type,
+            )
 
         session.resulting_artifact_ids = resulting_ids
         session.version = F("version") + 1
@@ -1649,19 +1660,28 @@ class InterviewService(ServiceBase):
         return session.grounding_snapshot.get("pending_proposal")
 
     def provenance_session_id(self, ctx, artifact_id: UUID) -> "str | None":
-        """Resolve the multi-mode session that created *artifact_id*, if any.
+        """Resolve the interview session that created *artifact_id*, if any.
 
-        Reads the InterviewSessionArtifact provenance join row written by
-        ``_formalize_multi`` -- the reverse lookup of "which interview
-        produced this artifact" (multi-artifact plan). Tenant scoping comes
-        from the thread-local manager via ``_set_tenant_context``, so an
-        artifact id from another tenant resolves to None rather than leaking
-        the owning session.
+        Reads the ``InterviewSessionArtifact`` provenance join row written by
+        both ``_formalize_single`` (L2.3) and ``_formalize_multi`` -- the
+        reverse lookup of "which interview produced this artifact".
 
-        Returns the session's id as a string (the wire format every
-        get_state()/MCP consumer already uses) or None when no provenance
-        row exists -- a missing row is a normal answer ("not created by an
-        interview"), not an error.
+        *artifact_id* may be **either** a ``persistence.Artifact`` PK (what
+        the join row stores) **or** a business-entity/subtype id such as
+        ``Requirement.id`` -- every artifact detail view holds the latter
+        (see RightSidebar's ``artifactId`` prop), and the two are distinct
+        UUIDs. Resolution goes through ``TraceLinkService``'s existing public
+        10-type bridge rather than a second, drifting resolver.
+
+        Tenant scoping comes from the thread-local manager via
+        ``_set_tenant_context``, so an id from another tenant resolves to
+        None rather than leaking the owning session.
+
+        Returns the session's id as a string, or None when no provenance row
+        exists -- a missing row is a normal answer ("not created by an
+        interview"), not an error. An id that resolves to nothing at all is
+        likewise None, not a raised NotFoundError: this backs a purely
+        informational badge.
         """
         self._set_tenant_context(ctx)
         row = (
@@ -1670,7 +1690,24 @@ class InterviewService(ServiceBase):
             .first()
         )
         if row is None:
-            return None
+            from application.trace_link_service import TraceLinkService
+
+            try:
+                resolved = TraceLinkService().resolve_entity_to_artifact_id(
+                    artifact_id, ctx=ctx
+                )
+            except NotFoundError:
+                return None
+            if resolved == artifact_id:
+                # Already an Artifact PK -- the first probe was authoritative.
+                return None
+            row = (
+                InterviewSessionArtifact.objects.filter(artifact_id=resolved)
+                .select_related("session")
+                .first()
+            )
+            if row is None:
+                return None
         return str(row.session_id)
 
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
