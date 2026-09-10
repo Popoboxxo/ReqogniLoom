@@ -87,6 +87,8 @@ gitignore:
   local: true
   generated: true
   settings: true
+  exceptions: []
+  custom_entries: []
 context_file:
   mode: full
   max_lines: 250
@@ -685,3 +687,24 @@ max-parallel-agents: 2
 debug-mode: false
 allow-committed-secrets: false
 conventions-preset: default
+plugins:
+  home-assistant:
+    enabled: false
+  influxdb:
+    enabled: false
+  viz-logger:
+    enabled: false
+  a2a-handoff:
+    enabled: false
+  honcho:
+    enabled: false
+  reqogniloom:
+    enabled: false
+  playwright:
+    enabled: false
+  graphify:
+    enabled: true
+  project-atlas:
+    enabled: false
+  headroom:
+    enabled: false
