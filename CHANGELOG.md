@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.8] — 2026-09-10
+
+### Fixed
+- **Backend Docker Image Size Regression:** Reduced backend image size from 9.23GB to 2.56GB (72% reduction). Root cause: duplicate CUDA torch installation from two separate `pip install --prefix=/install` invocations that did not share resolved-package state. Fixed by consolidating into a single `pip install` pass with explicit CPU-torch index URL, eliminating redundant nvidia package bloat while maintaining pytest/pytest-django and embedding smoke test functionality (PR #892)
+
 ## [1.8.0-beta.7] — 2026-09-10
 
 ### Added

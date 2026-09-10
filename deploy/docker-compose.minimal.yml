@@ -108,7 +108,7 @@ services:
       start_period: 30s
 
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.7}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
     deploy:
       resources:
         limits:
@@ -160,7 +160,7 @@ services:
         condition: service_completed_successfully
 
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.7}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
     deploy:
       resources:
         limits:
@@ -194,7 +194,7 @@ services:
     command: python manage.py migrate
 
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.7}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
     deploy:
       resources:
         limits:
