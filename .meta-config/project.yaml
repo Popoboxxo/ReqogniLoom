@@ -1,4 +1,4 @@
-agent-meta-version: 0.101.0-beta.1
+agent-meta-version: 1.0.0
 test-repo:
   enabled: false
   path: ''
@@ -560,7 +560,6 @@ variables:
   VOLUME_NAME: postgres_data
 orchestrator:
   enabled: true
-  strict: true
   handoff:
     protocol: a2a-v1
   delegation:
@@ -572,6 +571,15 @@ orchestrator:
     ask-user: true
     meta-feedback: false
   mode: advisory
+drift-detection:
+  enabled: true
+release-gates:
+  artifact-freshness: true
+  docker-image-scan: true
+  action-pin-validation: true
+auto_commit:
+  mode: suggest
+  secret_scan: true
 viz:
   enabled: false
   mode: 'off'
