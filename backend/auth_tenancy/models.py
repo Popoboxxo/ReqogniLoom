@@ -58,6 +58,28 @@ ITEM_PERMISSION_LEVEL_CHOICES = (
 # Maximum number of simultaneously active API keys per user (REQ-L3-AT001-003).
 MAX_ACTIVE_API_KEYS_PER_USER = 10
 
+# Principal type of an API key (KI-Vorschlag-als-Zustand spec §3). ``agent``
+# makes the key act as an AI agent in its own right, not as the owning human:
+# the resolved AuthContext carries ``actor_type="agent"`` and every artifact the
+# key creates lands in the "proposed" workflow state where the graph has one.
+PRINCIPAL_TYPE_USER = "user"
+PRINCIPAL_TYPE_AGENT = "agent"
+PRINCIPAL_TYPE_CHOICES = (
+    (PRINCIPAL_TYPE_USER, "User"),
+    (PRINCIPAL_TYPE_AGENT, "Agent"),
+)
+
+# Coarse capability scope of an API key (audit finding E2.1). ``read`` denies
+# every Operation.WRITE at the REST and MCP gates; ``write`` is the historical
+# behaviour and stays the default so existing keys are unaffected. The two
+# string values are consumed verbatim by the MCP-Modernisierung spec §6.1.
+API_KEY_SCOPE_READ = "read"
+API_KEY_SCOPE_WRITE = "write"
+API_KEY_SCOPE_CHOICES = (
+    (API_KEY_SCOPE_READ, "Read"),
+    (API_KEY_SCOPE_WRITE, "Write"),
+)
+
 
 class ApiKey(TenantScopedModel):
     """Hashed API-key credential for AI agents / API clients (COMP-AT-001).
@@ -91,6 +113,24 @@ class ApiKey(TenantScopedModel):
     key_hash = models.CharField(max_length=80, unique=True, db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    #: ``agent`` makes the key a principal of its own (spec §3). Default
+    #: ``user`` keeps every pre-existing key behaving exactly as before — this
+    #: feature is opt-in per key, never retroactive.
+    principal_type = models.CharField(
+        max_length=16, choices=PRINCIPAL_TYPE_CHOICES, default=PRINCIPAL_TYPE_USER
+    )
+    #: Human-readable agent name shown wherever the owning user's name would
+    #: otherwise appear (provenance labels, audit trail, workflow history).
+    agent_label = models.CharField(max_length=255, blank=True, default="")
+    #: Coarse capability gate, checked at the REST and MCP permission seams.
+    scope = models.CharField(
+        max_length=16, choices=API_KEY_SCOPE_CHOICES, default=API_KEY_SCOPE_WRITE
+    )
+    #: Workspace UUIDs (as strings) this key may act in. Empty list = every
+    #: workspace the owning user holds a role in (the historical behaviour).
+    workspace_ids = models.JSONField(default=list, blank=True)
+    #: Hard expiry. NULL = never expires (historical behaviour).
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "at_api_key"
@@ -106,6 +146,15 @@ class ApiKey(TenantScopedModel):
     def is_active(self) -> bool:
         """Return whether the key has not been revoked (REQ-L3-AT001-002)."""
         return self.revoked_at is None
+
+    @property
+    def is_expired(self) -> bool:
+        """Return whether the key's hard expiry has passed (NULL = never)."""
+        if self.expires_at is None:
+            return False
+        from django.utils import timezone
+
+        return self.expires_at <= timezone.now()
 
 
 class RefreshToken(TenantScopedModel):
