@@ -418,14 +418,21 @@ export function CreateTraceLinkDialog({
 
   // Only the types whose allowed_pairs actually fit the chosen endpoints
   // (spec section 4.1): offering a type the backend will reject turns a
-  // preventable mistake into a 400 after the user hits Save. The source
-  // must be resolved (empty-string fallback matches no real pair); an
-  // unresolved target falls back to the wildcard so a type is not hidden
-  // merely because no target has been picked yet.
+  // preventable mistake into a 400 after the user hits Save.
+  //
+  // Both sides fall back to the wildcard when they cannot be resolved, for
+  // the same "not yet known" reason. The source used to fall back to `''`,
+  // which matches no real pair — and the dialog is opened with a `sourceId`
+  // for StakeholderNeed (NeedsEditors/TraceLinkPanel) and GlossaryTerm
+  // (GlossaryView), neither of which this dialog's element loader ever
+  // fetches. For those the source stayed unresolved forever, every type got
+  // filtered out, and the user saw "no link type connects these artifacts"
+  // with Create permanently disabled. An offer the backend may still reject
+  // is strictly better than an empty list that cannot be recovered from.
   const availableLinkTypes = useMemo(
     () =>
       creatableLinkTypes.filter((row) =>
-        isAllowedPair(row.key, effectiveSourceType ?? '', selectedTargetType ?? '*'),
+        isAllowedPair(row.key, effectiveSourceType ?? '*', selectedTargetType ?? '*'),
       ),
     [creatableLinkTypes, isAllowedPair, effectiveSourceType, selectedTargetType],
   );

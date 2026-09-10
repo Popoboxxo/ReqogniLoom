@@ -2030,6 +2030,8 @@
     "active": "Aktiv",
     "allowedPairs": "Erlaubte Paare",
     "newType": "Neuer Typ",
+    "newTypeLimitationHint": "Hinweis: Ein neu angelegter eigener Link-Typ kann derzeit nur bearbeitet und angezeigt, aber noch nicht zum Erstellen von Trace-Links verwendet werden.",
+    "inertFieldsHint": "Wird gespeichert, aber noch nicht ausgewertet: Coverage- und Impact-Analyse berücksichtigen diese Werte bislang nicht.",
     "reset": "Zurücksetzen",
     "locked": "Gesperrt (systemeigen)",
     "suspectRuleValues": {

@@ -1203,8 +1203,10 @@ class TraceLinkService(ServiceBase):
             source_id: The artifact (or business entity) that changed.
             ctx: Resolved AuthContext.
             audit_entry_id: ``audit.AuditEntry.id`` of the triggering change,
-                recorded on every link that fired so a reviewer can see *which*
-                edit made the other end suspect.
+                recorded on every link that actually *caused a flag* — not on
+                every link whose rule matched. A link whose far end is a type
+                with no ``suspect`` column, or is already suspect, fires no
+                flag and is therefore left unstamped.
 
         Returns:
             Number of artifacts newly flagged suspect.
@@ -1241,7 +1243,9 @@ class TraceLinkService(ServiceBase):
         )
 
         dependent_ids: set[UUID] = set()
-        fired_link_ids: list[UUID] = []
+        # (link id, the artifact id at the *other* end). The second element is
+        # what decides whether the link may carry the provenance stamp below.
+        fired: list[tuple[UUID, UUID]] = []
 
         for link in links:
             definition = catalog.get(link.link_type)
@@ -1272,27 +1276,54 @@ class TraceLinkService(ServiceBase):
             if other_id == resolved_id:
                 continue  # self-link: never flag the changed artifact itself
             dependent_ids.add(other_id)
-            fired_link_ids.append(link.id)
+            fired.append((link.id, other_id))
 
         if not dependent_ids:
             return 0
 
+        # Only these three models carry a `suspect` column today (see the
+        # Merkposten in the Task 14 ledger entry: it belongs on `Artifact`).
+        # An `Adr`/`Risk`/`StakeholderNeed`/`Goal`/`Issue` at the far end is
+        # silently skipped — and so is an artifact that was already suspect.
         flagged = 0
+        newly_flagged_ids: set[UUID] = set()
         for model in (Requirement, ArchitectureElement, TestCase):
-            flagged += model.objects.filter(
-                artifact_id__in=dependent_ids, suspect=False
+            candidate_ids = set(
+                model.objects.filter(
+                    artifact_id__in=dependent_ids, suspect=False
+                ).values_list("artifact_id", flat=True)
+            )
+            if not candidate_ids:
+                continue
+            written = model.objects.filter(
+                artifact_id__in=candidate_ids, suspect=False
             ).update(suspect=True)
+            if written:
+                flagged += written
+                newly_flagged_ids |= candidate_ids
 
-        TraceLink.objects.filter(id__in=fired_link_ids).update(
-            suspect_flagged_at=timezone.now(),
-            suspect_source_change=audit_entry_id,
-        )
+        # `suspect_flagged_at`'s own help_text says it is set "when this link
+        # caused the other endpoint to be flagged suspect", so only links that
+        # actually did may be stamped. Stamping every link whose *rule* matched
+        # wrote that provenance marker for links whose far end was a
+        # non-flaggable type, or was already suspect — a false audit trail
+        # pointing at a flag that never happened.
+        stamped_link_ids = [
+            link_id for link_id, other_id in fired if other_id in newly_flagged_ids
+        ]
+        if stamped_link_ids:
+            TraceLink.objects.filter(id__in=stamped_link_ids).update(
+                suspect_flagged_at=timezone.now(),
+                suspect_source_change=audit_entry_id,
+            )
 
         logger.info(
-            "Suspect propagation from %s: %d artifact(s) flagged via %d link(s).",
+            "Suspect propagation from %s: %d artifact(s) flagged; "
+            "%d of %d matching link(s) stamped.",
             resolved_id,
             flagged,
-            len(fired_link_ids),
+            len(stamped_link_ids),
+            len(fired),
         )
         return flagged
 

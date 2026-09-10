@@ -679,20 +679,36 @@ class TestArchitectureToolGroup:
         trace_svc.create_trace_link.assert_called_once()
         mock_audit.assert_called_once()
 
-    def test_architecture_link_invalid_type_returns_validation_error(self):
-        group, _, _ = self._group()
-        result = group.execute_tool(
-            tool_name="architecture.link",
-            params={
-                "arch_id": "00000000-0000-0000-0000-000000000030",
-                "target_id": "00000000-0000-0000-0000-000000000020",
-                "link_type": "invalid_link_type",
-            },
-            auth_context=EDITOR_CTX,
-            api_key=VALID_API_KEY,
+    def test_architecture_link_no_longer_pre_rejects_an_unknown_type(self):
+        """The hardcoded pre-check is gone; the catalog is the only authority.
+
+        Same treatment Task 21 gave ``traceability.create_link``: an
+        unrecognized key must reach ``TraceLinkService.create_trace_link``
+        (mocked here) instead of being rejected by a fixed set that cannot
+        know about tenant-invented types. The real rejection still happens —
+        one layer deeper, against the resolved workspace catalog — which
+        ``test_e2e_architecture_link_invalid_link_type_returns_validation_error``
+        pins end-to-end against a real database.
+        """
+        group, _, trace_svc = self._group()
+        trace_svc.create_trace_link.return_value = _mock_trace_link()
+
+        with patch("mcp_server.tools.architecture.write_mcp_audit"):
+            result = group.execute_tool(
+                tool_name="architecture.link",
+                params={
+                    "arch_id": "00000000-0000-0000-0000-000000000030",
+                    "target_id": "00000000-0000-0000-0000-000000000020",
+                    "link_type": "conflicts-with",
+                },
+                auth_context=EDITOR_CTX,
+                api_key=VALID_API_KEY,
+            )
+
+        assert result.success is True
+        assert trace_svc.create_trace_link.call_args.kwargs["link_type"] == (
+            "conflicts-with"
         )
-        assert result.success is False
-        assert result.error_code == "VALIDATION_ERROR"
 
     def test_architecture_query_requires_workspace_id(self):
         group, _, _ = self._group()
@@ -705,25 +721,29 @@ class TestArchitectureToolGroup:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
-    def test_architecture_link_schema_documents_valid_link_types(self):
-        """#33: architecture.link's published schema must enumerate the
-        valid link_type values so callers (including LLM/MCP clients) can
-        discover them without a failed round-trip first.
+    def test_architecture_link_schema_publishes_no_enum(self):
+        """architecture.link's link_type is a free string, like create_link's.
 
-        Codeberg #353 final review (I1): the enum is MANUAL_LINK_TYPES, not
-        the full VALID_LINK_TYPES — 'diagram-ref' is reconciler-owned and
-        must never be offered as a manually-createable link type."""
-        from traceability.types import MANUAL_LINK_TYPES, LinkType
-
+        #33 originally asked for a published enum so callers could discover
+        the valid values without a failed round-trip. The link-type catalog
+        is tenant- and workspace-configurable, so no enum can be both correct
+        and static — a published one would make the tools/list manifest
+        tenant-specific. Discovery moved to ``link_type.list``, which the
+        description points at; validation is server-side against the resolved
+        catalog. Mirrors
+        ``test_create_link_no_longer_publishes_an_enum`` for
+        ``traceability.create_link``, so the two link-creating tools cannot
+        drift into contradictory contracts again.
+        """
         schema = next(
             s
             for s in ArchitectureToolGroup._TOOL_SCHEMAS
             if s["name"] == "architecture.link"
         )
         link_type_prop = schema["inputSchema"]["properties"]["link_type"]
-        assert "enum" in link_type_prop
-        assert set(link_type_prop["enum"]) == set(MANUAL_LINK_TYPES)
-        assert LinkType.DIAGRAM_REF.value not in link_type_prop["enum"]
+        assert link_type_prop["type"] == "string"
+        assert "enum" not in link_type_prop
+        assert "link_type.list" in link_type_prop["description"]
 
     def test_architecture_get_not_found(self):
         group, svc, _ = self._group()

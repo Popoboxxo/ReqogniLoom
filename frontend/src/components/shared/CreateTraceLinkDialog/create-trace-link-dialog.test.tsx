@@ -400,7 +400,7 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
 
     /**
      * Gesamttest 2026-08-29 Bug 1 — originally reported as "fixed source +
-     * link type 'satisfies' never fires the POST" (waterkettle-fullblown.spec.ts
+     * link type `satisfies` never fires the POST" (waterkettle-fullblown.spec.ts
      * Phase 2b, architecture editor -> requirement satisfies-link). Root-cause
      * analysis found no defect in this component: the missing request was a
      * cascading effect of a separate bug (slow first-ever embedding-model
@@ -668,6 +668,38 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
     const select = screen.getByTestId('create-trace-link-type-select');
     const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
     expect(options).toEqual(['verifies']);
+    expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
+  });
+
+  /**
+   * Final-review regression: the dialog is also opened with a `sourceId` for
+   * StakeholderNeed (NeedsEditors/TraceLinkPanel) and GlossaryTerm
+   * (GlossaryView) — types its own element loader never fetches, so the id
+   * never resolves in `allElements` and `effectiveSourceType` stays
+   * `undefined`. That used to fall back to `''`, which matches no real pair
+   * (only a literal "*" is a wildcard), so every type was filtered out and
+   * the user got the "no link type" hint with Create permanently disabled,
+   * unrecoverably. An unresolvable source now falls back to "*", exactly
+   * like the target side already did.
+   */
+  it('still offers types when the source id does not resolve in the loaded elements', async () => {
+    useLinkTypesMock.current = () =>
+      buildCatalog([
+        ...CATALOG_VERIFIES_MITIGATES,
+        makeCatalogRow('references', [['*', 'GlossaryTerm']], 'Verweis'),
+      ]);
+    // A StakeholderNeed/GlossaryTerm id: never returned by any of the six
+    // listAll() mocks, so it is absent from allElements.
+    renderDialog({ sourceId: 'need-999-not-in-any-listing' });
+
+    await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`);
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    );
+    expect(options.length).toBeGreaterThan(0);
+    expect(options).toContain('references');
     expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
   });
 });

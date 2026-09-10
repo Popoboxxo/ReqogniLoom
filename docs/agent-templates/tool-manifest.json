@@ -596,16 +596,7 @@
           },
           "link_type": {
             "type": "string",
-            "enum": [
-              "allocated-to",
-              "decides",
-              "decomposes",
-              "derives-from",
-              "mitigates",
-              "references",
-              "verifies"
-            ],
-            "description": "TraceLink type. Must be one of the enum values (#33: previously undocumented in this schema)."
+            "description": "TraceLink type key. Call link_type.list for the values this workspace accepts and their allowed source/target artifact types."
           }
         },
         "required": [

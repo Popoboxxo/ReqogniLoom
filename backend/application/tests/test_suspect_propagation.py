@@ -51,6 +51,19 @@ def env(db):
             tenant=tenant, artifact=art, title=title, suspect=False
         )
 
+    def adr(title="adr"):
+        """An artifact type that carries no ``suspect`` column at all."""
+        from persistence.models import Adr
+
+        art = Artifact.objects.create(tenant=tenant, workspace=ws, artifact_type="Adr")
+        return Adr.objects.create(
+            tenant=tenant,
+            workspace_id=ws.id,
+            artifact=art,
+            title=title,
+            description="d",
+        )
+
     ctx = AuthContext(
         user_id=uuid.uuid4(),
         tenant_id=tenant.id,
@@ -64,6 +77,7 @@ def env(db):
         "requirement": requirement,
         "testcase": testcase,
         "architecture": architecture,
+        "adr": adr,
     }
     TenantContext.clear_tenant()
 
@@ -204,6 +218,67 @@ def test_links_that_did_not_fire_keep_a_null_marker(env):
 
     quiet.refresh_from_db()
     assert quiet.suspect_flagged_at is None
+
+
+@pytest.mark.django_db
+def test_a_link_to_a_non_flaggable_type_is_not_stamped(env):
+    """A matched rule is not a flag — only three models carry ``suspect``.
+
+    ``Adr``/``Risk``/``StakeholderNeed``/``Goal``/``Issue`` have no ``suspect``
+    column, so nothing gets flagged through such a link. Stamping it anyway
+    wrote ``suspect_flagged_at``/``suspect_source_change`` — whose own
+    help_text says "when this link caused the other endpoint to be flagged
+    suspect" — for a flag that never happened.
+    """
+    req, adr = env["requirement"](), env["adr"]()
+    # target_change_flags_source: the Requirement changing points the rule at
+    # the Adr on the source side.
+    link = _link(env, adr, req, "derives-from")
+    audit_id = uuid.uuid4()
+
+    flagged = TraceLinkService().propagate_suspect_status(
+        req.artifact_id, env["ctx"], audit_entry_id=audit_id
+    )
+
+    assert flagged == 0
+    link.refresh_from_db()
+    assert link.suspect_flagged_at is None
+    assert link.suspect_source_change is None
+
+
+@pytest.mark.django_db
+def test_a_link_to_an_already_suspect_artifact_is_not_stamped(env):
+    """Same rule, second symptom: no transition, no provenance marker."""
+    req, tc = env["requirement"](), env["testcase"]()
+    tc.suspect = True
+    tc.save(update_fields=["suspect"])
+    link = _link(env, tc, req, "verifies")
+
+    flagged = TraceLinkService().propagate_suspect_status(
+        req.artifact_id, env["ctx"], audit_entry_id=uuid.uuid4()
+    )
+
+    assert flagged == 0
+    link.refresh_from_db()
+    assert link.suspect_flagged_at is None
+
+
+@pytest.mark.django_db
+def test_only_the_link_that_flagged_is_stamped(env):
+    """Two links fire the same rule; only the one that flagged is marked."""
+    req, tc, adr = env["requirement"](), env["testcase"](), env["adr"]()
+    flagging = _link(env, tc, req, "verifies")
+    inert = _link(env, adr, req, "derives-from")
+
+    flagged = TraceLinkService().propagate_suspect_status(
+        req.artifact_id, env["ctx"], audit_entry_id=uuid.uuid4()
+    )
+
+    flagging.refresh_from_db()
+    inert.refresh_from_db()
+    assert flagged == 1
+    assert flagging.suspect_flagged_at is not None
+    assert inert.suspect_flagged_at is None
 
 
 @pytest.mark.django_db

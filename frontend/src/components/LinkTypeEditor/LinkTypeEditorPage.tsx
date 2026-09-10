@@ -244,6 +244,17 @@ const formActionsStyle: React.CSSProperties = {
   gap: "var(--space-2)",
 };
 
+/**
+ * Inline hint under a control — same shape as `WorkspaceSettings.tsx`'s
+ * `hintStyle`, which is this codebase's existing convention for an
+ * explanatory note in a settings form.
+ */
+const hintStyle: React.CSSProperties = {
+  margin: "var(--space-1) 0 0",
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
+
 const errorStyle: React.CSSProperties = {
   margin: "var(--space-3) 0 0",
   padding: "var(--space-3)",
@@ -323,6 +334,14 @@ function LinkTypeForm({ form, onChange, onSave, onCancel, saving, isNew }: LinkT
           onChange={(e) => onChange({ ...form, impactWeight: e.target.value })}
           style={inputStyle}
         />
+        {/* Honesty note: no backend code reads `impact_weight` or
+            `coverage_relevant` from the catalog yet — the coverage
+            calculator and the allocation-coverage query still hardcode
+            `verifies` / `allocated-to`. The values are stored and returned
+            faithfully; they just have no effect on any computation today. */}
+        <p style={hintStyle} data-testid="link-type-inert-fields-hint">
+          {t("linkType.inertFieldsHint")}
+        </p>
       </div>
 
       <div>
@@ -354,6 +373,12 @@ function LinkTypeForm({ form, onChange, onSave, onCancel, saving, isNew }: LinkT
           />
           {t("linkType.coverageRelevant")}
         </label>
+        {/* Same inert-field caveat as `impact_weight` above — repeated here
+            because the checkbox sits far enough from that hint to be read
+            on its own. */}
+        <span style={hintStyle} data-testid="link-type-coverage-inert-hint">
+          {t("linkType.inertFieldsHint")}
+        </span>
         <label style={checkboxLabelStyle}>
           <input
             type="checkbox"
@@ -547,6 +572,19 @@ export function LinkTypeEditorPage({ scope }: LinkTypeEditorPageProps): JSX.Elem
             : undefined
         }
       />
+
+      {/* Honesty note next to the "new type" button: a genuinely novel,
+          tenant-invented key passes catalog validation and can be edited and
+          viewed, but a separate Layer-1 gate
+          (`traceability/trace_link_manager.py::_validate_link_type`) still
+          rejects it when a trace link is actually created. Defining a type is
+          legitimate even when using it is not yet possible, so the button
+          stays enabled — the limitation is stated instead of hidden. */}
+      {scope === "global" && (
+        <p style={hintStyle} data-testid="link-type-new-type-hint">
+          {t("linkType.newTypeLimitationHint")}
+        </p>
+      )}
 
       <ul style={listStyle}>
         {rows.map((row) => {

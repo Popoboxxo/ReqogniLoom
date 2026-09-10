@@ -24,8 +24,8 @@ Architecture:
 
 ADR-L3-MC004-01: TraceLink via separate create_trace_link call.
 ADR-L3-MC004-02: Dedicated handler method per tool.
-ADR-L3-MC004-03: link_type validated against MANUAL_LINK_TYPES before service call
-                  (excludes the reconciler-owned 'diagram-ref' type, I1).
+ADR-L3-MC004-03: link_type validated server-side against the resolved,
+                  workspace-scoped link-type catalog (no fixed set here).
 """
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ from application.services import (
     PermissionDeniedError,
     TraceLinkService,
     ValidationError,
-    MANUAL_LINK_TYPES,
 )
 
 from mcp_server.protocol_handler import ToolResult
@@ -186,13 +185,18 @@ class ArchitectureToolGroup(BaseToolGroup):
                     "target_id": {"type": "string", "description": "UUID of the link target."},
                     "link_type": {
                         "type": "string",
-                        # I1 (Codeberg #353 final review): 'diagram-ref' is
-                        # reconciler-owned and excluded here — it can never be
-                        # created via this manual tool (see MANUAL_LINK_TYPES).
-                        "enum": sorted(MANUAL_LINK_TYPES),
+                        # Deliberately NOT an enum, identical treatment to
+                        # traceability.create_link (cross_cutting.py): the
+                        # catalog is tenant- and workspace-configurable, so a
+                        # published enum would make the tools/list manifest
+                        # tenant-specific and break the "manifest built once"
+                        # model. Validation happens server-side against the
+                        # resolved catalog and the error lists the valid
+                        # values; call link_type.list to discover them.
                         "description": (
-                            "TraceLink type. Must be one of the enum values "
-                            "(#33: previously undocumented in this schema)."
+                            "TraceLink type key. Call link_type.list for the "
+                            "values this workspace accepts and their allowed "
+                            "source/target artifact types."
                         ),
                     },
                 },
@@ -462,23 +466,20 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         ADR-L3-MC004-01: TraceLink is created via TraceLinkService, not as
         an update to ArchitectureElement itself.
-        ADR-L3-MC004-03: link_type validated against MANUAL_LINK_TYPES.
+        ADR-L3-MC004-03: link_type is validated by the workspace catalog.
         """
         arch_id = require_uuid(params, "arch_id")
         target_id = require_uuid(params, "target_id")
         link_type = require_param(params, "link_type")
 
-        # Validate link_type (ADR-L3-MC004-03). MANUAL_LINK_TYPES excludes
-        # 'diagram-ref' (I1, Codeberg #353 final review): that link type is
-        # reconciler-owned and rejected again downstream in
-        # TraceLinkService.create_trace_link, but checking it here too gives
-        # a clearer, immediate error instead of a round-trip.
-        if link_type not in MANUAL_LINK_TYPES:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                f"Invalid link_type '{link_type}'. Valid types: {sorted(MANUAL_LINK_TYPES)}",
-            )
-
+        # The fixed-set pre-check that used to live here
+        # (`link_type not in MANUAL_LINK_TYPES`) was removed, same treatment
+        # Task 21 gave traceability.create_link: a hardcoded gate silently
+        # rejects tenant-invented custom types before they ever reach the
+        # real, workspace-aware validation. create_trace_link's catalog check
+        # (unknown/inactive/not-manual/disallowed-pair — including the
+        # reconciler-owned 'diagram-ref') is the sole validation authority
+        # now; it already raises ValidationError, caught right below.
         try:
             # Codeberg #313: suppress create_trace_link's single internal
             # _audit() call for the same TraceLink — write_mcp_audit below

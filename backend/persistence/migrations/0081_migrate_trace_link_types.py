@@ -21,6 +21,39 @@ even the owner role is exempt from. ``SET LOCAL row_security = off`` turns a
 blinded connection into a hard error instead of a migration that reports
 success after rewriting nothing (the same guard ``persistence/0073``,
 ``0074`` and ``0078`` establish).
+
+Deploy note — runtime and throughput
+------------------------------------
+This rewrites ``pl_tracelink`` row by row in Python inside a single
+``atomic = True`` transaction. That is deliberate (an all-or-nothing rewrite
+with a working rollback), but it means the whole table is locked for writes
+for the duration and the cost scales linearly with the number of *rewritten*
+rows.
+
+Measured on this branch, against a ``seed_demo`` + ``seed_toothbrush`` database
+(1974 ``TraceLink`` rows, PostgreSQL 16 in the project's own compose stack):
+
+* 935 rows rewritten (``refines`` -> ``derives-from``, ``documents`` ->
+  ``references``) in **1.30 s** — roughly **700 rewritten rows/second**, i.e.
+  ~40 000 rows/minute. The per-row ``save()`` dominates.
+* the ``verify_migrated_links`` post-condition pass over all 1974 surviving
+  rows took **0.007 s** — it is a bulk read and is not the bottleneck.
+
+At a few thousand rows this completes in well under a minute. For a
+production ``TraceLink`` table in the six-figure-row range, budget on the
+order of a minute per 40 000 rows that actually need rewriting, run it in a
+maintenance window, and get the expected duration first by counting the
+affected rows:
+
+.. code-block:: sql
+
+    SELECT link_type, count(*) FROM pl_tracelink
+     WHERE link_type IN ('parent-child', 'satisfies', 'implements', 'refines',
+                         'realizes', 'documents', 'traces', 'uses-term',
+                         'copy-of')
+     GROUP BY 1;
+
+``manage.py check_copy_of_conflicts`` covers the ``copy-of`` half separately.
 """
 from __future__ import annotations
 
