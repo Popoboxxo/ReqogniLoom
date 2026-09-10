@@ -812,11 +812,12 @@ class InterviewService(ServiceBase):
         unreachable through the real MCP surface. This is that missing
         write path.
 
-        Requirement-only, matching ``formalize()``'s own update branch
-        (its docstring: "Only ``Requirement`` is implemented"): setting a
-        target on a session whose ``artifact_type`` formalize() can't
-        update yet would be a target formalize() can never use, so reject
-        it here instead of silently accepting a value that goes nowhere.
+        Requirement only: formalize()'s grounded-UPDATE branch is
+        Requirement-only (its CREATE branch handles all 8 in-scope types,
+        via ARTIFACT_CREATION_ADAPTERS) -- setting a target on a session
+        whose ``artifact_type`` formalize() can't update yet would be a
+        target formalize() can never use, so reject it here instead of
+        silently accepting a value that goes nowhere.
 
         Re-checks that ``artifact_id`` resolves to a real ``Requirement``
         right now, mirroring ``formalize()``'s own target re-check
@@ -833,8 +834,10 @@ class InterviewService(ServiceBase):
         if session.artifact_type != "Requirement":
             raise ValidationError(
                 f"set_target() for artifact_type={session.artifact_type!r} is not "
-                "supported -- formalize()'s update branch is Requirement-only, so "
-                "a target on any other artifact_type could never be used."
+                "supported -- formalize()'s grounded-UPDATE branch is "
+                "Requirement-only (its CREATE branch handles all 8 in-scope "
+                "types), so a target on any other artifact_type could never "
+                "be used. Start a session without a target instead."
             )
 
         from persistence.models import Requirement
@@ -863,10 +866,10 @@ class InterviewService(ServiceBase):
         spec §5 point 4.
 
         Single-kind sessions drive one typed artifact through the classic
-        protocol: only ``Requirement`` is implemented there (YAGNI, matches
-        ``_structural_candidates``); the other 8 in-scope artifact types
-        raise ``ValidationError`` for now rather than being speculatively
-        stubbed out, per the plan's Self-Review Notes.
+        protocol, dispatching through ``ARTIFACT_CREATION_ADAPTERS`` for all
+        8 in-scope artifact types (L2.1). ``_structural_candidates``
+        (grounding, a separate concern) is out of scope for the
+        Interview-Engine-Fix spec and stays as-is.
 
         Multi-kind sessions take a caller-confirmed ``confirmed_proposal``
         (list of ``{"type", "fields", "links"}`` items) and create every
