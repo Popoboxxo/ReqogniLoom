@@ -1,6 +1,6 @@
 {
   "name": "@reqogniloom/hermes-plugin",
-  "version": "0.1.0",
+  "version": "1.8.0-beta.8",
   "private": true,
   "type": "module",
   "scripts": {
