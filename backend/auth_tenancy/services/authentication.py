@@ -521,6 +521,12 @@ class AuthenticationService:
         if api_key.revoked_at is not None:
             raise AuthenticationFailed("api_key_revoked")
 
+        if api_key.is_expired:
+            # E2.1: a key with a hard expiry stops authenticating the moment it
+            # passes, exactly like a revoked one. Distinct error code so the
+            # caller can tell "rotate me" from "you were cut off".
+            raise AuthenticationFailed("api_key_expired")
+
         if api_key.user.tenant_id is None:
             # Key valid but user has no tenant -> resolution will fail downstream.
             raise AuthenticationFailed("invalid_api_key")
@@ -542,6 +548,12 @@ class AuthenticationService:
             roles=(),  # roles are resolved by AuthorizationService from UserRole.
             auth_method=AuthMethod.API_KEY,
             api_key_id=api_key.id,
+            actor_type=api_key.principal_type,
+            agent_label=api_key.agent_label,
+            scope=api_key.scope,
+            api_key_workspace_ids=tuple(
+                str(w) for w in (api_key.workspace_ids or [])
+            ),
         )
 
     # -- Lifecycle (REQ-L3-AT001-003) -------------------------------------

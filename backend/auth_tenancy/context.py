@@ -63,6 +63,18 @@ class IdentityClaims:
     roles: tuple[str, ...]
     auth_method: AuthMethod
     api_key_id: UUID | None = None
+    #: ``"user"`` or ``"agent"`` — byte-identical to
+    #: ``audit.models.AuditEntry.ACTOR_TYPE_*`` so the value reaches the audit
+    #: log unchanged. Only an ``ApiKey`` with ``principal_type="agent"``
+    #: produces ``"agent"``; every Bearer-token login is a human.
+    actor_type: str = "user"
+    #: Display name of the agent, empty for humans.
+    agent_label: str = ""
+    #: ``"read"`` or ``"write"`` — the key's coarse capability gate.
+    scope: str = "write"
+    #: Workspace UUIDs (as strings) the key is restricted to; empty = no
+    #: restriction beyond the owner's role assignments.
+    api_key_workspace_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -115,6 +127,23 @@ class AuthContext:
     api_key_id: UUID | None = None
     tenant_name: str = ""
     workspace_id: UUID | None = None
+    #: ``"user"`` or ``"agent"`` — byte-identical to
+    #: ``audit.models.AuditEntry.ACTOR_TYPE_*`` so the value reaches the audit
+    #: log unchanged. Only an ``ApiKey`` with ``principal_type="agent"``
+    #: produces ``"agent"``; every Bearer-token login is a human.
+    actor_type: str = "user"
+    #: Display name of the agent, empty for humans.
+    agent_label: str = ""
+    #: ``"read"`` or ``"write"`` — the key's coarse capability gate.
+    scope: str = "write"
+    #: Workspace UUIDs (as strings) the key is restricted to; empty = no
+    #: restriction beyond the owner's role assignments.
+    api_key_workspace_ids: tuple[str, ...] = ()
+
+    @property
+    def is_agent(self) -> bool:
+        """Return whether this request is made by an AI agent principal."""
+        return self.actor_type == "agent"
 
     def has_role(self, role: str) -> bool:
         """Return whether ``role`` is among the active roles (case-insensitive)."""

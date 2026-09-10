@@ -81,6 +81,10 @@ class TenantContextService:
             api_key_id=claims.api_key_id,
             tenant_name=tenant_context.tenant_name,
             workspace_id=workspace_id,
+            actor_type=claims.actor_type,
+            agent_label=claims.agent_label,
+            scope=claims.scope,
+            api_key_workspace_ids=claims.api_key_workspace_ids,
         )
 
     def activate(self, tenant_context: TenantContext) -> None:

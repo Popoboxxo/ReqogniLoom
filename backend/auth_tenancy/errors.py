@@ -77,6 +77,13 @@ _ERROR_CATALOG: dict[str, tuple[int, dict[str, str]]] = {
             "de": "Der übergebene API-Schlüssel wurde widerrufen.",
         },
     ),
+    "api_key_expired": (
+        401,
+        {
+            "en": "The provided API key has expired.",
+            "de": "Der übergebene API-Schlüssel ist abgelaufen.",
+        },
+    ),
     "insufficient_permissions": (
         403,
         {
