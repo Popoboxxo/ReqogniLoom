@@ -81,13 +81,16 @@ const { useLinkTypesMock, buildCatalog, makeCatalogRow } = vi.hoisted(() => {
     reload: () => Promise.resolve(),
     creatableLinkTypes: rows,
     definitionFor: (key: string) => rows.find((row) => row.key === key)?.definition,
+    // Mirrors the real (post-review-fix) LinkTypeContext.isAllowedPair: a
+    // caller-supplied '*' (e.g. the dialog before a target is picked) is a
+    // wildcard too, not just a backend pair's own '*'.
     isAllowedPair: (key: string, source: string, target: string) => {
       const definition = rows.find((row) => row.key === key)?.definition;
       if (!definition) return false;
       return definition.allowed_pairs.some(
         (pair) =>
-          (pair.source_type === '*' || pair.source_type === source) &&
-          (pair.target_type === '*' || pair.target_type === target),
+          (source === '*' || pair.source_type === '*' || pair.source_type === source) &&
+          (target === '*' || pair.target_type === '*' || pair.target_type === target),
       );
     },
     labelFor: (key: string, _lang: string, _perspective: string) =>
@@ -641,5 +644,30 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
 
     expect(await screen.findByTestId('create-trace-link-no-types')).toBeInTheDocument();
     expect(screen.getByTestId('create-trace-link-submit')).toBeDisabled();
+  });
+
+  /**
+   * Review regression (round 1): before this fix, `isAllowedPair` only
+   * treated a backend pair's own "*" as a wildcard, not a caller-supplied
+   * "*" — so `selectedTargetType ?? '*'` (this component, before any target
+   * is picked) never matched a normal, non-wildcard-target pair like
+   * `verifies: TestCase->Requirement`, leaving `availableLinkTypes` empty
+   * and the "no types fit" hint showing for the completely ordinary case of
+   * "opened the dialog, picked a source, haven't picked a target yet."
+   * Fixed in `context/LinkTypeContext.tsx::isAllowedPair` (Task 22's file —
+   * see Task 23's fix-round report for why the fix lives there, not here).
+   */
+  it('offers matching types from the source alone, before any target is picked', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    renderDialog({ sourceId: MOCK_TEST_CASES[0].id }); // TestCase source
+
+    // Wait for the element load to settle (allElements populated, so
+    // effectiveSourceType actually resolves) — but never click a target.
+    await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`);
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
+    expect(options).toEqual(['verifies']);
+    expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
   });
 });

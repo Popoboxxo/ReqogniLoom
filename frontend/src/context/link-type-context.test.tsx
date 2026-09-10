@@ -58,6 +58,13 @@ function Probe() {
       <span data-testid="wild">{String(isAllowedPair("references", "Risk", "Diagram"))}</span>
       <span data-testid="sub">{String(isAllowedPair("verifies", "TestCase:unit", "Requirement"))}</span>
       <span data-testid="unknown">{String(isAllowedPair("nope", "TestCase", "Requirement"))}</span>
+      {/* Caller-supplied "*" (e.g. CreateTraceLinkDialog before a target is
+          picked yet) must match ANY real backend value on that side — not
+          just a backend pair's own literal "*". */}
+      <span data-testid="callerTargetWild">{String(isAllowedPair("verifies", "TestCase", "*"))}</span>
+      <span data-testid="callerSourceWild">{String(isAllowedPair("verifies", "*", "Requirement"))}</span>
+      {/* A caller-side "*" still can't rescue a genuinely wrong source. */}
+      <span data-testid="callerTargetWildBadSource">{String(isAllowedPair("verifies", "Risk", "*"))}</span>
       <span data-testid="label">{labelFor("verifies", "de", "neutral")}</span>
       <span data-testid="fallback">{labelFor("nope", "de", "neutral")}</span>
     </div>
@@ -88,6 +95,24 @@ describe("LinkTypeContext", () => {
     expect(screen.getByTestId("bad")).toHaveTextContent("false");
     expect(screen.getByTestId("wild")).toHaveTextContent("true");
     expect(screen.getByTestId("sub")).toHaveTextContent("true");
+  });
+
+  // Regression (Task 23 review finding): before Task 23's dialog had picked
+  // a target, it queries isAllowedPair(key, sourceType, "*") — a
+  // caller-supplied "*" must act as a real wildcard, not just a backend
+  // pair's own "*", or every normal (non-wildcard-target) type would
+  // spuriously reject with no target chosen yet.
+  it("treats a caller-supplied '*' as a wildcard on either side, not just the backend pair's own", async () => {
+    vi.mocked(linkTypesApi.listForWorkspace).mockResolvedValue([verifies, references]);
+    render(
+      <LinkTypeProvider>
+        <Probe />
+      </LinkTypeProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("callerTargetWild")).toHaveTextContent("true"));
+    expect(screen.getByTestId("callerSourceWild")).toHaveTextContent("true");
+    // Still rejects when the concrete side genuinely doesn't match.
+    expect(screen.getByTestId("callerTargetWildBadSource")).toHaveTextContent("false");
   });
 
   it("rejects an unknown key rather than defaulting to permissive", async () => {

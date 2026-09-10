@@ -96,10 +96,16 @@ export function LinkTypeProvider({ children }: { children: ReactNode }) {
         if (!definition) return false;
         const source = normalizeArtifactType(sourceType);
         const target = normalizeArtifactType(targetType);
+        // A caller-supplied "*" is a wildcard too, not just a backend pair's
+        // own "*" — e.g. "is `key` valid from this source to ANY target"
+        // (CreateTraceLinkDialog, before the user has picked a target yet).
+        // Without this, every pair whose backend target isn't literally "*"
+        // (i.e. almost all of them) would spuriously reject a caller-side
+        // "*" query, since "*" !== a real backend type string.
         return definition.allowed_pairs.some(
           (pair) =>
-            (pair.source_type === "*" || pair.source_type === source) &&
-            (pair.target_type === "*" || pair.target_type === target),
+            (sourceType === "*" || pair.source_type === "*" || pair.source_type === source) &&
+            (targetType === "*" || pair.target_type === "*" || pair.target_type === target),
         );
       },
       labelFor: (key, lang, perspective) =>
