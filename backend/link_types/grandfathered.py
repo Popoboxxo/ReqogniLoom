@@ -52,6 +52,35 @@ and Interview had no ``TraceLink`` rows at all). The plan says "do not guess
 the contents", so nothing was added for them. An installation whose data
 differs must re-run ``inventory_link_types`` before applying migration
 ``0004`` and extend this dict with its own ``uncovered`` list.
+
+Second round (issue #893, 2026-09-10)
+-------------------------------------
+The limitation above stopped being theoretical on the first beta.6 -> beta.7
+upgrade of a QA database with UI/MCP-authored data: two triples that neither
+seeder writes made ``persistence/0081`` refuse to finish.
+
+===============================================  =======  ===================
+observed triple (post section-3.1 rename)        rows     legacy origin
+===============================================  =======  ===================
+references    Requirement -> Requirement              1   ``traces``
+mitigates     Risk -> Requirement                     1   ``verifies`` [#]_
+===============================================  =======  ===================
+
+.. [#] Only the first one is grandfathered here. ``verifies`` Risk ->
+   Requirement is *retyped* by the migration instead
+   (``migration_ops._ENDPOINT_EXCEPTIONS``): ``mitigates`` Risk -> Requirement
+   is a built-in pair that means exactly that relation, so grandfathering
+   ``verifies`` would have legalized a second, wrongly named spelling of an
+   existing built-in for every tenant. Grandfathering tolerates legacy data;
+   it also makes the pair creatable again, which is the reason not to reach
+   for it when a correct built-in home exists.
+
+``references Requirement -> Requirement`` has no such home: legacy ``traces``
+carried no direction semantics, so re-typing it to ``derives-from`` (which
+declares source=child, target=parent) would invent a claim the data does not
+make. It is grandfathered rather than promoted to a built-in for the same
+reason: ``references`` targets a *reference entity*, and a Requirement is not
+one.
 """
 from __future__ import annotations
 
@@ -74,6 +103,10 @@ GRANDFATHERED_PAIRS: Dict[str, List[Dict[str, str]]] = {
         {"source_type": "Issue", "target_type": "ArchitectureElement"},
         # legacy `traces`; 22 rows.
         {"source_type": "Risk", "target_type": "Requirement"},
+        # legacy `traces`; issue #893, 1 row on the QA database. No built-in
+        # `references` pair puts a Requirement on the target side, and no other
+        # built-in type fits a directionless legacy trace.
+        {"source_type": "Requirement", "target_type": "Requirement"},
     ],
 }
 

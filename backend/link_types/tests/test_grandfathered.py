@@ -147,6 +147,46 @@ def test_migration_extends_the_seeded_rows_of_every_tenant(seeded_tenant):
 
 
 @pytest.mark.django_db
+def test_0007_reapplies_a_pair_added_after_0004_already_ran(seeded_tenant):
+    """A code-only widening of the allowlist never reaches an existing tenant.
+
+    ``0004`` merges the allowlist into the seeded rows once. Issue #893 added
+    ``references`` Requirement -> Requirement afterwards, so without ``0007``
+    the pair would exist for freshly provisioned workspaces only and every
+    already-installed tenant would keep rejecting the very rows the fix makes
+    the data migration accept.
+    """
+    reapply = importlib.import_module(
+        "link_types.migrations.0007_backfill_grandfathered_pairs_issue893"
+    )
+    tenant, workspace = seeded_tenant
+    row = WorkspaceLinkTypeDefinition.unscoped.get(
+        tenant_id=tenant.id, workspace_id=workspace.id, key="references"
+    )
+    # Rewind to a catalog seeded before the pair was added.
+    row.definition_json = {
+        **row.definition_json,
+        "allowed_pairs": [
+            pair
+            for pair in row.definition_json["allowed_pairs"]
+            if (pair["source_type"], pair["target_type"])
+            != ("Requirement", "Requirement")
+        ],
+    }
+    row.save(update_fields=["definition_json"])
+
+    TenantContext.clear_tenant()
+    _unarm()
+    reapply.apply_pairs(_Apps(), _SchemaEditor())
+
+    TenantContext.set_tenant(tenant.id)
+    row.refresh_from_db()
+    assert {"source_type": "Requirement", "target_type": "Requirement"} in (
+        row.definition_json["allowed_pairs"]
+    )
+
+
+@pytest.mark.django_db
 def test_migration_leaves_a_customized_workspace_row_alone(seeded_tenant):
     tenant, workspace = seeded_tenant
     key = next(iter(GRANDFATHERED_PAIRS))
