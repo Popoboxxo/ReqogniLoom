@@ -197,6 +197,42 @@ class WorkspaceAttributeDefinitionView(APIView):
             return _validation(lang, "; ".join(exc.errors))
         return Response(payload, status=status.HTTP_200_OK)
 
+    def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        """Create one workspace-only attribute (no global counterpart)."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        attribute = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().create_workspace(
+                ctx, item_type, workspace_id, attribute
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    def delete(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        """Delete one attribute (``?name=``) from the workspace's definition."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        name = request.query_params.get("name")
+        if not name:
+            return _validation(lang, "Query parameter 'name' is required.")
+        try:
+            payload = AttributeDefinitionService().delete_workspace(
+                ctx, item_type, workspace_id, name
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
 
 class WorkspaceAttributeDefinitionResetView(APIView):
     """POST /workspaces/{id}/attribute-definitions/{item_type}/reset/."""

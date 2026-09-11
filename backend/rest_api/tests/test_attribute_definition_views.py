@@ -180,6 +180,58 @@ def test_put_then_reset_workspace_definition(
 
 
 @pytest.mark.django_db
+def test_post_workspace_creates_a_workspace_only_attribute(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_customized"] is True
+    assert "risk_comment" in [a["name"] for a in body["attributes"]]
+
+
+@pytest.mark.django_db
+def test_post_workspace_requires_admin(editor_client, workspace_fixture, seeded) -> None:
+    response = editor_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_delete_workspace_rejects_a_core_attribute_with_400(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.delete(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/?name=title"
+    )
+    assert response.status_code == 400  # 'title' is kind="core"
+
+
+@pytest.mark.django_db
+def test_delete_workspace_removes_an_extended_attribute(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    admin_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    response = admin_client.delete(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/"
+        f"?name=risk_comment"
+    )
+    assert response.status_code == 200
+    assert "risk_comment" not in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
 def test_workspace_definition_without_a_global_is_404(
     admin_client, workspace_fixture
 ) -> None:

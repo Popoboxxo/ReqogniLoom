@@ -3,11 +3,15 @@
 Spec section 5. Modelled on ``mcp_server/tools/permissions.py`` (Decision D5:
 the ``workflow.*`` group the spec names as the analogue does not exist).
 
-Four tools:
-  attribute_definition.list   — tenant-wide global defaults (read, admin)
-  attribute_definition.get    — resolved definition for a workspace (read)
-  attribute_definition.update — workspace override (write, admin)
-  attribute_definition.reset  — back to the global default (write, admin)
+Eight tools:
+  attribute_definition.list             — tenant-wide global defaults (read, admin)
+  attribute_definition.get              — resolved definition for a workspace (read)
+  attribute_definition.update           — workspace override (write, admin)
+  attribute_definition.reset            — back to the global default (write, admin)
+  attribute_definition.create           — add one global attribute (write, admin)
+  attribute_definition.delete           — remove one global attribute (write, admin)
+  attribute_definition.create_workspace — add one workspace-only attribute (write, admin)
+  attribute_definition.delete_workspace — remove one workspace attribute (write, admin)
 
 ``workspace_id`` is REQUIRED on get/update/reset. That is not cosmetic: the
 dispatcher's workspace gate only engages on a required parameter, and
@@ -72,6 +76,10 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         "attribute_definition.get": "_handle_get",
         "attribute_definition.update": "_handle_update",
         "attribute_definition.reset": "_handle_reset",
+        "attribute_definition.create": "_handle_create",
+        "attribute_definition.delete": "_handle_delete",
+        "attribute_definition.create_workspace": "_handle_create_workspace",
+        "attribute_definition.delete_workspace": "_handle_delete_workspace",
     }
 
     @staticmethod
@@ -103,6 +111,55 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             },
             "required": ["item_type", "workspace_id", "attributes"],
         }
+        global_scoped = {
+            "type": "object",
+            "properties": {
+                "item_type": {"type": "string"},
+                "preset": {
+                    "type": "string",
+                    "enum": ["minimal", "standard", "extended"],
+                },
+            },
+            "required": ["item_type", "preset"],
+        }
+        create_global_schema = {
+            "type": "object",
+            "properties": {
+                **global_scoped["properties"],
+                "attribute": {
+                    "type": "object",
+                    "description": "New attribute entry (name, kind, type, ...).",
+                },
+            },
+            "required": ["item_type", "preset", "attribute"],
+        }
+        delete_global_schema = {
+            "type": "object",
+            "properties": {
+                **global_scoped["properties"],
+                "name": {"type": "string"},
+            },
+            "required": ["item_type", "preset", "name"],
+        }
+        create_workspace_schema = {
+            "type": "object",
+            "properties": {
+                **workspace_scoped["properties"],
+                "attribute": {
+                    "type": "object",
+                    "description": "New attribute entry (name, kind, type, ...).",
+                },
+            },
+            "required": ["item_type", "workspace_id", "attribute"],
+        }
+        delete_workspace_schema = {
+            "type": "object",
+            "properties": {
+                **workspace_scoped["properties"],
+                "name": {"type": "string"},
+            },
+            "required": ["item_type", "workspace_id", "name"],
+        }
         return [
             {
                 "name": "attribute_definition.list",
@@ -133,6 +190,26 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
                 "name": "attribute_definition.reset",
                 "description": "Reset a workspace definition to the global default (admin-only).",
                 "inputSchema": workspace_scoped,
+            },
+            {
+                "name": "attribute_definition.create",
+                "description": "Add one extended attribute to a global default (admin-only).",
+                "inputSchema": create_global_schema,
+            },
+            {
+                "name": "attribute_definition.delete",
+                "description": "Remove one attribute from a global default (admin-only).",
+                "inputSchema": delete_global_schema,
+            },
+            {
+                "name": "attribute_definition.create_workspace",
+                "description": "Add one workspace-only attribute (admin-only).",
+                "inputSchema": create_workspace_schema,
+            },
+            {
+                "name": "attribute_definition.delete_workspace",
+                "description": "Remove one attribute from a workspace's definition (admin-only).",
+                "inputSchema": delete_workspace_schema,
             },
         ]
 
@@ -214,6 +291,92 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except AttributeDefinitionNotFound as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
+
+    def _handle_create(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        preset = require_param(params, "preset")
+        attribute = params.get("attribute")
+        if not isinstance(attribute, dict):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'attribute' must be an object."
+            )
+        try:
+            definition = self._get_service().create_global(
+                auth_context, item_type, preset, attribute
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
+
+    def _handle_delete(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        preset = require_param(params, "preset")
+        name = require_param(params, "name")
+        try:
+            definition = self._get_service().delete_global(
+                auth_context, item_type, preset, name
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
+
+    def _handle_create_workspace(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        workspace_id = require_uuid(params, "workspace_id")
+        attribute = params.get("attribute")
+        if not isinstance(attribute, dict):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'attribute' must be an object."
+            )
+        try:
+            definition = self._get_service().create_workspace(
+                auth_context, item_type, workspace_id, attribute
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as _handle_get — see its comment for why this must
+            # not fall through to the dispatcher's blanket INTERNAL_ERROR.
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
+
+    def _handle_delete_workspace(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        workspace_id = require_uuid(params, "workspace_id")
+        name = require_param(params, "name")
+        try:
+            definition = self._get_service().delete_workspace(
+                auth_context, item_type, workspace_id, name
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
 

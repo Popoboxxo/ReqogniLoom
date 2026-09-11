@@ -374,6 +374,62 @@ class AttributeDefinitionService(ServiceBase):
         remaining = [a for a in current if a["name"] != name]
         return self.update_global(ctx, item_type, preset, remaining)
 
+    def create_workspace(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        workspace_id: UUID,
+        attribute: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add a workspace-only attribute (no ``source_global`` counterpart).
+
+        Materializes the workspace row first (same as :meth:`resolve`) so this
+        also works the first time an admin touches an item type in this
+        workspace. Sets ``is_customized=True`` on the row — identical
+        divergence semantics to any other workspace edit: once a workspace has
+        any local addition it stops receiving global propagation until
+        :meth:`reset_workspace` re-copies the global. Reuses
+        :meth:`update_workspace`'s full validation the same way
+        :meth:`create_global` reuses :meth:`update_global`'s.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        preset = self._workspace_preset(workspace_id)
+        row = self._workspace.resolve(ctx.tenant_id, workspace_id, item_type, preset)
+        current = stored_attributes(row.definition_json)
+        validate_new_attribute_name(
+            attribute.get("name", ""),
+            current,
+            reserved_field_names=self._model_field_names(item_type),
+        )
+        return self.update_workspace(ctx, item_type, workspace_id, current + [attribute])
+
+    def delete_workspace(
+        self, ctx: AuthContext, item_type: str, workspace_id: UUID, name: str
+    ) -> dict[str, Any]:
+        """Remove one attribute from the workspace's resolved definition.
+
+        Works identically whether *name* is a workspace-only attribute or one
+        the workspace currently only inherits from global (no prior local
+        override): either way the row is materialized if needed, the entry is
+        dropped, and the result is saved through :meth:`update_workspace` —
+        which sets ``is_customized=True`` like any other workspace edit. An
+        inherited attribute removed this way therefore does NOT come back on
+        the next global propagation (propagation only ever touches
+        ``is_customized=False`` rows, see
+        ``GlobalAttributeDefinitionStore._derived_row_filter``); it stays gone
+        until :meth:`reset_workspace` explicitly discards the override. A
+        ``kind="core"`` name is refused the same way :meth:`delete_global`
+        refuses one.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        preset = self._workspace_preset(workspace_id)
+        row = self._workspace.resolve(ctx.tenant_id, workspace_id, item_type, preset)
+        current = stored_attributes(row.definition_json)
+        remaining = [a for a in current if a["name"] != name]
+        return self.update_workspace(ctx, item_type, workspace_id, remaining)
+
     def reset_workspace(
         self, ctx: AuthContext, item_type: str, workspace_id: UUID
     ) -> dict[str, Any]:

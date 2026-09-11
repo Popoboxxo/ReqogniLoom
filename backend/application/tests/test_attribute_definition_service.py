@@ -356,6 +356,116 @@ def test_delete_global_requires_admin(service, editor_ctx, seeded) -> None:
         service.delete_global(editor_ctx, "Risk", "standard", "title")
 
 
+# --- Task 2: create_workspace / delete_workspace --------------------------
+
+
+@pytest.mark.django_db
+def test_create_workspace_adds_a_workspace_only_attribute(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        out = service.create_workspace(
+            admin_ctx, "Risk", workspace.id,
+            {"name": "risk_comment", "kind": "extended", "type": "text"},
+        )
+    assert out["is_customized"] is True
+    assert [a["name"] for a in out["attributes"]] == ["risk_comment", "title"]
+
+
+@pytest.mark.django_db
+def test_create_workspace_materializes_on_first_touch(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    """No prior GET/resolve for this item type in this workspace."""
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        out = service.create_workspace(
+            admin_ctx, "Risk", workspace.id,
+            {"name": "risk_comment", "kind": "extended", "type": "text"},
+        )
+    assert "title" in [a["name"] for a in out["attributes"]]
+
+
+@pytest.mark.django_db
+def test_create_workspace_rejects_a_colliding_name(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        with pytest.raises(AttributeSchemaError):
+            service.create_workspace(
+                admin_ctx, "Risk", workspace.id,
+                {"name": "title", "kind": "extended", "type": "text"},
+            )
+
+
+@pytest.mark.django_db
+def test_delete_workspace_removes_a_workspace_only_attribute(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.create_workspace(
+            admin_ctx, "Risk", workspace.id,
+            {"name": "risk_comment", "kind": "extended", "type": "text"},
+        )
+        out = service.delete_workspace(admin_ctx, "Risk", workspace.id, "risk_comment")
+    assert [a["name"] for a in out["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_delete_workspace_of_an_inherited_attribute_diverges_and_does_not_come_back(
+    service, admin_ctx, workspace, tenant
+) -> None:
+    """Deleting an attribute the workspace only ever inherited from global.
+
+    ``note`` (kind="extended") is used, not ``title`` — deleting a core
+    attribute is correctly rejected regardless of inheritance, that is
+    :func:`test_delete_workspace_rejects_a_core_attribute` below.
+
+    Verified against ``GlobalAttributeDefinitionStore._derived_row_filter``:
+    propagation only ever rewrites ``is_customized=False`` rows, so once the
+    delete flips this row to ``is_customized=True`` a later global update no
+    longer reaches it and the deletion is permanent until an explicit reset.
+    """
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, NOTE],
+    )
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.resolve(admin_ctx, "Risk", workspace.id)  # materialize, no override yet
+        out = service.delete_workspace(admin_ctx, "Risk", workspace.id, "note")
+        assert out["is_customized"] is True
+        assert [a["name"] for a in out["attributes"]] == ["title"]
+
+        # A subsequent global propagation must NOT resurrect it.
+        service.update_global(admin_ctx, "Risk", "standard", [TITLE, dict(NOTE, order=9)])
+        still = service.resolve(admin_ctx, "Risk", workspace.id)
+    assert [a["name"] for a in still["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_delete_workspace_rejects_a_core_attribute(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        with pytest.raises(AttributeSchemaError):
+            service.delete_workspace(admin_ctx, "Risk", workspace.id, "title")
+
+
+@pytest.mark.django_db
+def test_create_workspace_requires_admin(service, editor_ctx, workspace, seeded) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        with pytest.raises(PermissionDeniedError):
+            service.create_workspace(
+                editor_ctx, "Risk", workspace.id,
+                {"name": "risk_comment", "kind": "extended", "type": "text"},
+            )
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("bad", ["not-a-uuid", "", "42"])
 def test_resolve_maps_a_malformed_workspace_id_to_not_found(admin_ctx, bad) -> None:
