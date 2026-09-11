@@ -426,6 +426,7 @@ function MetricTile({
           label={t("metrics.trendLabel", "{{metric}} trend", { metric: tileTitle })}
         />
         <span
+          data-testid="metric-last-update"
           style={{
             fontSize: "0.7rem",
             color: "var(--color-text-muted)",
