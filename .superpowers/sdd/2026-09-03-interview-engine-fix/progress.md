@@ -139,7 +139,109 @@ done in a human sense — do the manual check before merge.
 **Phase B verdict: complete per automated verification; live-UI check
 outstanding.**
 
-## Phase C — L2.4: Cap the transcript (Tasks 11-14) — NOT STARTED
+## Phase C — L2.4: Cap the transcript (Tasks 11-14) — COMPLETE
+
+Executed 2026-09-11 by a `senior-developer` dispatch (again a single
+execution, no per-task reviewer subagent — same caveat as Phases A+B).
+
+**Task 11 (`InterviewSession.transcript_summary`): complete.** Commit
+`804c047b`. 5/5 in `persistence/tests/test_interview_session_model.py`.
+- Migration is **`0083_interview_transcript_summary.py`**, not the plan's
+  `00XX` placeholder (which was written when `0069` was the tip). Verified
+  next-free against `ls backend/persistence/migrations/ | tail -3`; the
+  generated file has exactly one `AddField` and no drift from other models.
+- The module has no `interview_session` fixture the plan's test bodies
+  assume — added one (plain `objects.create`, the file's existing
+  `TenantContext.set_tenant` try/finally convention), per the plan's own
+  fallback instruction. The `save()`/`refresh_from_db()` in the long-text
+  test is wrapped in the same tenant context for the same reason.
+- `makemigrations` ran through the `backend-test` service, not `exec
+  backend`: the dev `backend` container is not up in this worktree, and the
+  test overlay bind-mounts `./backend:/app`, so the file lands on the host
+  either way. `manage.py migrate` against the dev DB was therefore not run
+  (no dev DB in this worktree); the test DB applies the migration on every
+  run, which is what all verification below exercised.
+
+**Task 12 (prompt template + slot): complete.** Commit `e173fc1f`.
+51/51 across `test_interview_transcript_cap.py` + the five prompt
+registry/resolver/render modules; 69/69 on the REST+MCP prompt surface
+(`-k "prompt_template or prompt_slot or prompt_variable"`).
+- **Deviation (extra file, required):** the plan lists only
+  `ai_derivation_service.py` + `prompt_slots.py`. But
+  `test_prompt_slots_registry.py::test_declared_data_variables_are_registered_in_the_variable_catalog`
+  asserts every declared slot data variable exists in
+  `prompt_variables.PROMPT_VARIABLE_DEFAULTS` with `kind="data"`. All three
+  new placeholders (`transcript_summary`, `previous_summary`,
+  `overflow_json`) are registered there too, or Task 12 turns that existing
+  test red.
+- The plan's test uses `.placeholders`; the real `PromptSlotSpec` attribute
+  is `data_variables` (the plan flagged this itself and told the executor to
+  use the real name). Test module is `test_prompt_slots_registry.py`, not
+  the plan's `test_prompt_slots.py`. No exact-slot-count assertion exists
+  anywhere, so nothing needed renumbering.
+
+**Task 13 (`_compress_transcript_if_needed`): complete.** Commit
+`b457c67a`. 10/10 in `test_interview_transcript_cap.py`.
+- `TRANSCRIPT_WINDOW_TURNS = 10` is a **module** constant next to
+  `ABANDONED_TTL`, matching the plan's code snippet and the file's existing
+  style. (The plan's own "Interfaces" line writes it as
+  `InterviewService.TRANSCRIPT_WINDOW_TURNS` — an internal inconsistency in
+  the plan; the snippet won.)
+- **Deviation:** added `self._set_tenant_context(ctx)` before the `save()`.
+  The plan's snippet omits it because `generate_chat_turn` already armed the
+  context via `_get_session`; that makes the method silently
+  context-dependent for any other caller (the plan's own direct-call tests
+  included). One line, matches every other write method's convention.
+- Added one test beyond the plan's list:
+  `test_empty_summary_leaves_the_transcript_intact` — the plan's
+  implementation has an explicit empty-digest branch ("would silently
+  DISCARD the overflow turns") that its test list never covered.
+
+**Task 14 (wire into `generate_chat_turn`): complete.** Commit `9b7b3d24`.
+- Plan line refs `:1196-1206` / `:1269-1311` are stale (Phases A+B landed
+  since); the real seams are the `AiDerivationService._render` call and the
+  end of the post-write `transaction.atomic()` block. Applied by content,
+  not by line number.
+- `test_compression_failure_still_returns_the_reply` passes both before and
+  after the implementation (pre-fix the transcript is uncompressed for the
+  trivial reason that nothing compresses). The other two in that class are
+  the real red-to-green pair, exactly as the plan's Step 2 predicted.
+
+**Extra commit `a1526b53` (frontend, 1 line, deliberate):**
+`AiPromptsSection.tsx` documents each interview slot's placeholders to
+workspace admins. That hint was already stale (`memory_context`, from the
+memory plan) and L2.4 added two more slots' worth. It is a hardcoded English
+fallback — `settings.promptTemplates.interviewDescription` has no entry in
+`de.json`/`en.json`, so this literal is what admins actually read in both
+languages. No new inline style, no new token; `ui-ratchet` + WorkspaceSettings
+vitest green (69/69, 9 files).
+
+**Open finding, NOT fixed (out of Phase C scope, product decision):**
+`get_state()` returns `transcript` and the chat pane renders it "on
+mount/resume" (`interview_service.py:419-422`,
+`InterviewChatPane.tsx:139`). After the first compression a resumed session
+shows only the newest 20 entries, and `transcript_summary` is exposed
+**nowhere** — not in `get_state`, not in `rest_api/interview_views.py:127`,
+not in `mcp_server/tools/interview.py:329`. That is the intended cap for the
+*prompt*, but it silently shortens the user-visible history too. Surfacing
+the digest would change the REST/MCP response shape, which Task 14's own
+"Interfaces: unchanged return shape" forbids. Route to the Phase D / final
+review as a product question.
+
+### Verification (Phase C, real output)
+
+| Scope | Result |
+|---|---|
+| `persistence/tests/test_interview_session_model.py` | **5 passed** in 29.41s |
+| `application/tests/test_interview_transcript_cap.py` + 5 prompt registry/resolver modules | **51 passed** in 32.97s |
+| `rest_api/tests/ mcp_server/tests/ -k "prompt_template or prompt_slot or prompt_variable"` | **69 passed**, 2512 deselected |
+| `application/tests/test_interview_transcript_cap.py` + `test_interview_multi_chat.py` | **22 passed** in 37.09s |
+| `application/tests/ -k interview` (all 10 interview modules) | **193 passed**, 1636 deselected, 50.55s |
+| `rest_api/tests/ mcp_server/tests/ -k interview` | **73 passed**, 2508 deselected |
+| vitest: `WorkspaceSettings` + `ui-ratchet` | **9 files / 69 tests passed** |
+
+Not run (per Global Constraints): full backend suite, unfiltered Playwright.
+No live-browser check — same tooling gap as Phases A+B.
 
 ## Phase D — L2.5: Reduce the widget to a picker (Tasks 15-17) — NOT STARTED
 
@@ -273,14 +375,10 @@ any unfiltered Playwright run — CI's job.
 
 ## What's left for whoever resumes this
 
-1. **Phase C (Tasks 11-14, transcript cap)** — model field + migration,
-   sliding-window compressor, best-effort LLM call, wiring into the chat
-   turn path. Fully specified in the plan (read Tasks 11-14 starting at
-   plan line ~1841). No blocking questions expected based on the pattern
-   established in Phases A-B (plan text is usually close but not always
-   exact against the current tree — verify each "before" assumption
-   against real files before applying a diff verbatim, as done throughout
-   this ledger).
+1. ~~**Phase C (Tasks 11-14, transcript cap)**~~ — DONE 2026-09-11, see the
+   Phase C section above. One open product question left there
+   (`transcript_summary` is not exposed through `get_state`/REST/MCP, so a
+   resumed session's visible history is now capped too).
 2. **Phase D (Tasks 15-17, widget reduction)** — frontend-only, needs the
    same `docker compose restart frontend` + manual browser check this
    execution could not do for Task 10 either.
@@ -297,5 +395,6 @@ any unfiltered Playwright run — CI's job.
 
 Commits on `feat/interview-engine-fix`, in order: `28440fa8` → `38420a0` →
 `cb9b4632` → `68a53bf` → `709bf08` → `9430183` → `d6fbb1e4` → (fix round 1)
-`d5b3f7f1` → `0014359d`. Not pushed, no PR opened — per directive, that
-decision belongs to the parent/user.
+`d5b3f7f1` → `0014359d` → `bc44b64f` → (Phase C) `804c047b` → `e173fc1f` →
+`b457c67a` → `9b7b3d24` → `a1526b53`. Not pushed, no PR opened — per
+directive, that decision belongs to the parent/user.
