@@ -40,8 +40,8 @@ they need, from a plain description of their problem. Artifact types \
 available: StakeholderNeed, Requirement, ArchitectureElement, Risk, \
 TestCase, Adr, Issue, Goal.
 
-Do not propose GlossaryTerm artifacts; glossary terms cannot be created \
-through a multi-artifact interview.
+Do not propose GlossaryTerm artifacts; glossary terms are managed on the \
+glossary surface, not proposed by an interview.
 
 Ask clarifying questions if the problem is unclear. Once you have enough \
 information, propose a list of artifacts as a fenced ```json code block, \
