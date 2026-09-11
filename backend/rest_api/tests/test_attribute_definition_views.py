@@ -286,6 +286,83 @@ def test_get_usage_count_without_a_name_is_400(
 
 
 @pytest.mark.django_db
+def test_export_global_returns_a_re_importable_document(admin_client, seeded) -> None:
+    response = admin_client.get("/api/v1/attribute-defaults/Risk/standard/export/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == 1
+    assert body["item_type"] == "Risk"
+    assert [a["name"] for a in body["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_export_global_requires_admin(editor_client, seeded) -> None:
+    response = editor_client.get("/api/v1/attribute-defaults/Risk/standard/export/")
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_import_global_adds_a_new_attribute(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/import/",
+        {
+            "schema_version": 1,
+            "attributes": [{"name": "note", "kind": "extended", "type": "text"}],
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    assert "note" in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_import_global_rejects_an_unrecognized_schema_version_with_400(
+    admin_client, seeded
+) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/import/",
+        {"schema_version": 99, "attributes": []},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_import_global_honors_the_on_collision_query_param(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/import/?on_collision=overwrite",
+        {"schema_version": 1, "attributes": [dict(TITLE, section="header")]},
+        format="json",
+    )
+    assert response.status_code == 200
+    by_name = {a["name"]: a for a in response.json()["attributes"]}
+    assert by_name["title"]["section"] == "header"
+
+
+@pytest.mark.django_db
+def test_export_workspace_returns_a_document(admin_client, workspace_fixture, seeded) -> None:
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/export/"
+    )
+    assert response.status_code == 200
+    assert response.json()["item_type"] == "Risk"
+
+
+@pytest.mark.django_db
+def test_import_workspace_adds_a_new_attribute(admin_client, workspace_fixture, seeded) -> None:
+    response = admin_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/import/",
+        {
+            "schema_version": 1,
+            "attributes": [{"name": "note", "kind": "extended", "type": "text"}],
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    assert "note" in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
 def test_workspace_definition_without_a_global_is_404(
     admin_client, workspace_fixture
 ) -> None:

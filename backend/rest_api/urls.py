@@ -104,8 +104,12 @@ from rest_api.settings_views import (
 )
 from rest_api.attribute_definition_views import (
     AttributeDefaultsDetailView,
+    AttributeDefaultsExportView,
+    AttributeDefaultsImportView,
     AttributeDefaultsListView,
     AttributeUsageView,
+    WorkspaceAttributeDefinitionExportView,
+    WorkspaceAttributeDefinitionImportView,
     WorkspaceAttributeDefinitionResetView,
     WorkspaceAttributeDefinitionView,
 )
@@ -510,6 +514,16 @@ urlpatterns = [
         name="attribute-defaults-list",
     ),
     path(
+        "attribute-defaults/<str:item_type>/<str:preset>/export/",
+        AttributeDefaultsExportView.as_view(),
+        name="attribute-defaults-export",
+    ),
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/import/",
+        AttributeDefaultsImportView.as_view(),
+        name="attribute-defaults-import",
+    ),
+    path(
         "attribute-defaults/<str:item_type>/<str:preset>/",
         AttributeDefaultsDetailView.as_view(),
         name="attribute-defaults-detail",
@@ -523,6 +537,16 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/usage/",
         AttributeUsageView.as_view(),
         name="workspace-attribute-definition-usage",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/export/",
+        WorkspaceAttributeDefinitionExportView.as_view(),
+        name="workspace-attribute-definition-export",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/import/",
+        WorkspaceAttributeDefinitionImportView.as_view(),
+        name="workspace-attribute-definition-import",
     ),
     path(
         "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/",

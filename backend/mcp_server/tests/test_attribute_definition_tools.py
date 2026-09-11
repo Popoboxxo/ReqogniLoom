@@ -28,7 +28,7 @@ def ctx() -> MagicMock:
     return context
 
 
-def test_tool_map_exposes_exactly_nine_tools(group) -> None:
+def test_tool_map_exposes_exactly_thirteen_tools(group) -> None:
     assert set(group._TOOL_MAP) == {
         "attribute_definition.list",
         "attribute_definition.get",
@@ -39,6 +39,10 @@ def test_tool_map_exposes_exactly_nine_tools(group) -> None:
         "attribute_definition.create_workspace",
         "attribute_definition.delete_workspace",
         "attribute_definition.count_usages",
+        "attribute_definition.export",
+        "attribute_definition.export_workspace",
+        "attribute_definition.import",
+        "attribute_definition.import_workspace",
     }
 
 
@@ -430,6 +434,95 @@ def test_count_usages_maps_permission_denied(group, ctx) -> None:
         )
     assert result.success is False
     assert result.error_code == "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_export_returns_the_document(group, ctx) -> None:
+    document = {"schema_version": 1, "item_type": "Risk", "attributes": [], "sections": []}
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.export_definition.return_value = document
+        result = group.execute_tool(
+            tool_name="attribute_definition.export",
+            params={"item_type": "Risk", "preset": "standard"},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert result.data["document"] == document
+
+
+@pytest.mark.django_db
+def test_export_workspace_maps_cross_tenant_to_permission_denied(group, ctx) -> None:
+    from presets.exceptions import CrossTenantWorkspaceError
+
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.export_definition.side_effect = CrossTenantWorkspaceError("nope")
+        result = group.execute_tool(
+            tool_name="attribute_definition.export_workspace",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4())},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_import_rejects_a_non_object_document(group, ctx) -> None:
+    result = group.execute_tool(
+        tool_name="attribute_definition.import",
+        params={"item_type": "Risk", "preset": "standard", "document": "nope"},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_import_returns_the_updated_definition(group, ctx) -> None:
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.import_definition.return_value = PAYLOAD
+        result = group.execute_tool(
+            tool_name="attribute_definition.import",
+            params={
+                "item_type": "Risk", "preset": "standard",
+                "document": {"schema_version": 1, "attributes": []},
+            },
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert result.data["definition"]["item_type"] == "Risk"
+
+
+@pytest.mark.django_db
+def test_import_workspace_maps_a_schema_error_to_validation_error(group, ctx) -> None:
+    from application.attribute_definition_service import AttributeSchemaError
+
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.import_definition.side_effect = AttributeSchemaError(
+            ["unrecognized schema_version"]
+        )
+        result = group.execute_tool(
+            tool_name="attribute_definition.import_workspace",
+            params={
+                "item_type": "Risk", "workspace_id": str(uuid.uuid4()),
+                "document": {"schema_version": 99, "attributes": []},
+            },
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
 
 
 def test_payload_is_json_serialisable_with_the_stdlib_encoder() -> None:

@@ -297,10 +297,104 @@ class WorkspaceAttributeDefinitionResetView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+def _read_on_collision(request: Request, payload: dict[str, Any]) -> str:
+    """``on_collision`` (Task 10): a query param wins over a same-named key in
+    the body, defaulting to ``"skip"`` — the plan's own spec explicitly wants
+    both accepted (``?on_collision=`` OR the body carrying it alongside the
+    exported document)."""
+    return request.query_params.get("on_collision") or payload.get("on_collision") or "skip"
+
+
+class AttributeDefaultsExportView(APIView):
+    """GET /attribute-defaults/{item_type}/{preset}/export/ (Task 10)."""
+
+    def get(self, request: Request, item_type: str, preset: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        try:
+            payload = AttributeDefinitionService().export_definition(
+                ctx, item_type, preset=preset
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AttributeDefaultsImportView(APIView):
+    """POST /attribute-defaults/{item_type}/{preset}/import/ (Task 10)."""
+
+    def post(self, request: Request, item_type: str, preset: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().import_definition(
+                ctx, item_type, body, preset=preset,
+                on_collision=_read_on_collision(request, body),
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceAttributeDefinitionExportView(APIView):
+    """GET /workspaces/{id}/attribute-definitions/{item_type}/export/ (Task 10)."""
+
+    def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        try:
+            payload = AttributeDefinitionService().export_definition(
+                ctx, item_type, workspace_id=workspace_id
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as WorkspaceAttributeDefinitionView.get — see its
+            # comment for why this must not fall through to a 500.
+            return _forbidden(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceAttributeDefinitionImportView(APIView):
+    """POST /workspaces/{id}/attribute-definitions/{item_type}/import/ (Task 10)."""
+
+    def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().import_definition(
+                ctx, item_type, body, workspace_id=workspace_id,
+                on_collision=_read_on_collision(request, body),
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            return _forbidden(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 __all__ = [
     "AttributeDefaultsDetailView",
+    "AttributeDefaultsExportView",
+    "AttributeDefaultsImportView",
     "AttributeDefaultsListView",
     "AttributeUsageView",
+    "WorkspaceAttributeDefinitionExportView",
+    "WorkspaceAttributeDefinitionImportView",
     "WorkspaceAttributeDefinitionResetView",
     "WorkspaceAttributeDefinitionView",
 ]

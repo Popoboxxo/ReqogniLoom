@@ -3,7 +3,7 @@
 Spec section 5. Modelled on ``mcp_server/tools/permissions.py`` (Decision D5:
 the ``workflow.*`` group the spec names as the analogue does not exist).
 
-Eight tools:
+Thirteen tools:
   attribute_definition.list             — tenant-wide global defaults (read, admin)
   attribute_definition.get              — resolved definition for a workspace (read)
   attribute_definition.update           — workspace override (write, admin)
@@ -12,6 +12,11 @@ Eight tools:
   attribute_definition.delete           — remove one global attribute (write, admin)
   attribute_definition.create_workspace — add one workspace-only attribute (write, admin)
   attribute_definition.delete_workspace — remove one workspace attribute (write, admin)
+  attribute_definition.count_usages     — artifacts referencing an attribute/option (read, admin)
+  attribute_definition.export           — download a global definition (read, admin)
+  attribute_definition.export_workspace — download a workspace's resolved definition (read, admin)
+  attribute_definition.import           — import into a global definition (write, admin)
+  attribute_definition.import_workspace — import into a workspace's definition (write, admin)
 
 ``workspace_id`` is REQUIRED on get/update/reset. That is not cosmetic: the
 dispatcher's workspace gate only engages on a required parameter, and
@@ -81,6 +86,10 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         "attribute_definition.create_workspace": "_handle_create_workspace",
         "attribute_definition.delete_workspace": "_handle_delete_workspace",
         "attribute_definition.count_usages": "_handle_count_usages",
+        "attribute_definition.export": "_handle_export",
+        "attribute_definition.export_workspace": "_handle_export_workspace",
+        "attribute_definition.import": "_handle_import",
+        "attribute_definition.import_workspace": "_handle_import_workspace",
     }
 
     @staticmethod
@@ -161,6 +170,45 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             },
             "required": ["item_type", "workspace_id", "name"],
         }
+        export_global_schema = {
+            "type": "object",
+            "properties": global_scoped["properties"],
+            "required": ["item_type", "preset"],
+        }
+        export_workspace_schema = {
+            "type": "object",
+            "properties": workspace_scoped["properties"],
+            "required": ["item_type", "workspace_id"],
+        }
+        on_collision_property = {
+            "type": "string",
+            "enum": ["skip", "overwrite", "rename"],
+            "description": "Default 'skip'.",
+        }
+        import_global_schema = {
+            "type": "object",
+            "properties": {
+                **global_scoped["properties"],
+                "document": {
+                    "type": "object",
+                    "description": "A previously exported document (attribute_definition.export's output).",
+                },
+                "on_collision": on_collision_property,
+            },
+            "required": ["item_type", "preset", "document"],
+        }
+        import_workspace_schema = {
+            "type": "object",
+            "properties": {
+                **workspace_scoped["properties"],
+                "document": {
+                    "type": "object",
+                    "description": "A previously exported document (attribute_definition.export_workspace's output).",
+                },
+                "on_collision": on_collision_property,
+            },
+            "required": ["item_type", "workspace_id", "document"],
+        }
         return [
             {
                 "name": "attribute_definition.list",
@@ -228,6 +276,26 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
                     },
                     "required": ["item_type", "workspace_id", "name"],
                 },
+            },
+            {
+                "name": "attribute_definition.export",
+                "description": "Download a global default as a re-importable document (admin-only).",
+                "inputSchema": export_global_schema,
+            },
+            {
+                "name": "attribute_definition.export_workspace",
+                "description": "Download a workspace's resolved definition as a re-importable document (admin-only).",
+                "inputSchema": export_workspace_schema,
+            },
+            {
+                "name": "attribute_definition.import",
+                "description": "Import a previously exported document into a global default (admin-only).",
+                "inputSchema": import_global_schema,
+            },
+            {
+                "name": "attribute_definition.import_workspace",
+                "description": "Import a previously exported document into a workspace's definition (admin-only).",
+                "inputSchema": import_workspace_schema,
             },
         ]
 
@@ -410,6 +478,87 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({"count": count})
+
+    def _handle_export(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        preset = require_param(params, "preset")
+        try:
+            document = self._get_service().export_definition(
+                auth_context, item_type, preset=preset
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        return ToolResult.ok({"document": document})
+
+    def _handle_export_workspace(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        workspace_id = require_uuid(params, "workspace_id")
+        try:
+            document = self._get_service().export_definition(
+                auth_context, item_type, workspace_id=workspace_id
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as _handle_get — see its comment for why.
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"document": document})
+
+    def _handle_import(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        preset = require_param(params, "preset")
+        document = params.get("document")
+        if not isinstance(document, dict):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'document' must be an object."
+            )
+        try:
+            definition = self._get_service().import_definition(
+                auth_context, item_type, document, preset=preset,
+                on_collision=params.get("on_collision") or "skip",
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
+
+    def _handle_import_workspace(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        workspace_id = require_uuid(params, "workspace_id")
+        document = params.get("document")
+        if not isinstance(document, dict):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'document' must be an object."
+            )
+        try:
+            definition = self._get_service().import_definition(
+                auth_context, item_type, document, workspace_id=workspace_id,
+                on_collision=params.get("on_collision") or "skip",
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
 
 
 __all__ = ["AttributeDefinitionToolGroup"]
