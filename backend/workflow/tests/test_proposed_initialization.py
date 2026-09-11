@@ -91,3 +91,56 @@ def test_lifecycle_honours_an_explicit_initial_state(
     finally:
         TenantContext.clear_tenant()
     assert states[0].current_state == "proposed"
+
+
+@pytest.mark.django_db
+def test_proposed_init_writes_a_history_entry(requirement_with_workflow, auth_ctx):
+    from persistence.tenancy import TenantContext
+    from workflow.lifecycle_manager import StateLifecycleManager
+    from workflow.models import WorkflowHistoryEntry
+
+    _item_id, workspace_id = requirement_with_workflow
+    new_id = uuid4()
+    TenantContext.set_tenant(auth_ctx.tenant_id)
+    try:
+        states = StateLifecycleManager().initialize_workflow_states(
+            item_ids=[new_id],
+            item_type="Requirement",
+            workspace_id=workspace_id,
+            initial_state="proposed",
+            proposed_by="Claude Code",
+        )
+        entry = WorkflowHistoryEntry.unscoped.get(item_state=states[0])
+    finally:
+        TenantContext.clear_tenant()
+    assert entry.from_state == ""
+    assert entry.to_state == "proposed"
+    assert entry.transitioned_by == "Claude Code"
+
+
+@pytest.mark.django_db
+def test_normal_init_writes_no_history(requirement_with_workflow, auth_ctx):
+    from persistence.tenancy import TenantContext
+    from workflow.lifecycle_manager import StateLifecycleManager
+    from workflow.models import WorkflowHistoryEntry
+
+    _item_id, workspace_id = requirement_with_workflow
+    new_id = uuid4()
+    TenantContext.set_tenant(auth_ctx.tenant_id)
+    try:
+        states = StateLifecycleManager().initialize_workflow_states(
+            item_ids=[new_id], item_type="Requirement", workspace_id=workspace_id
+        )
+        exists = WorkflowHistoryEntry.unscoped.filter(item_state=states[0]).exists()
+    finally:
+        TenantContext.clear_tenant()
+    assert not exists
+
+
+# NOTE: the plan's own test_proposed_init_syncs_the_status_mirror is
+# deliberately not implemented. Datenmodell-Konsolidierung Phase 1/Task 24
+# (merged into main since this plan was written) removed the per-entity
+# status mirror columns (Requirement.status included) entirely --
+# WorkflowItemState.current_state is the sole store now, so "syncing the
+# mirror" has no target to sync. See the comment in
+# StateLifecycleManager.initialize_workflow_states for the full reasoning.

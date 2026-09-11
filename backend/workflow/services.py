@@ -572,11 +572,13 @@ def initialize_workflow_states(
     """
     uuid_ids = [UUID(str(i)) for i in item_ids]
     workspace_uuid = UUID(str(workspace_id))
+    resolved_initial = initial_state_for(ctx, item_type, workspace_uuid)
     return _get_lifecycle().initialize_workflow_states(
         item_ids=uuid_ids,
         item_type=item_type,
         workspace_id=workspace_uuid,
-        initial_state=initial_state_for(ctx, item_type, workspace_uuid),
+        initial_state=resolved_initial,
+        proposed_by=ctx.agent_label or str(ctx.user_id),
     )
 
 
