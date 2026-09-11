@@ -28,7 +28,12 @@ from rest_framework import exceptions, permissions
 
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import AuthTenancyAuthentication, HasOperationPermission
-from auth_tenancy.services import AuthorizationService, Operation
+from auth_tenancy.services import (
+    AuthorizationService,
+    Operation,
+    operation_for_method,
+    scope_denial_reason,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -42,18 +47,11 @@ BearerTokenAuthentication = AuthTenancyAuthentication
 
 
 # ---------------------------------------------------------------------------
-# HTTP-method → Operation mapping (REQ-L3-RA003-002)
+# HTTP-method → Operation mapping (REQ-L3-RA003-002) now lives in
+# ``auth_tenancy.services.authorization.operation_for_method`` so the sibling
+# permission class ``HasOperationPermission`` derives the same operation for
+# its own scope gate (security review B1).
 # ---------------------------------------------------------------------------
-
-_METHOD_TO_OPERATION: dict[str, Operation] = {
-    "GET": Operation.READ,
-    "HEAD": Operation.READ,
-    "OPTIONS": Operation.READ,
-    "POST": Operation.WRITE,
-    "PUT": Operation.WRITE,
-    "PATCH": Operation.WRITE,
-    "DELETE": Operation.WRITE,
-}
 
 # Workflow transition actions that require WORKFLOW_APPROVAL (Extended preset only)
 _WORKFLOW_APPROVAL_ACTIONS = frozenset({"approve"})
@@ -79,8 +77,7 @@ class RbacPermission(permissions.BasePermission):
             # No authenticated context — DRF authentication class returns 401 first.
             return False
 
-        method = request.method.upper()
-        operation = _METHOD_TO_OPERATION.get(method, Operation.WRITE)
+        operation = operation_for_method(request.method)
 
         # Check for workflow-approval action (view may declare required_operation).
         required_operation: Operation | None = getattr(
@@ -90,17 +87,13 @@ class RbacPermission(permissions.BasePermission):
             operation = required_operation
 
         # E2.1: the API key's coarse scope is an independent, fail-closed gate
-        # ABOVE the RBAC matrix. It can only ever narrow: a read-scoped key is
-        # denied every non-READ operation regardless of how privileged its
-        # owner is. Placed before decide_access so no shadow-permission path
-        # can widen it back.
-        if auth_context.scope == "read" and operation is not Operation.READ:
-            raise exceptions.PermissionDenied(
-                detail=(
-                    "API key is read-only (scope='read'); "
-                    f"operation '{operation.value}' requires scope='write'."
-                )
-            )
+        # ABOVE the RBAC matrix. Placed before decide_access so no
+        # shadow-permission path can widen it back. Shared with
+        # ``HasOperationPermission`` and the MCP dispatcher so the two REST
+        # permission classes cannot drift apart (security review B1).
+        scope_error = scope_denial_reason(auth_context.scope, operation)
+        if scope_error:
+            raise exceptions.PermissionDenied(detail=scope_error)
 
         decision = self._authz.decide_access(auth_context.active_roles, operation)
 

@@ -34,6 +34,8 @@ from .services import (
     AuthorizationService,
     Operation,
     TenantContextService,
+    operation_for_method,
+    scope_denial_reason,
 )
 from .workspace_scope import resolve_request_workspace_id
 
@@ -318,6 +320,24 @@ class HasOperationPermission(permissions.BasePermission):
             return False
 
         operation: Operation | None = getattr(view, "required_operation", None)
+
+        # Security review B1: the API key's coarse scope is enforced here too,
+        # not only in the sibling ``rest_api.auth_enforcer.RbacPermission``.
+        # ~25 views use this class INSTEAD of that one, so a read-scoped key
+        # could write through every one of them. Two independent things had to
+        # be fixed for that: the gate has to exist here at all, and it has to
+        # run even when the view declares no ``required_operation`` — the
+        # early ``return True`` below is precisely the "authenticated is
+        # enough" path a read-scoped key was abusing. The scope is derived
+        # from the HTTP method in that case, since it is the only statement
+        # about the request's intent available.
+        scope_error = scope_denial_reason(
+            auth_context.scope,
+            operation if operation is not None else operation_for_method(request.method),
+        )
+        if scope_error:
+            raise exceptions.PermissionDenied(detail=scope_error)
+
         if operation is None:
             # No operation declared: authenticated access is sufficient.
             return True
