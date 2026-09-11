@@ -170,3 +170,70 @@ class TestTranscriptCompression:
         prompt = provider.complete.call_args[0][0]
         assert "Earlier digest." in prompt
         assert session.transcript_summary == "Merged digest."
+
+
+class TestChatTurnUsesTheSummary:
+    def test_prompt_carries_the_summary_and_only_the_window(self, ctx, workspace):
+        session = _session_with_entries(ctx, workspace, 20)
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            InterviewSession.objects.filter(id=session.id).update(
+                transcript_summary="Digest of the early conversation."
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        provider = MagicMock()
+        provider.complete.return_value = '{"extracted_fields": {}, "reply": "ok"}'
+        with patch.object(
+            InterviewService, "_resolve_provider", return_value=(provider, "mock", None)
+        ):
+            InterviewService().generate_chat_turn(ctx, session.id, "next question")
+
+        prompt = provider.complete.call_args_list[0][0][0]
+        assert "Digest of the early conversation." in prompt
+        # The freshly-appended turn is in the window; the summary is separate.
+        assert "next question" in prompt
+
+    def test_chat_turn_triggers_compression_after_persisting(self, ctx, workspace):
+        """Compression runs on the persisted transcript, so the turn that
+        pushed it over the window can never be lost by a compression failure."""
+        session = _session_with_entries(ctx, workspace, 20)
+        provider = MagicMock()
+        provider.complete.side_effect = [
+            '{"extracted_fields": {}, "reply": "ok"}',  # the chat turn
+            "Condensed history.",                        # the compression call
+        ]
+        with patch.object(
+            InterviewService, "_resolve_provider", return_value=(provider, "mock", None)
+        ):
+            InterviewService().generate_chat_turn(ctx, session.id, "one more")
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            reloaded = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        # 20 + 2 new entries = 22, compressed back down to the 20-entry window.
+        assert len(reloaded.transcript) == 20
+        assert reloaded.transcript_summary == "Condensed history."
+
+    def test_compression_failure_still_returns_the_reply(self, ctx, workspace):
+        session = _session_with_entries(ctx, workspace, 20)
+        provider = MagicMock()
+        provider.complete.side_effect = [
+            '{"extracted_fields": {}, "reply": "ok"}',
+            RuntimeError("provider down"),
+        ]
+        with patch.object(
+            InterviewService, "_resolve_provider", return_value=(provider, "mock", None)
+        ):
+            result = InterviewService().generate_chat_turn(ctx, session.id, "one more")
+
+        assert result["reply"] == "ok"
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            reloaded = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert len(reloaded.transcript) == 22  # uncompressed, nothing lost

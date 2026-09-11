@@ -1480,6 +1480,10 @@ class InterviewService(ServiceBase):
             template,
             artifact_type=session.artifact_type,
             transcript_json=json.dumps(session.transcript),
+            # L2.4: the digest of turns already folded out of `transcript`.
+            # `transcript` itself is now the sliding window, not the whole
+            # history, so without this the prompt would silently lose context.
+            transcript_summary=session.transcript_summary or "",
             current_phase_fragment=phase.prompt_fragment,
             missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
             grounding_snapshot_json=json.dumps(session.grounding_snapshot),
@@ -1589,6 +1593,12 @@ class InterviewService(ServiceBase):
                     },
                 )
             )
+
+        # L2.4: deliberately OUTSIDE the atomic block above -- the turn is
+        # already committed, so a compression failure (or a slow second LLM
+        # call) can neither roll back nor lose it. Never raises; see
+        # _compress_transcript_if_needed's contract.
+        self._compress_transcript_if_needed(ctx, session)
 
         return {"reply": reply, "state": self.get_state(ctx, session_id)}
 
