@@ -10,9 +10,12 @@ Payload contract
 values live in the nested ``changed_fields["custom_fields"]`` dict.
 
 ``existing is None`` means **create**: every visible, required attribute must be
-present and non-empty. Otherwise (**update**) only the fields the request
-actually carries are checked — a save that does not touch a required field is
-never blocked, which is the grandfathering rule for legacy data.
+present and non-empty — "visible" meaning the attribute's own ``visible`` flag
+AND the ``visible`` flag of the section it sits in (spec section 4.4, see
+:func:`validate_values`'s *sections* argument). Otherwise (**update**) only the
+fields the request actually carries are checked — a save that does not touch a
+required field is never blocked, which is the grandfathering rule for legacy
+data.
 
 Unknown **extended** names are rejected (issue #851: "unknown fields silently
 discarded"). Unknown **top-level** names are ignored on purpose: they are the
@@ -144,6 +147,7 @@ def validate_values(
     attributes: list[dict[str, Any]],
     changed_fields: dict[str, Any],
     existing: dict[str, Any] | None,
+    sections: list[dict[str, Any]] | None = None,
 ) -> None:
     """Validate *changed_fields* against *attributes*.
 
@@ -153,6 +157,9 @@ def validate_values(
         changed_fields: the fields the request sets or clears; extended values
             nested under ``"custom_fields"``.
         existing: the artifact's current values, or ``None`` for a create.
+        sections: the resolved ``definition_json["sections"]`` list. Optional
+            — omitted (every call site before this argument existed), no
+            section is treated as hidden, i.e. unchanged behaviour.
 
     Raises:
         FieldValidationError: one entry per offending attribute; all violations
@@ -192,6 +199,26 @@ def validate_values(
         attribute ``editable=True``, so this fires solely for attributes an
         admin deliberately froze.
     """
+    # Spec section 4.4's AND-condition: a section with ``visible=false`` hides
+    # itself AND every attribute in it, whatever each attribute's own
+    # ``visible`` flag says. Only the renderer honoured that, so hiding a
+    # section that held a ``required`` attribute made EVERY server-side create
+    # of that item type fail for a field the form no longer even draws — with
+    # no way to satisfy it from the UI. Enforced here rather than in each
+    # caller because this one function is what REST, MCP and the CSV/bundle
+    # importer all route through.
+    hidden_sections = {
+        s["name"] for s in (sections or []) if not s.get("visible", True)
+    }
+
+    def _demanded(attribute: dict[str, Any]) -> bool:
+        """Whether a missing/empty value for *attribute* is an error."""
+        return (
+            attribute["required"]
+            and attribute["visible"]
+            and attribute["section"] not in hidden_sections
+        )
+
     by_name = {a["name"]: a for a in attributes}
     # A widget bundles other attributes; its own name is never a payload field.
     # A workflow-owned attribute is not a payload field either (see docstring):
@@ -240,7 +267,7 @@ def validate_values(
         attribute = by_name[name]
         present = name in supplied
         if not present:
-            if is_create and attribute["required"] and attribute["visible"]:
+            if is_create and _demanded(attribute):
                 errors.setdefault(name, []).append("is required")
             continue
 
@@ -252,7 +279,7 @@ def validate_values(
 
         value = supplied[name]
         if _is_empty(value):
-            if attribute["required"] and attribute["visible"]:
+            if _demanded(attribute):
                 errors.setdefault(name, []).append("is required")
             continue
 

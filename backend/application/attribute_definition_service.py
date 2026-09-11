@@ -619,11 +619,22 @@ class AttributeDefinitionService(ServiceBase):
         are demanded); otherwise only the fields the request carries are
         checked, so a save that never touches a required field is not blocked.
 
+        The resolved ``sections`` travel with the attributes (post-review M5):
+        a ``required`` attribute sitting in a ``visible=false`` section is not
+        demanded, exactly as the form renderer already treats it — otherwise
+        hiding such a section made every create fail server-side for a field
+        the UI no longer draws, with no way out from the UI.
+
         Raises:
             FieldValidationError: ``.errors`` maps attribute name -> messages.
         """
-        attributes = self.resolve(ctx, item_type, workspace_id)["attributes"]
-        validate_values(attributes, changed_fields, existing)
+        definition = self.resolve(ctx, item_type, workspace_id)
+        validate_values(
+            definition["attributes"],
+            changed_fields,
+            existing,
+            definition["sections"],
+        )
 
     def downgrade_warnings(
         self, ctx: AuthContext, workspace_id: UUID, target_preset: str

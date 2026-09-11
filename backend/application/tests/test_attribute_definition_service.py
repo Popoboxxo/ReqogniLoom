@@ -287,6 +287,39 @@ def test_validate_artifact_fields_on_update_skips_untouched_fields(
 
 
 @pytest.mark.django_db
+def test_validate_artifact_fields_ignores_required_inside_a_hidden_section(
+    service, admin_ctx, editor_ctx, workspace, tenant
+) -> None:
+    """Post-review M5: spec section 4.4's AND-condition, server-side.
+
+    Only the form renderer honoured "hidden section => its attributes are not
+    demanded", so hiding a section that held a required attribute made every
+    create fail for a field the form no longer draws.
+    """
+    core_title = {"name": "title", "kind": "core", "type": "text"}
+    required_note = dict(NOTE, required=True)  # section "extra"
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [core_title, required_note],
+    )
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.resolve(admin_ctx, "Risk", workspace.id)
+        with pytest.raises(FieldValidationError) as exc:
+            service.validate_artifact_fields(editor_ctx, "Risk", workspace.id, {}, None)
+        assert "note" in exc.value.errors
+
+        service.update_workspace(
+            admin_ctx, "Risk", workspace.id,
+            [core_title, required_note],
+            [
+                {"name": "general", "order": 0, "visible": True},
+                {"name": "extra", "order": 1, "visible": False},
+            ],
+        )
+        service.validate_artifact_fields(editor_ctx, "Risk", workspace.id, {}, None)
+
+
+@pytest.mark.django_db
 def test_elicit_attributes_returns_only_ai_elicit_entries_in_section_order(
     service, editor_ctx, workspace, tenant
 ) -> None:
