@@ -157,4 +157,52 @@ describe("attributeDefinitionsApi", () => {
       "/workspaces/ws-1/attribute-definitions/Risk/?name=note"
     );
   });
+
+  it("exports a global definition", async () => {
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    vi.mocked(apiClient.get).mockResolvedValue(document);
+    const result = await attributeDefinitionsApi.exportGlobal("Risk", "standard");
+    expect(apiClient.get).toHaveBeenCalledWith("/attribute-defaults/Risk/standard/export/");
+    expect(result).toEqual(document);
+  });
+
+  it("imports into a global definition with the default on_collision", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    await attributeDefinitionsApi.importGlobal("Risk", "standard", document);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/import/?on_collision=skip",
+      document
+    );
+  });
+
+  it("imports into a global definition with a given on_collision", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    await attributeDefinitionsApi.importGlobal("Risk", "standard", document, "overwrite");
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/import/?on_collision=overwrite",
+      document
+    );
+  });
+
+  it("exports a workspace definition", async () => {
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    vi.mocked(apiClient.get).mockResolvedValue(document);
+    const result = await attributeDefinitionsApi.exportWorkspace("ws-1", "Risk");
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/export/"
+    );
+    expect(result).toEqual(document);
+  });
+
+  it("imports into a workspace definition", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(DEFINITION);
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    await attributeDefinitionsApi.importWorkspace("ws-1", "Risk", document, "rename");
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/import/?on_collision=rename",
+      document
+    );
+  });
 });

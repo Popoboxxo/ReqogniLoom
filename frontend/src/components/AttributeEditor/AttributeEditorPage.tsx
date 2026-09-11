@@ -20,16 +20,19 @@
  * type-INcompatible piece gets its own minimal, correctly-typed equivalent.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMatch, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   attributeDefinitionsApi,
+  downloadAttributeDefinitionDocument,
+  type AttributeDefinitionDocument,
   type AttributeItemType,
   type AttributeOrigin,
   type AttributeSpec,
   type NewAttributeInput,
+  type OnCollision,
   type SectionLayout,
   type SectionSpec,
 } from "../../api/attribute-definitions";
@@ -43,6 +46,7 @@ import { PresetSegmentedControl } from "../WorkflowEditor/PresetSegmentedControl
 import { WORKFLOW_PRESETS } from "../WorkflowEditor/constants";
 import styles from "./AttributeEditor.module.css";
 import { AttributeCreateDialog } from "./AttributeCreateDialog";
+import { AttributeImportDialog } from "./AttributeImportDialog";
 import { AttributeInspector } from "./AttributeInspector";
 import { AttributeList } from "./AttributeList";
 import { AttributeTable } from "./AttributeTable";
@@ -147,6 +151,11 @@ export function AttributeEditorPage({
   const [removeOptionTarget, setRemoveOptionTarget] = useState<string | null>(null);
   const [removeOptionUsageCount, setRemoveOptionUsageCount] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
+  const [pendingImport, setPendingImport] = useState<{
+    document: AttributeDefinitionDocument;
+    fileName: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSetViewMode = useCallback((mode: ViewMode): void => {
     setViewMode(mode);
@@ -189,6 +198,65 @@ export function AttributeEditorPage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Task 11 (spec section 6): download the current definition as a
+  // re-importable JSON document -- reuses apiClient (not a raw fetch, unlike
+  // api/export.ts's CSV/ReqIF downloads: those need a raw Blob response,
+  // export_definition's REST endpoint returns plain JSON apiClient already
+  // parses for us).
+  const handleExport = useCallback(async (): Promise<void> => {
+    setError(null);
+    try {
+      const document = isGlobal
+        ? await attributeDefinitionsApi.exportGlobal(itemType, preset)
+        : activeWorkspace?.id
+          ? await attributeDefinitionsApi.exportWorkspace(activeWorkspace.id, itemType)
+          : null;
+      if (!document) return;
+      const scope = isGlobal ? preset : "workspace";
+      downloadAttributeDefinitionDocument(document, `${itemType}-${scope}-attributes.json`);
+    } catch (exc: unknown) {
+      setError(extractErrorMessage(exc));
+    }
+  }, [activeWorkspace?.id, isGlobal, itemType, preset]);
+
+  const handleFileSelected = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const file = event.target.files?.[0];
+      event.target.value = ""; // allow re-selecting the same file next time
+      if (!file) return;
+      setError(null);
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const document = JSON.parse(String(reader.result)) as AttributeDefinitionDocument;
+          setPendingImport({ document, fileName: file.name });
+        } catch {
+          setError(t("attributes.import.invalidFile"));
+        }
+      };
+      reader.onerror = () => setError(t("attributes.import.invalidFile"));
+      reader.readAsText(file);
+    },
+    [t]
+  );
+
+  const handleConfirmImport = useCallback(
+    async (onCollision: OnCollision): Promise<void> => {
+      if (!pendingImport) return;
+      if (isGlobal) {
+        await attributeDefinitionsApi.importGlobal(
+          itemType, preset, pendingImport.document, onCollision
+        );
+      } else if (activeWorkspace?.id) {
+        await attributeDefinitionsApi.importWorkspace(
+          activeWorkspace.id, itemType, pendingImport.document, onCollision
+        );
+      }
+      await load();
+    },
+    [activeWorkspace?.id, isGlobal, itemType, load, pendingImport, preset]
+  );
 
   // Selection/scratch state is scoped to one (itemType, preset) view — carrying
   // it across a switch risks matching an unrelated attribute of the same name
@@ -507,6 +575,30 @@ export function AttributeEditorPage({
             {t("attributes.viewMode.table")}
           </button>
         </span>
+        <button
+          type="button"
+          data-testid="attribute-editor-export"
+          disabled={!isAdmin}
+          onClick={() => void handleExport()}
+        >
+          {t("actions.export")}
+        </button>
+        <button
+          type="button"
+          data-testid="attribute-editor-import"
+          disabled={!isAdmin}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {t("actions.import")}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json"
+          data-testid="attribute-editor-import-file"
+          hidden
+          onChange={handleFileSelected}
+        />
         {newSection === null ? (
           <button
             type="button"
@@ -671,6 +763,14 @@ export function AttributeEditorPage({
           isSubmitting={removeOptionUsageCount === null}
           onConfirm={handleConfirmRemoveOption}
           onCancel={() => setRemoveOptionTarget(null)}
+        />
+      ) : null}
+
+      {pendingImport !== null ? (
+        <AttributeImportDialog
+          fileName={pendingImport.fileName}
+          onConfirm={handleConfirmImport}
+          onClose={() => setPendingImport(null)}
         />
       ) : null}
     </div>

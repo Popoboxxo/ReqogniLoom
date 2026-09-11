@@ -215,6 +215,8 @@
     "cancel": "Cancel",
     "create": "Create",
     "creating": "Creating...",
+    "import": "Import",
+    "export": "Export",
     "copy": "Copy",
     "dismiss": "Dismiss",
     "clear": "Clear",
@@ -2124,6 +2126,17 @@
       "deleteConfirmLoading": "Checking usage…",
       "deleteConfirmPlain": "Remove option \"{{value}}\"?",
       "deleteConfirmWithUsage": "{{count}} artifact(s) currently have this attribute set to \"{{value}}\". Remove it anyway? Their stored values are not changed."
+    },
+    "import": {
+      "title": "Import attributes",
+      "invalidFile": "This file is not valid JSON.",
+      "fileLabel": "File: {{name}}",
+      "onCollisionLabel": "On name collision",
+      "onCollision": {
+        "skip": "Skip (keep the existing attribute)",
+        "overwrite": "Overwrite (replace the existing attribute)",
+        "rename": "Rename (import as a new attribute, suffixed)"
+      }
     },
     "deleteAttribute": {
       "action": "Delete attribute",

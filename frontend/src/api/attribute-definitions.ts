@@ -143,6 +143,17 @@ export interface NewAttributeInput {
   options?: AttributeOption[];
 }
 
+/** Task 9/10/11: `export_definition`'s output, and `import_definition`'s
+ * expected input — a whole definition serialized for download/re-upload. */
+export interface AttributeDefinitionDocument {
+  schema_version: number;
+  item_type: AttributeItemType;
+  attributes: AttributeSpec[];
+  sections: SectionSpec[];
+}
+
+export type OnCollision = "skip" | "overwrite" | "rename";
+
 export interface GlobalAttributeDefinition {
   item_type: AttributeItemType;
   preset: WorkspacePreset;
@@ -304,4 +315,64 @@ export const attributeDefinitionsApi = {
       .get<{ count: number }>(`${workspacePath(workspaceId, itemType)}usage/?${query}`)
       .then((result) => result.count);
   },
+
+  exportGlobal(
+    itemType: AttributeItemType,
+    preset: WorkspacePreset
+  ): Promise<AttributeDefinitionDocument> {
+    return apiClient.get<AttributeDefinitionDocument>(
+      `${globalPath(itemType, preset)}export/`
+    );
+  },
+
+  importGlobal(
+    itemType: AttributeItemType,
+    preset: WorkspacePreset,
+    document: AttributeDefinitionDocument,
+    onCollision: OnCollision = "skip"
+  ): Promise<GlobalAttributeDefinition> {
+    return apiClient.post<GlobalAttributeDefinition>(
+      `${globalPath(itemType, preset)}import/?on_collision=${onCollision}`,
+      document
+    );
+  },
+
+  exportWorkspace(
+    workspaceId: UUID,
+    itemType: AttributeItemType
+  ): Promise<AttributeDefinitionDocument> {
+    return apiClient.get<AttributeDefinitionDocument>(
+      `${workspacePath(workspaceId, itemType)}export/`
+    );
+  },
+
+  importWorkspace(
+    workspaceId: UUID,
+    itemType: AttributeItemType,
+    document: AttributeDefinitionDocument,
+    onCollision: OnCollision = "skip"
+  ): Promise<ResolvedAttributeDefinition> {
+    return apiClient.post<ResolvedAttributeDefinition>(
+      `${workspacePath(workspaceId, itemType)}import/?on_collision=${onCollision}`,
+      document
+    );
+  },
 };
+
+/** Triggers a browser download of *doc* as pretty-printed JSON. Mirrors
+ * `api/export.ts`'s CSV/ReqIF download functions' Blob + `<a download>`
+ * pattern -- this codebase has no shared helper for it (checked: both
+ * existing instances duplicate it independently), so a third small
+ * duplicate matches the established convention rather than introducing a
+ * new shared utility for three call sites. */
+export function downloadAttributeDefinitionDocument(
+  doc: AttributeDefinitionDocument,
+  filename: string
+): void {
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+  const link = window.document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}

@@ -217,6 +217,8 @@
     "creating": "Erstelle...",
     "closing": "Schließe...",
     "confirm": "Bestätigen",
+    "import": "Importieren",
+    "export": "Exportieren",
     "copy": "Kopieren",
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
@@ -2124,6 +2126,17 @@
       "deleteConfirmLoading": "Verwendung wird geprüft…",
       "deleteConfirmPlain": "Option \"{{value}}\" entfernen?",
       "deleteConfirmWithUsage": "{{count}} Artefakt(e) haben dieses Attribut aktuell auf \"{{value}}\" gesetzt. Trotzdem entfernen? Die gespeicherten Werte bleiben unverändert."
+    },
+    "import": {
+      "title": "Attribute importieren",
+      "invalidFile": "Diese Datei ist kein gültiges JSON.",
+      "fileLabel": "Datei: {{name}}",
+      "onCollisionLabel": "Bei Namenskonflikt",
+      "onCollision": {
+        "skip": "Überspringen (bestehendes Attribut behalten)",
+        "overwrite": "Überschreiben (bestehendes Attribut ersetzen)",
+        "rename": "Umbenennen (als neues Attribut mit Suffix importieren)"
+      }
     },
     "deleteAttribute": {
       "action": "Attribut löschen",
