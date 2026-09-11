@@ -144,13 +144,16 @@ test.beforeEach(async ({ page }) => {
 
 /**
  * Locators masked out (solid overlay, layout untouched) on every screenshot:
- * build/version indicator (deployed commit, changes every deploy) and any
- * native <time> element (relative/absolute timestamps).
+ * build/version indicator (deployed commit, changes every deploy), any native
+ * <time> element, and the SE-metrics "Last update" timestamp (rendered as a
+ * plain <span>, so the `time` selector alone does not catch it — it reflects
+ * the current computation time and drifts on every run).
  */
 function volatileMasks(page: Page): Locator[] {
   return [
     page.locator('[data-testid="build-version-indicator"]'),
     page.locator('time'),
+    page.locator('[data-testid="metric-last-update"]'),
   ];
 }
 
@@ -198,9 +201,9 @@ test.describe('[VISUAL] Route screenshots (isolated empty workspace)', () => {
           ],
           // Residual anti-aliasing/font-rendering variance across CI runs,
           // see the comment above (this route can never be pixel-perfect
-          // stable) — the default 0.02 ratio still intermittently flags a
-          // ~3% diff with no structural cause. Widened only for this one
-          // call, not the global default in playwright.config.ts.
+          // stable). The global default is now 0.04 too (main run
+          // 34635050759 showed other routes drifting ~0.03); kept explicit
+          // here to document the worst case.
           maxDiffPixelRatio: 0.04,
         });
       });
