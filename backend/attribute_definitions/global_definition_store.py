@@ -29,6 +29,7 @@ from django.utils import timezone
 from .models import GlobalAttributeDefinition, WorkspaceAttributeDefinition
 from .schema import (
     AttributeDefinitionConflictError,
+    materialize_sections,
     stored_attributes,
     validate_definition_json,
     validate_definition_key,
@@ -48,7 +49,18 @@ class GlobalAttributeDefinitionStore:
     def get(
         self, tenant_id: UUID | str, item_type: str, preset: str
     ) -> GlobalAttributeDefinition | None:
-        """Return the global row for ``(tenant, item_type, preset)`` or None."""
+        """Return the global row for ``(tenant, item_type, preset)`` or None.
+
+        Deliberately NOT sections-materializing: ``update()``/``initialize()``/
+        ``reinitialize()`` all call this internally as a plain existence/
+        lookup read, and a version bump hidden inside it would land an extra,
+        untracked increment on every write that happens to touch a
+        pre-Task-7 row (caught live by this task's own regression run —
+        ``test_concurrent_updates_do_not_lose_a_version_increment`` and two
+        siblings started failing on an off-by-one). Callers that want the
+        backfill call :meth:`ensure_sections` explicitly — the service layer
+        does, for every external read path (``get_global``/``list_global``).
+        """
         return GlobalAttributeDefinition.unscoped.filter(
             tenant_id=tenant_id, item_type=item_type, preset=preset
         ).first()
@@ -67,6 +79,37 @@ class GlobalAttributeDefinitionStore:
         if preset:
             qs = qs.filter(preset=preset)
         return list(qs.order_by("item_type", "preset"))
+
+    @staticmethod
+    def ensure_sections(obj: GlobalAttributeDefinition) -> None:
+        """Backfill ``definition_json['sections']`` in place if missing (Task 7).
+
+        Spec section 4.4: sections are additive, no data migration — a row
+        written before this feature existed simply has no ``sections`` key.
+        Rather than re-deriving it from the attribute list on every future
+        read, the first read that notices it missing computes and persists
+        it once. Callers: the SERVICE's external read paths only
+        (``get_global``/``list_global``), never the internal ``get()`` this
+        store's own write methods use — see :meth:`get`'s docstring for why.
+
+        Safe against ``invalidate_workspace_caches``: this only ever ADDS the
+        ``sections`` key to an unchanged ``attributes`` list — the resolved
+        payload's attribute content this cache actually guards is untouched,
+        so a request racing a warm cache entry can never observe stale
+        attribute data because of this write. Bumps ``version`` via ``F()``
+        like every other mutation here so an optimistic-lock reader is never
+        surprised, but deliberately skips ``invalidate_workspace_caches()``
+        and the audit log — this is not a caller-visible edit, it backfills a
+        default the schema always implied.
+        """
+        if isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+            return
+        attributes = stored_attributes(obj.definition_json)
+        base = obj.definition_json if isinstance(obj.definition_json, dict) else {"attributes": []}
+        obj.definition_json = {**base, "sections": materialize_sections(attributes)}
+        obj.version = F("version") + 1
+        obj.save(update_fields=["definition_json", "version", "modified_at"])
+        obj.refresh_from_db(fields=["version"])
 
     # ---------- Write ----------
 
@@ -185,6 +228,17 @@ class GlobalAttributeDefinitionStore:
         # on an admin PUT. Now it degrades to the 400 the view already renders.
         old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
+
+        # Task 7: this call's payload only ever carries 'attributes' — without
+        # explicitly carrying the existing 'sections' list over, this write
+        # would silently WIPE whatever ensure_sections() previously
+        # materialized (or an admin set via Task 8/9's not-yet-existing
+        # sections-aware write path), since obj.definition_json is replaced
+        # wholesale below. Not re-synced against the new attribute list's
+        # section names here — that reconciliation is Task 8's job, once it
+        # actually wires section CRUD into a write path.
+        if isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+            payload["sections"] = obj.definition_json["sections"]
 
         with transaction.atomic():
             obj.definition_json = payload

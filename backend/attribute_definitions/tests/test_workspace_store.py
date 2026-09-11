@@ -193,6 +193,46 @@ def test_missing_attributes_for_preset_raises_for_an_unbootstrapped_target(
         ws_store.missing_attributes_for_preset(tenant.id, ws, "Risk", "minimal")
 
 
+# --- Task 7: sections[] materialization --------------------------------
+
+
+@pytest.mark.django_db
+def test_resolve_copies_the_already_backfilled_global_sections(tenant, stores) -> None:
+    g_store, ws_store = stores
+    g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    row = ws_store.resolve(tenant.id, uuid.uuid4(), "Risk", "standard")
+    assert row.definition_json["sections"] == [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"}
+    ]
+
+
+@pytest.mark.django_db
+def test_get_does_not_materialize_sections(tenant, stores) -> None:
+    """Same reasoning as the global store's identical test: ``get()`` is the
+    plain internal lookup ``update()`` reuses, it must never mutate."""
+    g_store, ws_store = stores
+    g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    ws = uuid.uuid4()
+    ws_store.resolve(tenant.id, ws, "Risk", "standard")
+    row = ws_store.get(tenant.id, ws, "Risk")
+    assert "sections" in row.definition_json  # resolve() already materialized it
+
+
+@pytest.mark.django_db
+def test_resolve_backfills_sections_on_a_legacy_workspace_row(tenant, stores) -> None:
+    g_store, ws_store = stores
+    g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    ws = uuid.uuid4()
+    row = ws_store.resolve(tenant.id, ws, "Risk", "standard")
+    row.definition_json = {"attributes": row.definition_json["attributes"]}  # pre-Task-7 shape
+    row.save(update_fields=["definition_json"])
+
+    refetched = ws_store.resolve(tenant.id, ws, "Risk", "standard")
+    assert refetched.definition_json["sections"] == [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"}
+    ]
+
+
 # --- Ledger item (e), site 2: update() normalizes the STORED row ------------
 
 

@@ -7,11 +7,15 @@ from attribute_definitions.schema import (
     ITEM_TYPES,
     PRESETS,
     AttributeSchemaError,
+    materialize_sections,
     normalize_attribute,
+    normalize_section,
     stored_attributes,
+    stored_sections,
     validate_definition_json,
     validate_definition_key,
     validate_meta_only_change,
+    validate_sections_json,
 )
 
 
@@ -332,3 +336,78 @@ def test_meta_only_change_rejects_validation_rule_change_on_a_core_attribute() -
     with pytest.raises(AttributeSchemaError) as exc:
         validate_meta_only_change(old, new)
     assert "validation" in " ".join(exc.value.errors)
+
+
+# --- Task 7: sections[] --------------------------------------------------
+
+
+def test_normalize_section_applies_defaults() -> None:
+    out = normalize_section({"name": "general"})
+    assert out == {"name": "general", "order": 0, "visible": True, "layout": "full"}
+
+
+def test_normalize_section_rejects_an_unknown_layout() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_section({"name": "general", "layout": "third"})
+    assert "layout" in " ".join(exc.value.errors)
+
+
+def test_normalize_section_rejects_a_missing_name() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_section({})
+    assert "name" in " ".join(exc.value.errors)
+
+
+def test_normalize_section_rejects_an_unknown_key() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_section({"name": "general", "extra": True})
+    assert "extra" in " ".join(exc.value.errors)
+
+
+def test_validate_sections_json_rejects_a_duplicate_name() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_sections_json([{"name": "a"}, {"name": "a"}])
+    assert "duplicate" in " ".join(exc.value.errors)
+
+
+def test_validate_sections_json_sorts_by_order_then_name() -> None:
+    out = validate_sections_json([{"name": "b", "order": 0}, {"name": "a", "order": 0}])
+    assert [s["name"] for s in out] == ["a", "b"]
+
+
+def test_materialize_sections_derives_first_appearance_order() -> None:
+    attributes = [
+        normalize_attribute(_core("title", section="general")),
+        normalize_attribute({"name": "note", "kind": "extended", "type": "text", "section": "extra"}),
+        normalize_attribute({"name": "note2", "kind": "extended", "type": "text", "section": "general"}),
+    ]
+    out = materialize_sections(attributes)
+    assert out == [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"},
+        {"name": "extra", "order": 1, "visible": True, "layout": "full"},
+    ]
+
+
+def test_validate_definition_json_normalizes_sections_when_present() -> None:
+    payload = {
+        "attributes": [_core("title")],
+        "sections": [{"name": "general"}],
+    }
+    out = validate_definition_json(payload)
+    assert out["sections"] == [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"}
+    ]
+
+
+def test_validate_definition_json_omits_sections_key_when_absent() -> None:
+    out = validate_definition_json({"attributes": [_core("title")]})
+    assert "sections" not in out
+
+
+def test_stored_sections_returns_empty_for_a_row_with_no_sections_key() -> None:
+    assert stored_sections({"attributes": []}) == []
+
+
+def test_stored_sections_normalizes_a_stored_list() -> None:
+    out = stored_sections({"attributes": [], "sections": [{"name": "general"}]})
+    assert out == [{"name": "general", "order": 0, "visible": True, "layout": "full"}]

@@ -138,7 +138,7 @@ def test_get_global_of_a_missing_row_reports_uninitialized(service, admin_ctx) -
     out = service.get_global(admin_ctx, "Icd", "minimal")
     assert out == {
         "item_type": "Icd", "preset": "minimal", "initialized": False,
-        "version": 0, "attributes": [],
+        "version": 0, "attributes": [], "sections": [],
     }
 
 
@@ -154,12 +154,16 @@ def test_update_global_returns_the_propagated_count(
 ) -> None:
     with patch("presets.services.get_preset") as get_preset:
         get_preset.return_value.preset = "standard"
+        # The resolve() call below bumps the GLOBAL row's version once on its
+        # own (Task 7: ensure_sections backfills 'sections' the first time
+        # anything reads a pre-Task-7 row, including via a workspace
+        # resolve()) -- version starts at 2, not 1, once update_global runs.
         service.resolve(editor_ctx, "Risk", workspace.id)
         out = service.update_global(
             admin_ctx, "Risk", "standard", [dict(TITLE, section="header")]
         )
     assert out["propagated_workspace_count"] == 1
-    assert out["version"] == 2
+    assert out["version"] == 3
 
 
 @pytest.mark.django_db

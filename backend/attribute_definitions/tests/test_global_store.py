@@ -56,6 +56,55 @@ def test_get_returns_none_for_a_missing_row(tenant, store) -> None:
 
 
 @pytest.mark.django_db
+def test_get_does_not_materialize_sections(tenant, store) -> None:
+    """``get()`` is the plain lookup ``update()``/``initialize()`` reuse
+    internally — it must never mutate/bump version as a side effect (a
+    materializing ``get()`` broke ``test_concurrent_updates_do_not_lose_a_
+    version_increment`` and two propagation tests with an off-by-one, caught
+    live by this task's own regression run). Only ``ensure_sections()``
+    (called explicitly by the service's external read paths) materializes."""
+    store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    row = store.get(tenant.id, "Risk", "standard")
+    assert "sections" not in row.definition_json
+
+
+@pytest.mark.django_db
+def test_ensure_sections_materializes_from_the_attribute_list(tenant, store) -> None:
+    store.initialize(
+        tenant.id, "Risk", "standard",
+        [TITLE, {"name": "note", "kind": "extended", "type": "text", "section": "extra"}],
+    )
+    row = store.get(tenant.id, "Risk", "standard")
+    store.ensure_sections(row)
+    # Stored attribute order is (section, order, name) -- "extra" < "general"
+    # -- so materialize_sections' first-appearance derivation sees "extra"
+    # first, not insertion order.
+    assert row.definition_json["sections"] == [
+        {"name": "extra", "order": 0, "visible": True, "layout": "full"},
+        {"name": "general", "order": 1, "visible": True, "layout": "full"},
+    ]
+    # Persisted, not just returned on the in-memory instance.
+    refetched = store.get(tenant.id, "Risk", "standard")
+    assert refetched.definition_json["sections"] == row.definition_json["sections"]
+
+
+@pytest.mark.django_db
+def test_ensure_sections_leaves_an_existing_sections_list_unchanged(tenant, store) -> None:
+    store.initialize(tenant.id, "Risk", "standard", [TITLE])
+    materialized = store.get(tenant.id, "Risk", "standard")
+    store.ensure_sections(materialized)  # first call: backfills, bumps version
+    version_after_materialize = materialized.version
+
+    materialized.definition_json["sections"][0]["visible"] = False
+    materialized.save(update_fields=["definition_json"])
+
+    row = store.get(tenant.id, "Risk", "standard")
+    store.ensure_sections(row)  # second call: 'sections' already present, no-op
+    assert row.definition_json["sections"][0]["visible"] is False
+    assert row.version == version_after_materialize  # no further, silent bump
+
+
+@pytest.mark.django_db
 def test_list_filters_by_item_type_and_preset(tenant, store) -> None:
     store.initialize(tenant.id, "Risk", "standard", [TITLE])
     store.initialize(tenant.id, "Risk", "minimal", [TITLE])

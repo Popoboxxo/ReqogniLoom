@@ -39,6 +39,7 @@ from attribute_definitions.schema import (
     AttributeDefinitionConflictError,
     AttributeSchemaError,
     stored_attributes,
+    stored_sections,
     validate_new_attribute_name,
 )
 from attribute_definitions.workspace_definition_store import (
@@ -178,6 +179,9 @@ class AttributeDefinitionService(ServiceBase):
             "version": row.version,
             "attributes": attributes,
             "origins": origins,
+            # Task 7: row is materialized by resolve()/self._workspace.resolve
+            # before this is ever called, so 'sections' is always present.
+            "sections": stored_sections(row.definition_json),
         }
 
     def _global_payload(
@@ -189,6 +193,12 @@ class AttributeDefinitionService(ServiceBase):
             "initialized": row is not None,
             "version": row.version if row is not None else 0,
             "attributes": self._attributes(row) if row is not None else [],
+            # Task 7: callers of this method must have already called
+            # self._global.ensure_sections(row) first (get_global/list_global
+            # do; update_global's row comes back fresh from its own write,
+            # which always includes 'attributes' but not necessarily
+            # 'sections' -- stored_sections tolerates that, returning []).
+            "sections": stored_sections(row.definition_json) if row is not None else [],
         }
         if propagated is not None:
             payload["propagated_workspace_count"] = propagated
@@ -240,6 +250,8 @@ class AttributeDefinitionService(ServiceBase):
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         rows = self._global.list(ctx.tenant_id, item_type=item_type, preset=preset)
+        for row in rows:
+            self._global.ensure_sections(row)
         return [self._global_payload(r.item_type, r.preset, r) for r in rows]
 
     def get_global(
@@ -253,6 +265,8 @@ class AttributeDefinitionService(ServiceBase):
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         row = self._global.get(ctx.tenant_id, item_type, preset)
+        if row is not None:
+            self._global.ensure_sections(row)
         return self._global_payload(item_type, preset, row)
 
     def elicit_attributes(
