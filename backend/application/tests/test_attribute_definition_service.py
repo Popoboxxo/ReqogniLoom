@@ -949,3 +949,33 @@ def test_import_definition_rejects_a_non_list_sections_key(
             {"schema_version": 1, "attributes": [], "sections": {"general": True}},
             preset="standard",
         )
+
+
+# --- Post-review m7: deleting an unknown name is a 404, not a silent no-op --
+
+
+@pytest.mark.django_db
+def test_delete_global_of_an_unknown_name_raises_not_found(
+    service, admin_ctx, seeded
+) -> None:
+    from application.attribute_definition_service import AttributeDefinitionNotFound
+
+    before = service.get_global(admin_ctx, "Risk", "standard")["version"]
+    with pytest.raises(AttributeDefinitionNotFound):
+        service.delete_global(admin_ctx, "Risk", "standard", "nope")
+    # No version bump / audit entry for a delete that deleted nothing.
+    assert service.get_global(admin_ctx, "Risk", "standard")["version"] == before
+
+
+@pytest.mark.django_db
+def test_delete_workspace_of_an_unknown_name_raises_not_found(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    from application.attribute_definition_service import AttributeDefinitionNotFound
+
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.resolve(admin_ctx, "Risk", workspace.id)
+        with pytest.raises(AttributeDefinitionNotFound):
+            service.delete_workspace(admin_ctx, "Risk", workspace.id, "nope")
+        assert service.resolve(admin_ctx, "Risk", workspace.id)["is_customized"] is False

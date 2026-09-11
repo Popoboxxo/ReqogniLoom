@@ -436,7 +436,11 @@ class AttributeDefinitionService(ServiceBase):
         soft-/force-delete UI flows call after their own confirmation.
 
         Raises:
-            AttributeDefinitionNotFound: no global row for that key.
+            AttributeDefinitionNotFound: no global row for that key, or the row
+                has no attribute called *name* (post-review m7: a delete of a
+                name that is not there used to answer 200 + a version bump +
+                an audit entry, i.e. a typo'd or already-deleted name read as
+                success).
         """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
@@ -447,6 +451,10 @@ class AttributeDefinitionService(ServiceBase):
             )
         current = stored_attributes(row.definition_json)
         remaining = [a for a in current if a["name"] != name]
+        if len(remaining) == len(current):
+            raise AttributeDefinitionNotFound(
+                f"No attribute '{name}' in '{item_type}/{preset}'"
+            )
         return self.update_global(ctx, item_type, preset, remaining)
 
     def create_workspace(
@@ -496,6 +504,11 @@ class AttributeDefinitionService(ServiceBase):
         until :meth:`reset_workspace` explicitly discards the override. A
         ``kind="core"`` name is refused the same way :meth:`delete_global`
         refuses one.
+
+        Raises:
+            AttributeDefinitionNotFound: the workspace/global row does not
+                exist, or the resolved definition has no attribute called
+                *name* (post-review m7, see :meth:`delete_global`).
         """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
@@ -503,6 +516,10 @@ class AttributeDefinitionService(ServiceBase):
         row = self._workspace.resolve(ctx.tenant_id, workspace_id, item_type, preset)
         current = stored_attributes(row.definition_json)
         remaining = [a for a in current if a["name"] != name]
+        if len(remaining) == len(current):
+            raise AttributeDefinitionNotFound(
+                f"No attribute '{name}' in '{item_type}' of workspace {workspace_id}"
+            )
         return self.update_workspace(ctx, item_type, workspace_id, remaining)
 
     def count_usages(
