@@ -155,6 +155,122 @@ it becomes reachable via single-mode `start()`/`formalize()` too — that is
 new scope, not part of this plan's fix, and should go back to the user/a
 follow-up plan rather than being decided unilaterally here.
 
+## Fix round 1 — review of Tasks 1-10 (CHANGES_REQUESTED), 2026-09-11
+
+Independent code review of Tasks 1-10 returned 2 blockers, 2 important, 6
+minor. Commits `d5b3f7f1` (blockers) and `0014359d` (the rest).
+
+**C-1 (blocker) — Risk formalize was still broken on every real tenant.
+FIXED at the source.** `get_protocol()` prefers tier 2 (the
+attribute-definition-derived protocol) over tier 3 (the hardcoded factory
+default) whenever a definition exists, and `application.self_init` runs
+`bootstrap_attribute_definitions` for every new tenant — so tier 2 is what
+every deployment actually resolves and Task 4's tier-3 `_EXTRA_REQUIRED_FIELDS`
+fix was unreachable in production. The bootstrap marked only
+`title`/`description` as `ai_elicit`, so a Risk interview never asked for
+`probability`/`impact` and `formalize()` could only reject the finished
+session with `cannot formalize 'Risk' from the collected answers:
+'probability'`.
+- Source fix: `PER_ITEM_TYPE_AI_ELICIT_FIELDS` in
+  `bootstrap_attribute_definitions.py`, shaped exactly like the file's
+  existing `PER_ITEM_TYPE_EXCLUDED_FIELDS` / `WIDGET_ATTRIBUTES` per-type
+  dicts, plus `SHARED_AI_ELICIT_FIELDS` for the title/description pair.
+- Already-bootstrapped tenants: new data migration
+  `attribute_definitions/0007_risk_interview_elicits_probability_impact.py`,
+  modelled on `0006_relax_adr_description_required` (same `_elicitable`
+  /`_mark_elicited`/cache-invalidation shape, repairs BOTH the global and
+  the materialized workspace rows). Neither existing command mode fits:
+  `--sync-new-fields` only appends missing attributes and never edits one,
+  `--reset` discards every admin customization. Documented trade-off in the
+  migration docstring: an admin who deliberately cleared `ai_elicit` on one
+  of the two gets it back, because the alternative is an unformalizable Risk
+  interview.
+- The two tiers now cross-reference each other in comments, so the next
+  person editing one is told to update the other.
+
+**C-2 (blocker) — the regression suite never exercised the production tier.
+FIXED.** `test_interview_formalize_all_types.py` is now split into
+`TestFormalizeFactoryDefaultProtocol` (tier 3, kept verbatim) and
+`TestFormalizeBootstrappedProtocol` (tier 2, `call_command(
+"bootstrap_attribute_definitions", tenant=...)` in a fixture — the same
+call `self_init` makes). The bootstrapped class round-trips **all 8**
+in-scope types, not only Risk, plus two Risk-specific assertions (the
+resolved protocol elicits probability/impact; the answers reach
+`create_risk`). Verified non-vacuous: with the C-1 source fix temporarily
+reverted, the bootstrapped Risk tests fail with the exact production error;
+restored, all 26 pass.
+- `_answer_all_required_fields` now loops over phases — a definition-derived
+  protocol has one elicitation phase per definition *section*, and
+  `get_state` reports only the first incomplete phase's missing fields
+  (Risk's probability/impact live in `classification`, not `general`).
+
+**Pre-existing test regression found and fixed en route:**
+`test_interview_protocol_from_definition.py::test_get_protocol_falls_back_to_the_factory_default_without_a_definition`
+asserted Risk's tier-3 default is exactly `["title", "rationale"]` — false
+since Task 4 (commit `38420a04`). Task 4's own verification scope never ran
+that module, so the branch has carried a red test since then.
+
+**I-1 (important) — tool description vs. multi-mode prompt. FIXED, both
+halves.** Investigated first: multi-mode's only type gate is
+`ARTIFACT_CREATION_ADAPTERS.get(item["type"])`, so a hand-built
+`confirmed_proposal` containing a GlossaryTerm *is* created — only the prompt
+refuses to propose one. (a) `interview.formalize`'s description no longer
+claims "(GlossaryTerm included)"; (b) `interview_multi_protocol`'s module
+docstring no longer justifies the exclusion with the obsolete "GlossaryTerm
+has no Artifact FK" (PR #880) — it now states the real reason (scope: not in
+`IN_SCOPE_ARTIFACT_TYPES`, glossary terms are managed on the glossary
+surface) and names the hand-built-proposal hole explicitly.
+
+**I-2 (important) — speculative `fields.get("term") or fields["title"]`.
+DELETED**, per the reviewer's preferred option. No reachable caller exists
+(GlossaryTerm is not in `IN_SCOPE_ARTIFACT_TYPES`, so `start()` rejects it;
+the multi prompt never proposes it; the only remaining caller is a
+hand-built proposal that names `term` directly). Replaced by a test pinning
+the `KeyError`, which `_formalize_multi` converts to a `ValidationError`.
+The previous round's ledger justification for this "bug fix" was wrong.
+
+**M-1 FIXED:** `autospec=True` on all 8 adapter tests, not just
+ArchitectureElement's. Shared `_assert_called_once_with_kwargs` helper —
+autospec records the bound instance as arg 0, so `assert_called_once_with`
+no longer works directly.
+**M-2 FIXED:** `_structural_candidates`' "in a later pass" comment reworded
+(out of scope for this spec; grounding only feeds the Requirement-only
+update branch).
+**M-3 FIXED:** `artifact_type__in=(T, f"{T}:Unit")` instead of
+`__startswith`; the `WorkflowItemState` probe is scoped to the created
+`item_id` and the workspace.
+**M-4 FIXED:** both `select_related("session")` calls dropped from
+`provenance_session_id` — only the local `session_id` FK column is read.
+
+**M-5 NOT FIXED — deliberate, reported as an open product question.** The
+badge renders only in the expanded inspector. `renderCollapsedStrip` is a
+40px rail of "open the sidebar" buttons with no content of its own; adding a
+provenance indicator there means a new icon, a new aria-label, and a
+provenance fetch while collapsed. `RightSidebar.tsx:342-351` already records
+the precedent for exactly this call ("a real deep-link-to-section affordance
+is a UX decision for ui-ux-designer, not an a11y-only pass"). Not a bug,
+not fixed here; route it to `ui-ux-designer` if the product wants it.
+
+**M-6 NOT DONE — no browser tooling in this dispatch either.** Same gap as
+the Task 10 execution: no Playwright/browser tool is available to this
+agent, and `WebFetch` cannot log into a JWT-protected React SPA. The
+live-UI walkthrough (Task 10 Step 7) is still owed before merge. All
+automated coverage is green.
+
+### Verification (fix round 1, real output)
+
+| Scope | Result |
+|---|---|
+| `application/tests/test_interview_{artifact_adapters,protocol,protocol_from_definition,provenance,formalize_all_types,service,formalize_multi,multi_review_fixes,multi_chat,multi_protocol}.py` | **175 passed** in 47.72s |
+| `rest_api/tests/ mcp_server/tests/ -k interview` | **73 passed**, 2508 deselected |
+| `rest_api/tests/test_architecture.py` + `test_bootstrapped_definition_allows_creates.py` | **102 passed** |
+| `attribute_definitions/` (incl. new migration-0007 unit test) | **150 passed** |
+| other `bootstrap_attribute_definitions` consumers (bundle export/definition service/goal views/bundle tool group) | **100 passed** |
+| vitest: `InterviewProvenanceBadge`, `RightSidebar`, the 9 editor suites, `ui-ratchet`, `design-tokens` | **28 files / 148 tests passed** |
+
+Not run (unchanged from the Global Constraints): the full backend suite and
+any unfiltered Playwright run — CI's job.
+
 ## What's left for whoever resumes this
 
 1. **Phase C (Tasks 11-14, transcript cap)** — model field + migration,
@@ -180,5 +296,6 @@ follow-up plan rather than being decided unilaterally here.
    Global Constraints).
 
 Commits on `feat/interview-engine-fix`, in order: `28440fa8` → `38420a0` →
-`cb9b4632` → `68a53bf` → `709bf08` → `9430183` → `d6fbb1e4`. Not pushed, no
-PR opened — per directive, that decision belongs to the parent/user.
+`cb9b4632` → `68a53bf` → `709bf08` → `9430183` → `d6fbb1e4` → (fix round 1)
+`d5b3f7f1` → `0014359d`. Not pushed, no PR opened — per directive, that
+decision belongs to the parent/user.
