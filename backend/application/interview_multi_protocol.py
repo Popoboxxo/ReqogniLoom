@@ -10,9 +10,16 @@ sibling implementation here rather than importing that private helper
 across service boundaries.
 
 Note (deliberate deviation from the factory default's sibling slots):
-GlossaryTerm is intentionally not offered as an artifact type. GlossaryTerm
-has no Artifact FK, so the multi-artifact formalization adapters cannot
-attach provenance/TraceLinks to one and reject it fail-fast.
+GlossaryTerm is intentionally not offered as an artifact type in the prompt
+below. The original reason ("GlossaryTerm has no Artifact FK") is obsolete --
+Datenmodell-Konsolidierung Phase 3 (PR #880) gave it a backing Artifact row,
+and ``ARTIFACT_CREATION_ADAPTERS["GlossaryTerm"]`` creates a real term today.
+What remains is a scope decision, not a technical block: glossary terms are
+managed on the glossary surface, and GlossaryTerm is deliberately absent from
+``IN_SCOPE_ARTIFACT_TYPES`` (so single-kind ``start()`` rejects it too).
+Consequence: nothing rejects a GlossaryTerm item a caller puts into a
+hand-built ``confirmed_proposal`` -- the registry entry handles it -- the
+prompt simply never proposes one.
 """
 from __future__ import annotations
 

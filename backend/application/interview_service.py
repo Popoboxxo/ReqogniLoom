@@ -520,9 +520,11 @@ class InterviewService(ServiceBase):
         Extracted from ``grounding_context`` (Task 5 -> Task 6) so the
         AI-ranking layer added in Task 6 can run this first and rank its
         output rather than reinventing the candidate search. Only
-        ``Requirement`` is wired up here (YAGNI): the other 7 in-scope
-        artifact types get the same shape once their equivalent read
-        services are confirmed, in a later pass.
+        ``Requirement`` is wired up here (YAGNI): grounding the other 7
+        in-scope artifact types is out of scope for the Interview-Engine-Fix
+        spec, which covers ``formalize()``'s create path -- not a leftover of
+        it. Grounding only feeds ``set_target()``, whose update branch is
+        Requirement-only by design anyway.
 
         Takes *ctx* (unlike the brief's inline sketch) because
         ``RequirementService.list_requirements`` requires it as a mandatory
@@ -1684,11 +1686,10 @@ class InterviewService(ServiceBase):
         informational badge.
         """
         self._set_tenant_context(ctx)
-        row = (
-            InterviewSessionArtifact.objects.filter(artifact_id=artifact_id)
-            .select_related("session")
-            .first()
-        )
+        # No select_related("session"): only `row.session_id` is read below,
+        # and that is a local FK column -- joining the session table would
+        # fetch a row nothing touches.
+        row = InterviewSessionArtifact.objects.filter(artifact_id=artifact_id).first()
         if row is None:
             from application.trace_link_service import TraceLinkService
 
@@ -1701,11 +1702,7 @@ class InterviewService(ServiceBase):
             if resolved == artifact_id:
                 # Already an Artifact PK -- the first probe was authoritative.
                 return None
-            row = (
-                InterviewSessionArtifact.objects.filter(artifact_id=resolved)
-                .select_related("session")
-                .first()
-            )
+            row = InterviewSessionArtifact.objects.filter(artifact_id=resolved).first()
             if row is None:
                 return None
         return str(row.session_id)

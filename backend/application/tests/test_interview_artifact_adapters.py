@@ -11,6 +11,21 @@ from application.interview_artifact_adapters import (
 )
 
 
+def _assert_called_once_with_kwargs(mocked, expected: dict) -> None:
+    """Assert an ``autospec=True``-patched service method's kwargs.
+
+    With ``autospec=True`` the patch binds against the real signature (so a
+    kwarg the service does not accept raises TypeError instead of being
+    swallowed, which is the whole point -- see
+    ``test_architecture_element_adapter_rejects_unknown_field_name``). The
+    price is that the unbound function records the instance as its first
+    positional argument, so ``assert_called_once_with(**kwargs)`` can no
+    longer be used directly; check the kwargs alone.
+    """
+    assert mocked.call_count == 1
+    assert mocked.call_args[1] == expected
+
+
 class TestArtifactCreationAdapters:
     def test_registry_has_all_nine_types(self):
         expected = {
@@ -24,6 +39,7 @@ class TestArtifactCreationAdapters:
         fake_requirement = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
         with patch(
             "application.interview_artifact_adapters.RequirementService.create_requirement",
+            autospec=True,
             return_value=fake_requirement,
         ):
             ref = ARTIFACT_CREATION_ADAPTERS["Requirement"]({"title": "T"}, fake_ctx, "ws-1")
@@ -40,6 +56,7 @@ class TestArtifactCreationAdapters:
         goal_version_id = uuid.uuid4()
         with patch(
             "application.interview_artifact_adapters.GoalService.create_version",
+            autospec=True,
             return_value={
                 "id": goal_version_id,
                 "artifact_id": goal_artifact_id,
@@ -55,10 +72,13 @@ class TestArtifactCreationAdapters:
         fake_requirement = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
         with patch(
             "application.interview_artifact_adapters.RequirementService.create_requirement",
+            autospec=True,
             return_value=fake_requirement,
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["Requirement"]({"title": "T"}, fake_ctx, "ws-1")
-        mocked.assert_called_once_with(workspace_id="ws-1", ctx=fake_ctx, title="T")
+        _assert_called_once_with_kwargs(
+            mocked, {"workspace_id": "ws-1", "ctx": fake_ctx, "title": "T"}
+        )
         # The ref carries the Artifact PK (obj.artifact_id), never the
         # subtype row id -- InterviewSessionArtifact.artifact / TraceLink
         # endpoints are Artifact FKs.
@@ -73,10 +93,13 @@ class TestArtifactCreationAdapters:
         fake_dto = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
         with patch(
             "application.interview_artifact_adapters.StakeholderNeedService.create",
+            autospec=True,
             return_value=fake_dto,
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["StakeholderNeed"]({"title": "N"}, fake_ctx, "ws-1")
-        mocked.assert_called_once_with(ctx=fake_ctx, workspace_id="ws-1", title="N")
+        _assert_called_once_with_kwargs(
+            mocked, {"ctx": fake_ctx, "workspace_id": "ws-1", "title": "N"}
+        )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_dto.artifact_id,
             artifact_type="StakeholderNeed",
@@ -89,12 +112,15 @@ class TestArtifactCreationAdapters:
         goal_version_id = uuid.uuid4()
         with patch(
             "application.interview_artifact_adapters.GoalService.create_version",
+            autospec=True,
             return_value={
                 "id": goal_version_id, "artifact_id": goal_artifact_id, "title": "G"
             },
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["Goal"]({"title": "G"}, fake_ctx, "ws-1")
-        mocked.assert_called_once_with(workspace_id="ws-1", title="G", ctx=fake_ctx)
+        _assert_called_once_with_kwargs(
+            mocked, {"workspace_id": "ws-1", "title": "G", "ctx": fake_ctx}
+        )
         # "id" is the Goal version-row id; the ref must carry the Artifact PK.
         assert ref == CreatedArtifactRef(
             artifact_id=goal_artifact_id, artifact_type="Goal", entity_id=goal_version_id
@@ -116,8 +142,9 @@ class TestArtifactCreationAdapters:
             ref = ARTIFACT_CREATION_ADAPTERS["ArchitectureElement"](
                 {"title": "Sensor Unit"}, fake_ctx, "ws-1"
             )
-        _instance, kwargs = mocked.call_args[0], mocked.call_args[1]
-        assert kwargs == {"workspace_id": "ws-1", "ctx": fake_ctx, "title": "Sensor Unit"}
+        _assert_called_once_with_kwargs(
+            mocked, {"workspace_id": "ws-1", "ctx": fake_ctx, "title": "Sensor Unit"}
+        )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_element.artifact_id,
             artifact_type="ArchitectureElement",
@@ -144,10 +171,13 @@ class TestArtifactCreationAdapters:
         fake_case = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
         with patch(
             "application.interview_artifact_adapters.TestService.create_test_case",
+            autospec=True,
             return_value=fake_case,
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["TestCase"]({"title": "TC-1"}, fake_ctx, "ws-1")
-        mocked.assert_called_once_with(workspace_id="ws-1", ctx=fake_ctx, title="TC-1")
+        _assert_called_once_with_kwargs(
+            mocked, {"workspace_id": "ws-1", "ctx": fake_ctx, "title": "TC-1"}
+        )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_case.artifact_id, artifact_type="TestCase", entity_id=fake_case.id
         )
@@ -157,6 +187,7 @@ class TestArtifactCreationAdapters:
         fake_adr = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
         with patch(
             "application.interview_artifact_adapters.AdrService.create_adr",
+            autospec=True,
             return_value=fake_adr,
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["Adr"](
@@ -164,8 +195,14 @@ class TestArtifactCreationAdapters:
             )
         # title/description are explicit kwargs on AdrService.create_adr --
         # the call must not duplicate them through **fields.
-        mocked.assert_called_once_with(
-            workspace_id="ws-1", title="ADR-1", description="Why", ctx=fake_ctx
+        _assert_called_once_with_kwargs(
+            mocked,
+            {
+                "workspace_id": "ws-1",
+                "title": "ADR-1",
+                "description": "Why",
+                "ctx": fake_ctx,
+            },
         )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_adr.artifact_id, artifact_type="Adr", entity_id=fake_adr.id
@@ -176,10 +213,13 @@ class TestArtifactCreationAdapters:
         fake_issue = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
         with patch(
             "application.interview_artifact_adapters.IssueService.create_issue",
+            autospec=True,
             return_value=fake_issue,
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["Issue"]({"title": "BUG-1"}, fake_ctx, "ws-1")
-        mocked.assert_called_once_with(workspace_id="ws-1", ctx=fake_ctx, title="BUG-1")
+        _assert_called_once_with_kwargs(
+            mocked, {"workspace_id": "ws-1", "ctx": fake_ctx, "title": "BUG-1"}
+        )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_issue.artifact_id, artifact_type="Issue", entity_id=fake_issue.id
         )
@@ -193,6 +233,7 @@ class TestArtifactCreationAdapters:
         fake_artifact_id = uuid.uuid4()
         with patch(
             "application.interview_artifact_adapters.GlossaryService.create",
+            autospec=True,
             return_value=fake_dto,
         ) as mocked, patch(
             "application.interview_artifact_adapters.GlossaryTerm.objects"
@@ -201,17 +242,34 @@ class TestArtifactCreationAdapters:
             ref = ARTIFACT_CREATION_ADAPTERS["GlossaryTerm"](
                 {"term": "X", "definition": "Y"}, fake_ctx, "ws-1"
             )
-        mocked.assert_called_once_with(
-            ctx=fake_ctx,
-            workspace_id="ws-1",
-            term="X",
-            definition="Y",
-            synonyms=None,
-            abbreviation="",
+        _assert_called_once_with_kwargs(
+            mocked,
+            {
+                "ctx": fake_ctx,
+                "workspace_id": "ws-1",
+                "term": "X",
+                "definition": "Y",
+                "synonyms": None,
+                "abbreviation": "",
+            },
         )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_artifact_id, artifact_type="GlossaryTerm", entity_id=fake_dto.id
         )
+
+    def test_glossary_term_adapter_requires_the_term_field(self):
+        """``term`` is GlossaryService.create()'s own kwarg and the only name
+        this adapter accepts. GlossaryTerm is not in IN_SCOPE_ARTIFACT_TYPES
+        (single-kind start() rejects it) and the multi-mode prompt does not
+        propose it, so the sole reachable caller is a hand-built
+        confirmed_proposal -- which names create_X() kwargs directly. A
+        missing key is a clean KeyError, which _formalize_multi converts into
+        a ValidationError."""
+        fake_ctx = MagicMock()
+        with pytest.raises(KeyError):
+            ARTIFACT_CREATION_ADAPTERS["GlossaryTerm"](
+                {"title": "X", "definition": "Y"}, fake_ctx, "ws-1"
+            )
 
     def test_risk_adapter_requires_probability_and_impact(self):
         fake_ctx = MagicMock()

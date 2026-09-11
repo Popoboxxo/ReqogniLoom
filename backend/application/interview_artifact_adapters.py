@@ -136,12 +136,14 @@ def _glossary_term(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtif
     dto = GlossaryService().create(
         ctx=ctx,
         workspace_id=workspace_id,
-        # GlossaryService.create() calls this `term`, but every other
-        # in-scope type's interview protocol -- and _formalize_single's own
-        # title guard -- collects `title`. Accept either so a session
-        # answered through the shared title-based flow (factory default,
-        # no GlossaryTerm-specific protocol override) still resolves.
-        term=fields.get("term") or fields["title"],
+        # `term`, not `title`: GlossaryTerm is not in IN_SCOPE_ARTIFACT_TYPES,
+        # so start() rejects it and no title-based single-kind protocol can
+        # reach this adapter. The only caller is a hand-built multi-mode
+        # confirmed_proposal, which names the create_X() kwargs directly (the
+        # factory-default multi prompt does not propose GlossaryTerm at all).
+        # A missing key raises KeyError, which _formalize_multi converts into
+        # a ValidationError.
+        term=fields["term"],
         definition=fields.get("definition", ""),
         synonyms=fields.get("synonyms"),
         abbreviation=fields.get("abbreviation", ""),

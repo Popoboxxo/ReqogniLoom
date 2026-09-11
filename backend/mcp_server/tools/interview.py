@@ -188,9 +188,10 @@ class InterviewToolGroup(BaseToolGroup):
                 "state is initialized; or, if grounding set a target (the target "
                 "must be a Requirement), updates the existing Requirement instead, "
                 "re-checking at write time that the target still exists. Multi-kind sessions take "
-                "a caller-confirmed proposal and create every item atomically "
-                "(GlossaryTerm included). Marks the session completed and returns "
-                "resulting_artifact_ids."
+                "a caller-confirmed proposal and create every item atomically; "
+                "the proposal covers the same eight types (glossary terms are "
+                "managed on the glossary surface, not proposed by an interview). "
+                "Marks the session completed and returns resulting_artifact_ids."
             ),
             "inputSchema": {
                 "type": "object",
