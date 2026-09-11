@@ -347,8 +347,10 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
             "Interview prompt placeholders differ by slot. " +
               "interview.protocol.<Type> (phase prompt_fragment): {artifact_type}, {phase_name}, " +
               "{collected_fields_json}, {missing_fields_json}, {grounding_snapshot_json}. " +
-              "interview.chat_turn: {transcript_json}, {user_message}, {current_phase_fragment}, " +
-              "{missing_fields_json}, {grounding_snapshot_json}."
+              "interview.chat_turn: {transcript_json}, {transcript_summary}, {user_message}, " +
+              "{current_phase_fragment}, {missing_fields_json}, {grounding_snapshot_json}, " +
+              "{memory_context}. " +
+              "interview.transcript_summary: {previous_summary}, {overflow_json}."
           )}
         </p>
       )}
