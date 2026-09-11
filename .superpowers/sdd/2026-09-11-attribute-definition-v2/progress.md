@@ -4,15 +4,32 @@ Controller: background fork (no Agent tool available — implementer-only, no
 self-dispatched independent review; the coordinator dispatches review rounds
 separately after each phase/whole-branch).
 
-## ⏸ RESUME POINT
+## ✅ PLAN COMPLETE — all 12 tasks implemented, committed, and whole-repo-tested
 
-**Last completed task: Task 12 (origin badges + type icons), committed `63d54084` — ALL 12 PLAN TASKS NOW IMPLEMENTED.**
-**Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: the plan's own "Final Review" step + coordinator-requested whole-branch self-review (this fork has no Agent tool, so this IS the independent-review layer for this pass — a real dispatched code-reviewer/senior-developer round from the coordinator afterward is still the recommended follow-up per this repo's SDD convention).**
-**No independent review has run on Tasks 1-10 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
-**Not manually verified in a live browser** across any task so far — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
-**The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the targeted `attribute_definitions`-consumer sweeps after each task (360+121=481 backend tests, 88 frontend tests, all passing as of Task 10) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
-**Deviation from the plan's literal Task 9 interface, worth flagging to a reviewer:** the plan's snippet for `export_definition`/`import_definition` only showed `workspace_id` as the scope discriminator; the real global scope needs a `preset` too (same as every other global-scope method in this service), so both methods take keyword-only `preset=None`/`workspace_id=None` with exactly one expected to be given. REST/MCP surfaces (Task 10) reflect this real signature, not the plan's literal one.
+**Final commit: `f3258612` "fix: regenerate MCP tool manifest, fix stale AttributeEditor mocks".**
+**Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`, 24 commits ahead of `main`.
+
+### Final whole-branch review (this fork has no `Agent` tool — this pass IS its own independent-review layer, per the coordinator's explicit instruction)
+
+Per the plan's own "Final Review" section: ran the FULL backend + frontend suites (not scoped subsets) for the first time this session, exactly as instructed. This caught 3 real findings the ~15 scoped per-task runs across Tasks 1-12 never surfaced:
+
+1. **`docs/agent-templates/tool-manifest.json` drift** — `mcp_server/tests/test_tool_manifest_drift.py::test_committed_manifest_matches_live_registry` failed: the committed manifest was stale at 179 tools; Tasks 1/2/5/10 added 9 new `attribute_definition.*` MCP tools (create/delete/create_workspace/delete_workspace/count_usages/export/export_workspace/import/import_workspace) since it was last regenerated. **Fixed:** regenerated via `manage.py export_tool_manifest` (188 tools now committed) — see commit `f3258612`.
+2. **`frontend/src/test/AttributeEditor.test.tsx` — a pre-existing page-level test file no scoped run this session ever touched** (all my per-task test runs targeted `src/components/AttributeEditor/*.test.tsx` and specific `src/test/*ArtifactForm*` files, never grepped for a plain `AttributeEditor.test.tsx`). Its 7 mocked `attributeDefinitionsApi` responses predated Tasks 4/7/8's `origins`/`sections` fields, so every render threw `TypeError: sections is not iterable` inside `AttributeList`'s new `sectionMeta` useMemo. **Fixed:** added `origins: {}`/`sections: []` to all 7 mocks.
+3. **Same file, 2 assertions asserting `putWorkspace` was called with exactly 3 arguments** — Task 8 added a 4th (`sections`); `toHaveBeenCalledWith` requires an exact arg-count match, so these could never pass again regardless of the first 3 args. **Fixed:** updated both assertions to include the 4th arg, and gave `putWorkspace` a real resolved value in both tests (previously it silently resolved to `undefined`, masked by `handleSave`'s own try/catch and by the assertions only checking call-args recorded before that internal throw — a second, smaller finding fixed alongside the main one).
+
+**Confirmed NOT caused by this branch, left unfixed (out of scope):** `application/tests/test_ai_derivation_service.py::test_get_template_content_covers_all_eight_names` fails on this branch — reproduced in isolation, and `git diff main...HEAD` for both `ai_derivation_service.py` and its test file is empty. Root cause: PR #903 (`interview-engine-fix`, merged to `main` before this branch started) added an `interview.transcript_summary` AI-derivation template without updating this test's hardcoded 11-name expected set to 12. Unrelated feature area; flagging for whoever owns that PR's follow-up, not fixed here.
+
+### Final test tallies (whole-repo, not scoped)
+
+- **Backend:** `pytest -q` (7301 tests collected, ~38 min) → **7280 passed, 19 skipped, 2 failed** before this review's fixes → **1 real failure fixed** (manifest drift) → **the remaining 1 failure is the confirmed-unrelated `ai_derivation_service` one above**.
+- **Frontend:** `npx vitest run` (207 test files, ~54s pure test time) → **1655 tests passed, 0 failed** (before fixes: 14 failed, all traced to the 2 `AttributeEditor.test.tsx` findings above and now fixed) + **1 failed test SUITE** (`theme-contrast.test.ts`, `ENOENT` reading a backend fixture file the frontend-only Docker container doesn't mount — confirmed pre-existing/environment-only via empty `git diff`, not a real test failure).
+- Re-verified scoped `attribute_definitions` surface one more time after the manifest/mock fixes: **361 backend + 122 frontend, all green.**
+
+### Standing notes carried forward from earlier tasks
+
+- **Not manually verified in a live browser** across any task — only component/API/typecheck/full-suite coverage. Flag for the coordinator or a later manual pass.
+- **Deviation from the plan's literal Task 9 interface:** the plan's snippet for `export_definition`/`import_definition` only showed `workspace_id`; the real global scope needs a `preset` too (same as every other global-scope method in this service) — both methods take keyword-only `preset=None`/`workspace_id=None`, exactly one expected. REST/MCP surfaces (Task 10) reflect this real signature.
+- A `code-reviewer`/`senior-developer` dispatch from the coordinator remains the recommended next step per this repo's SDD convention (this fork's self-review is thorough but is still the implementer reviewing its own work, not a fresh pair of eyes).
 
 ## Migration numbers (re-verified, plan text is stale)
 
