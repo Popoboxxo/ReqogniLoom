@@ -12,13 +12,15 @@ import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { AttributeEditorPage } from "../components/AttributeEditor";
 import {
   deleteSection,
+  deleteSectionSpec,
   isMetaPropertyLocked,
   moveAttribute,
   patchAttribute,
   renameSection,
+  renameSectionSpec,
   sectionNames,
 } from "../components/AttributeEditor/attribute-edits";
-import type { AttributeSpec } from "../api/attribute-definitions";
+import type { AttributeSpec, SectionSpec } from "../api/attribute-definitions";
 
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: {
@@ -44,6 +46,10 @@ function attr(over: Partial<AttributeSpec>): AttributeSpec {
     help_text: { de: "", en: "" }, default: null, validation: {},
     ai_elicit: false, export: false, audience: "basic", ...over,
   };
+}
+
+function section(over: Partial<SectionSpec>): SectionSpec {
+  return { name: "general", order: 0, visible: true, layout: "full", ...over };
 }
 
 const STATUS = attr({
@@ -76,6 +82,35 @@ describe("attribute-edits", () => {
 
   it("refuses to delete a non-empty section", () => {
     expect(() => deleteSection([attr({ name: "a" })], "general")).toThrow();
+  });
+
+  // Post-review M6: renaming/deleting a section used to leave its SectionSpec
+  // behind — the renamed section lost its hidden/half state (no matching
+  // spec => default visible/full) and the stale entry stayed forever.
+  it("renames the matching SectionSpec and keeps its visibility", () => {
+    const out = renameSectionSpec(
+      [section({ name: "general", visible: false, layout: "half" })],
+      "general",
+      "basics"
+    );
+    expect(out).toEqual([
+      { name: "basics", order: 0, visible: false, layout: "half" },
+    ]);
+  });
+
+  it("drops the source spec when renaming onto an existing section", () => {
+    const out = renameSectionSpec(
+      [section({ name: "general" }), section({ name: "basics", order: 1 })],
+      "general",
+      "basics"
+    );
+    expect(out.map((s) => s.name)).toEqual(["basics"]);
+  });
+
+  it("removes the SectionSpec of a deleted section", () => {
+    expect(
+      deleteSectionSpec([section({ name: "extra" }), section({ name: "general" })], "extra")
+    ).toEqual([section({ name: "general" })]);
   });
 
   it("lists sections in first-appearance order", () => {
@@ -254,6 +289,41 @@ describe("AttributeEditorPage", () => {
     await userEvent.type(input, "basics{Enter}");
     expect(await screen.findByTestId("attribute-section-basics")).toBeInTheDocument();
     expect(screen.queryByTestId("attribute-section-general")).not.toBeInTheDocument();
+  });
+
+  it("keeps a hidden section hidden after renaming it (M6: no orphaned spec)", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [attr({ name: "title" })],
+      origins: {},
+      sections: [section({ name: "general", visible: false, layout: "half" })],
+    });
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 2,
+      attributes: [attr({ name: "title", section: "basics" })],
+      origins: {},
+      sections: [section({ name: "basics", visible: false, layout: "half" })],
+    });
+    renderPage();
+    await userEvent.click(await screen.findByTestId("attribute-section-general-rename"));
+    const input = screen.getByTestId("attribute-section-general-name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "basics{Enter}");
+    await userEvent.click(screen.getByTestId("attribute-editor-save"));
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.putWorkspace).toHaveBeenCalledWith(
+        "ws-1",
+        "Requirement",
+        expect.anything(),
+        [{ name: "basics", order: 0, visible: false, layout: "half" }]
+      )
+    );
   });
 
   it("adds an empty section and lets it be deleted again", async () => {

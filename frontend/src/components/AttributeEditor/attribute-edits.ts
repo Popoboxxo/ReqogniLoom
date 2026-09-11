@@ -87,6 +87,42 @@ export function renameSection(
   return attributes.map((a) => (a.section === from ? { ...a, section: clean } : a));
 }
 
+/**
+ * Post-review M6: `renameSection` only rewrites `attribute.section`, so the
+ * matching `SectionSpec` has to be renamed alongside it. Without this the
+ * renamed section has no spec at all and falls back to the default
+ * visible/full — a deliberately hidden section silently becomes visible
+ * again — while the entry under the old name survives forever as an orphan
+ * that a later section of that name would silently inherit.
+ *
+ * Renaming ONTO an existing section name is a merge (that is what
+ * `renameSection` does to the attributes): the target's own spec wins and the
+ * source entry is dropped, because two entries of the same name are a
+ * duplicate the backend rejects.
+ */
+export function renameSectionSpec(
+  sections: SectionSpec[],
+  from: string,
+  to: string
+): SectionSpec[] {
+  const clean = to.trim();
+  if (!clean || clean === from) return sections;
+  if (!sections.some((s) => s.name === from)) return sections;
+  if (sections.some((s) => s.name === clean)) {
+    return sections.filter((s) => s.name !== from);
+  }
+  return sections.map((s) => (s.name === from ? { ...s, name: clean } : s));
+}
+
+/** Drop the `SectionSpec` of a deleted section — see {@link renameSectionSpec}
+ * for why a leftover entry is not harmless. */
+export function deleteSectionSpec(
+  sections: SectionSpec[],
+  name: string
+): SectionSpec[] {
+  return sections.filter((s) => s.name !== name);
+}
+
 /** Delete an EMPTY section. Throws when it still holds attributes. */
 export function deleteSection(
   attributes: AttributeSpec[],

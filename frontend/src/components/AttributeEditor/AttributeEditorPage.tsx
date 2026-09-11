@@ -52,10 +52,12 @@ import { AttributeList } from "./AttributeList";
 import { AttributeTable } from "./AttributeTable";
 import {
   deleteSection,
+  deleteSectionSpec,
   moveAttribute,
   moveSection,
   patchAttribute,
   renameSection,
+  renameSectionSpec,
   setSectionLayout,
   toggleSectionVisible,
 } from "./attribute-edits";
@@ -353,6 +355,7 @@ export function AttributeEditorPage({
       try {
         const next = renameSection(attributes, from, to);
         setAttributes(next);
+        setSections((current) => renameSectionSpec(current, from, to));
         setEmptySections((current) =>
           current.map((s) => (s === from ? to.trim() : s)).filter(Boolean)
         );
@@ -371,6 +374,7 @@ export function AttributeEditorPage({
         // allows deleting an EMPTY section only.
         const next = deleteSection(attributes, name);
         setAttributes(next);
+        setSections((current) => deleteSectionSpec(current, name));
         setEmptySections((current) => current.filter((s) => s !== name));
       } catch (exc: unknown) {
         setError(exc instanceof Error ? exc.message : String(exc));
