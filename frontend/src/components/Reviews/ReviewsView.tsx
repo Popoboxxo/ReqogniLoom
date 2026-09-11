@@ -43,7 +43,7 @@ import { type AllowedTransition } from "../../api/requirements";
 import type { WorkflowArtifactType } from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
-import { useReviewsData } from "./useReviewsData";
+import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
 import { SignatureDialog } from "./SignatureDialog";
 import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
@@ -181,9 +181,7 @@ export default function ReviewsView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<AllowedTransition | null>(null);
-
-  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } =
-    REVIEW_ACTION_CONFIG[selectedArtifactType];
+  const [queueMode, setQueueMode] = useState<ReviewQueueMode>("review");
 
   const {
     items,
@@ -197,11 +195,26 @@ export default function ReviewsView({
     transition,
     diff,
     versions,
+    refreshList,
   } = useReviewsData({
     selectedId,
     includeHistory: tab === "history",
     artifactType: selectedArtifactType,
+    queueMode,
   });
+
+  // In proposals mode the confirm target is the graph's own initial state and
+  // the discard target its reject state — both come back in
+  // `transitions.allowed_transitions`, so read them rather than maintaining a
+  // second per-type table that would drift from the backend graph.
+  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } = useMemo(() => {
+    if (queueMode !== "proposals") return REVIEW_ACTION_CONFIG[selectedArtifactType];
+    const allowed = transitions?.allowed_transitions ?? [];
+    return {
+      approve: allowed.find((t) => !t.requires_change_reason)?.target_state ?? "draft",
+      reject: allowed.find((t) => t.requires_change_reason)?.target_state ?? "rejected",
+    };
+  }, [queueMode, selectedArtifactType, transitions]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -231,7 +244,7 @@ export default function ReviewsView({
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedArtifactType]);
+  }, [search, selectedArtifactType, queueMode]);
 
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
@@ -422,6 +435,18 @@ export default function ReviewsView({
           ))}
         </select>
       </div>
+
+      <label data-testid="reviews-queue-mode-toggle">
+        <input
+          type="checkbox"
+          data-testid="reviews-queue-mode-checkbox"
+          checked={queueMode === "proposals"}
+          onChange={(e) =>
+            setQueueMode(e.target.checked ? "proposals" : "review")
+          }
+        />
+        {t("workflow.proposal.queueMode")}
+      </label>
 
       <ListToolbar
         searchValue={search}
