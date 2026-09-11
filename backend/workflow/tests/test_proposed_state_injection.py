@@ -115,3 +115,60 @@ def test_goal_reuses_archiviert_as_reject_target():
         and t["to_state"] == "Archiviert"
     )
     assert discard["requires_change_reason"] is True
+
+
+# --- Security review M3 -----------------------------------------------------
+
+
+def test_interview_default_keeps_no_proposal_state():
+    """An InterviewSession is process state, not a reviewable artifact.
+
+    Injecting "proposed" froze the primary MCP path: an agent-started session
+    is seeded into it, its only exits are in_progress/rejected, and Rule 0
+    forbids the agent from taking either — so the session could never reach
+    "completed". Neither "proposed" nor the injected "rejected" is a valid
+    InterviewSession status to begin with.
+    """
+    from persistence.models import InterviewSession
+    from workflow.definition_store import (
+        PRESET_SCHEMAS,
+        PROPOSED_STATE,
+        SCHEMAS_WITHOUT_PROPOSED,
+    )
+
+    assert "interview_default" in SCHEMAS_WITHOUT_PROPOSED
+    states = PRESET_SCHEMAS["interview_default"]["states"]
+    assert PROPOSED_STATE not in states
+    # The graph must stay a one-for-one mirror of the model's own choices.
+    assert list(states) == [value for value, _label in InterviewSession.STATUS_CHOICES]
+
+
+def test_agent_started_interview_starts_in_progress():
+    """initial_state_for must not park an agent's own session out of reach."""
+    from unittest.mock import MagicMock, patch
+    from uuid import uuid4
+
+    from auth_tenancy.context import AuthContext, AuthMethod
+    from workflow.definition_store import PRESET_SCHEMAS, WorkflowDefinitionDTO
+    from workflow.services import initial_state_for
+
+    ctx = AuthContext(
+        user_id=uuid4(),
+        tenant_id=uuid4(),
+        active_roles=("admin",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=uuid4(),
+        actor_type="agent",
+    )
+    ws = uuid4()
+    dto = WorkflowDefinitionDTO(
+        states=tuple(PRESET_SCHEMAS["interview_default"]["states"]),
+        transitions=(),
+        workspace_id=ws,
+        item_type="Interview",
+        preset="interview_default",
+    )
+    store = MagicMock()
+    store.get_definition.return_value = dto
+    with patch("workflow.services._get_store", return_value=store):
+        assert initial_state_for(ctx, "Interview", ws) == "in_progress"

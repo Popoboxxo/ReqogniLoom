@@ -611,7 +611,21 @@ PROPOSED_ROLES: tuple[str, ...] = ("editor", "approver", "admin")
 #: Preset keys that must NOT gain "proposed" (spec §4.1: minimal keeps its
 #: graph). Only "minimal" — see Decision 3 in the plan: the 12 fixed-preset
 #: entity types have no per-tier graph variant to exempt.
-SCHEMAS_WITHOUT_PROPOSED: frozenset[str] = frozenset({"minimal"})
+#: Preset schemas the proposal state must NOT be injected into.
+#:
+#: * ``minimal`` — the minimal rigor preset has no review step by design.
+#: * ``interview_default`` — security review M3. An InterviewSession is
+#:   *process* state (in_progress -> completed/abandoned), not a reviewable
+#:   artifact: it mirrors ``InterviewSession.STATUS_CHOICES`` one-for-one and
+#:   is driven by the chat flow, not by a human sign-off. Injecting the
+#:   proposal state froze the single most important MCP path — an
+#:   agent-started interview is seeded into ``proposed`` by
+#:   ``workflow.services.initial_state_for``, whose only exits are
+#:   ``in_progress`` and ``rejected``, and Rule 0 forbids the agent from
+#:   taking either. The session could never reach ``completed``, and no
+#:   review surface exists to let a human unblock it. Neither ``proposed``
+#:   nor the injected ``rejected`` is a valid InterviewSession status either.
+SCHEMAS_WITHOUT_PROPOSED: frozenset[str] = frozenset({"minimal", "interview_default"})
 
 #: Per-schema override for the discard target. Every schema not listed gets a
 #: new "rejected" state. These four already own a terminal dead-end whose name
