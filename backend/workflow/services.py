@@ -422,12 +422,33 @@ def outdate(
     Raises:
         WorkflowItemNotFoundError: no state exists and ``allow_lazy_init`` is
             ``False``.
+        WorkflowTransitionError: ``ctx.actor_type == "agent"`` and the item's
+            current workflow state is ``PROPOSED_STATE`` — an agent may not
+            discard its own proposal via the soft-delete escape hatch.
     """
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
     lifecycle = _get_lifecycle()
     state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
+
+    # Spec §4.3: outdate() deliberately bypasses the TransitionValidator
+    # (it is the system-level escape hatch), so Rule 0 never fires here — an
+    # agent could otherwise soft-delete its own proposal and make the human
+    # review disappear. Guard it explicitly.
+    from .definition_store import PROPOSED_STATE
+
+    if (
+        getattr(ctx, "actor_type", "user") == "agent"
+        and state is not None
+        and state.current_state == PROPOSED_STATE
+    ):
+        raise WorkflowTransitionError(
+            EC_AGENT_SELF_CONFIRM,
+            "An AI agent may not discard a proposal. A human principal must "
+            "confirm or reject it.",
+        )
+
     if state is None:
         if not allow_lazy_init:
             raise WorkflowItemNotFoundError(
