@@ -236,6 +236,12 @@ class WorkspaceAttributeDefinitionView(APIView):
             return _not_found(lang, str(exc))
         except AttributeSchemaError as exc:
             return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            # create_workspace resolves the workspace's preset through the
+            # gate, which raises for a foreign-tenant id. Same guard (and same
+            # reason) as WorkspaceAttributeDefinitionView.get — without it a
+            # PresetError (NOT a ValueError) falls through to an uncaught 500.
+            return _forbidden(lang, str(exc))
         return Response(payload, status=status.HTTP_201_CREATED)
 
     def delete(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
@@ -255,6 +261,10 @@ class WorkspaceAttributeDefinitionView(APIView):
             return _not_found(lang, str(exc))
         except AttributeSchemaError as exc:
             return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as post() above — delete_workspace resolves the
+            # preset through the gate too.
+            return _forbidden(lang, str(exc))
         return Response(payload, status=status.HTTP_200_OK)
 
 

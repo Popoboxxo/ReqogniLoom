@@ -420,3 +420,32 @@ def test_a_warm_cache_entry_is_not_served_across_tenants(
         "cross-tenant read served from the shared cache: "
         f"{response.content[:200]!r}"
     )
+
+
+@pytest.mark.django_db
+def test_foreign_tenant_workspace_create_is_403_not_500(
+    authed_client, workspace_fixture, seeded
+) -> None:
+    """Post-review M3: ``create_workspace`` resolves the workspace preset
+    through the gate, which raises ``CrossTenantWorkspaceError`` — a
+    ``PresetError``, NOT a ``ValueError``, so the view's existing
+    ``AttributeSchemaError`` clause never caught it and it 500'd."""
+    response = authed_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_foreign_tenant_workspace_delete_is_403_not_500(
+    authed_client, workspace_fixture, seeded
+) -> None:
+    response = authed_client.delete(
+        f"/api/v1/workspaces/{workspace_fixture.id}"
+        f"/attribute-definitions/Risk/?name=note"
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
