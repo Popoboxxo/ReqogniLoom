@@ -622,6 +622,35 @@ def test_count_usages_is_scoped_by_option_value(
 
 
 @pytest.mark.django_db
+def test_count_usages_counts_a_multi_enum_option_inside_its_list(
+    service, admin_ctx, workspace, make_artifact
+) -> None:
+    """Post-review M4: a multi-enum value is stored as a JSON LIST.
+
+    ``KeyTextTransform`` yields the serialized array text, which never equals
+    a bare option string — the option-removal safety check therefore always
+    reported 0 affected artifacts for exactly the type it matters most for.
+    """
+    make_artifact("Risk", {"tags": ["a", "b"]})
+    make_artifact("Risk", {"tags": ["a"]})
+    make_artifact("Risk", {"tags": ["b"]})
+    make_artifact("Risk", {"tags": []})
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "tags", "a") == 2
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "tags", "b") == 2
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "tags", "z") == 0
+
+
+@pytest.mark.django_db
+def test_count_usages_option_scope_still_works_for_a_plain_enum(
+    service, admin_ctx, workspace, make_artifact
+) -> None:
+    """The list arm must not break the scalar arm (both are ORed)."""
+    make_artifact("Risk", {"category": "a"})
+    make_artifact("Risk", {"category": ["a"]})  # same name, list-shaped value
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "category", "a") == 2
+
+
+@pytest.mark.django_db
 def test_count_usages_requires_admin(service, editor_ctx, workspace) -> None:
     with pytest.raises(PermissionDeniedError):
         service.count_usages(editor_ctx, "Risk", workspace.id, "note")

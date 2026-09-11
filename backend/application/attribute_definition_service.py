@@ -526,17 +526,37 @@ class AttributeDefinitionService(ServiceBase):
         deliberately does not also branch into per-model-field counting for
         that case (YAGNI: nothing would ever reach it).
 
-        Uses ``KeyTextTransform`` rather than a ``custom_fields__{name}``
-        keyword lookup: the latter splits on every ``__`` in *attribute_name*
-        as a JSON path segment, which is wrong for a (valid, snake_case) name
-        that happens to contain a double underscore.
+        Uses ``KeyTextTransform``/``KeyTransform`` rather than a
+        ``custom_fields__{name}`` keyword lookup: the latter splits on every
+        ``__`` in *attribute_name* as a JSON path segment, which is wrong for
+        a (valid, snake_case) name that happens to contain a double
+        underscore.
+
+        Post-review M4: *option_value* matches BOTH storage shapes an option
+        can have, because an ``enum`` stores the bare string while a
+        ``multi-enum`` stores a JSON list (``field_validation._check_type``).
+        The old ``KeyTextTransform == option_value`` comparison saw a
+        multi-enum's serialized array text, never the bare option, so removing
+        a multi-enum option always reported 0 affected artifacts and the
+        safety check of spec section 4.3 was dead for exactly the type that
+        needs it most. The list arm is a JSONB containment test
+        (``(custom_fields -> name) @> '["value"]'``), which the
+        ``pl_artifact_custom_fields_gin`` index serves.
+
+        Both arms are ORed instead of branching on the attribute's declared
+        ``type``: reading the type would mean resolving the whole definition,
+        which 404s when the item type has no global default yet — a probe that
+        legitimately answers 0 today would start raising. The two predicates
+        are mutually exclusive on real data anyway (a JSON string is never
+        contained in an array test, an array never equals a bare string).
 
         Raises:
             PermissionDeniedError: caller is not an admin.
         """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
-        from django.db.models.fields.json import KeyTextTransform
+        from django.db.models import Q
+        from django.db.models.fields.json import KeyTextTransform, KeyTransform
 
         from persistence.models import Artifact
 
@@ -548,8 +568,11 @@ class AttributeDefinitionService(ServiceBase):
         )
         if option_value is not None:
             qs = qs.annotate(
-                _attr_value=KeyTextTransform(attribute_name, "custom_fields")
-            ).filter(_attr_value=option_value)
+                _attr_text=KeyTextTransform(attribute_name, "custom_fields"),
+                _attr_json=KeyTransform(attribute_name, "custom_fields"),
+            ).filter(
+                Q(_attr_text=option_value) | Q(_attr_json__contains=[option_value])
+            )
         return qs.count()
 
     def reset_workspace(
