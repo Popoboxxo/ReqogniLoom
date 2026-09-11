@@ -122,6 +122,8 @@ describe("AttributeEditorPage", () => {
       is_customized: false,
       version: 1,
       attributes: [STATUS, attr({ name: "title", order: 1 })],
+      origins: {},
+      sections: [],
     });
     vi.mocked(attributeDefinitionsApi.putWorkspace).mockReset();
     vi.mocked(attributeDefinitionsApi.resetWorkspace).mockReset();
@@ -151,17 +153,39 @@ describe("AttributeEditorPage", () => {
   });
 
   it("toggles audience through the expert switch", async () => {
+    // Findings from this plan's mandated final full-suite run (not a
+    // pre-existing assertion this task touches): putWorkspace previously
+    // had no resolved value here, so handleSave's `result.attributes` read
+    // threw internally on every run -- caught by handleSave's own
+    // try/catch and invisible to this test's assertion (it only checks the
+    // call args, which are recorded before the throw), but real. Mocking a
+    // real resolved shape makes the save path actually complete instead of
+    // silently erroring underneath a passing assertion.
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 2,
+      attributes: [STATUS, attr({ name: "title", order: 1, audience: "expert" })],
+      origins: {},
+      sections: [],
+    });
     renderPage();
     await userEvent.click(await screen.findByTestId("attribute-row-title"));
     await userEvent.click(screen.getByTestId("attribute-inspector-audience"));
     await userEvent.click(screen.getByTestId("attribute-editor-save"));
     await waitFor(() =>
+      // Task 8: putWorkspace gained a 4th argument (sections) -- toHaveBeenCalledWith
+      // requires an exact arg count match, so the pre-Task-8 3-arg assertion
+      // would never match again regardless of the first 3 args' content
+      // (caught by this plan's mandated final full-suite run).
       expect(attributeDefinitionsApi.putWorkspace).toHaveBeenCalledWith(
         "ws-1",
         "Requirement",
         expect.arrayContaining([
           expect.objectContaining({ name: "title", audience: "expert" }),
-        ])
+        ]),
+        []
       )
     );
   });
@@ -173,6 +197,8 @@ describe("AttributeEditorPage", () => {
       is_customized: true,
       version: 2,
       attributes: [STATUS, attr({ name: "title", order: 1 })],
+      origins: {},
+      sections: [],
     });
     vi.mocked(attributeDefinitionsApi.resetWorkspace).mockResolvedValue({
       item_type: "Requirement",
@@ -180,6 +206,8 @@ describe("AttributeEditorPage", () => {
       is_customized: false,
       version: 3,
       attributes: [STATUS],
+      origins: {},
+      sections: [],
     });
     renderPage();
     await userEvent.click(await screen.findByTestId("attribute-editor-reset"));
@@ -199,6 +227,7 @@ describe("AttributeEditorPage", () => {
       initialized: true,
       version: 1,
       attributes: [attr({ name: "title" })],
+      sections: [],
     });
     vi.mocked(attributeDefinitionsApi.putGlobal).mockResolvedValue({
       item_type: "Requirement",
@@ -206,6 +235,7 @@ describe("AttributeEditorPage", () => {
       initialized: true,
       version: 2,
       attributes: [attr({ name: "title", audience: "expert" })],
+      sections: [],
       propagated_workspace_count: 3,
     });
     renderPage("global");
@@ -255,6 +285,8 @@ describe("AttributeEditorPage", () => {
         attr({ name: "title", section: "general", order: 0 }),
         attr({ name: "uid", section: "change_control", order: 0 }),
       ],
+      origins: {},
+      sections: [],
     });
     renderPage();
     await userEvent.click(
@@ -326,6 +358,21 @@ describe("AttributeEditorPage", () => {
         attr({ name: "title", section: "general", order: 0 }),
         attr({ name: "uid", section: "change_control", order: 0 }),
       ],
+      origins: {},
+      sections: [],
+    });
+    // Same finding as "toggles audience through the expert switch" above.
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 2,
+      attributes: [
+        attr({ name: "uid", section: "change_control", order: 0 }),
+        attr({ name: "title", section: "change_control", order: 1 }),
+      ],
+      origins: {},
+      sections: [],
     });
     renderPage();
     await userEvent.click(await screen.findByTestId("attribute-row-title"));
@@ -334,13 +381,16 @@ describe("AttributeEditorPage", () => {
     });
     await userEvent.click(screen.getByTestId("attribute-editor-save"));
     await waitFor(() =>
+      // Task 8: same 4th-argument (sections) finding as the "toggles
+      // audience" test above.
       expect(attributeDefinitionsApi.putWorkspace).toHaveBeenCalledWith(
         "ws-1",
         "Requirement",
         expect.arrayContaining([
           expect.objectContaining({ name: "title", section: "change_control", order: 1 }),
           expect.objectContaining({ name: "uid", section: "change_control", order: 0 }),
-        ])
+        ]),
+        []
       )
     );
   });

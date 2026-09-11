@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.8.0-beta.5",
-  "tool_count": 179,
+  "generated_from": "reqogniloom==unknown",
+  "tool_count": 188,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -774,6 +774,201 @@
       }
     },
     {
+      "name": "attribute_definition.count_usages",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Count artifacts referencing an attribute (and, optionally, one of its option values) -- call before deleting an attribute or removing an option (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "option_value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.create",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Add one extended attribute to a global default (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          },
+          "attribute": {
+            "type": "object",
+            "description": "New attribute entry (name, kind, type, ...)."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "attribute"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.create_workspace",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Add one workspace-only attribute (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "attribute": {
+            "type": "object",
+            "description": "New attribute entry (name, kind, type, ...)."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id",
+          "attribute"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.delete",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Remove one attribute from a global default (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.delete_workspace",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Remove one attribute from a workspace's definition (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.export",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Download a global default as a re-importable document (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          }
+        },
+        "required": [
+          "item_type",
+          "preset"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.export_workspace",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Download a workspace's resolved definition as a re-importable document (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "attribute_definition.get",
       "prefix": "attribute_definition",
       "is_write": false,
@@ -793,6 +988,83 @@
         "required": [
           "item_type",
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.import",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Import a previously exported document into a global default (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          },
+          "document": {
+            "type": "object",
+            "description": "A previously exported document (attribute_definition.export's output)."
+          },
+          "on_collision": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "overwrite",
+              "rename"
+            ],
+            "description": "Default 'skip'."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "attribute_definition.import_workspace",
+      "prefix": "attribute_definition",
+      "is_write": true,
+      "description": "Import a previously exported document into a workspace's definition (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. 'Requirement'."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "document": {
+            "type": "object",
+            "description": "A previously exported document (attribute_definition.export_workspace's output)."
+          },
+          "on_collision": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "overwrite",
+              "rename"
+            ],
+            "description": "Default 'skip'."
+          }
+        },
+        "required": [
+          "item_type",
+          "workspace_id",
+          "document"
         ]
       }
     },
@@ -2072,7 +2344,7 @@
       "name": "interview.formalize",
       "prefix": "interview",
       "is_write": true,
-      "description": "Turn the session's collected answers into a real artifact (write). Creates a new Requirement, or -- if grounding set a target -- updates the existing one instead, re-checking at write time that the target still exists. Marks the session completed and returns resulting_artifact_ids. Only artifact_type='Requirement' sessions are supported so far.",
+      "description": "Turn the session's collected answers into real artifact(s) (write). Single-kind sessions create one artifact of the session's artifact_type -- Requirement, ArchitectureElement, StakeholderNeed, Risk, TestCase, Adr, Issue or Goal -- through that type's production create service, so workflow state is initialized; or, if grounding set a target (the target must be a Requirement), updates the existing Requirement instead, re-checking at write time that the target still exists. Multi-kind sessions take a caller-confirmed proposal and create every item atomically; the proposal covers the same eight types (glossary terms are managed on the glossary surface, not proposed by an interview). Marks the session completed and returns resulting_artifact_ids.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2185,7 +2457,7 @@
       "name": "interview.set_target",
       "prefix": "interview",
       "is_write": true,
-      "description": "Confirm a grounding_context() candidate (or any already-known artifact_id) as this session's formalize() target (write). Once set, formalize() updates that existing Requirement instead of creating a new one. Requirement sessions only -- formalize()'s update branch does not support the other 7 in-scope artifact types yet. Re-validates that artifact_id resolves to a real Requirement right now. Returns the session's refreshed state.",
+      "description": "Pin an existing artifact (by artifact_id) as this session's formalize() target (write). Once set, formalize() updates that existing Requirement instead of creating a new one. Requirement only: formalize()'s grounded-UPDATE branch is Requirement-only (its CREATE branch supports all 8 in-scope types). Start a session without a target for the others. Re-validates that artifact_id resolves to a real Requirement right now. Returns the session's refreshed state.",
       "inputSchema": {
         "type": "object",
         "properties": {
