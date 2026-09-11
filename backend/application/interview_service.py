@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 # to abandoned the next time anything reads it. No scheduled job (YAGNI).
 ABANDONED_TTL = timedelta(days=30)
 
+# L2.4 spec §5: how many chat turns stay in `transcript` verbatim. Everything
+# older is folded into `transcript_summary`. One turn writes TWO transcript
+# entries (user + assistant, see generate_chat_turn), so the retained entry
+# count is twice this. A fixed constant, deliberately not a setting: one
+# threshold is enough (spec §5, YAGNI).
+TRANSCRIPT_WINDOW_TURNS = 10
+
 # PromptTemplate name for the AI-assisted grounding-ranking layer (Task 6,
 # spec §6 step 2). Registered in AiDerivationService.PROMPT_TEMPLATE_DEFAULTS
 # (ai_derivation_service.py) -- same reasoning as
@@ -1311,6 +1318,87 @@ class InterviewService(ServiceBase):
             session.version = F("version") + 1
             session.save(update_fields=["modified_at", "version"])
         return {"status": session.status}
+
+    def _compress_transcript_if_needed(self, ctx, session: InterviewSession) -> None:
+        """Fold turns older than the sliding window into ``transcript_summary``.
+
+        L2.4 (spec §5): ``transcript`` used to grow without bound, and every
+        chat turn resent the whole history as prompt context. Above
+        ``TRANSCRIPT_WINDOW_TURNS`` turns, the overflow is replaced by one
+        LLM-written digest that *supersedes* the previous digest (it is fed
+        back in), so the summary itself cannot grow without bound either.
+
+        Best-effort by contract (spec §7, issue #846): no provider, or a
+        provider that raises, means "no compression this turn" -- the
+        transcript is left exactly as it was and the next turn retries. Never
+        raises, never blocks the chat. Called AFTER the triggering turn is
+        already persisted, so a failure here cannot lose that turn.
+
+        Mutates *session* in place and persists both fields; the caller does
+        not need to re-save.
+        """
+        window_entries = TRANSCRIPT_WINDOW_TURNS * 2
+        if len(session.transcript) <= window_entries:
+            return
+
+        overflow = session.transcript[:-window_entries]
+        window = session.transcript[-window_entries:]
+
+        provider, provider_name, _resolve_error = self._resolve_provider()
+        if provider is None:
+            logger.debug(
+                "InterviewService: no LLM provider for transcript compression, "
+                "session=%s -- deferring to the next turn",
+                session.id,
+            )
+            return
+
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.timeouts import resolve_timeout_seconds
+
+        # Reachable from the direct-call path too (tests, a future scheduled
+        # sweep), not only from generate_chat_turn where _get_session already
+        # armed it -- the save() below needs the tenant context.
+        self._set_tenant_context(ctx)
+
+        template = AiDerivationService._get_template_content(
+            ctx, "interview.transcript_summary", session.workspace_id
+        )
+        prompt = AiDerivationService._render(
+            template,
+            previous_summary=session.transcript_summary or "",
+            overflow_json=json.dumps(overflow),
+        )
+        try:
+            summary = provider.complete(
+                prompt,
+                purpose="interview.transcript_summary",
+                timeout=resolve_timeout_seconds("interview.transcript_summary"),
+            )
+        except Exception:  # noqa: BLE001 -- best-effort by contract, see docstring
+            logger.debug(
+                "InterviewService: transcript compression failed for session=%s "
+                "(provider=%s) -- transcript left uncompressed, retrying next turn",
+                session.id,
+                provider_name,
+                exc_info=True,
+            )
+            return
+
+        summary = (summary or "").strip()
+        if not summary:
+            # An empty digest would silently DISCARD the overflow turns.
+            # Treat it exactly like a failed call.
+            logger.debug(
+                "InterviewService: empty transcript summary for session=%s -- "
+                "transcript left uncompressed",
+                session.id,
+            )
+            return
+
+        session.transcript_summary = summary
+        session.transcript = window
+        session.save(update_fields=["transcript_summary", "transcript", "modified_at"])
 
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
         """Server-generated conversational turn -- Web Widget spec §5.
