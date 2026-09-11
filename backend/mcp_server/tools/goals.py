@@ -30,7 +30,7 @@ from mcp_server.tools.base import (
     resolve_status_map,
     validate_artifact_write,
 )
-from workflow.definition_store import PRESET_SCHEMAS
+from workflow.definition_store import PRESET_SCHEMAS, PROPOSED_STATE
 
 # Issue #270 finding 5: ``target_state`` used to be an unconstrained string, so
 # clients guessed English state names ("approved") that the German
@@ -39,8 +39,43 @@ from workflow.definition_store import PRESET_SCHEMAS
 # duplicated here. It is a client-side hint only — the server still validates
 # against the workspace's *actual* definition, which an Extended-preset
 # workspace may have customised beyond these defaults.
-_GOAL_STATES: list[str] = list(PRESET_SCHEMAS["goal_default"]["states"])
-_MAIN_GOAL_STATES: list[str] = list(PRESET_SCHEMAS["main_goal_default"]["states"])
+def _client_selectable_states(preset_key: str) -> list[str]:
+    """Return the states a client may name as a transition target.
+
+    ``PROPOSED_STATE`` is filtered out. It is reachable only by being *seeded*
+    into it (an AI agent creating the row, ``workflow.services.initial_state_for``)
+    — ``inject_proposed_state`` gives it outgoing confirm/discard transitions
+    and no incoming ones, so no caller can ever transition *to* it.
+
+    Security review B4: this used to be a plain ``list(...["states"])`` read
+    positionally by its callers, and the proposal state is inserted at index
+    **1**. That made ``main_goal.approve``'s own description advertise
+    "Entwurf -> proposed" as what approving a MainGoal does — the MCP surface
+    telling calling agents something false about the state machine. Select by
+    meaning, never by list position.
+    """
+    return [s for s in PRESET_SCHEMAS[preset_key]["states"] if s != PROPOSED_STATE]
+
+
+_GOAL_STATES: list[str] = _client_selectable_states("goal_default")
+_MAIN_GOAL_STATES: list[str] = _client_selectable_states("main_goal_default")
+
+# The MainGoal approval target, resolved by meaning rather than by index: it is
+# the state the workspace's own ``Entwurf -> X`` approval transition points at.
+_MAIN_GOAL_INITIAL_STATE: str = _MAIN_GOAL_STATES[0]
+_MAIN_GOAL_APPROVED_STATE: str = next(
+    (
+        t["to_state"]
+        for t in PRESET_SCHEMAS["main_goal_default"]["transitions"]
+        if t["from_state"] == _MAIN_GOAL_INITIAL_STATE
+        and t["to_state"] != PROPOSED_STATE
+        and not PRESET_SCHEMAS["main_goal_default"]
+        .get("state_meta", {})
+        .get(t["to_state"], {})
+        .get("is_outdated_equivalent", False)
+    ),
+    _MAIN_GOAL_STATES[-1],
+)
 
 
 def _goal_payload(
@@ -750,9 +785,9 @@ class MainGoalToolGroup(BaseToolGroup):
                 "Approve a MainGoal draft, making it the currently valid "
                 "version. This is the only MainGoal transition exposed over "
                 "MCP: it moves the row from '"
-                + _MAIN_GOAL_STATES[0]
+                + _MAIN_GOAL_INITIAL_STATE
                 + "' to '"
-                + _MAIN_GOAL_STATES[1]
+                + _MAIN_GOAL_APPROVED_STATE
                 + "'. Returns {\"main_goal\": {...}}."
             ),
             "inputSchema": {
