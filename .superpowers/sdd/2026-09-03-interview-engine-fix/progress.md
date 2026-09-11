@@ -599,6 +599,132 @@ in a browser needs a real provider configured.
 Not run (unchanged from the Global Constraints): the full backend suite and
 any unfiltered Playwright run — CI's job.
 
+## Fix round 3 — final whole-branch review (CHANGES_REQUESTED), 2026-09-11
+
+The final review of the whole branch returned 2 blockers, 2 important and 2
+minor findings. All six fixed in `4a67dbcc` (backend) and `a6eb2eb0`
+(frontend). Both blockers were in the **joint** behaviour of Phase C and
+Phase D — each phase verified its own slice, none verified the seam, which
+is exactly how they passed 88 green tests.
+
+**B1 (blocker) — `/interviews/{id}` threw for a multi session. FIXED.**
+`get_state()`'s multi branch omits `phase`/`missing_fields` by design (a
+multi session is bound to no protocol), but `InterviewDetail` read
+`current.missing_fields.length` unguarded: `undefined.length` → the route
+ErrorBoundary replaced the whole content area. Reachable through the
+`?start=multi` picker button Task 15 added.
+- Fix: optional-safe guards in `InterviewDetail`, and `phase`/`missing_fields`
+  declared optional on `InterviewState` so TypeScript flags every other
+  consumer — which immediately found `InterviewArtifactPane`. Declaring them
+  required while the implementation sometimes omits them is what made the bug
+  invisible.
+- Also: the single-mode formalize pane is no longer rendered for a multi
+  session at all. Its button posts `formalize()` without a confirmed
+  proposal, which `_formalize_multi` rejects with a 400 — a dead-end button.
+
+**B2 (blocker) — the multi proposal/confirm UI was unreachable. FIXED.**
+`InterviewChatPane` gates the whole proposal flow on `session_kind`, and
+`get_state()` never returned it; the only code that ever stamped it on was
+the widget's hosting code Task 16 deleted (`bd59fca8`). A multi session
+opened at `/interviews` could chat but could never see or confirm a
+proposal.
+- Fix: `session_kind` is now emitted from **both** `get_state()` branches,
+  from `_generate_multi_chat_turn`'s state, and from both facades' start
+  payloads (REST `_started_session_state`, MCP `_started_session_state`),
+  which bypass `get_state()`. Additive, same precedent as `transcript` and
+  Phase C's `transcript_summary`.
+- The chat-turn state mattered as much as `get_state()`: the pane replaces
+  its whole interview object after every turn, so without it the session
+  would have silently demoted to "single" from turn 1 onwards even with
+  `get_state()` fixed. Not part of the review's finding — found while tracing
+  the flow; covered by `test_chat_turn_state_carries_session_kind`.
+- `MultiModeInterview` (the pane's local widening of `InterviewState`) is
+  gone — redundant now that the field lives on the shared type.
+
+**I1 (important) — mocks of a shape the backend never returns. FIXED.**
+Task 15's two multi-start mocks asserted the single-mode payload
+(`phase`/`missing_fields`) for a multi session. They use the real shape now,
+and every other mock in that file carries the real `session_kind`.
+- New `frontend/src/components/InterviewEditors/InterviewDetail.test.tsx`
+  (4 tests) is the coverage that should have caught B1 and B2. It mocks one
+  level lower than its siblings — at `api/client`, not at the
+  `api/interviews` module — so the real client wrappers run and the fixtures
+  are the literal REST payloads. A wrong-shaped fixture cannot pass it.
+  It drives the whole multi path: render, type and submit a chat turn,
+  proposal card, confirm, created artifacts, and asserts the single-mode
+  path still works next to it.
+- Both blockers were **mutation-verified**, not assumed: restoring the
+  unguarded `missing_fields.length` fails 3 of the 4 tests with the original
+  `TypeError`; removing `session_kind` from the fixtures (i.e. simulating the
+  pre-fix backend) fails 2 with "Unable to find proposal-preview-graph".
+
+**I2 (important) — F6's length guard had a residual gap. FIXED.**
+`if len(session.transcript) < len(overflow) + window_entries` only catches
+the racing writer that ends up *shorter*. If the other compressor finishes
+and then ≥ `len(overflow)` new turns are appended, the row is long enough to
+pass the check while its prefix is no longer the one this digest summarises
+— the stale write goes through and deletes live turns.
+- Fix: `if session.transcript[:len(overflow)] != overflow: return`. Strictly
+  more precise, same cost. The existing F6 test still passes (verified, not
+  assumed); the new
+  `test_a_concurrent_compression_plus_new_turns_is_not_overwritten` pins the
+  missed interleaving and was mutation-verified — it fails against the old
+  length check, with the stale digest written.
+
+**M1 (minor) — `MULTI_START_PARAM` lived in the wrong module. FIXED.**
+Moved to `frontend/src/constants/interviewArtifactTypes.ts` next to
+`INTERVIEW_ARTIFACT_TYPES`, which documents itself as the shared home for
+exactly this. The always-mounted `InterviewWidget` no longer imports from a
+route page module; both import sites updated.
+
+**M2 (minor) — the ledger commit list was missing `c19ade54`. FIXED** (below).
+
+### Verification run for this round
+
+All in the reference environment (`testing/docker-compose.test.yml`), not
+against this worktree's host `node_modules`:
+- backend `pytest -k interview` (all roots): **298 passed**, 6915 deselected.
+- backend `pytest attribute_definitions/`: **150 passed**.
+- backend `mcp_server/tests/test_status_seam_tools.py` +
+  `application/tests/test_milestone_m3_gate.py` +
+  `application/tests/test_prompt_slots_registry.py` (the interview-state
+  consumers `-k interview` does not select): **28 passed**.
+- frontend `InterviewWidget/` + `InterviewEditors/` + `api/interviews.test.ts`
+  + `i18n-parity` + `useInterviewStartCta`: **66 passed** (10 files).
+- frontend `ui-ratchet` + `design-tokens`: **16 passed**.
+- `tsc -p tsconfig.build.json`: clean. `eslint` on the touched files: 0
+  errors (7 pre-existing `no-explicit-any` warnings in one test file).
+
+Note for whoever runs these locally: `InterviewWidget.test.tsx` fails with
+`localStorage is undefined` against this worktree's host `node_modules` — at
+HEAD as well as with these changes, so a local install artifact, not a
+regression. It passes in the Docker test service.
+
+### Still NOT verified in a browser — third dispatch in a row
+
+The multi path was **not** clicked through in a real browser. What was
+checked this time instead of assumed:
+- `docker ps`: only `postgres` + `redis` were up (test overlay). Bringing up
+  the app stack was **attempted**: `backend` started from the prebuilt
+  registry image `1.8.0-beta.8` with **no source bind-mount** — i.e. without
+  any of these fixes — and its healthcheck failed (gunicorn worker SIGKILL).
+  It was removed again; the worktree is back to postgres+redis as found.
+- `e2e/node_modules` still absent, so no Playwright of any kind.
+- Even with a browser, the propose→confirm step is not reproducible on the
+  default `LLM_PROVIDER=mock`: `MockLlmProvider` returns `"[]"` for the multi
+  protocol prompt, so no proposal is ever parsed. A live walkthrough needs a
+  real provider key, or a hand-seeded
+  `grounding_snapshot["pending_proposal"]`.
+- The one E2E spec that touches this area (`visual-regression.spec.ts`) only
+  screenshots the `/interviews` list route with no session selected — it
+  would not have caught B1 either.
+
+So the regression class is closed **by test**, with mutation checks proving
+the new tests fail without the fixes, at every layer the browser sits on top
+of: service → REST facade → client wrapper → component tree → rendered DOM →
+simulated clicks. What remains unproven is what only a browser can show —
+real layout, CSS, and a real HTTP round trip.
+
 ## Final self-check across all 18 tasks (2026-09-11, after Phase D)
 
 Checked against the plan's own "Self-Review → 1. Spec coverage" matrix
@@ -664,6 +790,6 @@ Commits on `feat/interview-engine-fix`, in order: `28440fa8` → `38420a0` →
 `cb9b4632` → `68a53bf` → `709bf08` → `9430183` → `d6fbb1e4` → (fix round 1)
 `d5b3f7f1` → `0014359d` → `bc44b64f` → (Phase C) `804c047b` → `e173fc1f` →
 `b457c67a` → `9b7b3d24` → `a1526b53` → (fix round 2) `aa51608f` →
-`1b6c6393` → (Phase D) `47946765` → `bd1f0eab` → `bd59fca8`.
+`1b6c6393` → (Phase D) `47946765` → `bd1f0eab` → `bd59fca8` → `c19ade54` → (fix round 3) `4a67dbcc` → `a6eb2eb0`.
 Not pushed, no PR opened — per
 directive, that decision belongs to the parent/user.
