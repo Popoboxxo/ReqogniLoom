@@ -680,7 +680,14 @@ class AttributeDefinitionService(ServiceBase):
                 )
             self._global.ensure_sections(row)
         else:
-            raise ValueError("export_definition requires either preset or workspace_id")
+            # AttributeSchemaError, not a bare ValueError: every caller of this
+            # module catches the module's own taxonomy (the REST views'
+            # ``except AttributeSchemaError`` clauses, the MCP tool group's
+            # error mapping). A bare ValueError matches none of them and would
+            # surface as a 500 for what is a malformed request.
+            raise AttributeSchemaError(
+                ["export_definition requires either preset or workspace_id"]
+            )
         return {
             "schema_version": _EXPORT_SCHEMA_VERSION,
             "item_type": item_type,
@@ -707,19 +714,28 @@ class AttributeDefinitionService(ServiceBase):
         other global edit would — no special-cased write path.
 
         Structural validation, the core-lock and the final duplicate-name
-        check all happen downstream in ``update_global``/``update_workspace``
-        — :meth:`_merge_import` only decides WHICH entries survive the merge
-        per *on_collision*, reusing the same single validation path
-        ``create_global``/``create_workspace`` already rely on.
+        check all happen downstream in ``update_global``/``update_workspace``;
+        :meth:`_merge_import` decides WHICH entries survive the merge per
+        *on_collision* and runs the new-name gate
+        (:func:`validate_new_attribute_name`) on every entry it ADDS, which is
+        the same single validation path ``create_global``/``create_workspace``
+        rely on (spec section 6: "validated against the same logic as
+        creating one").
+
+        ``payload["sections"]`` is merged by the identical rules and applied
+        alongside the attributes; a document without a ``sections`` key leaves
+        the target's own sections untouched.
 
         Raises:
             PermissionDeniedError: caller is not an admin.
             AttributeSchemaError: *on_collision* is not one of "skip"/
                 "overwrite"/"rename", the payload's ``schema_version`` is
-                missing or unrecognized, ``attributes`` is not a list, or the
-                merged result fails the normal update validation (e.g. an
-                incoming ``kind="core"`` entry — rejected the same way a
-                fresh core create is).
+                missing or unrecognized, ``attributes`` is not a list,
+                ``sections`` is present but not a list, an added attribute
+                name is invalid or shadows a model field, or the merged result
+                fails the normal update validation (e.g. an incoming
+                ``kind="core"`` entry — rejected the same way a fresh core
+                create is).
             AttributeDefinitionNotFound: no definition exists yet to import into.
         """
         ServiceBase._assert_permission(ctx, "admin")
@@ -735,6 +751,9 @@ class AttributeDefinitionService(ServiceBase):
         incoming = payload.get("attributes")
         if not isinstance(incoming, list):
             raise AttributeSchemaError(["payload must have an 'attributes' list"])
+        incoming_sections = payload.get("sections")
+        if incoming_sections is not None and not isinstance(incoming_sections, list):
+            raise AttributeSchemaError(["'sections', if present, must be a list"])
 
         if workspace_id is not None:
             current_row = self._workspace.resolve(
@@ -747,20 +766,48 @@ class AttributeDefinitionService(ServiceBase):
                     f"No global attribute definition for '{item_type}/{preset}'"
                 )
         else:
-            raise ValueError("import_definition requires either preset or workspace_id")
+            raise AttributeSchemaError(
+                ["import_definition requires either preset or workspace_id"]
+            )
 
         merged = self._merge_import(
-            stored_attributes(current_row.definition_json), incoming, on_collision
+            stored_attributes(current_row.definition_json),
+            incoming,
+            on_collision,
+            reserved_field_names=self._model_field_names(item_type),
+        )
+        # Post-review M1: ``export_definition`` emits 'sections' too, and
+        # dropping it here silently discarded every imported section's
+        # visibility/layout while the target's own sections survived — i.e. an
+        # import of a document whose sections are hidden produced a definition
+        # whose sections are visible. ``None`` (document carries no 'sections'
+        # key at all — a hand-written or pre-Task-7 document) keeps meaning
+        # "leave the row's sections alone", the same contract the PUT views'
+        # ``_read_sections`` already has. Section names carry no snake_case /
+        # reserved-name rules (they are free-text display groups), hence no
+        # ``reserved_field_names`` on this call.
+        merged_sections = (
+            None
+            if incoming_sections is None
+            else self._merge_import(
+                stored_sections(current_row.definition_json),
+                incoming_sections,
+                on_collision,
+            )
         )
         if workspace_id is not None:
-            return self.update_workspace(ctx, item_type, workspace_id, merged)
-        return self.update_global(ctx, item_type, preset, merged)
+            return self.update_workspace(
+                ctx, item_type, workspace_id, merged, merged_sections
+            )
+        return self.update_global(ctx, item_type, preset, merged, merged_sections)
 
     @staticmethod
     def _merge_import(
         current: list[dict[str, Any]],
         incoming: list[Any],
         on_collision: str,
+        *,
+        reserved_field_names: frozenset[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Merge *incoming* (raw, un-normalized entries from an import file)
         into *current* per *on_collision*: ``"skip"`` leaves the existing
@@ -769,15 +816,41 @@ class AttributeDefinitionService(ServiceBase):
         suffix). A malformed entry (not a dict, or no ``name``) is passed
         through unchanged; ``update_global``/``update_workspace``'s own
         validation rejects it with a proper error naming the problem.
+
+        Post-review M2: *reserved_field_names* (``None`` disables the check,
+        which is what the sections merge wants) turns on the SAME
+        :func:`validate_new_attribute_name` gate ``create_global``/
+        ``create_workspace`` run — spec section 6 requires an import to
+        validate a new name "against the same logic as creating one". It runs
+        for every entry this merge ADDS under a name the definition does not
+        have yet, including the ``name_2`` candidate the rename path
+        fabricates. It deliberately does NOT run for ``skip``/``overwrite``
+        collisions: those names are already stored, i.e. already validated,
+        and re-validating them would fail on "already exists".
+
+        Raises:
+            AttributeSchemaError: an added name is not snake_case or collides
+                with a Django model field of the item type.
         """
         existing_names = {a["name"] for a in current}
         result = list(current)
+
+        def _admit(name: str) -> None:
+            """Validate a name this merge is about to introduce, then claim it."""
+            if reserved_field_names is not None:
+                validate_new_attribute_name(
+                    name,
+                    [{"name": n} for n in existing_names],
+                    reserved_field_names=reserved_field_names,
+                )
+            existing_names.add(name)
+
         for entry in incoming:
             name = entry.get("name") if isinstance(entry, dict) else None
             if not isinstance(name, str) or name not in existing_names:
-                result.append(entry)
                 if isinstance(name, str):
-                    existing_names.add(name)
+                    _admit(name)
+                result.append(entry)
                 continue
             if on_collision == "skip":
                 continue
@@ -793,8 +866,8 @@ class AttributeDefinitionService(ServiceBase):
             while candidate in existing_names:
                 suffix += 1
                 candidate = f"{name}_{suffix}"
+            _admit(candidate)
             result.append({**entry, "name": candidate})
-            existing_names.add(candidate)
         return result
 
 

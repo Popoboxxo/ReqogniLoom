@@ -767,3 +767,123 @@ def test_resolve_maps_a_malformed_workspace_id_to_not_found(admin_ctx, bad) -> N
 
     with pytest.raises(AttributeDefinitionNotFound):
         AttributeDefinitionService().resolve(admin_ctx, "Risk", bad)
+
+
+# --- Post-review M1/M2: sections + name validation on import ---------------
+
+
+@pytest.mark.django_db
+def test_import_definition_carries_sections_through_the_round_trip(
+    service, admin_ctx, seeded
+) -> None:
+    """M1: ``export_definition`` emits 'sections'; import used to drop them.
+
+    The target's sections are materialized first (via ``get_global``) so the
+    import has a real collision to resolve — the old code let the target's own
+    entry survive silently, i.e. a deliberately hidden section came back
+    visible after a round trip.
+    """
+    service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE],
+        [{"name": "general", "order": 0, "visible": False, "layout": "half"}],
+    )
+    exported = service.export_definition(admin_ctx, "Risk", preset="standard")
+    assert exported["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "half"}
+    ]
+
+    assert service.get_global(admin_ctx, "Risk", "minimal")["sections"] == [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"}
+    ]
+    imported = service.import_definition(
+        admin_ctx, "Risk", exported, preset="minimal", on_collision="overwrite"
+    )
+    assert imported["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "half"}
+    ]
+
+
+@pytest.mark.django_db
+def test_import_definition_skip_keeps_the_target_sections_and_adds_new_ones(
+    service, admin_ctx, seeded
+) -> None:
+    service.get_global(admin_ctx, "Risk", "minimal")  # materialize 'general'
+    imported = service.import_definition(
+        admin_ctx, "Risk",
+        {
+            "schema_version": 1,
+            "attributes": [],
+            "sections": [
+                {"name": "general", "order": 0, "visible": False, "layout": "half"},
+                {"name": "extra", "order": 1, "visible": False, "layout": "half"},
+            ],
+        },
+        preset="minimal", on_collision="skip",
+    )
+    by_name = {s["name"]: s for s in imported["sections"]}
+    assert by_name["general"]["visible"] is True  # existing entry wins
+    assert by_name["extra"]["visible"] is False  # new entry added
+
+
+@pytest.mark.django_db
+def test_import_definition_without_a_sections_key_leaves_them_untouched(
+    service, admin_ctx, seeded
+) -> None:
+    service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE],
+        [{"name": "general", "order": 0, "visible": False, "layout": "full"}],
+    )
+    imported = service.import_definition(
+        admin_ctx, "Risk",
+        {"schema_version": 1, "attributes": [NOTE]},
+        preset="standard",
+    )
+    assert imported["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "full"}
+    ]
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_a_name_shadowing_a_model_field(
+    service, admin_ctx, seeded
+) -> None:
+    """M2: 'owner' is a real ``persistence.Risk`` column — ``create_global``
+    refuses it, so import must too (spec section 6)."""
+    with pytest.raises(AttributeSchemaError) as exc:
+        service.import_definition(
+            admin_ctx, "Risk",
+            {
+                "schema_version": 1,
+                "attributes": [{"name": "owner", "kind": "extended", "type": "text"}],
+            },
+            preset="standard",
+        )
+    assert "model field" in " ".join(exc.value.errors)
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_a_non_snake_case_name(
+    service, admin_ctx, seeded
+) -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        service.import_definition(
+            admin_ctx, "Risk",
+            {
+                "schema_version": 1,
+                "attributes": [{"name": "Created At", "kind": "extended", "type": "text"}],
+            },
+            preset="standard",
+        )
+    assert "snake_case" in " ".join(exc.value.errors)
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_a_non_list_sections_key(
+    service, admin_ctx, seeded
+) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.import_definition(
+            admin_ctx, "Risk",
+            {"schema_version": 1, "attributes": [], "sections": {"general": True}},
+            preset="standard",
+        )
