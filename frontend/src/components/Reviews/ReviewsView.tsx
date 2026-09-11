@@ -40,7 +40,10 @@ import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ArtifactDiff, type DiffEntityType } from "../ArtifactDiff/ArtifactDiff";
 import { type AllowedTransition } from "../../api/requirements";
-import type { WorkflowArtifactType } from "../../api/workflow-transitions";
+import {
+  workflowTransitionsApi,
+  type WorkflowArtifactType,
+} from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
 import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
@@ -64,6 +67,13 @@ const paginationRowStyle: React.CSSProperties = {
   justifyContent: "center",
   gap: "var(--space-3)",
   marginTop: "var(--space-3)",
+};
+// Task 20: hoisted named style for the proposals-mode row (checkbox + button)
+// instead of an inline literal (ui-ratchet.test.ts style-brace ceiling).
+const reviewRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
 };
 const paginationIndicatorStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
@@ -148,6 +158,31 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   "main-goal": "mainGoal",
 };
 
+/**
+ * Confirm a list of proposals one at a time (spec §4.4, minimal bulk edit).
+ *
+ * Sequential on purpose: each call is a workflow transition with optimistic
+ * locking and a server-side validator, and firing N of them in parallel turns
+ * a partial failure into an unreadable pile of 409s. A failing item never
+ * aborts the run — the caller reports both lists.
+ */
+export async function bulkConfirm(
+  ids: readonly string[],
+  confirmOne: (id: string) => Promise<unknown>,
+): Promise<{ confirmed: string[]; failed: string[] }> {
+  const confirmed: string[] = [];
+  const failed: string[] = [];
+  for (const id of ids) {
+    try {
+      await confirmOne(id);
+      confirmed.push(id);
+    } catch {
+      failed.push(id);
+    }
+  }
+  return { confirmed, failed };
+}
+
 function findTransition(
   transitions: AllowedTransition[] | undefined,
   targetState: string
@@ -182,6 +217,10 @@ export default function ReviewsView({
   const [isActing, setIsActing] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<AllowedTransition | null>(null);
   const [queueMode, setQueueMode] = useState<ReviewQueueMode>("review");
+  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+  const [bulkResult, setBulkResult] = useState<{ ok: number; failed: number } | null>(
+    null,
+  );
 
   const {
     items,
@@ -244,6 +283,7 @@ export default function ReviewsView({
 
   useEffect(() => {
     setPage(1);
+    setSelectedIds([]);
   }, [search, selectedArtifactType, queueMode]);
 
   const selected = useMemo(
@@ -448,6 +488,38 @@ export default function ReviewsView({
         {t("workflow.proposal.queueMode")}
       </label>
 
+      {queueMode === "proposals" && selectedIds.length > 0 && (
+        <button
+          type="button"
+          data-testid="reviews-bulk-confirm-btn"
+          disabled={isActing}
+          onClick={async () => {
+            setIsActing(true);
+            const { confirmed, failed } = await bulkConfirm(selectedIds, (id) =>
+              workflowTransitionsApi.transition(
+                selectedArtifactType,
+                id,
+                APPROVE_TARGET,
+              ),
+            );
+            setSelectedIds([]);
+            setBulkResult({ ok: confirmed.length, failed: failed.length });
+            await refreshList();
+            setIsActing(false);
+          }}
+        >
+          {t("workflow.proposal.bulkConfirm")} ({selectedIds.length})
+        </button>
+      )}
+      {bulkResult && (
+        <p role="status" data-testid="reviews-bulk-confirm-result">
+          {t("workflow.proposal.bulkConfirmDone", { count: bulkResult.ok })}
+          {bulkResult.failed > 0
+            ? ` — ${t("workflow.proposal.bulkConfirmFailed", { count: bulkResult.failed })}`
+            : ""}
+        </p>
+      )}
+
       <ListToolbar
         searchValue={search}
         onSearchChange={setSearch}
@@ -476,13 +548,30 @@ export default function ReviewsView({
 
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {paged.map((r) => (
-          <li key={r.id}>
+          <li key={r.id} style={reviewRowStyle}>
+            {queueMode === "proposals" && (
+              <input
+                type="checkbox"
+                data-testid={`review-select-${r.id}`}
+                checked={selectedIds.includes(r.id)}
+                onChange={(e) =>
+                  setSelectedIds((prev) =>
+                    e.target.checked
+                      ? [...prev, r.id]
+                      : prev.filter((id) => id !== r.id),
+                  )
+                }
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
             <button
               type="button"
               data-testid={`review-list-item-${r.id}`}
               onClick={() => handleSelect(r.id)}
               style={{
                 width: "100%",
+                flex: "1 1 0",
+                minWidth: 0,
                 textAlign: "left",
                 padding: "var(--space-2) var(--space-3)",
                 marginBottom: "var(--space-1)",
