@@ -2017,7 +2017,8 @@
       "proposalHeading": "Vorgeschlagene Artefakte",
       "confirm": "Diese Artefakte anlegen",
       "resultHeading": "Angelegte Artefakte",
-      "createdBadge": "Angelegt via Interview"
+      "createdBadge": "Angelegt via Interview",
+      "earlierConversation": "Früherer Verlauf (zusammengefasst)"
     }
   },
   "workspaceSettings": {

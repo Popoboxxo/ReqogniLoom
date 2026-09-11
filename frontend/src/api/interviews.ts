@@ -54,6 +54,13 @@ export interface InterviewState {
     candidates?: { artifact_id: string; title: string; score: number | null }[];
   };
   transcript: InterviewTranscriptEntry[];
+  /**
+   * LLM-written digest of the turns already folded out of `transcript`
+   * (backend `_compress_transcript_if_needed`). Empty until the conversation
+   * grows past the sliding window; optional because multi-mode state payloads
+   * omit the key entirely (compression is a single-mode path).
+   */
+  transcript_summary?: string;
 }
 
 /** Summary shape returned by list()/get() (`_session_to_dict()`). */

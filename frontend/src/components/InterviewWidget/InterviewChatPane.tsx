@@ -136,6 +136,19 @@ export function InterviewChatPane({
         aria-relevant="additions"
         aria-label={t("interview.multi.transcriptLabel", "Chat transcript")}
       >
+        {/*
+         * `transcript` is only the newest turns -- the backend folds older
+         * ones into `transcript_summary` once the conversation outgrows the
+         * sliding window. Without this block the pane would appear to lose
+         * its own earlier messages mid-conversation. Collapsed by default:
+         * the digest is context, not part of the live exchange.
+         */}
+        {interview.transcript_summary && (
+          <details className={styles.earlierSummary} data-testid="interview-earlier-summary">
+            <summary>{t("interview.multi.earlierConversation")}</summary>
+            <p>{interview.transcript_summary}</p>
+          </details>
+        )}
         {interview.transcript.map((msg, i) => (
           <p
             key={i}

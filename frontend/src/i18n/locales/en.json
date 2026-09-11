@@ -2017,7 +2017,8 @@
       "proposalHeading": "Proposed artifacts",
       "confirm": "Create these artifacts",
       "resultHeading": "Created artifacts",
-      "createdBadge": "Created via interview"
+      "createdBadge": "Created via interview",
+      "earlierConversation": "Earlier conversation (summarised)"
     }
   },
   "workspaceSettings": {

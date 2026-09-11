@@ -420,6 +420,18 @@ class InterviewService(ServiceBase):
             # to render conversation history on mount/resume. Additive and
             # harmless to the Hermes plugin's form view, which ignores it.
             "transcript": session.transcript,
+            # L2.4 review fix F5: `transcript` is only the sliding window, so
+            # without this key every consumer silently loses the older half of
+            # the conversation the moment compression fires -- not just on
+            # resume, but live (InterviewChatPane renders `state.transcript`
+            # after every turn). Additive for the same reason `transcript`
+            # itself was: hosts that don't know the key ignore it. Every
+            # single-mode facade (REST _state_dict, MCP _handle_get_state,
+            # generate_chat_turn's own return) reads this one dict, so this
+            # is the only place it needs to be added. Multi-mode state dicts
+            # deliberately omit it -- compression only runs on the single-mode
+            # chat path, so their summary is always "".
+            "transcript_summary": session.transcript_summary,
         }
 
     @atomic_transaction
@@ -1328,54 +1340,152 @@ class InterviewService(ServiceBase):
         LLM-written digest that *supersedes* the previous digest (it is fed
         back in), so the summary itself cannot grow without bound either.
 
-        Best-effort by contract (spec §7, issue #846): no provider, or a
-        provider that raises, means "no compression this turn" -- the
-        transcript is left exactly as it was and the next turn retries. Never
-        raises, never blocks the chat. Called AFTER the triggering turn is
-        already persisted, so a failure here cannot lose that turn.
+        Best-effort by contract (spec §7, issue #846): no provider, a mock
+        provider, an exhausted token budget, or a provider that raises all
+        mean "no compression this turn" -- the transcript is left exactly as
+        it was and the next turn retries. Never raises, never blocks the
+        chat. Called AFTER the triggering turn is already persisted, so a
+        failure here cannot lose that turn.
 
         Mutates *session* in place and persists both fields; the caller does
         not need to re-save.
         """
+        from application.bundle_compression_service import MOCK_PROVIDER_NAME
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
+
         window_entries = TRANSCRIPT_WINDOW_TURNS * 2
         if len(session.transcript) <= window_entries:
             return
 
         overflow = session.transcript[:-window_entries]
-        window = session.transcript[-window_entries:]
 
         provider, provider_name, _resolve_error = self._resolve_provider()
-        if provider is None:
+        if provider is None or provider_name == MOCK_PROVIDER_NAME:
+            # Issue #442's rule, same as _rank_candidates_with_ai above: a
+            # *configured* mock provider is a placeholder, not a real signal.
+            # Critical here specifically -- MockLlmProvider.complete() has no
+            # branch for purpose="interview.transcript_summary" and falls
+            # through to its generic `json.dumps([])`, i.e. the literal "[]".
+            # That is a non-empty string, so without this guard the whole
+            # overflow would be replaced by "[]" and permanently deleted on
+            # the project's own default deployment (LLM_PROVIDER=mock).
             logger.debug(
-                "InterviewService: no LLM provider for transcript compression, "
-                "session=%s -- deferring to the next turn",
+                "InterviewService: no real LLM provider (provider=%s) for transcript "
+                "compression, session=%s -- deferring to the next turn",
+                provider_name,
                 session.id,
             )
             return
 
-        from application.ai_derivation_service import AiDerivationService
-        from llm_adapter.timeouts import resolve_timeout_seconds
-
-        # Reachable from the direct-call path too (tests, a future scheduled
-        # sweep), not only from generate_chat_turn where _get_session already
-        # armed it -- the save() below needs the tenant context.
+        # Armed before the first audit write below, not just before the
+        # save(): reachable from the direct-call path too (tests, a future
+        # scheduled sweep), not only from generate_chat_turn where
+        # _get_session already armed it -- and AuditLogWriter needs an active
+        # tenant context or it drops the entry with a RuntimeWarning.
         self._set_tenant_context(ctx)
 
-        template = AiDerivationService._get_template_content(
-            ctx, "interview.transcript_summary", session.workspace_id
-        )
-        prompt = AiDerivationService._render(
-            template,
-            previous_summary=session.transcript_summary or "",
-            overflow_json=json.dumps(overflow),
-        )
+        audit_logger = LlmAuditLogger()
+        entity_id = str(session.id)
+
+        # REQ-106: per-tenant daily token budget. This free-form flow bypasses
+        # CapabilityRouter, so nothing else enforces it -- same reasoning as
+        # _rank_candidates_with_ai / generate_chat_turn. Unlike the chat turn
+        # this does NOT raise: compression is best-effort by contract (see
+        # docstring), so an exhausted budget just defers to the next turn.
+        if is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            logger.debug(
+                "InterviewService: daily token limit exceeded, skipping transcript "
+                "compression for session=%s",
+                session.id,
+            )
+            return
+
+        # Everything below is inside the try: the template lookup hits the DB
+        # (workspace prompt override), _render and json.dumps can raise on odd
+        # input, and the save() is a write -- all of them run AFTER the chat
+        # turn already committed, so letting any of them escape would turn a
+        # successful turn into a 500. The docstring's "never raises" contract
+        # covers the whole body, not just the provider call.
         try:
+            template = AiDerivationService._get_template_content(
+                ctx, "interview.transcript_summary", session.workspace_id
+            )
+            prompt = AiDerivationService._render(
+                template,
+                previous_summary=session.transcript_summary or "",
+                overflow_json=json.dumps(overflow),
+            )
             summary = provider.complete(
                 prompt,
                 purpose="interview.transcript_summary",
                 timeout=resolve_timeout_seconds("interview.transcript_summary"),
             )
-        except Exception:  # noqa: BLE001 -- best-effort by contract, see docstring
+
+            summary = (summary or "").strip()
+            if not summary:
+                # An empty digest would silently DISCARD the overflow turns.
+                # Treat it exactly like a failed call.
+                logger.debug(
+                    "InterviewService: empty transcript summary for session=%s -- "
+                    "transcript left uncompressed",
+                    session.id,
+                )
+                return
+
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            record_token_usage(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(summary),
+            )
+
+            # The provider call above blocks for up to ~25s. A concurrent
+            # request may have appended a turn in the meantime, and the
+            # in-memory `session.transcript` this method started from would
+            # silently drop it. Re-read, then keep *everything the summary
+            # does not already cover* -- i.e. the tail after the summarised
+            # prefix, not a fixed-size window slice. `transcript` is
+            # append-only on every write path, so `overflow` is still a
+            # prefix; the result may briefly exceed the window when a turn
+            # raced in, which the next turn's compression folds away.
+            session.refresh_from_db(fields=["transcript"])
+            session.transcript_summary = summary
+            session.transcript = session.transcript[len(overflow):]
+            session.save(
+                update_fields=["transcript_summary", "transcript", "modified_at"]
+            )
+        except Exception as error:  # noqa: BLE001 -- best-effort by contract
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
             logger.debug(
                 "InterviewService: transcript compression failed for session=%s "
                 "(provider=%s) -- transcript left uncompressed, retrying next turn",
@@ -1384,21 +1494,6 @@ class InterviewService(ServiceBase):
                 exc_info=True,
             )
             return
-
-        summary = (summary or "").strip()
-        if not summary:
-            # An empty digest would silently DISCARD the overflow turns.
-            # Treat it exactly like a failed call.
-            logger.debug(
-                "InterviewService: empty transcript summary for session=%s -- "
-                "transcript left uncompressed",
-                session.id,
-            )
-            return
-
-        session.transcript_summary = summary
-        session.transcript = window
-        session.save(update_fields=["transcript_summary", "transcript", "modified_at"])
 
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
         """Server-generated conversational turn -- Web Widget spec §5.
