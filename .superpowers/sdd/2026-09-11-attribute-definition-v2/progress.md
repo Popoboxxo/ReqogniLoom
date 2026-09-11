@@ -6,12 +6,12 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 4 (`AttributeTable` + view-mode toggle), committed `da2ac13d`.**
+**Last completed task: Task 5 (`count_usages` + delete confirmation flow), committed `56719398`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 5** (delete-collision-check helper `count_usages`, Phase D).
-**No independent review has run on Tasks 1-4 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
-**Not manually verified in a live browser** (Task 3's plan Step 5 asked for this) — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
-**A full, untargeted backend `pytest -q` run was kicked off in the background right before this ledger update to catch anything the scoped regression sweeps might have missed across the whole app — check its result before trusting Task 4 is fully clean if resuming shortly after this point.**
+**Next: Task 6** (options editor in `AttributeInspector`, Phase D continued).
+**No independent review has run on Tasks 1-5 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
+**Not manually verified in a live browser** (Task 3's plan Step 5 asked for this) — only component/API/typecheck-level coverage across all tasks so far. Flag for the coordinator or a later manual pass.
+**Two full, untargeted background test runs were launched during Tasks 4/5 (a whole-backend `pytest -q` after Task 4, a broader attribute-scoped sweep after Task 5) — both were still running (no output yet) when this ledger entry was written. Check their results before assuming zero cross-cutting side effects.**
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -60,8 +60,17 @@ separately after each phase/whole-branch).
 - Commit: `da2ac13d` "feat(attributes): add AttributeTable + view-mode toggle (Task 4)".
 - **A full untargeted `pytest -q` (whole backend suite, no path filter) was launched in the background as an extra confidence pass right after this commit** — its result should be checked before assuming Task 4 introduced zero side effects elsewhere in the app that the targeted consumer sweep didn't think to check.
 
-## Tasks 5-12 — NOT STARTED
+## Task 5: Delete-collision-check helper (`count_usages`) — DONE
 
-See plan file for full task list (Phases D-G: options editor,
+- `count_usages(ctx, item_type, workspace_id, attribute_name, option_value=None)` added to the service. Queries `Artifact.objects.filter(tenant_id=..., workspace_id=..., artifact_type=item_type, custom_fields__has_key=attribute_name)`, scoped further by `option_value` via `KeyTextTransform` (not a `custom_fields__{name}` keyword lookup — that would mis-split a name containing `__` as a nested JSON path).
+- Deliberately does not branch into a per-model-field path for `kind="core"`: a core attribute can never be deleted (rejected earlier by `validate_meta_only_change`), and delete/option-removal are the only two callers of this method — so there is no live path that would ever ask it to count a core field. Documented as an explicit YAGNI, not an oversight.
+- REST: new `AttributeUsageView` (`GET .../attribute-definitions/{item_type}/usage/?name=&option=`, admin-only, `{"count": N}`). MCP: new `attribute_definition.count_usages` tool (9th tool in the group).
+- Frontend: **`AttributeList.tsx` had NO per-attribute delete button before this task** (the plan's Task 5 text assumed one already existed from Task 3 — it didn't; Task 3 only added section-level `+`/create wiring). Added one now, gated to `kind === "extended"` rows only. `AttributeEditorPage.tsx` fetches the usage count before showing a `ConfirmDialog`; global scope shows a plain confirmation with no count (the backend's `count_usages` is workspace-scoped only — no cross-workspace aggregate exists, and extending the interface for that was out of this task's scope). Not extracted into a shared hook yet (YAGNI, single caller) — Task 6's option-removal flow is the natural point to extract if it needs the same shape.
+- Tests: 4 new service tests (incl. a real-`Artifact`-row fixture, not mocked, to exercise the actual JSONB query), 3 new REST tests, 2 new MCP tests. Scoped backend run: 90 passed (service+REST+MCP). Frontend: `tsc -p tsconfig.build.json --noEmit` clean, 39 tests passing across the touched/new files.
+- Commit: `56719398` "feat(attributes): add count_usages + delete confirmation flow (Task 5)".
+
+## Tasks 6-12 — NOT STARTED
+
+See plan file for full task list (Phases D continued-G: options editor,
 section CRUD + grid layout, export/import REST+MCP, export/import UI,
 section card polish).
