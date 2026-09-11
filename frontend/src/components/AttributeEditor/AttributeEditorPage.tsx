@@ -138,6 +138,8 @@ export function AttributeEditorPage({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteUsageCount, setDeleteUsageCount] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [removeOptionTarget, setRemoveOptionTarget] = useState<string | null>(null);
+  const [removeOptionUsageCount, setRemoveOptionUsageCount] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
 
   const handleSetViewMode = useCallback((mode: ViewMode): void => {
@@ -381,6 +383,36 @@ export function AttributeEditorPage({
     }
   }, [activeWorkspace?.id, deleteTarget, isGlobal, itemType, load, preset]);
 
+  // Task 6: same shape as handleRequestDeleteAttribute above, but the actual
+  // removal is a LOCAL patch (options are just another attribute property,
+  // saved through the page's normal Save button), not an immediate API
+  // call -- only the confirmation's usage-count probe hits the server.
+  const handleRequestRemoveOption = useCallback(
+    (optionValue: string): void => {
+      setRemoveOptionTarget(optionValue);
+      setRemoveOptionUsageCount(null);
+      if (!isGlobal && activeWorkspace?.id && selectedAttribute) {
+        void attributeDefinitionsApi
+          .getUsageCount(activeWorkspace.id, itemType, selectedAttribute.name, optionValue)
+          .then(setRemoveOptionUsageCount)
+          .catch(() => setRemoveOptionUsageCount(0));
+      } else {
+        setRemoveOptionUsageCount(0);
+      }
+    },
+    [activeWorkspace?.id, isGlobal, itemType, selectedAttribute]
+  );
+
+  const handleConfirmRemoveOption = useCallback((): void => {
+    if (!removeOptionTarget || !selectedAttribute) return;
+    setAttributes((current) =>
+      patchAttribute(current, selectedAttribute.name, {
+        options: selectedAttribute.options.filter((o) => o.value !== removeOptionTarget),
+      })
+    );
+    setRemoveOptionTarget(null);
+  }, [removeOptionTarget, selectedAttribute]);
+
   const handleSelectItemType = useCallback(
     (next: AttributeItemType): void => {
       if (isRouted) {
@@ -541,6 +573,7 @@ export function AttributeEditorPage({
             onSectionChange={(nextSection) =>
               handleInspectorSectionChange(selectedAttribute.name, nextSection)
             }
+            onRequestRemoveOption={handleRequestRemoveOption}
           />
         ) : null}
       </div>
@@ -586,6 +619,27 @@ export function AttributeEditorPage({
           isSubmitting={deleting || deleteUsageCount === null}
           onConfirm={() => void handleConfirmDeleteAttribute()}
           onCancel={() => setDeleteTarget(null)}
+        />
+      ) : null}
+
+      {removeOptionTarget !== null ? (
+        <ConfirmDialog
+          title={t("attributes.options.deleteConfirmTitle")}
+          message={
+            removeOptionUsageCount === null
+              ? t("attributes.options.deleteConfirmLoading")
+              : removeOptionUsageCount > 0
+                ? t("attributes.options.deleteConfirmWithUsage", {
+                    value: removeOptionTarget,
+                    count: removeOptionUsageCount,
+                  })
+                : t("attributes.options.deleteConfirmPlain", { value: removeOptionTarget })
+          }
+          confirmLabel={t("actions.delete")}
+          testId="attribute-option-delete-confirm"
+          isSubmitting={removeOptionUsageCount === null}
+          onConfirm={handleConfirmRemoveOption}
+          onCancel={() => setRemoveOptionTarget(null)}
         />
       ) : null}
     </div>

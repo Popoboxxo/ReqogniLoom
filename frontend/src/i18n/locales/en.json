@@ -2113,6 +2113,18 @@
       "widget": "Widget"
     },
     "addAttribute": "+ Add attribute",
+    "options": {
+      "title": "Options",
+      "value": "Value",
+      "labelDe": "Label (DE)",
+      "labelEn": "Label (EN)",
+      "add": "+ Add option",
+      "remove": "Remove option",
+      "deleteConfirmTitle": "Remove option",
+      "deleteConfirmLoading": "Checking usage…",
+      "deleteConfirmPlain": "Remove option \"{{value}}\"?",
+      "deleteConfirmWithUsage": "{{count}} artifact(s) currently have this attribute set to \"{{value}}\". Remove it anyway? Their stored values are not changed."
+    },
     "deleteAttribute": {
       "action": "Delete attribute",
       "title": "Delete attribute",

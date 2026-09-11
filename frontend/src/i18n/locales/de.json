@@ -2113,6 +2113,18 @@
       "widget": "Widget"
     },
     "addAttribute": "+ Attribut hinzufügen",
+    "options": {
+      "title": "Optionen",
+      "value": "Wert",
+      "labelDe": "Label (DE)",
+      "labelEn": "Label (EN)",
+      "add": "+ Option hinzufügen",
+      "remove": "Option entfernen",
+      "deleteConfirmTitle": "Option entfernen",
+      "deleteConfirmLoading": "Verwendung wird geprüft…",
+      "deleteConfirmPlain": "Option \"{{value}}\" entfernen?",
+      "deleteConfirmWithUsage": "{{count}} Artefakt(e) haben dieses Attribut aktuell auf \"{{value}}\" gesetzt. Trotzdem entfernen? Die gespeicherten Werte bleiben unverändert."
+    },
     "deleteAttribute": {
       "action": "Attribut löschen",
       "title": "Attribut löschen",
