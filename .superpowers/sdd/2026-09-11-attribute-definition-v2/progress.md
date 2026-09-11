@@ -6,9 +6,10 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 1 (global create/delete), committed `26a9e861`.**
+**Last completed task: Task 2 (workspace create/delete + MCP tools), committed `fa02f72d`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 2** (workspace-scope create/delete + MCP tools + global MCP parity).
+**Next: Task 3** (`AttributeCreateDialog` frontend component + wiring, Phase B).
+**No independent review has run on Tasks 1-2 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -26,15 +27,14 @@ separately after each phase/whole-branch).
 - Tests: 8 new service-level tests, 6 new REST tests. Full scoped run green: `application/tests/test_attribute_definition_service.py` + `rest_api/tests/test_attribute_definition_views.py` = 46 passed. Architecture ratchet (`test_architecture.py`, ORM-access + import-allowlist) + `attribute_definitions/tests/` = 224 passed, no regressions.
 - Commit: `26a9e861` "feat(attributes): add global create/delete (Task 1)".
 
-## Task 2 — IN PROGRESS (next)
+## Task 2: Service-layer create/delete + MCP tools, workspace scope — DONE
 
-Not yet started. Per plan: `create_workspace`/`delete_workspace` on the service,
-4 new MCP tools (`attribute_definition.create`/`.delete`/`.create_workspace`/`.delete_workspace`),
-`WorkspaceAttributeDefinitionView.post`/`.delete`. Plan flags a genuine open
-edge case to resolve with a real test, not an assumption: what happens when a
-workspace "deletes" an attribute it only INHERITED from global (no local
-override) — check `global_definition_store.py`'s propagation logic before
-deciding the answer.
+- `create_workspace`/`delete_workspace` added to `AttributeDefinitionService`, mirroring Task 1's global wrappers but materializing the workspace row first (`self._workspace.resolve(...)`, same as `resolve()`) so they work on the very first touch of an item type in a workspace.
+- **Resolved the plan's open edge case** (deleting an attribute the workspace only ever *inherited* from global, no prior local override): it behaves exactly like any other workspace edit — `update_workspace` flips `is_customized=True`, and since `GlobalAttributeDefinitionStore._propagate`/`_derived_row_filter` only ever rewrite `is_customized=False` rows, a later global update does NOT resurrect the deleted attribute. Verified with a dedicated round-trip test (materialize → delete inherited extended attribute → `update_global` → `resolve` again → attribute still gone), not assumed.
+- 4 new MCP tools: `attribute_definition.create`/`.delete` (global), `.create_workspace`/`.delete_workspace` (workspace) — same `CrossTenantWorkspaceError` → `PERMISSION_DENIED` guard as the existing `_handle_get` on the two workspace-scoped handlers. Tool count assertion updated 4 → 8.
+- REST: `WorkspaceAttributeDefinitionView` gained `.post` (201) / `.delete` (200, `?name=`) on the existing URL — no `urls.py` change needed (same pattern as Task 1).
+- Tests: 8 new service tests, 5 new REST tests, 10 new MCP tests (all in the pre-existing files). Full scoped run: `test_attribute_definition_service.py` + `test_attribute_definition_views.py` + `test_attribute_definition_tools.py` + `attribute_definitions/tests/` + `test_architecture.py` = 302 passed. `test_attribute_definition_enforcement.py` (3 tests, separately named in the plan) also unaffected/green.
+- Commit: `fa02f72d` "feat(attributes): add workspace create/delete + MCP parity (Task 2)".
 
 ## Tasks 3-12 — NOT STARTED
 
