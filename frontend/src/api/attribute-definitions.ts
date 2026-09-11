@@ -101,12 +101,23 @@ export interface AttributeSpec {
   audience: AttributeAudience;
 }
 
+/** Where an attribute in a resolved (workspace-scoped) definition comes from
+ * — Task 4's "Herkunft" table column. `"global_customized"` marks EVERY
+ * inherited attribute once the workspace has any local edit at all
+ * (`is_customized` is per-definition, not per-attribute — see the backend's
+ * `AttributeDefinitionService._workspace_payload` docstring). */
+export type AttributeOrigin = "global" | "global_customized" | "workspace_only";
+
 export interface ResolvedAttributeDefinition {
   item_type: AttributeItemType;
   preset: WorkspacePreset;
   is_customized: boolean;
   version: number;
   attributes: AttributeSpec[];
+  /** `attribute.name` -> its origin. Present on every resolved (workspace-
+   * scoped) definition; absent on the global-scope payload, which has no
+   * origin concept. */
+  origins: Record<string, AttributeOrigin>;
 }
 
 /** What `AttributeCreateDialog` collects — always creates a `kind: "extended"`

@@ -27,6 +27,7 @@ import { useMatch, useNavigate, useParams, useSearchParams } from "react-router-
 import {
   attributeDefinitionsApi,
   type AttributeItemType,
+  type AttributeOrigin,
   type AttributeSpec,
   type NewAttributeInput,
 } from "../../api/attribute-definitions";
@@ -42,6 +43,7 @@ import styles from "./AttributeEditor.module.css";
 import { AttributeCreateDialog } from "./AttributeCreateDialog";
 import { AttributeInspector } from "./AttributeInspector";
 import { AttributeList } from "./AttributeList";
+import { AttributeTable } from "./AttributeTable";
 import {
   deleteSection,
   moveAttribute,
@@ -68,6 +70,19 @@ const ATTRIBUTE_ITEM_TYPES: readonly AttributeItemType[] = [
 ];
 
 const DEFAULT_ITEM_TYPE: AttributeItemType = "Requirement";
+
+type ViewMode = "list" | "table";
+const VIEW_MODE_STORAGE_KEY = "attributeEditor.viewMode";
+
+function loadViewMode(): ViewMode {
+  try {
+    return localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "table" ? "table" : "list";
+  } catch {
+    // Private browsing / storage disabled — default silently, this is a
+    // per-viewer convenience, never load-bearing.
+    return "list";
+  }
+}
 
 function itemTypeFromSlug(slug: string | undefined): AttributeItemType | null {
   if (!slug) return null;
@@ -119,6 +134,17 @@ export function AttributeEditorPage({
   const [saving, setSaving] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [createSection, setCreateSection] = useState<string | null>(null);
+  const [origins, setOrigins] = useState<Record<string, AttributeOrigin>>({});
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
+
+  const handleSetViewMode = useCallback((mode: ViewMode): void => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      // Same non-load-bearing fallback as loadViewMode above.
+    }
+  }, []);
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
@@ -128,6 +154,7 @@ export function AttributeEditorPage({
         setAttributes(definition.attributes);
         setLoaded(definition.attributes);
         setIsCustomized(false);
+        setOrigins({});
       } else {
         if (!activeWorkspace?.id) return;
         const definition = await attributeDefinitionsApi.getWorkspace(
@@ -137,6 +164,7 @@ export function AttributeEditorPage({
         setAttributes(definition.attributes);
         setLoaded(definition.attributes);
         setIsCustomized(definition.is_customized);
+        setOrigins(definition.origins);
       }
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
@@ -190,6 +218,7 @@ export function AttributeEditorPage({
         setAttributes(result.attributes);
         setLoaded(result.attributes);
         setIsCustomized(result.is_customized);
+        setOrigins(result.origins);
       }
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
@@ -209,6 +238,7 @@ export function AttributeEditorPage({
       setAttributes(result.attributes);
       setLoaded(result.attributes);
       setIsCustomized(result.is_customized);
+      setOrigins(result.origins);
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
     }
@@ -349,6 +379,26 @@ export function AttributeEditorPage({
           />
         ) : null}
         <span className={styles.spacer} />
+        <span className={styles.toolbarField} role="group" aria-label={t("attributes.viewMode.list")}>
+          <button
+            type="button"
+            data-testid="attribute-editor-view-list"
+            aria-pressed={viewMode === "list"}
+            disabled={viewMode === "list"}
+            onClick={() => handleSetViewMode("list")}
+          >
+            {t("attributes.viewMode.list")}
+          </button>
+          <button
+            type="button"
+            data-testid="attribute-editor-view-table"
+            aria-pressed={viewMode === "table"}
+            disabled={viewMode === "table"}
+            onClick={() => handleSetViewMode("table")}
+          >
+            {t("attributes.viewMode.table")}
+          </button>
+        </span>
         {newSection === null ? (
           <button
             type="button"
@@ -406,20 +456,29 @@ export function AttributeEditorPage({
       ) : null}
 
       <div className={styles.body}>
-        <AttributeList
-          attributes={attributes}
-          emptySections={emptySections}
-          selected={selected}
-          readOnly={!isAdmin}
-          onSelect={setSelected}
-          onMove={(name, toSection, toIndex) =>
-            setAttributes((current) => moveAttribute(current, name, toSection, toIndex))
-          }
-          onRenameSection={handleRenameSection}
-          onDeleteSection={handleDeleteSection}
-          onMoveSection={handleMoveSection}
-          onAddAttribute={setCreateSection}
-        />
+        {viewMode === "list" ? (
+          <AttributeList
+            attributes={attributes}
+            emptySections={emptySections}
+            selected={selected}
+            readOnly={!isAdmin}
+            onSelect={setSelected}
+            onMove={(name, toSection, toIndex) =>
+              setAttributes((current) => moveAttribute(current, name, toSection, toIndex))
+            }
+            onRenameSection={handleRenameSection}
+            onDeleteSection={handleDeleteSection}
+            onMoveSection={handleMoveSection}
+            onAddAttribute={setCreateSection}
+          />
+        ) : (
+          <AttributeTable
+            attributes={attributes}
+            origins={isGlobal ? undefined : origins}
+            selected={selected}
+            onSelect={setSelected}
+          />
+        )}
         {selectedAttribute ? (
           <AttributeInspector
             attribute={selectedAttribute}

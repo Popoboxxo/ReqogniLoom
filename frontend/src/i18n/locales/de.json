@@ -2113,6 +2113,24 @@
       "widget": "Widget"
     },
     "addAttribute": "+ Attribut hinzufügen",
+    "viewMode": {
+      "list": "Liste",
+      "table": "Tabelle"
+    },
+    "table": {
+      "name": "Name",
+      "type": "Typ",
+      "section": "Sektion",
+      "required": "Pflicht",
+      "visible": "Sichtbar",
+      "audience": "Audience",
+      "originHeader": "Herkunft",
+      "origin": {
+        "global": "Global",
+        "global_customized": "Global (angepasst)",
+        "workspace_only": "Workspace-eigen"
+      }
+    },
     "create": {
       "title": "Neues Attribut",
       "name": "Name",

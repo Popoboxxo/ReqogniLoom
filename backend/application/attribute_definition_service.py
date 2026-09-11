@@ -126,13 +126,58 @@ class AttributeDefinitionService(ServiceBase):
         """
         return stored_attributes(row.definition_json)
 
+    @staticmethod
+    def _source_global_names(row: Any) -> frozenset[str]:
+        """Attribute names the workspace row's linked global default carries.
+
+        ``row.source_global`` can be ``None`` (the global was deleted after
+        materialization, same case :meth:`workspace_definition_store.reset`
+        already guards) — an empty set then means every attribute reads as
+        ``workspace_only``, which is the honest answer once there is nothing
+        left to compare against.
+        """
+        source = row.source_global
+        if source is None:
+            return frozenset()
+        return frozenset(a["name"] for a in stored_attributes(source.definition_json))
+
     def _workspace_payload(self, row: Any) -> dict[str, Any]:
+        """Task 4 (spec section 4.2): a read-only ``origins`` map (name ->
+        ``"global" | "global_customized" | "workspace_only"``) for the table
+        view's "Herkunft" column — computed here, not stored.
+
+        Deliberately a SEPARATE sibling key, not a per-entry ``origin`` field
+        merged into ``attributes``: ``resolve()["attributes"]`` is the exact
+        list ``elicit_attributes``/``export_attributes``/
+        ``validate_artifact_fields`` index by known key, AND (found live by
+        this addition's own regression run) ``requirement_bundle_service``'s
+        schema export re-runs it through ``validate_definition_json``, which
+        rejects any key outside its allow-list. A sibling map can never
+        collide with that contract.
+
+        ``is_customized`` is a per-DEFINITION flag, not per-attribute (Task 2
+        finding): every attribute the workspace still inherits reads as
+        ``global_customized`` once ANY local edit has landed, not just the one
+        that was actually touched. Documented, not a bug — a future plan would
+        need per-attribute divergence tracking to do better.
+        """
+        global_names = self._source_global_names(row)
+        attributes = self._attributes(row)
+        origins = {
+            attribute["name"]: (
+                "workspace_only"
+                if attribute["name"] not in global_names
+                else "global_customized" if row.is_customized else "global"
+            )
+            for attribute in attributes
+        }
         return {
             "item_type": row.item_type,
             "preset": row.preset,
             "is_customized": row.is_customized,
             "version": row.version,
-            "attributes": self._attributes(row),
+            "attributes": attributes,
+            "origins": origins,
         }
 
     def _global_payload(

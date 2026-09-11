@@ -466,6 +466,53 @@ def test_create_workspace_requires_admin(service, editor_ctx, workspace, seeded)
             )
 
 
+# --- Task 4: per-attribute "origin" on the workspace-scoped payload -------
+
+
+@pytest.mark.django_db
+def test_resolve_marks_an_unmodified_inherited_attribute_as_global(
+    service, editor_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        out = service.resolve(editor_ctx, "Risk", workspace.id)
+    assert out["origins"]["title"] == "global"
+
+
+@pytest.mark.django_db
+def test_delete_workspace_marks_the_surviving_inherited_attribute_as_global_customized(
+    service, admin_ctx, workspace, tenant
+) -> None:
+    """Task 2's finding: is_customized is per-DEFINITION, not per-attribute —
+    once ANY workspace edit lands, every surviving inherited attribute reads
+    as "global (customized)", not just the one that was actually touched.
+    That is documented, expected behaviour here, not a bug."""
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, NOTE],
+    )
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.resolve(admin_ctx, "Risk", workspace.id)
+        service.delete_workspace(admin_ctx, "Risk", workspace.id, "note")
+        out = service.resolve(admin_ctx, "Risk", workspace.id)
+    assert [a["name"] for a in out["attributes"]] == ["title"]
+    assert out["origins"]["title"] == "global_customized"
+
+
+@pytest.mark.django_db
+def test_create_workspace_marks_the_new_attribute_as_workspace_only(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        out = service.create_workspace(
+            admin_ctx, "Risk", workspace.id,
+            {"name": "risk_comment", "kind": "extended", "type": "text"},
+        )
+    assert out["origins"]["risk_comment"] == "workspace_only"
+    assert out["origins"]["title"] == "global_customized"
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("bad", ["not-a-uuid", "", "42"])
 def test_resolve_maps_a_malformed_workspace_id_to_not_found(admin_ctx, bad) -> None:

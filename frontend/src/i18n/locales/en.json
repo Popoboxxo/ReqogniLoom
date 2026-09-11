@@ -2113,6 +2113,24 @@
       "widget": "Widget"
     },
     "addAttribute": "+ Add attribute",
+    "viewMode": {
+      "list": "List",
+      "table": "Table"
+    },
+    "table": {
+      "name": "Name",
+      "type": "Type",
+      "section": "Section",
+      "required": "Required",
+      "visible": "Visible",
+      "audience": "Audience",
+      "originHeader": "Origin",
+      "origin": {
+        "global": "Global",
+        "global_customized": "Global (customized)",
+        "workspace_only": "Workspace-only"
+      }
+    },
     "create": {
       "title": "New attribute",
       "name": "Name",
