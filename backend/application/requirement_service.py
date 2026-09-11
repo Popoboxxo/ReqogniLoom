@@ -703,13 +703,23 @@ class RequirementService(ServiceBase):
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 
     @staticmethod
-    def _generate_and_store_embedding(requirement: Requirement) -> None:
+    def _generate_and_store_embedding(
+        requirement: Requirement,
+    ) -> Optional[List[float]]:
         """Best-effort: generate and persist the requirement's embedding.
 
         REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
         version nor emits a domain event. Never raises: the embedding is
         supplementary to full-text search, so a provider/network failure must
         not fail the surrounding create/update transaction.
+
+        Returns:
+            The generated vector when it was persisted, else ``None`` (no
+            provider configured, generation failure, or dimension mismatch).
+            Issue #847: ``find_similar_requirements`` reuses this vector as the
+            pgvector query vector, because the bare ``.update()`` above does not
+            refresh the in-memory ``requirement.embedding`` (which stays
+            ``None``); passing ``None`` to ``CosineDistance`` is invalid.
 
         ``Requirement.embedding`` is a fixed-dimension pgvector column, sized
         from ``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``.
@@ -742,7 +752,8 @@ class RequirementService(ServiceBase):
                 Requirement.objects.filter(id=requirement.id).update(
                     embedding=embedding
                 )
-            elif embedding is not None:
+                return embedding
+            if embedding is not None:
                 warn_dimension_mismatch(
                     "RequirementService", len(embedding), field_dimensions
                 )
@@ -752,6 +763,7 @@ class RequirementService(ServiceBase):
                 requirement.id,
                 exc,
             )
+        return None
 
     def find_similar_requirements(
         self,
@@ -766,18 +778,37 @@ class RequirementService(ServiceBase):
         pgvector ``embedding`` column, tenant-scoped and excluding the query
         requirement itself.
 
+        Issue #847: when the query requirement has no stored embedding, one is
+        generated lazily and persisted via the existing best-effort helper
+        before the search runs. If no embedding can be produced -- provider
+        unconfigured, generation failure, or dimension mismatch -- the search
+        degrades gracefully to an empty result (logged at WARNING) instead of
+        raising, so an artifact that predates embeddings stays usable.
+
+        Deliberate read-path write (derived-field exception): this read method
+        lazily persists the query requirement's embedding. That is intentional:
+        ``embedding`` is a derived/cache field, and the write goes through
+        ``_generate_and_store_embedding``'s bare ``.update()``, which neither
+        bumps the artifact version nor emits a domain event. Generation is
+        idempotent (an already-stored vector is reused, never regenerated) and
+        bounded by the provider's ``EMBEDDING_TIMEOUT``, so the side effect
+        stays small and self-healing. No permission gate is applied to this
+        conditional write on purpose: adding one would change the required
+        behavior for callers whose role set is not resolvable here.
+
         Args:
-            requirement_id: Query requirement (must have a non-null embedding).
+            requirement_id: Query requirement (its embedding is generated on
+                demand when missing).
             ctx: AuthContext for tenant scoping.
             limit: Max results (clamped to 1..50, default 10).
             workspace_id: Optional workspace filter.
 
         Returns:
-            Ordered list of SimilarRequirementDTO (closest first).
+            Ordered list of SimilarRequirementDTO (closest first); empty when
+            no query embedding is available.
 
         Raises:
             NotFoundError: Query requirement does not exist.
-            ValidationError: Query requirement has no embedding.
             PgVectorUnavailableError: pgvector package/extension unavailable.
         """
         self._set_tenant_context(ctx)
@@ -788,9 +819,23 @@ class RequirementService(ServiceBase):
         if req is None:
             raise NotFoundError(f"Requirement {requirement_id} not found")
         if req.embedding is None:
-            raise ValidationError(
-                "Requirement has no embedding — similarity search not possible"
-            )
+            # Issue #847: generate + persist lazily instead of hard-failing.
+            # The helper's bare ``.update()`` does not refresh ``req.embedding``
+            # (which stays ``None``), so the returned vector -- not the
+            # attribute -- must be used as the query vector: ``CosineDistance``
+            # cannot take ``None``.
+            query_embedding = self._generate_and_store_embedding(req)
+            if query_embedding is None:
+                logger.warning(
+                    "RequirementService.find_similar_requirements: no embedding "
+                    "available for requirement %s (generation failed, provider "
+                    "unconfigured, or dimension mismatch) -- returning no "
+                    "similar requirements.",
+                    req.id,
+                )
+                return []
+        else:
+            query_embedding = req.embedding
 
         try:
             from pgvector.django import CosineDistance
@@ -809,7 +854,7 @@ class RequirementService(ServiceBase):
         queryset = (
             queryset.exclude(id=req.id)
             .select_related("artifact")
-            .annotate(distance=CosineDistance("embedding", req.embedding))
+            .annotate(distance=CosineDistance("embedding", query_embedding))
             .order_by("distance")[:safe_limit]
         )
 

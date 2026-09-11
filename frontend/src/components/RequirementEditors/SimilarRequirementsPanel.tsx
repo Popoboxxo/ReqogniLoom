@@ -5,8 +5,15 @@
  *
  * Renders a "Find Similar" action for a requirement and, on demand, a list of
  * the most semantically similar requirements (cosine similarity over pgvector
- * embeddings). Handles the two backend degradation cases explicitly:
- *   - 400 VALIDATION_ERROR: the requirement has no embedding yet.
+ * embeddings). Handles the backend degradation cases:
+ *   - 200 with an empty list: ambiguous by design. It can mean no embedding
+ *     could be produced (the backend now generates a missing embedding lazily
+ *     per issue #847 and degrades to an empty result instead of failing), but
+ *     it can just as well mean the search ran and found nothing similar. Both
+ *     render as the ordinary "no similar requirements" empty state.
+ *   - 400 VALIDATION_ERROR: defensive-only. The backend no longer returns this
+ *     for a missing embedding (#847); the branch is kept so an older backend
+ *     cannot surface as a generic error.
  *   - 503 SERVICE_UNAVAILABLE: pgvector is not available.
  */
 
@@ -106,6 +113,9 @@ export function SimilarRequirementsPanel({
         </button>
       </div>
 
+      {/* Defensive-only since issue #847: the backend generates a missing
+          embedding lazily and degrades to an empty 'ready' result, so this
+          400 VALIDATION_ERROR branch is no longer expected to be reached. */}
       {state.status === 'no-embedding' && (
         <p
           data-testid="similar-no-embedding"
