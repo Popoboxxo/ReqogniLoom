@@ -2008,7 +2008,8 @@
     "widget": {
       "title": "Interview-Assistent",
       "open": "Interview-Assistent öffnen",
-      "close": "Interview-Assistent schließen"
+      "close": "Interview-Assistent schließen",
+      "hint": "Wähle einen Typ — das Interview öffnet sich unter /interviews."
     },
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",
