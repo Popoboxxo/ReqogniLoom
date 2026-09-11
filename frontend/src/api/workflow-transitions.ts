@@ -61,6 +61,11 @@ export interface WorkflowTransitionsResponse {
   current_state: string | null;
   states: string[];
   allowed_transitions: WorkflowAllowedTransition[];
+  /**
+   * Display label of the AI agent that proposed this artifact, or null when the
+   * item is not in the "proposed" state (KI-Vorschlag-als-Zustand spec §4.4).
+   */
+  proposed_by: string | null;
 }
 
 /** Response of POST /{resource}/{id}/transitions/. */

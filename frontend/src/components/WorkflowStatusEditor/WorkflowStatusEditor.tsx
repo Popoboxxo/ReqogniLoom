@@ -112,7 +112,12 @@ export function WorkflowStatusEditor({
     } catch {
       // A missing endpoint / uninitialized workflow degrades to read-only —
       // surface nothing noisy, just fall back to the current status badge.
-      setData({ current_state: null, states: [], allowed_transitions: [] });
+      setData({
+        current_state: null,
+        states: [],
+        allowed_transitions: [],
+        proposed_by: null,
+      });
     } finally {
       setLoading(false);
     }

@@ -96,6 +96,46 @@ def _same_status(candidate: Any, current: str) -> bool:
     return str(candidate).strip().casefold() == str(current).strip().casefold()
 
 
+def _latest_proposal_actor(
+    item_id: UUID, item_type: str, workspace_id: UUID
+) -> str | None:
+    """Return the actor of the newest ``-> "proposed"`` history entry, or None.
+
+    Split out from :func:`resolve_proposed_by` so the pure decision logic stays
+    testable without a database.
+    """
+    from workflow.models import WorkflowHistoryEntry, WorkflowItemState
+
+    state = WorkflowItemState.objects.filter(
+        item_id=item_id, item_type=item_type, workspace_id=workspace_id
+    ).first()
+    if state is None:
+        return None
+    entry = (
+        WorkflowHistoryEntry.objects.filter(item_state=state, to_state="proposed")
+        .order_by("-transitioned_at")
+        .first()
+    )
+    return entry.transitioned_by if entry is not None else None
+
+
+def resolve_proposed_by(
+    current_state: str | None,
+    item_id: UUID,
+    item_type: str,
+    workspace_id: UUID,
+) -> str | None:
+    """Return the proposing agent's label when the item is a proposal.
+
+    Spec §4.4: the artifact header shows "Vorschlag von {agent_label}" instead
+    of the plain status badge. Returns ``None`` for every non-proposed item so
+    the UI can branch on a single nullable field.
+    """
+    if current_state != "proposed":
+        return None
+    return _latest_proposal_actor(item_id, item_type, workspace_id)
+
+
 class WorkflowTransitionsMixin:
     """Adds GET/POST ``transitions/`` and GET ``workflow-history/`` actions.
 
@@ -299,6 +339,12 @@ class WorkflowTransitionsMixin:
                         }
                         for t in avail.transitions
                     ],
+                    "proposed_by": resolve_proposed_by(
+                        avail.current_state,
+                        item_id,
+                        self.workflow_item_type,
+                        workspace_id,
+                    ),
                 }
             )
 
