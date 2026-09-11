@@ -55,7 +55,25 @@ describe("InterviewProvenanceBadge", () => {
     const badge = await screen.findByTestId("interview-provenance-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent(BADGE_LABEL);
-    expect(badge.getAttribute("href")).toBe("/interviews");
+    expect(badge.getAttribute("href")).toBe("/interviews/s1");
+  });
+
+  it("links to the specific session, not the interviews list", async () => {
+    vi.mocked(interviewsApi.getProvenance).mockResolvedValue({
+      session_id: "11111111-1111-1111-1111-111111111111",
+    });
+
+    render(
+      <MemoryRouter>
+        <InterviewProvenanceBadge artifactId="art-1" />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByTestId("interview-provenance-badge");
+    expect(link).toHaveAttribute(
+      "href",
+      "/interviews/11111111-1111-1111-1111-111111111111",
+    );
   });
 
   it("renders nothing while the lookup is still pending", () => {

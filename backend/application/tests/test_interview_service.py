@@ -698,13 +698,79 @@ class TestFormalize:
         with pytest.raises(NotFoundError):
             InterviewService().formalize(ctx, session.id)
 
-    def test_formalize_for_non_requirement_type_raises_validation_error(self, ctx, workspace):
-        """Only Requirement is wired in this plan; the other 7 in-scope
-        artifact types are an explicit, stated scope cut."""
-        session = InterviewService().start(ctx, "Risk", workspace.id)
+    def test_formalize_for_risk_creates_a_real_risk(self, ctx, workspace):
+        """L2.1: the single-kind path dispatches through
+        ARTIFACT_CREATION_ADAPTERS, so every in-scope type formalizes -- not
+        only Requirement. Risk is the strictest case: create_risk() has no
+        default for probability/impact."""
+        from application.risk_service import RiskService
 
-        with pytest.raises(ValidationError):
+        session = InterviewService().start(ctx, "Risk", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "Sensor drift")
+        InterviewService().answer(ctx, session.id, "rationale", "Thermal expansion")
+        InterviewService().answer(ctx, session.id, "probability", "high")
+        InterviewService().answer(ctx, session.id, "impact", "medium")
+
+        result = InterviewService().formalize(ctx, session.id)
+
+        assert result["status"] == "completed"
+        assert len(result["resulting_artifact_ids"]) == 1
+        # resulting_artifact_ids carries the subtype id (issue #736), so the
+        # type's own read service resolves it directly.
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            risk = RiskService().get_risk(uuid.UUID(result["resulting_artifact_ids"][0]), ctx)
+            assert risk.title == "Sensor drift"
+            assert risk.probability == "high"
+            assert risk.impact == "medium"
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_formalize_reports_missing_service_field_as_validation_error(
+        self, ctx, workspace
+    ):
+        """A KeyError from an adapter (Risk without probability/impact) must
+        surface as a clean ValidationError naming the type, never as an
+        unhandled 500 -- same contract _formalize_multi already honours.
+
+        A workspace-level protocol override that only asks for `title` (no
+        probability/impact) lets the session complete per the *protocol*
+        while the adapter's own required kwargs are still unmet -- the
+        realistic way this gap shows up (an admin-edited protocol that
+        forgot the fields RiskService.create_risk has no default for),
+        without reaching into collected_fields storage directly."""
+        from persistence.models import PromptTemplate
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            PromptTemplate.objects.create(
+                tenant_id=ctx.tenant_id,
+                name="interview.protocol.Risk",
+                content=(
+                    "phases:\n"
+                    "  - name: elicitation\n"
+                    "    required_fields:\n"
+                    "      - name: title\n"
+                    "        type: text\n"
+                    "    prompt_fragment: \"Elicit the Risk's title.\"\n"
+                    "  - name: approval\n"
+                    "    prompt_fragment: \"Present the drafted Risk for approval.\"\n"
+                    "  - name: formalization\n"
+                    "    prompt_fragment: \"Confirm and formalize.\"\n"
+                ),
+                version=1,
+                is_active=True,
+                workspace_id=None,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        session = InterviewService().start(ctx, "Risk", workspace.id)
+        InterviewService().answer(ctx, session.id, "title", "Incomplete")
+
+        with pytest.raises(ValidationError) as excinfo:
             InterviewService().formalize(ctx, session.id)
+        assert "Risk" in str(excinfo.value)
 
     def test_formalize_on_already_completed_session_raises_validation_error(
         self, ctx, workspace_with_interview_workflow

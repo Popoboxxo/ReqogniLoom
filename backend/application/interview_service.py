@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 # to abandoned the next time anything reads it. No scheduled job (YAGNI).
 ABANDONED_TTL = timedelta(days=30)
 
+# L2.4 spec §5: how many chat turns stay in `transcript` verbatim. Everything
+# older is folded into `transcript_summary`. One turn writes TWO transcript
+# entries (user + assistant, see generate_chat_turn), so the retained entry
+# count is twice this. A fixed constant, deliberately not a setting: one
+# threshold is enough (spec §5, YAGNI).
+TRANSCRIPT_WINDOW_TURNS = 10
+
 # PromptTemplate name for the AI-assisted grounding-ranking layer (Task 6,
 # spec §6 step 2). Registered in AiDerivationService.PROMPT_TEMPLATE_DEFAULTS
 # (ai_derivation_service.py) -- same reasoning as
@@ -397,6 +404,13 @@ class InterviewService(ServiceBase):
             return {
                 "session_id": str(session.id),
                 "status": status,
+                # Final-review finding B2: the only discriminator a consumer
+                # has for "is this a multi session". Without it the web UI's
+                # chat pane gates the whole proposal/confirm flow away (it
+                # treats a missing key as "single"), leaving a multi session
+                # able to chat but never able to formalise anything. Additive,
+                # same precedent as `transcript`/`transcript_summary` below.
+                "session_kind": session.session_kind,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
@@ -405,6 +419,10 @@ class InterviewService(ServiceBase):
         return {
             "session_id": str(session.id),
             "status": status,
+            # Emitted in BOTH branches on purpose: a consumer that has to
+            # check `"session_kind" in state` before trusting it is exactly
+            # the ambiguity finding B2 was about.
+            "session_kind": session.session_kind,
             "phase": phase.name,
             "collected_fields": session.collected_fields,
             "missing_fields": [self._serialise_field(f) for f in missing],
@@ -413,6 +431,18 @@ class InterviewService(ServiceBase):
             # to render conversation history on mount/resume. Additive and
             # harmless to the Hermes plugin's form view, which ignores it.
             "transcript": session.transcript,
+            # L2.4 review fix F5: `transcript` is only the sliding window, so
+            # without this key every consumer silently loses the older half of
+            # the conversation the moment compression fires -- not just on
+            # resume, but live (InterviewChatPane renders `state.transcript`
+            # after every turn). Additive for the same reason `transcript`
+            # itself was: hosts that don't know the key ignore it. Every
+            # single-mode facade (REST _state_dict, MCP _handle_get_state,
+            # generate_chat_turn's own return) reads this one dict, so this
+            # is the only place it needs to be added. Multi-mode state dicts
+            # deliberately omit it -- compression only runs on the single-mode
+            # chat path, so their summary is always "".
+            "transcript_summary": session.transcript_summary,
         }
 
     @atomic_transaction
@@ -520,9 +550,11 @@ class InterviewService(ServiceBase):
         Extracted from ``grounding_context`` (Task 5 -> Task 6) so the
         AI-ranking layer added in Task 6 can run this first and rank its
         output rather than reinventing the candidate search. Only
-        ``Requirement`` is wired up here (YAGNI): the other 7 in-scope
-        artifact types get the same shape once their equivalent read
-        services are confirmed, in a later pass.
+        ``Requirement`` is wired up here (YAGNI): grounding the other 7
+        in-scope artifact types is out of scope for the Interview-Engine-Fix
+        spec, which covers ``formalize()``'s create path -- not a leftover of
+        it. Grounding only feeds ``set_target()``, whose update branch is
+        Requirement-only by design anyway.
 
         Takes *ctx* (unlike the brief's inline sketch) because
         ``RequirementService.list_requirements`` requires it as a mandatory
@@ -812,11 +844,12 @@ class InterviewService(ServiceBase):
         unreachable through the real MCP surface. This is that missing
         write path.
 
-        Requirement-only, matching ``formalize()``'s own update branch
-        (its docstring: "Only ``Requirement`` is implemented"): setting a
-        target on a session whose ``artifact_type`` formalize() can't
-        update yet would be a target formalize() can never use, so reject
-        it here instead of silently accepting a value that goes nowhere.
+        Requirement only: formalize()'s grounded-UPDATE branch is
+        Requirement-only (its CREATE branch handles all 8 in-scope types,
+        via ARTIFACT_CREATION_ADAPTERS) -- setting a target on a session
+        whose ``artifact_type`` formalize() can't update yet would be a
+        target formalize() can never use, so reject it here instead of
+        silently accepting a value that goes nowhere.
 
         Re-checks that ``artifact_id`` resolves to a real ``Requirement``
         right now, mirroring ``formalize()``'s own target re-check
@@ -833,8 +866,10 @@ class InterviewService(ServiceBase):
         if session.artifact_type != "Requirement":
             raise ValidationError(
                 f"set_target() for artifact_type={session.artifact_type!r} is not "
-                "supported -- formalize()'s update branch is Requirement-only, so "
-                "a target on any other artifact_type could never be used."
+                "supported -- formalize()'s grounded-UPDATE branch is "
+                "Requirement-only (its CREATE branch handles all 8 in-scope "
+                "types), so a target on any other artifact_type could never "
+                "be used. Start a session without a target instead."
             )
 
         from persistence.models import Requirement
@@ -863,10 +898,10 @@ class InterviewService(ServiceBase):
         spec §5 point 4.
 
         Single-kind sessions drive one typed artifact through the classic
-        protocol: only ``Requirement`` is implemented there (YAGNI, matches
-        ``_structural_candidates``); the other 8 in-scope artifact types
-        raise ``ValidationError`` for now rather than being speculatively
-        stubbed out, per the plan's Self-Review Notes.
+        protocol, dispatching through ``ARTIFACT_CREATION_ADAPTERS`` for all
+        8 in-scope artifact types (L2.1). ``_structural_candidates``
+        (grounding, a separate concern) is out of scope for the
+        Interview-Engine-Fix spec and stays as-is.
 
         Multi-kind sessions take a caller-confirmed ``confirmed_proposal``
         (list of ``{"type", "fields", "links"}`` items) and create every
@@ -909,17 +944,17 @@ class InterviewService(ServiceBase):
     def _formalize_single(self, ctx, session) -> "dict[str, Any]":
         """Single-kind path: one typed artifact from collected_fields.
 
-        Body moved verbatim from the pre-multi-mode formalize() -- behavior
-        and return shape are unchanged (single-mode regression guard:
-        test_interview_formalize_multi.py::test_single_mode_formalize_unchanged).
-        """
-        if session.artifact_type != "Requirement":
-            raise ValidationError(
-                f"formalize() for artifact_type={session.artifact_type!r} is not "
-                "implemented yet -- only Requirement is wired in this plan; the "
-                "other 7 types follow the identical pattern in a later pass."
-            )
+        Dispatches through ARTIFACT_CREATION_ADAPTERS -- the same registry
+        the multi-kind path uses -- so all 8 in-scope artifact types work
+        through their production ``create_X()`` service method (workflow
+        state initialization included). This replaced a hardcoded
+        ``if session.artifact_type != "Requirement": raise`` (spec L2.1).
 
+        The *update* branch (``target_artifact_id`` set) stays
+        Requirement-only: generalizing it needs a second, update-flavoured
+        adapter registry, which the spec does not ask for -- see
+        ``set_target()``'s matching guard.
+        """
         # Reuse get_state()'s exact missing-fields computation: a non-empty
         # `missing` here means the interview is not actually complete yet
         # (see _current_phase_and_missing's docstring/semantics -- it
@@ -936,31 +971,41 @@ class InterviewService(ServiceBase):
             )
 
         # The completeness guard above only trusts the *protocol*: if a
-        # workspace's custom interview.protocol.Requirement override never
+        # workspace's custom interview.protocol.<Type> override never
         # declares a `title` field in required_fields, `missing` above is
-        # trivially empty (nothing named `title` was ever "missing") even
-        # though `title` resolves to "" here. A Requirement must not be
-        # created/updated with an empty title regardless of what the
-        # protocol says is required -- check independently.
-        # str(...) coercion is defense-in-depth (issue #542): answer() now
-        # rejects non-string title values up front, but a stray non-string
-        # could still reach here via old rows or a future caller that
-        # bypasses answer() -- degrade to "empty title, rejected cleanly"
-        # instead of AttributeError on .strip().
+        # trivially empty even though `title` resolves to "" here. No
+        # artifact type may be created/updated with an empty title
+        # regardless of what the protocol says. str(...) coercion is
+        # defense-in-depth (issue #542): answer() now rejects non-string
+        # title values up front, but a stray non-string could still reach
+        # here via old rows or a future caller that bypasses answer().
         title = str(session.collected_fields.get("title") or "").strip()
         if not title:
             raise ValidationError(
                 f"InterviewSession {session.id} has no non-empty 'title' in "
-                "collected_fields; cannot formalize a Requirement without a title."
+                f"collected_fields; cannot formalize a {session.artifact_type} "
+                "without a title."
             )
 
-        from application.requirement_service import RequirementService
-        from persistence.models import Requirement
+        from application.interview_artifact_adapters import (
+            ARTIFACT_CREATION_ADAPTERS,
+            build_adapter_fields,
+        )
 
-        svc = RequirementService()
         resulting_ids: "list[str]" = []
 
         if session.target_artifact_id is not None:
+            from application.requirement_service import RequirementService
+            from persistence.models import Requirement
+
+            if session.artifact_type != "Requirement":
+                raise ValidationError(
+                    f"formalize() cannot update an existing "
+                    f"{session.artifact_type!r}: the grounded-update branch is "
+                    "Requirement-only. Start a session without a target to "
+                    "create a new artifact instead."
+                )
+            svc = RequirementService()
             target = Requirement.objects.filter(
                 artifact_id=session.target_artifact_id
             ).first()
@@ -997,21 +1042,40 @@ class InterviewService(ServiceBase):
             # resolves this id too, via TraceLinkService._resolve_artifact.
             resulting_ids.append(str(updated.id))
         else:
-            created = svc.create_requirement(
-                workspace_id=session.workspace_id,
-                title=title,
-                ctx=ctx,
-                # C-1: see the matching comment on the update_requirement()
-                # branch above -- same fallback, same reason.
-                description=(
-                    session.collected_fields.get("description")
-                    or session.collected_fields.get("rationale")
-                    or ""
-                ),
+            adapter = ARTIFACT_CREATION_ADAPTERS.get(session.artifact_type)
+            if adapter is None:
+                raise ValidationError(
+                    f"No artifact creation adapter for "
+                    f"artifact_type={session.artifact_type!r}."
+                )
+            fields = build_adapter_fields(session.collected_fields)
+            fields["title"] = title  # the normalised/stripped value wins
+            try:
+                created_ref = adapter(fields, ctx, session.workspace_id)
+            except (KeyError, TypeError) as exc:
+                # Same contract as _formalize_multi: a missing required
+                # service field (KeyError) or a protocol field name the
+                # create_X() signature does not accept (TypeError) is
+                # caller/config input, not a server fault -- it must never
+                # escape as an unhandled 500.
+                raise ValidationError(
+                    f"cannot formalize {session.artifact_type!r} from the "
+                    f"collected answers: {exc}"
+                ) from exc
+            # Issue #736: report the user-facing subtype id, not the
+            # Artifact PK.
+            resulting_ids.append(str(created_ref.entity_id))
+            # L2.3: the same provenance join row _formalize_multi writes, so
+            # provenance_session_id()/the InterviewProvenanceBadge work for
+            # single-kind sessions too -- previously only multi-kind
+            # artifacts could ever show "created via interview".
+            # artifact_id (the Artifact PK), never entity_id: this is an
+            # Artifact FK.
+            InterviewSessionArtifact.objects.create(
+                session=session,
+                artifact_id=created_ref.artifact_id,
+                artifact_type=created_ref.artifact_type,
             )
-            # Issue #736: see comment above -- return Requirement.id, not
-            # Requirement.artifact_id.
-            resulting_ids.append(str(created.id))
 
         session.resulting_artifact_ids = resulting_ids
         session.version = F("version") + 1
@@ -1278,6 +1342,191 @@ class InterviewService(ServiceBase):
             session.save(update_fields=["modified_at", "version"])
         return {"status": session.status}
 
+    def _compress_transcript_if_needed(self, ctx, session: InterviewSession) -> None:
+        """Fold turns older than the sliding window into ``transcript_summary``.
+
+        L2.4 (spec §5): ``transcript`` used to grow without bound, and every
+        chat turn resent the whole history as prompt context. Above
+        ``TRANSCRIPT_WINDOW_TURNS`` turns, the overflow is replaced by one
+        LLM-written digest that *supersedes* the previous digest (it is fed
+        back in), so the summary itself cannot grow without bound either.
+
+        Best-effort by contract (spec §7, issue #846): no provider, a mock
+        provider, an exhausted token budget, or a provider that raises all
+        mean "no compression this turn" -- the transcript is left exactly as
+        it was and the next turn retries. Never raises, never blocks the
+        chat. Called AFTER the triggering turn is already persisted, so a
+        failure here cannot lose that turn.
+
+        Mutates *session* in place and persists both fields; the caller does
+        not need to re-save.
+        """
+        from application.bundle_compression_service import MOCK_PROVIDER_NAME
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
+
+        window_entries = TRANSCRIPT_WINDOW_TURNS * 2
+        if len(session.transcript) <= window_entries:
+            return
+
+        overflow = session.transcript[:-window_entries]
+
+        provider, provider_name, _resolve_error = self._resolve_provider()
+        if provider is None or provider_name == MOCK_PROVIDER_NAME:
+            # Issue #442's rule, same as _rank_candidates_with_ai above: a
+            # *configured* mock provider is a placeholder, not a real signal.
+            # Critical here specifically -- MockLlmProvider.complete() has no
+            # branch for purpose="interview.transcript_summary" and falls
+            # through to its generic `json.dumps([])`, i.e. the literal "[]".
+            # That is a non-empty string, so without this guard the whole
+            # overflow would be replaced by "[]" and permanently deleted on
+            # the project's own default deployment (LLM_PROVIDER=mock).
+            logger.debug(
+                "InterviewService: no real LLM provider (provider=%s) for transcript "
+                "compression, session=%s -- deferring to the next turn",
+                provider_name,
+                session.id,
+            )
+            return
+
+        # Armed before the first audit write below, not just before the
+        # save(): reachable from the direct-call path too (tests, a future
+        # scheduled sweep), not only from generate_chat_turn where
+        # _get_session already armed it -- and AuditLogWriter needs an active
+        # tenant context or it drops the entry with a RuntimeWarning.
+        self._set_tenant_context(ctx)
+
+        audit_logger = LlmAuditLogger()
+        entity_id = str(session.id)
+
+        # REQ-106: per-tenant daily token budget. This free-form flow bypasses
+        # CapabilityRouter, so nothing else enforces it -- same reasoning as
+        # _rank_candidates_with_ai / generate_chat_turn. Unlike the chat turn
+        # this does NOT raise: compression is best-effort by contract (see
+        # docstring), so an exhausted budget just defers to the next turn.
+        if is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            logger.debug(
+                "InterviewService: daily token limit exceeded, skipping transcript "
+                "compression for session=%s",
+                session.id,
+            )
+            return
+
+        # Everything below is inside the try: the template lookup hits the DB
+        # (workspace prompt override), _render and json.dumps can raise on odd
+        # input, and the save() is a write -- all of them run AFTER the chat
+        # turn already committed, so letting any of them escape would turn a
+        # successful turn into a 500. The docstring's "never raises" contract
+        # covers the whole body, not just the provider call.
+        try:
+            template = AiDerivationService._get_template_content(
+                ctx, "interview.transcript_summary", session.workspace_id
+            )
+            prompt = AiDerivationService._render(
+                template,
+                previous_summary=session.transcript_summary or "",
+                overflow_json=json.dumps(overflow),
+            )
+            summary = provider.complete(
+                prompt,
+                purpose="interview.transcript_summary",
+                timeout=resolve_timeout_seconds("interview.transcript_summary"),
+            )
+
+            summary = (summary or "").strip()
+            if not summary:
+                # An empty digest would silently DISCARD the overflow turns.
+                # Treat it exactly like a failed call.
+                logger.debug(
+                    "InterviewService: empty transcript summary for session=%s -- "
+                    "transcript left uncompressed",
+                    session.id,
+                )
+                return
+
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            record_token_usage(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(summary),
+            )
+
+            # The provider call above blocks for up to ~25s. A concurrent
+            # request may have appended a turn in the meantime, and the
+            # in-memory `session.transcript` this method started from would
+            # silently drop it. Re-read, then keep *everything the summary
+            # does not already cover* -- i.e. the tail after the summarised
+            # prefix, not a fixed-size window slice. `transcript` is
+            # append-only on every write path, so `overflow` is still a
+            # prefix; the result may briefly exceed the window when a turn
+            # raced in, which the next turn's compression folds away.
+            session.refresh_from_db(fields=["transcript"])
+            if session.transcript[: len(overflow)] != overflow:
+                # Review finding F6: `transcript` only ever *grows* by appending
+                # -- the one exception is another compression run, which
+                # replaces it with a shorter tail. So if the persisted row no
+                # longer STARTS with the exact prefix this digest summarises, a
+                # concurrent request already folded that prefix away (and wrote
+                # its own digest). Slicing `len(overflow)` off that row would
+                # delete live turns and overwrite the newer summary with one
+                # derived from a stale `previous_summary`.
+                #
+                # Final-review finding I2: a pure length check missed the
+                # interleaving where the other compressor finishes AND >=
+                # len(overflow) new turns get appended afterwards -- long
+                # enough to pass, wrong prefix all the same. Comparing the
+                # prefix itself is strictly more precise at the same cost.
+                logger.debug(
+                    "InterviewService: transcript for session=%s was compressed "
+                    "concurrently -- discarding this digest",
+                    session.id,
+                )
+                return
+            session.transcript_summary = summary
+            session.transcript = session.transcript[len(overflow):]
+            session.save(
+                update_fields=["transcript_summary", "transcript", "modified_at"]
+            )
+        except Exception as error:  # noqa: BLE001 -- best-effort by contract
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.transcript_summary",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            logger.debug(
+                "InterviewService: transcript compression failed for session=%s "
+                "(provider=%s) -- transcript left uncompressed, retrying next turn",
+                session.id,
+                provider_name,
+                exc_info=True,
+            )
+            return
+
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
         """Server-generated conversational turn -- Web Widget spec §5.
 
@@ -1358,6 +1607,10 @@ class InterviewService(ServiceBase):
             template,
             artifact_type=session.artifact_type,
             transcript_json=json.dumps(session.transcript),
+            # L2.4: the digest of turns already folded out of `transcript`.
+            # `transcript` itself is now the sliding window, not the whole
+            # history, so without this the prompt would silently lose context.
+            transcript_summary=session.transcript_summary or "",
             current_phase_fragment=phase.prompt_fragment,
             missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
             grounding_snapshot_json=json.dumps(session.grounding_snapshot),
@@ -1467,6 +1720,12 @@ class InterviewService(ServiceBase):
                     },
                 )
             )
+
+        # L2.4: deliberately OUTSIDE the atomic block above -- the turn is
+        # already committed, so a compression failure (or a slow second LLM
+        # call) can neither roll back nor lose it. Never raises; see
+        # _compress_transcript_if_needed's contract.
+        self._compress_transcript_if_needed(ctx, session)
 
         return {"reply": reply, "state": self.get_state(ctx, session_id)}
 
@@ -1611,6 +1870,11 @@ class InterviewService(ServiceBase):
             "state": {
                 "session_id": str(session.id),
                 "status": session.status,
+                # Finding B2, second half: the chat pane replaces its whole
+                # interview object with this state after every turn. Omitting
+                # the discriminator here would silently demote the session to
+                # "single" from turn 1 onwards, even with get_state() fixed.
+                "session_kind": session.session_kind,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
@@ -1628,28 +1892,49 @@ class InterviewService(ServiceBase):
         return session.grounding_snapshot.get("pending_proposal")
 
     def provenance_session_id(self, ctx, artifact_id: UUID) -> "str | None":
-        """Resolve the multi-mode session that created *artifact_id*, if any.
+        """Resolve the interview session that created *artifact_id*, if any.
 
-        Reads the InterviewSessionArtifact provenance join row written by
-        ``_formalize_multi`` -- the reverse lookup of "which interview
-        produced this artifact" (multi-artifact plan). Tenant scoping comes
-        from the thread-local manager via ``_set_tenant_context``, so an
-        artifact id from another tenant resolves to None rather than leaking
-        the owning session.
+        Reads the ``InterviewSessionArtifact`` provenance join row written by
+        both ``_formalize_single`` (L2.3) and ``_formalize_multi`` -- the
+        reverse lookup of "which interview produced this artifact".
 
-        Returns the session's id as a string (the wire format every
-        get_state()/MCP consumer already uses) or None when no provenance
-        row exists -- a missing row is a normal answer ("not created by an
-        interview"), not an error.
+        *artifact_id* may be **either** a ``persistence.Artifact`` PK (what
+        the join row stores) **or** a business-entity/subtype id such as
+        ``Requirement.id`` -- every artifact detail view holds the latter
+        (see RightSidebar's ``artifactId`` prop), and the two are distinct
+        UUIDs. Resolution goes through ``TraceLinkService``'s existing public
+        10-type bridge rather than a second, drifting resolver.
+
+        Tenant scoping comes from the thread-local manager via
+        ``_set_tenant_context``, so an id from another tenant resolves to
+        None rather than leaking the owning session.
+
+        Returns the session's id as a string, or None when no provenance row
+        exists -- a missing row is a normal answer ("not created by an
+        interview"), not an error. An id that resolves to nothing at all is
+        likewise None, not a raised NotFoundError: this backs a purely
+        informational badge.
         """
         self._set_tenant_context(ctx)
-        row = (
-            InterviewSessionArtifact.objects.filter(artifact_id=artifact_id)
-            .select_related("session")
-            .first()
-        )
+        # No select_related("session"): only `row.session_id` is read below,
+        # and that is a local FK column -- joining the session table would
+        # fetch a row nothing touches.
+        row = InterviewSessionArtifact.objects.filter(artifact_id=artifact_id).first()
         if row is None:
-            return None
+            from application.trace_link_service import TraceLinkService
+
+            try:
+                resolved = TraceLinkService().resolve_entity_to_artifact_id(
+                    artifact_id, ctx=ctx
+                )
+            except NotFoundError:
+                return None
+            if resolved == artifact_id:
+                # Already an Artifact PK -- the first probe was authoritative.
+                return None
+            row = InterviewSessionArtifact.objects.filter(artifact_id=resolved).first()
+            if row is None:
+                return None
         return str(row.session_id)
 
     def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):

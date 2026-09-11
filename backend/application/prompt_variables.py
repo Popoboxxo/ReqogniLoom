@@ -128,6 +128,24 @@ PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
         "JSON list of {role, text, timestamp} interview turns so far.",
         "json",
     ),
+    # L2.4 (transcript cap): the three variables the sliding-window
+    # compressor and the capped chat prompt render with.
+    "transcript_summary": _data(
+        "transcript_summary",
+        "Digest of the interview turns already folded out of the transcript "
+        "window; empty until the first compression.",
+    ),
+    "previous_summary": _data(
+        "previous_summary",
+        "The transcript digest a new compression must supersede; empty on the "
+        "first compression of a session.",
+    ),
+    "overflow_json": _data(
+        "overflow_json",
+        "JSON list of {role, text, timestamp} turns that fell out of the "
+        "transcript window and are being folded into the digest.",
+        "json",
+    ),
     "current_phase_fragment": _data(
         "current_phase_fragment", "Prompt fragment of the current interview phase."
     ),

@@ -28,6 +28,7 @@ import {
   type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
 import { VersionPanel } from "./VersionPanel";
 import { DiffPanel } from "./DiffPanel";
 import { TracePanel } from "./TracePanel";
@@ -455,6 +456,7 @@ export function RightSidebar({
         <>
           {renderHeader()}
           <div className={styles.panels}>
+            <InterviewProvenanceBadge artifactId={String(artifactId)} />
             <VersionPanel
               kind={kind}
               artifactId={artifactId}

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { InterviewChatPane, type CreatedArtifactRef, type MultiModeInterview } from "./InterviewChatPane";
+import { InterviewChatPane, type CreatedArtifactRef } from "./InterviewChatPane";
 import type { InterviewState, MultiFormalizeResult, ProposalItem, SingleFormalizeResult } from "../../api/interviews";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { resolveLocaleKey } from "../../test/i18n-test-helpers";
@@ -68,6 +68,47 @@ describe("InterviewChatPane", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 
+  // L2.4 review fix F5: `transcript` is only the sliding window once the
+  // backend compresses older turns, so a live conversation would appear to
+  // lose its own earlier messages without this collapsed digest.
+  it("renders the collapsed earlier-conversation block when a summary exists", () => {
+    const interview = makeInterview({
+      transcript: [{ role: "user", text: "Latest", timestamp: "t9" }],
+      transcript_summary: "We agreed on the login scope.",
+    });
+    renderPane(<InterviewChatPane interview={interview} onStateChange={vi.fn()} />);
+
+    const block = screen.getByTestId("interview-earlier-summary");
+    expect(block).toBeInTheDocument();
+    // Collapsed by default -- context, not part of the live exchange.
+    expect(block).not.toHaveAttribute("open");
+    expect(
+      screen.getByText(resolveLocaleKey("interview.multi.earlierConversation") ?? "")
+    ).toBeInTheDocument();
+    expect(screen.getByText("We agreed on the login scope.")).toBeInTheDocument();
+    // The live window still renders alongside it.
+    expect(screen.getByText("Latest")).toBeInTheDocument();
+  });
+
+  it("omits the earlier-conversation block when there is no summary", () => {
+    const interview = makeInterview({
+      transcript: [{ role: "user", text: "Latest", timestamp: "t9" }],
+      transcript_summary: "",
+    });
+    renderPane(<InterviewChatPane interview={interview} onStateChange={vi.fn()} />);
+
+    expect(screen.queryByTestId("interview-earlier-summary")).not.toBeInTheDocument();
+  });
+
+  it("omits the earlier-conversation block when the key is absent (multi mode)", () => {
+    const interview = makeInterview({
+      transcript: [{ role: "user", text: "Latest", timestamp: "t9" }],
+    });
+    renderPane(<InterviewChatPane interview={interview} onStateChange={vi.fn()} />);
+
+    expect(screen.queryByTestId("interview-earlier-summary")).not.toBeInTheDocument();
+  });
+
   it("sends a message and calls onStateChange with the refreshed state", async () => {
     const onStateChange = vi.fn();
     vi.mocked(interviewsApi.chat).mockResolvedValue({
@@ -105,13 +146,13 @@ describe("InterviewChatPane multi-mode", () => {
     { type: "StakeholderNeed", title: "Need A", fields: { title: "Need A" }, links: [] },
   ];
 
-  // Multi-aware state shape (see MultiModeInterview in InterviewChatPane.tsx):
-  // backend get_state() doesn't carry session_kind yet, so the pane's prop
-  // type keeps it optional.
+  // Multi-aware state shape: `session_kind` now lives on the shared
+  // InterviewState (backend get_state()/chat()/start() all emit it), so no
+  // locally widened type is needed any more.
   function makeMultiInterview(
-    overrides: Partial<MultiModeInterview> = {}
-  ): MultiModeInterview {
-    return { ...makeInterview(), ...overrides } as MultiModeInterview;
+    overrides: Partial<InterviewState> = {}
+  ): InterviewState {
+    return { ...makeInterview(), ...overrides } as InterviewState;
   }
 
   beforeEach(() => {

@@ -98,6 +98,28 @@ class TestInterviewProtocolDefaults:
     def test_main_goal_has_no_default(self):
         assert "interview.protocol.MainGoal" not in INTERVIEW_PROTOCOL_DEFAULTS
 
+    def test_risk_default_protocol_elicits_probability_and_impact(self):
+        """RiskService.create_risk has no default for probability/impact, so
+        the protocol must collect them or formalize() can never succeed for a
+        Risk interview."""
+        config = parse_protocol_yaml(INTERVIEW_PROTOCOL_DEFAULTS["interview.protocol.Risk"])
+        elicitation = config.phases[0]
+        by_name = {f.name: f for f in elicitation.required_fields}
+        assert "title" in by_name
+        assert by_name["probability"].type == "enum"
+        assert by_name["probability"].choices == ["low", "medium", "high"]
+        assert by_name["impact"].type == "enum"
+        assert by_name["impact"].choices == ["low", "medium", "high"]
+
+    def test_non_risk_defaults_keep_the_two_field_shape(self):
+        """Only Risk needs extra fields; adding them everywhere would make
+        every other interview longer for no reason."""
+        config = parse_protocol_yaml(
+            INTERVIEW_PROTOCOL_DEFAULTS["interview.protocol.Requirement"]
+        )
+        names = [f.name for f in config.phases[0].required_fields]
+        assert names == ["title", "rationale"]
+
 
 @pytest.fixture
 def protocol_test_ctx(db):

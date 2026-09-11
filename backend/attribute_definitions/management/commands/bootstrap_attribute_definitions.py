@@ -160,6 +160,30 @@ PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
     "Risk": frozenset({"severity"}),
 }
 
+#: Attributes an interview must elicit ON TOP of the ``title``/``description``
+#: pair every item type shares, because the type's ``create_X()`` service
+#: method declares them **without a default** — an interview that never asks
+#: for them can only produce a session ``formalize()`` rejects.
+#:
+#: This is the tier-2 half of the same rule ``interview_protocol.
+#: _EXTRA_REQUIRED_FIELDS`` states for tier 3 (the hardcoded factory-default
+#: protocol). ``InterviewProtocol.get_protocol()`` prefers the
+#: attribute-definition-derived protocol whenever a definition exists, and
+#: ``application.self_init`` bootstraps one for every new tenant — so tier 2
+#: is what every real deployment resolves, and marking the fields here is what
+#: actually fixes Risk interviews. Keep the two in sync.
+#:
+#: Risk: ``RiskService.create_risk(workspace_id, title, probability, impact,
+#: ctx)``. ``Adr.description`` needs no entry — it is already in the shared
+#: pair below.
+PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
+    "Risk": frozenset({"probability", "impact"}),
+}
+
+#: Elicited for every item type: the two attributes every ``create_X()``
+#: accepts and every artifact needs.
+SHARED_AI_ELICIT_FIELDS: frozenset[str] = frozenset({"title", "description"})
+
 CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
     {
         "category", "type", "level", "test_type", "element_type", "severity_level",
@@ -510,7 +534,8 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
                     "section": _section_for(name),
                     "order": order,
                     "label": {"de": name, "en": name},
-                    "ai_elicit": name in ("title", "description"),
+                    "ai_elicit": name in SHARED_AI_ELICIT_FIELDS
+                    or name in PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset()),
                     "export": True,
                 }
             )

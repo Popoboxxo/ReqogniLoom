@@ -73,6 +73,35 @@ class TestInterviewViewsMulti:
         assert "phase" not in response.data
         assert "missing_fields" not in response.data
 
+    def test_every_state_payload_carries_session_kind(self, authed_client, workspace):
+        # Final-review finding B2 regression: session_kind is the ONLY
+        # discriminator a client has for "render the proposal/confirm flow".
+        # It used to be absent from get_state(), so the web UI's chat pane
+        # gated multi mode away entirely -- a multi session could chat but
+        # never formalise. Asserted on both the start and the state payload,
+        # and for both kinds, because a key that is only sometimes present is
+        # the same bug in a different disguise.
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        assert start_resp.data["session_kind"] == "multi"
+        multi_id = start_resp.data["id"]
+        state = authed_client.get(f"/api/v1/interviews/{multi_id}/state/")
+        assert state.data["session_kind"] == "multi"
+
+        single_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "artifact_type": "Requirement"},
+            format="json",
+        )
+        assert single_resp.status_code == 201, single_resp.content
+        assert single_resp.data["session_kind"] == "single"
+        single_id = single_resp.data["id"]
+        single_state = authed_client.get(f"/api/v1/interviews/{single_id}/state/")
+        assert single_state.data["session_kind"] == "single"
+
     def test_answer_on_multi_session_returns_400_not_500(self, authed_client, workspace):
         # Review finding B1 regression: field answers are single-mode only.
         start_resp = authed_client.post(

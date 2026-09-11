@@ -122,6 +122,11 @@ def _started_session_state(ctx: Any, session: Any) -> "dict[str, Any]":
         return {
             "id": str(session.id),
             "status": resolved_status,
+            # Same key get_state() emits in both its branches (final-review
+            # finding B2): this inline payload is the one multi-mode state a
+            # client sees that never passes through get_state(), so it has to
+            # carry the discriminator too or the shape silently differs.
+            "session_kind": session.session_kind,
             "collected_fields": session.collected_fields,
             "grounding_snapshot": session.grounding_snapshot,
             "transcript": session.transcript,
