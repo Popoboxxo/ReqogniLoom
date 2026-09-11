@@ -5,16 +5,29 @@
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
 **Plattform:** Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend)
-**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (30 Tool-Gruppen, 171 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 15 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (31 Tool-Gruppen-Präfixe, 188 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 8 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 > Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.
+
+**Verzeichnisstruktur:**
+```
+backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability, workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api, mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs #   reqogniloom/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
+frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
+e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
+docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
+deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml, docker-compose.override.yml, README.md (KI-Agenten-lesbar)
+testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
+.meta-config/        # agent-meta Konfiguration (project.yaml)
+.agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
+
+```
 
 > Runtime & Abhängigkeiten: siehe Projekt-Manifest (`pyproject.toml` / `requirements.txt` / `package.json` / `manifest.json`).
 
 **Entry-Point:** `backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) `
 
 **Besondere Patterns:**
-- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 30 Tool-Gruppen und 171 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 15 Trace-Link-Typen (parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref; siehe backend/traceability/types.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
+- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 31 Tool-Gruppen-Präfixen und 188 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 8 core/built-in Trace-Link-Typen (derives-from, decomposes, allocated-to, verifies, mitigates, decides, references, diagram-ref; tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
 
 ## Code-Konventionen
 
@@ -42,14 +55,14 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
 - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
-- **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC 2.0, 30 Tool-Gruppen)
+- **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC 2.0, 31 Tool-Gruppen-Präfixe)
 - **UI/UX** — Frontend (React 18 SPA), 41 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
 - **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
 - **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, LLM-Provider (Anthropic/OpenAI/Ollama/mock)
 - **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
 - **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
 - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
-- **Traceability** — 15 Link-Typen, Coverage-Aggregation, V-Modell L0-L4-Traceability
+- **Traceability** — 8 core/built-in Link-Typen (tenant-extensible), Coverage-Aggregation, V-Modell L0-L4-Traceability
 - **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
 - **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
 
@@ -61,7 +74,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
  Opencode->AGENTS.md |
  Gemini->AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v1.0.0` | DoD: `rapid-prototyping` | REQ-Trace: `false`
+`agent-meta v1.1.0` | DoD: `rapid-prototyping` | REQ-Trace: `false`
 
 
 
@@ -504,11 +517,39 @@ Jeder Dev-Task -> `orchestrator`. Ausnahme: User Override oder 1-Step (falls erl
 > **Faustregel:** >1 Tool-Call → Orchestrator. Unsicher → Orchestrator.
 
 ## Git Delegation
-Git Mutationen (commit, push, add etc) -> `git` Agent. Read-only (status, log) im Main Chat ok.
+Commit ist für die per `auto_commit`-Tier freigeschaltete Rolle erlaubt (Details im Commit-Authority-Block der jeweiligen Rolle). Push, Tag und Branch-Management bleiben ausschließlich Aufgabe des `git` Agenten. Read-only (status, log) im Main Chat ok.
 
 Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
+Skill-getriebene Sub-Agent-Loops (z.B. generische Harness-Skills wie `subagent-driven-development`) sind KEINE dritte Ausnahme von der Orchestrator-Pflicht: ein Skill darf einen bereits vom `orchestrator` gestarteten Loop ausführen, aber niemals selbst zum Einstiegspunkt für einen neuen Dev-Task werden. Einzige Ausnahmen bleiben User-Override.
 
 Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
+
+
+
+# External Tool: graphify
+
+> graphify — lokal installiertes CLI-Tool. Baut das Repo als Wissensgraph auf (Community Detection, God Nodes, Query/Path/Explain). Wird NICHT von agent-meta bereitgestellt, muss lokal installiert sein.
+
+---
+
+## graphify
+`graphify` ist ein lokal installiertes CLI-Tool für Architektur-/Datei-
+Beziehungsfragen. Bei Bedarf `graphify-out/` prüfen bzw. `/graphify`
+nutzen. Nicht auf dieser Maschine installiert? Die Hook-Wrapper unten
+laufen dann folgenlos durch (exit 0), nichts wird blockiert.
+
+## Hook-Wrapper
+
+- `hooks/0-external/graphify-search-guard.sh`
+- `hooks/0-external/graphify-read-guard.sh`
+
+## Erlaubte Injektionen
+
+- `.gemini/skills/graphify bzw. .opencode/skills/graphify bzw. .agents/skills/graphify bzw. .zcode/skills/graphify bzw. .kimi-code/skills/graphify` (skill) — Claude-Code-Skill (SKILL.md + references), vom graphify-Installer selbst verwaltet
+
+---
+
+*Generiert von agent-meta aus `config/external-tools-registry.yaml` — nicht manuell bearbeiten.*
 
 
 

@@ -1,32 +1,20 @@
-# Main-Chat Mode
-Main Chat ist Router + Worker. Kein Orchestrator-Subagent. Du bist der Orchestrator!
+# Orchestrator
+Jeder Dev-Task -> `orchestrator`. Ausnahme: User Override oder 1-Step (falls erlaubt).
+## Direkter Dispatch (nur nach Regel 2)
 
-## Intent Routing
-> Parallel ist rein informativ — kein Runtime-Enforcement, nur CI-Konsistenzcheck bei required/recommended-Tier-Abdeckung.
+| Operation | Direkt an | Bedingung |
+|-----------|-----------|-----------|
+| Commit, Push, Branch, Tag, PR | `git` | Einzelner Git-Befehl |
+| Sync, Upgrade, Meta-Konfiguration | `agent-meta-manager` | Reine agent-meta-Operation |
+| Bug/Feature/Verbesserung melden | `feedback` | Issue-Erstellung |
+| Session-Erkenntnisse speichern | `documenter` | Nur bei Session-Ende |
 
-**Tiers** (nicht gelistet = optional): recommended: `bug-feature-analyzer`, `code-reviewer`, `documenter`, `requirements`, `tester`, `validator` | required: `developer`, `feedback`, `git`, `log-analyzer`, `orchestrator`
-
-| Intent / Keywords | Agent | Tier | Parallel |
-|-------------------|-------|------|----------|
-| Bug fixen, Bug beheben, Fehler beheben | → Pipeline: `bugfix` | pipeline | no |
-| Konzept, Design-Doc, Architektur-Recherche, Trade-offs | → Pipeline: `concept-development` | pipeline | no |
-| Dokumentation, README, Docs, Doku | → Pipeline: `docs-update` | pipeline | no |
-| Feature implementieren, Feature bauen, neues Feature, Funktion bauen, Feature Lifecycle, komplexes Feature, Feature Pipeline | → Pipeline: `feature-lifecycle` | pipeline | no |
-| Bug fixen, Bug beheben, Triage, schneller Fix, Hotfix | → Pipeline: `quick-fix` | pipeline | no |
-| Refactoring, aufräumen, Cleanup, Code verbessern | → Pipeline: `refactor` | pipeline | no |
-
-
-Volle Stage-Details (Agent/Modus je Stage, Loop/Fallback/Approval-Gate) einer gematchten Pipeline bei Bedarf: `Read .claude\pipeline-details/<pipeline-name>.md`.
-
-## A2A Delegation
-A2A-Envelopes nur für Routen mit schema-gebundenem Contract (role-defaults.yaml handoff.input_schema/output_schema zeigt auf eine echte Datei) — sonst normales Klartext-Delegationsformat: IPayload (t, ctx, con, refs, pri, dep), IEnvelope (protocol_version, handoff_id, source_agent, target_agent, schema_ref, payload). payload.t ≤ 300 Zeichen.
-
-## Plan Delegation
-Plan vorhanden (`plan-*.md` oder Knowledge-Wiki Plan-Seite) -> Pipeline `feature-lifecycle` mit `payload.plan_ref`, statt neuen Lifecycle blind zu starten.
+> **Faustregel:** >1 Tool-Call → Orchestrator. Unsicher → Orchestrator.
 
 ## Git Delegation
-Git Mutationen (commit, push, add etc) -> `git` Agent. Read-only (status, log) im Main Chat ok.
-Ausnahme auf User-Wunsch erlaubt.
+Commit ist für die per `auto_commit`-Tier freigeschaltete Rolle erlaubt (Details im Commit-Authority-Block der jeweiligen Rolle). Push, Tag und Branch-Management bleiben ausschließlich Aufgabe des `git` Agenten. Read-only (status, log) im Main Chat ok.
 
 Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
+Skill-getriebene Sub-Agent-Loops (z.B. generische Harness-Skills wie `subagent-driven-development`) sind KEINE dritte Ausnahme von der Orchestrator-Pflicht: ein Skill darf einen bereits vom `orchestrator` gestarteten Loop ausführen, aber niemals selbst zum Einstiegspunkt für einen neuen Dev-Task werden. Einzige Ausnahmen bleiben User-Override.
 
+Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
