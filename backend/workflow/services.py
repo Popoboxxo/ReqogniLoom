@@ -77,6 +77,7 @@ from .state_reader import (
     outdated_ids,
 )
 from .transition_validator import (
+    EC_AGENT_SELF_CONFIRM,
     EC_CHANGE_REASON_REQUIRED,
     EC_ROLE_NOT_ALLOWED,
     EC_SIGNATURE_INVALID,
@@ -263,6 +264,7 @@ def transition(
         user_id=ctx.user_id,
         user_roles=ctx.active_roles,
         tenant_id=ctx.tenant_id,
+        actor_type=ctx.actor_type,
         change_reason=change_reason,
         credential=credential,
     )

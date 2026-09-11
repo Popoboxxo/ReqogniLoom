@@ -49,6 +49,7 @@ EC_CHANGE_REASON_REQUIRED = "CHANGE_REASON_REQUIRED"
 EC_SIGNATURE_REQUIRED = "SIGNATURE_REQUIRED"
 EC_SIGNATURE_INVALID = "SIGNATURE_INVALID"
 EC_DEFINITION_NOT_FOUND = "DEFINITION_NOT_FOUND"
+EC_AGENT_SELF_CONFIRM = "AGENT_SELF_CONFIRM_FORBIDDEN"
 
 # Preset *tier* names (presets.registry). Entity-specific workflow schema keys
 # such as "goal_default" live in the same ``preset`` field but are not tiers.
@@ -73,6 +74,9 @@ class ValidationRequest:
         user_id:       UUID of the requesting user.
         user_roles:    Effective roles of the requesting user.
         tenant_id:     Active tenant UUID (for scoped queries).
+        actor_type:    "user" or "agent" (AuthContext.actor_type). Drives
+                       rule 0 -- an agent may never move an item out of the
+                       "proposed" state.
         change_reason: Optional non-empty string; required when the transition
                        has requires_change_reason=True.
         credential:    Optional password or TOTP token string for SignatureGate
@@ -88,6 +92,7 @@ class ValidationRequest:
     user_id: UUID
     user_roles: tuple[str, ...]
     tenant_id: UUID
+    actor_type: str = "user"
     change_reason: str = ""
     credential: str = ""
     timestamp: Optional[datetime] = None
@@ -261,6 +266,24 @@ class TransitionValidator:
             valid=False with error_code and error_message on first rule failure.
         """
         ws_str = str(request.workspace_id)
+
+        # ---- Rule 0: an agent never confirms its own proposal (spec §4.3) ---
+        # Checked here, not via allowed_roles, so a workspace admin who
+        # accidentally grants an agent-held role on the proposed-> transitions
+        # cannot switch the control off. Runs before the definition load
+        # because it needs no definition and must not be reachable past any
+        # rule that could pass first.
+        from .definition_store import PROPOSED_STATE
+
+        if request.actor_type == "agent" and request.current_state == PROPOSED_STATE:
+            return ValidationResult(
+                valid=False,
+                error_code=EC_AGENT_SELF_CONFIRM,
+                error_message=(
+                    "An AI agent may not confirm or discard a proposal. "
+                    "A human principal must perform this transition."
+                ),
+            )
 
         # ---- Load WorkflowDefinition (IF-WE-INT-001) -------------------------
         definition = self._load_definition(ws_str, request.item_type)
