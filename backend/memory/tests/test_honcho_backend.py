@@ -15,6 +15,7 @@ from unittest import mock
 from uuid import uuid4
 
 import pytest
+import requests
 
 from memory.backends import MEMORY_BACKEND_REGISTRY
 from memory.honcho_backend import HonchoMemoryBackend
@@ -336,6 +337,22 @@ class TestHonchoBackendRegistration:
 
 
 class TestHonchoMemoryBackendHealthCheck:
+    """``health_check()`` probes the OpenAI-compatible embedding endpoint.
+
+    Every test mocks ``requests.head``/``requests.post`` -- no live network.
+    See GH #911: the old probe only did a HEAD on ``HONCHO_BASE_URL`` and so
+    reported ``ok`` even when the (placeholder) embedding endpoint could not
+    be reached or was not configured, which is exactly the "dishonest health"
+    this class guards against.
+    """
+
+    @staticmethod
+    def _configure_all(monkeypatch):
+        """Point every env var the probe reads at a valid-looking config."""
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        monkeypatch.setenv("HONCHO_EMBEDDING_BASE_URL", "http://embed.invalid/v1")
+        monkeypatch.setenv("HONCHO_EMBEDDING_MODEL", "nomic-embed-text")
+
     def test_health_check_down_when_base_url_not_configured(self, monkeypatch):
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         backend = HonchoMemoryBackend()
@@ -345,6 +362,8 @@ class TestHonchoMemoryBackendHealthCheck:
 
     def test_health_check_reports_down_on_connection_failure(self, monkeypatch):
         monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho-does-not-exist.invalid:9999")
+        monkeypatch.delenv("HONCHO_EMBEDDING_BASE_URL", raising=False)
+        monkeypatch.delenv("HONCHO_EMBEDDING_MODEL", raising=False)
         backend = HonchoMemoryBackend()
         ok, detail = backend.health_check()
         assert ok is False
@@ -353,12 +372,146 @@ class TestHonchoMemoryBackendHealthCheck:
         """Guards Global Constraint: must never attempt `import honcho` (the
         SDK is an optional dependency)."""
         monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho-does-not-exist.invalid:9999")
+        monkeypatch.delenv("HONCHO_EMBEDDING_BASE_URL", raising=False)
+        monkeypatch.delenv("HONCHO_EMBEDDING_MODEL", raising=False)
         backend = HonchoMemoryBackend()
         with mock.patch.object(
             backend, "_ensure_client", side_effect=AssertionError("must not be called")
         ) as mocked:
             backend.health_check()
         mocked.assert_not_called()
+
+    def test_health_check_down_when_embedding_base_url_not_configured(self, monkeypatch):
+        """GH #911: an unconfigured embedding endpoint must not report ok."""
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        monkeypatch.delenv("HONCHO_EMBEDDING_BASE_URL", raising=False)
+        monkeypatch.setenv("HONCHO_EMBEDDING_MODEL", "nomic-embed-text")
+        backend = HonchoMemoryBackend()
+        ok, detail = backend.health_check()
+        assert ok is False
+        assert "HONCHO_EMBEDDING_BASE_URL" in detail
+        assert "#911" in detail
+
+    def test_health_check_down_when_embedding_model_not_configured(self, monkeypatch):
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        monkeypatch.setenv("HONCHO_EMBEDDING_BASE_URL", "http://embed.invalid/v1")
+        monkeypatch.delenv("HONCHO_EMBEDDING_MODEL", raising=False)
+        backend = HonchoMemoryBackend()
+        ok, detail = backend.health_check()
+        assert ok is False
+        assert "HONCHO_EMBEDDING_MODEL" in detail
+
+    def test_health_check_ok_when_embedding_probe_succeeds(self, monkeypatch):
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        post = mock.Mock(status_code=200)
+        post.json.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+        with mock.patch("requests.head", return_value=head) as head_mock, mock.patch(
+            "requests.post", return_value=post
+        ) as post_mock:
+            ok, detail = backend.health_check()
+        assert ok is True
+        assert "nomic-embed-text" in detail
+        head_mock.assert_called_once_with(
+            "http://honcho.invalid", timeout=1.0, allow_redirects=False
+        )
+        post_mock.assert_called_once_with(
+            "http://embed.invalid/v1/embeddings",
+            json={"model": "nomic-embed-text", "input": "ping"},
+            timeout=1.0,
+        )
+
+    def test_health_check_down_when_embedding_probe_returns_http_error(self, monkeypatch):
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        post = mock.Mock(status_code=500)
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post", return_value=post
+        ):
+            ok, detail = backend.health_check()
+        assert ok is False
+        assert "500" in detail
+
+    def test_health_check_down_when_embedding_probe_returns_4xx(self, monkeypatch):
+        """A non-2xx (not only >= 500) embedding response is down: the code must
+        reject 3xx/4xx exactly as the docstring says (GH #911)."""
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        post = mock.Mock(status_code=404)
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post", return_value=post
+        ):
+            ok, detail = backend.health_check()
+        assert ok is False
+        assert "404" in detail
+
+    def test_health_check_skips_embedding_probe_when_model_unset(self, monkeypatch):
+        """Guard ordering: an unset HONCHO_EMBEDDING_MODEL must short-circuit
+        before any embedding POST is attempted."""
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        monkeypatch.setenv("HONCHO_EMBEDDING_BASE_URL", "http://embed.invalid/v1")
+        monkeypatch.delenv("HONCHO_EMBEDDING_MODEL", raising=False)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post"
+        ) as post_mock:
+            ok, _detail = backend.health_check()
+        assert ok is False
+        post_mock.assert_not_called()
+
+    def test_health_check_down_when_embedding_probe_times_out(self, monkeypatch):
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post", side_effect=requests.Timeout("timed out")
+        ):
+            ok, detail = backend.health_check()
+        assert ok is False
+        assert "timed out" in detail
+
+    def test_health_check_down_when_embedding_vector_is_empty(self, monkeypatch):
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        post = mock.Mock(status_code=200)
+        post.json.return_value = {"data": [{"embedding": []}]}
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post", return_value=post
+        ):
+            ok, detail = backend.health_check()
+        assert ok is False
+        assert "nomic-embed-text" in detail
+
+    def test_health_check_down_when_embedding_response_is_unparseable(self, monkeypatch):
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        post = mock.Mock(status_code=200)
+        post.json.side_effect = ValueError("No JSON object could be decoded")
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post", return_value=post
+        ):
+            ok, detail = backend.health_check()
+        assert ok is False
+        assert "JSON" in detail
+
+    def test_health_check_down_when_honcho_head_returns_5xx(self, monkeypatch):
+        self._configure_all(monkeypatch)
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=503)
+        with mock.patch("requests.head", return_value=head), mock.patch(
+            "requests.post"
+        ) as post_mock:
+            ok, detail = backend.health_check()
+        assert ok is False
+        assert "503" in detail
+        post_mock.assert_not_called()
+
 
 
 class TestHonchoBackendDbOverride:

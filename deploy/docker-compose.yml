@@ -269,6 +269,15 @@ services:
       # an empty DB (single-tenant default; real multi-tenant setups assign
       # per-request via auth, this is only the bootstrap fallback).
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+      # Raw Honcho embedding vars read by the memory backend's health probe
+      # (#911); only used when MEMORY_BACKEND=honcho. `honcho`/`honcho-migrate`
+      # above consume the same values in EMBEDDING_MODEL_CONFIG__* form.
+      HONCHO_EMBEDDING_BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
+      HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+    # Makes host.docker.internal resolve on Linux (built-in on Docker Desktop)
+    # for the health probe's default base URL.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # REQ-L1-046: persist admin_ops DR backups (written to /app/backups) on a
       # named volume so they survive restarts/rebuilds and are writable by the
@@ -388,6 +397,15 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # Raw Honcho embedding vars read by the memory backend's health probe
+      # (#911); only used when MEMORY_BACKEND=honcho. `honcho`/`honcho-migrate`
+      # above consume the same values in EMBEDDING_MODEL_CONFIG__* form.
+      HONCHO_EMBEDDING_BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
+      HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+    # Makes host.docker.internal resolve on Linux (built-in on Docker Desktop)
+    # for the health probe's default base URL.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     logging:
       driver: "json-file"
       options:
@@ -593,14 +611,18 @@ services:
         condition: service_healthy
     environment:
       DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
-      # If you're using a non-1536-dim embedding model (option (b) below),
-      # this MUST be set here too, matching `honcho`'s value, BEFORE the
-      # first migration against a fresh volume -- see the PITFALL note on
-      # the `honcho` service's EMBEDDING_MODEL_CONFIG block.
-      EMBEDDING_VECTOR_DIMENSIONS: "768"
-      EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
-      EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
-      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://<your-ollama-host>:11434/v1
+      # Embedding config is parameterized (HONCHO_EMBEDDING_*, see .env.example)
+      # and MUST resolve to the SAME values here and on `honcho` BEFORE the first
+      # migration against a fresh volume -- see the PITFALL note on the `honcho`
+      # service's EMBEDDING_MODEL_CONFIG block. The default base URL points at a
+      # host-run Ollama via host.docker.internal (extra_hosts below makes that
+      # name resolve on Linux too; it is built-in on Docker Desktop).
+      EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-768}
+      EMBEDDING_MODEL_CONFIG__TRANSPORT: ${HONCHO_EMBEDDING_TRANSPORT:-openai}
+      EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: alembic upgrade head
 
   honcho:
@@ -663,39 +685,43 @@ services:
       # embedding models (see .env.example), so this can't reuse the same
       # provider as DERIVER/DIALECTIC above. Pick ONE:
       #
-      #   (a) A real OpenAI key, if you have one:
-      #         EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
-      #         EMBEDDING_MODEL_CONFIG__MODEL: text-embedding-3-small
-      #         LLM_OPENAI_API_KEY: <a REAL OpenAI key -- separate from the
+      #   (a) A real OpenAI key, if you have one -- set in .env:
+      #         LLM_OPENAI_API_KEY=<a REAL OpenAI key -- separate from the
       #           opencode_go one above; Honcho does not distinguish the two
       #           by provider, only by this one env var>
+      #         HONCHO_EMBEDDING_MODEL=text-embedding-3-small
+      #         HONCHO_EMBEDDING_VECTOR_DIMENSIONS=1536   # OpenAI width
+      #         HONCHO_EMBEDDING_BASE_URL=https://api.openai.com/v1
       #
       #   (b) A self-hosted Ollama with an embedding model (mirrors this
       #       project's OWN optional Ollama pattern in
       #       docker-compose.override.example.yml -- add that `ollama`
       #       service to this stack too, `docker exec ... ollama pull
-      #       nomic-embed-text`, then):
-      #         EMBEDDING_VECTOR_DIMENSIONS: "768"   # see pitfall below
-      #         EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
-      #         EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
-      #         EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://ollama:11434/v1
+      #       nomic-embed-text`, then set in .env):
+      #         HONCHO_EMBEDDING_TRANSPORT=openai
+      #         HONCHO_EMBEDDING_MODEL=nomic-embed-text
+      #         HONCHO_EMBEDDING_VECTOR_DIMENSIONS=768   # see pitfall below
+      #         HONCHO_EMBEDDING_BASE_URL=http://ollama:11434/v1
       #
-      # NOT set here by default -- (a) costs money, (b) pulls another
-      # multi-GB image this compose file shouldn't silently drag in. Memory
-      # reads (list/query on already-written data) work without this; only
-      # NEW writes need it. Uncomment one of the two option blocks above
-      # once you've picked.
-      #
-      EMBEDDING_VECTOR_DIMENSIONS: "768"
-      EMBEDDING_MODEL_CONFIG__TRANSPORT: openai
-      EMBEDDING_MODEL_CONFIG__MODEL: nomic-embed-text
-      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://<your-ollama-host>:11434/v1
+      # Parameterized with defaults that mirror option (b): a host-run Ollama
+      # serving nomic-embed-text, reached as host.docker.internal (extra_hosts
+      # below makes that name resolve on Linux too; built-in on Docker Desktop).
+      # Override the HONCHO_EMBEDDING_* vars in .env to point elsewhere -- e.g.
+      # option (a)'s OpenAI, or an in-stack `ollama` service at
+      # http://ollama:11434/v1 (see .env.example's Honcho section). A memory
+      # WRITE still needs a reachable embedding endpoint; reads do not. The
+      # `memory_backend` row of GET /api/v1/admin/health/ reports down when the
+      # embedding endpoint is unreachable or unconfigured (#911).
+      EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-768}
+      EMBEDDING_MODEL_CONFIG__TRANSPORT: ${HONCHO_EMBEDDING_TRANSPORT:-openai}
+      EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
       # PITFALL, verified live against a real ollama.nomic-embed-text setup:
       # the pgvector column's dimension is baked into the schema at MIGRATE
-      # time from `EMBEDDING_VECTOR_DIMENSIONS` (default 1536, i.e. OpenAI's
-      # dimension) -- setting the var on the SERVER but migrating (or having
-      # already migrated) with the default still crashes it at boot with
-      # `documents.embedding dim (1536) does not match
+      # time from `EMBEDDING_VECTOR_DIMENSIONS` (Honcho's own default 1536,
+      # i.e. OpenAI's dimension) -- setting the var on the SERVER but migrating
+      # (or having already migrated) with the default still crashes it at boot
+      # with `documents.embedding dim (1536) does not match
       # EMBEDDING_VECTOR_DIMENSIONS (768)`. Any non-1536-dim model (which
       # nomic-embed-text is) needs `EMBEDDING_VECTOR_DIMENSIONS` set on BOTH
       # `honcho-migrate` above AND here BEFORE the very first migration runs
@@ -706,6 +732,8 @@ services:
       # change dimensions on an already-migrated database. text-embedding-
       # 3-small in option (a) sidesteps this entirely (1536-dim, matches the
       # untouched default).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 10s

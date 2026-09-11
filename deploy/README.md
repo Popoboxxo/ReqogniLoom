@@ -121,8 +121,27 @@ docker compose -f deploy/docker-compose.yml --project-directory . --profile honc
 ```
 
 Then set `MEMORY_BACKEND=honcho` and `HONCHO_BASE_URL=http://honcho:8000` in `.env` and restart
-`backend`/`celery`. See the `honcho`/`honcho-migrate` service comments in `docker-compose.yml` for
-the embedding-dimension pitfall if you change `EMBEDDING_VECTOR_DIMENSIONS` after the first run.
+`backend`/`celery`.
+
+Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories. The
+compose services read these four vars from `.env` (defaults shown). `honcho-migrate` and `honcho`
+both use them for the embedding config, and `backend`/`celery` read the first two for the `/health`
+`memory_backend` health probe (#911):
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `HONCHO_EMBEDDING_BASE_URL` | `http://host.docker.internal:11434/v1` | Includes the `/v1` suffix. Targets a host-run Ollama; `extra_hosts` maps `host.docker.internal` so it resolves on Linux too (built-in on Docker Desktop). Use `http://ollama:11434/v1` for an in-stack `ollama` service. |
+| `HONCHO_EMBEDDING_MODEL` | `nomic-embed-text` | Any embedding model the endpoint serves. |
+| `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` | `768` | Must match the model's output width — see the pitfall below. |
+| `HONCHO_EMBEDDING_TRANSPORT` | `openai` | OpenAI-compatible transport. |
+
+Without a reachable endpoint, Honcho cannot embed and `/health`'s `memory_backend` row reports down.
+
+**Embedding-dimension pitfall:** `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` is baked into Honcho's
+pgvector schema at the first migration. Set it correctly *before* the first `--profile honcho`
+start against a fresh `honcho_postgres_data` volume; changing it afterwards was not sufficient in
+testing (drop the volume and re-migrate, or use Honcho's `scripts/configure_embeddings.py`). See the
+`honcho`/`honcho-migrate` service comments in `docker-compose.yml`.
 
 ## For AI agents
 
