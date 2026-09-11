@@ -27,6 +27,12 @@ import { extractErrorMessage } from "../../api/client";
 import { INTERVIEW_ARTIFACT_TYPES } from "../../constants/interviewArtifactTypes";
 import styles from "./InterviewEditors.module.css";
 
+/**
+ * Sentinel `?start=` value for a multi-kind discovery session (spec L2.5).
+ * Exported so InterviewWidget links here without re-typing the literal.
+ */
+export const MULTI_START_PARAM = "multi";
+
 export default function InterviewEditors(): JSX.Element {
   const { t } = useTranslation();
   const { id: selectedId } = useParams<{ id?: string }>();
@@ -54,7 +60,12 @@ export default function InterviewEditors(): JSX.Element {
     setStartingType(artifactType);
     setStartError(null);
     try {
-      const state = await interviewsApi.start(activeWorkspace.id, artifactType);
+      // A multi-kind discovery session is bound to no protocol, so it starts
+      // with artifact_type=null and session_kind="multi".
+      const state =
+        artifactType === MULTI_START_PARAM
+          ? await interviewsApi.start(activeWorkspace.id, null, "multi")
+          : await interviewsApi.start(activeWorkspace.id, artifactType);
       setShowStartDialog(false);
       refresh();
       navigate(`/interviews/${state.id}`);
@@ -66,7 +77,8 @@ export default function InterviewEditors(): JSX.Element {
   };
 
   // CTA entry point from other artifact list pages ("Prefer to create it in
-  // a dialog?" -- RequirementEditors & co. link here as `/interviews?start=<Type>`).
+  // a dialog?" -- RequirementEditors & co. link here as `/interviews?start=<Type>`)
+  // and from the interview widget (`?start=<Type>` / `?start=multi`).
   // Skips the picker dialog since the type is already known; the param is
   // stripped right away so back/refresh never re-triggers a second session.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -74,7 +86,10 @@ export default function InterviewEditors(): JSX.Element {
   useEffect(() => {
     const requestedType = searchParams.get("start");
     if (!requestedType || autoStartRequested.current || !activeWorkspace) return;
-    if (!INTERVIEW_ARTIFACT_TYPES.includes(requestedType as (typeof INTERVIEW_ARTIFACT_TYPES)[number])) return;
+    const isKnown =
+      requestedType === MULTI_START_PARAM ||
+      INTERVIEW_ARTIFACT_TYPES.includes(requestedType as (typeof INTERVIEW_ARTIFACT_TYPES)[number]);
+    if (!isKnown) return;
     autoStartRequested.current = true;
     setSearchParams({}, { replace: true });
     void handleStart(requestedType);
@@ -145,6 +160,22 @@ export default function InterviewEditors(): JSX.Element {
                 {startingType === type ? <Spinner label={t("actions.creating", "Starting...")} /> : type}
               </button>
             ))}
+            {/* Discovery entry point for users who don't know yet which type
+                they need -- same option the widget offers, so /interviews on
+                its own is the complete surface. */}
+            <button
+              type="button"
+              className={styles.typeButton}
+              data-testid={`interview-start-${MULTI_START_PARAM}`}
+              disabled={startingType !== null}
+              onClick={() => void handleStart(MULTI_START_PARAM)}
+            >
+              {startingType === MULTI_START_PARAM ? (
+                <Spinner label={t("actions.creating", "Starting...")} />
+              ) : (
+                t("interview.multiEntry")
+              )}
+            </button>
           </div>
           {startError && (
             <p role="alert" data-testid="interview-start-error" className={styles.createError}>

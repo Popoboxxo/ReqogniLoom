@@ -176,6 +176,43 @@ describe("InterviewEditors", () => {
     expect(screen.queryByTestId("interview-start-dialog")).not.toBeInTheDocument();
   });
 
+  it("auto-starts a multi-kind discovery session for `?start=multi`", async () => {
+    vi.mocked(interviewsApi.start).mockResolvedValue({
+      id: "s-multi",
+      status: "in_progress",
+      phase: "elicitation",
+      collected_fields: {},
+      missing_fields: [],
+      grounding_snapshot: {},
+      transcript: [],
+    } as any);
+    renderPage("/interviews?start=multi");
+
+    // A multi-kind session is bound to no protocol: artifact_type=null,
+    // session_kind="multi".
+    await waitFor(() => expect(interviewsApi.start).toHaveBeenCalledWith("ws-001", null, "multi"));
+    expect(screen.queryByTestId("interview-start-dialog")).not.toBeInTheDocument();
+  });
+
+  it("offers the multi-kind discovery option in the picker dialog", async () => {
+    vi.mocked(interviewsApi.start).mockResolvedValue({
+      id: "s-multi",
+      status: "in_progress",
+      phase: "elicitation",
+      collected_fields: {},
+      missing_fields: [],
+      grounding_snapshot: {},
+      transcript: [],
+    } as any);
+    renderPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("create-interview-btn"));
+    await user.click(await screen.findByTestId("interview-start-multi"));
+
+    await waitFor(() => expect(interviewsApi.start).toHaveBeenCalledWith("ws-001", null, "multi"));
+  });
+
   it("ignores an unknown `?start=` type instead of calling the API", async () => {
     renderPage("/interviews?start=NotARealType");
 
