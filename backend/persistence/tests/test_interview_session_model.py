@@ -26,6 +26,18 @@ def workspace(tenant):
         TenantContext.clear_tenant()
 
 
+@pytest.fixture
+def interview_session(tenant, workspace):
+    """One plain InterviewSession row (no InterviewService.start() involved)."""
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return InterviewSession.objects.create(
+            workspace=workspace, artifact_type="Requirement"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
 class TestInterviewSessionDefaults:
     def test_creates_with_defaults(self, tenant, workspace):
         TenantContext.set_tenant(tenant.id)
@@ -65,6 +77,24 @@ class TestInterviewSessionDefaults:
             TenantContext.clear_tenant()
 
         assert session.target_artifact_id is None
+
+
+class TestInterviewSessionTranscriptSummary:
+    def test_transcript_summary_defaults_to_empty_string(self, interview_session):
+        """L2.4: compressed older turns live here. Empty (never NULL) at start, so
+        every read path can concatenate it without a None check."""
+        assert interview_session.transcript_summary == ""
+
+    def test_transcript_summary_accepts_long_text(self, tenant, interview_session):
+        long_summary = "x" * 20_000
+        interview_session.transcript_summary = long_summary
+        TenantContext.set_tenant(tenant.id)
+        try:
+            interview_session.save(update_fields=["transcript_summary"])
+            interview_session.refresh_from_db(fields=["transcript_summary"])
+        finally:
+            TenantContext.clear_tenant()
+        assert interview_session.transcript_summary == long_summary
 
 
 @_pg_only
