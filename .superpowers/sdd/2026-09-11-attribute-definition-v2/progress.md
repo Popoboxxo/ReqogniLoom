@@ -6,9 +6,9 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 11 (Export/Import UI), committed `3ae56b93`.**
+**Last completed task: Task 12 (origin badges + type icons), committed `63d54084` — ALL 12 PLAN TASKS NOW IMPLEMENTED.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 12** (section card boundaries, origin badges, type icons — the LAST task in the plan, Phase G).
+**Next: the plan's own "Final Review" step + coordinator-requested whole-branch self-review (this fork has no Agent tool, so this IS the independent-review layer for this pass — a real dispatched code-reviewer/senior-developer round from the coordinator afterward is still the recommended follow-up per this repo's SDD convention).**
 **No independent review has run on Tasks 1-10 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 **Not manually verified in a live browser** across any task so far — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
 **The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the targeted `attribute_definitions`-consumer sweeps after each task (360+121=481 backend tests, 88 frontend tests, all passing as of Task 10) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
@@ -121,9 +121,19 @@ separately after each phase/whole-branch).
 - No dedicated test for the actual browser-download trigger (Blob/`URL.createObjectURL`/anchor click) — same as the existing `api/export.ts` CSV/ReqIF downloads, which also have zero test coverage for that specific mechanic; consistent with established precedent, not a new gap.
 - Commit: `3ae56b93` "feat(attributes): add export/import UI (Task 11)".
 
-## Task 12 — NOT STARTED (final task)
+## Task 12: Section card boundaries, origin badges, type icons — DONE
 
-Section card boundaries, origin badges, type icons — `AttributeEditor.module.css`
-(radius token reuse) + `AttributeList.tsx`/`AttributeTable.tsx` (origin badge using
-Task 4's per-attribute origin marker, type icon per row via `lucide-react`, already
-imported in `AttributeList.tsx`). See plan file (Phase G, "Task 12") for full text.
+- Section card border/radius: **already correct before this task** — both `AttributeEditor.module.css`'s and `ArtifactForm.module.css`'s `.section` already used `border-radius: var(--radius-md)`, matching the existing `Dialog`/token convention (`--radius-sm`/`-md`/`-lg`/`-full`). Verified, no change needed.
+- New `attribute-type-icons.tsx`: one lucide-react icon per `ATTRIBUTE_TYPES` value (`Type`, `AlignLeft`, `Hash`, `ToggleLeft`, `List`, `ListChecks`, `Calendar`, `Link`, `User`, `Puzzle`), shared by `AttributeList.tsx` and `AttributeTable.tsx` so both agree on the same icon per type — no new icon dependency.
+- Both list and table views now render a type icon + an origin badge (global/global_customized/workspace_only) per row, reusing Task 4's per-attribute origin marker (`AttributeList` gained the same optional `origins` prop `AttributeTable` already had).
+- **Real regression caught by this task's own full ratchet-suite run, not assumed safe:** the first badge styling used `background: var(--color-primary)` for the workspace-only state, which pushed the `ui-ratchet.test.ts` UI-50 "primary-button fill" frozen baseline from 29 to 30 occurrences. Fixed with an outline style (border + text color) instead of a solid fill — same semantic color, doesn't re-declare the tracked pattern. Also fixed a pre-existing `AttributeTable.test.tsx` regex (`/^attribute-table-row-/`) that started over-matching the new `-type-icon` testid suffix once that element existed.
+- Tests: 3 new `AttributeList.test.tsx` cases, 1 new `AttributeTable.test.tsx` case, 1 existing test file's selector regex fixed. `tsc -p tsconfig.build.json --noEmit` clean. Scoped frontend run: 102 passed (all AttributeEditor + api-client + ArtifactForm + full ui-ratchet + i18n-parity files) — including the UI-50 ratchet that caught the regression above.
+- Commit: `63d54084` "feat(attributes): add origin badges + type icons (Task 12)".
+
+## PLAN STATUS: all 12 tasks implemented and committed.
+
+Next: final whole-branch review (this fork has no `Agent` tool — self-review
+against the plan/spec is this pass's independent-review layer; the coordinator
+dispatching a real `code-reviewer`/`senior-developer` round afterward remains
+the recommended follow-up per this repo's SDD convention, same pattern used
+for `interview-engine-fix` and `ki-vorschlag-als-zustand` this session).
