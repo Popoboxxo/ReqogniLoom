@@ -21,11 +21,10 @@ from rest_framework import exceptions
 from rest_api.auth_enforcer import (
     BearerTokenAuthentication,
     RbacPermission,
-    _METHOD_TO_OPERATION,
     get_auth_context,
 )
 from auth_tenancy.rest import AuthTenancyAuthentication
-from auth_tenancy.services import Operation
+from auth_tenancy.services import Operation, operation_for_method
 
 
 class TestBearerTokenAuthentication:
@@ -37,22 +36,34 @@ class TestBearerTokenAuthentication:
 
 
 class TestMethodToOperationMapping:
-    """REQ-L3-RA003-002: HTTP method maps to Operation correctly."""
+    """REQ-L3-RA003-002: HTTP method maps to Operation correctly.
+
+    Security review B1 moved the table out of ``rest_api.auth_enforcer`` into
+    ``auth_tenancy.services.authorization.operation_for_method`` so the sibling
+    permission class ``HasOperationPermission`` derives the same operation for
+    its own scope gate. Same contract, one owner.
+    """
 
     def test_get_maps_to_read(self) -> None:
-        assert _METHOD_TO_OPERATION["GET"] == Operation.READ
+        assert operation_for_method("GET") == Operation.READ
 
     def test_head_maps_to_read(self) -> None:
-        assert _METHOD_TO_OPERATION["HEAD"] == Operation.READ
+        assert operation_for_method("HEAD") == Operation.READ
 
     def test_post_maps_to_write(self) -> None:
-        assert _METHOD_TO_OPERATION["POST"] == Operation.WRITE
+        assert operation_for_method("POST") == Operation.WRITE
 
     def test_patch_maps_to_write(self) -> None:
-        assert _METHOD_TO_OPERATION["PATCH"] == Operation.WRITE
+        assert operation_for_method("PATCH") == Operation.WRITE
 
     def test_delete_maps_to_write(self) -> None:
-        assert _METHOD_TO_OPERATION["DELETE"] == Operation.WRITE
+        assert operation_for_method("DELETE") == Operation.WRITE
+
+    def test_lowercase_method_is_normalised(self) -> None:
+        assert operation_for_method("get") == Operation.READ
+
+    def test_unknown_method_fails_closed_to_write(self) -> None:
+        assert operation_for_method("PROPFIND") == Operation.WRITE
 
 
 class TestRbacPermission:
