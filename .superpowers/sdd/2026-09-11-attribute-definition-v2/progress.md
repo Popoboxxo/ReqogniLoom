@@ -6,9 +6,9 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 10 (REST + MCP surface for export/import), committed `ed888945`.**
+**Last completed task: Task 11 (Export/Import UI), committed `3ae56b93`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 11** (Export/Import UI, frontend, Phase F continued).
+**Next: Task 12** (section card boundaries, origin badges, type icons — the LAST task in the plan, Phase G).
 **No independent review has run on Tasks 1-10 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 **Not manually verified in a live browser** across any task so far — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
 **The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the targeted `attribute_definitions`-consumer sweeps after each task (360+121=481 backend tests, 88 frontend tests, all passing as of Task 10) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
@@ -112,7 +112,18 @@ separately after each phase/whole-branch).
 - Tests: 6 new REST tests, 5 new MCP tests, tool-count assertion updated 9→13. Scoped run: 360 passed. Consumer sweep (bundle export, interview protocol, reqif, goal views): 121 passed.
 - Commit: `ed888945` "feat(attributes): add REST + MCP surface for export/import (Task 10)".
 
-## Tasks 11-12 — NOT STARTED
+## Task 11: Export/Import UI — DONE
 
-See plan file for full task list (Phase F continued-G: export/import UI,
-section card polish/origin badges/type icons).
+- API client: `exportGlobal`/`importGlobal`/`exportWorkspace`/`importWorkspace` + `downloadAttributeDefinitionDocument` (Blob + `<a download>` — no shared download helper exists in this codebase; `api/export.ts`'s CSV/ReqIF downloads each independently duplicate the same 5-line pattern, so a third small duplicate matches the established convention rather than inventing a shared utility for 3 call sites).
+- New `AttributeImportDialog.tsx`: covers only the collision-resolution radio choice (skip/overwrite/rename) once a file is already selected+parsed — the file picker itself is a plain hidden `<input type="file">` in `AttributeEditorPage.tsx`, no dialog needed for that step.
+- `AttributeEditorPage.tsx`: Export button downloads the current definition as `{itemType}-{preset|workspace}-attributes.json`; Import opens the file picker, parses JSON client-side, shows the confirm dialog, then calls `importGlobal`/`importWorkspace` and reloads.
+- Tests: 5 new `AttributeImportDialog.test.tsx` cases, 6 new api-client tests. `tsc -p tsconfig.build.json --noEmit` clean. Scoped frontend run: 98 passed (all AttributeEditor + api-client + ArtifactForm + ratchet + i18n-parity files) — ui-ratchet's inline-style/hex-color baselines stayed monotonic (new radio-label CSS went into a proper `.module.css`, not inline `style={{`).
+- No dedicated test for the actual browser-download trigger (Blob/`URL.createObjectURL`/anchor click) — same as the existing `api/export.ts` CSV/ReqIF downloads, which also have zero test coverage for that specific mechanic; consistent with established precedent, not a new gap.
+- Commit: `3ae56b93` "feat(attributes): add export/import UI (Task 11)".
+
+## Task 12 — NOT STARTED (final task)
+
+Section card boundaries, origin badges, type icons — `AttributeEditor.module.css`
+(radius token reuse) + `AttributeList.tsx`/`AttributeTable.tsx` (origin badge using
+Task 4's per-attribute origin marker, type icon per row via `lucide-react`, already
+imported in `AttributeList.tsx`). See plan file (Phase G, "Task 12") for full text.
