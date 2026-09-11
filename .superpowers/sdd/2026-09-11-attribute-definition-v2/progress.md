@@ -6,12 +6,12 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 5 (`count_usages` + delete confirmation flow), committed `56719398`.**
+**Last completed task: Task 6 (options editor in `AttributeInspector`), committed `e167be13`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 6** (options editor in `AttributeInspector`, Phase D continued).
-**No independent review has run on Tasks 1-5 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
+**Next: Task 7** (`sections[]` schema + lazy materialization, Phase E).
+**No independent review has run on Tasks 1-6 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 **Not manually verified in a live browser** (Task 3's plan Step 5 asked for this) — only component/API/typecheck-level coverage across all tasks so far. Flag for the coordinator or a later manual pass.
-**Two full, untargeted background test runs were launched during Tasks 4/5 (a whole-backend `pytest -q` after Task 4, a broader attribute-scoped sweep after Task 5) — both were still running (no output yet) when this ledger entry was written. Check their results before assuming zero cross-cutting side effects.**
+**A full, untargeted background `pytest -q` (whole backend suite, no path filter) launched right after Task 4's commit was STILL running with zero output as of Task 6's completion (checked repeatedly, ~25+ min elapsed) — check its final result (background task id `bbz34th2h`) before trusting the whole app has zero cross-cutting side effects from Tasks 4-6's shared-payload/query changes. The narrower `attribute_definitions`-consumer sweeps run after each task were all green.**
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -69,8 +69,15 @@ separately after each phase/whole-branch).
 - Tests: 4 new service tests (incl. a real-`Artifact`-row fixture, not mocked, to exercise the actual JSONB query), 3 new REST tests, 2 new MCP tests. Scoped backend run: 90 passed (service+REST+MCP). Frontend: `tsc -p tsconfig.build.json --noEmit` clean, 39 tests passing across the touched/new files.
 - Commit: `56719398` "feat(attributes): add count_usages + delete confirmation flow (Task 5)".
 
-## Tasks 6-12 — NOT STARTED
+## Task 6: Options editor in `AttributeInspector` — DONE
 
-See plan file for full task list (Phases D continued-G: options editor,
-section CRUD + grid layout, export/import REST+MCP, export/import UI,
-section card polish).
+- New options section in `AttributeInspector.tsx`, rendered only for `type in {"enum", "multi-enum"}`: rows of `{value, label_de, label_en}` with add/reorder/remove, matching `_normalize_options`'s exact contract (all three required, no extras — the component never sends a 4th key).
+- Add/edit/reorder stay LOCAL `onPatch` calls (options are just another attribute property, saved through the page's existing Save button, exactly like every other meta-edit) — only removal goes through a new `onRequestRemoveOption(optionValue)` callback, since the "does anything reference this value" check needs a live `count_usages(..., option_value)` round-trip that this otherwise-pure, unit-tested component has no business making itself.
+- `AttributeEditorPage.tsx` wires `onRequestRemoveOption` the same shape as Task 5's delete-attribute flow: fetch the count, show a `ConfirmDialog` (warns with the count when > 0, plain confirmation in global scope — same workspace-scoped-only limitation as Task 5, not extended here either), apply the local patch on confirm.
+- Tests: 8 new `AttributeInspector.test.tsx` cases (hidden/shown by type, add/edit/reorder via `onPatch`, remove routes through the new callback instead of patching directly, `readOnly` disables every control). `tsc -p tsconfig.build.json --noEmit` clean. Scoped frontend suite: 47 passed across the 6 touched/new AttributeEditor + api-client + ratchet files.
+- Commit: `e167be13` "feat(attributes): add options editor to AttributeInspector (Task 6)".
+
+## Tasks 7-12 — NOT STARTED
+
+See plan file for full task list (Phase E-G: sections[] schema + grid layout,
+export/import REST+MCP, export/import UI, section card polish).
