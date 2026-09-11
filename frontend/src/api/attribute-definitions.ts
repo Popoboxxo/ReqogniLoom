@@ -267,4 +267,21 @@ export const attributeDefinitionsApi = {
       `${workspacePath(workspaceId, itemType)}?name=${encodeURIComponent(name)}`
     );
   },
+
+  /** Artifacts in this workspace referencing `name` — call before showing a
+   * delete/option-removal confirmation (Task 5). Workspace-scoped only: the
+   * backend's `count_usages` takes a single workspace, there is no
+   * cross-workspace aggregate for the global scope. */
+  getUsageCount(
+    workspaceId: UUID,
+    itemType: AttributeItemType,
+    name: string,
+    optionValue?: string
+  ): Promise<number> {
+    const query = new URLSearchParams({ name });
+    if (optionValue !== undefined) query.set("option", optionValue);
+    return apiClient
+      .get<{ count: number }>(`${workspacePath(workspaceId, itemType)}usage/?${query}`)
+      .then((result) => result.count);
+  },
 };

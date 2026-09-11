@@ -28,7 +28,7 @@ def ctx() -> MagicMock:
     return context
 
 
-def test_tool_map_exposes_exactly_eight_tools(group) -> None:
+def test_tool_map_exposes_exactly_nine_tools(group) -> None:
     assert set(group._TOOL_MAP) == {
         "attribute_definition.list",
         "attribute_definition.get",
@@ -38,6 +38,7 @@ def test_tool_map_exposes_exactly_eight_tools(group) -> None:
         "attribute_definition.delete",
         "attribute_definition.create_workspace",
         "attribute_definition.delete_workspace",
+        "attribute_definition.count_usages",
     }
 
 
@@ -389,6 +390,40 @@ def test_delete_workspace_maps_cross_tenant_to_permission_denied(group, ctx) -> 
         )
         result = group.execute_tool(
             tool_name="attribute_definition.delete_workspace",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4()), "name": "note"},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_count_usages_returns_the_count(group, ctx) -> None:
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.count_usages.return_value = 3
+        result = group.execute_tool(
+            tool_name="attribute_definition.count_usages",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4()), "name": "note"},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert result.data["count"] == 3
+
+
+@pytest.mark.django_db
+def test_count_usages_maps_permission_denied(group, ctx) -> None:
+    from application.base import PermissionDeniedError
+
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.count_usages.side_effect = PermissionDeniedError("nope")
+        result = group.execute_tool(
+            tool_name="attribute_definition.count_usages",
             params={"item_type": "Risk", "workspace_id": str(uuid.uuid4()), "name": "note"},
             auth_context=ctx,
             api_key=VALID_API_KEY,

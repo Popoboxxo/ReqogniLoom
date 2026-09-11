@@ -74,6 +74,32 @@ def service() -> AttributeDefinitionService:
 
 
 @pytest.fixture
+def make_artifact(tenant, workspace):
+    """Create a real ``Artifact`` row backing an item type + custom_fields.
+
+    ``count_usages`` (Task 5) queries ``Artifact.custom_fields`` directly, so
+    its tests need real rows, not a mocked service — same reasoning as the
+    cross-tenant MCP probe in ``test_attribute_definition_tools.py``.
+    """
+    from persistence.models import Artifact
+    from persistence.tenancy import TenantContext
+
+    def _make(item_type: str, custom_fields: dict) -> "Artifact":
+        TenantContext.set_tenant(tenant.id)
+        try:
+            return Artifact.objects.create(
+                tenant_id=tenant.id,
+                workspace=workspace,
+                artifact_type=item_type,
+                custom_fields=custom_fields,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+    return _make
+
+
+@pytest.fixture
 def seeded(tenant) -> None:
     store = GlobalAttributeDefinitionStore()
     for preset in ("minimal", "standard", "extended"):
@@ -511,6 +537,49 @@ def test_create_workspace_marks_the_new_attribute_as_workspace_only(
         )
     assert out["origins"]["risk_comment"] == "workspace_only"
     assert out["origins"]["title"] == "global_customized"
+
+
+# --- Task 5: count_usages --------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_count_usages_of_an_unreferenced_attribute_is_zero(
+    service, admin_ctx, workspace
+) -> None:
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "note") == 0
+
+
+@pytest.mark.django_db
+def test_count_usages_counts_artifacts_referencing_the_attribute(
+    service, admin_ctx, workspace, make_artifact
+) -> None:
+    make_artifact("Risk", {"note": "a"})
+    make_artifact("Risk", {"note": "b"})
+    make_artifact("Risk", {})  # no 'note' key at all — must not be counted
+    make_artifact("Issue", {"note": "a"})  # different item_type — must not be counted
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "note") == 2
+
+
+@pytest.mark.django_db
+def test_count_usages_is_scoped_by_option_value(
+    service, admin_ctx, workspace, make_artifact
+) -> None:
+    make_artifact("Risk", {"category": "a"})
+    make_artifact("Risk", {"category": "a"})
+    make_artifact("Risk", {"category": "b"})
+    assert service.count_usages(admin_ctx, "Risk", workspace.id, "category") == 3
+    assert (
+        service.count_usages(admin_ctx, "Risk", workspace.id, "category", "a") == 2
+    )
+    assert (
+        service.count_usages(admin_ctx, "Risk", workspace.id, "category", "b") == 1
+    )
+
+
+@pytest.mark.django_db
+def test_count_usages_requires_admin(service, editor_ctx, workspace) -> None:
+    with pytest.raises(PermissionDeniedError):
+        service.count_usages(editor_ctx, "Risk", workspace.id, "note")
 
 
 @pytest.mark.django_db

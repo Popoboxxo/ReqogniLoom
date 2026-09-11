@@ -2113,6 +2113,13 @@
       "widget": "Widget"
     },
     "addAttribute": "+ Add attribute",
+    "deleteAttribute": {
+      "action": "Delete attribute",
+      "title": "Delete attribute",
+      "loading": "Checking usage…",
+      "confirmPlain": "Delete attribute \"{{name}}\"?",
+      "confirmWithUsage": "{{count}} artifact(s) use attribute \"{{name}}\". Delete it anyway? Their stored values are not removed, only the attribute definition."
+    },
     "viewMode": {
       "list": "List",
       "table": "Table"

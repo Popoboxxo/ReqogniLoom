@@ -232,6 +232,37 @@ def test_delete_workspace_removes_an_extended_attribute(
 
 
 @pytest.mark.django_db
+def test_get_usage_count_of_an_unreferenced_attribute_is_zero(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/usage/"
+        f"?name=note"
+    )
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+@pytest.mark.django_db
+def test_get_usage_count_requires_admin(editor_client, workspace_fixture, seeded) -> None:
+    response = editor_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/usage/"
+        f"?name=note"
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_get_usage_count_without_a_name_is_400(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/usage/"
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
 def test_workspace_definition_without_a_global_is_404(
     admin_client, workspace_fixture
 ) -> None:

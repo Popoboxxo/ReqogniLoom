@@ -105,6 +105,7 @@ from rest_api.settings_views import (
 from rest_api.attribute_definition_views import (
     AttributeDefaultsDetailView,
     AttributeDefaultsListView,
+    AttributeUsageView,
     WorkspaceAttributeDefinitionResetView,
     WorkspaceAttributeDefinitionView,
 )
@@ -517,6 +518,11 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/reset/",
         WorkspaceAttributeDefinitionResetView.as_view(),
         name="workspace-attribute-definition-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/usage/",
+        AttributeUsageView.as_view(),
+        name="workspace-attribute-definition-usage",
     ),
     path(
         "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/",

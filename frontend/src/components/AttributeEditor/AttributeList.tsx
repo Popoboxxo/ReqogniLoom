@@ -27,6 +27,10 @@ export interface AttributeListProps {
   onDeleteSection: (name: string) => void;
   onMoveSection: (name: string, toIndex: number) => void;
   onAddAttribute: (section: string) => void;
+  /** Only ever offered for `kind: "extended"` attributes — a core attribute
+   * is always rejected server-side, so the row never renders the button for
+   * one (Task 5). */
+  onDeleteAttribute: (name: string) => void;
   readOnly: boolean;
 }
 
@@ -40,6 +44,7 @@ export function AttributeList({
   onDeleteSection,
   onMoveSection,
   onAddAttribute,
+  onDeleteAttribute,
   readOnly,
 }: AttributeListProps): JSX.Element {
   const { t } = useTranslation();
@@ -210,6 +215,20 @@ export function AttributeList({
                   >
                     <ChevronDown aria-hidden="true" size={14} />
                   </button>
+                  {attribute.kind === "extended" ? (
+                    <button
+                      type="button"
+                      disabled={readOnly}
+                      aria-label={t("attributes.deleteAttribute.action")}
+                      data-testid={`attribute-row-${attribute.name}-delete`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeleteAttribute(attribute.name);
+                      }}
+                    >
+                      <Trash2 aria-hidden="true" size={14} />
+                    </button>
+                  ) : null}
                 </span>
               </div>
             ))}

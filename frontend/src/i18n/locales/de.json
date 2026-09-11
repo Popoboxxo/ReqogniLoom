@@ -2113,6 +2113,13 @@
       "widget": "Widget"
     },
     "addAttribute": "+ Attribut hinzufügen",
+    "deleteAttribute": {
+      "action": "Attribut löschen",
+      "title": "Attribut löschen",
+      "loading": "Verwendung wird geprüft…",
+      "confirmPlain": "Attribut \"{{name}}\" löschen?",
+      "confirmWithUsage": "{{count}} Artefakt(e) verwenden das Attribut \"{{name}}\". Trotzdem löschen? Die gespeicherten Werte bleiben erhalten, nur die Attributdefinition wird entfernt."
+    },
     "viewMode": {
       "list": "Liste",
       "table": "Tabelle"

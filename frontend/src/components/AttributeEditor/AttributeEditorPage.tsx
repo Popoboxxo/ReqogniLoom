@@ -135,6 +135,9 @@ export function AttributeEditorPage({
   const [confirmReset, setConfirmReset] = useState(false);
   const [createSection, setCreateSection] = useState<string | null>(null);
   const [origins, setOrigins] = useState<Record<string, AttributeOrigin>>({});
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteUsageCount, setDeleteUsageCount] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
 
   const handleSetViewMode = useCallback((mode: ViewMode): void => {
@@ -333,6 +336,51 @@ export function AttributeEditorPage({
     [activeWorkspace?.id, isGlobal, itemType, preset, load]
   );
 
+  // Delete confirmation (Task 5): fetches the usage count before showing the
+  // confirmation so the admin sees "N artifacts use this" instead of
+  // deleting blind. Global scope has no single workspace to probe (the
+  // backend's count_usages is workspace-scoped only, there is no
+  // cross-workspace aggregate) -- the confirmation there shows a plain
+  // message with no count, which Task 6's option-removal flow can follow
+  // the same way.
+  const handleRequestDeleteAttribute = useCallback(
+    (name: string): void => {
+      setDeleteTarget(name);
+      setDeleteUsageCount(null);
+      if (!isGlobal && activeWorkspace?.id) {
+        void attributeDefinitionsApi
+          .getUsageCount(activeWorkspace.id, itemType, name)
+          .then(setDeleteUsageCount)
+          .catch(() => setDeleteUsageCount(0));
+      } else {
+        setDeleteUsageCount(0);
+      }
+    },
+    [activeWorkspace?.id, isGlobal, itemType]
+  );
+
+  const handleConfirmDeleteAttribute = useCallback(async (): Promise<void> => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (isGlobal) {
+        await attributeDefinitionsApi.deleteGlobalAttribute(itemType, preset, deleteTarget);
+      } else if (activeWorkspace?.id) {
+        await attributeDefinitionsApi.deleteWorkspaceAttribute(
+          activeWorkspace.id,
+          itemType,
+          deleteTarget
+        );
+      }
+      setDeleteTarget(null);
+      await load();
+    } catch (exc: unknown) {
+      setError(extractErrorMessage(exc));
+    } finally {
+      setDeleting(false);
+    }
+  }, [activeWorkspace?.id, deleteTarget, isGlobal, itemType, load, preset]);
+
   const handleSelectItemType = useCallback(
     (next: AttributeItemType): void => {
       if (isRouted) {
@@ -470,6 +518,7 @@ export function AttributeEditorPage({
             onDeleteSection={handleDeleteSection}
             onMoveSection={handleMoveSection}
             onAddAttribute={setCreateSection}
+            onDeleteAttribute={handleRequestDeleteAttribute}
           />
         ) : (
           <AttributeTable
@@ -516,6 +565,27 @@ export function AttributeEditorPage({
           existingNames={attributes.map((a) => a.name)}
           onCreate={handleCreateAttribute}
           onClose={() => setCreateSection(null)}
+        />
+      ) : null}
+
+      {deleteTarget !== null ? (
+        <ConfirmDialog
+          title={t("attributes.deleteAttribute.title")}
+          message={
+            deleteUsageCount === null
+              ? t("attributes.deleteAttribute.loading")
+              : deleteUsageCount > 0
+                ? t("attributes.deleteAttribute.confirmWithUsage", {
+                    name: deleteTarget,
+                    count: deleteUsageCount,
+                  })
+                : t("attributes.deleteAttribute.confirmPlain", { name: deleteTarget })
+          }
+          confirmLabel={t("actions.delete")}
+          testId="attribute-delete-confirm"
+          isSubmitting={deleting || deleteUsageCount === null}
+          onConfirm={() => void handleConfirmDeleteAttribute()}
+          onCancel={() => setDeleteTarget(null)}
         />
       ) : null}
     </div>

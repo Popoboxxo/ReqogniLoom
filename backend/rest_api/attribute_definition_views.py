@@ -234,6 +234,28 @@ class WorkspaceAttributeDefinitionView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class AttributeUsageView(APIView):
+    """GET /workspaces/{id}/attribute-definitions/{item_type}/usage/?name=&option=.
+
+    Read-only probe the delete/option-removal confirmation flows call before
+    showing their warning (Task 5). Admin-only, same gate as every other
+    mutation-adjacent endpoint on this resource.
+    """
+
+    def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        name = request.query_params.get("name")
+        if not name:
+            return _validation(lang, "Query parameter 'name' is required.")
+        count = AttributeDefinitionService().count_usages(
+            ctx, item_type, workspace_id, name, request.query_params.get("option")
+        )
+        return Response({"count": count}, status=status.HTTP_200_OK)
+
+
 class WorkspaceAttributeDefinitionResetView(APIView):
     """POST /workspaces/{id}/attribute-definitions/{item_type}/reset/."""
 
@@ -254,6 +276,7 @@ class WorkspaceAttributeDefinitionResetView(APIView):
 __all__ = [
     "AttributeDefaultsDetailView",
     "AttributeDefaultsListView",
+    "AttributeUsageView",
     "WorkspaceAttributeDefinitionResetView",
     "WorkspaceAttributeDefinitionView",
 ]

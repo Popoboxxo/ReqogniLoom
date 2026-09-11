@@ -80,6 +80,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         "attribute_definition.delete": "_handle_delete",
         "attribute_definition.create_workspace": "_handle_create_workspace",
         "attribute_definition.delete_workspace": "_handle_delete_workspace",
+        "attribute_definition.count_usages": "_handle_count_usages",
     }
 
     @staticmethod
@@ -210,6 +211,23 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
                 "name": "attribute_definition.delete_workspace",
                 "description": "Remove one attribute from a workspace's definition (admin-only).",
                 "inputSchema": delete_workspace_schema,
+            },
+            {
+                "name": "attribute_definition.count_usages",
+                "description": (
+                    "Count artifacts referencing an attribute (and, optionally, one "
+                    "of its option values) -- call before deleting an attribute or "
+                    "removing an option (admin-only)."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        **workspace_scoped["properties"],
+                        "name": {"type": "string"},
+                        "option_value": {"type": "string"},
+                    },
+                    "required": ["item_type", "workspace_id", "name"],
+                },
             },
         ]
 
@@ -378,6 +396,20 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         except CrossTenantWorkspaceError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({"definition": _definition_payload(definition)})
+
+    def _handle_count_usages(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        workspace_id = require_uuid(params, "workspace_id")
+        name = require_param(params, "name")
+        try:
+            count = self._get_service().count_usages(
+                auth_context, item_type, workspace_id, name, params.get("option_value")
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"count": count})
 
 
 __all__ = ["AttributeDefinitionToolGroup"]

@@ -475,6 +475,53 @@ class AttributeDefinitionService(ServiceBase):
         remaining = [a for a in current if a["name"] != name]
         return self.update_workspace(ctx, item_type, workspace_id, remaining)
 
+    def count_usages(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        workspace_id: UUID,
+        attribute_name: str,
+        option_value: str | None = None,
+    ) -> int:
+        """Count artifacts of *item_type* in this workspace referencing *attribute_name*.
+
+        Only meaningful for a ``kind="extended"`` attribute: its value lives
+        in ``Artifact.custom_fields`` (REQ-L2-AS-037, the single JSONB store
+        every artifact type's extended field folds into since the
+        Datenmodell-Konsolidierung, indexed by
+        ``pl_artifact_custom_fields_gin``). A ``kind="core"`` name has no
+        live caller: ``delete_global``/``delete_workspace`` already refuse to
+        remove a core attribute, and the delete- and option-removal
+        confirmation flows are this method's only two callers — so this
+        deliberately does not also branch into per-model-field counting for
+        that case (YAGNI: nothing would ever reach it).
+
+        Uses ``KeyTextTransform`` rather than a ``custom_fields__{name}``
+        keyword lookup: the latter splits on every ``__`` in *attribute_name*
+        as a JSON path segment, which is wrong for a (valid, snake_case) name
+        that happens to contain a double underscore.
+
+        Raises:
+            PermissionDeniedError: caller is not an admin.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        from django.db.models.fields.json import KeyTextTransform
+
+        from persistence.models import Artifact
+
+        qs = Artifact.objects.filter(
+            tenant_id=ctx.tenant_id,
+            workspace_id=workspace_id,
+            artifact_type=item_type,
+            custom_fields__has_key=attribute_name,
+        )
+        if option_value is not None:
+            qs = qs.annotate(
+                _attr_value=KeyTextTransform(attribute_name, "custom_fields")
+            ).filter(_attr_value=option_value)
+        return qs.count()
+
     def reset_workspace(
         self, ctx: AuthContext, item_type: str, workspace_id: UUID
     ) -> dict[str, Any]:
