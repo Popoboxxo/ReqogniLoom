@@ -23,13 +23,17 @@ produced. Two things the autodetector would not have added:
    and would be left behind as an orphan.
 2. ``AlterField`` on ``Icd.embedding``: its ``help_text`` no longer claims the
    row is immutable, because the row it now lives on is not.
+
+The ``AlterField`` on ``Icd.embedding`` sizes the column from the literal 384,
+the width ``icd/0010_expand_current_content`` added it with. It is not read from
+``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS`` (#826):
+migration history is immutable and must not shift when an operator changes that
+environment variable.
 """
 from django.db import migrations, models
 import django.db.models.deletion
 import pgvector.django.indexes
 import pgvector.django.vector
-
-from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 
 #: Restores what ``icd/0006_icd_version_delete_guard`` installed, so an
 #: (unsupported, data-destroying) reverse migrate at least leaves the schema
@@ -88,7 +92,7 @@ class Migration(migrations.Migration):
             name="embedding",
             field=pgvector.django.vector.VectorField(
                 blank=True,
-                dimensions=EMBEDDING_VECTOR_DIMENSIONS,
+                dimensions=384,
                 help_text=(
                     "REQ-L2-VS-004: Semantic embedding for cosine similarity "
                     "search, sized by persistence.embedding_dimensions."

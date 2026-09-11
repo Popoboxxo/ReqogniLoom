@@ -351,9 +351,23 @@ MEMORY_BACKEND=honcho HONCHO_BASE_URL=https://your-honcho-instance.example.com m
 **Supported `EMBEDDING_PROVIDER`** (`backend/llm_adapter/embedding_service.py`): `sentence-transformers` (default, 384-dim) | `ollama` (768-dim) | `openai` (1536-dim) | `mock` (384-dim)
 **Supported `MEMORY_BACKEND`** (`backend/memory/backends.py`): `pgvector` (default) | `honcho` (optional; `query`/`list`/`forget` are not yet implemented for this backend — `upsert` only)
 
-⚠️ **Embedding dimension is part of the schema.** All pgvector columns are `vector(384)`, sized from `backend/persistence/embedding_dimensions.py` to match the default provider. Selecting a provider with a different native width **silently disables** embedding writes and semantic search for those columns — the width guard skips them rather than erroring (this was issue #794). `manage.py check` reports the mismatch as `llm_adapter.W001`, and the first skipped write logs at WARNING. To run such a provider, change `EMBEDDING_VECTOR_DIMENSIONS`, generate the resulting migrations, and re-run `manage.py backfill_embeddings`; pgvector cannot cast between widths, so existing vectors are discarded.
+⚠️ **Embedding dimension is part of the schema.** All pgvector columns default to `vector(384)`, sized from the `EMBEDDING_VECTOR_DIMENSIONS` environment variable (default `384`, matching the default provider). Selecting a provider with a different native width (`ollama` 768, `openai` 1536) **silently disables** embedding writes and semantic search for those columns until the schema is resized — the width guard skips them rather than erroring (this was issue #794). `manage.py check` reports the mismatch as `llm_adapter.W001`, and the first skipped write logs at WARNING.
 
-⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data. Use `python manage.py backfill_embeddings` (optionally `--force`) to (re)generate `Requirement`/`TraceLink` embeddings for rows that already exist; they are otherwise only written on create/update. `IcdVersion` rows are immutable and can only be embedded by creating a new version.
+To switch provider and width together (issue #826):
+
+```bash
+# .env
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_VECTOR_DIMENSIONS=768      # sentence-transformers=384, ollama=768, openai=1536
+
+python manage.py makemigrations      # emits AlterField for all five embedding columns
+python manage.py migrate
+python manage.py backfill_embeddings # pgvector cannot cast between widths
+```
+
+`manage.py verify_embedding_dimensions` compares the live DB columns against the configured provider and exits non-zero on a mismatch — a useful pre-deploy gate. Because pgvector cannot cast between widths, resizing discards existing vectors; the backfill regenerates them.
+
+⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data. Use `python manage.py backfill_embeddings` (optionally `--force`) to (re)generate `Requirement`/`TraceLink`/`Icd` embeddings for rows that already exist; they are otherwise only written on create/update.
 
 See `.env.example` for all variables and `deploy/docker-compose.override.example.yml` for the matching optional-service Compose stubs.
 

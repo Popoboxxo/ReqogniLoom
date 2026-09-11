@@ -22,7 +22,10 @@ import logging
 
 import pytest
 
-from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
+from persistence.embedding_dimensions import (
+    EMBEDDING_VECTOR_DIMENSIONS,
+    EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +264,10 @@ class TestMismatchIsVisible:
         assert [w.id for w in warnings] == [EMBEDDING_DIMENSION_MISMATCH]
         assert "1536" in warnings[0].msg
         assert str(EMBEDDING_VECTOR_DIMENSIONS) in warnings[0].msg
+        # #826: the remedy is now the environment variable. The message must
+        # name it so an operator does not go looking for a source constant.
+        assert EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR in warnings[0].msg
+        assert EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR in warnings[0].hint
 
     def test_system_check_reports_an_unknown_provider(self, monkeypatch):
         """A typo in ``EMBEDDING_PROVIDER`` disables embeddings entirely and is

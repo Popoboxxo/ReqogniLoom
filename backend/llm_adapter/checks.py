@@ -103,15 +103,21 @@ def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> List[D
         return [
             DjangoWarning(
                 f"EMBEDDING_PROVIDER={cfg.provider_name!r} produces "
-                f"{provider_dimensions}-dim vectors, but {detail}.",
+                f"{provider_dimensions}-dim vectors, but {detail}. The columns "
+                f"are sized from the EMBEDDING_VECTOR_DIMENSIONS environment "
+                f"variable.",
                 hint=(
                     "Every embedding write and every semantic search pass for "
                     "those columns is silently skipped, so search results will "
-                    "be missing them entirely (issue #794). Either switch back "
-                    "to a provider with matching output width, or change "
-                    "persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS, "
-                    "generate the resulting migrations and re-run "
-                    "`manage.py backfill_embeddings`."
+                    "be missing them entirely (issue #794). To fix, set the "
+                    f"EMBEDDING_VECTOR_DIMENSIONS environment variable to "
+                    f"{provider_dimensions} (#826), then run "
+                    "`python manage.py makemigrations`, `python manage.py "
+                    "migrate` and `python manage.py backfill_embeddings`. "
+                    "pgvector cannot cast between widths, so the resize "
+                    "discards existing vectors and the backfill regenerates "
+                    "them. Alternatively switch back to a provider whose "
+                    "output width matches the columns."
                 ),
                 id=EMBEDDING_DIMENSION_MISMATCH,
             )
