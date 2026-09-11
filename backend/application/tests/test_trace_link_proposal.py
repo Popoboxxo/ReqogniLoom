@@ -165,3 +165,41 @@ def test_agent_may_not_discard(graph):
             link.id, _ctx(tenant.id, "agent", key.id)
         )
     assert TraceLink.objects.filter(id=link.id).exists()
+
+
+# --- Security review M1 -----------------------------------------------------
+# discard_proposed_link refuses an agent, but delete_trace_link reaches the
+# very same row. Deleting a proposal and discarding one have identical effect:
+# the human review disappears.
+
+
+@pytest.mark.django_db
+def test_agent_may_not_hard_delete_a_proposal(graph):
+    tenant, src, tgt, key = graph
+    link = _create_link(tenant, src, tgt, key)
+    with pytest.raises(AgentSelfConfirmError):
+        TraceLinkService().delete_trace_link(link.id, _ctx(tenant.id, "agent", key.id))
+    assert TraceLink.objects.filter(id=link.id).exists()
+
+
+@pytest.mark.django_db
+def test_human_may_hard_delete_a_proposal(graph):
+    tenant, src, tgt, key = graph
+    link = _create_link(tenant, src, tgt, key)
+    TraceLinkService().delete_trace_link(link.id, _ctx(tenant.id, "user"))
+    assert not TraceLink.objects.filter(id=link.id).exists()
+
+
+@pytest.mark.django_db
+def test_agent_may_hard_delete_a_confirmed_link(graph):
+    """The guard is about proposals, not about agents deleting anything."""
+    tenant, src, tgt, _key = graph
+    TenantContext.set_tenant(tenant.id)
+    try:
+        link = TraceLink.objects.create(
+            tenant=tenant, source=src, target=tgt, link_type="derives-from"
+        )
+    finally:
+        TenantContext.clear_tenant()
+    TraceLinkService().delete_trace_link(link.id, _ctx(tenant.id, "agent"))
+    assert not TraceLink.objects.filter(id=link.id).exists()

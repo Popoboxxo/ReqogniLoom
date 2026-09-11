@@ -129,3 +129,74 @@ def test_outdate_allows_a_human_on_a_proposed_item():
     assert result.new_state == "outdated"
     assert result.previous_state == "proposed"
     set_status.assert_called_once()
+
+
+# --- Security review M1 -----------------------------------------------------
+# The hard-delete paths bypass the TransitionValidator exactly like outdate()
+# does, so Rule 0 has to be re-asserted there too.
+
+
+def _proposed_artifact_patches(current_state: str | None):
+    lifecycle = MagicMock()
+    lifecycle.get_item_state.return_value = (
+        None if current_state is None else MagicMock(current_state=current_state)
+    )
+    return (
+        patch("workflow.services._get_lifecycle", return_value=lifecycle),
+        patch("workflow.services._item_id_for_artifact", return_value=uuid4()),
+    )
+
+
+def test_delete_artifact_guard_blocks_an_agent_on_a_proposal():
+    from workflow.services import (
+        WorkflowTransitionError,
+        assert_agent_may_not_delete_proposed_artifact,
+    )
+
+    lifecycle_patch, item_patch = _proposed_artifact_patches("proposed")
+    with lifecycle_patch, item_patch:
+        with pytest.raises(WorkflowTransitionError) as exc:
+            assert_agent_may_not_delete_proposed_artifact(
+                _outdate_ctx("agent"), uuid4(), "Requirement", WS
+            )
+    assert exc.value.error_code == EC_AGENT_SELF_CONFIRM
+
+
+def test_delete_artifact_guard_allows_a_human_on_a_proposal():
+    from workflow.services import assert_agent_may_not_delete_proposed_artifact
+
+    lifecycle_patch, item_patch = _proposed_artifact_patches("proposed")
+    with lifecycle_patch, item_patch:
+        assert (
+            assert_agent_may_not_delete_proposed_artifact(
+                _outdate_ctx("user"), uuid4(), "Requirement", WS
+            )
+            is None
+        )
+
+
+def test_delete_artifact_guard_allows_an_agent_on_a_normal_item():
+    from workflow.services import assert_agent_may_not_delete_proposed_artifact
+
+    lifecycle_patch, item_patch = _proposed_artifact_patches("draft")
+    with lifecycle_patch, item_patch:
+        assert (
+            assert_agent_may_not_delete_proposed_artifact(
+                _outdate_ctx("agent"), uuid4(), "Requirement", WS
+            )
+            is None
+        )
+
+
+def test_delete_artifact_guard_is_inert_without_a_workflow_state():
+    """An unbacked / never-registered item is not a proposal — never deny."""
+    from workflow.services import assert_agent_may_not_delete_proposed_artifact
+
+    lifecycle_patch, item_patch = _proposed_artifact_patches(None)
+    with lifecycle_patch, item_patch:
+        assert (
+            assert_agent_may_not_delete_proposed_artifact(
+                _outdate_ctx("agent"), uuid4(), "Requirement", WS
+            )
+            is None
+        )

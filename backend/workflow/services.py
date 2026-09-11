@@ -41,6 +41,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -86,6 +87,8 @@ from .transition_validator import (
     TransitionValidator,
     ValidationRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +349,92 @@ def _set_lifecycle_status(item_id: UUID, item_type: str, value: str) -> None:
     Artifact.objects.filter(pk=artifact_id).update(lifecycle_status=value)
 
 
+def assert_agent_may_not_remove_proposal(
+    ctx: AuthContext, current_state: str | None
+) -> None:
+    """Rule 0: an AI agent may not make its own proposal disappear.
+
+    Every path that *removes* an item — the ``outdate`` soft-delete escape
+    hatch and the two hard deletes (:meth:`ArtifactService.delete_artifact`,
+    :meth:`TraceLinkService.delete_trace_link`) — bypasses the
+    :class:`~workflow.transition_validator.TransitionValidator`, and therefore
+    bypasses the Rule-0 check that lives inside it. Deleting a proposal is
+    materially the same act as discarding it: the human review vanishes either
+    way, and hard-deleting is strictly worse because it leaves no trace.
+
+    Args:
+        ctx: The caller's identity. Only ``actor_type == "agent"`` is gated.
+        current_state: The item's current workflow state, or ``None`` when it
+            has none (nothing to protect).
+
+    Raises:
+        WorkflowTransitionError: The caller is an agent and the item sits in
+            :data:`~workflow.definition_store.PROPOSED_STATE`.
+    """
+    from .definition_store import PROPOSED_STATE
+
+    if getattr(ctx, "actor_type", "user") != "agent":
+        return
+    if current_state != PROPOSED_STATE:
+        return
+    raise WorkflowTransitionError(
+        EC_AGENT_SELF_CONFIRM,
+        "An AI agent may not discard a proposal. A human principal must "
+        "confirm or reject it.",
+    )
+
+
+def _item_id_for_artifact(artifact_id: UUID, item_type: str) -> UUID | None:
+    """Inverse of :func:`_artifact_id_for`: specialised row id for an Artifact.
+
+    ``WorkflowItemState.item_id`` is the *specialised* entity's primary key
+    (Requirement.id, Risk.id, ...), never the backing Artifact's, so a caller
+    holding only an artifact id has to walk the FK backwards before it can ask
+    for a workflow state.
+    """
+    try:
+        model = model_for(item_type)
+    except KeyError:
+        return None
+    return (
+        model.objects.filter(artifact_id=artifact_id).values_list("pk", flat=True).first()
+    )
+
+
+def assert_agent_may_not_delete_proposed_artifact(
+    ctx: AuthContext,
+    artifact_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+) -> None:
+    """Apply Rule 0 to the hard delete of an :class:`Artifact`-backed item.
+
+    Resolves the artifact's specialised row, looks up its workflow state and
+    delegates to :func:`assert_agent_may_not_remove_proposal`. An item with no
+    resolvable state (unbacked type, or never registered with the engine) is
+    not a proposal and passes through — the guard must not turn into a blanket
+    deny for ordinary deletes.
+    """
+    if getattr(ctx, "actor_type", "user") != "agent":
+        return  # cheap exit: the guard only ever fires for agents
+    try:
+        item_id = _item_id_for_artifact(UUID(str(artifact_id)), item_type)
+        if item_id is None:
+            return
+        state = _get_lifecycle().get_item_state(
+            item_id, item_type, UUID(str(workspace_id))
+        )
+    except Exception:  # noqa: BLE001 — see docstring: never deny on lookup failure
+        logger.debug(
+            "Rule-0 delete guard: no resolvable workflow state for %s artifact %s",
+            item_type,
+            artifact_id,
+        )
+        return
+    if state is not None:
+        assert_agent_may_not_remove_proposal(ctx, state.current_state)
+
+
 def outdate(
     item_id: UUID | str,
     item_type: str,
@@ -436,18 +525,8 @@ def outdate(
     # (it is the system-level escape hatch), so Rule 0 never fires here — an
     # agent could otherwise soft-delete its own proposal and make the human
     # review disappear. Guard it explicitly.
-    from .definition_store import PROPOSED_STATE
-
-    if (
-        getattr(ctx, "actor_type", "user") == "agent"
-        and state is not None
-        and state.current_state == PROPOSED_STATE
-    ):
-        raise WorkflowTransitionError(
-            EC_AGENT_SELF_CONFIRM,
-            "An AI agent may not discard a proposal. A human principal must "
-            "confirm or reject it.",
-        )
+    if state is not None:
+        assert_agent_may_not_remove_proposal(ctx, state.current_state)
 
     if state is None:
         if not allow_lazy_init:
@@ -1234,6 +1313,8 @@ def check_downgrade_compatibility(
 __all__ = [
     "transition",
     "outdate",
+    "assert_agent_may_not_remove_proposal",
+    "assert_agent_may_not_delete_proposed_artifact",
     "reactivate",
     "initialize_workflow_states",
     "initial_state_for",

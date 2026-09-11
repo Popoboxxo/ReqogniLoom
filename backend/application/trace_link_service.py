@@ -850,6 +850,8 @@ class TraceLinkService(ServiceBase):
 
         Raises:
             NotFoundError: *link_id* does not exist in the active tenant.
+            AgentSelfConfirmError: ``ctx`` is an agent and the link is still a
+                proposal (Rule 0, security review M1).
         """
         from persistence.models import TraceLink
         from traceability.trace_link_manager import TraceLinkManager
@@ -860,9 +862,27 @@ class TraceLinkService(ServiceBase):
         # TraceLinkManager().delete() removes the row. Best-effort, same as
         # above: must never block the actual deletion.
         try:
-            row = TraceLink.objects.filter(id=link_id).values("source_id", "target_id").first()
+            row = (
+                TraceLink.objects.filter(id=link_id)
+                .values("source_id", "target_id", "proposed_by_id", "proposed_at")
+                .first()
+            )
         except Exception:  # noqa: BLE001 — best-effort, see comment above
             row = None
+
+        # Rule 0 (security review M1): ``discard_proposed_link`` refuses an
+        # agent, but this generic delete reaches the very same row and used to
+        # let the proposing agent erase its own proposal — the human review
+        # disappears either way, so the same rule has to hold on both paths.
+        # Deliberately NOT best-effort: a security guard that silently skips on
+        # a lookup failure is not a guard.
+        if ctx.actor_type == "agent" and row is not None and (
+            row["proposed_by_id"] is not None or row["proposed_at"] is not None
+        ):
+            raise AgentSelfConfirmError(
+                "An AI agent may not delete a proposed trace link. A human "
+                "principal must confirm or discard it."
+            )
 
         try:
             TraceLinkManager().delete(link_id)
