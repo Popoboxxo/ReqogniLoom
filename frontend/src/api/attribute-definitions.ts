@@ -109,6 +109,16 @@ export interface ResolvedAttributeDefinition {
   attributes: AttributeSpec[];
 }
 
+/** What `AttributeCreateDialog` collects — always creates a `kind: "extended"`
+ * entry (only the bootstrap command may create `kind: "core"`). */
+export interface NewAttributeInput {
+  name: string;
+  type: AttributeType;
+  required: boolean;
+  section: string;
+  options?: AttributeOption[];
+}
+
 export interface GlobalAttributeDefinition {
   item_type: AttributeItemType;
   preset: WorkspacePreset;
@@ -129,6 +139,17 @@ function workspacePath(workspaceId: UUID, itemType: AttributeItemType): string {
   return `/workspaces/${workspaceId}/attribute-definitions/${encodeURIComponent(
     itemType
   )}/`;
+}
+
+function createPayload(input: NewAttributeInput): Record<string, unknown> {
+  return {
+    name: input.name,
+    kind: "extended",
+    type: input.type,
+    required: input.required,
+    section: input.section,
+    ...(input.options ? { options: input.options } : {}),
+  };
 }
 
 export const attributeDefinitionsApi = {
@@ -191,6 +212,48 @@ export const attributeDefinitionsApi = {
     return apiClient.post<ResolvedAttributeDefinition>(
       `${workspacePath(workspaceId, itemType)}reset/`,
       {}
+    );
+  },
+
+  createGlobalAttribute(
+    itemType: AttributeItemType,
+    preset: WorkspacePreset,
+    input: NewAttributeInput
+  ): Promise<GlobalAttributeDefinition> {
+    return apiClient.post<GlobalAttributeDefinition>(
+      globalPath(itemType, preset),
+      createPayload(input)
+    );
+  },
+
+  deleteGlobalAttribute(
+    itemType: AttributeItemType,
+    preset: WorkspacePreset,
+    name: string
+  ): Promise<GlobalAttributeDefinition> {
+    return apiClient.delete<GlobalAttributeDefinition>(
+      `${globalPath(itemType, preset)}?name=${encodeURIComponent(name)}`
+    );
+  },
+
+  createWorkspaceAttribute(
+    workspaceId: UUID,
+    itemType: AttributeItemType,
+    input: NewAttributeInput
+  ): Promise<ResolvedAttributeDefinition> {
+    return apiClient.post<ResolvedAttributeDefinition>(
+      workspacePath(workspaceId, itemType),
+      createPayload(input)
+    );
+  },
+
+  deleteWorkspaceAttribute(
+    workspaceId: UUID,
+    itemType: AttributeItemType,
+    name: string
+  ): Promise<ResolvedAttributeDefinition> {
+    return apiClient.delete<ResolvedAttributeDefinition>(
+      `${workspacePath(workspaceId, itemType)}?name=${encodeURIComponent(name)}`
     );
   },
 };

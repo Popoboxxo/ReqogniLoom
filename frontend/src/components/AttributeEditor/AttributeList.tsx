@@ -26,6 +26,7 @@ export interface AttributeListProps {
   onRenameSection: (from: string, to: string) => void;
   onDeleteSection: (name: string) => void;
   onMoveSection: (name: string, toIndex: number) => void;
+  onAddAttribute: (section: string) => void;
   readOnly: boolean;
 }
 
@@ -38,6 +39,7 @@ export function AttributeList({
   onRenameSection,
   onDeleteSection,
   onMoveSection,
+  onAddAttribute,
   readOnly,
 }: AttributeListProps): JSX.Element {
   const { t } = useTranslation();
@@ -122,6 +124,14 @@ export function AttributeList({
                   onClick={() => onDeleteSection(section)}
                 >
                   <Trash2 aria-hidden="true" size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  data-testid={`attribute-section-${section}-add`}
+                  onClick={() => onAddAttribute(section)}
+                >
+                  {t("attributes.addAttribute")}
                 </button>
               </span>
             </div>

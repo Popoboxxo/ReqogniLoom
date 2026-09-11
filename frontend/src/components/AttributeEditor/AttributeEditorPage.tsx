@@ -28,6 +28,7 @@ import {
   attributeDefinitionsApi,
   type AttributeItemType,
   type AttributeSpec,
+  type NewAttributeInput,
 } from "../../api/attribute-definitions";
 import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
@@ -38,6 +39,7 @@ import { useToast } from "../shared/Toast/useToast";
 import { PresetSegmentedControl } from "../WorkflowEditor/PresetSegmentedControl";
 import { WORKFLOW_PRESETS } from "../WorkflowEditor/constants";
 import styles from "./AttributeEditor.module.css";
+import { AttributeCreateDialog } from "./AttributeCreateDialog";
 import { AttributeInspector } from "./AttributeInspector";
 import { AttributeList } from "./AttributeList";
 import {
@@ -62,6 +64,7 @@ const ATTRIBUTE_ITEM_TYPES: readonly AttributeItemType[] = [
   "Goal",
   "Icd",
   "GlossaryTerm",
+  "ChangeRequest",
 ];
 
 const DEFAULT_ITEM_TYPE: AttributeItemType = "Requirement";
@@ -115,6 +118,7 @@ export function AttributeEditorPage({
   const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [createSection, setCreateSection] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
@@ -277,6 +281,28 @@ export function AttributeEditorPage({
     []
   );
 
+  // Creation is always an immediate API call (Task 1/2's create endpoints),
+  // never a locally-buffered edit like moveAttribute/patchAttribute below —
+  // the new attribute needs a real row (workspace-only rows have no
+  // source_global counterpart to stage against). Refetches on success so the
+  // rest of the page reflects the server's normalized entry.
+  const handleCreateAttribute = useCallback(
+    async (input: NewAttributeInput): Promise<void> => {
+      if (isGlobal) {
+        await attributeDefinitionsApi.createGlobalAttribute(itemType, preset, input);
+      } else {
+        if (!activeWorkspace?.id) return;
+        await attributeDefinitionsApi.createWorkspaceAttribute(
+          activeWorkspace.id,
+          itemType,
+          input
+        );
+      }
+      await load();
+    },
+    [activeWorkspace?.id, isGlobal, itemType, preset, load]
+  );
+
   const handleSelectItemType = useCallback(
     (next: AttributeItemType): void => {
       if (isRouted) {
@@ -392,6 +418,7 @@ export function AttributeEditorPage({
           onRenameSection={handleRenameSection}
           onDeleteSection={handleDeleteSection}
           onMoveSection={handleMoveSection}
+          onAddAttribute={setCreateSection}
         />
         {selectedAttribute ? (
           <AttributeInspector
@@ -420,6 +447,16 @@ export function AttributeEditorPage({
           cancelTestId="attribute-editor-reset-cancel"
           onConfirm={() => void handleReset()}
           onCancel={() => setConfirmReset(false)}
+        />
+      ) : null}
+
+      {createSection !== null ? (
+        <AttributeCreateDialog
+          scope={isGlobal ? "global" : "workspace"}
+          section={createSection}
+          existingNames={attributes.map((a) => a.name)}
+          onCreate={handleCreateAttribute}
+          onClose={() => setCreateSection(null)}
         />
       ) : null}
     </div>

@@ -8,6 +8,7 @@ vi.mock("../api/client", () => ({
     get: vi.fn(),
     put: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -24,6 +25,7 @@ describe("attributeDefinitionsApi", () => {
     vi.mocked(apiClient.get).mockReset();
     vi.mocked(apiClient.put).mockReset();
     vi.mocked(apiClient.post).mockReset();
+    vi.mocked(apiClient.delete).mockReset();
   });
 
   it("reads a global default per item type and preset", async () => {
@@ -73,6 +75,72 @@ describe("attributeDefinitionsApi", () => {
     expect(apiClient.post).toHaveBeenCalledWith(
       "/workspaces/ws-1/attribute-definitions/Risk/reset/",
       {}
+    );
+  });
+
+  it("posts a new extended attribute to the global default", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    await attributeDefinitionsApi.createGlobalAttribute("Risk", "standard", {
+      name: "risk_comment",
+      type: "text",
+      required: false,
+      section: "general",
+    });
+    expect(apiClient.post).toHaveBeenCalledWith("/attribute-defaults/Risk/standard/", {
+      name: "risk_comment",
+      kind: "extended",
+      type: "text",
+      required: false,
+      section: "general",
+    });
+  });
+
+  it("includes options when creating an enum global attribute", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    await attributeDefinitionsApi.createGlobalAttribute("Risk", "standard", {
+      name: "risk_category",
+      type: "enum",
+      required: false,
+      section: "general",
+      options: [{ value: "low", label_de: "low", label_en: "low" }],
+    });
+    expect(apiClient.post).toHaveBeenCalledWith("/attribute-defaults/Risk/standard/", {
+      name: "risk_category",
+      kind: "extended",
+      type: "enum",
+      required: false,
+      section: "general",
+      options: [{ value: "low", label_de: "low", label_en: "low" }],
+    });
+  });
+
+  it("deletes a global attribute by name via a query parameter", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValue(DEFINITION);
+    await attributeDefinitionsApi.deleteGlobalAttribute("Risk", "standard", "note");
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/?name=note"
+    );
+  });
+
+  it("posts a new workspace-only attribute", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(DEFINITION);
+    await attributeDefinitionsApi.createWorkspaceAttribute("ws-1", "Risk", {
+      name: "risk_comment",
+      type: "text",
+      required: false,
+      section: "general",
+    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/",
+      { name: "risk_comment", kind: "extended", type: "text", required: false, section: "general" }
+    );
+  });
+
+  it("deletes a workspace attribute by name via a query parameter", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValue(DEFINITION);
+    await attributeDefinitionsApi.deleteWorkspaceAttribute("ws-1", "Risk", "note");
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/?name=note"
     );
   });
 });

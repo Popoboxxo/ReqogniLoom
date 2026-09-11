@@ -2097,7 +2097,32 @@
       "Issue": "Issue",
       "Goal": "Goal",
       "Icd": "ICD",
-      "GlossaryTerm": "Glossary Term"
+      "GlossaryTerm": "Glossary Term",
+      "ChangeRequest": "Change Request"
+    },
+    "types": {
+      "text": "Text",
+      "textarea": "Multi-line text",
+      "number": "Number",
+      "boolean": "Boolean",
+      "enum": "Single select",
+      "multi-enum": "Multi select",
+      "date": "Date",
+      "reference": "Reference",
+      "user": "User",
+      "widget": "Widget"
+    },
+    "addAttribute": "+ Add attribute",
+    "create": {
+      "title": "New attribute",
+      "name": "Name",
+      "type": "Type",
+      "options": "Options (comma-separated)",
+      "optionsPlaceholder": "low, medium, high",
+      "workspaceOnlyHint": "Exists only in this workspace.",
+      "errorInvalidName": "Name must be snake_case (lowercase letters, digits, underscores, starting with a letter).",
+      "errorNameExists": "An attribute with this name already exists.",
+      "errorOptionsRequired": "This type requires at least one option."
     },
     "visible": "Visible",
     "required": "Required",

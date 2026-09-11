@@ -2097,7 +2097,32 @@
       "Issue": "Issue",
       "Goal": "Ziel",
       "Icd": "ICD",
-      "GlossaryTerm": "Glossarbegriff"
+      "GlossaryTerm": "Glossarbegriff",
+      "ChangeRequest": "Änderungsantrag"
+    },
+    "types": {
+      "text": "Text",
+      "textarea": "Mehrzeiliger Text",
+      "number": "Zahl",
+      "boolean": "Boolean",
+      "enum": "Einfachauswahl",
+      "multi-enum": "Mehrfachauswahl",
+      "date": "Datum",
+      "reference": "Referenz",
+      "user": "Nutzer",
+      "widget": "Widget"
+    },
+    "addAttribute": "+ Attribut hinzufügen",
+    "create": {
+      "title": "Neues Attribut",
+      "name": "Name",
+      "type": "Typ",
+      "options": "Optionen (kommagetrennt)",
+      "optionsPlaceholder": "niedrig, mittel, hoch",
+      "workspaceOnlyHint": "Existiert nur in diesem Workspace.",
+      "errorInvalidName": "Name muss snake_case sein (Kleinbuchstaben, Ziffern, Unterstriche, beginnt mit einem Buchstaben).",
+      "errorNameExists": "Ein Attribut mit diesem Namen existiert bereits.",
+      "errorOptionsRequired": "Dieser Typ benötigt mindestens eine Option."
     },
     "visible": "Sichtbar",
     "required": "Pflicht",
