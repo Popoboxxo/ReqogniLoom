@@ -542,8 +542,8 @@ class TraceLinkService(ServiceBase):
         Raises:
             AgentSelfConfirmError: ``ctx`` is an agent.
             NotFoundError: no such link in the active tenant.
-            ValueError: the link is not a proposal — deleting a confirmed link
-                goes through the normal delete path, not this one.
+            ValidationError: the link is not a proposal — deleting a confirmed
+                link goes through the normal delete path, not this one.
         """
         from persistence.models import TraceLink
 
@@ -556,7 +556,11 @@ class TraceLinkService(ServiceBase):
         if link is None:
             raise NotFoundError(f"TraceLink {link_id} not found")
         if not link.is_proposal:
-            raise ValueError(
+            # Security review M2: a bare ValueError is outside the service
+            # error taxonomy, so the REST layer had no mapping for it and the
+            # endpoint answered 500 on a plain caller mistake. ValidationError
+            # is the taxonomy's "your input is wrong" member -> 400.
+            raise ValidationError(
                 "TraceLink is not a proposal; use the regular delete endpoint."
             )
         self._audit(

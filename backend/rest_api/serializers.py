@@ -1051,7 +1051,15 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     proposed_by_label = serializers.SerializerMethodField()
 
     def get_proposed_by_label(self, obj) -> str:
-        """Return the proposing agent's display label, empty for human links."""
+        """Return the proposing agent's display label, empty for human links.
+
+        Handles both shapes this serializer is fed: the dicts built by
+        ``rest_api.views._tracelink_to_dict`` (every REST endpoint — they
+        precompute the label so this does not trigger a query per row) and a
+        raw ``TraceLink`` instance.
+        """
+        if isinstance(obj, dict):
+            return obj.get("proposed_by_label") or ""
         key = getattr(obj, "proposed_by", None)
         return getattr(key, "agent_label", "") or ""
     # REQ-002: human-readable labels for trace endpoints
