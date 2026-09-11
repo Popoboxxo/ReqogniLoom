@@ -178,7 +178,12 @@ def test_get_protocol_falls_back_to_the_factory_default_without_a_definition(
         service.return_value.elicit_attributes.side_effect = AttributeDefinitionNotFound("x")
         protocol = get_protocol(ctx, "Risk", workspace.id)
     names = [f.name for p in protocol.phases for f in p.required_fields]
-    assert names == ["title", "rationale"]
+    # Risk's factory default is title+rationale PLUS the two fields
+    # RiskService.create_risk declares without a default (interview_protocol.
+    # _EXTRA_REQUIRED_FIELDS) -- every other type keeps the bare pair, which
+    # test_interview_protocol.py::test_non_risk_defaults_keep_the_two_field_shape
+    # pins.
+    assert names == ["title", "rationale", "probability", "impact"]
 
 
 @pytest.mark.django_db

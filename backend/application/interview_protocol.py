@@ -129,6 +129,12 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
 # (tier 2, protocol_from_definition) exists yet, e.g. a fresh
 # workspace/tenant before bootstrap_attribute_definitions has run.
 #
+# TIER-2 TWIN: every entry here needs a matching one in
+# ``bootstrap_attribute_definitions.PER_ITEM_TYPE_AI_ELICIT_FIELDS``, which is
+# what a bootstrapped tenant -- i.e. every real deployment, self_init runs the
+# bootstrap per tenant -- actually resolves. Fixing only this dict makes the
+# regression test pass and leaves production broken.
+#
 # Risk: RiskService.create_risk(workspace_id, title, probability, impact, ctx)
 # -- probability/impact have no default, so a Risk interview that never asks
 # for them produces a session formalize() can only reject.
