@@ -372,6 +372,45 @@ class TestCompressionConcurrency:
         ]
 
 
+    def test_a_concurrent_compression_is_not_overwritten(self, ctx, workspace):
+        """Review finding F6 -- two turns compressing at once.
+
+        The second writer used to slice ``len(overflow)`` off a transcript the
+        first writer had *already* shortened, deleting live turns and replacing
+        the newer digest with one built from a stale ``previous_summary``.
+        """
+        session = _session_with_entries(ctx, workspace, 26)
+
+        def _concurrently_compressing_complete(*args, **kwargs):
+            # Stands in for a second request that got through the whole
+            # compression first: transcript replaced by its 20-entry tail,
+            # transcript_summary written.
+            TenantContext.set_tenant(ctx.tenant_id)
+            InterviewSession.objects.filter(id=session.id).update(
+                transcript=[
+                    {"role": "user", "text": f"m{i}", "timestamp": "t"}
+                    for i in range(6, 26)
+                ],
+                transcript_summary="Digest written by the other request.",
+            )
+            return "Digest written by this request."
+
+        provider = MagicMock()
+        provider.complete.side_effect = _concurrently_compressing_complete
+        with patch.object(
+            InterviewService, "_resolve_provider", return_value=(provider, "anthropic", None)
+        ):
+            InterviewService()._compress_transcript_if_needed(ctx, session)
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            reloaded = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert reloaded.transcript_summary == "Digest written by the other request."
+        assert [e["text"] for e in reloaded.transcript] == [f"m{i}" for i in range(6, 26)]
+
+
 class TestStateSurfacesTheSummary:
     """Review finding F5 -- a compressed conversation must not *look* like it
     lost its earlier half at every facade that renders `state.transcript`."""

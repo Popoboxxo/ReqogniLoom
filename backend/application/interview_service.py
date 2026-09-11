@@ -1472,6 +1472,20 @@ class InterviewService(ServiceBase):
             # prefix; the result may briefly exceed the window when a turn
             # raced in, which the next turn's compression folds away.
             session.refresh_from_db(fields=["transcript"])
+            if len(session.transcript) < len(overflow) + window_entries:
+                # Review finding F6: `transcript` only ever *grows* by appending
+                # -- the one exception is another compression run, which
+                # replaces it with a shorter tail. A shorter row therefore means
+                # a concurrent request already folded this same overflow away
+                # (and wrote its own digest). Slicing `len(overflow)` off that
+                # tail would delete live turns and overwrite the newer summary
+                # with one derived from a stale `previous_summary`.
+                logger.debug(
+                    "InterviewService: transcript for session=%s was compressed "
+                    "concurrently -- discarding this digest",
+                    session.id,
+                )
+                return
             session.transcript_summary = summary
             session.transcript = session.transcript[len(overflow):]
             session.save(
